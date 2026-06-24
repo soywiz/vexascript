@@ -4,9 +4,9 @@ interface Shape {
 }
 
 class Rectangle(val width: number, val height: number) : Shape {
-  area => width * height
+  override area => width * height
 
-  fill(color: string) => `${color}:${width}x${height}`
+  override fill(color: string) => `${color}:${width}x${height}`
 }
 
 class ShapeLogger(val shape: Shape, val label: string) : Shape by { shape } {

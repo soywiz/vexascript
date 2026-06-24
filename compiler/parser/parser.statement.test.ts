@@ -1626,6 +1626,25 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses surplus extends/implements clauses into extra heritage lists", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Demo extends A extends B implements I implements J, K {}")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Demo" },
+            extendsType: { kind: "Identifier", name: "A" },
+            implementsTypes: [{ kind: "Identifier", name: "I" }],
+            extraExtendsTypes: [{ kind: "Identifier", name: "B" }],
+            extraImplementsTypes: [
+                { kind: "Identifier", name: "J" },
+                { kind: "Identifier", name: "K" }
+            ],
+            members: []
+        });
+    });
+
     it("parses vexa class colon syntax: BaseShape, Shape, Comparable<Circle>", () => {
         expect(
             parseStatement(

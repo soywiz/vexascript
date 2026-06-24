@@ -12,6 +12,8 @@ import {
 } from "./classResolver";
 import {
   diagnosticHasCode,
+  ABSTRACT_MEMBER_NOT_IMPLEMENTED_PATTERN,
+  ABSTRACT_MEMBER_SIGNATURE_MISMATCH_PATTERN,
   IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN,
   IMPLEMENTS_MISSING_MEMBER_PATTERN,
   VEXA_DIAGNOSTIC_CODES
@@ -27,6 +29,9 @@ interface MissingImplementsDiagnostic {
 interface IncompatibleImplementsDiagnostic {
   kind: "incompatible";
   className: string;
+  // The supertype whose signature the member must match: an interface name or,
+  // for an `override` against a (possibly abstract) base class, the class name.
+  supertypeKind: "interface" | "class";
   interfaceName: string;
   memberName: string;
   expectedType: string;
@@ -83,6 +88,24 @@ function parseImplementsDiagnostic(diagnostic: Diagnostic): ImplementsDiagnostic
     }
   }
 
+  if (diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.ABSTRACT_MEMBER_NOT_IMPLEMENTED)) {
+    const data = diagnostic.data;
+    if (data && typeof data === "object") {
+      const record = data as Record<string, unknown>;
+      const className = readStringProperty(record, "className");
+      const baseClassName = readStringProperty(record, "baseClassName");
+      const memberName = readStringProperty(record, "memberName");
+      if (className && baseClassName && memberName) {
+        return {
+          kind: "missing",
+          className,
+          interfaceName: baseClassName,
+          memberName
+        };
+      }
+    }
+  }
+
   if (diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER)) {
     const data = diagnostic.data;
     if (data && typeof data === "object") {
@@ -95,7 +118,32 @@ function parseImplementsDiagnostic(diagnostic: Diagnostic): ImplementsDiagnostic
         return {
           kind: "incompatible",
           className,
+          supertypeKind: "interface",
           interfaceName,
+          memberName,
+          expectedType
+        };
+      }
+    }
+  }
+
+  if (
+    diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.OVERRIDE_INCOMPATIBLE_MEMBER) ||
+    diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.ABSTRACT_MEMBER_SIGNATURE_MISMATCH)
+  ) {
+    const data = diagnostic.data;
+    if (data && typeof data === "object") {
+      const record = data as Record<string, unknown>;
+      const className = readStringProperty(record, "className");
+      const baseClassName = readStringProperty(record, "baseClassName");
+      const memberName = readStringProperty(record, "memberName");
+      const expectedType = readStringProperty(record, "expectedType");
+      if (className && baseClassName && memberName && expectedType) {
+        return {
+          kind: "incompatible",
+          className,
+          supertypeKind: "class",
+          interfaceName: baseClassName,
           memberName,
           expectedType
         };
@@ -119,6 +167,22 @@ function parseImplementsDiagnostic(diagnostic: Diagnostic): ImplementsDiagnostic
     };
   }
 
+  const abstractMatch = ABSTRACT_MEMBER_NOT_IMPLEMENTED_PATTERN.exec(diagnostic.message);
+  if (abstractMatch) {
+    const className = abstractMatch[1];
+    const memberName = abstractMatch[2];
+    const baseClassName = abstractMatch[3];
+    if (!className || !memberName || !baseClassName) {
+      return null;
+    }
+    return {
+      kind: "missing",
+      className,
+      interfaceName: baseClassName,
+      memberName
+    };
+  }
+
   const incompatibleMatch = IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN.exec(diagnostic.message);
   if (incompatibleMatch) {
     const className = incompatibleMatch[1];
@@ -131,7 +195,27 @@ function parseImplementsDiagnostic(diagnostic: Diagnostic): ImplementsDiagnostic
     return {
       kind: "incompatible",
       className,
+      supertypeKind: "interface",
       interfaceName,
+      memberName,
+      expectedType
+    };
+  }
+
+  const abstractSignatureMatch = ABSTRACT_MEMBER_SIGNATURE_MISMATCH_PATTERN.exec(diagnostic.message);
+  if (abstractSignatureMatch) {
+    const className = abstractSignatureMatch[1];
+    const memberName = abstractSignatureMatch[2];
+    const baseClassName = abstractSignatureMatch[3];
+    const expectedType = abstractSignatureMatch[4];
+    if (!className || !memberName || !baseClassName || !expectedType) {
+      return null;
+    }
+    return {
+      kind: "incompatible",
+      className,
+      supertypeKind: "class",
+      interfaceName: baseClassName,
       memberName,
       expectedType
     };
@@ -191,21 +275,23 @@ function signatureToMethodHead(signature: ParsedFunctionType, methodName: string
   const parameters = signature.parameters
     .map((parameter) => `${parameter.name}${parameter.optional ? "?" : ""}: ${parameter.typeName}`)
     .join(", ");
-  return `${methodName}(${parameters}): ${signature.returnTypeName}`;
+  // Generated stubs implement a supertype member, so they carry `override` (and
+  // the preferred `fun` spelling for methods).
+  return `override fun ${methodName}(${parameters}): ${signature.returnTypeName}`;
 }
 
 function createMissingMemberText(classStatement: ClassStatement, memberName: string, typeName: string): string {
   const hasAnyMember =
     (classStatement.primaryConstructorParameters?.length ?? 0) > 0 || classStatement.members.length > 0;
   const prefix = hasAnyMember ? "" : "\n";
-  return `${prefix}  ${memberName}: ${typeName}\n`;
+  return `${prefix}  override ${memberName}: ${typeName}\n`;
 }
 
 function createMissingMethodText(classStatement: ClassStatement, methodHead: string): string {
   const hasAnyMember =
     (classStatement.primaryConstructorParameters?.length ?? 0) > 0 || classStatement.members.length > 0;
   const prefix = hasAnyMember ? "" : "\n";
-  return `${prefix}  ${methodHead} {\n    throw new Error("Not implemented")\n  }\n`;
+  return `${prefix}  ${methodHead} {\n    throw Error("Not implemented")\n  }\n`;
 }
 
 function findOwnMethod(classStatement: ClassStatement, memberName: string): ClassMethodMember | null {
@@ -360,8 +446,9 @@ export async function createInterfaceImplementationCodeActions(params: {
     }
     seen.add(key);
 
+    const supertypeDescription = parsed.supertypeKind === "class" ? "base class" : "interface";
     actions.push({
-      title: `Fix signature of '${parsed.memberName}' to match interface '${parsed.interfaceName}'`,
+      title: `Fix signature of '${parsed.memberName}' to match ${supertypeDescription} '${parsed.interfaceName}'`,
       kind: CodeActionKind.QuickFix,
       edit: {
         changes: {

@@ -720,8 +720,8 @@ describe("Analysis", () => {
       }
       
       class Map<K, V> implements PairStore<K, V> {
-        keys: K[]
-        values: V[]
+        override keys: K[]
+        override values: V[]
       }
     `;
 
@@ -741,7 +741,7 @@ describe("Analysis", () => {
         value: T
       }
       class Child<T> extends Base<T> implements Readable<T> {
-        value: T
+        override value: T
       }
     `;
 
@@ -1123,8 +1123,8 @@ describe("Analysis", () => {
         fill(): string
       }
       class BaseShape : Shape {
-        area => 12
-        fill() => "filled"
+        override area => 12
+        override fill() => "filled"
       }
       class MyDemo(val shape: Shape) : Shape by { shape } {
       }
@@ -1147,7 +1147,7 @@ describe("Analysis", () => {
       class Rectangle implements Shape {
         width: number
         height: number
-        describe(): string => \`Rectangle(\${this.width}x\${this.height})\`
+        override describe(): string => \`Rectangle(\${this.width}x\${this.height})\`
       }
     `;
 
@@ -1433,6 +1433,141 @@ describe("Analysis", () => {
     expect(messages).not.toContain("Class method 'run' must have a body");
   });
 
+  describe("abstract member implementation", () => {
+    function issuesFor(source: string) {
+      const ast = parseFile(tokenizeReader(source));
+      return new Analysis(ast).getIssues();
+    }
+
+    it("reports a concrete class that leaves an inherited abstract method unimplemented", () => {
+      const issues = issuesFor(dedent`
+        abstract class Test(val ms: number) {
+          abstract fun demo()
+        }
+        class Demo extends Test {
+        }
+      `);
+      const missing = issues.find((issue) => issue.code === "ABSTRACT_MEMBER_NOT_IMPLEMENTED");
+      expect(missing?.message).toBe(
+        "Non-abstract class 'Demo' does not implement inherited abstract member 'demo' from class 'Test'"
+      );
+    });
+
+    it("does not report when the abstract method is implemented", () => {
+      const messages = issuesFor(dedent`
+        abstract class Test(val ms: number) {
+          abstract fun demo()
+        }
+        class Demo extends Test {
+          fun demo() {
+          }
+        }
+      `).map((issue) => issue.message);
+      expect(messages.filter((message) => message.includes("does not implement inherited abstract"))).toEqual([]);
+    });
+
+    it("does not require an abstract subclass to implement abstract members", () => {
+      const messages = issuesFor(dedent`
+        abstract class Test {
+          abstract fun demo()
+        }
+        abstract class Middle extends Test {
+        }
+      `).map((issue) => issue.message);
+      expect(messages.filter((message) => message.includes("does not implement inherited abstract"))).toEqual([]);
+    });
+
+    it("reports an abstract method left unimplemented across multiple levels", () => {
+      const messages = issuesFor(dedent`
+        abstract class Test {
+          abstract fun demo()
+        }
+        abstract class Middle extends Test {
+        }
+        class Leaf extends Middle {
+        }
+      `).map((issue) => issue.message);
+      expect(messages).toContain(
+        "Non-abstract class 'Leaf' does not implement inherited abstract member 'demo' from class 'Test'"
+      );
+    });
+
+    it("is satisfied when an intermediate abstract class implements the member", () => {
+      const messages = issuesFor(dedent`
+        abstract class Test {
+          abstract fun demo()
+        }
+        abstract class Middle extends Test {
+          fun demo() {
+          }
+        }
+        class Leaf extends Middle {
+        }
+      `).map((issue) => issue.message);
+      expect(messages.filter((message) => message.includes("does not implement inherited abstract"))).toEqual([]);
+    });
+
+    it("reports each unimplemented abstract member separately", () => {
+      const messages = issuesFor(dedent`
+        abstract class Shape {
+          abstract fun area(): number
+          abstract fun perimeter(): number
+        }
+        class Square extends Shape {
+        }
+      `).map((issue) => issue.message);
+      expect(messages).toContain(
+        "Non-abstract class 'Square' does not implement inherited abstract member 'area' from class 'Shape'"
+      );
+      expect(messages).toContain(
+        "Non-abstract class 'Square' does not implement inherited abstract member 'perimeter' from class 'Shape'"
+      );
+    });
+
+    it("reports an abstract member implemented with the wrong signature and no 'override'", () => {
+      const issue = issuesFor(dedent`
+        abstract class Test(val ms: number) {
+          abstract fun demo(a: int)
+        }
+        class Demo extends Test {
+          demo(): void {
+          }
+        }
+      `).find((candidate) => candidate.code === "ABSTRACT_MEMBER_SIGNATURE_MISMATCH");
+      expect(issue?.message).toBe(
+        "Class 'Demo' does not correctly implement abstract member 'demo' from class 'Test'. Expected signature '(a: int) => void'"
+      );
+      expect((issue?.data as { expectedType?: string } | undefined)?.expectedType).toBe("(a: int) => void");
+    });
+
+    it("does not double-report a wrong-signature implementation declared with 'override'", () => {
+      const issues = issuesFor(dedent`
+        abstract class Test(val ms: number) {
+          abstract fun demo(a: int)
+        }
+        class Demo extends Test {
+          override fun demo(): void {
+          }
+        }
+      `);
+      expect(issues.filter((issue) => issue.code === "ABSTRACT_MEMBER_SIGNATURE_MISMATCH")).toEqual([]);
+      expect(issues.filter((issue) => issue.code === "OVERRIDE_INCOMPATIBLE_MEMBER")).toHaveLength(1);
+    });
+
+    it("accepts an abstract member implemented with the correct signature and no 'override'", () => {
+      const messages = issuesFor(dedent`
+        abstract class Test(val ms: number) {
+          abstract fun demo(a: int)
+        }
+        class Demo extends Test {
+          demo(a: int): void {
+          }
+        }
+      `).map((issue) => issue.message);
+      expect(messages.filter((message) => message.includes("does not correctly implement"))).toEqual([]);
+    });
+  });
+
   it("validates override usage and compatibility against base members", () => {
     const source = dedent`
       class Base {
@@ -1469,6 +1604,154 @@ describe("Analysis", () => {
     expect(messages).toContain(
       "Member 'read' override type '(v: string) => string' does not match base type '(v: int) => string'"
     );
+  });
+
+  describe("override against base classes and interfaces", () => {
+    function issuesFor(source: string) {
+      const ast = parseFile(tokenizeReader(source));
+      return new Analysis(ast).getIssues();
+    }
+
+    it("allows 'override' for members declared in an implemented interface", () => {
+      const messages = issuesFor(dedent`
+        abstract class Test(val ms: number) {
+          abstract fun demo(a: int)
+        }
+        interface Sample {
+          fun lol2()
+        }
+        class Demo extends Test implements Sample {
+          override fun demo(a: int) {
+          }
+          override fun lol2(): void {
+            throw new Error("Not implemented")
+          }
+        }
+      `).map((issue) => issue.message);
+      expect(messages.filter((message) => message.includes("cannot override"))).toEqual([]);
+      expect(messages.filter((message) => message.includes("cannot use 'override'"))).toEqual([]);
+    });
+
+    it("reports an override whose signature does not match the abstract base member", () => {
+      const issue = issuesFor(dedent`
+        abstract class Test(val ms: number) {
+          abstract fun demo(a: int)
+        }
+        class Demo extends Test {
+          override fun demo() {
+          }
+        }
+      `).find((candidate) => candidate.code === "OVERRIDE_INCOMPATIBLE_MEMBER");
+      expect(issue?.message).toBe(
+        "Member 'demo' override type '() => void' does not match base type '(a: int) => void'"
+      );
+      expect((issue?.data as { expectedType?: string } | undefined)?.expectedType).toBe("(a: int) => void");
+    });
+
+    it("still reports 'override' on a class with no supertype at all", () => {
+      const messages = issuesFor(dedent`
+        class NoBase {
+          override name: string
+        }
+      `).map((issue) => issue.message);
+      expect(messages).toContain(
+        "Member 'name' cannot use 'override' because class 'NoBase' does not extend another class"
+      );
+    });
+
+    it("requires 'override' on members that implement a project interface or abstract base", () => {
+      const missing = issuesFor(dedent`
+        abstract class Test(val ms: number) {
+          abstract fun demo(a: int)
+        }
+        interface Sample {
+          fun lol2()
+        }
+        class Demo extends Test implements Sample {
+          fun lol2(): void {
+          }
+          fun demo(a: int): void {
+          }
+        }
+      `)
+        .filter((issue) => issue.code === "MISSING_OVERRIDE_MODIFIER")
+        .map((issue) => issue.message);
+      expect(missing).toContain(
+        "Member 'lol2' must be declared with 'override' because it overrides a member from a base class or interface"
+      );
+      expect(missing).toContain(
+        "Member 'demo' must be declared with 'override' because it overrides a member from a base class or interface"
+      );
+    });
+
+    it("accepts members that already declare 'override'", () => {
+      const messages = issuesFor(dedent`
+        interface Sample {
+          fun lol2()
+        }
+        class Demo implements Sample {
+          override fun lol2(): void {
+          }
+        }
+      `).map((issue) => issue.message);
+      expect(messages.filter((message) => message.includes("must be declared with 'override'"))).toEqual([]);
+    });
+
+    it("does not require 'override' for members conforming to imported types", () => {
+      const externalDeclarations = parseFile(tokenizeReader(dedent`
+        class Base {
+          run(): void {
+          }
+        }
+      `)).body;
+      const ast = parseFile(tokenizeReader(dedent`
+        class Demo extends Base {
+          run(): void {
+          }
+        }
+      `));
+      const messages = new Analysis(ast, { externalDeclarations }).getIssues().map((issue) => issue.message);
+      expect(messages.filter((message) => message.includes("must be declared with 'override'"))).toEqual([]);
+    });
+
+    it("reports surplus extends and implements clauses", () => {
+      const messages = issuesFor(dedent`
+        class A {}
+        class B {}
+        interface I {}
+        interface J {}
+        class Bad extends A extends B implements I implements J {}
+      `).map((issue) => issue.message);
+      expect(messages).toContain("A class can only extend a single class");
+      expect(messages).toContain(
+        "A class can only have one 'implements' clause; list multiple interfaces separated by commas"
+      );
+    });
+
+    it("accepts a single extends and a single comma-separated implements clause", () => {
+      const messages = issuesFor(dedent`
+        class A {}
+        interface I {}
+        interface J {}
+        class Good extends A implements I, J {}
+      `).map((issue) => issue.message);
+      expect(messages.filter((message) => message.includes("can only"))).toEqual([]);
+    });
+
+    it("does not require 'override' in TypeScript-mode sources", () => {
+      const ast = parseFile(tokenizeReader(dedent`
+        interface Chainable {
+          next(): this
+        }
+        class Builder implements Chainable {
+          next(): this {
+            return this
+          }
+        }
+      `), { language: "typescript" });
+      const messages = new Analysis(ast, { language: "typescript" }).getIssues().map((issue) => issue.message);
+      expect(messages.filter((message) => message.includes("must be declared with 'override'"))).toEqual([]);
+    });
   });
 
   it("reports class method signatures without body as semantic errors", () => {

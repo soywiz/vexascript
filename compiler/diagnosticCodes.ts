@@ -19,6 +19,10 @@ export const VEXA_DIAGNOSTIC_CODES = {
   READONLY_REASSIGNMENT: "MYL2009",
   IMPLEMENTS_MISSING_MEMBER: "MYL2010",
   IMPLEMENTS_INCOMPATIBLE_MEMBER: "MYL2011",
+  ABSTRACT_MEMBER_NOT_IMPLEMENTED: "MYL2024",
+  OVERRIDE_INCOMPATIBLE_MEMBER: "MYL2025",
+  ABSTRACT_MEMBER_SIGNATURE_MISMATCH: "MYL2026",
+  MISSING_OVERRIDE_MODIFIER: "MYL2027",
   DUPLICATE_SWITCH_DEFAULT: "MYL2012",
   NOT_ALL_CODE_PATHS_RETURN: "MYL2013",
   RETURN_VALUE_REQUIRED: "MYL2014",
@@ -53,6 +57,10 @@ export const UNKNOWN_TYPE_PATTERN = /^Unknown type '(.+?)'\. Expected builtin ty
 export const READONLY_REASSIGNMENT_PATTERN = /^Cannot assign to '([A-Za-z_][A-Za-z0-9_]*)' because it is a constant$/;
 export const IMPLEMENTS_MISSING_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is missing$/;
 export const IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is of type '(.+)' but expected '(.+)'$/;
+export const ABSTRACT_MEMBER_NOT_IMPLEMENTED_PATTERN = /^Non-abstract class '([^']+)' does not implement inherited abstract member '([^']+)' from class '([^']+)'$/;
+export const OVERRIDE_INCOMPATIBLE_MEMBER_PATTERN = /^Member '([^']+)' override type '(.+)' does not match base type '(.+)'$/;
+export const ABSTRACT_MEMBER_SIGNATURE_MISMATCH_PATTERN = /^Class '([^']+)' does not correctly implement abstract member '([^']+)' from class '([^']+)'\. Expected signature '(.+)'$/;
+export const MISSING_OVERRIDE_MODIFIER_PATTERN = /^Member '([^']+)' must be declared with 'override' because it overrides a member from a base class or interface$/;
 export const OPERATOR_NOT_DEFINED_PATTERN = /^Operator '(.+)' is not defined for types '(.+)' and '(.+)'$/;
 export const NULLABLE_MEMBER_ACCESS_PATTERN =
   /^Object is possibly 'null' or 'undefined'\. Use optional access '\?\.' or a non-null assertion '!'$/;
@@ -92,6 +100,18 @@ export function classifySemanticDiagnosticMessage(message: string): VexaScriptDi
   if (IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN.test(message)) {
     return VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER;
   }
+  if (ABSTRACT_MEMBER_NOT_IMPLEMENTED_PATTERN.test(message)) {
+    return VEXA_DIAGNOSTIC_CODES.ABSTRACT_MEMBER_NOT_IMPLEMENTED;
+  }
+  if (OVERRIDE_INCOMPATIBLE_MEMBER_PATTERN.test(message)) {
+    return VEXA_DIAGNOSTIC_CODES.OVERRIDE_INCOMPATIBLE_MEMBER;
+  }
+  if (ABSTRACT_MEMBER_SIGNATURE_MISMATCH_PATTERN.test(message)) {
+    return VEXA_DIAGNOSTIC_CODES.ABSTRACT_MEMBER_SIGNATURE_MISMATCH;
+  }
+  if (MISSING_OVERRIDE_MODIFIER_PATTERN.test(message)) {
+    return VEXA_DIAGNOSTIC_CODES.MISSING_OVERRIDE_MODIFIER;
+  }
   if (OPERATOR_NOT_DEFINED_PATTERN.test(message)) {
     return VEXA_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED;
   }
@@ -115,6 +135,14 @@ export function mapAnalysisIssueCodeToDiagnosticCode(
       return VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER;
     case ANALYSIS_ISSUE_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER:
       return VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER;
+    case ANALYSIS_ISSUE_CODES.ABSTRACT_MEMBER_NOT_IMPLEMENTED:
+      return VEXA_DIAGNOSTIC_CODES.ABSTRACT_MEMBER_NOT_IMPLEMENTED;
+    case ANALYSIS_ISSUE_CODES.OVERRIDE_INCOMPATIBLE_MEMBER:
+      return VEXA_DIAGNOSTIC_CODES.OVERRIDE_INCOMPATIBLE_MEMBER;
+    case ANALYSIS_ISSUE_CODES.ABSTRACT_MEMBER_SIGNATURE_MISMATCH:
+      return VEXA_DIAGNOSTIC_CODES.ABSTRACT_MEMBER_SIGNATURE_MISMATCH;
+    case ANALYSIS_ISSUE_CODES.MISSING_OVERRIDE_MODIFIER:
+      return VEXA_DIAGNOSTIC_CODES.MISSING_OVERRIDE_MODIFIER;
     case ANALYSIS_ISSUE_CODES.DUPLICATE_SWITCH_DEFAULT:
       return VEXA_DIAGNOSTIC_CODES.DUPLICATE_SWITCH_DEFAULT;
     case ANALYSIS_ISSUE_CODES.SWITCH_CASE_FALLTHROUGH:

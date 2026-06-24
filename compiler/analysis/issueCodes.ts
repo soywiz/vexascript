@@ -1,6 +1,10 @@
 export const ANALYSIS_ISSUE_CODES = {
   IMPLEMENTS_MISSING_MEMBER: "IMPLEMENTS_MISSING_MEMBER",
   IMPLEMENTS_INCOMPATIBLE_MEMBER: "IMPLEMENTS_INCOMPATIBLE_MEMBER",
+  ABSTRACT_MEMBER_NOT_IMPLEMENTED: "ABSTRACT_MEMBER_NOT_IMPLEMENTED",
+  ABSTRACT_MEMBER_SIGNATURE_MISMATCH: "ABSTRACT_MEMBER_SIGNATURE_MISMATCH",
+  OVERRIDE_INCOMPATIBLE_MEMBER: "OVERRIDE_INCOMPATIBLE_MEMBER",
+  MISSING_OVERRIDE_MODIFIER: "MISSING_OVERRIDE_MODIFIER",
   DUPLICATE_SWITCH_DEFAULT: "DUPLICATE_SWITCH_DEFAULT",
   SWITCH_CASE_FALLTHROUGH: "SWITCH_CASE_FALLTHROUGH",
   NOT_ALL_CODE_PATHS_RETURN: "NOT_ALL_CODE_PATHS_RETURN",
@@ -33,7 +37,30 @@ export interface ImplementsIncompatibleMemberIssueData {
   expectedType: string;
 }
 
+export interface AbstractMemberNotImplementedIssueData {
+  className: string;
+  baseClassName: string;
+  memberName: string;
+}
+
+export interface OverrideIncompatibleMemberIssueData {
+  className: string;
+  baseClassName: string;
+  memberName: string;
+  expectedType: string;
+}
+
+export interface AbstractMemberSignatureMismatchIssueData {
+  className: string;
+  baseClassName: string;
+  memberName: string;
+  expectedType: string;
+}
+
 export type AnalysisIssueData =
   | ImplementsMissingMemberIssueData
   | ImplementsIncompatibleMemberIssueData
+  | AbstractMemberNotImplementedIssueData
+  | OverrideIncompatibleMemberIssueData
+  | AbstractMemberSignatureMismatchIssueData
   | Record<string, unknown>;

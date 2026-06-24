@@ -949,7 +949,8 @@ class Stream {
 }
 ```
 
-Class fields and methods also support the `override` modifier when redefining members from a base class:
+Class fields and methods also support the `override` modifier when redefining a
+member from a base class **or** from an implemented interface:
 
 ```vexa
 class Base {
@@ -960,6 +961,69 @@ class Child extends Base {
   override value: string
 }
 ```
+
+`override` is valid as long as a member with that name exists in some supertype
+(the base-class chain or an implemented interface); otherwise it is reported as
+`Member 'm' cannot override because no member with that name exists in base type
+'B'`. When the overriding member's signature does not match the base-class
+member it overrides, it is reported as `Member 'm' override type '...' does not
+match base type '...'`, and the editor offers a "Fix signature of 'm' to match
+base class 'B'" quick fix that rewrites the signature. The `override` modifier is
+type-only and is erased from the emitted JavaScript.
+
+Conversely, `override` is **required**: a member that redefines a member of a
+project supertype (one of your own VexaScript classes or interfaces) without
+`override` is reported as `Member 'm' must be declared with 'override' because it
+overrides a member from a base class or interface`, with an "Add 'override'"
+quick fix. This is scoped to VexaScript sources and the project's own types —
+members conforming to imported/ambient (node_modules, `.d.ts`) types, and members
+in TypeScript-mode files, do not require `override`.
+
+A class may declare at most one `extends` clause and one `implements` clause (the
+`implements` clause may list several interfaces separated by commas). Surplus
+clauses parse but are reported (`A class can only extend a single class` /
+`A class can only have one 'implements' clause; list multiple interfaces
+separated by commas`).
+
+#### Abstract and interface member conformance
+
+A concrete (non-abstract) class must provide an implementation for every
+abstract member it inherits from its abstract base-class chain, and for every
+member of the interfaces it implements. A missing abstract member is reported as
+`Non-abstract class 'C' does not implement inherited abstract member 'm' from
+class 'B'`; a missing interface member is reported as `Class 'C' incorrectly
+implements interface 'I'. Property 'm' is missing`. An abstract subclass is
+exempt — it may leave inherited abstract members unimplemented for a further
+subclass to provide.
+
+```vexa
+abstract class Shape {
+  abstract fun area(): number
+}
+
+class Square extends Shape {   // error: does not implement 'area'
+}
+```
+
+Implementing an abstract method with a signature that drops one of its required
+parameters is also reported (`Class 'C' does not correctly implement abstract
+member 'm' from class 'B'. Expected signature '...'`), with a "Fix signature"
+quick fix. Trailing optional parameters may be omitted, so `render()` validly
+implements `render(props?, state?)`.
+
+```vexa
+abstract class Test {
+  abstract fun demo(a: int)
+}
+
+class Demo extends Test {
+  demo() {}   // error: expected signature '(a: int) => void'
+}
+```
+
+The editor offers an "Implement missing member" quick fix that inserts an
+`override` stub (`override fun ...` for methods, `override ...` for properties)
+for each missing abstract or interface member.
 
 ### Interfaces
 

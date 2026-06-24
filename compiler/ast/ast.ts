@@ -216,6 +216,10 @@ export interface ClassExpression extends Node {
     typeParameters?: TypeParameter[]
     extendsType?: Identifier
     implementsTypes?: Identifier[]
+    // Surplus `extends`/`implements` clauses beyond the single allowed one of
+    // each. Parsed so the input stays well-formed, then flagged semantically.
+    extraExtendsTypes?: Identifier[]
+    extraImplementsTypes?: Identifier[]
     classDelegates?: ClassDelegate[]
     primaryConstructorParameters?: ClassPrimaryConstructorParameter[]
     members: ClassMember[]
@@ -495,6 +499,10 @@ export interface ClassStatement extends Statement {
     typeParameters?: TypeParameter[]
     extendsType?: Identifier
     implementsTypes?: Identifier[]
+    // Surplus `extends`/`implements` clauses beyond the single allowed one of
+    // each. Parsed so the input stays well-formed, then flagged semantically.
+    extraExtendsTypes?: Identifier[]
+    extraImplementsTypes?: Identifier[]
     classDelegates?: ClassDelegate[]
     primaryConstructorParameters?: ClassPrimaryConstructorParameter[]
     members: ClassMember[]

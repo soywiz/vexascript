@@ -880,6 +880,24 @@ export class Parser {
         );
     }
 
+    // Parses a class heritage type (the operand of `extends`/`implements`).
+    // Unlike parseTypeAnnotationNode it stops before a following `extends`, so a
+    // surplus `extends`/`implements` clause is not mis-parsed as a conditional
+    // type (`A extends B ? ... : ...`).
+    private parseHeritageTypeNode(): Identifier {
+        const firstToken = this.tokens.peek();
+        const typeName = this.parseUnionTypeAnnotationText();
+        const lastToken = this.getLastReadToken() ?? firstToken;
+        if (!firstToken || !lastToken) {
+            this.fail("Expected type identifier", this.tokenAt(firstToken));
+        }
+        return this.attachNodeBounds(
+            { kind: "Identifier", name: typeName } as Identifier,
+            firstToken,
+            lastToken
+        );
+    }
+
     private beginTokenCheckpoint(): TokenCheckpoint {
         const checkpoint: TokenCheckpoint = {
             offset: this.tokens.offset,
@@ -2461,16 +2479,29 @@ export class Parser {
             }
         }
 
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
-            this.tokens.skip();
-            extendsType = this.parseTypeAnnotationNode();
-        }
-
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "implements") {
-            this.tokens.skip();
-            implementsTypes = [];
+        // Parse any number of `extends`/`implements` clauses, in any order, so
+        // the input stays well-formed even when it has surplus clauses. Only the
+        // first `extends` and the first `implements` are kept as the canonical
+        // heritage; the rest are recorded as extras and flagged semantically.
+        const extraExtendsTypes: Identifier[] = [];
+        const extraImplementsTypes: Identifier[] = [];
+        while (
+            this.tokens.peek()?.type === "identifier" &&
+            (this.tokens.peek()?.value === "extends" || this.tokens.peek()?.value === "implements")
+        ) {
+            const keyword = this.tokens.read()!.value;
+            if (keyword === "extends") {
+                const typeAnnotation = this.parseHeritageTypeNode();
+                if (extendsType === undefined) {
+                    extendsType = typeAnnotation;
+                } else {
+                    extraExtendsTypes.push(typeAnnotation);
+                }
+                continue;
+            }
+            const clauseTypes: Identifier[] = [];
             while (this.tokens.hasMore) {
-                const typeAnnotation = this.parseTypeAnnotationNode();
+                const typeAnnotation = this.parseHeritageTypeNode();
                 if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
                     const byToken = this.tokens.read()!;
                     const delegateExpression = this.parseClassDelegateExpression();
@@ -2480,7 +2511,7 @@ export class Parser {
                         expression: delegateExpression
                     } as ClassDelegate, typeAnnotation.firstToken, delegateExpression.lastToken ?? this.getLastReadToken() ?? byToken));
                 }
-                implementsTypes.push(typeAnnotation);
+                clauseTypes.push(typeAnnotation);
 
                 const separator = this.tokens.peek();
                 if (separator?.type === "symbol" && separator.value === ",") {
@@ -2488,6 +2519,11 @@ export class Parser {
                     continue;
                 }
                 break;
+            }
+            if (implementsTypes === undefined || implementsTypes.length === 0) {
+                implementsTypes = clauseTypes;
+            } else {
+                extraImplementsTypes.push(...clauseTypes);
             }
         }
 
@@ -2512,6 +2548,12 @@ export class Parser {
             }
             if (implementsTypes && implementsTypes.length > 0) {
                 classLike.implementsTypes = implementsTypes;
+            }
+            if (extraExtendsTypes.length > 0) {
+                classLike.extraExtendsTypes = extraExtendsTypes;
+            }
+            if (extraImplementsTypes.length > 0) {
+                classLike.extraImplementsTypes = extraImplementsTypes;
             }
             if (classDelegates.length > 0) {
                 classLike.classDelegates = classDelegates;

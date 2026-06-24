@@ -32,6 +32,22 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toBe("");
   });
 
+  it("strips the 'override' modifier from emitted class members", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      class Base {
+        fun demo(): void {
+        }
+      }
+      class Demo extends Base {
+        override fun demo(): void {
+        }
+      }
+    `));
+    const output = emitProgram(program);
+    expect(output).not.toContain("override");
+    expect(output).toContain("demo() {");
+  });
+
   it("emits calls to classes as constructor invocations", () => {
     const program = parseFile(tokenizeReader("class Point(val x: int)\nlet point = Point(1)"));
     const ambientProgram = parseFile(tokenizeReader("declare class Error\nlet error = Error()"));

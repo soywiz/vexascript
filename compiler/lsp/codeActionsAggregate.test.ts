@@ -153,6 +153,31 @@ describe("collectCodeActions aggregator", () => {
     expect(titles).toContain("Use non-null assertion '!.'");
   });
 
+  it("offers an 'Add override' quick fix for a member missing the modifier", async () => {
+    const source = dedent`
+      interface Sample {
+        fun lol2()
+      }
+      class Demo implements Sample {
+        fun lol2(): void {
+        }
+      }
+      `;
+    const session = createAnalysisSession(source);
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) => positionAt(source, offset));
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(4, 6),
+      diagnostics,
+      sourceRoots: []
+    });
+
+    expect(actions.map((action) => action.title)).toContain("Add 'override' to 'lol2'");
+  });
+
   it("offers a quick fix to remove an unused import", async () => {
     const source = dedent`
       import { readFile, utimes } from "fs/promises"

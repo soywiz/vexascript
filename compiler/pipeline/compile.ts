@@ -43,7 +43,10 @@ export function compileSource(
   options: ParserOptions = {},
   analysisOptions: AnalysisOptions = {}
 ): CompilationArtifacts {
-  return compileParsedSource(parseSource(source, options), analysisOptions);
+  return compileParsedSource(parseSource(source, options), {
+    ...analysisOptions,
+    language: analysisOptions.language ?? (options.language === "typescript" ? "typescript" : "vexascript")
+  });
 }
 
 export function formatParseIssue(issue: ParseIssue): string {

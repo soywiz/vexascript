@@ -432,7 +432,9 @@ let after = bind`));
       let builder: Builder = new Builder().next()
     `;
 
-    const analysis = new Analysis(parseFile(tokenizeReader(source), { language: "typescript" }));
+    const analysis = new Analysis(parseFile(tokenizeReader(source), { language: "typescript" }), {
+      language: "typescript"
+    });
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });

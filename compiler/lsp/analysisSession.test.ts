@@ -101,7 +101,7 @@ describe("lsp analysis session", () => {
       class Rectangle implements Shape {
         width: number
         height: number
-        describe() => \`Rectangle(\${this.width}x\${this.height})\`
+        override describe() => \`Rectangle(\${this.width}x\${this.height})\`
       }
     `;
 

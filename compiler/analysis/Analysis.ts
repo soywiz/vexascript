@@ -61,6 +61,13 @@ export interface AnalysisOptions {
    */
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   invalidImportedBindings?: ReadonlySet<string>;
+  /**
+   * Source language of the analyzed program. VexaScript-only semantic rules
+   * (such as requiring `override` on members that redefine a project supertype
+   * member) are skipped for `"typescript"` sources, which follow TypeScript
+   * rules. Defaults to `"vexascript"`.
+   */
+  language?: "vexascript" | "typescript";
 }
 
 export class Analysis {
@@ -93,7 +100,8 @@ export class Analysis {
       bound,
       externalDeclarations,
       ambientDeclarations,
-      options.invalidImportedBindings
+      options.invalidImportedBindings,
+      options.language ?? "vexascript"
     ).check();
     this.issues = [...bound.issues, ...checked.issues];
     this.identifierResolutions = checked.identifierResolutions;

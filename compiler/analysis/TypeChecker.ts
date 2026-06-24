@@ -179,6 +179,10 @@ export class TypeChecker {
   private readonly externalNamedTypeNames: Set<string> = new Set();
   private readonly nonExternalNamedTypeNames: Set<string> = new Set();
   private readonly externalDeclarationNodes: WeakSet<Node> = new WeakSet();
+  // Class/interface declarations that belong to the analyzed file itself (as
+  // opposed to imported, ambient, or runtime declarations). Used to scope the
+  // `override`-required rule to the project's own VexaScript types.
+  private readonly programDeclaredTypeNodes: WeakSet<Node> = new WeakSet();
   private readonly enumStatementsByName: Map<string, EnumStatement> = new Map();
   private readonly enumMemberResolutionCache: WeakMap<EnumMember, EnumResolvedValue> = new WeakMap();
   private readonly enumStatementMemberMapCache: WeakMap<EnumStatement, Map<string, EnumMember>> = new WeakMap();
@@ -212,7 +216,8 @@ export class TypeChecker {
     private readonly bound: BoundAnalysis,
     externalDeclarations: readonly Statement[] = [],
     ambientDeclarations: readonly Statement[] = [],
-    private readonly invalidImportedBindings: ReadonlySet<string> = new Set()
+    private readonly invalidImportedBindings: ReadonlySet<string> = new Set(),
+    private readonly sourceLanguage: "vexascript" | "typescript" = "vexascript"
   ) {
     const runtimeProgram = getEcmaScriptRuntimeProgram();
     const vexaRuntimeProgram = getVexaScriptRuntimeProgram();
@@ -283,6 +288,13 @@ export class TypeChecker {
     this.collectTypeAliasStatements(program.body, this.nonExternalNamedTypeNames);
     this.collectVarStatements(program.body, this.nonExternalNamedTypeNames);
     this.collectAnnotationStatements(program.body);
+    for (const statement of program.body) {
+      walkAst(statement, (node) => {
+        if (node.kind === "ClassStatement" || node.kind === "InterfaceStatement") {
+          this.programDeclaredTypeNodes.add(node);
+        }
+      });
+    }
     this.collectExplicitlyUnknownIdentifiers(program);
   }
 
@@ -1742,8 +1754,11 @@ export class TypeChecker {
         })));
       }
 
+      this.validateHeritageClauses(statement);
       this.validateOverrideMembers(statement);
+      this.validateMissingOverrideModifiers(statement);
       this.validateImplementedInterfaces(statement);
+      this.validateAbstractMemberImplementations(statement);
     }, this.typeParameterConstraintMap(statement.typeParameters ?? [], scope));
   }
 
@@ -11170,6 +11185,143 @@ export class TypeChecker {
     }
   }
 
+  /**
+   * Concrete (non-abstract) member names a class provides directly: primary
+   * constructor properties, its own non-abstract members, and members supplied
+   * through class delegates. Used to decide which inherited abstract members are
+   * still unimplemented.
+   */
+  private collectConcreteMemberNames(classStatement: ClassStatement, names: Set<string>): void {
+    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+      const parameterName = bindingNameText(parameter.name);
+      if (parameterName.length > 0) {
+        names.add(parameterName);
+      }
+    }
+    for (const member of classStatement.members) {
+      if (member.abstract === true) {
+        continue;
+      }
+      names.add(member.name.name);
+    }
+    for (const delegate of classStatement.classDelegates ?? []) {
+      const delegateType = this.typeFromTypeNameLoose(delegate.typeAnnotation.name);
+      if (delegateType.kind !== "named") {
+        continue;
+      }
+      for (const memberName of this.resolveNamedTypeMembers(delegateType)?.keys() ?? []) {
+        names.add(memberName);
+      }
+    }
+  }
+
+  /**
+   * A concrete (non-abstract, non-ambient) class must implement every abstract
+   * member it inherits from its abstract base-class chain. Interfaces are
+   * validated separately by {@link validateImplementedInterfaces}; this only
+   * walks the `extends` chain of classes.
+   */
+  private validateAbstractMemberImplementations(classStatement: ClassStatement): void {
+    if (classStatement.abstract === true || classStatement.declared === true || !classStatement.extendsType) {
+      return;
+    }
+    const baseType = this.typeFromTypeNameLoose(classStatement.extendsType.name);
+    if (baseType.kind !== "named" || !this.classStatementsByName.has(baseType.name)) {
+      // Extending an interface (or an unknown/ambient type) is not an abstract
+      // class obligation and is handled elsewhere.
+      return;
+    }
+
+    const concreteNames = new Set<string>();
+    this.collectConcreteMemberNames(classStatement, concreteNames);
+
+    const classTypeArguments = (classStatement.typeParameters ?? []).map((typeParameter) =>
+      namedType(typeParameter.name.name)
+    );
+    const classType = namedType(classStatement.name.name, classTypeArguments);
+    const classSubstitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], classType);
+    const substitutedBaseType = this.substituteTypeParameters(baseType, classSubstitutions);
+    const baseMembers = substitutedBaseType.kind === "named" ? this.resolveNamedTypeMembers(substitutedBaseType) : null;
+
+    // Abstract obligations gathered from the base-class chain, keyed by member
+    // name so each missing member is reported once. The value records the class
+    // that declared the member abstract, for the diagnostic message.
+    const abstractObligations = new Map<string, string>();
+    const visited = new Set<string>();
+    let current: ClassStatement | undefined = this.classStatementsByName.get(baseType.name);
+    while (current && !visited.has(current.name.name)) {
+      visited.add(current.name.name);
+      this.collectConcreteMemberNames(current, concreteNames);
+      if (current.declared !== true) {
+        for (const member of current.members) {
+          if (member.abstract === true && !abstractObligations.has(member.name.name)) {
+            abstractObligations.set(member.name.name, current.name.name);
+          }
+        }
+      }
+      const parentType = current.extendsType ? this.typeFromTypeNameLoose(current.extendsType.name) : null;
+      current = parentType?.kind === "named" ? this.classStatementsByName.get(parentType.name) : undefined;
+    }
+
+    for (const [memberName, baseClassName] of abstractObligations) {
+      if (!concreteNames.has(memberName)) {
+        this.issues.push({
+          message: `Non-abstract class '${classStatement.name.name}' does not implement inherited abstract member '${memberName}' from class '${baseClassName}'`,
+          node: classStatement.name,
+          code: ANALYSIS_ISSUE_CODES.ABSTRACT_MEMBER_NOT_IMPLEMENTED,
+          data: {
+            className: classStatement.name.name,
+            baseClassName,
+            memberName
+          }
+        });
+        continue;
+      }
+
+      // The member is implemented somewhere. When the current class implements it
+      // directly without `override`, its signature must match the abstract
+      // declaration. Members declared with `override` are signature-checked by
+      // validateOverrideMembers; members supplied by a concrete ancestor were
+      // checked when that ancestor was analysed.
+      const ownMember = classStatement.members.find((member) => member.name.name === memberName);
+      if (!ownMember || ownMember.override === true) {
+        continue;
+      }
+      const expectedType = baseMembers?.get(memberName);
+      const ownType = this.declaredClassMemberType(classStatement, memberName, classSubstitutions);
+      if (expectedType && ownType && this.abstractMemberSignatureMismatches(ownType, expectedType)) {
+        this.issues.push({
+          message: `Class '${classStatement.name.name}' does not correctly implement abstract member '${memberName}' from class '${baseClassName}'. Expected signature '${typeToDiagnosticLabel(expectedType)}'`,
+          node: ownMember.name,
+          code: ANALYSIS_ISSUE_CODES.ABSTRACT_MEMBER_SIGNATURE_MISMATCH,
+          data: {
+            className: classStatement.name.name,
+            baseClassName,
+            memberName,
+            expectedType: typeToDiagnosticLabel(expectedType)
+          }
+        });
+      }
+    }
+  }
+
+  /**
+   * Whether a method implementing an abstract member drops a parameter the
+   * abstract member requires. Trailing optional parameters may be omitted (so
+   * `render()` validly implements `render(props?, state?, context?)`), but
+   * dropping a required parameter such as `a: int` from `demo(a: int)` is a real
+   * mismatch. Only method (function-typed) members are checked.
+   */
+  private abstractMemberSignatureMismatches(ownType: AnalysisType, expectedType: AnalysisType): boolean {
+    if (ownType.kind !== "function" || expectedType.kind !== "function") {
+      return false;
+    }
+    const requiredParameterCount = expectedType.parameters.filter(
+      (parameter) => parameter.optional !== true && parameter.rest !== true
+    ).length;
+    return ownType.parameters.length < requiredParameterCount;
+  }
+
   private findOwnClassMemberNameNode(
     classStatement: ClassStatement,
     memberName: string
@@ -11230,60 +11382,219 @@ export class TypeChecker {
     return null;
   }
 
+  /**
+   * Shared resolution of a class's supertype members: the base-class member map
+   * (including the inherited chain), the set of implemented-interface member
+   * names, and whether the class has any supertype at all. Used by both the
+   * `override`-keyword checks below.
+   */
+  private supertypeMemberContext(classStatement: ClassStatement): {
+    classSubstitutions: Map<string, AnalysisType>;
+    baseClassType: (AnalysisType & { kind: "named" }) | null;
+    baseMembers: Map<string, AnalysisType> | null;
+    interfaceMemberNames: Set<string>;
+    hasSupertype: boolean;
+  } {
+    const classTypeArguments = (classStatement.typeParameters ?? []).map((typeParameter) =>
+      namedType(typeParameter.name.name)
+    );
+    const classType = namedType(classStatement.name.name, classTypeArguments);
+    const classSubstitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], classType);
+
+    const resolvedExtends = classStatement.extendsType
+      ? this.substituteTypeParameters(this.typeFromTypeNameLoose(classStatement.extendsType.name), classSubstitutions)
+      : null;
+    const baseClassType = resolvedExtends?.kind === "named" && this.classStatementsByName.has(resolvedExtends.name)
+      ? resolvedExtends
+      : null;
+    const baseMembers = baseClassType ? this.resolveNamedTypeMembers(baseClassType) : null;
+
+    const interfaceMemberNames = new Set<string>();
+    for (const interfaceType of this.implementedInterfaceTypesForClass(classStatement)) {
+      for (const memberName of this.resolveNamedTypeMembers(interfaceType)?.keys() ?? []) {
+        interfaceMemberNames.add(memberName);
+      }
+    }
+
+    const hasSupertype = resolvedExtends !== null || interfaceMemberNames.size > 0 || (classStatement.implementsTypes?.length ?? 0) > 0;
+    return { classSubstitutions, baseClassType, baseMembers, interfaceMemberNames, hasSupertype };
+  }
+
   private validateOverrideMembers(classStatement: ClassStatement): void {
     const overrideMembers = classStatement.members.filter((member) => member.override === true);
     if (overrideMembers.length === 0) {
       return;
     }
 
-    if (!classStatement.extendsType) {
-      for (const member of overrideMembers) {
+    // Interface members are valid `override` targets too. Their signatures are
+    // validated by validateImplementedInterfaces, so here interfaces only
+    // contribute the set of names that legitimize `override`.
+    const { classSubstitutions, baseClassType, baseMembers, interfaceMemberNames, hasSupertype } =
+      this.supertypeMemberContext(classStatement);
+
+    for (const member of overrideMembers) {
+      const baseType = baseMembers?.get(member.name.name);
+      if (baseType) {
+        const ownType = this.declaredClassMemberType(classStatement, member.name.name, classSubstitutions);
+        if (ownType && !isSameType(ownType, baseType)) {
+          this.issues.push({
+            message: `Member '${member.name.name}' override type '${typeToDiagnosticLabel(ownType)}' does not match base type '${typeToDiagnosticLabel(baseType)}'`,
+            node: member.name,
+            code: ANALYSIS_ISSUE_CODES.OVERRIDE_INCOMPATIBLE_MEMBER,
+            data: {
+              className: classStatement.name.name,
+              baseClassName: typeToString(baseClassType!),
+              memberName: member.name.name,
+              expectedType: typeToDiagnosticLabel(baseType)
+            }
+          });
+        }
+        continue;
+      }
+
+      if (interfaceMemberNames.has(member.name.name)) {
+        // Valid override of an interface member; the interface conformance pass
+        // checks its signature.
+        continue;
+      }
+
+      // The member exists in no supertype.
+      if (!hasSupertype) {
         this.issues.push({
           message: `Member '${member.name.name}' cannot use 'override' because class '${classStatement.name.name}' does not extend another class`,
           node: member.name
         });
-      }
-      return;
-    }
-
-    const classTypeArguments = (classStatement.typeParameters ?? []).map((typeParameter) =>
-      namedType(typeParameter.name.name)
-    );
-    const classType = namedType(classStatement.name.name, classTypeArguments);
-    const classSubstitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], classType);
-    const extendsType = this.substituteTypeParameters(
-      this.typeFromTypeNameLoose(classStatement.extendsType.name),
-      classSubstitutions
-    );
-    if (extendsType.kind !== "named") {
-      return;
-    }
-
-    const baseMembers = this.resolveNamedTypeMembers(extendsType);
-    if (!baseMembers) {
-      return;
-    }
-
-    for (const member of overrideMembers) {
-      const ownType = this.declaredClassMemberType(classStatement, member.name.name, classSubstitutions);
-      if (!ownType) {
-        continue;
-      }
-      const baseType = baseMembers.get(member.name.name);
-      if (!baseType) {
+      } else if (baseClassType && baseMembers) {
         this.issues.push({
-          message: `Member '${member.name.name}' cannot override because no member with that name exists in base type '${typeToString(extendsType)}'`,
+          message: `Member '${member.name.name}' cannot override because no member with that name exists in base type '${typeToString(baseClassType)}'`,
           node: member.name
         });
-        continue;
+      } else if (!baseClassType) {
+        this.issues.push({
+          message: `Member '${member.name.name}' cannot override because no member with that name exists in the base class or implemented interfaces`,
+          node: member.name
+        });
       }
-      if (isSameType(ownType, baseType)) {
-        continue;
-      }
+      // If the base class members are unresolvable we cannot prove absence, so
+      // we stay silent to avoid false positives.
+    }
+  }
+
+  /**
+   * A class may declare at most one `extends` clause and one `implements`
+   * clause (the latter listing several interfaces separated by commas). Surplus
+   * clauses parse successfully but are reported here.
+   */
+  private validateHeritageClauses(classStatement: ClassStatement): void {
+    for (const extra of classStatement.extraExtendsTypes ?? []) {
       this.issues.push({
-        message: `Member '${member.name.name}' override type '${typeToDiagnosticLabel(ownType)}' does not match base type '${typeToDiagnosticLabel(baseType)}'`,
-        node: member.name
+        message: "A class can only extend a single class",
+        node: extra
       });
+    }
+    for (const extra of classStatement.extraImplementsTypes ?? []) {
+      this.issues.push({
+        message: "A class can only have one 'implements' clause; list multiple interfaces separated by commas",
+        node: extra
+      });
+    }
+  }
+
+  private baseClassStatementOf(classStatement: ClassStatement): ClassStatement | undefined {
+    if (!classStatement.extendsType) {
+      return undefined;
+    }
+    const baseType = this.typeFromTypeNameLoose(classStatement.extendsType.name);
+    return baseType.kind === "named" ? this.classStatementsByName.get(baseType.name) : undefined;
+  }
+
+  private collectProjectInterfaceMemberNames(interfaceName: string, names: Set<string>, visited: Set<string>): void {
+    if (visited.has(interfaceName)) {
+      return;
+    }
+    visited.add(interfaceName);
+    const interfaceStatement = this.interfaceStatementsByName.get(interfaceName);
+    if (!interfaceStatement || !this.programDeclaredTypeNodes.has(interfaceStatement)) {
+      return;
+    }
+    for (const member of interfaceStatement.members) {
+      names.add(member.name.name);
+    }
+    for (const parentType of interfaceStatement.extendsTypes ?? []) {
+      const resolved = this.typeFromTypeNameLoose(parentType.name);
+      if (resolved.kind === "named") {
+        this.collectProjectInterfaceMemberNames(resolved.name, names, visited);
+      }
+    }
+  }
+
+  /**
+   * Member names contributed by the class's supertypes that are defined in the
+   * project itself — non-`declared` base classes and interfaces. Members
+   * inherited from ambient/imported (`declared`) types, such as node_modules
+   * `.d.ts` classes, are excluded so conforming to external TypeScript APIs does
+   * not require `override`.
+   */
+  private projectSupertypeMemberNames(classStatement: ClassStatement): Set<string> {
+    const names = new Set<string>();
+    const visitedClasses = new Set<string>();
+    let current = this.baseClassStatementOf(classStatement);
+    while (current && !visitedClasses.has(current.name.name)) {
+      visitedClasses.add(current.name.name);
+      if (this.programDeclaredTypeNodes.has(current)) {
+        for (const member of current.members) {
+          names.add(member.name.name);
+        }
+        for (const parameter of current.primaryConstructorParameters ?? []) {
+          const parameterName = bindingNameText(parameter.name);
+          if (parameterName.length > 0) {
+            names.add(parameterName);
+          }
+        }
+      }
+      current = this.baseClassStatementOf(current);
+    }
+    const visitedInterfaces = new Set<string>();
+    for (const interfaceType of this.implementedInterfaceTypesForClass(classStatement)) {
+      this.collectProjectInterfaceMemberNames(interfaceType.name, names, visitedInterfaces);
+    }
+    return names;
+  }
+
+  /**
+   * A class member that implements or redefines a member from a project
+   * supertype (an abstract or concrete base-class member, or an interface
+   * member) must be declared with `override`. Reports the missing modifier on
+   * the member name. Only enforced for VexaScript sources; TypeScript-mode files
+   * follow TypeScript rules where `override` is optional, and members conforming
+   * to imported/ambient types are exempt.
+   */
+  private validateMissingOverrideModifiers(classStatement: ClassStatement): void {
+    if (classStatement.declared === true || this.sourceLanguage === "typescript") {
+      return;
+    }
+    const projectMemberNames = this.projectSupertypeMemberNames(classStatement);
+    if (projectMemberNames.size === 0) {
+      return;
+    }
+    for (const member of classStatement.members) {
+      if (member.override === true || member.static === true || member.abstract === true) {
+        continue;
+      }
+      if (member.kind === "ClassMethodMember" && (member.name.name === "constructor" || member.operator)) {
+        continue;
+      }
+      if (projectMemberNames.has(member.name.name)) {
+        this.issues.push({
+          message: `Member '${member.name.name}' must be declared with 'override' because it overrides a member from a base class or interface`,
+          node: member.name,
+          code: ANALYSIS_ISSUE_CODES.MISSING_OVERRIDE_MODIFIER,
+          data: {
+            className: classStatement.name.name,
+            memberName: member.name.name
+          }
+        });
+      }
     }
   }
 

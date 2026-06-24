@@ -18,6 +18,7 @@ import { createTrailingLambdaCodeActions } from "./trailingLambdaFixes";
 import { createEmptyClassBodyCodeActions } from "./emptyClassBodyFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
 import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
+import { createOverrideModifierCodeActions } from "./overrideModifierFixes";
 import { createThisCodeActions } from "./thisFixes";
 import { createNullableAccessCodeActions } from "./nullableAccessFixes";
 import { createMemberKeywordCodeActions } from "./memberKeywordFixes";
@@ -221,6 +222,8 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
         ...crossFile
       })
     );
+
+    actions.push(...createOverrideModifierCodeActions({ uri, ast, diagnostics }));
   }
 
   return actions;
