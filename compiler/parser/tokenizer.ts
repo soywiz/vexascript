@@ -231,7 +231,7 @@ function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
     return new Set([
       "(", "{", "[", ",", ";", ":", "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", ">>>=",
       "&=", "|=", "&&=", "||=", "??=", "?", "=>", "->", "||", "&&", "??", "|", "^", "&",
-      "==", "!=", "===", "!==", "<", ">", "<=", ">=", "+", "-", "*", "/", "%", "**", "!", "~", "..."
+      "==", "!=", "===", "!==", "<", ">", "<=", ">=", "<=>", "+", "-", "*", "/", "%", "**", "!", "~", "..."
     ]).has(previousToken.value);
   }
   return false;
@@ -925,6 +925,10 @@ function readSymbol(reader: StrReader): string {
   }
   if (ch === CODE_LT && next === CODE_EQUALS) {
     advanceCode(reader);
+    if (reader.peekCode() === CODE_GT) {
+      advanceCode(reader);
+      return "<=>";
+    }
     return "<=";
   }
   if (ch === CODE_GT && next === CODE_GT) {

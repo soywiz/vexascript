@@ -106,6 +106,7 @@ const OPERATOR_METHOD_NAMES: Partial<Record<OverloadableOperator, string>> = {
   ">": "operator$greater",
   "<=": "operator$lessEqual",
   ">=": "operator$greaterEqual",
+  "<=>": "operator$spaceship",
   "==": "operator$equals",
   "!=": "operator$notEquals",
   "===": "operator$strictEquals",
@@ -1325,6 +1326,12 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const typedIntegerBinary = emitTypedIntegerBinary(binary, leftText, rightText);
         if (typedIntegerBinary) {
           return typedIntegerBinary;
+        }
+        // The three-way comparison (spaceship) operator has no native JS form.
+        // Emit a self-contained arrow IIFE so each operand is evaluated once and
+        // the result is -1 / 0 / 1 (works for numbers and strings).
+        if (binary.operator === "<=>") {
+          return `(($l, $r) => $l < $r ? -1 : $l > $r ? 1 : 0)(${leftText}, ${rightText})`;
         }
         const emittedOperator = binary.operator === "is" ? "instanceof" : binary.operator;
         const binaryText = `${leftText} ${emittedOperator} ${rightText}`;

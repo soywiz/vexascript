@@ -416,6 +416,33 @@ fun Point.operator+(other: Point): Point => Point(this.x + other.x, this.y + oth
 let c = a + b // emits as Point$$operator$plus$$Point(a, b)
 ```
 
+### Three-way comparison (spaceship) operator
+
+The `<=>` operator performs a three-way comparison and evaluates to an `int`
+ordering: `-1` when the left operand is less than the right, `0` when they are
+equal, and `1` when the left is greater. It has the same precedence as the other
+relational operators (`<`, `>`, `<=`, `>=`) and is left-associative, so
+`(a <=> b) < 0` can be written `a <=> b < 0`.
+
+For primitive operands (numbers, strings) it lowers to an inline comparison that
+evaluates each operand once:
+
+```my
+let order = 1 <=> 2 // -1
+let byName = "apple" <=> "banana" // -1
+```
+
+It is overloadable like the other binary operators, on classes or as an
+extension, with the mangled runtime name `operator$spaceship`:
+
+```my
+class Money(val cents: int) {
+  operator<=>(other: Money): int => cents <=> other.cents
+}
+
+let order = Money(150) <=> Money(99) // emits as new Money(150).operator$spaceship$$Money(new Money(99))
+```
+
 Classes and extension methods can overload computed indexing with `operator[]` and `operator[]=`. Getter index operators receive the bracket dimensions in order. Setter index operators receive the assigned value first, followed by the bracket dimensions, so multidimensional setters keep a stable leading value parameter:
 
 ```my

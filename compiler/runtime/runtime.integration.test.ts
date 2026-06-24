@@ -287,4 +287,28 @@ unpack({ id: 1, nested: {}, extra: 7 })
 
     expect(executeTranspiled(source)).toEqual([[1], [4], [7], [10], [3], [0]]);
   });
+
+  it("executes the three-way comparison (spaceship) operator for numbers and strings", () => {
+    const source = `
+console.log(1 <=> 2)
+console.log(2 <=> 2)
+console.log(3 <=> 2)
+console.log("apple" <=> "banana")
+`;
+
+    expect(executeTranspiled(source)).toEqual([[-1], [0], [1], [-1]]);
+  });
+
+  it("executes an overloaded spaceship operator", () => {
+    const source = `
+class Money(val cents: int) {
+  operator<=>(other: Money): int => cents <=> other.cents
+}
+console.log(Money(150) <=> Money(99))
+console.log(Money(99) <=> Money(150))
+console.log(Money(150) <=> Money(150))
+`;
+
+    expect(executeTranspiled(source)).toEqual([[1], [-1], [0]]);
+  });
 });

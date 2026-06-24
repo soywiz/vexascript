@@ -288,7 +288,7 @@
         },
         {
           "name": "keyword.operator.relational.vexa",
-          "match": "(<=|>=|<|>)"
+          "match": "(<=>|<=|>=|<|>)"
         },
         {
           "name": "keyword.operator.equality.vexa",

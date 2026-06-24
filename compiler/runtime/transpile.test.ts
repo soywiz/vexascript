@@ -1050,4 +1050,26 @@ c += 5`;
     expect(result.code).toContain("for await (const v of gen)");
   });
 
+  it("emits the three-way comparison (spaceship) operator for primitive operands", () => {
+    const result = transpile("let order = 1 <=> 2\n");
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("let order = (($l, $r) => $l < $r ? -1 : $l > $r ? 1 : 0)(1, 2);");
+  });
+
+  it("dispatches an overloaded spaceship operator to its method", () => {
+    const source = [
+      "class Vec(val n: number) {",
+      "  operator<=>(other: Vec): int => n <=> other.n",
+      "}",
+      "let order = Vec(1) <=> Vec(2)"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("operator$spaceship$$Vec(other)");
+    expect(result.code).toContain("let order = new Vec(1).operator$spaceship$$Vec(new Vec(2));");
+  });
+
 });

@@ -50,6 +50,7 @@ function operatorBaseRuntimeName(operator: OverloadableOperator): string {
     ">": "operator$greaterThan",
     "<=": "operator$lessThanOrEqual",
     ">=": "operator$greaterThanOrEqual",
+    "<=>": "operator$spaceship",
     "in": "operator$in",
     "is": "operator$is",
     "instanceof": "operator$instanceof",

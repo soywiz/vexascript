@@ -331,7 +331,7 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
           { name: "keyword.operator.range.vexa", match: "(\\.\\.\\.|\\.\\.<)" },
           { name: "keyword.operator.chain.vexa", match: "\\.\\." },
           { name: "keyword.operator.arithmetic.vexa", match: "(\\*\\*|\\+|-|\\*|/|%)" },
-          { name: "keyword.operator.relational.vexa", match: "(<=|>=|<|>)" },
+          { name: "keyword.operator.relational.vexa", match: "(<=>|<=|>=|<|>)" },
           { name: "keyword.operator.equality.vexa", match: "(===|!==|==|!=)" },
           { name: "keyword.operator.member.vexa", match: "(\\?\\.|!\\.)" },
           { name: "keyword.operator.rename.vexa", match: "::" },

@@ -561,4 +561,20 @@ describe("tokenizer", () => {
         });
     });
 
+    it("tokenizes the three-way comparison operator as a single token", () => {
+        expect(simplifyTokens("a <=> b")).toStrictEqual([
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "<=>" },
+            { type: "identifier", value: "b" }
+        ]);
+    });
+
+    it("still tokenizes <= when not followed by >", () => {
+        expect(simplifyTokens("a <= b")).toStrictEqual([
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "<=" },
+            { type: "identifier", value: "b" }
+        ]);
+    });
+
 })

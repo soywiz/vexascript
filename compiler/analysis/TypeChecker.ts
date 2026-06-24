@@ -3595,6 +3595,12 @@ export class TypeChecker {
       return leftType;
     }
 
+    // The three-way comparison (spaceship) operator yields an ordering: -1, 0,
+    // or 1.
+    if (operator === "<=>") {
+      return builtinType("int");
+    }
+
     if (
       operator === "<" ||
       operator === ">" ||

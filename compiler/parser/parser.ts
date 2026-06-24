@@ -126,6 +126,7 @@ const BINARY_OPERATOR_INFO: Record<InfixOperator, { precedence: number; assoc: B
     ">": { precedence: 7, assoc: "left" },
     "<=": { precedence: 7, assoc: "left" },
     ">=": { precedence: 7, assoc: "left" },
+    "<=>": { precedence: 7, assoc: "left" },
     "in": { precedence: 7, assoc: "left" },
     "instanceof": { precedence: 7, assoc: "left" },
     "is": { precedence: 7, assoc: "left" },
