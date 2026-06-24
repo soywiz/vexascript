@@ -156,7 +156,10 @@ export function createPortableLanguageConfiguration(): PortableLanguageConfigura
       { open: "{", close: "}" },
       { open: "[", close: "]" },
       { open: "(", close: ")" },
-      { open: "<", close: ">", notIn: ["string", "comment"] },
+      // `<` is intentionally not auto-closed: it is far more commonly the
+      // comparison operator than the start of a generic/JSX tag, and
+      // auto-inserting `>` is disruptive when typing `a < b`. Selections can
+      // still be wrapped with `<…>` via surroundingPairs below.
       { open: "\"", close: "\"", notIn: ["string"] },
       { open: "'", close: "'", notIn: ["string"] },
     ],

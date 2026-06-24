@@ -24,6 +24,16 @@ describe("shared syntax generators", () => {
     expect(await readFile(configPath, "utf8")).toBe(expected);
   });
 
+  it("does not auto-close '<' so the less-than operator can be typed freely", () => {
+    // Typing `<` must not auto-insert `>`: it is far more often the comparison
+    // operator than the start of a generic/JSX tag. Wrapping a selection with
+    // `<…>` (surroundingPairs) is still allowed because it only fires on a
+    // selection, not while typing.
+    const config = createPortableLanguageConfiguration();
+    expect(config.autoClosingPairs.some((pair) => pair.open === "<")).toBe(false);
+    expect(config.surroundingPairs.some((pair) => pair.open === "<" && pair.close === ">")).toBe(true);
+  });
+
   it("renders Monaco targets from the same embedded source", () => {
     const monacoLanguage = JSON.parse(renderSyntaxTarget("monaco-language")) as { tokenizer?: unknown };
     const monacoConfiguration = JSON.parse(renderSyntaxTarget("monaco-configuration")) as { comments?: unknown };
