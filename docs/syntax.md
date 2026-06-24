@@ -443,6 +443,30 @@ class Money(val cents: int) {
 let order = Money(150) <=> Money(99) // emits as new Money(150).operator$spaceship$$Money(new Money(99))
 ```
 
+#### Derived comparisons
+
+Declaring a single `operator<=>` is enough: when a type has no overload for a
+specific comparison, `<`, `<=`, `>`, `>=`, `==`, and `!=` are each derived from
+the spaceship result as `(a <=> b) OP 0`. Separately, when a type declares
+`operator==` but no `operator!=`, the `!=` operator is derived as `!(a == b)`. A
+direct overload for a specific operator always takes precedence over the derived
+form.
+
+```my
+class Money(val cents: int) {
+  operator<=>(other: Money): int => cents <=> other.cents
+}
+
+let cheaper = Money(99) < Money(150)   // (Money(99) <=> Money(150)) < 0
+let same = Money(150) == Money(150)    // (Money(150) <=> Money(150)) == 0
+
+class Tag(val name: string) {
+  operator==(other: Tag): boolean => name == other.name
+}
+
+let different = Tag("a") != Tag("b")   // !(Tag("a") == Tag("b"))
+```
+
 Classes and extension methods can overload computed indexing with `operator[]` and `operator[]=`. Getter index operators receive the bracket dimensions in order. Setter index operators receive the assigned value first, followed by the bracket dimensions, so multidimensional setters keep a stable leading value parameter:
 
 ```my

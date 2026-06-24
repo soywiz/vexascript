@@ -311,4 +311,37 @@ console.log(Money(150) <=> Money(150))
 
     expect(executeTranspiled(source)).toEqual([[1], [-1], [0]]);
   });
+
+  it("derives all six comparison operators from a spaceship overload", () => {
+    const source = `
+class Money(val cents: int) {
+  operator<=>(other: Money): int => cents <=> other.cents
+}
+console.log(Money(1) < Money(2))
+console.log(Money(2) < Money(1))
+console.log(Money(1) <= Money(1))
+console.log(Money(2) > Money(1))
+console.log(Money(1) >= Money(2))
+console.log(Money(1) == Money(1))
+console.log(Money(1) == Money(2))
+console.log(Money(1) != Money(2))
+`;
+
+    expect(executeTranspiled(source)).toEqual([
+      [true], [false], [true], [true], [false], [true], [false], [true]
+    ]);
+  });
+
+  it("derives != from an equality overload as !(a == b)", () => {
+    const source = `
+class Tag(val name: string) {
+  operator==(other: Tag): boolean => name == other.name
+}
+console.log(Tag("a") == Tag("a"))
+console.log(Tag("a") != Tag("b"))
+console.log(Tag("a") != Tag("a"))
+`;
+
+    expect(executeTranspiled(source)).toEqual([[true], [true], [false]]);
+  });
 });

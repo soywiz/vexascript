@@ -540,6 +540,45 @@ function resolveOperatorMethod(binary: BinaryExpression): RuntimeOperatorInfo | 
   return resolveOperatorMethodForArguments(binary.left, binary.operator, [binary.right]);
 }
 
+function emitOperatorMethodCall(method: RuntimeOperatorInfo, leftText: string, rightText: string): string {
+  return method.extension
+    ? `${method.emittedName}(${leftText}, ${rightText})`
+    : `${leftText}.${method.emittedName}(${rightText})`;
+}
+
+const DERIVABLE_COMPARISON_OPERATORS = new Set<BinaryExpression["operator"]>([
+  "<", "<=", ">", ">=", "==", "!="
+]);
+
+/**
+ * Synthesizes a comparison from a more fundamental overloaded operator when the
+ * specific comparison has no overload of its own:
+ *  - any of `< <= > >= == !=` is derived from `operator<=>` as `(a <=> b) OP 0`;
+ *  - `!=` is also derived from `operator==` as `!(a == b)`.
+ * Returns null when no such overload exists (e.g. primitive operands), leaving
+ * the native emission in place.
+ */
+function resolveDerivedComparison(
+  binary: BinaryExpression,
+  leftText: string,
+  rightText: string
+): string | null {
+  if (!DERIVABLE_COMPARISON_OPERATORS.has(binary.operator)) {
+    return null;
+  }
+  const spaceship = resolveOperatorMethodForArguments(binary.left, "<=>", [binary.right]);
+  if (spaceship) {
+    return `(${emitOperatorMethodCall(spaceship, leftText, rightText)} ${binary.operator} 0)`;
+  }
+  if (binary.operator === "!=") {
+    const equals = resolveOperatorMethodForArguments(binary.left, "==", [binary.right]);
+    if (equals) {
+      return `!(${emitOperatorMethodCall(equals, leftText, rightText)})`;
+    }
+  }
+  return null;
+}
+
 function resolveUnaryOperatorMethod(unary: UnaryExpression): RuntimeOperatorInfo | null {
   if (unary.operator !== "+" && unary.operator !== "-") {
     return null;
@@ -1319,9 +1358,14 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const rightText = maybeWrap(emitExpression(binary.right, precedence, "right"), rightChildNeedsWrap);
         const operatorMethod = resolveOperatorMethod(binary);
         if (operatorMethod) {
-          return operatorMethod.extension
-            ? `${operatorMethod.emittedName}(${leftText}, ${rightText})`
-            : `${leftText}.${operatorMethod.emittedName}(${rightText})`;
+          return emitOperatorMethodCall(operatorMethod, leftText, rightText);
+        }
+        // A type with only `operator<=>` (or only `operator==`) still gets the
+        // derived comparisons, so `a < b`, `a == b`, `a != b`, ... work without
+        // declaring each operator.
+        const derivedComparison = resolveDerivedComparison(binary, leftText, rightText);
+        if (derivedComparison) {
+          return derivedComparison;
         }
         const typedIntegerBinary = emitTypedIntegerBinary(binary, leftText, rightText);
         if (typedIntegerBinary) {

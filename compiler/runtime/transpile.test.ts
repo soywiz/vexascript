@@ -1072,4 +1072,34 @@ c += 5`;
     expect(result.code).toContain("let order = new Vec(1).operator$spaceship$$Vec(new Vec(2));");
   });
 
+  it("derives comparison operators from a spaceship overload", () => {
+    const source = [
+      "class Money(val cents: int) {",
+      "  operator<=>(other: Money): int => cents <=> other.cents",
+      "}",
+      "let lt = Money(1) < Money(2)",
+      "let eq = Money(1) == Money(2)"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("let lt = (new Money(1).operator$spaceship$$Money(new Money(2)) < 0);");
+    expect(result.code).toContain("let eq = (new Money(1).operator$spaceship$$Money(new Money(2)) == 0);");
+  });
+
+  it("derives != from an equality overload", () => {
+    const source = [
+      "class Tag(val name: string) {",
+      "  operator==(other: Tag): boolean => name == other.name",
+      "}",
+      "let ne = Tag(\"a\") != Tag(\"b\")"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("let ne = !(new Tag(\"a\").operator$equals$$Tag(new Tag(\"b\")));");
+  });
+
 });
