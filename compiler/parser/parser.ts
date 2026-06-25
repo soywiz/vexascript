@@ -5779,6 +5779,24 @@ export class Parser {
     }
 
     private parseClassMember(allowSignatureOnly: boolean = false): ClassMember[] {
+        const annotations: AnnotationApplication[] = [];
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "@") {
+            annotations.push(this.parseAnnotationApplication());
+        }
+        const members = this.parseClassMemberDeclaration(allowSignatureOnly);
+        if (annotations.length > 0) {
+            for (const member of members) {
+                member.annotations = [...(member.annotations ?? []), ...annotations];
+            }
+            const firstMember = members[0];
+            if (firstMember) {
+                this.attachNodeBounds(firstMember, annotations[0]?.firstToken, firstMember.lastToken);
+            }
+        }
+        return members;
+    }
+
+    private parseClassMemberDeclaration(allowSignatureOnly: boolean = false): ClassMember[] {
         const firstToken = this.tokens.peek();
         let memberStartToken = firstToken;
         let isOverrideMember = false;

@@ -434,6 +434,8 @@ export interface ClassMemberModifiers {
     readonly?: boolean
     static?: boolean
     abstract?: boolean
+    // `@Annotation(...)` applications written immediately before the member.
+    annotations?: AnnotationApplication[]
 }
 
 export interface ClassFieldMember extends Node, ClassMemberModifiers {

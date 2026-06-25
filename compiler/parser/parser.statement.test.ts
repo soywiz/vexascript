@@ -2,6 +2,7 @@ import { describe, expect, it } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { Parser, parseExpression, parseFile, parseStatement } from "./parser";
 import { tokenizeReader } from "./tokenizer";
+import type { ClassStatement } from "compiler/ast/ast";
 
 describe("parseStatement", () => {
     it("parses debugger and empty statements", () => {
@@ -1512,6 +1513,48 @@ describe("parseStatement", () => {
                 }
             ]
         });
+    });
+
+    it("parses annotations on class field and method members", () => {
+        const statement = parseStatement(
+            tokenizeReader(dedent`
+                class Test extends Behaviour {
+                  @Range(1, 10)
+                  var scale: number
+                  @Deprecated
+                  fun init() {}
+                }
+            `),
+            { language: "vexa" }
+        ) as ClassStatement;
+
+        const field = statement.members[0]!;
+        const method = statement.members[1]!;
+        expect(field.kind).toBe("ClassFieldMember");
+        expect(field.annotations?.map((annotation) => annotation.name.name)).toEqual(["Range"]);
+        expect(field.annotations?.[0]?.arguments).toHaveLength(2);
+
+        expect(method.kind).toBe("ClassMethodMember");
+        expect(method.annotations?.map((annotation) => annotation.name.name)).toEqual(["Deprecated"]);
+        expect(method.annotations?.[0]?.arguments).toEqual([]);
+    });
+
+    it("stacks multiple annotations on a single class member", () => {
+        const statement = parseStatement(
+            tokenizeReader(dedent`
+                class Test {
+                  @Range(0.1, 10.0)
+                  @Tooltip("scale factor")
+                  var scale: number
+                }
+            `),
+            { language: "vexa" }
+        ) as ClassStatement;
+
+        expect(statement.members[0]?.annotations?.map((annotation) => annotation.name.name)).toEqual([
+            "Range",
+            "Tooltip"
+        ]);
     });
 
     it("parses optional static class method signatures in TypeScript ambient classes", () => {

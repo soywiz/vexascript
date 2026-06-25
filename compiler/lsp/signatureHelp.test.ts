@@ -331,6 +331,32 @@ describe("signature help", () => {
     });
   });
 
+  it("provides signature help for annotations applied to class members", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      annotation Range(val min: number, val max: number)
+
+      class Test {
+        @Range(^^^0.1, 10.0)
+        var scale: number = 1
+      }
+    `);
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "Range(val min: number, val max: number)",
+          parameters: [{ label: "val min: number" }, { label: "val max: number" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
   it("provides signature help and docs for imported class methods", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-signature-help-"));
     const worldFile = join(root, "world.vx");

@@ -9,6 +9,7 @@ import type { AnnotationStatement, FunctionParameter, Identifier, Program } from
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { Analysis, AnalysisRange } from "compiler/analysis/Analysis";
 import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
+import { programAnnotationApplications } from "compiler/ast/annotations";
 import {
   findDocumentationParameterReference,
   findDocumentationReferenceRangesForIdentifier,
@@ -118,8 +119,7 @@ function annotationReferenceAt(
   if (!program) {
     return null;
   }
-  for (const statement of program.body) {
-    for (const annotation of statement.annotations ?? []) {
+  for (const annotation of programAnnotationApplications(program)) {
       const first = annotation.name.firstToken;
       const last = annotation.name.lastToken;
       if (!first || !last) {
@@ -158,7 +158,6 @@ function annotationReferenceAt(
           }
         }
       };
-    }
   }
   return null;
 }

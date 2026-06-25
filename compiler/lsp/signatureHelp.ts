@@ -16,6 +16,7 @@ import type {
   Statement
 } from "compiler/ast/ast";
 import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
+import { programAnnotationApplications } from "compiler/ast/annotations";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
 import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, splitTopLevelDelimitedTypeText, splitTopLevelTypeText } from "compiler/analysis/typeNames";
 import type { SignatureHelp, SignatureInformation } from "vscode-languageserver/node.js";
@@ -161,20 +162,18 @@ function findInvocationContext(program: Program, line: number, character: number
 function findAnnotationInvocationContext(program: Program, line: number, character: number): AnnotationInvocationContext | null {
   const position: Position = { line, character };
   let best: AnnotationInvocationContext | null = null;
-  for (const statement of program.body) {
-    for (const annotation of statement.annotations ?? []) {
-      const range = nodeRange(annotation);
-      if (!range || !containsPosition(range, position)) {
-        continue;
-      }
-      const candidate: AnnotationInvocationContext = {
-        annotation,
-        range,
-        activeParameter: argumentIndexAtPosition(annotation.arguments, position)
-      };
-      if (!best || rangeSize(candidate.range) <= rangeSize(best.range)) {
-        best = candidate;
-      }
+  for (const annotation of programAnnotationApplications(program)) {
+    const range = nodeRange(annotation);
+    if (!range || !containsPosition(range, position)) {
+      continue;
+    }
+    const candidate: AnnotationInvocationContext = {
+      annotation,
+      range,
+      activeParameter: argumentIndexAtPosition(annotation.arguments, position)
+    };
+    if (!best || rangeSize(candidate.range) <= rangeSize(best.range)) {
+      best = candidate;
     }
   }
   return best;

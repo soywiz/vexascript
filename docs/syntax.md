@@ -363,6 +363,22 @@ clampUnit(2)                           // emits as clamp01(2)
 
 Member property names are not affected by `@JsName`; only the renamed declaration and references to it are rewritten. Annotations stack, so `@JsName` and `@JsInline` may be combined on the same declaration.
 
+#### Annotations on class members
+
+Annotations may also be applied to individual class members (fields and methods), written immediately before the member. They stack the same way as on top-level declarations, and their arguments are checked against the declared annotation parameters. Member annotations carry no runtime semantics and are erased from JavaScript output:
+
+```my
+annotation Range(val min: number, val max: number)
+
+class Test extends Behaviour {
+  @Range(0.1, 10.0)
+  var scale: number
+
+  @Deprecated
+  fun init() {}
+}
+```
+
 ### Test files
 
 The CLI `test` command discovers files ending in `.test.vx`. Each test file receives inline `test(call)` and `assert(cond, message = "assert failed")` helpers without imports:

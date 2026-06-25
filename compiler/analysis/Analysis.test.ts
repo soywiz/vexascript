@@ -174,6 +174,46 @@ describe("Analysis", () => {
     ]);
   });
 
+  it("validates annotations applied to class members", () => {
+    const source = dedent`
+      annotation Range(val min: number, val max: number)
+      class Test {
+        @Range(0.1, 10.0)
+        var scale: number = 1
+        @Range("bad")
+        var broken: number = 2
+        @Unknown
+        fun init() {}
+      }
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Expected at least 2 argument(s), but got 1");
+    expect(messages).toContain("Argument 1 of type 'string' is not assignable to parameter 'min' of type 'number'");
+    expect(messages).toContain("Unknown annotation 'Unknown'");
+    // A correctly applied member annotation must not produce diagnostics of its own.
+    expect(messages).not.toContain("Unknown annotation 'Range'");
+  });
+
+  it("resolves annotation references applied to class members", () => {
+    const source = dedent`
+      annotation Range(val min: number, val max: number)
+      class Test {
+        @Range(0.1, 10.0)
+        var scale: number = 1
+      }
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const declaration = analysis.getSymbolAt(0, 12);
+    const usage = analysis.getSymbolAt(2, 4);
+
+    expect(declaration?.symbol.kind).toBe("annotation");
+    expect(usage?.symbol).toBe(declaration?.symbol);
+  });
+
   it("treats function values as assignable to the ambient Function type", () => {
     const source = dedent`
       declare function setTimeout(handler: TimerHandler, timeout?: number): number

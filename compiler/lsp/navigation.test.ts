@@ -194,6 +194,38 @@ describe("lsp navigation", () => {
     });
   });
 
+  it("provides hover and definition for annotations applied to class members", () => {
+    const marked = sourceWithCursor(dedent`
+      annotation Range(val min: number, val max: number)
+
+      class Test {
+        @^^^Range(0.1, 10.0)
+        var scale: number = 1
+      }
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    const hover = createHover(analysis, marked.line, marked.character, ast);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "annotation Range(val min: number, val max: number)"
+    });
+    expect(hover?.range).toEqual({
+      start: { line: 3, character: 3 },
+      end: { line: 3, character: 8 }
+    });
+
+    const definition = createDefinitionLocation(analysis, URI, marked.line, marked.character, ast);
+    expect(definition).toEqual({
+      uri: URI,
+      range: {
+        start: { line: 0, character: 11 },
+        end: { line: 0, character: 16 }
+      }
+    });
+  });
+
   it("supports references and rename for annotation declarations and uses", () => {
     const marked = sourceWithCursor(dedent`
       annotation ^^^DemoTag(val label: string)

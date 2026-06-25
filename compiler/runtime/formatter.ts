@@ -2098,6 +2098,12 @@ class AstFormatter {
   }
 
   private emitClassMember(member: ClassFieldMember | ClassMethodMember): void {
+    if (member.annotations?.length) {
+      for (const ann of member.annotations) {
+        this.emitAnnotationApp(ann);
+        this.nl();
+      }
+    }
     this.applyIndent();
     if (member.kind === "ClassFieldMember") {
       const m = member as ClassFieldMember;

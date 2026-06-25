@@ -15,6 +15,7 @@ This section is the fast onboarding map for agents and contributors.
   - AST node definitions: `compiler/ast/ast.ts`
   - Binding-pattern traversal helpers: `compiler/ast/bindingPatterns.ts`
   - Shared structural AST traversal (pre-order walk with early termination plus first-match search): `compiler/ast/traversal.ts`
+  - Annotation-application collection across the whole program (top-level and class members), shared by LSP navigation/signature help: `compiler/ast/annotations.ts`
 - Source locations:
   - Shared user-facing source coordinate formatting: `compiler/sourceLocations.ts`
   - Source location tests: `compiler/sourceLocations.test.ts`

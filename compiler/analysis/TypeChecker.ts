@@ -1635,6 +1635,9 @@ export class TypeChecker {
       }
 
       for (const member of statement.members) {
+        for (const annotation of member.annotations ?? []) {
+          this.visitAnnotationApplication(annotation, classScope);
+        }
         if (member.kind === "ClassFieldMember") {
           const field = member as ClassFieldMember;
           const annotationType = field.typeAnnotation

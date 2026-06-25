@@ -141,6 +141,21 @@ describe("formatSource", () => {
     );
   });
 
+  it("formats annotations applied to class members on their own line", () => {
+    expect(
+      formatSource("class Test extends Behaviour {\n@Range(0.1, 10.0)\nvar scale: number\n@Deprecated\nfun init(){}\n}")
+    ).toBe(dedent`
+      class Test extends Behaviour {
+        @Range(0.1, 10.0)
+        var scale: number
+        @Deprecated
+        fun init() {
+        }
+      }
+    `.trimEnd()
+    );
+  });
+
   it("formats program statements with canonical spacing", () => {
     expect(formatSource("let a=1\na+=2\nwhile(a<10)a+=1"))
       .toBe("let a = 1\na += 2\nwhile (a < 10)a += 1");
