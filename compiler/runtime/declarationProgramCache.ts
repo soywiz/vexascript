@@ -70,4 +70,14 @@ export class DeclarationProgramCache<T extends CachedDeclarationProgram> {
   hasNode(node: Node): boolean {
     return this.cached?.nodes.has(node) === true;
   }
+
+  /**
+   * Test-only: drops the cached entry and any in-flight load so a subsequent
+   * `ensure()` exercises a fresh load. Used by concurrency tests that need a
+   * pristine cache even though the test harness preloads declarations.
+   */
+  reset(): void {
+    this.cached = null;
+    this.pending = null;
+  }
 }

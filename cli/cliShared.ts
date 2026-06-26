@@ -31,14 +31,12 @@ export async function globalDeclarationsForProject(project: VexaProject | null):
 }
 
 export async function ensureCompilerRuntimePrograms(): Promise<void> {
-  const {
-    ensureEcmaScriptRuntimeProgram,
-    ensureVexaScriptRuntimeProgram
-  } = await import("../compiler/runtime/ecmascriptDeclarations");
-  await Promise.all([
-    ensureEcmaScriptRuntimeProgram(),
-    ensureVexaScriptRuntimeProgram()
-  ]);
+  // Importing the Node wrapper installs the Node declarations host; the shared
+  // helper then loads both runtime declaration programs.
+  await import("../compiler/runtime/ecmascriptDeclarations");
+  const { ensureCompilerRuntimePrograms: ensurePrograms } =
+    await import("../compiler/runtime/ensureRuntimePrograms");
+  await ensurePrograms();
 }
 
 async function loadPackageJsonDeps(dir: string): Promise<Record<string, string> | null> {

@@ -62,3 +62,8 @@ export async function ensureEcmaScriptRuntimeProgram(): Promise<Program> {
 export function isEcmaScriptRuntimeNode(node: Node): boolean {
   return runtimeProgramCache.hasNode(node);
 }
+
+/** Test-only: clears the cached ECMAScript runtime program and any in-flight load. */
+export function resetEcmaScriptRuntimeProgramCacheForTests(): void {
+  runtimeProgramCache.reset();
+}

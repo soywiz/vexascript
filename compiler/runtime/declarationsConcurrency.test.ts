@@ -1,6 +1,9 @@
 import { describe, expect, it } from "../test/expect";
 import { patchRuntimeDeclarationsHost } from "./declarationHost";
-import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations.shared";
+import {
+  ensureEcmaScriptRuntimeProgram,
+  resetEcmaScriptRuntimeProgramCacheForTests
+} from "./ecmascriptDeclarations.shared";
 import { ensureDomProgram } from "./domDeclarations.shared";
 
 function deferred() {
@@ -13,6 +16,9 @@ function deferred() {
 
 describe("runtime declaration caches", () => {
   it("retries the ECMAScript declaration load after a failure instead of caching the rejection", async () => {
+    // The shared test harness (compiler/test/expect.ts) preloads the runtime
+    // declarations, so clear the cache to exercise a genuine first-time load.
+    resetEcmaScriptRuntimeProgramCacheForTests();
     patchRuntimeDeclarationsHost({
       loadEcmaScriptDeclarations: async () => {
         throw new Error("transient load failure");

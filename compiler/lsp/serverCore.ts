@@ -25,8 +25,7 @@ import type {
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { ProjectSessionLike } from "compiler/analysis/projectIndex";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
-import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
-import { ensureVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations.shared";
+import { ensureCompilerRuntimePrograms } from "compiler/runtime/ensureRuntimePrograms";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import type { AnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
@@ -386,14 +385,8 @@ export function startLspServer(options: LspServerOptions): void {
     return promise;
   }
 
-  connection.onInitialize(async (params) => {
-    // Load the embedded runtime declaration programs before serving any request.
-    // The synchronous getters used by the Binder/TypeChecker require them, and
-    // the LSP client waits for the initialize response before sending further
-    // requests, so awaiting here is the deterministic gate that replaces the
-    // former import-time preload (which relied on a problematic top-level await).
-    await Promise.all([ensureEcmaScriptRuntimeProgram(), ensureVexaScriptRuntimeProgram()]);
-    return logTimedOperationSync("initialize", () => {
+  connection.onInitialize((params) => {
+    const result = logTimedOperationSync("initialize", () => {
       environment.onInitialize?.(params);
       referenceCodeLensEnabled = params.initializationOptions?.enableReferenceCodeLens === true;
       inlayHintsParameters = params.initializationOptions?.enableInlayHintsParameters !== false;
@@ -458,6 +451,14 @@ export function startLspServer(options: LspServerOptions): void {
         }
       };
     });
+    // Load the embedded runtime declaration programs before completing the
+    // initialize response. The synchronous getters used by the Binder/TypeChecker
+    // require them; the LSP client waits for this response before sending further
+    // requests, so gating the resolved value here is the deterministic preload
+    // point that replaces the former (problematic) import-time top-level await.
+    // Capability/flag side effects above stay synchronous so callers that only
+    // depend on them do not need to await the initialize handshake.
+    return ensureCompilerRuntimePrograms().then(() => result);
   });
 
   connection.onInitialized(() => {

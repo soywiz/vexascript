@@ -533,6 +533,44 @@ describe("CLI", () => {
     expect(run.stderr).not.toContain("Detected unsettled top-level await");
   });
 
+  it("bundled LSP server has no module-scope top-level await", async () => {
+    // Regression: a single module-scope `await` (e.g. the former import-time
+    // declaration preload) makes the whole ESM bundle a top-level-await module.
+    // esbuild then emits `await init_<module>()` at column 0, Node reports
+    // "Detected unsettled top-level await", and the packaged extension server
+    // exits with code 13 in a restart loop. The server must bundle without one.
+    const dir = await mkdtemp(join(tmpdir(), "vexa-lsp-bundle-"));
+    const outfile = join(dir, "vexa.mjs");
+    const build = await spawnAndCapture(
+      process.execPath,
+      [
+        "node_modules/esbuild/bin/esbuild",
+        "compiler/lsp/server.ts",
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--target=node20",
+        `--outfile=${outfile}`,
+        "--external:vscode-languageserver",
+        "--external:vscode-languageserver/node.js",
+        "--external:vscode-languageserver-textdocument",
+        "--log-level=error",
+      ],
+      process.cwd()
+    );
+    expect(build.code).toBe(0);
+    expect(build.stderr).toBe("");
+
+    const bundle = await readFile(outfile, "utf8");
+    // Module-scope statements are emitted at column 0; awaits inside function
+    // bodies are indented, so a line that begins with `await ` is a top-level
+    // await.
+    const topLevelAwaitLines = bundle.split("\n").filter((line) => /^await\b/.test(line));
+    expect(topLevelAwaitLines).toEqual([]);
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("built CLI emits a single executable bundle file", async () => {
     const distPath = join(process.cwd(), "dist");
     await rm(distPath, { recursive: true, force: true });

@@ -1,17 +1,21 @@
 // Local expect adapter: re-exports node:test and wraps node:assert as expect().
 // Tests import from "../../expect" which resolves here via the scripts/resolver.mjs hook.
 import "../../cli/localVfs";
+// Side-effect import installs the Node runtime-declarations host for tests.
+import "compiler/runtime/ecmascriptDeclarations";
 import { describe, it, test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { ensureEcmaScriptRuntimeProgram, ensureVexaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import { ensureCompilerRuntimePrograms } from "compiler/runtime/ensureRuntimePrograms";
 
 // Preload the embedded runtime declaration programs so the synchronous getters
-// used across the compiler (Binder / TypeChecker / transpiler) work in tests
-// without every test awaiting an ensure*. The shipped compiler must NOT use a
-// top-level await (see compiler/runtime/ecmascriptDeclarations.ts), but this is
-// a test-only helper that never ships in any bundle, so the top-level await is
-// safe here and settles once before any test executes.
-await Promise.all([ensureEcmaScriptRuntimeProgram(), ensureVexaScriptRuntimeProgram()]);
+// used across the compiler (Binder / TypeChecker / transpiler) are ready in
+// tests without every test awaiting an ensure*. We register a root `before`
+// hook (NOT a top-level await): the shipped compiler must not use top-level
+// await, and the plugin tests are transpiled to CJS where top-level await is
+// unsupported. The test runner awaits this hook before running the file's tests.
+before(async () => {
+  await ensureCompilerRuntimePrograms();
+});
 
 export { describe, it, test, beforeEach, afterEach };
 export { before as beforeAll, after as afterAll };
