@@ -377,16 +377,16 @@ describe("LSP server core", () => {
     assert.equal(node.fakeDocuments.listened(), true);
   });
 
-  it("advertises workspace capabilities only when a workspace environment exists", () => {
+  it("advertises workspace capabilities only when a workspace environment exists", async () => {
     const node = startServer(true);
     const browser = startServer(false);
     const initializeParams = { initializationOptions: { enableReferenceCodeLens: true } };
 
-    const nodeResult = node.fakeConnection.handlers.get("initialize")!(initializeParams) as {
+    const nodeResult = await node.fakeConnection.handlers.get("initialize")!(initializeParams) as {
       capabilities: Record<string, unknown>;
       serverInfo: { name: string; version: string };
     };
-    const browserResult = browser.fakeConnection.handlers.get("initialize")!(initializeParams) as {
+    const browserResult = await browser.fakeConnection.handlers.get("initialize")!(initializeParams) as {
       capabilities: Record<string, unknown>;
       serverInfo: { name: string; version: string };
     };
