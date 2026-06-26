@@ -93,6 +93,8 @@ export interface LspWorkspaceFeatures {
 export interface LspServerEnvironment {
   /** Workspace folders used by cross-file features; empty in browser workers. */
   getSourceRoots(): string[];
+  /** Bare import aliases from project configuration, keyed by specifier. */
+  getImportMappings?(): Readonly<Record<string, string>>;
   /** Resolves the analysis session for a project file; `() => null` without a workspace. */
   getSessionForFilePath: GetSessionForFilePath;
   /** Called with the raw initialize params before capabilities are computed. */
@@ -224,13 +226,14 @@ export function startLspServer(options: LspServerOptions): void {
     return {
       uri,
       sourceRoots: environment.getSourceRoots(),
+      importMappings: environment.getImportMappings?.() ?? {},
       getSessionForFilePath: environment.getSessionForFilePath
     };
   }
 
   async function getExportedSymbolsForSession(session: AnalysisSession) {
     return [
-      ...await buildSymbolExports(environment.getSourceRoots()),
+      ...await buildSymbolExports(environment.getSourceRoots(), environment.getImportMappings?.() ?? {}),
       ...buildAmbientModuleSymbolExports({
         moduleDeclarations: session.ambientModuleDeclarations,
         moduleLocations: session.ambientModuleLocations
@@ -496,6 +499,7 @@ export function startLspServer(options: LspServerOptions): void {
       uri: doc.uri,
       ast: session.ast,
       sourceRoots: environment.getSourceRoots(),
+      importMappings: environment.getImportMappings?.() ?? {},
       getExportedSymbols: () => getExportedSymbolsForSession(session),
       prefix,
       excludeSymbols: new Set(visibleSymbols.map((symbol) => symbol.name))
@@ -781,6 +785,7 @@ export function startLspServer(options: LspServerOptions): void {
       params.position.character,
       {
         ...featureContext(params.textDocument.uri),
+        ambientDeclarations: session.ambientDeclarations,
         ambientModuleDeclarations: session.ambientModuleDeclarations,
         externalDeclarations: session.externalDeclarations
       }

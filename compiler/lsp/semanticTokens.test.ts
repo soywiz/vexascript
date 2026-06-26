@@ -184,6 +184,31 @@ describe("semantic tokens", () => {
     );
   });
 
+  it("highlights annotation names without swallowing annotation arguments", () => {
+    const source = dedent`
+      annotation Description(val description: string)
+      annotation Range(val min: number, val max: number)
+      class Test {
+        @Description("Multiplier applied by the script.")
+        @Range(0.1, 10.0)
+        var scale: number
+      }
+      `;
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === "Description" && token.tokenType === "annotation")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "Range" && token.tokenType === "annotation")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === '"Multiplier applied by the script."' && token.tokenType === "string")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "0.1" && token.tokenType === "number")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "10.0" && token.tokenType === "number")).toBe(true);
+  });
+
   it("highlights chain expression members like ordinary member accesses", () => {
     const source = dedent`
       class View {
@@ -419,7 +444,24 @@ describe("semantic tokens", () => {
     ).toBe(true);
   });
 
-  it("highlights fun/function separately from class/interface keywords", () => {
+  it("highlights annotation and enum declaration keywords as type keywords", () => {
+    const source = dedent`
+      annotation Demo(val value: int)
+      enum Axis { x, y }
+      `;
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === "annotation" && token.tokenType === "keywordType")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "enum" && token.tokenType === "keywordType")).toBe(true);
+  });
+
+  it("highlights fun/function like declaration modifiers", () => {
     const source = dedent`
       class Demo {
         fun update(): void {
@@ -435,7 +477,7 @@ describe("semantic tokens", () => {
     const decoded = decodeTokens(source, semantic.data);
 
     expect(decoded.some((token) => token.lexeme === "class" && token.tokenType === "keywordType")).toBe(true);
-    expect(decoded.some((token) => token.lexeme === "fun" && token.tokenType === "keywordFunction")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "fun" && token.tokenType === "keywordModifier")).toBe(true);
   });
   it("highlights identifiers introduced by destructuring as variables", () => {
     const source = "let { source :: target, nested :: { value }, ...rest } = input\nconst [first, , ...tail] = values";

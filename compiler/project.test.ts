@@ -1,4 +1,4 @@
-import { describe, expect, it, join, mkdtemp, tmpdir, writeFile } from "./test/expect";
+import { describe, expect, it, join, mkdir, mkdtemp, tmpdir, writeFile } from "./test/expect";
 import { loadProject } from "./project";
 import { resolveServeBundleInput } from "../cli/cliShared";
 
@@ -109,6 +109,38 @@ describe("project configuration", () => {
         { from: join(dir, "node_modules/pixi.js/dist/pixi.js"), to: "pixi.js" },
         { from: join(dir, "public/assets"), to: "assets" }
       ]
+    });
+  });
+
+  it("loads import mappings and global symbols relative to vexascript.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
+    const input = join(dir, "example", "main.vx");
+    await mkdir(join(dir, "example"), { recursive: true });
+    await writeFile(join(dir, "package.json"), JSON.stringify({ name: "mapped-project" }), "utf8");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({
+      importMappings: {
+        myengine: "runtime/myengine-runtime.vx"
+      },
+      globalSymbols: {
+        paths: ["runtime/myengine-runtime.vx"],
+        emit: "assume"
+      }
+    }), "utf8");
+    await writeFile(input, "", "utf8");
+
+    expect(await loadProject(input)).toEqual({
+      projectDir: dir,
+      dependencies: {},
+      importMappings: {
+        myengine: join(dir, "runtime/myengine-runtime.vx")
+      },
+      globalSymbols: {
+        paths: [join(dir, "runtime/myengine-runtime.vx")],
+        emit: "assume"
+      },
+      libs: [],
+      types: [],
+      serveMappings: []
     });
   });
 

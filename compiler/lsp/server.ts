@@ -17,6 +17,7 @@ import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocum
 import { AnalysisSessionCache } from "./analysisSession";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import { loadGlobalSymbolDeclarationFiles } from "compiler/runtime/moduleGraph";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import { loadProject } from "compiler/project";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
@@ -102,6 +103,7 @@ setVfs(new NodeServerVfs());
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(LspTextDocument);
 let sourceRoots: string[] = [];
+let importMappings: Readonly<Record<string, string>> = {};
 let projectIndex: ProjectIndex = getProjectIndex([]);
 const REFRESH_DIAGNOSTICS_COMMAND = "vexa.refreshDiagnostics";
 
@@ -142,12 +144,28 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
 
   // Load ambient types from tsconfig compilerOptions.types (e.g. @types/node)
   const project = filePath ? await loadProject(filePath) : null;
+  if (project) {
+    importMappings = project.importMappings ?? {};
+    projectIndex = getProjectIndex(sourceRoots, undefined, importMappings);
+  }
   const ambientTypes = await loadAmbientTypesForProject(filePath, project?.types ?? []);
 
   // Load DOM declarations if tsconfig lib includes "dom"
   const domDeclarations = (project?.libs ?? []).some((lib) => lib.toLowerCase() === "dom")
     ? (await ensureDomProgram()).body
     : [];
+  const globalDeclarationFiles = project?.globalSymbols ? await loadGlobalSymbolDeclarationFiles(project.globalSymbols.paths) : [];
+  const globalDeclarations = globalDeclarationFiles.flatMap((file) => file.declarations);
+  const globalDeclarationLocations = new Map(globalDeclarationFiles.flatMap((file) =>
+    file.declarations.map((statement) => [
+      statement,
+      {
+        filePath: file.filePath,
+        line: statement.firstToken?.range.start.line ?? 0,
+        character: statement.firstToken?.range.start.column ?? 0
+      }
+    ] as const)
+  ));
   const domDeclarationLocations = domDeclarations.length === 0
     ? new Map()
     : new Map(domDeclarations.map((statement) => [
@@ -162,6 +180,7 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
   const context = {
     uri: document.uri,
     sourceRoots,
+    importMappings,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments,
     ambientModuleDeclarations: ambientTypes.moduleDeclarations,
     ambientGlobalDeclarations: ambientTypes.globalDeclarations
@@ -177,8 +196,9 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
     externalDeclarations,
     importedSymbols,
     invalidImportedBindings,
-    ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
+    ambientDeclarations: [...globalDeclarations, ...ambientTypes.globalDeclarations, ...domDeclarations],
     ambientDeclarationLocations: new Map([
+      ...globalDeclarationLocations,
       ...domDeclarationLocations,
       ...ambientTypes.globalDeclarationLocations
     ]),
@@ -193,6 +213,12 @@ ensureEcmaScriptRuntimeProgram().catch(() => undefined);
 function syncOpenDocumentWithProjectIndex(document: LspTextDocument): void {
   const filePath = uriToFilePath(document.uri);
   if (filePath) {
+    loadProject(filePath).then((project) => {
+      if (project) {
+        importMappings = project.importMappings ?? {};
+        projectIndex = getProjectIndex(sourceRoots, undefined, importMappings);
+      }
+    }).catch(() => undefined);
     projectIndex.upsertOpenDocument(filePath, document.getText()).catch(() => undefined);
   }
 }
@@ -203,10 +229,11 @@ startLspServer({
   analysisSessions,
   environment: {
     getSourceRoots: () => sourceRoots,
+    getImportMappings: () => importMappings,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments,
     onInitialize: (params) => {
       sourceRoots = resolveSourceRoots(params);
-      projectIndex = getProjectIndex(sourceRoots);
+      projectIndex = getProjectIndex(sourceRoots, undefined, importMappings);
     },
     onDocumentOpenedOrChanged: syncOpenDocumentWithProjectIndex,
     onDocumentClosed: (document) => {

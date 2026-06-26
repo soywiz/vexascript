@@ -5,6 +5,8 @@ import { vfs } from "./vfs";
 export interface VexaProject {
   projectDir: string;
   dependencies: Record<string, string>;
+  importMappings?: Record<string, string>;
+  globalSymbols?: VexaGlobalSymbols;
   jsxFactory?: string;
   jsxFragmentFactory?: string;
   libs: string[];
@@ -17,6 +19,11 @@ export interface VexaProject {
 export interface VexaServeMapping {
   from: string;
   to: string;
+}
+
+export interface VexaGlobalSymbols {
+  paths: string[];
+  emit: "globalThis" | "assume";
 }
 
 interface PackageJsonConfig {
@@ -52,6 +59,9 @@ interface VexaScriptConfigJson extends CompilerOptionsConfig {
   entrypoint?: unknown;
   outDir?: unknown;
   outputDir?: unknown;
+  imports?: unknown;
+  importMappings?: unknown;
+  globalSymbols?: unknown;
   serveMappings?: unknown;
 }
 
@@ -213,6 +223,41 @@ function serveMappingsFromConfig(configDir: string, config: VexaScriptConfigJson
   return mappings;
 }
 
+function importMappingsFromConfig(configDir: string, config: VexaScriptConfigJson | null): Record<string, string> {
+  const rawMappings = config?.importMappings ?? config?.imports;
+  if (!rawMappings || typeof rawMappings !== "object" || Array.isArray(rawMappings)) {
+    return {};
+  }
+  const mappings: Record<string, string> = {};
+  for (const [specifier, target] of Object.entries(rawMappings as Record<string, unknown>)) {
+    if (typeof target === "string" && specifier.length > 0) {
+      mappings[specifier] = resolve(configDir, target);
+    }
+  }
+  return mappings;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+function globalSymbolsFromConfig(configDir: string, config: VexaScriptConfigJson | null): VexaGlobalSymbols {
+  const globalSymbols = config?.globalSymbols;
+  if (Array.isArray(globalSymbols)) {
+    return {
+      paths: stringArray(globalSymbols).map((entry) => resolve(configDir, entry)),
+      emit: "globalThis"
+    };
+  }
+  if (!globalSymbols || typeof globalSymbols !== "object") {
+    return { paths: [], emit: "globalThis" };
+  }
+  const record = globalSymbols as Record<string, unknown>;
+  const paths = stringArray(record["paths"] ?? record["files"] ?? record["include"]).map((entry) => resolve(configDir, entry));
+  const emit = record["emit"] === "assume" ? "assume" : "globalThis";
+  return { paths, emit };
+}
+
 export async function loadProject(startPath: string): Promise<VexaProject | null> {
   const startDir = (await fileExists(startPath) && !(await isDirectory(startPath)))
     ? dirname(startPath)
@@ -269,10 +314,14 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
       : undefined;
   const buildOutputDir = configuredBuildOutputDir ? resolve(configDir, configuredBuildOutputDir) : undefined;
   const serveMappings = serveMappingsFromConfig(configDir, vexaConfig);
+  const importMappings = importMappingsFromConfig(configDir, vexaConfig);
+  const globalSymbols = globalSymbolsFromConfig(configDir, vexaConfig);
 
   return {
     projectDir: packageDir ?? resolve(startDir),
     dependencies,
+    ...(Object.keys(importMappings).length > 0 ? { importMappings } : {}),
+    ...(globalSymbols.paths.length > 0 ? { globalSymbols } : {}),
     libs: libsFromConfig(config),
     types: typesFromConfig(config),
     serveMappings,

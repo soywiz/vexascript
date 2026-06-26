@@ -456,7 +456,7 @@ export class Parser {
             );
         }
         this.tokens.read();
-        const args = this.parseDelimitedList(")", () => this.parseAssignment(), "annotation argument list");
+        const args = this.parseDelimitedList(")", () => this.tryParseNamedArgument() ?? this.parseAssignment(), "annotation argument list");
         const closeParen = this.tokens.read();
         if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
             this.fail(`Expected ')' after '@${annotationName.value}' arguments`, this.tokenAt(closeParen));
@@ -6319,6 +6319,10 @@ export class Parser {
         }
 
         while (this.tokens.hasMore) {
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+                break;
+            }
+
             const firstToken = this.tokens.read();
             if (firstToken?.type !== "identifier") {
                 this.fail("Expected parameter name in class primary constructor", this.tokenAt(firstToken));
@@ -6346,7 +6350,7 @@ export class Parser {
             let parameterDefaultValue: Expr | undefined;
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
                 this.tokens.skip();
-                parameterDefaultValue = this.parseExpressionOrThrow();
+                parameterDefaultValue = this.parseAssignment();
             }
 
             const parameter: ClassPrimaryConstructorParameter = {
@@ -6417,10 +6421,32 @@ export class Parser {
             }
         }
 
-        const openBrace = this.tokens.read();
+        const buildInterfaceStatement = (members: InterfaceMember[]): InterfaceStatement => {
+            const statement: InterfaceStatement = {
+                kind: "InterfaceStatement",
+                name: this.buildIdentifierFromToken(interfaceNameToken),
+                members
+            };
+            if (declared) {
+                statement.declared = true;
+            }
+            if (typeParameters.length > 0) {
+                statement.typeParameters = typeParameters;
+            }
+            if (extendsTypes && extendsTypes.length > 0) {
+                statement.extendsTypes = extendsTypes;
+            }
+            return statement;
+        };
+
+        const openBrace = this.tokens.peek();
         if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            if (this.language === "vexa") {
+                return this.attachNodeBounds(buildInterfaceStatement([]), interfaceKeyword, this.getLastReadToken() ?? interfaceKeyword);
+            }
             this.fail("Expected '{' to start interface body", this.tokenAt(openBrace));
         }
+        this.tokens.skip();
 
         const members: InterfaceMember[] = [];
         while (this.tokens.hasMore) {
@@ -6430,21 +6456,7 @@ export class Parser {
             }
             if (token?.type === "symbol" && token.value === "}") {
                 this.tokens.skip();
-                const statement: InterfaceStatement = {
-                    kind: "InterfaceStatement",
-                    name: this.buildIdentifierFromToken(interfaceNameToken),
-                    members
-                };
-                if (declared) {
-                    statement.declared = true;
-                }
-                if (typeParameters.length > 0) {
-                    statement.typeParameters = typeParameters;
-                }
-                if (extendsTypes && extendsTypes.length > 0) {
-                    statement.extendsTypes = extendsTypes;
-                }
-                return this.attachNodeBounds(statement, interfaceKeyword, this.getLastReadToken() ?? interfaceKeyword);
+                return this.attachNodeBounds(buildInterfaceStatement(members), interfaceKeyword, this.getLastReadToken() ?? interfaceKeyword);
             }
 
             if (token?.type === "symbol" && token.value === ";") {

@@ -44,6 +44,9 @@ export interface PortableMonarchLanguage {
   defaultToken: string;
   keywords: string[];
   declarationKeywords: string[];
+  modifierKeywords: string[];
+  functionKeywords: string[];
+  typeKeywords: string[];
   controlKeywords: string[];
   tokenizer: Record<string, PortableMonarchRule[]>;
 }
@@ -68,12 +71,26 @@ export interface PortableLanguageConfiguration {
 }
 
 export function createPortableMonarchLanguage(): PortableMonarchLanguage {
-  const declarationKeywords = [...VEXA_KEYWORD_DECLARATIONS, ...VEXA_STORAGE_TYPES] as string[];
+  const modifierKeywords = [
+    "override", "readonly", "public", "private", "protected", "static", "abstract",
+    "get", "set", "async", "sync", "function", "fun", ...VEXA_STORAGE_TYPES
+  ] as string[];
+  const functionKeywords: string[] = [];
+  const typeKeywords = [
+    "declare", "namespace", "class", "interface", "annotation", "enum", "extends",
+    "implements", "import", "export", "from", "by", "keyof", "infer"
+  ] as string[];
+  const declarationKeywords = VEXA_KEYWORD_DECLARATIONS.filter(
+    (keyword) => !modifierKeywords.includes(keyword) && !functionKeywords.includes(keyword) && !typeKeywords.includes(keyword)
+  ) as string[];
   const controlKeywords = [...VEXA_KEYWORD_CONTROLS, ...VEXA_CONSTANTS] as string[];
   return {
     defaultToken: "",
-    keywords: [...declarationKeywords, ...controlKeywords],
+    keywords: [...declarationKeywords, ...modifierKeywords, ...functionKeywords, ...typeKeywords, ...controlKeywords],
     declarationKeywords,
+    modifierKeywords,
+    functionKeywords,
+    typeKeywords,
     controlKeywords,
     tokenizer: {
       root: [
@@ -81,12 +98,13 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`\/\/.*$`, token: "comment" },
         { match: String.raw`\/\*\*`, token: "comment.doc", next: "@doc_block_comment" },
         { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
+        { match: String.raw`@[A-Za-z_$][\w$]*`, token: "annotation" },
         { match: String.raw`(?<![\w)\]])<>`, token: "tag", next: "@jsx_children" },
         { match: String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
-        { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@declarationKeywords": "keyword.declaration", "@controlKeywords": "keyword.control", "@default": "identifier" } },
+        { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@modifierKeywords": "keywordModifier", "@functionKeywords": "keywordFunction", "@typeKeywords": "keywordType", "@declarationKeywords": "keyword.declaration", "@controlKeywords": "keyword.control", "@default": "identifier" } },
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
         { match: String.raw`(\.\.\.|\.\.<|\.\.)`, token: "operator" },
         { match: String.raw`[;,.]`, token: "delimiter" },
@@ -138,7 +156,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
-        { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@declarationKeywords": "keyword.declaration", "@controlKeywords": "keyword.control", "@default": "identifier" } },
+        { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@modifierKeywords": "keywordModifier", "@functionKeywords": "keywordFunction", "@typeKeywords": "keywordType", "@declarationKeywords": "keyword.declaration", "@controlKeywords": "keyword.control", "@default": "identifier" } },
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
         { match: String.raw`(\.\.\.|\.\.<|\.\.)`, token: "operator" },
         { match: String.raw`[;,.]`, token: "delimiter" },
@@ -198,6 +216,7 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
       { include: "#strings" },
       { include: "#regexps" },
       { include: "#jsx" },
+      { include: "#annotations" },
       { include: "#declarations" },
       { include: "#types" },
       { include: "#keywords" },
@@ -286,6 +305,17 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
         end: "\\}",
         endCaptures: { "0": { name: "punctuation.section.embedded.end.vexa" } },
         patterns: [{ include: "$self" }],
+      },
+      annotations: {
+        patterns: [
+          {
+            match: "(@)([_$A-Za-z][_$A-Za-z0-9]*)",
+            captures: {
+              "1": { name: "punctuation.definition.annotation.vexa" },
+              "2": { name: "entity.name.annotation.vexa" }
+            }
+          }
+        ]
       },
       declarations: {
         patterns: [

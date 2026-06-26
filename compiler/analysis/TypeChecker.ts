@@ -815,6 +815,13 @@ export class TypeChecker {
     parameterTypes: AnalysisType[],
     argumentTypes: AnalysisType[]
   ): void {
+    const hasNamedArguments = annotation.arguments.some((arg) => arg.kind === "NamedArgument");
+
+    if (hasNamedArguments) {
+      this.validateNamedAnnotationArguments(annotation, declaration, parameterTypes, argumentTypes);
+      return;
+    }
+
     const requiredCount = declaration.parameters.filter((parameter) => parameter.defaultValue === undefined).length;
     const providedCount = annotation.arguments.length;
     const totalCount = declaration.parameters.length;
@@ -852,6 +859,89 @@ export class TypeChecker {
         node: argumentNode
       });
       this.reportNestedMismatchContext(argumentType, expectedType, argumentNode);
+    }
+  }
+
+  private validateNamedAnnotationArguments(
+    annotation: AnnotationApplication,
+    declaration: AnnotationStatement,
+    parameterTypes: AnalysisType[],
+    argumentTypes: AnalysisType[]
+  ): void {
+    const paramNames = declaration.parameters.map((p) => bindingNameText(p.name));
+    const coveredIndices = new Set<number>();
+    let seenNamed = false;
+
+    for (let argIndex = 0; argIndex < annotation.arguments.length; argIndex += 1) {
+      const arg = annotation.arguments[argIndex];
+      const argType = argumentTypes[argIndex] ?? UNKNOWN_TYPE;
+
+      if (arg?.kind !== "NamedArgument") {
+        if (seenNamed) {
+          this.issues.push({
+            message: "Positional arguments cannot follow named arguments",
+            node: arg ?? annotation.name
+          });
+          continue;
+        }
+        const paramIndex = argIndex;
+        coveredIndices.add(paramIndex);
+        const expectedType = parameterTypes[paramIndex] ?? UNKNOWN_TYPE;
+        const paramName = declaration.parameters[paramIndex] ? bindingNameText(declaration.parameters[paramIndex]!.name) : `arg${paramIndex + 1}`;
+        if (paramIndex >= declaration.parameters.length) {
+          this.issues.push({
+            message: `Unexpected argument ${paramIndex + 1}; annotation expects at most ${declaration.parameters.length} argument(s)`,
+            node: arg ?? annotation.name
+          });
+        } else if (!isUnknownType(expectedType) && !isUnknownType(argType) && !this.isCallArgumentAssignable(argType, expectedType)) {
+          this.issues.push({
+            message: `Argument ${argIndex + 1} of type '${typeToString(argType)}' is not assignable to parameter '${paramName}' of type '${typeToString(expectedType)}'`,
+            node: arg ?? annotation.name
+          });
+          this.reportNestedMismatchContext(argType, expectedType, arg ?? annotation.name);
+        }
+        continue;
+      }
+
+      seenNamed = true;
+      const namedArg = arg as NamedArgument;
+      const paramIndex = paramNames.indexOf(namedArg.name.name);
+
+      if (paramIndex === -1) {
+        this.issues.push({
+          message: `Unknown named argument '${namedArg.name.name}'`,
+          node: namedArg.name
+        });
+        continue;
+      }
+      if (coveredIndices.has(paramIndex)) {
+        this.issues.push({
+          message: `Duplicate named argument '${namedArg.name.name}'`,
+          node: namedArg.name
+        });
+        continue;
+      }
+      coveredIndices.add(paramIndex);
+
+      const expectedType = parameterTypes[paramIndex] ?? UNKNOWN_TYPE;
+      if (!isUnknownType(expectedType) && !isUnknownType(argType) && !this.isCallArgumentAssignable(argType, expectedType)) {
+        this.issues.push({
+          message: `Argument of type '${typeToString(argType)}' is not assignable to parameter '${namedArg.name.name}' of type '${typeToString(expectedType)}'`,
+          node: namedArg
+        });
+        this.reportNestedMismatchContext(argType, expectedType, namedArg);
+      }
+    }
+
+    for (let paramIndex = 0; paramIndex < declaration.parameters.length; paramIndex += 1) {
+      const parameter = declaration.parameters[paramIndex];
+      if (!coveredIndices.has(paramIndex) && parameter?.defaultValue === undefined) {
+        const paramName = parameter ? bindingNameText(parameter.name) : `arg${paramIndex + 1}`;
+        this.issues.push({
+          message: `Missing named argument '${paramName}'`,
+          node: annotation.name
+        });
+      }
     }
   }
 

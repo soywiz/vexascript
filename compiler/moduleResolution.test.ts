@@ -117,6 +117,21 @@ describe("resolveImportTargetFilePath", () => {
     ).toBe(target);
   });
 
+  it("resolves bare specifiers through absolute import mappings", async () => {
+    const importer = join(root, "example", "main.vx");
+    const target = join(root, "runtime", "myengine-runtime.vx");
+    await mkdir(join(root, "example"), { recursive: true });
+    await mkdir(join(root, "runtime"), { recursive: true });
+    await writeFile(importer, "");
+    await writeFile(target, "");
+
+    expect(await resolveImportTargetFilePath(importer, "myengine", {
+      importMappings: {
+        myengine: target
+      }
+    })).toBe(target);
+  });
+
 });
 
 describe("resolveNodeModulesTypingsPath", () => {

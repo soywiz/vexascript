@@ -3003,6 +3003,7 @@ async function resolveImportTargetInContext(
 ): Promise<string | null> {
   return resolveImportTargetFilePath(importerFilePath, importPath, {
     vfs: context.vfs,
+    importMappings: context.importMappings,
     ...(context.getSessionForFilePath
       ? { getSessionForFilePath: context.getSessionForFilePath }
       : {})

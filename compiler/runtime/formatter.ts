@@ -2024,7 +2024,7 @@ class AstFormatter {
     this.tok("}");
   }
 
-  private hasBraceInSource(stmt: ClassStatement): boolean {
+  private hasBraceInSource(stmt: ClassStatement | InterfaceStatement): boolean {
     const lt = ltok(stmt as Node);
     if (!lt) return false;
     return lt.value === "}";
@@ -2183,6 +2183,9 @@ class AstFormatter {
         if (i > 0) { this.write(","); this.sp(); }
         this.emitTypeAnno(t as Node);
       });
+    }
+    if (!stmt.members.length && !this.hasBraceInSource(stmt)) {
+      return;
     }
     this.sp(); this.tok("{");
     this.nl();

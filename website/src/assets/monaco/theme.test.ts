@@ -55,7 +55,7 @@ describe("monaco theme", () => {
     });
     expect(typeKeyword).toEqual({
       token: "keywordType",
-      foreground: "4EC9B0",
+      foreground: "569CD6",
     });
     expect(controlKeyword).toEqual({
       token: "keywordControl",
@@ -76,6 +76,7 @@ describe("monaco theme", () => {
     expect(ruleByToken.get("property")?.foreground).toBe("9CDCFE");
     expect(ruleByToken.get("namespace")?.foreground).toBe("4EC9B0");
     expect(ruleByToken.get("type")?.foreground).toBe("4EC9B0");
+    expect(ruleByToken.get("annotation")?.foreground).toBe("DCDCAA");
     expect(ruleByToken.get("number")?.foreground).toBe("B5CEA8");
     expect(ruleByToken.get("string")?.foreground).toBe("CE9178");
     expect(ruleByToken.get("operator")?.foreground).toBe("D4D4D4");

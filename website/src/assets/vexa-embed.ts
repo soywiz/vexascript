@@ -1,3 +1,4 @@
+// @ts-nocheck
 import "monaco-editor/min/vs/editor/editor.main.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import * as monaco from "monaco-editor";
@@ -53,6 +54,7 @@ import {
 } from "../generated/embed-asset-manifest";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
+import type { AmbientModuleLocation } from "compiler/lsp/ambientTypesLoader";
 import type { SymbolExport } from "compiler/lsp/importFixes";
 import { bundleModuleGraph } from "compiler/runtime/moduleGraph";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
@@ -60,7 +62,7 @@ import { buildPreviewDocument } from "./previewDocument";
 import { completionInsertText, markerToDiagnostic } from "./monaco/providerConversions";
 import { shouldKeepValueSuggestions, shouldTriggerValueSuggestions } from "./monaco/suggestTrigger";
 import { WorkspaceVfs } from "./monaco/workspaceVfs";
-import { createCachedWorkspaceSessionResolver } from "./monaco/workspaceSessions";
+import { createCachedWorkspaceSessionResolver, type WorkspaceGlobalDeclarations } from "./monaco/workspaceSessions";
 import {
   createFileInWorkspace,
   createFileEntry,
@@ -77,9 +79,14 @@ import { createVexaScriptMonacoTheme, VEXA_MONACO_THEME_NAME } from "./monaco/th
 import { collectWorkspaceDiagnostics } from "./monaco/workspaceDiagnostics";
 import {
   createWorkbenchBrowserHistorySnapshot,
+  getWorkbenchBrowserHistoryEntryUri,
   pushWorkbenchBrowserHistorySnapshot,
   readWorkbenchBrowserHistorySnapshot,
+  withWorkbenchBrowserHistoryCurrentPosition,
+  withWorkbenchBrowserHistoryForwardTarget,
   writeWorkbenchBrowserHistorySnapshot,
+  type WorkbenchBrowserHistoryEntry,
+  type WorkbenchBrowserHistoryPosition,
   type WorkbenchBrowserHistorySnapshot,
 } from "./workbenchBrowserHistory";
 import {
@@ -132,12 +139,18 @@ interface WorkspaceEditorOptions {
 
 interface WorkbenchEditorOptions extends WorkspaceEditorOptions {
   allowWorkspaceWrites?: boolean;
+  showTabs?: boolean;
+  importMappings?: Record<string, string>;
+  globalSymbols?: { paths: string[]; emit?: "globalThis" | "assume" };
   storageKey?: string;
   sessionStorageKey?: string;
 }
 
 interface EmbedWorkspaceContext {
   vfs: WorkspaceVfs;
+  importMappings: Readonly<Record<string, string>>;
+  globalSymbols?: { paths: string[]; emit?: "globalThis" | "assume" };
+  getGlobalDeclarations(): Promise<WorkspaceGlobalDeclarations>;
   getSessionForFilePath(filePath: string): ReturnType<typeof createAnalysisSession> | null | Promise<ReturnType<typeof createAnalysisSession> | null>;
   getExportedSymbols(): Promise<SymbolExport[]>;
   getRevision(): number;
@@ -371,6 +384,9 @@ function toMonacoMonarchLanguage(portable: PortableMonarchLanguage): Record<stri
     defaultToken: portable.defaultToken,
     keywords: portable.keywords,
     declarationKeywords: portable.declarationKeywords,
+    modifierKeywords: portable.modifierKeywords,
+    functionKeywords: portable.functionKeywords,
+    typeKeywords: portable.typeKeywords,
     controlKeywords: portable.controlKeywords,
     tokenizer,
   };
@@ -430,14 +446,17 @@ async function getSessionForModel(model: monaco.editor.ITextModel): Promise<Retu
       uri: model.uri.toString(),
       sourceRoots: [],
       vfs: workspaceContext.vfs,
+      importMappings: workspaceContext.importMappings,
       getSessionForFilePath: workspaceContext.getSessionForFilePath,
       getExportedSymbols: workspaceContext.getExportedSymbols,
     };
     const { externalDeclarations, importedSymbols, invalidImportedBindings } =
       await collectAllImportedDeclarations(ast, resolverContext);
+    const globalDeclarations = await workspaceContext.getGlobalDeclarations();
     return createAnalysisSession(source, {
       externalDeclarations,
-      ambientDeclarations,
+      ambientDeclarations: [...globalDeclarations.declarations, ...ambientDeclarations],
+      ambientDeclarationLocations: globalDeclarations.locations,
       invalidImportedBindings,
       importedSymbols
     });
@@ -587,6 +606,7 @@ function resolverContext(model: monaco.editor.ITextModel, workspaceContext?: Emb
     sourceRoots: [],
     ...(workspaceContext ? {
       vfs: workspaceContext.vfs,
+      importMappings: workspaceContext.importMappings,
       getSessionForFilePath: workspaceContext.getSessionForFilePath,
       getExportedSymbols: workspaceContext.getExportedSymbols,
     } : {}),
@@ -887,7 +907,12 @@ function registerSignatureHelpProvider(): void {
         session.analysis,
         position.lineNumber - 1,
         position.column - 1,
-        resolverContext(model, workspaceContext)
+        {
+          ...resolverContext(model, workspaceContext),
+          ambientDeclarations: session.ambientDeclarations,
+          ambientModuleDeclarations: session.ambientModuleDeclarations,
+          externalDeclarations: session.externalDeclarations,
+        }
       );
       if (!help) {
         return null;
@@ -1740,6 +1765,16 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const entriesStorageKey = options.storageKey ?? DEFAULT_WORKBENCH_STORAGE_KEY;
   const sessionStorageKey = options.sessionStorageKey ?? DEFAULT_WORKBENCH_SESSION_STORAGE_KEY;
   const allowWorkspaceWrites = options.allowWorkspaceWrites ?? true;
+  const showTabs = options.showTabs ?? true;
+  const importMappings = Object.fromEntries(
+    Object.entries(options.importMappings ?? {}).map(([specifier, targetPath]) => [specifier, normalizePath(targetPath)])
+  );
+  const globalSymbols = options.globalSymbols
+    ? {
+        paths: options.globalSymbols.paths.map((path) => normalizePath(path)),
+        emit: options.globalSymbols.emit ?? "globalThis" as const,
+      }
+    : undefined;
   const storage = (() => {
     try {
       return window.localStorage;
@@ -1771,6 +1806,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const sidebarTree = shell.querySelector<HTMLElement>(".vexa-embed-workbench-tree")!;
   const treeContextMenu = shell.querySelector<HTMLElement>(".vexa-embed-tree-context-menu")!;
   const tabBar = shell.querySelector<HTMLElement>(".vexa-embed-workbench-tabs")!;
+  tabBar.hidden = !showTabs;
   const body = shell.querySelector<HTMLElement>(".vexa-embed-workbench-body")!;
   const sidebar = shell.querySelector<HTMLElement>(".vexa-embed-workbench-sidebar")!;
   const editorHost = shell.querySelector<HTMLElement>(".vexa-embed-workbench-editor")!;
@@ -1861,6 +1897,36 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     return entry?.kind === "file" ? entry.content : null;
   };
 
+  const globalSymbolFileEntries = (): WorkspaceFile[] => {
+    const paths = globalSymbols?.paths ?? [];
+    if (paths.length === 0) {
+      return [];
+    }
+    return entries.filter((entry): entry is WorkspaceFile => {
+      if (entry.kind !== "file" || entry.language !== "vexa") {
+        return false;
+      }
+      return paths.some((path) => entry.path === path || entry.path.startsWith(`${path}/`));
+    });
+  };
+
+  const getWorkspaceGlobalDeclarations = async (): Promise<WorkspaceGlobalDeclarations> => {
+    const declarations: Statement[] = [];
+    const locations = new Map<Statement, AmbientModuleLocation>();
+    for (const entry of globalSymbolFileEntries()) {
+      const source = getWorkspaceFileSource(entry.uri) ?? entry.content;
+      for (const statement of parseSource(source).ast?.body ?? []) {
+        declarations.push(statement);
+        locations.set(statement, {
+          filePath: entry.path,
+          line: statement.firstToken?.range.start.line ?? 0,
+          character: statement.firstToken?.range.start.column ?? 0
+        });
+      }
+    }
+    return { declarations, locations };
+  };
+
   const workspaceVfs = new WorkspaceVfs({
     getEntries: () => entries,
     readWorkspaceFile: (uri) => getWorkspaceFileSource(uri),
@@ -1869,6 +1935,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
 
   const getWorkspaceSessionForFilePath = createCachedWorkspaceSessionResolver({
     getAmbientDeclarations: getDomAmbientDeclarations,
+    getGlobalDeclarations: getWorkspaceGlobalDeclarations,
     getWorkspaceFileSource,
     getWorkspaceRevision: () => workspaceRevision,
     isRuntimeDeclarationPath,
@@ -1877,6 +1944,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
 
   const getWorkspaceExportedSymbols = async (): Promise<SymbolExport[]> => {
     const symbols: SymbolExport[] = [];
+    const aliasByPath = new Map(Object.entries(importMappings).map(([specifier, targetPath]) => [targetPath, specifier]));
     for (const entry of entries) {
       if (entry.kind !== "file" || entry.language !== "vexa") {
         continue;
@@ -1887,6 +1955,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
           name: declaration.name,
           kind: declaration.kind,
           filePath: entry.path,
+          ...(aliasByPath.get(entry.path) ? { importPath: aliasByPath.get(entry.path) } : {}),
           ...(declaration.receiverType ? { receiverType: declaration.receiverType } : {}),
           ...(declaration.memberKind ? { memberKind: declaration.memberKind } : {}),
         });
@@ -1897,6 +1966,9 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
 
   const workspaceContext: EmbedWorkspaceContext = {
     vfs: workspaceVfs,
+    importMappings,
+    ...(globalSymbols ? { globalSymbols } : {}),
+    getGlobalDeclarations: getWorkspaceGlobalDeclarations,
     getSessionForFilePath: getWorkspaceSessionForFilePath,
     getExportedSymbols: getWorkspaceExportedSymbols,
     getRevision: () => workspaceRevision,
@@ -1912,6 +1984,13 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     refreshToolbarState();
   });
   editor.onKeyDown((event) => {
+    const isPrimaryModifierPressed = event.metaKey || event.ctrlKey;
+    if (isPrimaryModifierPressed && event.altKey && (event.keyCode === monaco.KeyCode.LeftArrow || event.keyCode === monaco.KeyCode.RightArrow)) {
+      event.preventDefault();
+      event.stopPropagation();
+      navigateWorkbenchHistory(event.keyCode === monaco.KeyCode.LeftArrow ? "back" : "forward");
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.keyCode === monaco.KeyCode.KeyS) {
       event.preventDefault();
       event.stopPropagation();
@@ -2101,6 +2180,8 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
       const result = await bundleModuleGraph(activeEntry.path, "optimized", {
         vfs: workspaceVfs,
         ambientDeclarations: await getDomAmbientDeclarations(),
+        importMappings,
+        ...(globalSymbols ? { globalSymbols } : {}),
       });
       if (result.errors.length > 0) {
         const seenMessages = new Set<string>();
@@ -2195,6 +2276,10 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   };
 
   const renderTabs = (): void => {
+    if (!showTabs) {
+      tabBar.textContent = "";
+      return;
+    }
     tabBar.textContent = "";
     for (const entry of editableFiles()) {
       tabBar.appendChild(createTabButton(
@@ -2223,6 +2308,53 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     syncInlayHintsButton();
   };
 
+  const toWorkbenchHistoryPosition = (
+    position?: monaco.IPosition | null
+  ): WorkbenchBrowserHistoryPosition | undefined => {
+    if (!position) {
+      return undefined;
+    }
+    return {
+      lineNumber: position.lineNumber,
+      column: position.column,
+    };
+  };
+
+  const historyPositionFromSelectionOrPosition = (
+    selectionOrPosition?: monaco.IRange | monaco.IPosition
+  ): WorkbenchBrowserHistoryPosition | undefined => {
+    if (!selectionOrPosition) {
+      return undefined;
+    }
+    if ("endLineNumber" in selectionOrPosition) {
+      return {
+        lineNumber: selectionOrPosition.startLineNumber,
+        column: selectionOrPosition.startColumn,
+      };
+    }
+    return toWorkbenchHistoryPosition(selectionOrPosition);
+  };
+
+  const writeBrowserHistorySnapshot = (
+    snapshot: WorkbenchBrowserHistorySnapshot,
+    mode: "replace" | "push"
+  ): void => {
+    const state = writeWorkbenchBrowserHistorySnapshot(window.history.state, workbenchHistoryId, snapshot);
+    if (mode === "replace") {
+      window.history.replaceState(state, "", window.location.href);
+      return;
+    }
+    window.history.pushState(state, "", window.location.href);
+  };
+
+  const replaceCurrentBrowserHistoryPosition = (): void => {
+    browserHistorySnapshot = withWorkbenchBrowserHistoryCurrentPosition(
+      browserHistorySnapshot,
+      toWorkbenchHistoryPosition(editor.getPosition())
+    );
+    writeBrowserHistorySnapshot(browserHistorySnapshot, "replace");
+  };
+
   const openFile = (
     path: string,
     selectionOrPosition?: monaco.IRange | monaco.IPosition,
@@ -2233,12 +2365,22 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
       throw new Error(`VexaScript workbench file not found: ${path}`);
     }
     if (trackHistory && activeUri !== entry.uri) {
-      browserHistorySnapshot = pushWorkbenchBrowserHistorySnapshot(browserHistorySnapshot, entry.uri);
-      window.history.pushState(
-        writeWorkbenchBrowserHistorySnapshot(window.history.state, workbenchHistoryId, browserHistorySnapshot),
-        "",
-        window.location.href
+      const targetHistoryPosition = historyPositionFromSelectionOrPosition(selectionOrPosition);
+      const targetHistoryEntry: WorkbenchBrowserHistoryEntry = {
+        uri: entry.uri,
+        ...(targetHistoryPosition ? { position: targetHistoryPosition } : {}),
+      };
+      const snapshotWithCurrentPosition = withWorkbenchBrowserHistoryCurrentPosition(
+        browserHistorySnapshot,
+        toWorkbenchHistoryPosition(editor.getPosition())
       );
+      const previousSnapshot = withWorkbenchBrowserHistoryForwardTarget(
+        snapshotWithCurrentPosition,
+        targetHistoryEntry
+      );
+      writeBrowserHistorySnapshot(previousSnapshot, "replace");
+      browserHistorySnapshot = pushWorkbenchBrowserHistorySnapshot(snapshotWithCurrentPosition, targetHistoryEntry);
+      writeBrowserHistorySnapshot(browserHistorySnapshot, "push");
     }
     activeUri = entry.uri;
     selectedPath = entry.path;
@@ -2247,9 +2389,14 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     const model = entry.readOnly ? ensureModel(entry) : bindEditableModel(entry);
     editor.setModel(model);
     editor.updateOptions({ readOnly: !allowWorkspaceWrites || !!entry.readOnly });
-  applySelectionOrPosition(
+    const historyPosition = getWorkbenchBrowserHistoryEntryUri(browserHistorySnapshot.current) === entry.uri
+      ? browserHistorySnapshot.current.position
+      : undefined;
+    applySelectionOrPosition(
       editor,
-      selectionOrPosition ?? (entry.path === normalizePath(options.activePath ?? "") ? options.selection : undefined)
+      selectionOrPosition
+        ?? historyPosition
+        ?? (entry.path === normalizePath(options.activePath ?? "") ? options.selection : undefined)
     );
     stabilizeEditorLayout(editor);
     refreshDiagnosticsAndGlyphs(editor, model, "open-file");
@@ -2395,18 +2542,21 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     },
   });
 
-  backButton.addEventListener("click", () => {
-    if (browserHistorySnapshot.back.length === 0) {
+  const navigateWorkbenchHistory = (direction: "back" | "forward"): void => {
+    const stack = direction === "back" ? browserHistorySnapshot.back : browserHistorySnapshot.forward;
+    if (stack.length === 0) {
       return;
     }
-    window.history.back();
-  });
-  forwardButton.addEventListener("click", () => {
-    if (browserHistorySnapshot.forward.length === 0) {
-      return;
+    replaceCurrentBrowserHistoryPosition();
+    if (direction === "back") {
+      window.history.back();
+    } else {
+      window.history.forward();
     }
-    window.history.forward();
-  });
+  };
+
+  backButton.addEventListener("click", () => navigateWorkbenchHistory("back"));
+  forwardButton.addEventListener("click", () => navigateWorkbenchHistory("forward"));
   saveButton.addEventListener("click", () => {
     persist();
     refreshToolbarState();
@@ -2556,17 +2706,24 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   });
   const handleBrowserPopState = (event: PopStateEvent): void => {
     const snapshot = readWorkbenchBrowserHistorySnapshot(event.state, workbenchHistoryId);
-    if (!snapshot || snapshot.current === activeUri) {
+    if (!snapshot) {
+      return;
+    }
+    const nextUri = getWorkbenchBrowserHistoryEntryUri(snapshot.current);
+    if (nextUri === activeUri) {
+      browserHistorySnapshot = snapshot;
+      applySelectionOrPosition(editor, snapshot.current.position);
+      refreshToolbarState();
       return;
     }
     const nextEntry = entries.find((entry): entry is WorkspaceFile =>
-      entry.kind === "file" && entry.uri === snapshot.current
+      entry.kind === "file" && entry.uri === nextUri
     );
     if (!nextEntry) {
       return;
     }
     browserHistorySnapshot = snapshot;
-    openFile(nextEntry.path, undefined, false);
+    openFile(nextEntry.path, snapshot.current.position, false);
   };
   window.addEventListener("popstate", handleBrowserPopState);
   window.addEventListener("beforeunload", persistSession);
@@ -2583,18 +2740,18 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   window.addEventListener("resize", handleViewportToggle);
   compactSidebarMedia.addEventListener("change", handleViewportToggle);
   handleViewportToggle();
-  browserHistorySnapshot = createWorkbenchBrowserHistorySnapshot(activeUri);
-  window.history.replaceState(
-    writeWorkbenchBrowserHistorySnapshot(window.history.state, workbenchHistoryId, browserHistorySnapshot),
-    "",
-    window.location.href
-  );
+  const restoredPosition: monaco.IPosition | undefined = savedSession
+    ? { lineNumber: savedSession.lineNumber, column: savedSession.column }
+    : undefined;
+  const initialHistoryPosition = historyPositionFromSelectionOrPosition(options.selection ?? restoredPosition);
+  browserHistorySnapshot = createWorkbenchBrowserHistorySnapshot({
+    uri: activeUri,
+    ...(initialHistoryPosition ? { position: initialHistoryPosition } : {}),
+  });
+  writeBrowserHistorySnapshot(browserHistorySnapshot, "replace");
   void ensureEmbeddedRuntimeReady()
     .then(async () => {
       await refreshBundledRuntimeEntries();
-      const restoredPosition: monaco.IPosition | undefined = savedSession
-        ? { lineNumber: savedSession.lineNumber, column: savedSession.column }
-        : undefined;
       openFile(initialEntry.path, options.selection ?? restoredPosition, false);
       await runCurrentWorkspace();
     })

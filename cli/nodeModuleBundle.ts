@@ -9,6 +9,7 @@ import { vfs, type Vfs } from "../compiler/vfs";
 interface BundleNodeModulesOptions {
   vfs?: Vfs;
   virtualSources?: ReadonlyMap<string, string>;
+  importMappings?: Readonly<Record<string, string>>;
   externalDependencyStrategy?: "runtime-error" | "node-require";
 }
 
@@ -415,6 +416,7 @@ async function resolveDependency(
   specifier: string,
   vfs: Vfs,
   virtualSources: ReadonlyMap<string, string>,
+  importMappings: Readonly<Record<string, string>>,
   context: ResolutionContext
 ): Promise<ResolvedDependency> {
   const cacheKey = dependencyCacheKey(importerFilePath, specifier);
@@ -426,6 +428,16 @@ async function resolveDependency(
     const resolved = { kind: "external" } satisfies ResolvedDependency;
     context.resolvedDependencyByKey.set(cacheKey, resolved);
     return resolved;
+  }
+
+  const mappedTarget = importMappings[specifier];
+  if (mappedTarget) {
+    const targetPath = await resolveAsModulePath(mappedTarget, vfs, virtualSources, context);
+    if (targetPath) {
+      const resolved = { kind: "bundled", filePath: targetPath } satisfies ResolvedDependency;
+      context.resolvedDependencyByKey.set(cacheKey, resolved);
+      return resolved;
+    }
   }
 
   if (isRelativeOrAbsoluteSpecifier(specifier)) {
@@ -700,6 +712,7 @@ async function createCachedBundledModuleArtifact(
   filePath: string,
   vfs: Vfs,
   virtualSources: ReadonlyMap<string, string>,
+  importMappings: Readonly<Record<string, string>>,
   context: ResolutionContext
 ): Promise<CachedBundledModuleArtifact> {
   const extension = extname(filePath).toLowerCase();
@@ -715,7 +728,7 @@ async function createCachedBundledModuleArtifact(
   const transpiledCode = rewriteStaticDynamicImports(transpiled.code);
   const resolvedDependencies: Record<string, string | null> = {};
   for (const specifier of [...detectStaticRequires(transpiledCode), ...detectStaticDynamicImports(transpiled.code)]) {
-    const resolved = await resolveDependency(filePath, specifier, vfs, virtualSources, context);
+    const resolved = await resolveDependency(filePath, specifier, vfs, virtualSources, importMappings, context);
     resolvedDependencies[specifier] = resolved.kind === "bundled" ? resolved.filePath : null;
   }
   return {
@@ -729,10 +742,11 @@ async function loadBundledModuleArtifact(
   filePath: string,
   vfs: Vfs,
   virtualSources: ReadonlyMap<string, string>,
+  importMappings: Readonly<Record<string, string>>,
   context: ResolutionContext
 ): Promise<CachedBundledModuleArtifact> {
   if (virtualSources.has(filePath)) {
-    return createCachedBundledModuleArtifact(filePath, vfs, virtualSources, context);
+    return createCachedBundledModuleArtifact(filePath, vfs, virtualSources, importMappings, context);
   }
 
   const mtimeMs = await fileMtimeInVfs(filePath, vfs, context);
@@ -741,7 +755,7 @@ async function loadBundledModuleArtifact(
     return cached;
   }
 
-  const artifact = await createCachedBundledModuleArtifact(filePath, vfs, virtualSources, context);
+  const artifact = await createCachedBundledModuleArtifact(filePath, vfs, virtualSources, importMappings, context);
   bundledModuleArtifactCache.set(filePath, artifact);
   return artifact;
 }
@@ -753,6 +767,7 @@ export async function bundleNodeModuleGraph(
 ): Promise<BundleNodeModulesResult> {
   const activeVfs = options.vfs ?? vfs();
   const virtualSources = options.virtualSources ?? new Map<string, string>();
+  const importMappings = options.importMappings ?? {};
   const resolutionContext = createResolutionContext();
   const externalDependencyStrategy = options.externalDependencyStrategy ?? "runtime-error";
   const entryId = "__vexa_entry__";
@@ -773,7 +788,7 @@ export async function bundleNodeModuleGraph(
     if (!virtualSources.has(filePath)) {
       watchedFiles.add(filePath);
     }
-    const artifact = await loadBundledModuleArtifact(filePath, activeVfs, virtualSources, resolutionContext);
+    const artifact = await loadBundledModuleArtifact(filePath, activeVfs, virtualSources, importMappings, resolutionContext);
     const dependencyMap: Record<string, string | null> = {};
     for (const [specifier, resolvedFilePath] of Object.entries(artifact.resolvedDependencies)) {
       if (resolvedFilePath !== null) {
@@ -798,7 +813,7 @@ export async function bundleNodeModuleGraph(
   const entryCode = rewriteStaticDynamicImports(entryTranspiled.code);
   const entryDependencyMap: Record<string, string | null> = {};
   for (const specifier of [...detectStaticRequires(entryCode), ...detectStaticDynamicImports(entryTranspiled.code)]) {
-    const resolved = await resolveDependency(sourcePath, specifier, activeVfs, virtualSources, resolutionContext);
+    const resolved = await resolveDependency(sourcePath, specifier, activeVfs, virtualSources, importMappings, resolutionContext);
     if (resolved.kind === "bundled") {
       entryDependencyMap[specifier] = await visitResolvedFile(resolved.filePath);
     } else {

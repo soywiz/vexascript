@@ -183,6 +183,35 @@ describe("signature help", () => {
     });
   });
 
+  it("provides constructor signature help for ambient global class calls without new", async () => {
+    const runtime = parseSource("class Vector3(val x: number, val y: number, val z: number)");
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Test {
+        fun init() {
+          Vector3(^^^)
+        }
+      }
+    `);
+
+    const session = createAnalysisSession(source, {
+      ambientDeclarations: runtime.ast?.body ?? []
+    });
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character, {
+      ambientDeclarations: session.ambientDeclarations
+    });
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "Vector3(x: number, y: number, z: number): Vector3",
+          parameters: [{ label: "x: number" }, { label: "y: number" }, { label: "z: number" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
   it("provides signature help for static members on ambient runtime constructors", async () => {
     const source = dedent`
       fun script() {

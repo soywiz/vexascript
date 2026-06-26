@@ -45,6 +45,7 @@ export interface ResolveContext {
   session: SessionLike;
   sourceRoots: string[];
   vfs?: import("compiler/vfs").Vfs;
+  importMappings?: Readonly<Record<string, string>>;
   getSessionForFilePath?: (filePath: string) => SessionLike | null | Promise<SessionLike | null>;
 }
 
@@ -352,7 +353,10 @@ export async function resolveImportTargetInContext(
   importPath: string,
   context: ResolveContext
 ): Promise<string | null> {
-  const diskPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs: context.vfs });
+  const diskPath = await resolveImportTargetFilePath(importerFilePath, importPath, {
+    vfs: context.vfs,
+    importMappings: context.importMappings
+  });
   if (diskPath || !context.getSessionForFilePath) {
     return diskPath;
   }

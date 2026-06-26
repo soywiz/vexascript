@@ -88,6 +88,53 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("bundles local modules imported through absolute import mappings", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "runtime/myengine-runtime.vx": "class Vector3(val x: number, val y: number, val z: number)\n",
+        "example/main.vx": 'import { Vector3 } from "myengine"\n\nconst p = Vector3(1, 2, 3)\n'
+      },
+      async (dir) => {
+        const runtimePath = join(dir, "runtime", "myengine-runtime.vx");
+        const result = await bundleModuleGraph(join(dir, "example", "main.vx"), "conservative", {
+          importMappings: {
+            myengine: runtimePath
+          }
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(result.code).toContain("class Vector3 {");
+        expect(result.code).not.toContain('from "myengine"');
+        expect(result.code).toContain("const p = new Vector3(1, 2, 3);");
+      }
+    );
+  });
+
+  it("makes configured global symbol files available without imports and emits them on globalThis", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "runtime/myengine-runtime.vx": "class Vector3(val x: number, val y: number, val z: number)\n",
+        "example/main.vx": "const p = Vector3(1, 2, 3)\n"
+      },
+      async (dir) => {
+        const runtimePath = join(dir, "runtime", "myengine-runtime.vx");
+        const result = await bundleModuleGraph(join(dir, "example", "main.vx"), "conservative", {
+          globalSymbols: {
+            paths: [runtimePath],
+            emit: "globalThis"
+          }
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(result.code).toContain("class Vector3 {");
+        expect(result.code).toContain("globalThis.Vector3 = Vector3;");
+        expect(result.code).toContain("const p = new Vector3(1, 2, 3);");
+      }
+    );
+  });
+
   it("bundles the website playground starter workspace without stack overflows", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(

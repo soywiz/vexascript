@@ -39,19 +39,49 @@ export interface SymbolExportProvider {
 
 const CODE_ACTION_KIND_QUICK_FIX = "quickfix";
 
-export async function buildSymbolExports(sourceRoots: string[]): Promise<SymbolExport[]> {
+function importAliasByTargetPath(importMappings: Readonly<Record<string, string>> = {}): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const [specifier, target] of Object.entries(importMappings)) {
+    result.set(target, specifier);
+  }
+  return result;
+}
+
+export async function buildSymbolExports(
+  sourceRoots: string[],
+  importMappings: Readonly<Record<string, string>> = {}
+): Promise<SymbolExport[]> {
   const exports: SymbolExport[] = [];
-  const projectIndex = getProjectIndex(sourceRoots);
+  const projectIndex = getProjectIndex(sourceRoots, undefined, importMappings);
+  const aliasByPath = importAliasByTargetPath(importMappings);
 
   try {
     for (const entry of await projectIndex.collectWorkspaceTopLevelDeclarations("")) {
+      const importPath = aliasByPath.get(entry.filePath);
       exports.push({
         name: entry.declaration.name,
         kind: entry.declaration.kind,
         ...(entry.declaration.receiverType !== undefined ? { receiverType: entry.declaration.receiverType } : {}),
         ...(entry.declaration.memberKind !== undefined ? { memberKind: entry.declaration.memberKind } : {}),
-        filePath: entry.filePath
+        filePath: entry.filePath,
+        ...(importPath ? { importPath } : {})
       });
+    }
+    for (const [importPath, filePath] of Object.entries(importMappings)) {
+      const indexed = await projectIndex.getIndexedFileData(filePath);
+      if (!indexed) {
+        continue;
+      }
+      for (const declaration of indexed.declarations) {
+        exports.push({
+          name: declaration.name,
+          kind: declaration.kind,
+          ...(declaration.receiverType !== undefined ? { receiverType: declaration.receiverType } : {}),
+          ...(declaration.memberKind !== undefined ? { memberKind: declaration.memberKind } : {}),
+          filePath,
+          importPath
+        });
+      }
     }
   } catch {
     // Ignore unreadable files for quick-fix discovery.
@@ -208,6 +238,7 @@ export function buildAmbientModuleSymbolExports(params: {
 
 async function resolveAvailableSymbolExports(params: {
   sourceRoots: string[];
+  importMappings?: Readonly<Record<string, string>>;
   getExportedSymbols?: SymbolExportProvider;
 }): Promise<SymbolExport[]> {
   if (params.getExportedSymbols) {
@@ -216,7 +247,7 @@ async function resolveAvailableSymbolExports(params: {
   if (params.sourceRoots.length === 0) {
     return [];
   }
-  return buildSymbolExports(params.sourceRoots);
+  return buildSymbolExports(params.sourceRoots, params.importMappings);
 }
 
 /**
@@ -445,6 +476,7 @@ export async function createAutoImportCodeActions(params: {
   ast: Program | null;
   diagnostics: Diagnostic[];
   sourceRoots: string[];
+  importMappings?: Readonly<Record<string, string>>;
   getExportedSymbols?: SymbolExportProvider;
 }): Promise<CodeAction[]> {
   const { uri, ast, diagnostics, sourceRoots } = params;
@@ -465,6 +497,7 @@ export async function createAutoImportCodeActions(params: {
 
   const exportedSymbols = await resolveAvailableSymbolExports({
     sourceRoots,
+    ...(params.importMappings ? { importMappings: params.importMappings } : {}),
     ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {}),
   });
   const nodeModuleExports = await collectNodeModuleExportsFromExistingImports(ast, currentFilePath);
@@ -641,6 +674,7 @@ export async function buildExtensionAutoImportSuggestions(params: {
   uri: string;
   ast: Program | null;
   sourceRoots: string[];
+  importMappings?: Readonly<Record<string, string>>;
   getExportedSymbols?: SymbolExportProvider;
   receiverType: string;
   prefix?: string;
@@ -672,6 +706,7 @@ export async function buildAutoImportSuggestions(params: {
   uri: string;
   ast: Program | null;
   sourceRoots: string[];
+  importMappings?: Readonly<Record<string, string>>;
   getExportedSymbols?: SymbolExportProvider;
   prefix?: string;
   allowEmptyPrefix?: boolean;
@@ -689,6 +724,7 @@ export async function buildAutoImportSuggestions(params: {
 
   const exportedSymbols = await resolveAvailableSymbolExports({
     sourceRoots,
+    ...(params.importMappings ? { importMappings: params.importMappings } : {}),
     ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {}),
   });
   const nodeModuleExports = await collectNodeModuleExportsFromExistingImports(ast, currentFilePath);

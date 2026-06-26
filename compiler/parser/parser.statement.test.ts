@@ -1626,6 +1626,49 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses class primary constructor parameter defaults with call expressions", () => {
+        expect(parseStatement(tokenizeReader(dedent`
+            class ViewNode(
+              var position: Vector3 = Vector3(0, 0, 0),
+              var rotation2: Vector3 = Vector3(0, 0, 0),
+              var scale: Vector3 = Vector3(1, 1, 1),
+            )
+        `))).toMatchObject({
+            kind: "ClassStatement",
+            name: { name: "ViewNode" },
+            primaryConstructorParameters: [
+                {
+                    declarationKind: "var",
+                    name: { name: "position" },
+                    typeAnnotation: { name: "Vector3" },
+                    defaultValue: {
+                        kind: "CallExpression",
+                        callee: { kind: "Identifier", name: "Vector3" }
+                    }
+                },
+                {
+                    declarationKind: "var",
+                    name: { name: "rotation2" },
+                    typeAnnotation: { name: "Vector3" },
+                    defaultValue: {
+                        kind: "CallExpression",
+                        callee: { kind: "Identifier", name: "Vector3" }
+                    }
+                },
+                {
+                    declarationKind: "var",
+                    name: { name: "scale" },
+                    typeAnnotation: { name: "Vector3" },
+                    defaultValue: {
+                        kind: "CallExpression",
+                        callee: { kind: "Identifier", name: "Vector3" }
+                    }
+                }
+            ],
+            members: []
+        });
+    });
+
     it("parses constrained type parameters", () => {
         const ast = new Parser(
             tokenizeReader("class Repository<T extends Entity, K extends string> {}")
@@ -1959,6 +2002,32 @@ describe("parseStatement", () => {
                 }
             ]
         });
+    });
+
+    it("parses interface statements without braces in vexa mode", () => {
+        expect(parseStatement(tokenizeReader("interface MyInterface"))).toEqual({
+            kind: "InterfaceStatement",
+            name: { kind: "Identifier", name: "MyInterface" },
+            members: []
+        });
+
+        expect(parseStatement(tokenizeReader("interface MyInterface extends Readable, Writable"))).toEqual({
+            kind: "InterfaceStatement",
+            name: { kind: "Identifier", name: "MyInterface" },
+            extendsTypes: [
+                { kind: "Identifier", name: "Readable" },
+                { kind: "Identifier", name: "Writable" }
+            ],
+            members: []
+        });
+    });
+
+    it("rejects interface statements without braces in typescript mode", () => {
+        expect(() =>
+            parseStatement(tokenizeReader("interface MyInterface"), {
+                language: "typescript"
+            })
+        ).toThrow("Expected '{' to start interface body");
     });
 
     it("parses class statement with kotlin-like primary constructor parameters without val/var", () => {

@@ -56,6 +56,21 @@ describe("emitProgram", () => {
     expect(emitProgram(ambientProgram)).toBe("let error = new Error();");
   });
 
+  it("emits primary constructor defaults in the synthetic constructor", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      class Vector3(val x: number, val y: number, val z: number)
+      class ViewNode(
+        var position: Vector3 = Vector3(0, 0, 0),
+        var rotation2: Vector3 = Vector3(0, 0, 0),
+        var scale: Vector3 = Vector3(1, 1, 1),
+      )
+    `));
+
+    expect(emitProgram(program)).toContain(
+      "constructor(position = new Vector3(0, 0, 0), rotation2 = new Vector3(0, 0, 0), scale = new Vector3(1, 1, 1))"
+    );
+  });
+
   it("emits constructor-only globals as constructor invocations across merged ambient interfaces", () => {
     const program = parseFile(tokenizeReader(dedent`
       declare interface MapConstructor {

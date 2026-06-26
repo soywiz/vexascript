@@ -63,6 +63,7 @@ export interface ModuleResolutionSessionLike {
 
 export interface ModuleResolutionOptions {
   vfs?: Vfs | undefined;
+  importMappings?: Readonly<Record<string, string>> | undefined;
   getSessionForFilePath?: (
     (filePath: string) => ModuleResolutionSessionLike | null | Promise<ModuleResolutionSessionLike | null>
   ) | undefined;
@@ -97,6 +98,18 @@ export async function resolveImportTargetFilePath(
   options: ModuleResolutionOptions = {}
 ): Promise<string | null> {
   const activeVfs = options.vfs ?? vfs();
+  const mappedTarget = options.importMappings?.[importPath];
+  if (mappedTarget) {
+    const mappedPath = resolve(mappedTarget);
+    const candidates = extname(mappedPath)
+      ? [mappedPath]
+      : [mappedPath, `${mappedPath}${LANGUAGE_FILE_EXTENSION}`, `${mappedPath}.ts`, `${mappedPath}.tsx`, `${mappedPath}.json`, `${mappedPath}.txt`];
+    for (const candidate of candidates) {
+      if (await hasImportTarget(candidate, activeVfs, options.getSessionForFilePath)) {
+        return candidate;
+      }
+    }
+  }
   for (const candidate of candidateImportTargetFilePaths(importerFilePath, importPath)) {
     if (await hasImportTarget(candidate, activeVfs, options.getSessionForFilePath)) {
       return candidate;

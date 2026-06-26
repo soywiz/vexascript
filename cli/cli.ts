@@ -13,6 +13,7 @@ import {
   createBundledModuleArtifacts,
   ensureCompilerRuntimePrograms,
   ensureRuntimeDependencies,
+  globalDeclarationsForProject,
   resolveServeBundleInput
 } from "./cliShared";
 import { openUrlInDefaultBrowser } from "./io";
@@ -97,12 +98,13 @@ async function buildFile(
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
   await ensureCompilerRuntimePrograms();
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
+  const globalDeclarations = await globalDeclarationsForProject(project);
   const { transpile } = await import("../compiler/runtime/transpile");
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
-    ambientDeclarations,
+    ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     rewriteImportExtensions: true,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
@@ -309,13 +311,14 @@ async function executeSource(source: string, sourcePath: string, target: Transpi
   const project = await loadProject(sourcePath);
   await ensureCompilerRuntimePrograms();
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
+  const globalDeclarations = await globalDeclarationsForProject(project);
   const { transpile } = await import("../compiler/runtime/transpile");
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
     preserveSourceLineOffsets: true,
-    ambientDeclarations,
+    ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {})
   });

@@ -1,5 +1,6 @@
 import { createAnalysisSession, type AnalysisSession } from "compiler/lsp/analysisSession";
 import type { Statement } from "compiler/ast/ast";
+import type { AmbientModuleLocation } from "compiler/lsp/ambientTypesLoader";
 
 interface CachedWorkspaceSessionEntry {
   source: string;
@@ -9,10 +10,16 @@ interface CachedWorkspaceSessionEntry {
 
 export interface CachedWorkspaceSessionResolverOptions {
   getAmbientDeclarations(): Promise<Statement[]>;
+  getGlobalDeclarations?(): Promise<WorkspaceGlobalDeclarations>;
   getWorkspaceFileSource(uri: string): string | null;
   getWorkspaceRevision(): number;
   isRuntimeDeclarationPath?(filePath: string): boolean;
   pathToUri(filePath: string): string;
+}
+
+export interface WorkspaceGlobalDeclarations {
+  declarations: Statement[];
+  locations: ReadonlyMap<Statement, AmbientModuleLocation>;
 }
 
 export function createCachedWorkspaceSessionResolver(
@@ -42,8 +49,16 @@ export function createCachedWorkspaceSessionResolver(
         return createAnalysisSession(source);
       }
 
+      const globalDeclarations = await options.getGlobalDeclarations?.() ?? {
+        declarations: [],
+        locations: new Map()
+      };
       return createAnalysisSession(source, {
-        ambientDeclarations: await options.getAmbientDeclarations()
+        ambientDeclarations: [
+          ...globalDeclarations.declarations,
+          ...await options.getAmbientDeclarations()
+        ],
+        ambientDeclarationLocations: globalDeclarations.locations
       });
     })();
 

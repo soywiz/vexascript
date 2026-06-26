@@ -43,6 +43,7 @@ export interface CollectCodeActionsParams {
   range: Range;
   diagnostics: Diagnostic[];
   sourceRoots: string[];
+  importMappings?: Readonly<Record<string, string>>;
   getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null | Promise<ProjectSessionLike | null>;
   getExportedSymbols?: SymbolExportProvider;
   refreshDiagnosticsCommand?: string;
@@ -173,6 +174,7 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
         ast,
         diagnostics,
         sourceRoots,
+        ...(params.importMappings ? { importMappings: params.importMappings } : {}),
         ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {})
       })
     );

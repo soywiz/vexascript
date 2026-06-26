@@ -2,6 +2,8 @@ import { bindingElements, bindingIdentifiers } from "compiler/ast/bindingPattern
 import type {
   ArrayLiteral,
   AsExpression,
+  AnnotationApplication,
+  AnnotationStatement,
   ArrowFunctionExpression,
   AssignmentExpression,
   BinaryExpression,
@@ -98,6 +100,7 @@ const TOKEN_TYPES = [
   "property",
   "namespace",
   "type",
+  "annotation",
   "number",
   "string",
   "operator"
@@ -172,16 +175,15 @@ const MODIFIER_KEYWORDS = new Set([
   "set",
   "async",
   "sync",
+  "fun",
+  "function",
   "let",
   "var",
   "val",
   "const"
 ]);
 
-const FUNCTION_KEYWORDS = new Set([
-  "fun",
-  "function"
-]);
+const FUNCTION_KEYWORDS = new Set<string>();
 
 const TYPE_KEYWORDS = new Set([
   "declare",
@@ -193,6 +195,7 @@ const TYPE_KEYWORDS = new Set([
   "export",
   "class",
   "interface",
+  "annotation",
   "infer",
   "extends",
   "implements",
@@ -343,6 +346,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   };
 
   const visitClassMember = (member: ClassFieldMember | ClassMethodMember): void => {
+    visitAnnotations(member.annotations);
     if (member.kind === "ClassFieldMember") {
       markIdentifier(kinds, member.name, "property");
       markTypeAnnotation(kinds, member.typeAnnotation);
@@ -382,6 +386,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   };
 
   const visitStatement = (statement: Statement): void => {
+    visitAnnotations(statement.annotations);
     switch (statement.kind) {
       case "ExportStatement": {
         const exportStatement = statement as ExportStatement;
@@ -482,6 +487,14 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
           if (member.initializer) {
             visitExpression(member.initializer);
           }
+        }
+        return;
+      }
+      case "AnnotationStatement": {
+        const annotationStatement = statement as AnnotationStatement;
+        markIdentifier(kinds, annotationStatement.name, "annotation");
+        for (const parameter of annotationStatement.parameters) {
+          visitParameter(parameter);
         }
         return;
       }
@@ -594,6 +607,19 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
       }
       default:
         return;
+    }
+  };
+
+  const visitAnnotationApplication = (annotation: AnnotationApplication): void => {
+    markIdentifier(kinds, annotation.name, "annotation");
+    for (const argument of annotation.arguments) {
+      visitExpression(argument);
+    }
+  };
+
+  const visitAnnotations = (annotations?: AnnotationApplication[]): void => {
+    for (const annotation of annotations ?? []) {
+      visitAnnotationApplication(annotation);
     }
   };
 

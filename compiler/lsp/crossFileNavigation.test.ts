@@ -2049,6 +2049,43 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves project global type definitions to their source file before DOM declarations", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Test {
+        var color: Col^^^or
+      }
+    `);
+    const runtimeFilePath = "/runtime/myengine-runtime.vx";
+    const runtimeDeclarations = parseSource('class Color(var value: string = "#ffffff")').ast?.body ?? [];
+    const domDeclarations = (await ensureDomProgram()).body;
+    const globalDeclarationLocations = new Map(runtimeDeclarations.map((statement) => [
+      statement,
+      {
+        filePath: runtimeFilePath,
+        line: statement.firstToken?.range.start.line ?? 0,
+        character: statement.firstToken?.range.start.column ?? 0
+      }
+    ] as const));
+    const session = createAnalysisSession(source, {
+      ambientDeclarations: [...runtimeDeclarations, ...domDeclarations],
+      ambientDeclarationLocations: globalDeclarationLocations
+    });
+
+    const definition = await resolveDefinitionWithLocalFallback({
+      uri: "file:///example/new-script.vx",
+      line,
+      character,
+      session,
+      sourceRoots: []
+    });
+
+    expect(definition?.uri).toBe(pathToFileURL(runtimeFilePath).toString());
+    expect(definition?.range).toEqual({
+      start: { line: 0, character: 6 },
+      end: { line: 0, character: 11 }
+    });
+  });
+
   it("resolves aliased imported class member definitions through the shared declaration resolver", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
     const fileA = join(root, "world.vx");

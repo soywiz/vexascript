@@ -81,6 +81,7 @@ export type ClassResolverSessionLike = ProjectSessionLike;
 
 export interface ClassResolverOptions extends ProjectContext {
   uri?: string;
+  ambientDeclarations?: Statement[];
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
   /**
    * The session's selectively-collected external declarations. Signature help
@@ -380,6 +381,14 @@ export function findClassStatementInProgram(ast: Program, className: string): Cl
   return findTopLevelDeclarationInProgram(ast, className, isClassStatement);
 }
 
+function findClassStatementInStatements(statements: readonly Statement[] | undefined, className: string): ClassStatement | null {
+  if (!statements) {
+    return null;
+  }
+  const syntheticProgram = { kind: "Program", body: [...statements] } as Program;
+  return findClassStatementInProgram(syntheticProgram, className);
+}
+
 function mergeInterfaceStatements(interfaceStatements: InterfaceStatement[]): InterfaceStatement | null {
   const [first, ...rest] = interfaceStatements;
   if (!first) {
@@ -420,6 +429,17 @@ function findMergedInterfaceStatementInProgram(ast: Program, interfaceName: stri
     }
   }
   return mergeInterfaceStatements(matches);
+}
+
+function findMergedInterfaceStatementInStatements(
+  statements: readonly Statement[] | undefined,
+  interfaceName: string
+): InterfaceStatement | null {
+  if (!statements) {
+    return null;
+  }
+  const syntheticProgram = { kind: "Program", body: [...statements] } as Program;
+  return findMergedInterfaceStatementInProgram(syntheticProgram, interfaceName);
 }
 
 function findMergedQualifiedInterfaceStatementInStatements(
@@ -575,12 +595,18 @@ export async function resolveClassStatementAcrossFiles(
       : {})
   });
 
+  const ambientClassStatement = resolved ? null : findClassStatementInStatements(options.ambientDeclarations, className);
   const classStatement = resolved
     ? {
         classStatement: resolved.declaration,
         filePath: resolved.filePath
       }
-    : await resolveNodeModuleImportedClassStatement(ast, className, options);
+    : ambientClassStatement
+      ? {
+          classStatement: ambientClassStatement,
+          filePath: ""
+        }
+      : await resolveNodeModuleImportedClassStatement(ast, className, options);
   resolverCache.classStatementByName.set(className, classStatement);
   return classStatement;
 }
@@ -643,15 +669,21 @@ export async function resolveInterfaceStatementAcrossFiles(
       mergedInterfaceStatement = localInterfaceStatement;
       resolvedFilePath = options.uri ? uriToFilePath(options.uri) : null;
     } else {
-      const ecmaScriptInterfaceStatement = findMergedInterfaceStatementInProgram(getEcmaScriptRuntimeProgram(), interfaceName);
-      if (ecmaScriptInterfaceStatement) {
-        mergedInterfaceStatement = ecmaScriptInterfaceStatement;
+      const ambientInterfaceStatement = findMergedInterfaceStatementInStatements(options.ambientDeclarations, interfaceName);
+      if (ambientInterfaceStatement) {
+        mergedInterfaceStatement = ambientInterfaceStatement;
         resolvedFilePath = "";
       } else {
-        const domInterfaceStatement = findMergedInterfaceStatementInProgram(await ensureDomProgram(), interfaceName);
-        if (domInterfaceStatement) {
-          mergedInterfaceStatement = domInterfaceStatement;
-          resolvedFilePath = getDomDeclarationFilePath();
+        const ecmaScriptInterfaceStatement = findMergedInterfaceStatementInProgram(getEcmaScriptRuntimeProgram(), interfaceName);
+        if (ecmaScriptInterfaceStatement) {
+          mergedInterfaceStatement = ecmaScriptInterfaceStatement;
+          resolvedFilePath = "";
+        } else {
+          const domInterfaceStatement = findMergedInterfaceStatementInProgram(await ensureDomProgram(), interfaceName);
+          if (domInterfaceStatement) {
+            mergedInterfaceStatement = domInterfaceStatement;
+            resolvedFilePath = getDomDeclarationFilePath();
+          }
         }
       }
     }

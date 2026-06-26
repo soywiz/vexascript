@@ -25,6 +25,7 @@ export interface ProjectSessionLike {
 export interface ProjectContext {
   sourceRoots?: string[];
   vfs?: Vfs;
+  importMappings?: Readonly<Record<string, string>>;
   getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null | Promise<ProjectSessionLike | null>;
 }
 
@@ -197,7 +198,12 @@ export function collectTopLevelDeclarationsFromAst(ast: Program | null): Project
   return declarations;
 }
 
-async function indexFileData(ast: Program | null, filePath: string, vfs: Vfs): Promise<IndexedFileData> {
+async function indexFileData(
+  ast: Program | null,
+  filePath: string,
+  vfs: Vfs,
+  importMappings: Readonly<Record<string, string>>
+): Promise<IndexedFileData> {
   if (!ast) {
     return { declarations: [], imports: [] };
   }
@@ -212,7 +218,7 @@ async function indexFileData(ast: Program | null, filePath: string, vfs: Vfs): P
 
     if (statement.kind === "ImportStatement") {
       const importStatement = statement as ImportStatement;
-      const targetFilePath = await resolveImportTargetFilePath(filePath, importStatement.from.value, { vfs });
+      const targetFilePath = await resolveImportTargetFilePath(filePath, importStatement.from.value, { vfs, importMappings });
       if (!targetFilePath) {
         continue;
       }
@@ -255,27 +261,41 @@ function vfsKey(vfs: Vfs): number {
   return key;
 }
 
-function rootsKey(sourceRoots: string[], vfsValue: Vfs = vfs()): string {
+function importMappingsKey(importMappings: Readonly<Record<string, string>> = {}): string {
+  return Object.entries(importMappings)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([specifier, target]) => `${specifier}=${resolve(target)}`)
+    .join("|");
+}
+
+function rootsKey(
+  sourceRoots: string[],
+  vfsValue: Vfs = vfs(),
+  importMappings: Readonly<Record<string, string>> = {}
+): string {
   const roots = sourceRoots.length === 0
     ? "<empty>"
     : [...sourceRoots].map((root) => resolve(root)).sort().join("|");
-  return `${vfsKey(vfsValue)}:${roots}`;
+  return `${vfsKey(vfsValue)}:${roots}:${importMappingsKey(importMappings)}`;
 }
 
 export class ProjectIndex {
   private readonly sourceRoots: string[];
   private readonly vfs: Vfs;
+  private importMappings: Readonly<Record<string, string>>;
   private readonly diskSessions = new Map<string, CachedDiskSession>();
   private readonly openOverrides = new Map<string, OpenFileOverride>();
 
-  constructor(sourceRoots: string[], vfsValue: Vfs = vfs()) {
+  constructor(sourceRoots: string[], vfsValue: Vfs = vfs(), importMappings: Readonly<Record<string, string>> = {}) {
     this.sourceRoots = [...sourceRoots];
     this.vfs = vfsValue;
+    this.importMappings = importMappings;
   }
 
-  setSourceRoots(sourceRoots: string[]): void {
+  setSourceRoots(sourceRoots: string[], importMappings: Readonly<Record<string, string>> = this.importMappings): void {
     this.sourceRoots.length = 0;
     this.sourceRoots.push(...sourceRoots);
+    this.importMappings = importMappings;
   }
 
   async scanMyFiles(): Promise<string[]> {
@@ -313,7 +333,7 @@ export class ProjectIndex {
   async upsertOpenDocument(filePath: string, source: string): Promise<void> {
     const normalized = resolve(filePath);
     const session = compileToSession(source);
-    const indexed = await indexFileData(session.ast, normalized, this.vfs);
+    const indexed = await indexFileData(session.ast, normalized, this.vfs, this.importMappings);
     this.openOverrides.set(normalized, { session, indexed });
   }
 
@@ -351,7 +371,7 @@ export class ProjectIndex {
       return null;
     }
     const session = compileToSession(source);
-    const indexed = await indexFileData(session.ast, normalized, this.vfs);
+    const indexed = await indexFileData(session.ast, normalized, this.vfs, this.importMappings);
     const next: CachedDiskSession = {
       mtimeMs: fileStats.mtimeMs,
       session,
@@ -457,20 +477,28 @@ export class ProjectIndex {
 
 const PROJECT_INDEXES = new Map<string, ProjectIndex>();
 
-export function getProjectIndex(sourceRoots: string[], vfsValue: Vfs = vfs()): ProjectIndex {
-  const key = rootsKey(sourceRoots, vfsValue);
+export function getProjectIndex(
+  sourceRoots: string[],
+  vfsValue: Vfs = vfs(),
+  importMappings: Readonly<Record<string, string>> = {}
+): ProjectIndex {
+  const key = rootsKey(sourceRoots, vfsValue, importMappings);
   const existing = PROJECT_INDEXES.get(key);
   if (existing) {
-    existing.setSourceRoots(sourceRoots);
+    existing.setSourceRoots(sourceRoots, importMappings);
     return existing;
   }
-  const created = new ProjectIndex(sourceRoots, vfsValue);
+  const created = new ProjectIndex(sourceRoots, vfsValue, importMappings);
   PROJECT_INDEXES.set(key, created);
   return created;
 }
 
-export async function scanProjectMyFiles(sourceRoots: string[], vfsValue: Vfs = vfs()): Promise<string[]> {
-  return getProjectIndex(sourceRoots, vfsValue).scanMyFiles();
+export async function scanProjectMyFiles(
+  sourceRoots: string[],
+  vfsValue: Vfs = vfs(),
+  importMappings: Readonly<Record<string, string>> = {}
+): Promise<string[]> {
+  return getProjectIndex(sourceRoots, vfsValue, importMappings).scanMyFiles();
 }
 
 export async function getProjectSessionForFilePath(
@@ -485,6 +513,6 @@ export async function getProjectSessionForFilePath(
   }
 
   const sourceRoots = context.sourceRoots ?? [];
-  const index = getProjectIndex(sourceRoots, context.vfs);
+  const index = getProjectIndex(sourceRoots, context.vfs, context.importMappings);
   return index.getSessionForFilePath(filePath);
 }

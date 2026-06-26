@@ -214,6 +214,82 @@ describe("Analysis", () => {
     expect(usage?.symbol).toBe(declaration?.symbol);
   });
 
+  it("accepts named arguments in annotation applications", () => {
+    const source = dedent`
+      annotation Range(val min: number, val max: number)
+      @Range(min: 0.1, max: 10.0)
+      fun demo() {}
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("accepts named arguments out of declaration order", () => {
+    const source = dedent`
+      annotation Range(val min: number, val max: number)
+      @Range(max: 10.0, min: 0.1)
+      fun demo() {}
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("reports type errors on named annotation arguments", () => {
+    const source = dedent`
+      annotation Range(val min: number, val max: number)
+      @Range(min: "bad", max: 10.0)
+      fun demo() {}
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Argument of type 'string' is not assignable to parameter 'min' of type 'number'");
+  });
+
+  it("reports unknown named annotation arguments", () => {
+    const source = dedent`
+      annotation Range(val min: number, val max: number)
+      @Range(min: 0.1, oops: 5.0)
+      fun demo() {}
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Unknown named argument 'oops'");
+    expect(messages).toContain("Missing named argument 'max'");
+  });
+
+  it("reports duplicate named annotation arguments", () => {
+    const source = dedent`
+      annotation Range(val min: number, val max: number)
+      @Range(min: 0.1, min: 0.5, max: 10.0)
+      fun demo() {}
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Duplicate named argument 'min'");
+  });
+
+  it("accepts mixed positional then named annotation arguments", () => {
+    const source = dedent`
+      annotation Range(val min: number, val max: number)
+      @Range(0.1, max: 10.0)
+      fun demo() {}
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
   it("treats function values as assignable to the ambient Function type", () => {
     const source = dedent`
       declare function setTimeout(handler: TimerHandler, timeout?: number): number

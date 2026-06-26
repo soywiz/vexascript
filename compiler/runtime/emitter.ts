@@ -1828,7 +1828,12 @@ function emitClassPrimaryConstructor(
     return null;
   }
 
-  const params = parameters.map((parameter) => parameter.name.name).join(", ");
+  const params = parameters
+    .map((parameter) => {
+      const name = parameter.name.name;
+      return parameter.defaultValue ? `${name} = ${emitListElement(parameter.defaultValue)}` : name;
+    })
+    .join(", ");
   const assignments: string[] = [];
 
   for (const parameter of parameters) {

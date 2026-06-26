@@ -23,7 +23,7 @@ import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { resolveNodeModuleImportsForRuntime } from "compiler/nodeModuleImportResolution";
 import { vfs, type Vfs } from "compiler/vfs";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
-import { extname } from "compiler/utils/path";
+import { extname, resolve } from "compiler/utils/path";
 import { collectImplicitVexaExportPlan } from "./implicitExports";
 import { stripBundledCommonJsImports, stripBundledModuleSyntax } from "./bundlingStripping";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
@@ -71,19 +71,43 @@ function parserOptionsForModulePath(filePath: string): ParserOptions {
   return {};
 }
 
-async function resolveLocalModulePath(importerFilePath: string, importPath: string, vfs: Vfs): Promise<string | null> {
-  if (!importPath.startsWith(".")) {
+export interface GlobalSymbolSourceOptions {
+  paths?: string[];
+  emit?: "globalThis" | "assume";
+}
+
+export interface ModuleGraphOptions {
+  vfs?: Vfs;
+  jsxFactory?: string;
+  jsxFragmentFactory?: string;
+  ambientDeclarations?: Statement[];
+  importMappings?: Readonly<Record<string, string>>;
+  globalSymbols?: GlobalSymbolSourceOptions;
+}
+
+async function resolveLocalModulePath(
+  importerFilePath: string,
+  importPath: string,
+  vfs: Vfs,
+  importMappings: Readonly<Record<string, string>>
+): Promise<string | null> {
+  if (!importPath.startsWith(".") && !importMappings[importPath]) {
     return null;
   }
-  const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs });
+  const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs, importMappings });
   return targetPath && isBundledLocalModulePath(targetPath) ? targetPath : null;
 }
 
-async function resolveInlineAssetModulePath(importerFilePath: string, importPath: string, vfs: Vfs): Promise<string | null> {
+async function resolveInlineAssetModulePath(
+  importerFilePath: string,
+  importPath: string,
+  vfs: Vfs,
+  importMappings: Readonly<Record<string, string>>
+): Promise<string | null> {
   if (!importPath.startsWith(".")) {
     return null;
   }
-  const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs });
+  const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs, importMappings });
   return targetPath && isInlineAssetModulePath(targetPath) ? targetPath : null;
 }
 
@@ -229,14 +253,19 @@ async function collectNodeModulesTypings(
   }
 }
 
-async function localImportSpecifiers(ast: Program, importerFilePath: string, vfs: Vfs): Promise<{ statement: ImportStatement; targetPath: string }[]> {
+async function localImportSpecifiers(
+  ast: Program,
+  importerFilePath: string,
+  vfs: Vfs,
+  importMappings: Readonly<Record<string, string>>
+): Promise<{ statement: ImportStatement; targetPath: string }[]> {
   const imports: { statement: ImportStatement; targetPath: string }[] = [];
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") {
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetPath = await resolveLocalModulePath(importerFilePath, importStatement.from.value, vfs);
+    const targetPath = await resolveLocalModulePath(importerFilePath, importStatement.from.value, vfs, importMappings);
     if (targetPath) {
       imports.push({ statement: importStatement, targetPath });
     }
@@ -247,7 +276,8 @@ async function localImportSpecifiers(ast: Program, importerFilePath: string, vfs
 async function localAssetImportSpecifiers(
   ast: Program,
   importerFilePath: string,
-  vfs: Vfs
+  vfs: Vfs,
+  importMappings: Readonly<Record<string, string>>
 ): Promise<{ statement: ImportStatement; targetPath: string }[]> {
   const imports: { statement: ImportStatement; targetPath: string }[] = [];
   for (const statement of ast.body) {
@@ -255,7 +285,7 @@ async function localAssetImportSpecifiers(
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetPath = await resolveInlineAssetModulePath(importerFilePath, importStatement.from.value, vfs);
+    const targetPath = await resolveInlineAssetModulePath(importerFilePath, importStatement.from.value, vfs, importMappings);
     if (targetPath) {
       imports.push({ statement: importStatement, targetPath });
     }
@@ -280,13 +310,97 @@ function appendImplicitVexaExports(code: string, ast: Program | null, filePath: 
   return code.trim().length > 0 ? `${code}\n${exportClause}` : exportClause;
 }
 
+async function collectGlobalSymbolFiles(paths: readonly string[], activeVfs: Vfs): Promise<string[]> {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const visit = async (path: string): Promise<void> => {
+    const normalized = resolve(path);
+    if (seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    let stats;
+    try {
+      stats = await activeVfs.stat(normalized);
+    } catch {
+      return;
+    }
+    if (stats.isDirectory) {
+      let entries;
+      try {
+        entries = await activeVfs.readDir(normalized);
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.name === "node_modules" || entry.name.startsWith(".")) {
+          continue;
+        }
+        await visit(resolve(normalized, entry.name));
+      }
+      return;
+    }
+    if (stats.isFile && isBundledLocalModulePath(normalized)) {
+      result.push(normalized);
+    }
+  };
+  for (const path of paths) {
+    await visit(path);
+  }
+  return result.sort();
+}
+
+function collectGlobalSymbolDeclarations(programs: Iterable<Program | null>): Statement[] {
+  const declarations: Statement[] = [];
+  for (const ast of programs) {
+    if (ast) {
+      declarations.push(...ast.body);
+    }
+  }
+  return declarations;
+}
+
+export interface GlobalSymbolDeclarationFile {
+  filePath: string;
+  declarations: Statement[];
+}
+
+export async function loadGlobalSymbolDeclarationFiles(paths: readonly string[], activeVfs: Vfs = vfs()): Promise<GlobalSymbolDeclarationFile[]> {
+  const files = await collectGlobalSymbolFiles(paths, activeVfs);
+  const declarationFiles: GlobalSymbolDeclarationFile[] = [];
+  for (const filePath of files) {
+    const source = await activeVfs.readFile(filePath);
+    if (source === null) {
+      continue;
+    }
+    declarationFiles.push({
+      filePath,
+      declarations: parseSource(source, parserOptionsForModulePath(filePath)).ast?.body ?? []
+    });
+  }
+  return declarationFiles;
+}
+
+export async function loadGlobalSymbolDeclarations(paths: readonly string[], activeVfs: Vfs = vfs()): Promise<Statement[]> {
+  return (await loadGlobalSymbolDeclarationFiles(paths, activeVfs)).flatMap((file) => file.declarations);
+}
+
+function globalThisAssignments(ast: Program | null, filePath: string): string {
+  const plan = collectImplicitVexaExportPlan(ast, filePath);
+  return plan.commonJsLines
+    .map((line) => line.replace(/^exports\.([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(.+);$/, "globalThis.$1 = $2;"))
+    .filter((line) => line.startsWith("globalThis."))
+    .join("\n");
+}
+
 export async function bundleModuleGraph(
   entryFilePath: string,
   target: TranspileTarget,
-  options: { vfs?: Vfs; jsxFactory?: string; jsxFragmentFactory?: string; ambientDeclarations?: Statement[] } = {}
+  options: ModuleGraphOptions = {}
 ): Promise<TranspileResult> {
   const activeVfs = options.vfs ?? vfs();
   const ambientDeclarations = options.ambientDeclarations ?? [];
+  const importMappings = options.importMappings ?? {};
   await ensureEcmaScriptRuntimeProgram();
 
   const emittedByPath = new Map<string, string>();
@@ -298,6 +412,8 @@ export async function bundleModuleGraph(
   const errors: string[] = [];
   const warnings: string[] = [];
   const diagnostics: TranspileResult["diagnostics"] = [];
+  const globalSourceFiles = await collectGlobalSymbolFiles(options.globalSymbols?.paths ?? [], activeVfs);
+  const globalSourceFileSet = new Set(globalSourceFiles);
 
   const loadSource = async (filePath: string): Promise<string | null> => {
     if (sourceByPath.has(filePath)) {
@@ -322,6 +438,8 @@ export async function bundleModuleGraph(
     parsedByPath.set(filePath, parsed);
     return parsed;
   };
+  const globalParsed = await Promise.all(globalSourceFiles.map((filePath) => loadParsed(filePath, parserOptionsForModulePath(filePath))));
+  const globalDeclarations = collectGlobalSymbolDeclarations(globalParsed.map((parsed) => parsed?.ast ?? null));
 
   const visit = async (filePath: string): Promise<void> => {
     if (emittedByPath.has(filePath) || inProgress.has(filePath)) {
@@ -340,11 +458,12 @@ export async function bundleModuleGraph(
     const ast = parsed?.ast ?? null;
 
     const externalDeclarations: Statement[] = [];
+    const moduleAmbientDeclarations = [...ambientDeclarations, ...globalDeclarations];
     const importedSymbols = new Map<string, { type?: AnalysisType; displayType?: string }>();
     const bundledSpecifiers = new Set<string>();
     if (ast) {
       await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
-      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs)) {
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
         bundledSpecifiers.add(statement.from.value);
         const assetSource = await loadSource(targetPath);
         if (assetSource === null) {
@@ -363,9 +482,11 @@ export async function bundleModuleGraph(
           errors.push(`Unable to load asset module '${targetPath}': ${message}`);
         }
       }
-      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs)) {
+      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
         bundledSpecifiers.add(statement.from.value);
-        await visit(targetPath);
+        if (!globalSourceFileSet.has(targetPath)) {
+          await visit(targetPath);
+        }
         const dependencyAst = (await loadParsed(targetPath, parserOptionsForModulePath(targetPath)))?.ast ?? null;
         if (dependencyAst) {
           const importedNames = new Set(
@@ -395,12 +516,12 @@ export async function bundleModuleGraph(
     const compilationArtifacts = parsed
         ? compileParsedSource(parsed, {
           externalDeclarations,
-          ambientDeclarations,
+          ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         })
       : compileSource(source, parserOptions, {
           externalDeclarations,
-          ambientDeclarations,
+          ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         });
     analysisByPath.set(filePath, compilationArtifacts.analysis);
@@ -413,7 +534,7 @@ export async function bundleModuleGraph(
       parserOptions,
       externalDeclarations,
       importedSymbols,
-      ambientDeclarations,
+      ambientDeclarations: moduleAmbientDeclarations,
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     });
@@ -423,7 +544,7 @@ export async function bundleModuleGraph(
 
     const assetBindingChunks: string[] = [];
     if (ast) {
-      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs)) {
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
         const assetSource = await loadSource(targetPath);
         if (assetSource === null) {
           continue;
@@ -453,10 +574,42 @@ export async function bundleModuleGraph(
 
   await visit(entryFilePath);
 
-  const code = order
+  const globalChunks: string[] = [];
+  if ((options.globalSymbols?.emit ?? "globalThis") === "globalThis") {
+    for (const filePath of globalSourceFiles) {
+      const source = await loadSource(filePath);
+      const parsed = await loadParsed(filePath, parserOptionsForModulePath(filePath));
+      if (source === null || !parsed) {
+        continue;
+      }
+      const result = transpile(source, {
+        compilationArtifacts: compileParsedSource(parsed, {
+          externalDeclarations: globalDeclarations,
+          ambientDeclarations: [...ambientDeclarations, ...globalDeclarations]
+        }),
+        sourceFilePath: filePath,
+        target,
+        emitSourceMap: false,
+        parserOptions: parserOptionsForModulePath(filePath),
+        externalDeclarations: globalDeclarations,
+        ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
+        ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
+        ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
+      });
+      errors.push(...result.errors);
+      diagnostics.push(...result.diagnostics);
+      warnings.push(...result.warnings);
+      const code = stripBundledModuleSyntax(result.code, new Set(), { preserveExports: false });
+      const assignments = globalThisAssignments(parsed.ast, filePath);
+      globalChunks.push([code, assignments].filter((chunk) => chunk.trim().length > 0).join("\n"));
+    }
+  }
+
+  const code = [
+    ...globalChunks,
+    ...order
     .map((filePath) => emittedByPath.get(filePath) ?? "")
-    .filter((chunk) => chunk.trim().length > 0)
-    .join("\n");
+  ].filter((chunk) => chunk.trim().length > 0).join("\n");
 
   return { code, warnings, errors, diagnostics };
 }
@@ -473,16 +626,13 @@ export interface ModuleGraphSourcesResult {
 export async function bundleModuleGraphAsModules(
   entryFilePath: string,
   target: TranspileTarget,
-  options: {
-    vfs?: Vfs;
-    jsxFactory?: string;
-    jsxFragmentFactory?: string;
-    ambientDeclarations?: Statement[];
+  options: ModuleGraphOptions & {
     moduleFormat?: "esm" | "commonjs";
   } = {}
 ): Promise<ModuleGraphSourcesResult> {
   const activeVfs = options.vfs ?? vfs();
   const ambientDeclarations = options.ambientDeclarations ?? [];
+  const importMappings = options.importMappings ?? {};
   const moduleFormat = options.moduleFormat ?? "esm";
   await ensureEcmaScriptRuntimeProgram();
 
@@ -495,6 +645,8 @@ export async function bundleModuleGraphAsModules(
   const errors: string[] = [];
   const warnings: string[] = [];
   const diagnostics: TranspileResult["diagnostics"] = [];
+  const globalSourceFiles = await collectGlobalSymbolFiles(options.globalSymbols?.paths ?? [], activeVfs);
+  const globalSourceFileSet = new Set(globalSourceFiles);
 
   const loadSource = async (filePath: string): Promise<string | null> => {
     if (sourceByPath.has(filePath)) {
@@ -520,6 +672,8 @@ export async function bundleModuleGraphAsModules(
     parsedByPath.set(filePath, parsed);
     return parsed;
   };
+  const globalParsed = await Promise.all(globalSourceFiles.map((filePath) => loadParsed(filePath, parserOptionsForModulePath(filePath))));
+  const globalDeclarations = collectGlobalSymbolDeclarations(globalParsed.map((parsed) => parsed?.ast ?? null));
 
   const visit = async (filePath: string): Promise<void> => {
     if (emittedByPath.has(filePath) || inProgress.has(filePath)) {
@@ -538,11 +692,12 @@ export async function bundleModuleGraphAsModules(
     const ast = parsed?.ast ?? null;
 
     const externalDeclarations: Statement[] = [];
+    const moduleAmbientDeclarations = [...ambientDeclarations, ...globalDeclarations];
     const importedSymbols = new Map<string, { type?: AnalysisType; displayType?: string }>();
     const bundledAssetSpecifiers = new Set<string>();
     if (ast) {
       await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
-      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs)) {
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
         bundledAssetSpecifiers.add(statement.from.value);
         const assetSource = await loadSource(targetPath);
         if (assetSource === null) {
@@ -561,8 +716,10 @@ export async function bundleModuleGraphAsModules(
           errors.push(`Unable to load asset module '${targetPath}': ${message}`);
         }
       }
-      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs)) {
-        await visit(targetPath);
+      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
+        if (!globalSourceFileSet.has(targetPath)) {
+          await visit(targetPath);
+        }
         const dependencyAst = (await loadParsed(targetPath, parserOptionsForModulePath(targetPath)))?.ast ?? null;
         if (dependencyAst) {
           const importedNames = new Set(
@@ -588,12 +745,12 @@ export async function bundleModuleGraphAsModules(
     const compilationArtifacts = parsed
         ? compileParsedSource(parsed, {
           externalDeclarations,
-          ambientDeclarations,
+          ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         })
       : compileSource(source, parserOptions, {
           externalDeclarations,
-          ambientDeclarations,
+          ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         });
     analysisByPath.set(filePath, compilationArtifacts.analysis);
@@ -607,7 +764,7 @@ export async function bundleModuleGraphAsModules(
       parserOptions,
       externalDeclarations,
       importedSymbols,
-      ambientDeclarations,
+      ambientDeclarations: moduleAmbientDeclarations,
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     });
@@ -617,7 +774,7 @@ export async function bundleModuleGraphAsModules(
 
     const assetBindingChunks: string[] = [];
     if (ast) {
-      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs)) {
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
         const assetSource = await loadSource(targetPath);
         if (assetSource === null) {
           continue;
@@ -651,8 +808,42 @@ export async function bundleModuleGraphAsModules(
 
   await visit(entryFilePath);
 
+  const globalChunks: string[] = [];
+  if ((options.globalSymbols?.emit ?? "globalThis") === "globalThis") {
+    for (const filePath of globalSourceFiles) {
+      const source = await loadSource(filePath);
+      const parsed = await loadParsed(filePath, parserOptionsForModulePath(filePath));
+      if (source === null || !parsed) {
+        continue;
+      }
+      const result = transpile(source, {
+        compilationArtifacts: compileParsedSource(parsed, {
+          externalDeclarations: globalDeclarations,
+          ambientDeclarations: [...ambientDeclarations, ...globalDeclarations]
+        }),
+        sourceFilePath: filePath,
+        target,
+        emitSourceMap: false,
+        moduleFormat,
+        parserOptions: parserOptionsForModulePath(filePath),
+        externalDeclarations: globalDeclarations,
+        ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
+        ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
+        ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
+      });
+      errors.push(...result.errors);
+      diagnostics.push(...result.diagnostics);
+      warnings.push(...result.warnings);
+      const code = moduleFormat === "commonjs"
+        ? stripBundledCommonJsImports(result.code, new Set())
+        : stripBundledModuleSyntax(result.code, new Set(), { preserveExports: false });
+      const assignments = globalThisAssignments(parsed.ast, filePath);
+      globalChunks.push([code, assignments].filter((chunk) => chunk.trim().length > 0).join("\n"));
+    }
+  }
+
   return {
-    entrySource: emittedByPath.get(entryFilePath) ?? "",
+    entrySource: [...globalChunks, emittedByPath.get(entryFilePath) ?? ""].filter((chunk) => chunk.trim().length > 0).join("\n"),
     moduleSources: emittedByPath,
     warnings,
     errors,

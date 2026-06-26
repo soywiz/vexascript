@@ -22,6 +22,14 @@ export async function ambientDeclarationsForProject(sourcePath: string, project:
   return declarations;
 }
 
+export async function globalDeclarationsForProject(project: VexaProject | null): Promise<Statement[]> {
+  if (!project?.globalSymbols || project.globalSymbols.paths.length === 0) {
+    return [];
+  }
+  const { loadGlobalSymbolDeclarations } = await import("../compiler/runtime/moduleGraph");
+  return loadGlobalSymbolDeclarations(project.globalSymbols.paths);
+}
+
 export async function ensureCompilerRuntimePrograms(): Promise<void> {
   const {
     ensureEcmaScriptRuntimeProgram,
@@ -76,7 +84,9 @@ export async function createBundledModuleArtifacts(
   const { bundleModuleGraphAsModules } = await import("../compiler/runtime/moduleGraph");
   const result = await bundleModuleGraphAsModules(sourcePath, target, {
     ambientDeclarations,
+    importMappings: project?.importMappings ?? {},
     moduleFormat: "commonjs",
+    ...(project?.globalSymbols ? { globalSymbols: project.globalSymbols } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
     ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
@@ -95,6 +105,7 @@ export async function createBundledModuleArtifacts(
   const { bundleNodeModuleGraph } = await import("./nodeModuleBundle");
   const bundled = await bundleNodeModuleGraph(result.entrySource, sourcePath, {
     virtualSources: result.moduleSources,
+    importMappings: project?.importMappings ?? {},
     externalDependencyStrategy: options.externalDependencyStrategy ?? "runtime-error"
   });
   return {

@@ -201,6 +201,13 @@ describe("formatSource", () => {
       .toBe("class Point(val x: number, val y: number)");
   });
 
+  it("formats interface declarations without braces", () => {
+    expect(formatSource("interface Readable"))
+      .toBe("interface Readable");
+    expect(formatSource("interface Readable extends Base, Named"))
+      .toBe("interface Readable extends Base, Named");
+  });
+
   it("formats for statements with declaration initializer", () => {
     expect(formatSource("for(let i=0;i<3;i+=1){let x=i}"))
       .toBe("for (let i = 0; i < 3; i += 1) {\n  let x = i\n}");

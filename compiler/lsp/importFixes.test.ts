@@ -283,6 +283,30 @@ describe("import quick fixes", () => {
     expect(suggestions[0]?.importPath).toBe("my-lib");
   });
 
+  it("suggests configured import mapping specifiers for mapped files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const runtimePath = join(root, "runtime", "myengine-runtime.vx");
+    const consumerPath = join(root, "example", "consumer.vx");
+    await mkdir(join(root, "runtime"), { recursive: true });
+    await mkdir(join(root, "example"), { recursive: true });
+    await writeFile(runtimePath, "class Vector3(val x: number, val y: number, val z: number)\n", "utf8");
+    await writeFile(consumerPath, "fun demo(): Vec\n", "utf8");
+
+    const session = createAnalysisSession("fun demo(): Vec\n");
+    const suggestions = await buildAutoImportSuggestions({
+      uri: pathToFileURL(consumerPath).toString(),
+      ast: session.ast,
+      sourceRoots: [root],
+      importMappings: {
+        myengine: runtimePath
+      },
+      prefix: "Vec",
+      excludeSymbols: new Set()
+    });
+
+    expect(suggestions.find((suggestion) => suggestion.symbol.name === "Vector3")?.importPath).toBe("myengine");
+  });
+
   it("builds type auto-import suggestions from named exports of an already imported node_modules module", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
     const packageDir = join(root, "node_modules", "preact");

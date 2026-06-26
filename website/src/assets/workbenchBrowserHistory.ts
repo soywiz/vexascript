@@ -1,32 +1,108 @@
+export interface WorkbenchBrowserHistoryPosition {
+  lineNumber: number;
+  column: number;
+}
+
+export interface WorkbenchBrowserHistoryEntry {
+  uri: string;
+  position?: WorkbenchBrowserHistoryPosition;
+}
+
 export interface WorkbenchBrowserHistorySnapshot {
-  back: string[];
-  current: string;
-  forward: string[];
+  back: WorkbenchBrowserHistoryEntry[];
+  current: WorkbenchBrowserHistoryEntry;
+  forward: WorkbenchBrowserHistoryEntry[];
 }
 
 interface WorkbenchBrowserHistoryStateShape {
   __vexaWorkbenchHistory?: Record<string, WorkbenchBrowserHistorySnapshot>;
 }
 
-export function createWorkbenchBrowserHistorySnapshot(current: string): WorkbenchBrowserHistorySnapshot {
+type WorkbenchBrowserHistoryEntryInput = string | WorkbenchBrowserHistoryEntry;
+
+function normalizeWorkbenchBrowserHistoryEntry(
+  entry: WorkbenchBrowserHistoryEntryInput
+): WorkbenchBrowserHistoryEntry {
+  if (typeof entry === "string") {
+    return { uri: entry };
+  }
+  return {
+    uri: entry.uri,
+    ...(entry.position ? { position: { ...entry.position } } : {}),
+  };
+}
+
+function isWorkbenchBrowserHistoryEntryInput(value: unknown): value is WorkbenchBrowserHistoryEntryInput {
+  if (typeof value === "string") {
+    return true;
+  }
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const entry = value as WorkbenchBrowserHistoryEntry;
+  if (typeof entry.uri !== "string") {
+    return false;
+  }
+  if (entry.position === undefined) {
+    return true;
+  }
+  return typeof entry.position.lineNumber === "number"
+    && typeof entry.position.column === "number";
+}
+
+export function getWorkbenchBrowserHistoryEntryUri(entry: WorkbenchBrowserHistoryEntry): string {
+  return entry.uri;
+}
+
+export function withWorkbenchBrowserHistoryCurrentPosition(
+  snapshot: WorkbenchBrowserHistorySnapshot,
+  position?: WorkbenchBrowserHistoryPosition
+): WorkbenchBrowserHistorySnapshot {
+  return {
+    ...snapshot,
+    current: {
+      ...snapshot.current,
+      ...(position ? { position: { ...position } } : {}),
+    },
+  };
+}
+
+export function createWorkbenchBrowserHistorySnapshot(
+  current: WorkbenchBrowserHistoryEntryInput
+): WorkbenchBrowserHistorySnapshot {
   return {
     back: [],
-    current,
+    current: normalizeWorkbenchBrowserHistoryEntry(current),
     forward: [],
   };
 }
 
 export function pushWorkbenchBrowserHistorySnapshot(
   snapshot: WorkbenchBrowserHistorySnapshot,
-  nextUri: string
+  next: WorkbenchBrowserHistoryEntryInput
 ): WorkbenchBrowserHistorySnapshot {
-  if (snapshot.current === nextUri) {
+  const nextEntry = normalizeWorkbenchBrowserHistoryEntry(next);
+  if (snapshot.current.uri === nextEntry.uri) {
     return snapshot;
   }
   return {
     back: [...snapshot.back, snapshot.current],
-    current: nextUri,
+    current: nextEntry,
     forward: [],
+  };
+}
+
+export function withWorkbenchBrowserHistoryForwardTarget(
+  snapshot: WorkbenchBrowserHistorySnapshot,
+  next: WorkbenchBrowserHistoryEntryInput
+): WorkbenchBrowserHistorySnapshot {
+  const nextEntry = normalizeWorkbenchBrowserHistoryEntry(next);
+  if (snapshot.current.uri === nextEntry.uri) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    forward: [nextEntry],
   };
 }
 
@@ -43,21 +119,21 @@ export function readWorkbenchBrowserHistorySnapshot(
   }
   if (
     !Array.isArray(snapshot.back) ||
-    typeof snapshot.current !== "string" ||
+    !isWorkbenchBrowserHistoryEntryInput(snapshot.current) ||
     !Array.isArray(snapshot.forward)
   ) {
     return null;
   }
   if (
-    snapshot.back.some((entry) => typeof entry !== "string") ||
-    snapshot.forward.some((entry) => typeof entry !== "string")
+    snapshot.back.some((entry) => !isWorkbenchBrowserHistoryEntryInput(entry)) ||
+    snapshot.forward.some((entry) => !isWorkbenchBrowserHistoryEntryInput(entry))
   ) {
     return null;
   }
   return {
-    back: [...snapshot.back],
-    current: snapshot.current,
-    forward: [...snapshot.forward],
+    back: snapshot.back.map(normalizeWorkbenchBrowserHistoryEntry),
+    current: normalizeWorkbenchBrowserHistoryEntry(snapshot.current),
+    forward: snapshot.forward.map(normalizeWorkbenchBrowserHistoryEntry),
   };
 }
 
@@ -74,9 +150,9 @@ export function writeWorkbenchBrowserHistorySnapshot(
     ? { ...(historyState as Record<string, WorkbenchBrowserHistorySnapshot>) }
     : {};
   historyMap[workbenchId] = {
-    back: [...snapshot.back],
-    current: snapshot.current,
-    forward: [...snapshot.forward],
+    back: snapshot.back.map(normalizeWorkbenchBrowserHistoryEntry),
+    current: normalizeWorkbenchBrowserHistoryEntry(snapshot.current),
+    forward: snapshot.forward.map(normalizeWorkbenchBrowserHistoryEntry),
   };
   baseState.__vexaWorkbenchHistory = historyMap;
   return baseState;
