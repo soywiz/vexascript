@@ -82,21 +82,24 @@ describe("shared syntax generators", () => {
     });
   });
 
-  it("treats class modifiers as declaration keywords in shared syntax definitions", () => {
+  it("treats class modifiers as modifier keywords in shared syntax definitions", () => {
+    // Class/member modifiers are tokenized in their own Monaco category
+    // (`modifierKeywords` → the `keywordModifier` token) so editors can style
+    // them distinctly from declaration keywords like `class`/`val`. They must
+    // still be recognized as keywords (not plain identifiers) on both surfaces:
+    // in the VS Code TextMate grammar they remain part of the
+    // `keyword.declaration.vexa` alternation built from VEXA_KEYWORD_DECLARATIONS.
     const monacoLanguage = createPortableMonarchLanguage();
     const vscodeGrammar = createVscodeTmLanguageGrammar();
     const repository = vscodeGrammar["repository"] as Record<string, unknown>;
     const keywords = repository["keywords"] as { patterns: Array<Record<string, unknown>> };
     const declarationRule = keywords.patterns.find((rule) => rule["name"] === "keyword.declaration.vexa");
 
-    expect(monacoLanguage.declarationKeywords).toContain("static");
-    expect(monacoLanguage.declarationKeywords).toContain("private");
-    expect(monacoLanguage.declarationKeywords).toContain("public");
-    expect(monacoLanguage.declarationKeywords).toContain("protected");
-    expect(declarationRule?.["match"]).toContain("static");
-    expect(declarationRule?.["match"]).toContain("private");
-    expect(declarationRule?.["match"]).toContain("public");
-    expect(declarationRule?.["match"]).toContain("protected");
+    for (const modifier of ["static", "private", "public", "protected"]) {
+      expect(monacoLanguage.modifierKeywords).toContain(modifier);
+      expect(monacoLanguage.declarationKeywords).not.toContain(modifier);
+      expect(declarationRule?.["match"]).toContain(modifier);
+    }
   });
 
   it("does not treat generic type arguments as JSX in Monaco syntax", () => {

@@ -9,6 +9,7 @@ import { resolveDefinitionAcrossFiles, resolveReferencesAcrossFiles, resolveRena
 import { createSignatureHelp } from "../compiler/lsp/signatureHelp";
 import { createDocumentSymbols, createWorkspaceSymbols } from "../compiler/lsp/symbols";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
+import { ensureCompilerRuntimePrograms } from "./cliShared";
 import { dirname, resolve } from "../compiler/utils/path";
 import { vfs } from "../compiler/vfs";
 
@@ -337,6 +338,9 @@ export class VexaMcpCodebaseServer {
 }
 
 export async function runMcpServer(options: { input?: Readable; output?: Writable; cwd?: string } = {}): Promise<void> {
+  // Analysis sessions built per request use synchronous runtime-declaration
+  // getters, so load the embedded declaration programs before serving.
+  await ensureCompilerRuntimePrograms();
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
   const server = new VexaMcpCodebaseServer(options.cwd ?? process.cwd());

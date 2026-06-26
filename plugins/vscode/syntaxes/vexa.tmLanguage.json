@@ -15,6 +15,9 @@
       "include": "#jsx"
     },
     {
+      "include": "#annotations"
+    },
+    {
       "include": "#declarations"
     },
     {
@@ -199,6 +202,21 @@
       "patterns": [
         {
           "include": "$self"
+        }
+      ]
+    },
+    "annotations": {
+      "patterns": [
+        {
+          "match": "(@)([_$A-Za-z][_$A-Za-z0-9]*)",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.annotation.vexa"
+            },
+            "2": {
+              "name": "entity.name.annotation.vexa"
+            }
+          }
         }
       ]
     },

@@ -18,20 +18,16 @@ export {
   VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME
 } from "./vexascriptDeclarations.shared";
 
-function shouldPreloadRuntimeDeclarationsAtImportTime(): boolean {
-  const argv1 = process.argv[1];
-  if (!argv1) {
-    return true;
-  }
-  const normalizedArgv1 = argv1.replace(/\\/g, "/");
-  return !normalizedArgv1.endsWith("/dist/vexa.js");
-}
-
-if (shouldPreloadRuntimeDeclarationsAtImportTime()) {
-  await import("./ecmascriptDeclarations.shared").then(({ ensureEcmaScriptRuntimeProgram }) =>
-    ensureEcmaScriptRuntimeProgram()
-  );
-  await import("./vexascriptDeclarations.shared").then(({ ensureVexaScriptRuntimeProgram }) =>
-    ensureVexaScriptRuntimeProgram()
-  );
-}
+// NOTE: This module intentionally does NOT preload the runtime declaration
+// programs at import time. A top-level `await` here makes every transitive
+// importer an async (top-level-await) module, which esbuild propagates through
+// the whole bundle as `await init_<module>()` calls. In the packaged LSP server
+// bundle (`dist/vexa.mjs`) Node then reports "Detected unsettled top-level
+// await" and the process exits with code 13. See AGENTS.md: "Do not use
+// top-level awaits as they are problematic."
+//
+// Instead, each async entry point loads the declarations explicitly before any
+// synchronous getter (getEcmaScriptRuntimeProgram / getVexaScriptRuntimeProgram)
+// can be reached: the CLI via `ensureCompilerRuntimePrograms()`, the LSP server
+// by awaiting the ensure functions in its `initialize` handler, the MCP server
+// at startup, and the test suite in `compiler/test/expect.ts`.
