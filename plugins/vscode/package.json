@@ -2,7 +2,7 @@
   "name": "vexascript-vscodeext",
   "displayName": "VexaScript",
   "description": "VS Code support for VexaScript (.vx) using the bundled VexaScript LSP",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "publisher": "soywiz",
   "icon": "icons/vexa-file.png",
   "license": "Apache-2.0",
