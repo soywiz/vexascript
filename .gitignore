@@ -7,7 +7,7 @@ package-lock.json
 .tmp-ts-lib
 *.mjs
 *.js
-!plugins/vscode/deprecatedDecorations.js
+!plugins/vscode/**/*.js
 
 **/.vexa-run-profile-*.mjs
 **/*.cpuprofile
