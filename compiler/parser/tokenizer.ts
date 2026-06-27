@@ -39,6 +39,7 @@ export class TokenizeError extends Error {
 const CODE_SPACE = 32; // " "
 const CODE_BANG = 33; // !
 const CODE_DOUBLE_QUOTE = 34; // "
+const CODE_HASH = 35; // #
 const CODE_DOLLAR = 36; // $
 const CODE_E_UPPER = 69; // E
 const CODE_PERCENT = 37; // %
@@ -139,6 +140,33 @@ function readLineComment(reader: StrReader): TokenComment {
   advanceCode(reader);
   advanceCode(reader);
 
+  while (reader.hasMore) {
+    if (reader.peekCode() === 10) {
+      const end = snapshot(reader);
+      return {
+        kind: "line",
+        value: reader.str.slice(startOffset, reader.offset),
+        range: { start, end }
+      };
+    }
+    advanceCode(reader);
+  }
+
+  const end = snapshot(reader);
+  return {
+    kind: "line",
+    value: reader.str.slice(startOffset, reader.offset),
+    range: { start, end }
+  };
+}
+
+function readShebangLine(reader: StrReader): TokenComment | null {
+  if (reader.offset !== 0 || reader.peekCode() !== CODE_HASH || peekNextCode(reader) !== CODE_BANG) {
+    return null;
+  }
+
+  const start = snapshot(reader);
+  const startOffset = reader.offset;
   while (reader.hasMore) {
     if (reader.peekCode() === 10) {
       const end = snapshot(reader);
@@ -1273,6 +1301,12 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
 
   while (reader.hasMore) {
     const code = reader.peekCode();
+    const shebang = readShebangLine(reader);
+    if (shebang) {
+      pendingComments.push(shebang);
+      continue;
+    }
+
     if (isWhitespaceCode(code)) {
       advanceCode(reader);
       continue;

@@ -94,6 +94,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     controlKeywords,
     tokenizer: {
       root: [
+        { match: String.raw`^#!.*$`, token: "comment" },
         { match: String.raw`\/\/\/`, token: "comment.doc", next: "@doc_line_comment" },
         { match: String.raw`\/\/.*$`, token: "comment" },
         { match: String.raw`\/\*\*`, token: "comment.doc", next: "@doc_block_comment" },
@@ -229,6 +230,10 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
     repository: {
       comments: {
         patterns: [
+          {
+            name: "comment.line.shebang.vexa",
+            match: "^#!.*$\\n?",
+          },
           {
             name: "comment.line.documentation.vexa",
             begin: "///",
@@ -473,6 +478,7 @@ export function createVscodeLanguageConfiguration(): Record<string, unknown> {
 export function createCodeMirrorLegacyModeSource(): string {
   return `export const vexaMode = {
   start: [
+    { regex: /^#!.*/, token: "comment" },
     { regex: /\\/\\/\\/.*/, token: "comment meta" },
     { regex: /\\/\\/.*/, token: "comment" },
     { regex: /\\/\\*/, token: "comment", next: "blockComment" },

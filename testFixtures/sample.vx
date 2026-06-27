@@ -1,3 +1,4 @@
+#!/usr/bin/env vexa
 import { Point, seconds, TimeSpan, operator+, delay } from "./other"
 
 console.log(42)

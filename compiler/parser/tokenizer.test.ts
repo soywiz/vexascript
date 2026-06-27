@@ -8,6 +8,26 @@ function simplifyTokens(input: string, includeEof: boolean = false) {
 }
 
 describe("tokenizer", () => {
+    it("skips an initial shebang line as trivia", () => {
+        const tokens = tokenize("#!/usr/bin/env vexa\nval answer = 42");
+
+        expect(tokens.filter((token) => token.type !== "eof").map(({ type, value }) => ({ type, value }))).toStrictEqual([
+            { type: "identifier", value: "val" },
+            { type: "identifier", value: "answer" },
+            { type: "symbol", value: "=" },
+            { type: "number", value: "42" }
+        ]);
+        expect(tokens[0]?.leadingComments?.[0]).toMatchObject({
+            kind: "line",
+            value: "#!/usr/bin/env vexa",
+            range: {
+                start: { offset: 0, line: 0, column: 0 },
+                end: { offset: 19, line: 0, column: 19 }
+            }
+        });
+        expect(tokens[0]?.range.start).toEqual({ offset: 20, line: 1, column: 0 });
+    });
+
     it("tokenize expression", () => {
         expect(simplifyTokens("1 + 2")).toStrictEqual([
             { type: "number", value: "1" },

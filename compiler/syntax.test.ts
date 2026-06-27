@@ -1,5 +1,5 @@
 import { describe, expect, it } from "./test/expect";
-import { createPortableMonarchLanguage } from "./syntax";
+import { createPortableMonarchLanguage, createVscodeTmLanguageGrammar } from "./syntax";
 
 describe("portable monarch syntax", () => {
   it("classifies type declaration keywords separately from identifiers", () => {
@@ -36,5 +36,21 @@ describe("portable monarch syntax", () => {
     expect(annotationRule?.token).toBe("annotation");
     expect(stringRule?.match).toBe(String.raw`"([^"\\]|\\.)*"`);
     expect(numberRule?.match).toBe(String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`);
+  });
+
+  it("classifies an initial shebang line as a comment", () => {
+    const language = createPortableMonarchLanguage();
+    const vscodeGrammar = createVscodeTmLanguageGrammar();
+    const repository = vscodeGrammar["repository"] as Record<string, unknown>;
+    const comments = repository["comments"] as { patterns: Array<Record<string, unknown>> };
+
+    expect(language.tokenizer["root"]?.[0]).toEqual({
+      match: String.raw`^#!.*$`,
+      token: "comment",
+    });
+    expect(comments.patterns[0]).toEqual({
+      name: "comment.line.shebang.vexa",
+      match: "^#!.*$\\n?",
+    });
   });
 });

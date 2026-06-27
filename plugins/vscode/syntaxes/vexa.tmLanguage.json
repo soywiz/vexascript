@@ -46,6 +46,10 @@
     "comments": {
       "patterns": [
         {
+          "name": "comment.line.shebang.vexa",
+          "match": "^#!.*$\\n?"
+        },
+        {
           "name": "comment.line.documentation.vexa",
           "begin": "///",
           "beginCaptures": {
