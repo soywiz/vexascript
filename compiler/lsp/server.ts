@@ -16,7 +16,6 @@ import {
 import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocument";
 import { AnalysisSessionCache } from "./analysisSession";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
-import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { loadGlobalSymbolDeclarationFiles } from "compiler/runtime/moduleGraph";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import { loadProject } from "compiler/project";
@@ -206,9 +205,6 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
     ambientModuleLocations: ambientTypes.moduleDeclarationLocations
   };
 }, () => connection.languages.diagnostics.refresh());
-
-// Ensure runtime is loaded on server start (non-blocking background load)
-ensureEcmaScriptRuntimeProgram().catch(() => undefined);
 
 function syncOpenDocumentWithProjectIndex(document: LspTextDocument): void {
   const filePath = uriToFilePath(document.uri);

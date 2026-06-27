@@ -11,8 +11,6 @@ import { getRuntimeDeclarationsHost } from "./declarationHost";
 export const TYPESCRIPT_DOM_DECLARATION_FILE_NAME = "dom.d.ts";
 const DOM_CACHE_SALT = "dom-runtime-v1";
 
-export interface CachedDomSourceMetadata {}
-
 interface CachedDomProgram extends CachedDeclarationProgram {
   filePath: string;
 }

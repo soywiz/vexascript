@@ -121,10 +121,10 @@ describe("website project", () => {
     expect(buildEmbedScript.includes('compiler/runtime/domDeclarations')).toBe(true);
     expect(buildEmbedScript.includes('compiler/runtime/ecmascriptDeclarations')).toBe(true);
     expect(buildEmbedScript.includes("bundledVexaRuntimeUrl")).toBe(true);
-    expect(buildEmbedScript.includes("loadVexaScriptDeclarations")).toBe(true);
     expect(buildEmbedScript.includes("ensureVexaScriptRuntimeProgram")).toBe(true);
     expect(buildEmbedScript.includes("getVexaScriptRuntimeProgram")).toBe(true);
     expect(buildEmbedScript.includes("isVexaScriptRuntimeNode")).toBe(true);
+    expect(buildEmbedScript.includes('setVexaScriptRuntimeDeclarationFilePath("/runtime/vexascript.d.vx")')).toBe(true);
     expect(buildEmbedScript.includes('"/assets/generated/runtime/vexascript.d.vx"')).toBe(true);
     expect(buildEmbedScript.includes("writeGeneratedRuntimeBrowserModules")).toBe(true);
     expect(buildEmbedScript.includes("ecmascriptDeclarations.browser.ts")).toBe(true);

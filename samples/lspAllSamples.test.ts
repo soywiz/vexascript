@@ -1,5 +1,5 @@
 import { describe, it, readdir, resolve } from "../compiler/test/expect";
-import { ensureCompilerRuntimePrograms, ensureRuntimeDependencies, resolveProjectForSource } from "../cli/cliShared";
+import { ensureRuntimeDependencies, resolveProjectForSource } from "../cli/cliShared";
 import { fileExists, isDirectory } from "../compiler/utils/fs";
 import { openEntrypointInLspSession } from "./lspOpenSession";
 
@@ -33,8 +33,6 @@ describe("all sample LSP sessions", async () => {
   const workspaceRoot = process.cwd();
   const rootDir = resolve(workspaceRoot, "samples");
   const entrypoints = await resolveSampleEntrypoints(rootDir);
-
-  await ensureCompilerRuntimePrograms();
 
   for (const { sampleName, entrypoint } of entrypoints) {
     const testFn = skippedSamples.has(sampleName) ? it.skip : it;

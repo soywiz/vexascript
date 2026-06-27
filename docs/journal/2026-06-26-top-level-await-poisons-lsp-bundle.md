@@ -42,7 +42,7 @@ analysis/transpile tests import transitively (via Binder/TypeChecker). Node
 synchronous getters (`getEcmaScriptRuntimeProgram()`) were always ready in tests.
 That made the TLA look harmless — it only bit the bundled server.
 
-## Fix
+## Initial fix
 
 1. Remove the import-time preload (and the dead `argv1` guard) from
    `compiler/runtime/ecmascriptDeclarations.ts`. No shipped module uses
@@ -87,3 +87,22 @@ That made the TLA look harmless — it only bit the bundled server.
   explicit awaited init at each entry point.
 - `cli.test.ts` already asserts `built CLI starts without unsettled top-level
   await warnings`; the server bundle deserves the same kind of smoke check.
+
+## Follow-up simplification
+
+The explicit entry-point preload was better than a module-scope await, but it
+still preserved the underlying fragility: every CLI/LSP/MCP/test surface had to
+remember to call the same async helper before any synchronous getter could run.
+That was still a compatibility layer around synchronous compiler internals.
+
+The durable simplification is to embed the ECMAScript and VexaScript runtime
+declaration source text in `compiler/runtime/embeddedRuntimeSources.ts`, then let
+`getEcmaScriptRuntimeProgram()` and `getVexaScriptRuntimeProgram()` parse lazily
+from those constants. The compiler still performs no synchronous I/O, but the
+runtime programs are available on first synchronous access without top-level
+await, fire-and-forget races, LSP initialize gating, or test-suite preload hooks.
+
+DOM declarations remain async because they are large and only needed when a
+project explicitly requests `compilerOptions.lib: ["dom"]`; that path already
+has async entry points (`ensureDomProgram()`) and does not force the Binder or
+TypeChecker's core runtime getters to depend on preload ordering.

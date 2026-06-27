@@ -1,7 +1,20 @@
 import { setRuntimeDeclarationsHost } from "./declarationHost";
+import { dirname, fileURLToPath, resolve } from "compiler/utils/path";
 import { nodeRuntimeDeclarationsHost } from "./nodeDeclarationHost";
+import {
+  setEcmaScriptRuntimeDeclarationFilePath,
+  TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME
+} from "./ecmascriptDeclarations.shared";
+import {
+  setVexaScriptRuntimeDeclarationFilePath,
+  VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME
+} from "./vexascriptDeclarations.shared";
 
 setRuntimeDeclarationsHost(nodeRuntimeDeclarationsHost);
+
+const runtimeDeclarationBaseDir = dirname(fileURLToPath(import.meta.url));
+setEcmaScriptRuntimeDeclarationFilePath(resolve(runtimeDeclarationBaseDir, TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME));
+setVexaScriptRuntimeDeclarationFilePath(resolve(runtimeDeclarationBaseDir, VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME));
 
 export {
   ensureEcmaScriptRuntimeProgram,
@@ -19,15 +32,6 @@ export {
 } from "./vexascriptDeclarations.shared";
 
 // NOTE: This module intentionally does NOT preload the runtime declaration
-// programs at import time. A top-level `await` here makes every transitive
-// importer an async (top-level-await) module, which esbuild propagates through
-// the whole bundle as `await init_<module>()` calls. In the packaged LSP server
-// bundle (`dist/vexa.mjs`) Node then reports "Detected unsettled top-level
-// await" and the process exits with code 13. See AGENTS.md: "Do not use
-// top-level awaits as they are problematic."
-//
-// Instead, each async entry point loads the declarations explicitly before any
-// synchronous getter (getEcmaScriptRuntimeProgram / getVexaScriptRuntimeProgram)
-// can be reached: the CLI via `ensureCompilerRuntimePrograms()`, the LSP server
-// by awaiting the ensure functions in its `initialize` handler, the MCP server
-// at startup, and the test suite in `compiler/test/expect.ts`.
+// programs at import time. The ECMAScript and VexaScript declaration sources are
+// embedded as module constants and parsed lazily by their synchronous getters,
+// so no top-level await or entry-point preload is needed.

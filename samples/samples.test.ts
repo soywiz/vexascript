@@ -2,7 +2,6 @@ import { describe, expect, format, it, readFile, readdir } from "../compiler/tes
 import { runFile } from "../cli/cli";
 import {
     createBundledModuleArtifacts,
-    ensureCompilerRuntimePrograms,
     ensureRuntimeDependencies,
     resolveProjectForSource
 } from "../cli/cliShared";
@@ -55,7 +54,6 @@ describe("samples test", async () => {
 
         it(`sample ${file} bundles entrypoint`, async () => {
             await ensureRuntimeDependencies(entrypoint, project)
-            await ensureCompilerRuntimePrograms()
 
             const result = await createBundledModuleArtifacts(entrypoint, "optimized", project)
 

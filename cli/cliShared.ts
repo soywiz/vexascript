@@ -1,3 +1,4 @@
+import "./localVfs";
 import type { Statement } from "../compiler/ast/ast";
 import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
 import { dirname, resolve } from "../compiler/utils/path";
@@ -28,15 +29,6 @@ export async function globalDeclarationsForProject(project: VexaProject | null):
   }
   const { loadGlobalSymbolDeclarations } = await import("../compiler/runtime/moduleGraph");
   return loadGlobalSymbolDeclarations(project.globalSymbols.paths);
-}
-
-export async function ensureCompilerRuntimePrograms(): Promise<void> {
-  // Importing the Node wrapper installs the Node declarations host; the shared
-  // helper then loads both runtime declaration programs.
-  await import("../compiler/runtime/ecmascriptDeclarations");
-  const { ensureCompilerRuntimePrograms: ensurePrograms } =
-    await import("../compiler/runtime/ensureRuntimePrograms");
-  await ensurePrograms();
 }
 
 async function loadPackageJsonDeps(dir: string): Promise<Record<string, string> | null> {

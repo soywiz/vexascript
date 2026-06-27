@@ -1,7 +1,6 @@
 import { describe, expect, it, resolve } from "../compiler/test/expect";
 import {
   createBundledModuleArtifacts,
-  ensureCompilerRuntimePrograms,
   ensureRuntimeDependencies,
   resolveProjectForSource
 } from "../cli/cliShared";
@@ -13,7 +12,6 @@ describe("threejs sample", () => {
     const project = await resolveProjectForSource(sourcePath);
 
     await ensureRuntimeDependencies(sourcePath, project);
-    await ensureCompilerRuntimePrograms();
 
     const result = await createBundledModuleArtifacts(sourcePath, "optimized", project);
 
@@ -30,7 +28,6 @@ describe("threejs sample", () => {
     const project = await resolveProjectForSource(sourcePath);
 
     await ensureRuntimeDependencies(sourcePath, project);
-    await ensureCompilerRuntimePrograms();
 
     const result = await openEntrypointInLspSession(sourcePath);
 

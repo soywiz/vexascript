@@ -9,15 +9,13 @@ describe("node runtime declaration host", () => {
     delete (globalVfs as { ref?: typeof previousVfs }).ref;
 
     try {
-      const declaration = await nodeRuntimeDeclarationsHost.loadEcmaScriptDeclarations() as {
+      const declaration = await nodeRuntimeDeclarationsHost.loadDomDeclarations() as {
         filePath: string;
         source: string;
-        mtimeMs?: number;
       };
 
-      expect(declaration.filePath.endsWith("es2025.d.ts")).toBe(true);
-      expect(declaration.source).toContain("interface Array<T>");
-      expect(typeof declaration.mtimeMs).toBe("number");
+      expect(declaration.filePath.endsWith("dom.d.ts")).toBe(true);
+      expect(declaration.source).toContain("interface HTMLElement");
     } finally {
       globalVfs.ref = previousVfs;
     }

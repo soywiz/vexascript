@@ -1,13 +1,7 @@
 import { dirname, fileURLToPath, resolve } from "compiler/utils/path";
 import {
-  TYPESCRIPT_DOM_DECLARATION_FILE_NAME,
-  type CachedDomSourceMetadata
+  TYPESCRIPT_DOM_DECLARATION_FILE_NAME
 } from "./domDeclarations.shared";
-import {
-  TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME,
-  type CachedRuntimeSourceMetadata
-} from "./ecmascriptDeclarations.shared";
-import { VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME } from "./vexascriptDeclarations.shared";
 import type { RuntimeDeclarationsHost, RuntimeDeclarationSource } from "./declarationHost";
 
 interface NodeStatLike {
@@ -90,16 +84,7 @@ async function readBundledDeclarationSource(fileName: string): Promise<RuntimeDe
 }
 
 export const nodeRuntimeDeclarationsHost: RuntimeDeclarationsHost = {
-  async loadEcmaScriptDeclarations(): Promise<RuntimeDeclarationSource & CachedRuntimeSourceMetadata> {
-    const fsPromises = getNodeFsPromises();
-    const declaration = await readBundledDeclarationSource(TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME);
-    const { mtimeMs } = await fsPromises.stat(declaration.filePath);
-    return { ...declaration, mtimeMs };
-  },
-  async loadVexaScriptDeclarations(): Promise<RuntimeDeclarationSource> {
-    return readBundledDeclarationSource(VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME);
-  },
-  async loadDomDeclarations(): Promise<RuntimeDeclarationSource & CachedDomSourceMetadata> {
+  async loadDomDeclarations(): Promise<RuntimeDeclarationSource> {
     return readBundledDeclarationSource(TYPESCRIPT_DOM_DECLARATION_FILE_NAME);
   }
 };

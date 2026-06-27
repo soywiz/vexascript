@@ -6,7 +6,6 @@ import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/t
 import { basename, extname, resolve } from "../compiler/utils/path";
 import {
   createBundledModuleArtifacts,
-  ensureCompilerRuntimePrograms,
   ensureRuntimeDependencies,
   resolveProjectForSource
 } from "./cliShared";
@@ -190,7 +189,6 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
     const project = await resolveProjectForSource(bundleInput);
     serveMappings = project?.serveMappings ?? [];
     await ensureRuntimeDependencies(bundleInput, project);
-    await ensureCompilerRuntimePrograms();
     const result = await createBundledModuleArtifacts(bundleInput, target, project, jsxOptions);
     if (result.errors.length > 0) {
       options.onDiagnosticError?.(result, bundleInput);

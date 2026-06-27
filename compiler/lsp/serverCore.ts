@@ -25,7 +25,6 @@ import type {
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { ProjectSessionLike } from "compiler/analysis/projectIndex";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
-import { ensureCompilerRuntimePrograms } from "compiler/runtime/ensureRuntimePrograms";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import type { AnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
@@ -451,14 +450,7 @@ export function startLspServer(options: LspServerOptions): void {
         }
       };
     });
-    // Load the embedded runtime declaration programs before completing the
-    // initialize response. The synchronous getters used by the Binder/TypeChecker
-    // require them; the LSP client waits for this response before sending further
-    // requests, so gating the resolved value here is the deterministic preload
-    // point that replaces the former (problematic) import-time top-level await.
-    // Capability/flag side effects above stay synchronous so callers that only
-    // depend on them do not need to await the initialize handshake.
-    return ensureCompilerRuntimePrograms().then(() => result);
+    return result;
   });
 
   connection.onInitialized(() => {

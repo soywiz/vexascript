@@ -11,7 +11,6 @@ import { vfs } from "../compiler/vfs";
 import {
   ambientDeclarationsForProject,
   createBundledModuleArtifacts,
-  ensureCompilerRuntimePrograms,
   ensureRuntimeDependencies,
   globalDeclarationsForProject,
   resolveServeBundleInput
@@ -96,7 +95,6 @@ async function buildFile(
   const source = (await vfs().readFile(sourcePath))!;
   const project = await loadProject(sourcePath);
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
-  await ensureCompilerRuntimePrograms();
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
   const { transpile } = await import("../compiler/runtime/transpile");
@@ -142,7 +140,6 @@ async function bundleFile(
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   await ensureRuntimeDependencies(sourcePath, project);
-  await ensureCompilerRuntimePrograms();
 
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
   const result = await createBundledModuleArtifacts(sourcePath, target, project, jsxOptions);
@@ -267,7 +264,6 @@ async function buildDirectory(
     throw new Error(`No bundle entrypoint provided. Add "entrypoint" to ${rootDir}/vexascript.json`);
   }
   await ensureRuntimeDependencies(bundleInput, project);
-  await ensureCompilerRuntimePrograms();
   const outputDir = resolve(process.cwd(), out ?? project?.buildOutputDir ?? resolve(rootDir, "dist"));
   if (outputDir === rootDir) {
     throw new Error(`Build output directory must not be the project root: ${outputDir}`);
@@ -299,7 +295,6 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   await ensureRuntimeDependencies(sourcePath, project);
-  await ensureCompilerRuntimePrograms();
   const result = await createBundledModuleArtifacts(sourcePath, target, project, {}, {
     externalDependencyStrategy: "node-require"
   });
@@ -309,7 +304,6 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
 async function executeSource(source: string, sourcePath: string, target: TranspileTarget): Promise<void> {
   const outputPath = replaceLanguageExtension(sourcePath, ".js");
   const project = await loadProject(sourcePath);
-  await ensureCompilerRuntimePrograms();
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
   const { transpile } = await import("../compiler/runtime/transpile");
