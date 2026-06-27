@@ -884,6 +884,27 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses optional type suffixes on class method return types before bodies", () => {
+        expect(parseStatement(tokenizeReader("class ViewNode {\nfun findNodeByName(name: string): ViewNode? { return undefined }\n}"))).toMatchObject({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "ViewNode" },
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "findNodeByName" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "name" },
+                            typeAnnotation: { kind: "Identifier", name: "string" }
+                        }
+                    ],
+                    returnType: { kind: "Identifier", name: "ViewNode?" }
+                }
+            ]
+        });
+    });
+
     it("parses class members with explicit property and function declaration keywords", () => {
         expect(
             parseStatement(

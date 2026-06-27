@@ -880,6 +880,21 @@ export class Parser {
         );
     }
 
+    private parseReturnTypeAnnotationNode(): Identifier {
+        const typeAnnotation = this.parseTypeAnnotationNode();
+        if (
+            this.tokens.peek()?.type === "symbol" &&
+            this.tokens.peek()?.value === "?" &&
+            this.peekToken(1)?.type === "symbol" &&
+            (this.peekToken(1)?.value === "{" || this.peekToken(1)?.value === "=>")
+        ) {
+            const questionToken = this.tokens.read()!;
+            typeAnnotation.name += "?";
+            this.attachNodeBounds(typeAnnotation, typeAnnotation.firstToken, questionToken);
+        }
+        return typeAnnotation;
+    }
+
     // Parses a class heritage type (the operand of `extends`/`implements`).
     // Unlike parseTypeAnnotationNode it stops before a following `extends`, so a
     // surplus `extends`/`implements` clause is not mis-parsed as a conditional
@@ -2211,7 +2226,7 @@ export class Parser {
                     let returnType: Identifier | undefined;
                     if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
                         this.tokens.skip();
-                        returnType = this.parseTypeAnnotationNode();
+                        returnType = this.parseReturnTypeAnnotationNode();
                     }
                     const body = this.parseBlockStatement();
                     const value: FunctionExpression = {
@@ -2366,7 +2381,7 @@ export class Parser {
         const maybeColon = this.tokens.peek();
         if (maybeColon?.type === "symbol" && maybeColon.value === ":") {
             this.tokens.skip();
-            returnType = this.parseTypeAnnotationNode();
+            returnType = this.parseReturnTypeAnnotationNode();
         }
         const body = this.parseBlockStatement();
         const expression: FunctionExpression = {
@@ -2946,7 +2961,7 @@ export class Parser {
             let returnType: Identifier | undefined;
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
                 this.tokens.skip();
-                returnType = this.parseTypeAnnotationNode();
+                returnType = this.parseReturnTypeAnnotationNode();
             }
             const arrow = this.tokens.peek();
             if (!(arrow?.type === "symbol" && arrow.value === "=>")) {
@@ -5260,7 +5275,7 @@ export class Parser {
         let returnType: Identifier | undefined;
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
-            returnType = this.parseTypeAnnotationNode();
+            returnType = this.parseReturnTypeAnnotationNode();
         }
 
         let missingBody = false;
@@ -5954,7 +5969,7 @@ export class Parser {
             let returnType: Identifier | undefined;
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
                 this.tokens.skip();
-                returnType = this.parseTypeAnnotationNode();
+                returnType = this.parseReturnTypeAnnotationNode();
             }
 
             if (
@@ -6478,7 +6493,7 @@ export class Parser {
                 let returnType: Identifier | undefined;
                 if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
                     this.tokens.skip();
-                    returnType = this.parseTypeAnnotationNode();
+                    returnType = this.parseReturnTypeAnnotationNode();
                 }
 
                 const memberName = this.attachNodeBounds(
@@ -6616,7 +6631,7 @@ export class Parser {
                 let returnType: Identifier | undefined;
                 if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
                     this.tokens.skip();
-                    returnType = this.parseTypeAnnotationNode();
+                    returnType = this.parseReturnTypeAnnotationNode();
                 }
 
                 const member: InterfaceMethodMember = {

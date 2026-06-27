@@ -10104,17 +10104,20 @@ export class TypeChecker {
       return resolvedObjectType;
     }
     const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
-    const extensionType = this.resolveExtensionMemberType(resolvedObjectType, memberName);
-    if (extensionType) {
-      return extensionType;
-    }
-    const importedExtensionPropertyType = this.importedExtensionPropertyTypes.get(memberName);
-    if (importedExtensionPropertyType) {
-      return importedExtensionPropertyType;
-    }
-    if (this.importedExtensionPropertyNames.has(memberName)) {
-      return UNKNOWN_TYPE;
-    }
+    const fallbackExtensionType = (): AnalysisType | null => {
+      const extensionType = this.resolveExtensionMemberType(resolvedObjectType, memberName);
+      if (extensionType) {
+        return extensionType;
+      }
+      const importedExtensionPropertyType = this.importedExtensionPropertyTypes.get(memberName);
+      if (importedExtensionPropertyType) {
+        return importedExtensionPropertyType;
+      }
+      if (this.importedExtensionPropertyNames.has(memberName)) {
+        return UNKNOWN_TYPE;
+      }
+      return null;
+    };
     if (this.enumValueMemberAccessType(member, resolvedObjectType) !== null) {
       return null;
     }
@@ -10141,40 +10144,40 @@ export class TypeChecker {
       return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
     }
     if (resolvedObjectType.kind === "object") {
-      return resolvedObjectType.properties[memberName] ?? null;
+      return resolvedObjectType.properties[memberName] ?? fallbackExtensionType();
     }
     if (resolvedObjectType.kind === "array") {
       const arrayMembers = this.membersForArrayAlias(resolvedObjectType);
       if (!arrayMembers) {
-        return null;
+        return fallbackExtensionType();
       }
-      return arrayMembers.get(memberName) ?? null;
+      return arrayMembers.get(memberName) ?? fallbackExtensionType();
     }
     if (resolvedObjectType.kind === "builtin") {
       const boxedName = boxedInterfaceNameForBuiltin(resolvedObjectType.name);
       if (!boxedName) {
-        return null;
+        return fallbackExtensionType();
       }
       const boxedMembers = this.resolveNamedTypeMembers(namedType(boxedName));
-      return boxedMembers?.get(memberName) ?? null;
+      return boxedMembers?.get(memberName) ?? fallbackExtensionType();
     }
     if (resolvedObjectType.kind === "literal") {
       const boxedName = boxedInterfaceNameForBuiltin(resolvedObjectType.base);
       if (!boxedName) {
-        return null;
+        return fallbackExtensionType();
       }
       const boxedMembers = this.resolveNamedTypeMembers(namedType(boxedName));
-      return boxedMembers?.get(memberName) ?? null;
+      return boxedMembers?.get(memberName) ?? fallbackExtensionType();
     }
     if (resolvedObjectType.kind !== "named") {
-      return null;
+      return fallbackExtensionType();
     }
 
     const classMembers = this.resolveNamedTypeMembers(resolvedObjectType);
     if (!classMembers) {
-      return null;
+      return fallbackExtensionType();
     }
-    return classMembers.get(memberName) ?? null;
+    return classMembers.get(memberName) ?? fallbackExtensionType();
   }
 
   private enumValueMemberAccessType(member: MemberExpression, objectType: AnalysisType): AnalysisType | null {

@@ -214,6 +214,23 @@ describe("enum semantic analysis", () => {
     );
   });
 
+  it("prefers concrete member properties over same-named extension properties", () => {
+    const source = dedent`
+      class Duration(val ms: number) {
+        val seconds => ms / 1000
+      }
+      val number.seconds => Duration(this * 1000)
+      fun move(delta: Duration) {
+        let scalar = 1 * delta.seconds
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const symbols = new Map(analysis.getVisibleSymbolsAt(5, 8).map((symbol) => [symbol.name, symbol]));
+
+    expect(analysis.getIssues()).toEqual([]);
+    expect(symbols.get("scalar")?.valueType).toBe("number");
+  });
+
   it("infers number for mixed int and number multiplication", () => {
     const source = dedent`
       let a: number = 1

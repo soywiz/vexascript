@@ -403,6 +403,11 @@ function typeMangleName(type: AnalysisType | undefined): string | null {
   return sanitizeManglePart(typeToString(type));
 }
 
+function receiverTypeMatches(receiverType: string, expressionType: AnalysisType | undefined): boolean {
+  const actualType = typeMangleName(expressionType);
+  return actualType === receiverType || receiverType === "number" && actualType === "int";
+}
+
 function restRuntimeParameterTypeName(parameterType: string): string {
   const trimmed = parameterType.trim();
   if (trimmed.endsWith("[]")) {
@@ -918,7 +923,7 @@ function emitExtensionPropertyAssignment(assignment: AssignmentExpression): stri
   }
   const propertyName = (member.property as Identifier).name;
   const receiverType = activeState.extensionPropertySetters.get(propertyName);
-  if (!receiverType) {
+  if (!receiverType || !receiverTypeMatches(receiverType, activeState.expressionTypes?.get(member.object as unknown as Node))) {
     return null;
   }
   const receiverText = emitExpression(member.object, PREC_MEMBER, "left");
@@ -951,6 +956,24 @@ function emitIndexOperatorAssignment(assignment: AssignmentExpression): string |
   return operatorMethod.extension
     ? `${operatorMethod.emittedName}(${objectText}, ${argumentTexts.join(", ")})`
     : `${objectText}.${operatorMethod.emittedName}(${argumentTexts.join(", ")})`;
+}
+
+function emitOverloadedCompoundAssignment(assignment: AssignmentExpression): string | null {
+  if (hasOptionalAssignmentTarget(assignment.left)) {
+    return null;
+  }
+  const operator = compoundAssignmentBinaryOperator(assignment.operator);
+  if (!operator) {
+    return null;
+  }
+  const operatorMethod = resolveOperatorMethodForArguments(assignment.left, operator, [assignment.right]);
+  if (!operatorMethod) {
+    return null;
+  }
+
+  const leftText = emitExpression(assignment.left, PREC_ASSIGNMENT, "left");
+  const rightText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
+  return `${leftText} = ${emitOperatorMethodCall(operatorMethod, leftText, rightText)}`;
 }
 
 function isConstructableCallee(expression: Expr): boolean {
@@ -1365,6 +1388,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (indexOperatorAssignment) {
           return indexOperatorAssignment;
         }
+        const overloadedCompoundAssignment = emitOverloadedCompoundAssignment(assignment);
+        if (overloadedCompoundAssignment) {
+          return overloadedCompoundAssignment;
+        }
         const optionalAssignment = emitOptionalAssignmentTarget(assignment);
         if (optionalAssignment) {
           return optionalAssignment;
@@ -1392,7 +1419,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (!member.computed && member.property.kind === "Identifier") {
           const propertyName = (member.property as Identifier).name;
           const receiverType = activeState.extensionProperties.get(propertyName);
-          if (receiverType) {
+          if (receiverType && receiverTypeMatches(receiverType, activeState.expressionTypes?.get(member.object as unknown as Node))) {
             return `${extensionPropertyRuntimeName(receiverType, propertyName)}(${objectText})`;
           }
           // Member property names are not affected by `@JsName`; emit them as-is

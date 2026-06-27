@@ -513,6 +513,38 @@ describe("transpile", () => {
     expect(result.code).toContain("let c = a.operator$plus$$Point(b);");
   });
 
+  it("lowers compound assignments through matching operator overloads", () => {
+    const source = [
+      "class Point(val x: number, val y: number) {",
+      "  operator+(other: Point): Point { return new Point(this.x + other.x, this.y + other.y) }",
+      "}",
+      "class View(var position: Point)",
+      "let view = new View(new Point(1, 2))",
+      "view.position += new Point(3, 4)"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("view.position = view.position.operator$plus$$Point(new Point(3, 4));");
+  });
+
+  it("does not route concrete member properties through mismatched extension properties", () => {
+    const source = [
+      "class Duration(val ms: number) {",
+      "  val seconds => ms / 1000",
+      "}",
+      "val number.seconds => Duration(this * 1000)",
+      "fun scale(delta: Duration): number => delta.seconds"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("return delta.seconds;");
+    expect(result.code).toContain("const number$$seconds = ($this) => new Duration($this * 1000);");
+  });
+
   it("lowers unary operator overloads before surrounding binary expressions", () => {
     const source = [
       "class Point(val x: number, val y: number) {",
