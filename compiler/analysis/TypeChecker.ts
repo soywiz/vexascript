@@ -3250,38 +3250,39 @@ export class TypeChecker {
     argumentTypes: AnalysisType[],
     scope: Scope
   ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
-    if (leftType.kind !== "named") {
-      return null;
+    if (leftType.kind === "named") {
+      const classStatement = this.classStatementsByName.get(leftType.name);
+      const classSubstitutions = classStatement
+        ? this.typeParameterSubstitutions(classStatement.typeParameters ?? [], leftType)
+        : new Map<string, AnalysisType>();
+      for (const member of classStatement?.members ?? []) {
+        if (member.kind !== "ClassMethodMember") {
+          continue;
+        }
+        const method = member as ClassMethodMember;
+        if (method.operator !== operator || !this.operatorParametersMatch(method.parameters, argumentTypes, scope, classSubstitutions)) {
+          continue;
+        }
+        return {
+          type: method.returnType
+            ? this.resolveOperatorTypeAnnotation(method.returnType, scope, classSubstitutions) ?? UNKNOWN_TYPE
+            : namedType(leftType.name),
+          symbol: this.createMethodSymbol(method)
+        };
+      }
     }
-    const classStatement = this.classStatementsByName.get(leftType.name);
-    const classSubstitutions = classStatement
-      ? this.typeParameterSubstitutions(classStatement.typeParameters ?? [], leftType)
-      : new Map<string, AnalysisType>();
-    for (const member of classStatement?.members ?? []) {
-      if (member.kind !== "ClassMethodMember") {
-        continue;
+    for (const receiverName of this.extensionReceiverNames(leftType)) {
+      for (const extension of this.extensionOperatorsByReceiver.get(receiverName) ?? []) {
+        if (extension.operator !== operator || !this.operatorParametersMatch(extension.parameters, argumentTypes, scope)) {
+          continue;
+        }
+        return {
+          type: extension.returnType
+            ? this.resolveTypeAnnotation(extension.returnType, scope) ?? UNKNOWN_TYPE
+            : leftType,
+          symbol: this.createFunctionSymbol(extension)
+        };
       }
-      const method = member as ClassMethodMember;
-      if (method.operator !== operator || !this.operatorParametersMatch(method.parameters, argumentTypes, scope, classSubstitutions)) {
-        continue;
-      }
-      return {
-        type: method.returnType
-          ? this.resolveOperatorTypeAnnotation(method.returnType, scope, classSubstitutions) ?? UNKNOWN_TYPE
-          : namedType(leftType.name),
-        symbol: this.createMethodSymbol(method)
-      };
-    }
-    for (const extension of this.extensionOperatorsByReceiver.get(leftType.name) ?? []) {
-      if (extension.operator !== operator || !this.operatorParametersMatch(extension.parameters, argumentTypes, scope)) {
-        continue;
-      }
-      return {
-        type: extension.returnType
-          ? this.resolveTypeAnnotation(extension.returnType, scope) ?? UNKNOWN_TYPE
-          : namedType(leftType.name),
-        symbol: this.createFunctionSymbol(extension)
-      };
     }
     return null;
   }
@@ -3335,16 +3336,17 @@ export class TypeChecker {
   }
 
   private hasOperatorOverloadCandidates(operator: OverloadableOperator, leftType: AnalysisType): boolean {
-    if (leftType.kind !== "named") {
-      return false;
+    if (leftType.kind === "named") {
+      const classStatement = this.classStatementsByName.get(leftType.name);
+      if (classStatement?.members.some((member) =>
+        member.kind === "ClassMethodMember" && (member as ClassMethodMember).operator === operator
+      )) {
+        return true;
+      }
     }
-    const classStatement = this.classStatementsByName.get(leftType.name);
-    if (classStatement?.members.some((member) =>
-      member.kind === "ClassMethodMember" && (member as ClassMethodMember).operator === operator
-    )) {
-      return true;
-    }
-    return (this.extensionOperatorsByReceiver.get(leftType.name) ?? []).some((extension) => extension.operator === operator);
+    return this.extensionReceiverNames(leftType).some((receiverName) =>
+      (this.extensionOperatorsByReceiver.get(receiverName) ?? []).some((extension) => extension.operator === operator)
+    );
   }
 
   private reportMissingOperatorOverload(

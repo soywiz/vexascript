@@ -635,6 +635,23 @@ let after = bind`));
       expect(messages.filter((message) => message.includes("Operator '+' is not defined"))).toEqual([]);
     });
 
+    it("resolves extension operators on primitive receiver types", () => {
+      const source = dedent`
+        class Duration(val ms: number) {
+          operator*(scale: int): Duration => Duration(ms * scale)
+        }
+        val int.seconds => Duration(this * 1000)
+        fun int.operator*(duration: Duration): Duration => duration * this
+        val scaled = 2 * 1.seconds
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+
+      expect(messages.filter((message) => message.includes("Operator '*' is not defined"))).toEqual([]);
+    });
+
     it("infers the receiver type of an imported class constructor call", () => {
       // An explicit `import { Point }` must not delete the imported class from the
       // type tables; the constructor call should resolve to the class type so a
