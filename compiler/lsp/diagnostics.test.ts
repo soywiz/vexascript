@@ -1,5 +1,7 @@
 import { describe, expect, it } from "../test/expect";
 import dedent from "compiler/utils/dedent";
+import { parseFile } from "compiler/parser/parser";
+import { tokenizeReader } from "compiler/parser/tokenizer";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { createAnalysisSession } from "./analysisSession";
 import { collectDiagnostics, collectDiagnosticsFromSession, createDocumentDiagnosticReport } from "./diagnostics";
@@ -203,6 +205,64 @@ function empty(): int {
 
     expect(diagnostic?.message).toBe("Parameter 'props' must declare an explicit type annotation");
     expect(diagnostic?.range.start).toEqual({ line: 0, character: 9 });
+  });
+
+  it("requires override for project-owned ambient base members", () => {
+    const source = dedent`
+      class Demo extends Component {
+        fun onCollider(other: ViewNode) {
+        }
+      }
+      `;
+    const ambientDeclarations = parseFile(tokenizeReader(dedent`
+      class ViewNode {}
+      class Component {
+        fun onCollider(other: ViewNode) {}
+      }
+      `)).body;
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
+    const session = createAnalysisSession(source, { ambientDeclarations });
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) =>
+      doc.positionAt(offset)
+    );
+
+    const diagnostic = diagnostics.find(
+      (item) => item.code === VEXA_DIAGNOSTIC_CODES.MISSING_OVERRIDE_MODIFIER
+    );
+
+    expect(diagnostic?.message).toBe(
+      "Member 'onCollider' must be declared with 'override' because it overrides a member from a base class or interface"
+    );
+    expect(diagnostic?.range.start).toEqual({ line: 1, character: 6 });
+  });
+
+  it("requires override for project-owned external base members", () => {
+    const source = dedent`
+      class Demo extends Component {
+        fun onCollider(other: ViewNode) {
+        }
+      }
+      `;
+    const externalDeclarations = parseFile(tokenizeReader(dedent`
+      class ViewNode {}
+      class Component {
+        fun onCollider(other: ViewNode) {}
+      }
+      `)).body;
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
+    const session = createAnalysisSession(source, { externalDeclarations });
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) =>
+      doc.positionAt(offset)
+    );
+
+    const diagnostic = diagnostics.find(
+      (item) => item.code === VEXA_DIAGNOSTIC_CODES.MISSING_OVERRIDE_MODIFIER
+    );
+
+    expect(diagnostic?.message).toBe(
+      "Member 'onCollider' must be declared with 'override' because it overrides a member from a base class or interface"
+    );
+    expect(diagnostic?.range.start).toEqual({ line: 1, character: 6 });
   });
 
   it("anchors unknown extension receiver types on the receiver type name", () => {

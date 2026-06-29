@@ -3,6 +3,8 @@ import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
 import { collectDiagnosticsFromSession } from "./diagnostics";
+import { parseFile } from "compiler/parser/parser";
+import { tokenizeReader } from "compiler/parser/tokenizer";
 import type { Range } from "vscode-languageserver/node.js";
 
 const URI = "file:///demo.vx";
@@ -176,6 +178,34 @@ describe("collectCodeActions aggregator", () => {
     });
 
     expect(actions.map((action) => action.title)).toContain("Add 'override' to 'lol2'");
+  });
+
+  it("offers an 'Add override' quick fix for project ambient base members", async () => {
+    const source = dedent`
+      class Demo extends Component {
+        fun onCollider(other: ViewNode) {
+        }
+      }
+      `;
+    const ambientDeclarations = parseFile(tokenizeReader(dedent`
+      class ViewNode {}
+      class Component {
+        fun onCollider(other: ViewNode) {}
+      }
+      `)).body;
+    const session = createAnalysisSession(source, { ambientDeclarations });
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) => positionAt(source, offset));
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(1, 6),
+      diagnostics,
+      sourceRoots: []
+    });
+
+    expect(actions.map((action) => action.title)).toContain("Add 'override' to 'onCollider'");
   });
 
   it("offers a quick fix to remove an unused import", async () => {

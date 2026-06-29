@@ -288,14 +288,24 @@ export class TypeChecker {
     this.collectTypeAliasStatements(program.body, this.nonExternalNamedTypeNames);
     this.collectVarStatements(program.body, this.nonExternalNamedTypeNames);
     this.collectAnnotationStatements(program.body);
-    for (const statement of program.body) {
+    this.markProjectDeclaredTypeNodes(ambientDeclarations);
+    this.markProjectDeclaredTypeNodes(externalDeclarations);
+    this.markProjectDeclaredTypeNodes(program.body);
+    this.collectExplicitlyUnknownIdentifiers(program);
+  }
+
+  private markProjectDeclaredTypeNodes(statements: readonly Statement[]): void {
+    for (const statement of statements) {
       walkAst(statement, (node) => {
-        if (node.kind === "ClassStatement" || node.kind === "InterfaceStatement") {
-          this.programDeclaredTypeNodes.add(node);
+        if (node.kind !== "ClassStatement" && node.kind !== "InterfaceStatement") {
+          return;
         }
+        if ((node as ClassStatement | InterfaceStatement).declared === true) {
+          return;
+        }
+        this.programDeclaredTypeNodes.add(node);
       });
     }
-    this.collectExplicitlyUnknownIdentifiers(program);
   }
 
   private collectExplicitlyUnknownIdentifiers(program: Program): void {
