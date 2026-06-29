@@ -10363,34 +10363,47 @@ export class TypeChecker {
   }
 
   private resolveComputedMemberType(objectType: AnalysisType, propertyType: AnalysisType): AnalysisType {
-    if (objectType.kind === "builtin" && objectType.name === "any") {
-      return objectType;
+    const normalizedObjectType = this.normalizeLooseNamedType(this.expandTypeAliases(objectType));
+    const normalizedPropertyType = this.normalizeLooseNamedType(this.expandTypeAliases(propertyType));
+
+    if (normalizedObjectType.kind === "builtin" && normalizedObjectType.name === "any") {
+      return normalizedObjectType;
     }
-    if (objectType.kind === "union") {
-      if (objectType.types.some((type) => type.kind === "builtin" && type.name === "any")) {
+    if (normalizedObjectType.kind === "union") {
+      if (normalizedObjectType.types.some((type) => type.kind === "builtin" && type.name === "any")) {
         return builtinType("any");
       }
-      const memberTypes = objectType.types
+      const memberTypes = normalizedObjectType.types
         .filter((type) => !isNullishType(type))
-        .map((type) => this.resolveComputedMemberType(type, propertyType))
+        .map((type) => this.resolveComputedMemberType(type, normalizedPropertyType))
         .filter((type) => !isUnknownType(type));
       if (memberTypes.length === 0) {
         return UNKNOWN_TYPE;
       }
       return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
     }
-    if (objectType.kind === "array" && isIntType(propertyType)) {
-      return objectType.elementType;
+
+    const indexedType = this.indexedAccessType(normalizedObjectType, normalizedPropertyType);
+    if (!isUnknownType(indexedType)) {
+      return indexedType;
     }
-    if (objectType.kind === "range" && isIntType(propertyType)) {
-      return objectType.elementType;
+
+    if (
+      normalizedObjectType.kind === "range"
+      && (
+        (normalizedPropertyType.kind === "builtin" && normalizedPropertyType.name === "int")
+        || (normalizedPropertyType.kind === "builtin" && normalizedPropertyType.name === "number")
+      )
+    ) {
+      return normalizedObjectType.elementType;
     }
-    if (objectType.kind === "named") {
-      const enumStatement = this.enumStatementsByName.get(objectType.name);
+
+    if (normalizedObjectType.kind === "named") {
+      const enumStatement = this.enumStatementsByName.get(normalizedObjectType.name);
       if (!enumStatement) {
         return UNKNOWN_TYPE;
       }
-      return this.resolveEnumComputedAccessType(enumStatement, undefined, propertyType);
+      return this.resolveEnumComputedAccessType(enumStatement, undefined, normalizedPropertyType);
     }
     return UNKNOWN_TYPE;
   }

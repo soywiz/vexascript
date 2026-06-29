@@ -27,6 +27,7 @@ import type {
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import {
+  arrayType,
   builtinType,
   functionType,
   isSameType,
@@ -1296,12 +1297,12 @@ export class Binder {
     return namedType("Promise", [rawReturnType]);
   }
 
-  private typeFromAnnotationLoose(typeAnnotation: TypeAnnotation | undefined) {
+  private typeFromAnnotationLoose(typeAnnotation: TypeAnnotation | undefined): AnalysisType | undefined {
     if (!typeAnnotation) {
       return undefined;
     }
     if (typeAnnotation.kind === "ArrayTypeAnnotation") {
-      return UNKNOWN_TYPE;
+      return arrayType(this.typeFromAnnotationLoose(typeAnnotation.elementType) ?? UNKNOWN_TYPE);
     }
 
     const typeName =
@@ -1319,15 +1320,7 @@ export class Binder {
         builtinType("undefined")
       ]);
     }
-
-    const parsed = parseTypeNameShape(typeName);
-    if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
-      return builtinType(parsed.baseName as BuiltinTypeName);
-    }
-    return namedType(
-      parsed.baseName,
-      parsed.typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
-    );
+    return this.typeFromTypeNameLoose(typeName);
   }
 
   private typeFromReceiverAnnotation(receiverType: Identifier, receiverTypeArguments?: Identifier[]): AnalysisType {
@@ -1346,6 +1339,11 @@ export class Binder {
   ): AnalysisType | undefined {
     if (!typeAnnotation) {
       return undefined;
+    }
+    if (typeAnnotation.kind === "ArrayTypeAnnotation") {
+      return arrayType(
+        this.typeFromAnnotationLooseWithContext(typeAnnotation.elementType, contextualThisTypeName) ?? UNKNOWN_TYPE
+      );
     }
     const typeName = typeAnnotation.kind === "TypeReference" ? typeAnnotation.name.name : typeAnnotation.kind === "Identifier" ? typeAnnotation.name : undefined;
     if (
@@ -1370,13 +1368,16 @@ export class Binder {
       ]);
     }
     const parsed = parseTypeNameShape(typeName);
-    if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
-      return builtinType(parsed.baseName as BuiltinTypeName);
-    }
-    return namedType(
+    let resolved: AnalysisType = BUILTIN_TYPE_NAMES.has(parsed.baseName)
+      ? builtinType(parsed.baseName as BuiltinTypeName)
+      : namedType(
       parsed.baseName,
       parsed.typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
     );
+    for (let i = 0; i < parsed.arrayDepth; i += 1) {
+      resolved = arrayType(resolved);
+    }
+    return resolved;
   }
 
   private functionTypeFromAnnotationText(typeName: string): AnalysisType | null {

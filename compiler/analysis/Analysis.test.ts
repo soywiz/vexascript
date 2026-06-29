@@ -2486,6 +2486,36 @@ let bad = "Ada" satisfies number
     expect(symbols.get("incompatible")?.valueType).toBe("any[]");
   });
 
+  it("resolves annotated array element access as the element type", () => {
+    const source = dedent`
+      class Box(val values: number[] = [1, 2, 3]) {
+        read(): number {
+          let first = values[0]
+          let second = this.values[1]
+          return first * second
+        }
+      }
+
+      fun demo() {
+        let values: number[] = [1, 2, 3]
+        let third = values[2]
+        return third * 2
+      }
+      
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const methodSymbols = symbolsOfVisibleSymbolsAt(source, 5, 3);
+    const functionSymbols = symbolsOfVisibleSymbolsAt(source, 11, 3);
+
+    expect(messages).toEqual([]);
+    expect(methodSymbols.get("first")?.valueType).toBe("number");
+    expect(methodSymbols.get("second")?.valueType).toBe("number");
+    expect(functionSymbols.get("third")?.valueType).toBe("number");
+  });
+
   it("evolves an unknown array element type from push", () => {
     const source =
       "fun demoGenerics() {\n" +

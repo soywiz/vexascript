@@ -111,6 +111,24 @@ describe("lsp analysis session", () => {
     expect(messages).toEqual([]);
   });
 
+  it("keeps annotated array element access typed through LSP analysis", () => {
+    const source = dedent`
+      class Box(val values: number[] = [1, 2, 3]) {
+        read(): number {
+          let first = values[0]
+          let second = this.values[1]
+          return first * second
+        }
+      }
+    `;
+
+    const session = createAnalysisSession(source);
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+    expect(session.analysis?.getHoverAt(2, 8)?.contents).toContain("number");
+    expect(session.analysis?.getHoverAt(3, 8)?.contents).toContain("number");
+  });
+
   it("contextually types object literal arguments against unioned object overload branches", () => {
     const source = dedent`
       interface Abortable {

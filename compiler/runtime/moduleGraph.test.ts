@@ -1,4 +1,4 @@
-import { Script, createContext, describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } from "../test/expect";
+import { Script, createContext, describe, expect, it, join, mkdir, mkdtemp, readFile, rm, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { bundleModuleGraph, bundleModuleGraphAsModules } from "./moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
@@ -131,6 +131,70 @@ describe("bundleModuleGraph", () => {
         expect(result.code).toContain("class Vector3 {");
         expect(result.code).toContain("globalThis.Vector3 = Vector3;");
         expect(result.code).toContain("const p = new Vector3(1, 2, 3);");
+      }
+    );
+  });
+
+  it("bundles and executes the Matrix4x4 runtime helpers end-to-end", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    const runtimeSource = await readFile(join(process.cwd(), "..", "runtime", "myengine-runtime.vx"), "utf8");
+
+    await withTempProject(
+      {
+        "runtime/myengine-runtime.vx": runtimeSource,
+        "example/main.vx": dedent`
+          import { Matrix4x4, Quaternion, Vector3 } from "myengine"
+
+          const matrix = Matrix4x4.TRS(Vector3(10, 20, 30), Quaternion.identity, Vector3(2, 3, 4))
+          const transformed = matrix.MultiplyPoint3x4(Vector3(1, 2, 3))
+          const restored = matrix.inverse.MultiplyPoint3x4(transformed)
+          const product = Matrix4x4.identity * matrix
+          const row = product.GetRow(0)
+          const column = product.GetColumn(3)
+          const vector = product.MultiplyVector(Vector3(1, 1, 1))
+          const ortho = Matrix4x4.Ortho(-2, 2, -2, 2, 0.1, 10)
+          const perspective = Matrix4x4.Perspective(60, 2, 0.1, 100)
+
+          console.log(matrix.determinant, transformed.x, transformed.y, transformed.z)
+          console.log(restored.x, restored.y, restored.z, product.isIdentity)
+          console.log(row.x, row.y, row.z, row.w)
+          console.log(column.x, column.y, column.z, column.w)
+          console.log(vector.x, vector.y, vector.z)
+          console.log(ortho[0, 0], ortho[1, 1], perspective[3, 2], Matrix4x4.zero.determinant)
+        `
+      },
+      async (dir) => {
+        const runtimePath = join(dir, "runtime", "myengine-runtime.vx");
+        const result = await bundleModuleGraph(join(dir, "example", "main.vx"), "conservative", {
+          importMappings: {
+            myengine: runtimePath
+          }
+        });
+
+        expect(result.errors).toEqual([]);
+        const logs: unknown[][] = [];
+        new Script(result.code).runInContext(createContext({
+          console: { log: (...args: unknown[]) => logs.push(args) }
+        }));
+
+        const normalizedLogs = logs.map((row) =>
+          row.map((value) => {
+            if (typeof value !== "number") {
+              return value;
+            }
+            const rounded = Math.round(value);
+            return Math.abs(value - rounded) <= 1e-9 ? rounded : value;
+          })
+        );
+
+        expect(normalizedLogs).toEqual([
+          [24, 12, 26, 42],
+          [1, 2, 3, false],
+          [2, 0, 0, 10],
+          [10, 20, 30, 1],
+          [2, 3, 4],
+          [0.5, 0.5, -1, 0]
+        ]);
       }
     );
   });
