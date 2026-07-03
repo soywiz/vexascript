@@ -34,12 +34,13 @@ import {
   isSameType,
   namedType,
   objectTypeWithProperties,
+  tupleType,
   typeToString,
   UNKNOWN_TYPE,
   unionType,
   BUILTIN_TYPE_NAMES
 } from "./types";
-import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText } from "./typeNames";
+import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitArraySuffixTypeName, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, tupleElementTypeText } from "./typeNames";
 import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import type { AnalysisIssue } from "./model";
@@ -1404,6 +1405,25 @@ export class Binder {
         this.typeFromTypeNameLoose(optionalSuffix.typeName),
         builtinType("undefined")
       ]);
+    }
+    const arraySuffix = splitArraySuffixTypeName(typeName);
+    if (arraySuffix) {
+      let elementType = this.typeFromTypeNameLoose(arraySuffix.elementTypeName);
+      for (let i = 0; i < arraySuffix.arrayDepth; i += 1) {
+        elementType = arrayType(elementType);
+      }
+      return elementType;
+    }
+    const normalizedTypeName = typeName.trim();
+    if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
+      const tupleBody = normalizedTypeName.slice(1, -1).trim();
+      return tupleType(
+        tupleBody.length === 0
+          ? []
+          : splitTopLevelDelimitedTypeText(tupleBody).map((part) =>
+            this.typeFromTypeNameLoose(tupleElementTypeText(part))
+          )
+      );
     }
     const parsed = parseTypeNameShape(typeName);
     let resolved: AnalysisType = BUILTIN_TYPE_NAMES.has(parsed.baseName)

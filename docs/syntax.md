@@ -1110,7 +1110,7 @@ Supported type annotation forms in declarations/members:
 - primitive/builtin type names (`int`, `number`, `string`, `boolean`, `bigint`, `long`, `void`, `null`, `undefined`, `any`, `unknown`, `never`, `object`, `symbol`)
 - `unique symbol` type annotations, currently treated conservatively as `symbol`
 - generic type references (`Map<K, V>`)
-- array suffixes (`K[]`, `Map<K, V>[]`)
+- array suffixes (`K[]`, `Map<K, V>[]`, `[int, number, Animation][]`)
 - readonly container shorthand (`readonly string[]`, `readonly [string, int]`)
 - optional type suffixes (`User?`, `(() => void)?`), equivalent to `User | undefined`
 - union types (`string | number`)

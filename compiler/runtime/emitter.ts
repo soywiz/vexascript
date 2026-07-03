@@ -403,7 +403,17 @@ function typeMangleName(type: AnalysisType | undefined): string | null {
   return sanitizeManglePart(typeToString(type));
 }
 
-function receiverTypeMatches(receiverType: string, expressionType: AnalysisType | undefined): boolean {
+function receiverTypeMatches(
+  receiverType: string,
+  expressionType: AnalysisType | undefined,
+  options: { allowUntyped?: boolean } = {}
+): boolean {
+  if (!expressionType) {
+    return options.allowUntyped === true;
+  }
+  if (receiverType === "Array" && (expressionType.kind === "array" || expressionType.kind === "tuple")) {
+    return true;
+  }
   const actualType = typeMangleName(expressionType);
   return actualType === receiverType || receiverType === "number" && actualType === "int";
 }
@@ -923,7 +933,7 @@ function emitExtensionPropertyAssignment(assignment: AssignmentExpression): stri
   }
   const propertyName = (member.property as Identifier).name;
   const receiverType = activeState.extensionPropertySetters.get(propertyName);
-  if (!receiverType || !receiverTypeMatches(receiverType, activeState.expressionTypes?.get(member.object as unknown as Node))) {
+  if (!receiverType || !receiverTypeMatches(receiverType, activeState.expressionTypes?.get(member.object as unknown as Node), { allowUntyped: true })) {
     return null;
   }
   const receiverText = emitExpression(member.object, PREC_MEMBER, "left");
@@ -1419,7 +1429,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (!member.computed && member.property.kind === "Identifier") {
           const propertyName = (member.property as Identifier).name;
           const receiverType = activeState.extensionProperties.get(propertyName);
-          if (receiverType && receiverTypeMatches(receiverType, activeState.expressionTypes?.get(member.object as unknown as Node))) {
+          if (receiverType && receiverTypeMatches(receiverType, activeState.expressionTypes?.get(member.object as unknown as Node), { allowUntyped: true })) {
             return `${extensionPropertyRuntimeName(receiverType, propertyName)}(${objectText})`;
           }
           // Member property names are not affected by `@JsName`; emit them as-is

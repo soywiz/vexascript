@@ -2217,6 +2217,30 @@ let bad = "Ada" satisfies number
     expect(messages).toContain("Type '[int, string]' is not assignable to type '[string, int]'");
   });
 
+  it("supports arrays whose element type is a tuple", () => {
+    const source = dedent`
+      class Animation {}
+      let frames: [int, number, Animation][] = [[1, 0.5, Animation()]]
+      let broken: [int, string][] = [1, "hello"]
+      const [frame, weight, animation] = frames[0]
+      fun demo() {
+        return animation
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(5, 5).map((symbol) => [symbol.name, symbol]));
+
+    expect(messages).toContain(
+      "Type '[int, string]' is not assignable to type '[int, string][]'"
+    );
+    expect(symbols.get("frame")?.valueType).toBe("int");
+    expect(symbols.get("weight")?.valueType).toBe("number");
+    expect(symbols.get("animation")?.valueType).toBe("Animation");
+  });
+
   it("checks union, intersection, literal, and tuple type annotations", () => {
     const source = dedent`
       interface Named { name: string }

@@ -217,7 +217,8 @@ export class TypeChecker {
     externalDeclarations: readonly Statement[] = [],
     ambientDeclarations: readonly Statement[] = [],
     private readonly invalidImportedBindings: ReadonlySet<string> = new Set(),
-    private readonly sourceLanguage: "vexascript" | "typescript" = "vexascript"
+    private readonly sourceLanguage: "vexascript" | "typescript" = "vexascript",
+    private readonly projectOwnedExternalDeclarations: boolean = false
   ) {
     const runtimeProgram = getEcmaScriptRuntimeProgram();
     const vexaRuntimeProgram = getVexaScriptRuntimeProgram();
@@ -289,7 +290,9 @@ export class TypeChecker {
     this.collectVarStatements(program.body, this.nonExternalNamedTypeNames);
     this.collectAnnotationStatements(program.body);
     this.markProjectDeclaredTypeNodes(ambientDeclarations);
-    this.markProjectDeclaredTypeNodes(externalDeclarations);
+    if (this.projectOwnedExternalDeclarations) {
+      this.markProjectDeclaredTypeNodes(externalDeclarations);
+    }
     this.markProjectDeclaredTypeNodes(program.body);
     this.collectExplicitlyUnknownIdentifiers(program);
   }
@@ -2342,7 +2345,7 @@ export class TypeChecker {
             node: assignment.left
           });
         }
-        this.validateReadonlyAssignmentTarget(assignment.left, scope);
+        const readonlyTarget = this.validateReadonlyAssignmentTarget(assignment.left, scope);
         if (assignment.operator === "=" && assignment.left.kind === "MemberExpression") {
           this.pureWriteTargetNodes.add(assignment.left);
         }
@@ -2361,6 +2364,7 @@ export class TypeChecker {
           this.reportMissingOperatorOverload("[]=", assignment.left, objectType, [rightType, ...indexTypes]);
         }
         if (
+          !readonlyTarget &&
           !indexSetterOverload &&
           !hasIndexSetterCandidates &&
           !isUnknownType(leftType) &&
@@ -2985,9 +2989,9 @@ export class TypeChecker {
             node: updateExpr.argument
           });
         }
-        this.validateReadonlyAssignmentTarget(updateExpr.argument, scope);
+        const readonlyTarget = this.validateReadonlyAssignmentTarget(updateExpr.argument, scope);
         const updateOperandType = this.visitExpression(updateExpr.argument, scope);
-        if (!isUnknownType(updateOperandType) && !isNumericFamilyType(updateOperandType)) {
+        if (!readonlyTarget && !isUnknownType(updateOperandType) && !isNumericFamilyType(updateOperandType)) {
           this.issues.push({
             message: `Operator '${updateExpr.operator}' cannot be applied to type '${typeToString(updateOperandType)}'`,
             node: updateExpr.argument,
@@ -3767,6 +3771,18 @@ export class TypeChecker {
       }
       if (isIntType(leftType) && isIntType(rightType)) {
         return builtinType("int");
+      }
+      if (
+        operator === "<<" ||
+        operator === ">>" ||
+        operator === ">>>" ||
+        operator === "&" ||
+        operator === "|" ||
+        operator === "^"
+      ) {
+        if (isNumberType(leftType) && isNumberType(rightType)) {
+          return builtinType("int");
+        }
       }
       if (isNumberType(leftType) && isNumberType(rightType)) {
         return builtinType("number");
@@ -7198,6 +7214,15 @@ export class TypeChecker {
       ));
     }
 
+    const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
+    if (arraySuffix) {
+      let elementType = this.resolveTypeNameText(arraySuffix.elementTypeName, node, scope, false);
+      for (let i = 0; i < arraySuffix.arrayDepth; i += 1) {
+        elementType = arrayType(elementType);
+      }
+      return elementType;
+    }
+
     const tupleTypeMatch = /^\[(.*)\]$/.exec(normalizedTypeName);
     if (tupleTypeMatch) {
       const tupleBody = tupleTypeMatch[1] ?? "";
@@ -7207,15 +7232,6 @@ export class TypeChecker {
             this.resolveTypeNameText(tupleElementTypeText(part), node, scope, false)
           );
       return tupleType(elements);
-    }
-
-    const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
-    if (arraySuffix) {
-      let elementType = this.resolveTypeNameText(arraySuffix.elementTypeName, node, scope, false);
-      for (let i = 0; i < arraySuffix.arrayDepth; i += 1) {
-        elementType = arrayType(elementType);
-      }
-      return elementType;
     }
 
     const keyofType = this.resolveKeyofTypeName(normalizedTypeName, node, scope);
@@ -7471,15 +7487,6 @@ export class TypeChecker {
       return intersectionType(intersectionParts.map((part) => this.typeFromTypeNameLoose(part)));
     }
 
-    const tupleTypeMatch = /^\[(.*)\]$/.exec(normalizedTypeName);
-    if (tupleTypeMatch) {
-      const tupleBody = tupleTypeMatch[1] ?? "";
-      const elements = tupleBody.trim().length === 0
-        ? []
-        : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(tupleElementTypeText(part)));
-      return tupleType(elements);
-    }
-
     const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
     if (arraySuffix) {
       let elementType = this.typeFromTypeNameLoose(arraySuffix.elementTypeName);
@@ -7487,6 +7494,15 @@ export class TypeChecker {
         elementType = arrayType(elementType);
       }
       return elementType;
+    }
+
+    const tupleTypeMatch = /^\[(.*)\]$/.exec(normalizedTypeName);
+    if (tupleTypeMatch) {
+      const tupleBody = tupleTypeMatch[1] ?? "";
+      const elements = tupleBody.trim().length === 0
+        ? []
+        : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(tupleElementTypeText(part)));
+      return tupleType(elements);
     }
 
     const literal = resolveLiteralTypeName(normalizedTypeName);
@@ -8577,24 +8593,24 @@ export class TypeChecker {
     return member.optional === true || this.hasOptionalAssignmentTarget(member.object);
   }
 
-  private validateReadonlyAssignmentTarget(expression: Expr, scope: Scope): void {
+  private validateReadonlyAssignmentTarget(expression: Expr, scope: Scope): boolean {
     if (expression.kind === "Identifier") {
       const identifier = expression as Node & { kind: "Identifier"; name: string };
       const usageOffset = identifier.firstToken?.range.start.offset;
       const symbol = this.resolve(identifier.name, scope, usageOffset);
       if (!symbol || symbol.kind !== "variable" || symbol.isReadonly !== true) {
-        return;
+        return false;
       }
 
       this.issues.push({
         message: `Cannot assign to '${identifier.name}' because it is a constant`,
         node: identifier
       });
-      return;
+      return true;
     }
 
     if (expression.kind !== "MemberExpression") {
-      return;
+      return false;
     }
 
     const member = expression as MemberExpression;
@@ -8606,6 +8622,7 @@ export class TypeChecker {
           message: "Cannot assign through readonly index access",
           node: member.property
         });
+        return true;
       } else {
         const readonlyPropertyName = this.readonlyPropertyNameFromComputedAccess(objectType, propertyType);
         if (readonlyPropertyName) {
@@ -8613,6 +8630,7 @@ export class TypeChecker {
             message: `Cannot assign to readonly member '${readonlyPropertyName}'`,
             node: member.property
           });
+          return true;
         } else {
           const staticPropertyName = this.staticComputedPropertyName(member.property);
           if (staticPropertyName && this.hasReadonlyProperty(objectType, staticPropertyName)) {
@@ -8620,14 +8638,15 @@ export class TypeChecker {
               message: `Cannot assign to readonly member '${staticPropertyName}'`,
               node: member.property
             });
+            return true;
           }
         }
       }
-      return;
+      return false;
     }
 
     if (member.property.kind !== "Identifier") {
-      return;
+      return false;
     }
 
     const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
@@ -8637,12 +8656,12 @@ export class TypeChecker {
         message: `Cannot assign to readonly member '${propertyName}'`,
         node: member.property
       });
-      return;
+      return true;
     }
 
     const simpleObjectType = this.inferSimpleObjectType(member.object, scope);
     if (!simpleObjectType || simpleObjectType.kind !== "named") {
-      return;
+      return false;
     }
     const classStatement = this.classStatementsByName.get(simpleObjectType.name);
     const classField = classStatement?.members.find(
@@ -8654,16 +8673,17 @@ export class TypeChecker {
       .flatMap((constructor) => constructor.parameters)
       .find((parameter) => (parameter.accessModifier !== undefined || parameter.readonly === true) && bindingNameText(parameter.name) === propertyName);
     if (classField?.readonly !== true && parameterProperty?.readonly !== true) {
-      return;
+      return false;
     }
     if (member.object.kind === "Identifier" && (member.object as Identifier).name === "this" && this.enclosingMethodName(scope) === "constructor") {
-      return;
+      return false;
     }
 
     this.issues.push({
       message: `Cannot assign to readonly member '${propertyName}'`,
       node: member.property
     });
+    return true;
   }
 
   private isReadonlyIndexedAccess(objectType: AnalysisType, propertyType: AnalysisType): boolean {
@@ -9009,6 +9029,8 @@ export class TypeChecker {
 
     let inferredElementType: AnalysisType | undefined;
     const expectedElementType = this.expectedArrayElementType(expectedType);
+    const actualElementTypes: AnalysisType[] = [];
+    let hasExpectedElementMismatch = false;
 
     for (const element of arrayLiteral.elements) {
       if (element.kind === "ArrayHole") {
@@ -9020,9 +9042,13 @@ export class TypeChecker {
       const currentType = element.kind === "SpreadExpression"
         ? spreadArgumentElementType(visitedType)
         : visitedType;
+      actualElementTypes.push(currentType);
       if (expectedElementType && this.isTypeAssignable(currentType, expectedElementType)) {
         inferredElementType = expectedElementType;
         continue;
+      }
+      if (expectedElementType?.kind === "tuple") {
+        hasExpectedElementMismatch = true;
       }
       if (!inferredElementType) {
         inferredElementType = currentType;
@@ -9032,6 +9058,9 @@ export class TypeChecker {
       inferredElementType = this.commonSupertype(inferredElementType, currentType);
     }
 
+    if (hasExpectedElementMismatch) {
+      return tupleType(actualElementTypes);
+    }
     return arrayType(inferredElementType ?? UNKNOWN_TYPE);
   }
 
@@ -10116,7 +10145,7 @@ export class TypeChecker {
       return resolvedObjectType;
     }
     const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
-    const fallbackExtensionType = (): AnalysisType | null => {
+    const importedExtensionType = (): AnalysisType | null => {
       const extensionType = this.resolveExtensionMemberType(resolvedObjectType, memberName);
       if (extensionType) {
         return extensionType;
@@ -10130,8 +10159,13 @@ export class TypeChecker {
       }
       return null;
     };
+    const fallbackExtensionType = importedExtensionType;
     if (this.enumValueMemberAccessType(member, resolvedObjectType) !== null) {
       return null;
+    }
+    const preferredExtensionType = importedExtensionType();
+    if (preferredExtensionType) {
+      return preferredExtensionType;
     }
     if (resolvedObjectType.kind === "union") {
       if (resolvedObjectType.types.some((type) => type.kind === "builtin" && type.name === "any")) {
@@ -11777,6 +11811,14 @@ export class TypeChecker {
     if (intersectionParts.length > 1) {
       return intersectionType(intersectionParts.map((part) => this.typeFromTypeNameLoose(part)));
     }
+    const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
+    if (arraySuffix) {
+      let elementType = this.typeFromTypeNameLoose(arraySuffix.elementTypeName);
+      for (let i = 0; i < arraySuffix.arrayDepth; i += 1) {
+        elementType = arrayType(elementType);
+      }
+      return elementType;
+    }
     if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
       const tupleBody = normalizedTypeName.slice(1, -1).trim();
       return tupleType(
@@ -11867,6 +11909,14 @@ export class TypeChecker {
     const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
     if (intersectionParts.length > 1) {
       return intersectionType(intersectionParts.map((part) => this.typeFromTypeNameLoose(part)));
+    }
+    const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
+    if (arraySuffix) {
+      let elementType = this.typeFromTypeNameLoose(arraySuffix.elementTypeName);
+      for (let i = 0; i < arraySuffix.arrayDepth; i += 1) {
+        elementType = arrayType(elementType);
+      }
+      return elementType;
     }
     if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
       const tupleBody = normalizedTypeName.slice(1, -1).trim();

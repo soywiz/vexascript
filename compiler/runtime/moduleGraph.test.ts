@@ -1,4 +1,4 @@
-import { Script, createContext, describe, expect, it, join, mkdir, mkdtemp, readFile, rm, tmpdir, writeFile } from "../test/expect";
+import { Script, createContext, describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { bundleModuleGraph, bundleModuleGraphAsModules } from "./moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
@@ -15,6 +15,140 @@ async function withTempProject(files: Record<string, string>, run: (dir: string)
     await rm(dir, { recursive: true, force: true });
   });
 }
+
+const matrixRuntimeSource = dedent`
+  class Vector3(val x: number, val y: number, val z: number)
+  class Vector4(val x: number, val y: number, val z: number, val w: number)
+  class Quaternion {
+    static val identity = Quaternion()
+  }
+
+  class Matrix4x4(
+    val m00: number, val m01: number, val m02: number, val m03: number,
+    val m10: number, val m11: number, val m12: number, val m13: number,
+    val m20: number, val m21: number, val m22: number, val m23: number,
+    val m30: number, val m31: number, val m32: number, val m33: number
+  ) {
+    static val identity = Matrix4x4(
+      1, 0, 0, 0,
+      0, 1, 0, 0,
+      0, 0, 1, 0,
+      0, 0, 0, 1
+    )
+    static val zero = Matrix4x4(
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0
+    )
+
+    static fun TRS(position: Vector3, rotation: Quaternion, scale: Vector3): Matrix4x4 {
+      return Matrix4x4(
+        scale.x, 0, 0, position.x,
+        0, scale.y, 0, position.y,
+        0, 0, scale.z, position.z,
+        0, 0, 0, 1
+      )
+    }
+
+    static fun Ortho(left: number, right: number, bottom: number, top: number, near: number, far: number): Matrix4x4 {
+      return Matrix4x4(
+        2 / (right - left), 0, 0, 0,
+        0, 2 / (top - bottom), 0, 0,
+        0, 0, -2 / (far - near), 0,
+        0, 0, 0, 1
+      )
+    }
+
+    static fun Perspective(fov: number, aspect: number, near: number, far: number): Matrix4x4 {
+      return Matrix4x4(
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, -1, 0
+      )
+    }
+
+    val determinant: number => m00 * m11 * m22
+    val isIdentity: boolean => m00 == 1 && m11 == 1 && m22 == 1 && m03 == 0 && m13 == 0 && m23 == 0
+    val inverse: Matrix4x4 => Matrix4x4(
+      1 / m00, 0, 0, -m03 / m00,
+      0, 1 / m11, 0, -m13 / m11,
+      0, 0, 1 / m22, -m23 / m22,
+      0, 0, 0, 1
+    )
+
+    fun MultiplyPoint3x4(point: Vector3): Vector3 {
+      return Vector3(
+        m00 * point.x + m01 * point.y + m02 * point.z + m03,
+        m10 * point.x + m11 * point.y + m12 * point.z + m13,
+        m20 * point.x + m21 * point.y + m22 * point.z + m23
+      )
+    }
+
+    fun MultiplyVector(vector: Vector3): Vector3 {
+      return Vector3(
+        m00 * vector.x + m01 * vector.y + m02 * vector.z,
+        m10 * vector.x + m11 * vector.y + m12 * vector.z,
+        m20 * vector.x + m21 * vector.y + m22 * vector.z
+      )
+    }
+
+    fun GetRow(index: int): Vector4 {
+      if (index == 0) return Vector4(m00, m01, m02, m03)
+      if (index == 1) return Vector4(m10, m11, m12, m13)
+      if (index == 2) return Vector4(m20, m21, m22, m23)
+      return Vector4(m30, m31, m32, m33)
+    }
+
+    fun GetColumn(index: int): Vector4 {
+      if (index == 0) return Vector4(m00, m10, m20, m30)
+      if (index == 1) return Vector4(m01, m11, m21, m31)
+      if (index == 2) return Vector4(m02, m12, m22, m32)
+      return Vector4(m03, m13, m23, m33)
+    }
+
+    operator*(other: Matrix4x4): Matrix4x4 {
+      return Matrix4x4(
+        m00 * other.m00 + m01 * other.m10 + m02 * other.m20 + m03 * other.m30,
+        m00 * other.m01 + m01 * other.m11 + m02 * other.m21 + m03 * other.m31,
+        m00 * other.m02 + m01 * other.m12 + m02 * other.m22 + m03 * other.m32,
+        m00 * other.m03 + m01 * other.m13 + m02 * other.m23 + m03 * other.m33,
+        m10 * other.m00 + m11 * other.m10 + m12 * other.m20 + m13 * other.m30,
+        m10 * other.m01 + m11 * other.m11 + m12 * other.m21 + m13 * other.m31,
+        m10 * other.m02 + m11 * other.m12 + m12 * other.m22 + m13 * other.m32,
+        m10 * other.m03 + m11 * other.m13 + m12 * other.m23 + m13 * other.m33,
+        m20 * other.m00 + m21 * other.m10 + m22 * other.m20 + m23 * other.m30,
+        m20 * other.m01 + m21 * other.m11 + m22 * other.m21 + m23 * other.m31,
+        m20 * other.m02 + m21 * other.m12 + m22 * other.m22 + m23 * other.m32,
+        m20 * other.m03 + m21 * other.m13 + m22 * other.m23 + m23 * other.m33,
+        m30 * other.m00 + m31 * other.m10 + m32 * other.m20 + m33 * other.m30,
+        m30 * other.m01 + m31 * other.m11 + m32 * other.m21 + m33 * other.m31,
+        m30 * other.m02 + m31 * other.m12 + m32 * other.m22 + m33 * other.m32,
+        m30 * other.m03 + m31 * other.m13 + m32 * other.m23 + m33 * other.m33
+      )
+    }
+
+    operator[](row: int, column: int): number {
+      if (row == 0 && column == 0) return m00
+      if (row == 0 && column == 1) return m01
+      if (row == 0 && column == 2) return m02
+      if (row == 0 && column == 3) return m03
+      if (row == 1 && column == 0) return m10
+      if (row == 1 && column == 1) return m11
+      if (row == 1 && column == 2) return m12
+      if (row == 1 && column == 3) return m13
+      if (row == 2 && column == 0) return m20
+      if (row == 2 && column == 1) return m21
+      if (row == 2 && column == 2) return m22
+      if (row == 2 && column == 3) return m23
+      if (row == 3 && column == 0) return m30
+      if (row == 3 && column == 1) return m31
+      if (row == 3 && column == 2) return m32
+      return m33
+    }
+  }
+`;
 
 describe("bundleModuleGraph", () => {
   it("inlines local imports and drops their import statements", async () => {
@@ -137,11 +271,10 @@ describe("bundleModuleGraph", () => {
 
   it("bundles and executes the Matrix4x4 runtime helpers end-to-end", async () => {
     await ensureEcmaScriptRuntimeProgram();
-    const runtimeSource = await readFile(join(process.cwd(), "..", "runtime", "myengine-runtime.vx"), "utf8");
 
     await withTempProject(
       {
-        "runtime/myengine-runtime.vx": runtimeSource,
+        "runtime/myengine-runtime.vx": matrixRuntimeSource,
         "example/main.vx": dedent`
           import { Matrix4x4, Quaternion, Vector3 } from "myengine"
 

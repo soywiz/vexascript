@@ -271,7 +271,10 @@ function empty(): int {
       }
       `)).body;
     const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
-    const session = createAnalysisSession(source, { externalDeclarations });
+    const session = createAnalysisSession(source, {
+      externalDeclarations,
+      projectOwnedExternalDeclarations: true
+    });
     const diagnostics = collectDiagnosticsFromSession(session, source, (offset) =>
       doc.positionAt(offset)
     );

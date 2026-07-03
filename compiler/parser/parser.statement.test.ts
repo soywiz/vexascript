@@ -1903,6 +1903,10 @@ describe("parseStatement", () => {
             kind: "VarStatement",
             typeAnnotation: { kind: "Identifier", name: "[string, int]" }
         });
+        expect(parseStatement(tokenizeReader("let frames: [int, number, Animation][]"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "[int, number, Animation][]" }
+        });
         expect(parseStatement(tokenizeReader("let path: [EventTarget?]"))).toMatchObject({
             kind: "VarStatement",
             typeAnnotation: { kind: "Identifier", name: "[EventTarget?]" }

@@ -208,6 +208,13 @@ describe("splitArraySuffixTypeName", () => {
   it("handles generic types with array suffix", () => {
     expect(splitArraySuffixTypeName("Array<string>[]")).toEqual({ elementTypeName: "Array<string>", arrayDepth: 1 });
   });
+
+  it("handles tuple types with array suffix", () => {
+    expect(splitArraySuffixTypeName("[int, number, Animation][]")).toEqual({
+      elementTypeName: "[int, number, Animation]",
+      arrayDepth: 1
+    });
+  });
 });
 
 describe("splitIndexedAccessTypeName", () => {

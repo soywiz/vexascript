@@ -48,6 +48,12 @@ export interface AnalysisOptions {
    */
   externalDeclarations?: Statement[];
   /**
+   * Treat `externalDeclarations` as project-owned VexaScript declarations for
+   * rules that intentionally ignore third-party/imported types, such as the
+   * missing-`override` requirement.
+   */
+  projectOwnedExternalDeclarations?: boolean;
+  /**
    * Ambient library declarations requested by project configuration, such as
    * DOM globals from `compilerOptions.lib`. Unlike module imports, these
    * declarations are bound as globals in the analyzed file.
@@ -101,7 +107,8 @@ export class Analysis {
       externalDeclarations,
       ambientDeclarations,
       options.invalidImportedBindings,
-      options.language ?? "vexascript"
+      options.language ?? "vexascript",
+      options.projectOwnedExternalDeclarations === true
     ).check();
     this.issues = [...bound.issues, ...checked.issues];
     this.identifierResolutions = checked.identifierResolutions;

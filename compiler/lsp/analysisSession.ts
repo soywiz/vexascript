@@ -34,6 +34,7 @@ export interface AnalysisSessionOptions {
   invalidImportedBindings?: ReadonlySet<string>;
   ambientDeclarationLocations?: ReadonlyMap<Statement, AmbientModuleLocation>;
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
+  projectOwnedExternalDeclarations?: boolean;
 }
 
 export function createAnalysisSession(
@@ -56,7 +57,8 @@ export function createAnalysisSession(
     externalDeclarations,
     importedSymbols: normalizedImportedSymbols,
     ambientDeclarations,
-    invalidImportedBindings: normalizedInvalidImportedBindings
+    invalidImportedBindings: normalizedInvalidImportedBindings,
+    projectOwnedExternalDeclarations: options.projectOwnedExternalDeclarations === true
   });
   return {
     ast: artifacts.ast,
