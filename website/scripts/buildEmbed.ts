@@ -13,6 +13,7 @@ const legacyGeneratedPlaygroundRoot = resolve(generatedAssetsRoot, "playground")
 const generatedManifestPath = resolve(websiteRoot, "src/generated/embed-asset-manifest.ts");
 const embedEntryPoint = resolve(websiteRoot, "src/assets/vexa-embed.ts");
 const workerEntryPoint = resolve(websiteRoot, "node_modules/monaco-editor/esm/vs/editor/editor.worker.js");
+const vexaLanguageWorkerEntryPoint = resolve(websiteRoot, "src/assets/monaco/vexaLanguageWorker.ts");
 const browserStubsRoot = resolve(websiteRoot, "src/assets/monaco/browser-stubs");
 const generatedSourceRoot = resolve(websiteRoot, "src/generated");
 const generatedEcmaDeclarationsBrowserModulePath = resolve(generatedSourceRoot, "ecmascriptDeclarations.browser.ts");
@@ -31,6 +32,7 @@ const isDevelopmentBuild = process.argv.includes("--mode=development") || proces
 function manifestSource(): string {
   return [
     'export const editorWorkerUrl = "/assets/generated/editor.worker.js";',
+    'export const vexaLanguageWorkerUrl = "/assets/generated/vexa-language.worker.js";',
     'export const bundledRuntimeUrl = "/assets/generated/runtime/es2025.d.ts";',
     'export const bundledVexaRuntimeUrl = "/assets/generated/runtime/vexascript.d.vx";',
     'export const bundledDomRuntimeUrl = "/assets/generated/runtime/dom.d.ts";',
@@ -247,6 +249,17 @@ function workerBuildOptions(): BuildOptions {
   };
 }
 
+function vexaLanguageWorkerBuildOptions(): BuildOptions {
+  return {
+    ...baseBuildOptions(),
+    absWorkingDir: websiteRoot,
+    entryPoints: [vexaLanguageWorkerEntryPoint],
+    outfile: resolve(generatedAssetsRoot, "vexa-language.worker.js"),
+    format: "esm",
+    plugins: [aliasPlugin()],
+  };
+}
+
 function embedBuildOptions(): BuildOptions {
   return {
     ...baseBuildOptions(),
@@ -304,16 +317,18 @@ async function runBuild(): Promise<void> {
   await copyRuntimeAssets();
   if (isWatch) {
     await startRuntimeAssetWatchers();
-    const [workerContext, embedContext] = await Promise.all([
+    const [workerContext, vexaLanguageWorkerContext, embedContext] = await Promise.all([
       context(workerBuildOptions()),
+      context(vexaLanguageWorkerBuildOptions()),
       context(embedBuildOptions()),
     ]);
-    await Promise.all([workerContext.watch(), embedContext.watch()]);
+    await Promise.all([workerContext.watch(), vexaLanguageWorkerContext.watch(), embedContext.watch()]);
     console.log("[website] esbuild is watching vexa-embed assets.");
     return;
   }
   await Promise.all([
     build(workerBuildOptions()),
+    build(vexaLanguageWorkerBuildOptions()),
     build(embedBuildOptions()),
   ]);
 }
