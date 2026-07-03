@@ -121,3 +121,17 @@ export function offsetToPosition(text: string, offset: number): Position {
   }
   return { line, character: limit - lineStart };
 }
+
+export function positionToOffset(text: string, position: Position): number {
+  let line = 0;
+  let lineStart = 0;
+  while (line < position.line && lineStart <= text.length) {
+    const nextBreak = text.indexOf("\n", lineStart);
+    if (nextBreak < 0) {
+      return text.length;
+    }
+    line += 1;
+    lineStart = nextBreak + 1;
+  }
+  return Math.min(text.length, lineStart + position.character);
+}

@@ -1,6 +1,7 @@
 import type {
   BlockStatement,
   CatchClause,
+  ClassFieldMember,
   ClassMethodMember,
   ClassStatement,
   DoWhileStatement,
@@ -42,6 +43,7 @@ import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShap
 import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import type { AnalysisIssue } from "./model";
+import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations";
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
@@ -91,6 +93,7 @@ export class Binder {
   private readonly classStatementsByName = new Map<string, ClassStatement>();
   private readonly interfaceStatementsByName = new Map<string, InterfaceStatement[]>();
   private readonly extensionsByReceiver = new Map<string, (FunctionStatement | VarStatement)[]>();
+  private readonly duplicateClassVariableNodes = new WeakSet<Node>();
   private readonly issues: AnalysisIssue[] = [];
 
   constructor(
@@ -177,6 +180,9 @@ export class Binder {
       existing.declaredOffset >= 0 &&
       declaredOffset >= 0
     ) {
+      if (this.duplicateClassVariableNodes.has(symbol.node)) {
+        return;
+      }
       this.issues.push({
         message: `Duplicate declaration of '${symbol.name}'`,
         node: symbol.node
@@ -734,6 +740,7 @@ export class Binder {
     });
 
     const classScope = this.createScope(scope, statement);
+    this.reportDuplicateClassVariables(statement);
     this.declareClassMembers(classScope, statement);
     for (const member of statement.members) {
       if (member.kind === "ClassMethodMember") {
@@ -803,6 +810,37 @@ export class Binder {
           this.declareParameterBinding(methodScope, parameter.name, parameterType);
         }
         this.bindStatements(method.body.body, methodScope);
+      }
+    }
+  }
+
+
+  private reportDuplicateClassVariables(statement: ClassStatement): void {
+    const fieldsByName = new Map<string, Identifier[]>();
+    for (const member of statement.members) {
+      if (member.kind !== "ClassFieldMember") {
+        continue;
+      }
+      const field = member as ClassFieldMember;
+      if (field.computed) {
+        continue;
+      }
+      const fields = fieldsByName.get(field.name.name) ?? [];
+      fields.push(field.name);
+      fieldsByName.set(field.name.name, fields);
+    }
+
+    for (const [name, fields] of fieldsByName) {
+      if (fields.length < 2) {
+        continue;
+      }
+      for (const field of fields) {
+        this.duplicateClassVariableNodes.add(field);
+        this.issues.push({
+          message: `Duplicate class variable '${name}'`,
+          node: field,
+          code: ANALYSIS_ISSUE_CODES.DUPLICATE_CLASS_VARIABLE
+        });
       }
     }
   }

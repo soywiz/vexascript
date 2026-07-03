@@ -97,6 +97,27 @@ describe("lsp diagnostics", () => {
     ).toBe(true);
   });
 
+  it("marks every duplicate class variable with a semantic diagnostic code", () => {
+    const diagnostics = diagnosticsFor(dedent`
+      class Demo {
+        var title: string
+        var title: string
+      }
+      `);
+    const duplicateDiagnostics = diagnostics.filter(
+      (diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.DUPLICATE_CLASS_VARIABLE
+    );
+
+    expect(duplicateDiagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "Duplicate class variable 'title'",
+      "Duplicate class variable 'title'"
+    ]);
+    expect(duplicateDiagnostics.map((diagnostic) => diagnostic.range.start)).toEqual([
+      { line: 1, character: 6 },
+      { line: 2, character: 6 }
+    ]);
+  });
+
   it("assigns a semantic diagnostic code to switch case fallthrough", () => {
     const diagnostics = diagnosticsFor(`switch (value) {
   case 1:

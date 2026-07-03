@@ -23,6 +23,7 @@ import { createThisCodeActions } from "./thisFixes";
 import { createNullableAccessCodeActions } from "./nullableAccessFixes";
 import { createMemberKeywordCodeActions } from "./memberKeywordFixes";
 import { createUnusedImportCodeActions } from "./unusedImportFixes";
+import { createDuplicateClassVariableCodeActions } from "./duplicateClassVariableFixes";
 import type { SymbolExportProvider } from "./importFixes";
 
 /**
@@ -185,6 +186,16 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
         text,
         ast,
         analysis,
+        diagnostics
+      })
+    );
+
+    actions.push(
+      ...createDuplicateClassVariableCodeActions({
+        uri,
+        ast,
+        text,
+        range,
         diagnostics
       })
     );

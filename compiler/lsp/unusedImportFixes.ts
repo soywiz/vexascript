@@ -6,22 +6,8 @@ import type {
 } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
-import { offsetToPosition, nodeRange } from "./ranges";
+import { offsetToPosition, nodeRange, positionToOffset } from "./ranges";
 import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
-
-function positionToOffset(text: string, position: { line: number; character: number }): number {
-  let line = 0;
-  let lineStart = 0;
-  while (line < position.line && lineStart <= text.length) {
-    const nextBreak = text.indexOf("\n", lineStart);
-    if (nextBreak < 0) {
-      return text.length;
-    }
-    line += 1;
-    lineStart = nextBreak + 1;
-  }
-  return Math.min(text.length, lineStart + position.character);
-}
 
 function bindingName(specifier: ImportSpecifier): string {
   return specifier.local?.name ?? specifier.imported.name;

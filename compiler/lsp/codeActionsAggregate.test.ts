@@ -28,6 +28,30 @@ function positionAt(text: string, offset: number) {
   return { line, character: Math.min(offset, text.length) - lineStart };
 }
 
+function positionToOffset(text: string, position: { line: number; character: number }): number {
+  let line = 0;
+  let lineStart = 0;
+  while (line < position.line && lineStart <= text.length) {
+    const nextBreak = text.indexOf("\n", lineStart);
+    if (nextBreak < 0) {
+      return text.length;
+    }
+    line += 1;
+    lineStart = nextBreak + 1;
+  }
+  return Math.min(text.length, lineStart + position.character);
+}
+
+function applyFirstEdit(text: string, action: NonNullable<Awaited<ReturnType<typeof collectCodeActions>>[number]>) {
+  const edit = action.edit?.changes?.[URI]?.[0];
+  if (!edit) {
+    throw new Error("Expected edit");
+  }
+  const start = positionToOffset(text, edit.range.start);
+  const end = positionToOffset(text, edit.range.end);
+  return text.slice(0, start) + edit.newText + text.slice(end);
+}
+
 describe("collectCodeActions aggregator", () => {
   it("returns no actions when there is no AST", async () => {
     expect(
@@ -226,6 +250,36 @@ describe("collectCodeActions aggregator", () => {
     });
 
     expect(actions.map((action) => action.title)).toContain("Remove unused import 'utimes'");
+  });
+
+  it("offers a quick fix to remove a duplicate class variable", async () => {
+    const source = dedent`
+      class Demo {
+        var title: string
+        var title: string
+        var count: int
+      }
+      `;
+    const session = createAnalysisSession(source);
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) => positionAt(source, offset));
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(2, 7),
+      diagnostics,
+      sourceRoots: []
+    });
+    const action = actions.find((candidate) => candidate.title === "Remove duplicate class variable 'title'");
+
+    expect(action).toBeTruthy();
+    expect(applyFirstEdit(source, action!)).toBe(dedent`
+      class Demo {
+        var title: string
+        var count: int
+      }
+      `);
   });
 
   it("does not expose the assign-to-variable quick fix from the shared aggregator", async () => {
