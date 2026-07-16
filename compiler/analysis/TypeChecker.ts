@@ -8989,6 +8989,12 @@ export class TypeChecker {
    * back to `any` so the resulting array stays usable.
    */
   private commonSupertype(a: AnalysisType, b: AnalysisType): AnalysisType {
+    if (
+      (a.kind === "builtin" && a.name === "any") ||
+      (b.kind === "builtin" && b.name === "any")
+    ) {
+      return builtinType("any");
+    }
     if (this.isTypeAssignable(a, b)) {
       return b;
     }

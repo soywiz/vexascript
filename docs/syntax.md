@@ -97,7 +97,7 @@ const [result, setResult] = useState(0) // result: int, setResult: (newValue: in
 
 ## Functions
 
-Functions can be declared with `fun` or TypeScript-style `function`. Both forms support `async` and generator modifiers when emitted to JavaScript:
+Functions can be declared with `fun` or TypeScript-style `function`. Both forms support `async` and generator modifiers. Supported generator functions can also be emitted by the native C++ backend as lazy C++20 coroutines:
 
 ```vexa
 async function load(id: string): Promise<Response> {

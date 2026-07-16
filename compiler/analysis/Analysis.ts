@@ -221,6 +221,20 @@ export class Analysis {
     return this.rootScope.symbols.get(name)?.type;
   }
 
+  getCallableTypes(): ReadonlyMap<Node, AnalysisType> {
+    const result = new Map<Node, AnalysisType>();
+    const visit = (scope: Scope): void => {
+      for (const symbol of scope.symbols.values()) {
+        if (symbol.type?.kind === "function") {
+          result.set(symbol.node, symbol.type);
+        }
+      }
+      for (const child of scope.children) visit(child);
+    };
+    visit(this.rootScope);
+    return result;
+  }
+
   getImplicitReceiverIdentifiers(): ReadonlySet<Node> {
     return new Set(
       this.identifierResolutions

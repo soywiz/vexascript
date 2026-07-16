@@ -65,9 +65,11 @@ let activeThisExpression = "this";
 let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
 let activeStaticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map();
 let activeAutoAwaitExpressions: ReadonlySet<Node> = new Set();
-let activeTopLevelSymbolType: (name: string) => AnalysisType | undefined = () => undefined;
+let activeCallableTypes: ReadonlyMap<Node, AnalysisType> = new Map();
 let activeSuppressAutoAwait = false;
 let activeAsyncResultType: string | null = null;
+let activeGeneratorResultType: string | null = null;
+let activeYieldTemporaryCounter = 0;
 
 function cppName(name: string): string {
   const sanitized = name.replace(/[^A-Za-z0-9_]/g, "_");
@@ -195,6 +197,21 @@ function isArrayExpression(expression: Expr): boolean {
   return type?.kind === "array" || type?.kind === "tuple" || expression.kind === "ArrayLiteral";
 }
 
+function isGeneratorExpression(expression: Expr): boolean {
+  const type = activeExpressionTypes.get(expression as Node);
+  if (type?.kind === "named" && (type.name === "Generator" || type.name === "AsyncGenerator")) return true;
+  if (expression.kind !== "CallExpression") return false;
+  const call = expression as CallExpression;
+  const functionName = identifierName(call.callee);
+  if (functionName && activeFunctionStatements.get(functionName)?.generator) return true;
+  const member = memberParts(call.callee);
+  return Boolean(member && classMethodForMember(member)?.generator);
+}
+
+function emitConvertedValue(expression: Expr, resultType: string): string {
+  return `vexa::convertValue<${resultType}>(${activeRuntimeName}, ${emitExpression(expression)})`;
+}
+
 function emitArrayLiteral(array: ArrayLiteral): string {
   if (array.elements.some((element) => element.kind === "ArrayHole")) {
     throw new CppEmitError("C++ emission does not support array holes yet");
@@ -207,7 +224,10 @@ function emitArrayLiteral(array: ArrayLiteral): string {
     const emitted = emitExpression(element);
     return type === "std::vector<std::string>" ? `vexa::toString(${emitted})` : emitted;
   };
-  return `${type}{${array.elements.map((element) => emitElement(element as Expr)).join(", ")}}`;
+  const elements = type === "std::vector<vexa::Value>"
+    ? array.elements.map((element) => emitConvertedValue(element as Expr, "vexa::Value"))
+    : array.elements.map((element) => emitElement(element as Expr));
+  return `${type}{${elements.join(", ")}}`;
 }
 
 type CallableParameter = FunctionParameter | ClassPrimaryConstructorParameter;
@@ -393,7 +413,16 @@ function emitCall(call: CallExpression): string {
   const arrayRuntimeMethods = new Set(["push", "includes", "indexOf", "join", "reverse"]);
   if (member && isArrayExpression(member.object) && arrayRuntimeMethods.has(member.propertyName)) {
     const receiver = emitExpression(member.object);
-    return `vexa::${member.propertyName}(${receiver}${argumentsText ? `, ${argumentsText}` : ""})`;
+    const arrayArguments = cppTypeForExpression(member.object) === "std::vector<vexa::Value>"
+      ? call.arguments.map((argument) => emitConvertedValue(argument, "vexa::Value")).join(", ")
+      : argumentsText;
+    return `vexa::${member.propertyName}(${receiver}${arrayArguments ? `, ${arrayArguments}` : ""})`;
+  }
+  if (member?.propertyName === "return" && isGeneratorExpression(member.object)) {
+    if (call.arguments.length > 1) {
+      throw new CppEmitError("C++ generator return expects zero or one value");
+    }
+    return `${emitExpression(member.object)}.finish(${argumentsText})`;
   }
   if (member) {
     const primitiveMethod = new Map([
@@ -519,7 +548,11 @@ function emitExpression(expression: Expr): string {
       if (unary.operator === "void") return `(static_cast<void>(${emitExpression(unary.argument)}), vexa::Value::undefined())`;
       if (unary.operator === "await") return `(${emitWithoutAutoAwait(unary.argument)}).get()`;
       if (unary.operator === "go") return emitWithoutAutoAwait(unary.argument);
-      if (unary.operator === "delete" || unary.operator.startsWith("yield")) {
+      if (unary.operator === "yield") {
+        if (!activeGeneratorResultType) throw new CppEmitError("C++ yield emission requires a generator callable");
+        return `co_yield ${emitExpression(unary.argument)}`;
+      }
+      if (unary.operator === "delete" || unary.operator === "yield*") {
         throw new CppEmitError(`C++ emission does not support unary '${unary.operator}' yet`);
       }
       return `(${unary.operator}${emitExpression(unary.argument)})`;
@@ -581,6 +614,9 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
   if (className) {
     activeGcObjectTypes.set(sourceName, className);
   }
+  if (className && activeGeneratorResultType) {
+    return `cppgc::Persistent<${cppName(className)}> ${name}(${initializer})`;
+  }
   return `${type} ${name} = ${initializer}`;
 }
 
@@ -609,8 +645,8 @@ function emitFor(statement: ForStatement, indent: string): string {
   const previousGcObjectTypes = new Map(activeGcObjectTypes);
   try {
     if (statement.iterationKind || statement.iterator || statement.iterable) {
-      if (statement.await || statement.iterationKind !== "of" || !statement.iterator || !statement.iterable) {
-        throw new CppEmitError("C++ emission supports synchronous for-of loops only", statement);
+      if (statement.iterationKind !== "of" || !statement.iterator || !statement.iterable) {
+        throw new CppEmitError("C++ emission supports for-of loops only", statement);
       }
       const iteratorName = statement.iterator.kind === "Identifier"
         ? (statement.iterator as Identifier).name
@@ -620,8 +656,8 @@ function emitFor(statement: ForStatement, indent: string): string {
       if (!iteratorName) {
         throw new CppEmitError("C++ for-of emission currently supports identifier bindings only", statement);
       }
-      if (!isArrayExpression(statement.iterable)) {
-        throw new CppEmitError("C++ for-of emission currently supports arrays only", statement);
+      if (!isArrayExpression(statement.iterable) && !isGeneratorExpression(statement.iterable)) {
+        throw new CppEmitError("C++ for-of emission currently supports arrays and generators only", statement);
       }
       const iterable = emitExpression(statement.iterable);
       activeLocalNames.add(iteratorName);
@@ -666,21 +702,20 @@ function callableReturnType(
   returnType: Identifier | undefined,
   body: BlockStatement,
   owner: Statement,
+  callableName: Identifier,
   asyncLike = false
 ): string {
   if (!returnType) {
     if (!containsValueReturn(body)) return "void";
-    if (owner.kind === "FunctionStatement") {
-      const inferred = activeTopLevelSymbolType((owner as FunctionStatement).name.name);
-      if (inferred?.kind === "function") {
-        const inferredReturn = inferred.returnType;
-        if (inferredReturn.kind === "named" && inferredReturn.name === "Promise") {
-          const valueType = inferredReturn.typeArguments?.[0];
-          return valueType ? cppTypeForAnalysisType(valueType) ?? "vexa::Value" : "vexa::Value";
-        }
-        const mapped = cppTypeForAnalysisType(inferredReturn);
-        if (mapped) return mapped;
+    const inferred = activeCallableTypes.get(callableName as Node);
+    if (inferred?.kind === "function") {
+      const inferredReturn = inferred.returnType;
+      if (inferredReturn.kind === "named" && inferredReturn.name === "Promise") {
+        const valueType = inferredReturn.typeArguments?.[0];
+        return valueType ? cppTypeForAnalysisType(valueType) ?? "vexa::Value" : "vexa::Value";
       }
+      const mapped = cppTypeForAnalysisType(inferredReturn);
+      if (mapped) return mapped;
     }
     throw new CppEmitError("C++ emission could not map the inferred callable return type", owner);
   }
@@ -696,11 +731,42 @@ function callableReturnType(
   return mapped;
 }
 
-function callableProducesTask(owner: Statement, returnType: Identifier | undefined, asyncLike: boolean): boolean {
+function callableProducesTask(callableName: Identifier, returnType: Identifier | undefined, asyncLike: boolean): boolean {
   if (asyncLike || returnType?.name.startsWith("Promise<") || returnType?.name === "Promise") return true;
-  if (owner.kind !== "FunctionStatement") return false;
-  const inferred = activeTopLevelSymbolType((owner as FunctionStatement).name.name);
+  const inferred = activeCallableTypes.get(callableName as Node);
   return inferred?.kind === "function" && inferred.returnType.kind === "named" && inferred.returnType.name === "Promise";
+}
+
+interface CallableGeneratorInfo {
+  resultType: string;
+  async: boolean;
+}
+
+function callableGeneratorInfo(
+  callableName: Identifier,
+  returnType: Identifier | undefined,
+  generator: boolean,
+  asyncLike: boolean,
+  owner: Statement
+): CallableGeneratorInfo | null {
+  if (!generator) return null;
+  const callableType = activeCallableTypes.get(callableName as Node);
+  const analyzedReturn = callableType?.kind === "function" ? callableType.returnType : undefined;
+  if (
+    analyzedReturn?.kind === "named" &&
+    (analyzedReturn.name === "Generator" || analyzedReturn.name === "AsyncGenerator")
+  ) {
+    const elementType = analyzedReturn.typeArguments?.[0];
+    return {
+      resultType: elementType ? cppTypeForAnalysisType(elementType) ?? "vexa::Value" : "vexa::Value",
+      async: analyzedReturn.name === "AsyncGenerator",
+    };
+  }
+  const fallback = returnType ? cppTypeForDeclaredName(returnType.name) : null;
+  if (!fallback) {
+    throw new CppEmitError("C++ emission could not map the analyzed generator element type", owner);
+  }
+  return { resultType: fallback, async: asyncLike };
 }
 
 function callableParameters(parameters: readonly FunctionParameter[], owner: Statement): {
@@ -739,17 +805,22 @@ function callableParameters(parameters: readonly FunctionParameter[], owner: Sta
 }
 
 function callableSignature(
-  name: string,
+  name: Identifier,
   parameters: readonly FunctionParameter[],
   returnType: Identifier | undefined,
   body: BlockStatement,
   owner: Statement,
-  taskResult: boolean
+  taskResult: boolean,
+  generatorInfo: CallableGeneratorInfo | null
 ): string {
-  const resultType = callableReturnType(returnType, body, owner, taskResult);
+  const resultType = generatorInfo?.resultType ?? callableReturnType(returnType, body, owner, name, taskResult);
   const parameterText = callableParameters(parameters, owner).text;
-  const emittedResultType = taskResult ? `vexa::Task<${resultType}>` : resultType;
-  return `${emittedResultType} ${cppName(name)}(vexa::Runtime& __vexa_runtime${parameterText ? `, ${parameterText}` : ""})`;
+  const emittedResultType = generatorInfo
+    ? `vexa::${generatorInfo.async ? "AsyncGenerator" : "Generator"}<${resultType}>`
+    : taskResult
+      ? `vexa::Task<${resultType}>`
+      : resultType;
+  return `${emittedResultType} ${cppName(name.name)}(vexa::Runtime& __vexa_runtime${parameterText ? `, ${parameterText}` : ""})`;
 }
 
 function withCallableContext<T>(
@@ -757,6 +828,7 @@ function withCallableContext<T>(
   className: string | null,
   staticMethod: boolean,
   asyncResultType: string | null,
+  generatorResultType: string | null,
   owner: Statement,
   emit: () => T
 ): T {
@@ -767,6 +839,7 @@ function withCallableContext<T>(
   const previousLocalNames = activeLocalNames;
   const previousGcObjectTypes = activeGcObjectTypes;
   const previousAsyncResultType = activeAsyncResultType;
+  const previousGeneratorResultType = activeGeneratorResultType;
   const parameterInfo = callableParameters(parameters, owner);
   activeRuntimeName = "__vexa_runtime";
   activeThisExpression = "this";
@@ -775,6 +848,7 @@ function withCallableContext<T>(
   activeLocalNames = new Set(parameterInfo.names);
   activeGcObjectTypes = new Map(parameterInfo.gcTypes);
   activeAsyncResultType = asyncResultType;
+  activeGeneratorResultType = generatorResultType;
   try {
     return emit();
   } finally {
@@ -785,6 +859,7 @@ function withCallableContext<T>(
     activeLocalNames = previousLocalNames;
     activeGcObjectTypes = previousGcObjectTypes;
     activeAsyncResultType = previousAsyncResultType;
+    activeGeneratorResultType = previousGeneratorResultType;
   }
 }
 
@@ -807,17 +882,39 @@ function emitScheduledCallableBlock(body: BlockStatement, indent: string, result
   }
 }
 
+function emitGeneratorCallableBlock(body: BlockStatement, indent: string, resultType: string): string {
+  const childIndent = `${indent}  `;
+  const roots: string[] = [];
+  for (const [sourceName, className] of activeGcObjectTypes) {
+    roots.push(
+      `${childIndent}cppgc::Persistent<${cppName(className)}> __vexa_generator_root_${cppName(sourceName)}(${cppName(sourceName)});`
+    );
+  }
+  const previousThisExpression = activeThisExpression;
+  if (activeCurrentClassName && !activeCurrentMethodStatic) {
+    roots.push(`${childIndent}cppgc::Persistent<${cppName(activeCurrentClassName)}> __vexa_generator_self(this);`);
+    activeThisExpression = "__vexa_generator_self";
+  }
+  try {
+    const emitted = emitBlock(body, indent, `co_return vexa::defaultValue<${resultType}>();`);
+    return roots.length > 0
+      ? emitted.replace("{\n", `{\n${roots.join("\n")}\n`)
+      : emitted;
+  } finally {
+    activeThisExpression = previousThisExpression;
+  }
+}
+
 function validateFunction(statement: FunctionStatement): void {
   if (
     statement.declared ||
     statement.missingBody ||
-    statement.generator ||
     statement.receiverType ||
     statement.operator ||
     statement.typeParameters?.length
   ) {
     throw new CppEmitError(
-      "C++ emission supports concrete, non-generator, non-generic top-level functions only",
+      "C++ emission supports concrete, non-generic top-level functions only",
       statement
     );
   }
@@ -826,25 +923,42 @@ function validateFunction(statement: FunctionStatement): void {
 function functionSignature(statement: FunctionStatement): string {
   validateFunction(statement);
   const asyncLike = Boolean(statement.async || statement.sync);
+  const generatorInfo = callableGeneratorInfo(
+    statement.name,
+    statement.returnType,
+    Boolean(statement.generator),
+    asyncLike,
+    statement
+  );
   return callableSignature(
-    statement.name.name,
+    statement.name,
     statement.parameters,
     statement.returnType,
     statement.body,
     statement,
-    callableProducesTask(statement, statement.returnType, asyncLike)
+    generatorInfo ? false : callableProducesTask(statement.name, statement.returnType, asyncLike),
+    generatorInfo
   );
 }
 
 function emitFunction(statement: FunctionStatement): string {
   const signature = functionSignature(statement);
-  const asyncResultType = statement.async || statement.sync
-    ? callableReturnType(statement.returnType, statement.body, statement, true)
+  const generatorInfo = callableGeneratorInfo(
+    statement.name,
+    statement.returnType,
+    Boolean(statement.generator),
+    Boolean(statement.async || statement.sync),
+    statement
+  );
+  const asyncResultType = !generatorInfo && (statement.async || statement.sync)
+    ? callableReturnType(statement.returnType, statement.body, statement, statement.name, true)
     : null;
-  return withCallableContext(statement.parameters, null, false, asyncResultType, statement, () =>
-    `${signature} ${asyncResultType
-      ? emitScheduledCallableBlock(statement.body, "", asyncResultType)
-      : emitBlock(statement.body, "")}`
+  return withCallableContext(statement.parameters, null, false, asyncResultType, generatorInfo?.resultType ?? null, statement, () =>
+    `${signature} ${generatorInfo
+      ? emitGeneratorCallableBlock(statement.body, "", generatorInfo.resultType)
+      : asyncResultType
+        ? emitScheduledCallableBlock(statement.body, "", asyncResultType)
+        : emitBlock(statement.body, "")}`
   );
 }
 
@@ -860,7 +974,6 @@ function primaryConstructorParameterType(parameter: ClassPrimaryConstructorParam
 
 function validateClassMethod(method: ClassMethodMember, statement: ClassStatement): void {
   if (
-    method.generator ||
     method.abstract ||
     method.accessorKind ||
     method.getterShorthand ||
@@ -871,7 +984,7 @@ function validateClassMethod(method: ClassMethodMember, statement: ClassStatemen
     method.typeParameters?.length
   ) {
     throw new CppEmitError(
-      "C++ emission supports concrete, non-generator, non-generic methods only",
+      "C++ emission supports concrete, non-generic methods only",
       statement
     );
   }
@@ -882,21 +995,31 @@ function emitClassMethod(
   statement: ClassStatement
 ): string {
   validateClassMethod(method, statement);
-  const asyncResultType = method.async || method.sync
-    ? callableReturnType(method.returnType, method.body, statement, true)
+  const generatorInfo = callableGeneratorInfo(
+    method.name,
+    method.returnType,
+    Boolean(method.generator),
+    Boolean(method.async || method.sync),
+    statement
+  );
+  const asyncResultType = !generatorInfo && (method.async || method.sync)
+    ? callableReturnType(method.returnType, method.body, statement, method.name, true)
     : null;
   const signature = callableSignature(
-    method.name.name,
+    method.name,
     method.parameters,
     method.returnType,
     method.body,
     statement,
-    callableProducesTask(statement, method.returnType, asyncResultType !== null)
+    generatorInfo ? false : callableProducesTask(method.name, method.returnType, asyncResultType !== null),
+    generatorInfo
   );
-  return withCallableContext(method.parameters, statement.name.name, Boolean(method.static), asyncResultType, statement, () =>
-    `  ${method.static ? "static " : ""}${signature} ${asyncResultType
-      ? emitScheduledCallableBlock(method.body, "  ", asyncResultType)
-      : emitBlock(method.body, "  ")}`
+  return withCallableContext(method.parameters, statement.name.name, Boolean(method.static), asyncResultType, generatorInfo?.resultType ?? null, statement, () =>
+    `  ${method.static ? "static " : ""}${signature} ${generatorInfo
+      ? emitGeneratorCallableBlock(method.body, "  ", generatorInfo.resultType)
+      : asyncResultType
+        ? emitScheduledCallableBlock(method.body, "  ", asyncResultType)
+        : emitBlock(method.body, "  ")}`
   );
 }
 
@@ -962,8 +1085,20 @@ function emitStatement(statement: Statement, indent = ""): string {
   switch (statement.kind) {
     case "BlockStatement":
       return `${indent}${emitBlock(statement as BlockStatement, indent)}`;
-    case "ExprStatement":
-      return `${indent}${emitExpression((statement as ExprStatement).expression)};`;
+    case "ExprStatement": {
+      const expression = (statement as ExprStatement).expression;
+      if (expression.kind === "UnaryExpression" && (expression as UnaryExpression).operator === "yield*") {
+        if (!activeGeneratorResultType) throw new CppEmitError("C++ yield* emission requires a generator callable", statement);
+        const temporary = `__vexa_yield_value_${activeYieldTemporaryCounter++}`;
+        const iterable = emitExpression((expression as UnaryExpression).argument);
+        return [
+          `${indent}for (auto&& ${temporary} : ${iterable}) {`,
+          `${indent}  co_yield vexa::convertValue<${activeGeneratorResultType}>(${activeRuntimeName}, ${temporary});`,
+          `${indent}}`,
+        ].join("\n");
+      }
+      return `${indent}${emitExpression(expression)};`;
+    }
     case "VarStatement":
       return `${indent}${emitVariable(statement as VarStatement)};`;
     case "ForStatement":
@@ -983,6 +1118,11 @@ function emitStatement(statement: Statement, indent = ""): string {
     }
     case "ReturnStatement": {
       const returned = (statement as ReturnStatement).expression;
+      if (activeGeneratorResultType) {
+        return `${indent}co_return ${returned
+          ? emitExpression(returned)
+          : `vexa::defaultValue<${activeGeneratorResultType}>()`};`;
+      }
       if (activeAsyncResultType) {
         if (!returned) return `${indent}return;`;
         const emitted = emitExpression(returned);
@@ -1022,7 +1162,7 @@ export interface CppEmitSemantics {
   implicitReceiverIdentifiers?: ReadonlySet<Node>;
   staticImplicitReceiverIdentifiers?: ReadonlyMap<Node, string>;
   autoAwaitExpressions?: ReadonlySet<Node>;
-  topLevelSymbolType?: (name: string) => AnalysisType | undefined;
+  callableTypes?: ReadonlyMap<Node, AnalysisType>;
 }
 
 export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {}): string {
@@ -1041,15 +1181,15 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeImplicitReceiverIdentifiers = semantics.implicitReceiverIdentifiers ?? new Set();
   activeStaticImplicitReceiverIdentifiers = semantics.staticImplicitReceiverIdentifiers ?? new Map();
   activeAutoAwaitExpressions = semantics.autoAwaitExpressions ?? new Set();
-  activeTopLevelSymbolType = semantics.topLevelSymbolType ?? (() => undefined);
+  activeCallableTypes = semantics.callableTypes ?? new Map();
   activeSuppressAutoAwait = false;
   activeAsyncResultType = null;
+  activeGeneratorResultType = null;
+  activeYieldTemporaryCounter = 0;
   activeCurrentClassName = null;
   activeCurrentMethodStatic = false;
   activeLocalNames = new Set();
   activeRuntimeName = "runtime";
-  activeSuppressAutoAwait = false;
-  activeAsyncResultType = null;
 
   const forwardClasses = classes.map((statement) => `class ${cppName(statement.name.name)};`);
   const functionPrototypes = functions.map((statement) => `${functionSignature(statement)};`);

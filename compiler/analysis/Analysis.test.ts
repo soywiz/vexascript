@@ -2481,6 +2481,7 @@ let bad = "Ada" satisfies number
     const source = dedent`
       let nums = [1, 2, 3]
       let mixed = [1, "x"]
+      let mixedContinues = [1, "x", true]
       fun demo() {
         return nums
       }
@@ -2490,6 +2491,7 @@ let bad = "Ada" satisfies number
     const symbols = symbolsOfVisibleSymbolsAt(source, 3, 3);
     expect(symbols.get("nums")?.valueType).toBe("int[]");
     expect(symbols.get("mixed")?.valueType).toBe("any[]");
+    expect(symbols.get("mixedContinues")?.valueType).toBe("any[]");
   });
 
   it("unifies the integer and big-integer numeric families to numeric in array literals", () => {

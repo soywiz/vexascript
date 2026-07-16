@@ -138,9 +138,48 @@ Promise construction is a source-level facade over the same `Task<T>` settlement
 state used by async/sync functions. Its executor runs immediately, resolver and
 rejecter handles share a first-settlement-wins state, timers store those handles as
 ordinary safe callbacks, and `Task<T>::get()` remains the single waiting path.
-Inferred return types come from `Analysis.getTopLevelSymbolType()`; the C++ emitter
+Inferred return types come from the analyzer's callable type map; the C++ emitter
 does not independently decide that an expression-bodied `delay` function returns
 a Promise.
+
+Generators extended that same rule beyond top-level symbols. The analyzer already
+resolves plain generators to `Generator<T>` and async-capable generators to
+`AsyncGenerator<T>`, including class methods. Exposing one callable-node type map
+lets the C++ signature builder consume those results without re-inferring yield
+types or maintaining separate top-level and method lookup paths.
+
+C++20 coroutines provide the native lazy suspension model directly. One
+`BasicGenerator<T, Async>` implementation owns frame resumption, yielded and final
+values, exceptions, `.next()`, and range iteration; the synchronous and
+async-capable aliases differ only in whether `.next()` returns an immediately
+awaitable result. `yield*` remains emitter syntax lowering, but all delegated
+values go through one typed runtime conversion helper so dynamic strings enter
+the same Oilpan-backed `Value` representation as direct string expressions.
+
+Coroutine frames are ordinary C++ allocations and are not traced by Oilpan.
+Keeping raw generated-object pointers in parameters, method receivers, locals, or
+yield slots would therefore create suspension-time collection hazards. Generated
+coroutine bodies install `cppgc::Persistent` roots for incoming objects and method
+receivers, generated-object locals use persistent storage, and the shared
+generator task storage roots yielded and returned pointer values. The native
+compile-and-run fixture deliberately resumes the same yielded object after a
+mutation and delegates managed strings to cover these lifetime boundaries.
+
+Resuming a `yield` expression required more than returning `std::suspend_always`.
+The promise now returns one awaiter that reads the next supplied value from rooted
+task storage. `next(value)` only installs that input after the coroutine has
+started, preserving JavaScript's rule that the first input is ignored. Source
+`.return()` is routed to a non-keyword native `finish()` method, which destroys the
+frame immediately and returns a completed iterator result.
+
+Mixed arrays revealed a shared inference defect rather than a C++-only problem.
+After two incompatible elements produced `any`, the next element could narrow the
+common type again because `any` is assignable to everything. `commonSupertype`
+now treats `any` as an absorbing result, so `[1, "x", true]` remains `any[]` in
+every backend. Native mixed primitive arrays map that type to
+`std::vector<vexa::Value>`. Array insertion/query arguments and delegated yields
+share one `convertValue` helper, avoiding separate dynamic-string conversion
+rules that could drift.
 
 ## Investigation notes and rejected paths
 

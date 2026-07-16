@@ -48,9 +48,10 @@ silently producing incorrect C++. Its initial surface includes:
   types, including construction, property access, and synchronous typed instance
   and static methods, including static factory methods that return class instances
   and `async`/`sync` methods;
-- homogeneous arrays with a supported native element type, including literals,
-  indexed reads and writes, `length`, `push`, `includes`, `indexOf`, `join`,
-  `reverse`, and synchronous `for-of` loops;
+- homogeneous arrays with a supported native element type and mixed primitive
+  arrays represented by managed dynamic values, including literals, indexed
+  reads and writes, `length`, `push`, `includes`, `indexOf`, `join`, `reverse`,
+  and synchronous `for-of` loops;
 - range-based `for` loops lowered to native C++ loops;
 - `if`, `while`, `do while`, return, break, and continue statements;
 - arithmetic, comparison, assignment, unary, update, and conditional expressions;
@@ -60,6 +61,10 @@ silently producing incorrect C++. Its initial surface includes:
 - `Promise { resolve, reject -> ... }` executor construction backed by the same
   native task state, including timer-safe resolver callbacks and first-settlement
   semantics;
+- lazy generator functions and instance methods backed by C++20 coroutines,
+  including `yield`, `yield*`, final return values, `.next()`, `.next(value)`,
+  `.return()`, generator `for-of` iteration, and async/sync generators that use
+  the native task runtime;
 - common `Math` constants and functions;
 - basic `String`, `Number`, `Boolean`, `parseInt`, `parseFloat`,
   `isNaN`, `isFinite`, `toString`, `toFixed`, casing, and trimming APIs.
@@ -74,7 +79,9 @@ cppgc heap, represents dynamic `vexa::Value` strings as
 `cppgc::GarbageCollected` objects, keeps live dynamic strings rooted with
 `cppgc::Persistent`, and allocates generated class instances through the same
 Oilpan heap. Homogeneous string arrays use owned `std::string` elements and
-normal C++ lifetime management rather than Oilpan tracing.
+normal C++ lifetime management rather than Oilpan tracing. Mixed primitive array
+literals infer `any[]`, use `std::vector<vexa::Value>`, and convert every inserted
+or queried value through the runtime so strings retain their managed roots.
 
 Generated functions and methods receive the active runtime through a hidden C++
 parameter. VexaScript call sites remain unchanged. This keeps heap ownership and
@@ -82,7 +89,7 @@ destruction order explicit without introducing a process-global application
 singleton. Function and method parameters require supported type annotations;
 value-returning callables also require an explicit return type. Literal defaults
 are lowered into generated call sites rather than C++ declaration defaults.
-Generator, extension, generic, accessor, and operator callables remain unsupported.
+Extension, generic, accessor, and operator callables remain unsupported.
 
 Both JavaScript and C++ emission consume the analyzer's resolved implicit-receiver
 identifier sets. The analyzer decides whether an unqualified identifier means a
@@ -104,6 +111,21 @@ state and may safely be passed to `setTimeout`. An unparameterized `Promise` use
 dynamic `vexa::Value`, so calling `resolve()` settles it with `undefined` and
 `resolve(value)` stores the supplied value. Repeated resolve/reject attempts are
 ignored after the first settlement, and awaiting a rejection rethrows it.
+
+Native generators are lazy C++20 coroutines. A plain generator returns
+`Generator<T>`; a generator with VexaScript's async-capable modifier returns
+`AsyncGenerator<T>`. Calling `.next()` produces the usual `{ done, value }`
+result, and an async generator's result participates in the existing `await`
+lowering. `.next(value)` sends a value back into the suspended `yield` expression;
+as in JavaScript, an argument supplied to the first `next` call is ignored.
+`.return()` closes the coroutine, destroys its frame, and returns a completed
+iterator result. `yield*` delegates to native arrays or another generator and
+converts delegated dynamic strings through the active runtime. Generator parameters,
+method receivers, local generated objects, yielded objects, and returned objects
+are kept in Oilpan `Persistent` roots while their coroutine frame is suspended.
+The analyzer remains the source of truth for each callable's resolved
+`Generator<T>` or `AsyncGenerator<T>` element type; the C++ emitter only maps
+that analyzed type to its native representation.
 
 The generated entrypoint drains the event loop before destroying the runtime and
 Oilpan heap. A live interval therefore keeps the process alive until it is cleared,

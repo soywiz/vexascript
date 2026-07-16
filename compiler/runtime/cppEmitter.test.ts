@@ -1,4 +1,4 @@
-import { describe, expect, it } from "../test/expect";
+import { describe, expect, it, join, readFile } from "../test/expect";
 import { transpile } from "./transpile";
 
 describe("C++ emission", () => {
@@ -94,6 +94,26 @@ console.log(values[0], values.length)`, {
     expect(result.code).toContain("vexa::console.log(values[0], static_cast<double>(values.size()));");
   });
 
+  it("emits mixed primitive arrays through dynamic managed values", () => {
+    const result = transpile(`val mixed = [1, "two", true]
+console.log(mixed[0], mixed[1], mixed[2])
+mixed.push("three")
+console.log(mixed.includes("two"), mixed.indexOf(true), mixed.join("|"))
+for (value of mixed) console.log(value)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("std::vector<vexa::Value>");
+    expect(result.code).toContain("vexa::convertValue<vexa::Value>(runtime, 1)");
+    expect(result.code).toContain('vexa::convertValue<vexa::Value>(runtime, runtime.string("two"))');
+    expect(result.code).toContain("vexa::push(mixed, vexa::convertValue<vexa::Value>");
+    expect(result.code).toContain("for (auto value : mixed)");
+  });
+
   it("emits for-of loops over arrays", () => {
     const result = transpile(`val names = [" Ada ".trim(), "Grace"]
 names.push("Katherine")
@@ -123,7 +143,7 @@ for (name of names) {
       emitSourceMap: false,
     });
 
-    expect(result.errors).toEqual(["C++ for-of emission currently supports arrays only"]);
+    expect(result.errors).toEqual(["C++ for-of emission currently supports arrays and generators only"]);
     expect(result.code).toBe("");
   });
 
@@ -428,5 +448,166 @@ console.log(await resolvedValue())`, {
     expect(result.code).toContain('reject(vexa::Error(__vexa_runtime.string("no")));');
     expect(result.code).toContain("(delay(runtime, 0)).get();");
     expect(result.code).toContain("vexa::console.log((resolvedValue(runtime)).get());");
+  });
+
+  it("emits lazy generator functions with yield, yield delegation, next, and for-of", () => {
+    const result = transpile(`fun * values(limit: int): int {
+  for (n of 0 ..< limit) yield n
+  yield* [limit, limit + 1]
+  return limit + 10
+}
+
+val iterator = values(2)
+val first = iterator.next()
+console.log(first.done, first.value)
+for (value of iterator) console.log(value)
+val finished = iterator.next()
+console.log(finished.done, finished.value)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::Generator<std::int32_t> values(vexa::Runtime& __vexa_runtime, std::int32_t limit);");
+    expect(result.code).toContain("co_yield n;");
+    expect(result.code).toContain("for (auto&& __vexa_yield_value_0 : std::vector<std::int32_t>{limit, (limit + 1)})");
+    expect(result.code).toContain("co_yield vexa::convertValue<std::int32_t>(__vexa_runtime, __vexa_yield_value_0);");
+    expect(result.code).toContain("co_return (limit + 10);");
+    expect(result.code).toContain("auto first = iterator.next();");
+    expect(result.code).toContain("for (auto value : iterator)");
+    expect(result.code).toContain("auto finished = iterator.next();");
+  });
+
+  it("roots generator locals and converts delegated strings to managed values", () => {
+    const result = transpile(`class Box(var value: int)
+
+fun * boxes(): Box {
+  val box = Box(1)
+  yield box
+  box.value = 2
+  yield box
+}
+
+fun * names(): string {
+  yield* ["Ada", "Grace"]
+}
+
+for (box of boxes()) console.log(box.value)
+for (name of names()) console.log(name)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::Generator<Box*> boxes(vexa::Runtime& __vexa_runtime);");
+    expect(result.code).toContain("cppgc::Persistent<Box> box(__vexa_runtime.make<Box>(1));");
+    expect(result.code).toContain("co_yield box;");
+    expect(result.code).toContain("vexa::Generator<vexa::Value> names(vexa::Runtime& __vexa_runtime);");
+    expect(result.code).toContain("co_yield vexa::convertValue<vexa::Value>(__vexa_runtime, __vexa_yield_value_0);");
+  });
+
+  it("roots generator method receivers across suspension", () => {
+    const result = transpile(`class Counter(val start: int) {
+  fun * values(delta: int): int {
+    yield start
+    yield start + delta
+  }
+}
+
+for (value of Counter(3).values(2)) console.log(value)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::Generator<std::int32_t> values(vexa::Runtime& __vexa_runtime, std::int32_t delta)");
+    expect(result.code).toContain("cppgc::Persistent<Counter> __vexa_generator_self(this);");
+    expect(result.code).toContain("co_yield __vexa_generator_self->start;");
+    expect(result.code).toContain("(co_yield __vexa_generator_self->start + delta);");
+  });
+
+  it("emits async generators over the same coroutine and task runtime", () => {
+    const result = transpile(`async fun later(): int {
+  return 4
+}
+
+sync fun * values(): int {
+  yield await later()
+  yield 5
+}
+
+sync fun consume(): void {
+  val iterator = values()
+  val first = await iterator.next()
+  console.log(first.value)
+  for (value of iterator) console.log(value)
+}
+
+await consume()`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::AsyncGenerator<std::int32_t> values(vexa::Runtime& __vexa_runtime);");
+    expect(result.code).toContain("co_yield (later(__vexa_runtime)).get();");
+    expect(result.code).toContain("auto first = (iterator.next()).get();");
+    expect(result.code).toContain("for (auto value : iterator)");
+  });
+
+  it("passes next values back into suspended yield expressions", async () => {
+    const result = transpile(`fun * echo(): int {
+  val received = yield 1
+  yield received
+}
+
+val iterator = echo()
+console.log(iterator.next(99).value)
+console.log(iterator.next(7).value)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("auto received = co_yield 1;");
+    expect(result.code).toContain("iterator.next(99).value");
+    expect(result.code).toContain("iterator.next(7).value");
+
+    const runtime = await readFile(join(process.cwd(), "native", "runtime.cpp"), "utf8");
+    expect(runtime).toContain("T await_resume()");
+    expect(runtime).toContain("NextResult next(T value)");
+  });
+
+  it("closes generators through return", async () => {
+    const result = transpile(`fun * values(): int {
+  yield 1
+  yield 2
+}
+
+val iterator = values()
+console.log(iterator.next().value)
+val closed = iterator.return()
+console.log(closed.done, closed.value)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("auto closed = iterator.finish();");
+
+    const runtime = await readFile(join(process.cwd(), "native", "runtime.cpp"), "utf8");
+    expect(runtime).toContain("NextResult finish()");
   });
 });

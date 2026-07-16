@@ -380,7 +380,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
             implicitReceiverIdentifiers: artifacts.analysis.getImplicitReceiverIdentifiers(),
             staticImplicitReceiverIdentifiers: artifacts.analysis.getStaticImplicitReceiverIdentifiers(),
             autoAwaitExpressions: artifacts.analysis.getAutoAwaitExpressions(),
-            topLevelSymbolType: (name) => artifacts.analysis!.getTopLevelSymbolType(name)
+            callableTypes: artifacts.analysis.getCallableTypes()
           }
         ),
         warnings: [],
