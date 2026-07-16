@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -107,6 +108,12 @@ class Runtime final {
   Value string(std::string value) {
     return Value(cppgc::MakeGarbageCollected<StringObject>(
         heap_->GetAllocationHandle(), std::move(value)));
+  }
+
+  template <typename T, typename... Arguments>
+  T* make(Arguments&&... arguments) {
+    return cppgc::MakeGarbageCollected<T>(
+        heap_->GetAllocationHandle(), std::forward<Arguments>(arguments)...);
   }
 
   cppgc::Heap& heap() { return *heap_; }

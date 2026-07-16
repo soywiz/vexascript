@@ -40,6 +40,8 @@ The native backend intentionally rejects unsupported AST constructs instead of
 silently producing incorrect C++. Its initial surface includes:
 
 - local variables and primitive number, boolean, string, null, and undefined values;
+- concrete primary-constructor classes whose `val`/`var` properties use primitive
+  types, including construction and property reads;
 - range-based `for` loops lowered to native C++ loops;
 - `if`, `while`, `do while`, return, break, and continue statements;
 - arithmetic, comparison, assignment, unary, update, and conditional expressions;
@@ -48,9 +50,15 @@ silently producing incorrect C++. Its initial surface includes:
 - basic `String`, `Number`, `Boolean`, `parseInt`, `parseFloat`,
   `isNaN`, `isFinite`, `toString`, `toFixed`, casing, and trimming APIs.
 
+Numeric VexaScript types keep their intended native representation: `int` maps
+to `std::int32_t`, `long` maps to `std::int64_t`, and `number` maps to C++
+`double`. Range-loop iterators use the analyzed element type rather than a
+single hard-coded numeric type.
+
 The runtime lives entirely in `native/runtime.cpp`. It initializes an actual
 cppgc heap, represents runtime strings as `cppgc::GarbageCollected` objects,
-and keeps live strings rooted with `cppgc::Persistent`.
+keeps live strings rooted with `cppgc::Persistent`, and allocates generated
+class instances through the same Oilpan heap.
 
 Native emission currently supports single-file builds only and cannot be
 combined with `--bundle` or project-directory builds.

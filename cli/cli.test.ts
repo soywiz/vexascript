@@ -192,7 +192,7 @@ describe("CLI", () => {
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).toContain('#include "runtime.cpp"');
-    expect(outputCode).toContain("for (double n = 0; n < 10; n++)");
+    expect(outputCode).toContain("for (std::int32_t n = 0; n < 10; n++)");
     expect(outputCode).toContain("vexa::console.log(n);");
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });

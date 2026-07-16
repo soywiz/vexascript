@@ -4,6 +4,8 @@ import type {
   BlockStatement,
   BreakStatement,
   CallExpression,
+  ClassPrimaryConstructorParameter,
+  ClassStatement,
   ConditionalExpression,
   ContinueStatement,
   DoWhileStatement,
@@ -15,6 +17,7 @@ import type {
   Identifier,
   IfStatement,
   MemberExpression,
+  Node,
   Program,
   ReturnStatement,
   Statement,
@@ -23,6 +26,7 @@ import type {
   VarStatement,
   WhileStatement,
 } from "compiler/ast/ast";
+import type { AnalysisType, BuiltinTypeName } from "compiler/analysis/types";
 
 export class CppEmitError extends Error {
   constructor(message: string, readonly statement?: Statement) {
@@ -42,6 +46,10 @@ const CPP_RESERVED_WORDS = new Set([
   "this", "thread_local", "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned",
   "using", "virtual", "void", "volatile", "wchar_t", "while", "xor",
 ]);
+
+let activeClassNames: ReadonlySet<string> = new Set();
+let activeGcObjectNames: Set<string> = new Set();
+let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> = new Map();
 
 function cppName(name: string): string {
   const sanitized = name.replace(/[^A-Za-z0-9_]/g, "_");
@@ -68,6 +76,38 @@ function cppString(value: string): string {
   return JSON.stringify(value)
     .replace(/\\u2028/g, "\\u2028")
     .replace(/\\u2029/g, "\\u2029");
+}
+
+function cppTypeForBuiltin(typeName: BuiltinTypeName): string | null {
+  switch (typeName) {
+    case "int":
+      return "std::int32_t";
+    case "long":
+      return "std::int64_t";
+    case "number":
+    case "numeric":
+      return "double";
+    case "boolean":
+      return "bool";
+    case "string":
+    case "any":
+    case "unknown":
+      return "vexa::Value";
+    default:
+      return null;
+  }
+}
+
+function cppTypeForExpression(expression: Expr): string {
+  const analysisType = activeExpressionTypes.get(expression as Node);
+  if (analysisType?.kind === "builtin") {
+    const mapped = cppTypeForBuiltin(analysisType.name);
+    if (mapped) return mapped;
+  }
+  if (expression.kind === "IntLiteral") return "std::int32_t";
+  if (expression.kind === "LongLiteral") return "std::int64_t";
+  if (expression.kind === "FloatLiteral") return "double";
+  return "auto";
 }
 
 function emitCall(call: CallExpression): string {
@@ -103,7 +143,21 @@ function emitCall(call: CallExpression): string {
   if (calleeName && runtimeGlobals.has(calleeName)) {
     return `vexa::${cppName(calleeName)}(${argumentsText})`;
   }
+  if (calleeName && activeClassNames.has(calleeName)) {
+    return `runtime.make<${cppName(calleeName)}>(${argumentsText})`;
+  }
   return `${emitExpression(call.callee)}(${argumentsText})`;
+}
+
+function isGcObjectExpression(expression: Expr): boolean {
+  if (expression.kind === "Identifier") {
+    return activeGcObjectNames.has((expression as Identifier).name);
+  }
+  if (expression.kind === "CallExpression") {
+    const calleeName = identifierName((expression as CallExpression).callee);
+    return calleeName !== null && activeClassNames.has(calleeName);
+  }
+  return false;
 }
 
 function emitBinary(expression: BinaryExpression): string {
@@ -172,7 +226,7 @@ function emitExpression(expression: Expr): string {
       }
       return member.computed
         ? `${emitExpression(member.object)}[${emitExpression(member.property)}]`
-        : `${emitExpression(member.object)}.${emitExpression(member.property)}`;
+        : `${emitExpression(member.object)}${isGcObjectExpression(member.object) ? "->" : "."}${emitExpression(member.property)}`;
     }
     case "NamedArgument":
       return emitExpression((expression as unknown as { value: Expr }).value);
@@ -191,7 +245,13 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
   }
   const name = cppName((statement.name as Identifier).name);
   if (!statement.initializer) return `vexa::Value ${name}`;
-  const type = forInitializer ? "double" : "auto";
+  if (statement.initializer.kind === "CallExpression") {
+    const calleeName = identifierName((statement.initializer as CallExpression).callee);
+    if (calleeName && activeClassNames.has(calleeName)) {
+      activeGcObjectNames.add((statement.name as Identifier).name);
+    }
+  }
+  const type = forInitializer ? cppTypeForExpression(statement.initializer) : "auto";
   return `${type} ${name} = ${emitExpression(statement.initializer)}`;
 }
 
@@ -234,6 +294,62 @@ function emitFunction(statement: FunctionStatement): string {
   return `auto ${cppName(statement.name.name)}(${parameters}) ${emitBlock(statement.body, "")}`;
 }
 
+function primaryConstructorParameterType(parameter: ClassPrimaryConstructorParameter, statement: ClassStatement): string {
+  const typeName = parameter.typeAnnotation?.name;
+  const mapped = typeName ? cppTypeForBuiltin(typeName as BuiltinTypeName) : null;
+  if (mapped) return mapped;
+  throw new CppEmitError(
+    `C++ emission currently requires primitive type annotations on class primary constructor properties`,
+    statement
+  );
+}
+
+function emitClass(statement: ClassStatement): string {
+  if (
+    statement.declared ||
+    statement.abstract ||
+    statement.typeParameters?.length ||
+    statement.extendsType ||
+    statement.implementsTypes?.length ||
+    statement.classDelegates?.length ||
+    statement.members.length > 0
+  ) {
+    throw new CppEmitError(
+      "C++ emission currently supports concrete primary-constructor classes without inheritance or body members only",
+      statement
+    );
+  }
+
+  const className = cppName(statement.name.name);
+  const parameters = statement.primaryConstructorParameters ?? [];
+  if (parameters.some((parameter) => parameter.defaultValue !== undefined)) {
+    throw new CppEmitError("C++ emission does not support default class constructor arguments yet", statement);
+  }
+  const typedParameters = parameters.map((parameter) => ({
+    parameter,
+    name: cppName(parameter.name.name),
+    type: primaryConstructorParameterType(parameter, statement),
+  }));
+  const constructorParameters = typedParameters.map(({ type, name }) => `${type} ${name}`).join(", ");
+  const initializers = typedParameters.map(({ name }) => `${name}(${name})`).join(", ");
+  const constructor = initializers
+    ? `${className}(${constructorParameters}) : ${initializers} {}`
+    : `${className}() = default;`;
+  const fields = typedParameters.map(({ parameter, type, name }) => {
+    const immutable = parameter.declarationKind === "val" || parameter.declarationKind === "const";
+    return `  ${immutable ? "const " : ""}${type} ${name};`;
+  });
+
+  return [
+    `class ${className} final : public cppgc::GarbageCollected<${className}> {`,
+    " public:",
+    `  ${constructor}`,
+    "  void Trace(cppgc::Visitor*) const {}",
+    ...fields,
+    "};",
+  ].join("\n");
+}
+
 function emitStatement(statement: Statement, indent = ""): string {
   switch (statement.kind) {
     case "BlockStatement":
@@ -267,6 +383,8 @@ function emitStatement(statement: Statement, indent = ""): string {
       return `${indent}continue${(statement as ContinueStatement).label ? ` /* ${(statement as ContinueStatement).label!.name} */` : ""};`;
     case "FunctionStatement":
       return `${indent}${emitFunction(statement as FunctionStatement)}`;
+    case "ClassStatement":
+      return `${indent}${emitClass(statement as ClassStatement)}`;
     case "ExportStatement": {
       const declaration = (statement as ExportStatement).declaration;
       return declaration ? emitStatement(declaration, indent) : "";
@@ -282,13 +400,23 @@ function emitStatement(statement: Statement, indent = ""): string {
   }
 }
 
-export function emitCppProgram(program: Program): string {
+export function emitCppProgram(
+  program: Program,
+  expressionTypes: ReadonlyMap<Node, AnalysisType> = new Map()
+): string {
+  activeClassNames = new Set(
+    program.body
+      .filter((statement): statement is ClassStatement => statement.kind === "ClassStatement")
+      .map((statement) => statement.name.name)
+  );
+  activeGcObjectNames = new Set();
+  activeExpressionTypes = expressionTypes;
   const declarations: string[] = [];
   const entryStatements: string[] = [];
   for (const statement of program.body) {
     const emitted = emitStatement(statement, "  ");
     if (!emitted) continue;
-    if (statement.kind === "FunctionStatement") {
+    if (statement.kind === "FunctionStatement" || statement.kind === "ClassStatement") {
       declarations.push(emitted.trimStart());
     } else {
       entryStatements.push(emitted);

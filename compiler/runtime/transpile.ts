@@ -373,7 +373,10 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   if (options.emit === "cpp") {
     try {
       return {
-        code: emitCppProgram(lowerProgram(artifacts.ast, { lowerRangeForLoops: true })),
+        code: emitCppProgram(
+          lowerProgram(artifacts.ast, { lowerRangeForLoops: true }),
+          artifacts.analysis.getExpressionTypes()
+        ),
         warnings: [],
         errors: [],
         diagnostics: []

@@ -1,8 +1,8 @@
-//class Point(val x: number, val y: number)
+class Point(val x: number, val y: number)
 
-//val point = Point(1, 2)
+val point = Point(1, 2)
 console.log("Hello World!")
 for (n of 0..<10) {
   console.log(n)
 }
-//console.log(point.x, point.y)
+console.log(point.x, point.y)

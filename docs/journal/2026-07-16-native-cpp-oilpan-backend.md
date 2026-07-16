@@ -42,6 +42,22 @@ properties. Passing `CPPGC_IS_STANDALONE`,
 translation unit fixed the mismatch. A pure argument-builder regression now
 keeps those consumer definitions visible.
 
+The first object-oriented native sample exposed a second backend boundary:
+JavaScript class calls are normally rewritten to `new` using analysis context,
+but the small C++ emitter owns its allocation model. Primary-constructor
+classes are now emitted as `cppgc::GarbageCollected<T>` objects, constructor
+calls allocate through `Runtime::make<T>`, and known GC object locals use C++
+pointer member access. Keeping allocation behind the runtime avoids embedding
+heap-handle mechanics at every generated call site.
+
+The first generated range loop also revealed a type-erasure shortcut: its
+initializer was always declared as `double`, even though VexaScript already
+distinguishes `int`, `long`, and `number`. The lowering pass preserves the
+original range-bound expression nodes, so the C++ backend can consume the same
+analysis type map as the JavaScript backend. Native loops now map `int` to
+`std::int32_t`, `long` to `std::int64_t`, and `number` to `double`; AST literal
+kinds remain only a fallback when no analyzed type is available.
+
 ## Investigation notes and rejected paths
 
 Putting source extraction and `g++` directly in the transpiler would have been
@@ -66,5 +82,9 @@ incorrect native programs.
 - Runtime-owned Oilpan roots must be destroyed before the `Runtime` heap. The
   generated `main` declares `Runtime` first so later values are destroyed first
   by C++ reverse destruction order.
+- GC object member access currently relies on emitter knowledge of locals that
+  are initialized directly from class calls. When assignments, returns, or
+  object-valued fields are added, that knowledge should come from shared
+  analysis types rather than growing more syntax-specific tracking.
 - Packaged CLI releases must continue including both `native/runtime.cpp` and
   `native/oilpan-standalone-main.zip`.
