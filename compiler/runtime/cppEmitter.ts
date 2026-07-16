@@ -27,6 +27,7 @@ import type {
   NamedArgument,
   NewExpression,
   Node,
+  OverloadableOperator,
   Program,
   RangeExpression,
   ReturnStatement,
@@ -39,7 +40,10 @@ import type {
   VarStatement,
   WhileStatement,
 } from "compiler/ast/ast";
+import { compoundAssignmentBinaryOperator } from "compiler/ast/ast";
 import type { AnalysisType, BuiltinTypeName } from "compiler/analysis/types";
+import type { AnalysisSymbol } from "compiler/analysis/model";
+import { operatorMethodRuntimeName } from "./operatorNames";
 
 export class CppEmitError extends Error {
   constructor(message: string, readonly statement?: Statement) {
@@ -74,6 +78,8 @@ let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
 let activeStaticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map();
 let activeAutoAwaitExpressions: ReadonlySet<Node> = new Set();
 let activeCallableTypes: ReadonlyMap<Node, AnalysisType> = new Map();
+let activeOperatorResolutions: ReadonlyMap<Node, AnalysisSymbol> = new Map();
+let activeOperatorMethodsByNameNode: ReadonlyMap<Node, ClassMethodMember> = new Map();
 let activeSuppressAutoAwait = false;
 let activeAsyncResultType: string | null = null;
 let activeGeneratorResultType: string | null = null;
@@ -85,6 +91,10 @@ function cppName(name: string): string {
   const sanitized = name.replace(/[^A-Za-z0-9_]/g, "_");
   const withValidStart = /^[A-Za-z_]/.test(sanitized) ? sanitized : `_${sanitized}`;
   return CPP_RESERVED_WORDS.has(withValidStart) ? `vexa_${withValidStart}` : withValidStart;
+}
+
+function cppOperatorMethodName(operator: OverloadableOperator, parameters: readonly FunctionParameter[]): string {
+  return cppName(operatorMethodRuntimeName(operator, parameters));
 }
 
 function identifierName(expression: Expr): string | null {
@@ -561,7 +571,44 @@ function isGcObjectExpression(expression: Expr): boolean {
   return classNameForExpression(expression) !== null;
 }
 
+function resolvedClassOperator(expression: Expr): ClassMethodMember | null {
+  const symbol = activeOperatorResolutions.get(expression as Node);
+  return symbol ? activeOperatorMethodsByNameNode.get(symbol.node) ?? null : null;
+}
+
+function computedMemberArguments(member: MemberExpression): Expr[] {
+  return member.property.kind === "CommaExpression"
+    ? (member.property as CommaExpression).expressions
+    : [member.property];
+}
+
+function emitClassOperatorCall(method: ClassMethodMember, receiver: Expr, argumentsList: readonly Expr[]): string {
+  return emitClassOperatorCallText(method, emitExpression(receiver), argumentsList.map(emitExpression));
+}
+
+function emitClassOperatorCallText(method: ClassMethodMember, receiverText: string, argumentTexts: readonly string[]): string {
+  if (!method.operator) throw new CppEmitError("Resolved C++ operator method is missing its operator kind");
+  return `${receiverText}->${cppOperatorMethodName(method.operator, method.parameters)}(${withRuntimeArgument(argumentTexts.join(", "))})`;
+}
+
+function emitResolvedBinaryOperator(expression: BinaryExpression): string | null {
+  const method = resolvedClassOperator(expression);
+  if (!method?.operator) return null;
+  const call = emitClassOperatorCall(method, expression.left, [expression.right]);
+  if (method.operator === expression.operator) return call;
+  if (method.operator === "<=>") {
+    const operator = expression.operator === "===" ? "==" : expression.operator === "!==" ? "!=" : expression.operator;
+    return `(${call} ${operator} 0)`;
+  }
+  if (method.operator === "==" && (expression.operator === "!=" || expression.operator === "!==")) {
+    return `(!${call})`;
+  }
+  throw new CppEmitError(`C++ emission cannot derive '${expression.operator}' from operator '${method.operator}'`);
+}
+
 function emitBinary(expression: BinaryExpression): string {
+  const overloaded = emitResolvedBinaryOperator(expression);
+  if (overloaded) return overloaded;
   if (expression.operator === "**") {
     return `vexa::Math::pow(${emitExpression(expression.left)}, ${emitExpression(expression.right)})`;
   }
@@ -652,6 +699,8 @@ function emitExpression(expression: Expr): string {
       return emitBinary(expression as BinaryExpression);
     case "UnaryExpression": {
       const unary = expression as UnaryExpression;
+      const overloaded = resolvedClassOperator(unary);
+      if (overloaded) return emitClassOperatorCall(overloaded, unary.argument, []);
       if (unary.operator === "typeof") return `vexa::typeOf(${emitExpression(unary.argument)})`;
       if (unary.operator === "void") return `(static_cast<void>(${emitExpression(unary.argument)}), vexa::Value::undefined())`;
       if (unary.operator === "!") return `(!${emitCondition(unary.argument)})`;
@@ -673,6 +722,17 @@ function emitExpression(expression: Expr): string {
     }
     case "AssignmentExpression": {
       const assignment = expression as AssignmentExpression;
+      const overloaded = resolvedClassOperator(assignment);
+      if (overloaded?.operator === "[]=" && assignment.left.kind === "MemberExpression") {
+        const member = assignment.left as MemberExpression;
+        return emitClassOperatorCall(overloaded, member.object, [assignment.right, ...computedMemberArguments(member)]);
+      }
+      const compoundOperator = compoundAssignmentBinaryOperator(assignment.operator);
+      if (overloaded?.operator === compoundOperator) {
+        const target = emitExpression(assignment.left);
+        const call = emitClassOperatorCallText(overloaded, "__vexa_compound_target", [emitExpression(assignment.right)]);
+        return `vexa::assignWith(${target}, [&](auto __vexa_compound_target) { return ${call}; })`;
+      }
       if (assignment.operator === "+=" && cppTypeForExpression(assignment.left) === "vexa::Value") {
         return `vexa::addAssign(${activeRuntimeName}, ${emitExpression(assignment.left)}, ${emitExpression(assignment.right)})`;
       }
@@ -694,6 +754,10 @@ function emitExpression(expression: Expr): string {
       return emitFunctionExpression(expression as FunctionExpression);
     case "MemberExpression": {
       const member = expression as MemberExpression;
+      const overloaded = resolvedClassOperator(member);
+      if (overloaded?.operator === "[]") {
+        return emitClassOperatorCall(overloaded, member.object, computedMemberArguments(member));
+      }
       if (!member.computed && identifierName(member.object) === "Math" && member.property.kind === "Identifier") {
         return `vexa::Math::${cppName((member.property as Identifier).name)}`;
       }
@@ -1065,7 +1129,8 @@ function callableSignature(
   body: BlockStatement,
   owner: Statement,
   taskResult: boolean,
-  generatorInfo: CallableGeneratorInfo | null
+  generatorInfo: CallableGeneratorInfo | null,
+  emittedName = name.name
 ): string {
   const resultType = generatorInfo?.resultType ?? callableReturnType(returnType, body, owner, name, taskResult);
   const parameterText = callableParameters(parameters, owner).text;
@@ -1074,7 +1139,7 @@ function callableSignature(
     : taskResult
       ? `vexa::Task<${resultType}>`
       : resultType;
-  return `${emittedResultType} ${cppName(name.name)}(vexa::Runtime& __vexa_runtime${parameterText ? `, ${parameterText}` : ""})`;
+  return `${emittedResultType} ${cppName(emittedName)}(vexa::Runtime& __vexa_runtime${parameterText ? `, ${parameterText}` : ""})`;
 }
 
 function withCallableContext<T>(
@@ -1278,7 +1343,6 @@ function validateClassMethod(method: ClassMethodMember, statement: ClassStatemen
     method.accessorKind ||
     method.getterShorthand ||
     method.computed ||
-    method.operator ||
     method.optional ||
     method.missingBody ||
     method.typeParameters?.length
@@ -1287,6 +1351,9 @@ function validateClassMethod(method: ClassMethodMember, statement: ClassStatemen
       "C++ emission supports concrete, non-generic methods only",
       statement
     );
+  }
+  if (method.operator && (method.static || method.async || method.sync || method.generator)) {
+    throw new CppEmitError("C++ emission supports synchronous instance operator methods only", statement);
   }
 }
 
@@ -1312,7 +1379,8 @@ function emitClassMethod(
     method.body,
     statement,
     generatorInfo ? false : callableProducesTask(method.name, method.returnType, asyncResultType !== null),
-    generatorInfo
+    generatorInfo,
+    method.operator ? operatorMethodRuntimeName(method.operator, method.parameters) : method.name.name
   );
   return withCallableContext(method.parameters, statement.name.name, Boolean(method.static), asyncResultType, generatorInfo?.resultType ?? null, statement, () =>
     `  ${method.static ? "static " : ""}${signature} ${generatorInfo
@@ -1509,6 +1577,7 @@ export interface CppEmitSemantics {
   staticImplicitReceiverIdentifiers?: ReadonlyMap<Node, string>;
   autoAwaitExpressions?: ReadonlySet<Node>;
   callableTypes?: ReadonlyMap<Node, AnalysisType>;
+  operatorResolutions?: ReadonlyMap<Node, AnalysisSymbol>;
 }
 
 export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {}): string {
@@ -1528,6 +1597,12 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeStaticImplicitReceiverIdentifiers = semantics.staticImplicitReceiverIdentifiers ?? new Map();
   activeAutoAwaitExpressions = semantics.autoAwaitExpressions ?? new Set();
   activeCallableTypes = semantics.callableTypes ?? new Map();
+  activeOperatorResolutions = semantics.operatorResolutions ?? new Map();
+  activeOperatorMethodsByNameNode = new Map(
+    classes.flatMap((statement) => statement.members
+      .filter((member): member is ClassMethodMember => member.kind === "ClassMethodMember" && Boolean(member.operator))
+      .map((member) => [member.name as Node, member] as const))
+  );
   activeSuppressAutoAwait = false;
   activeAsyncResultType = null;
   activeGeneratorResultType = null;

@@ -71,7 +71,7 @@ import type {
   JsxSpreadAttribute,
   JsxAttribute
 } from "compiler/ast/ast";
-import { memberExpressionFromPropertyReference } from "compiler/ast/ast";
+import { compoundAssignmentBinaryOperator, memberExpressionFromPropertyReference } from "compiler/ast/ast";
 import { bindingElementPropertyName, bindingElements, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Node } from "compiler/ast/ast";
 import type {
@@ -2304,6 +2304,10 @@ export class TypeChecker {
           });
           result = overload.type;
         } else {
+          const derivedOverload = this.resolveDerivedComparisonOverload(binary.operator, leftType, rightType, scope);
+          if (derivedOverload) {
+            this.operatorResolutions.push({ expression: binary, symbol: derivedOverload.symbol });
+          }
           result = this.inferBinaryType(binary.operator, leftType, rightType);
           if (this.shouldReportUndefinedOperator(binary.operator, leftType, rightType, result)) {
             this.issues.push({
@@ -2351,9 +2355,19 @@ export class TypeChecker {
         }
         const leftType = this.visitExpression(assignment.left, scope);
         const rightType = this.visitExpression(assignment.right, scope, leftType);
+        const compoundOperator = compoundAssignmentBinaryOperator(assignment.operator);
+        const compoundOverload = compoundOperator
+          ? this.resolveOperatorOverload(compoundOperator, leftType, rightType, scope)
+          : null;
+        if (compoundOverload) {
+          this.operatorResolutions.push({ expression: assignment, symbol: compoundOverload.symbol });
+        }
         const indexSetterOverload = assignment.operator === "="
           ? this.resolveIndexSetterOperatorOverload(assignment.left, rightType, scope)
           : null;
+        if (indexSetterOverload) {
+          this.operatorResolutions.push({ expression: assignment, symbol: indexSetterOverload.symbol });
+        }
         const hasIndexSetterCandidates = assignment.operator === "=" &&
           this.hasIndexOperatorCandidates(assignment.left, "[]=");
         if (!indexSetterOverload && hasIndexSetterCandidates && assignment.left.kind === "MemberExpression") {
@@ -2380,9 +2394,10 @@ export class TypeChecker {
           const identifier = assignment.left as Node & { kind: "Identifier"; name: string };
           this.updateResolvedSymbolType(scope, identifier, rightType);
         }
+        const assignmentResultType = compoundOverload?.type ?? rightType;
         result = this.hasOptionalAssignmentTarget(assignment.left)
-          ? unionType([rightType, builtinType("undefined")])
-          : rightType;
+          ? unionType([assignmentResultType, builtinType("undefined")])
+          : assignmentResultType;
         break;
       }
       case "AsExpression": {
@@ -2488,6 +2503,7 @@ export class TypeChecker {
           }
           const indexGetterOverload = this.resolveOperatorOverloadForArguments("[]", objectType, indexArgumentTypes, scope);
           if (indexGetterOverload) {
+            this.operatorResolutions.push({ expression: member, symbol: indexGetterOverload.symbol });
             result = this.resolveOptionalAccessType(indexGetterOverload.type, member.optional === true);
             result = this.narrowedExpressionType(scope, member) ?? result;
             break;
@@ -2962,6 +2978,7 @@ export class TypeChecker {
         if (unary.operator === "+" || unary.operator === "-") {
           const overload = this.resolveUnaryOperatorOverload(unary.operator, argumentType, scope);
           if (overload) {
+            this.operatorResolutions.push({ expression: unary, symbol: overload.symbol });
             result = overload.type;
             break;
           }
@@ -3387,7 +3404,7 @@ export class TypeChecker {
     operator: "+" | "-",
     argumentType: AnalysisType,
     scope: Scope
-  ): { type: AnalysisType } | null {
+  ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
     if (argumentType.kind !== "named") {
       return null;
     }
@@ -3401,7 +3418,8 @@ export class TypeChecker {
         return {
           type: method.returnType
             ? this.resolveTypeAnnotation(method.returnType, scope) ?? UNKNOWN_TYPE
-            : namedType(argumentType.name)
+            : namedType(argumentType.name),
+          symbol: this.createMethodSymbol(method)
         };
       }
     }
@@ -3410,7 +3428,8 @@ export class TypeChecker {
         return {
           type: extension.returnType
             ? this.resolveTypeAnnotation(extension.returnType, scope) ?? UNKNOWN_TYPE
-            : namedType(argumentType.name)
+            : namedType(argumentType.name),
+          symbol: this.createFunctionSymbol(extension)
         };
       }
     }
@@ -3507,11 +3526,25 @@ export class TypeChecker {
     if (this.isUncheckableComparisonOperand(leftType) || this.isUncheckableComparisonOperand(rightType)) {
       return false;
     }
-    if (operator !== "<=>" && this.resolveOperatorOverload("<=>", leftType, rightType, scope)) {
+    if (this.resolveDerivedComparisonOverload(operator, leftType, rightType, scope)) {
       return false;
     }
     const leftCategory = this.nativeOrderingCategory(leftType);
     return leftCategory === null || leftCategory !== this.nativeOrderingCategory(rightType);
+  }
+
+  private resolveDerivedComparisonOverload(
+    operator: BinaryExpression["operator"],
+    leftType: AnalysisType,
+    rightType: AnalysisType,
+    scope: Scope
+  ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
+    if (!["<", "<=", ">", ">=", "==", "!="].includes(operator)) {
+      return null;
+    }
+    const spaceship = this.resolveOperatorOverload("<=>", leftType, rightType, scope);
+    if (spaceship) return spaceship;
+    return operator === "!=" ? this.resolveOperatorOverload("==", leftType, rightType, scope) : null;
   }
 
   private operatorDiagnosticNode(binary: BinaryExpression): Node {

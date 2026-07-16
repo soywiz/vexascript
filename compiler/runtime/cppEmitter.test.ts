@@ -135,6 +135,49 @@ console.log(add(2, 3), read(box), multiply(3, 4))`, {
     expect(result.code).toContain("vexa::console.log(add(2, 3), read(box), multiply(3, 4));");
   });
 
+  it("emits resolved class operator overloads and derived comparisons", () => {
+    const result = transpile(`class NumberBox(var value: int) {
+  operator+(other: NumberBox): NumberBox => NumberBox(value + other.value)
+  operator-(): NumberBox => NumberBox(-value)
+  operator<=>(other: NumberBox): int => value <=> other.value
+  operator[](offset: int): int => value + offset
+  operator[]=(next: int, offset: int): void { value = next + offset }
+}
+
+class Tag(val name: string) {
+  operator==(other: Tag): boolean => name == other.name
+}
+
+var sum = NumberBox(2) + NumberBox(3)
+sum += NumberBox(1)
+val negative = -sum
+val less = NumberBox(1) < NumberBox(2)
+val same = Tag("a") == Tag("a")
+val different = Tag("a") != Tag("b")
+val indexed = sum[4]
+sum[2] = 8
+console.log(sum.value, negative.value, less, same, different, indexed)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("NumberBox* operator_plus__NumberBox(vexa::Runtime& __vexa_runtime, NumberBox* other)");
+    expect(result.code).toContain("NumberBox* operator_minus__void(vexa::Runtime& __vexa_runtime)");
+    expect(result.code).toContain("std::int32_t operator_spaceship__NumberBox(vexa::Runtime& __vexa_runtime, NumberBox* other)");
+    expect(result.code).toContain("NumberBox>(2)->operator_plus__NumberBox(runtime, runtime.make<NumberBox>(3))");
+    expect(result.code).toContain("vexa::assignWith(sum, [&](auto __vexa_compound_target)");
+    expect(result.code).toContain("__vexa_compound_target->operator_plus__NumberBox(runtime, runtime.make<NumberBox>(1))");
+    expect(result.code).toContain("sum->operator_minus__void(runtime)");
+    expect(result.code).toContain("operator_spaceship__NumberBox(runtime, runtime.make<NumberBox>(2)) < 0");
+    expect(result.code).toContain('operator_equals__Tag(runtime, runtime.make<Tag>(runtime.string("a")))');
+    expect(result.code).toContain("!runtime.make<Tag>(runtime.string(\"a\"))->operator_equals__Tag");
+    expect(result.code).toContain("sum->operator_get__int(runtime, 4)");
+    expect(result.code).toContain("sum->operator_set__int__int(runtime, 8, 2)");
+  });
+
   it("emits primary-constructor classes as Oilpan-managed objects", () => {
     const result = transpile(`class Point(val x: number, val y: number)
 

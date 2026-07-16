@@ -1,4 +1,4 @@
-import type { OverloadableOperator } from "compiler/ast/ast";
+import type { FunctionParameter, OverloadableOperator } from "compiler/ast/ast";
 
 /**
  * Replaces every run of non-identifier characters with `$` so a symbol or type
@@ -59,4 +59,19 @@ export const OPERATOR_METHOD_NAMES: Partial<Record<OverloadableOperator, string>
  */
 export function operatorBaseRuntimeName(operator: OverloadableOperator): string {
   return OPERATOR_METHOD_NAMES[operator] ?? `operator$${sanitizeManglePart(operator)}`;
+}
+
+/**
+ * Runtime method name for a concrete operator overload. All emitters use this
+ * helper so declarations and resolved call sites cannot disagree on mangling.
+ */
+export function operatorMethodRuntimeName(
+  operator: OverloadableOperator,
+  parameters: readonly FunctionParameter[]
+): string {
+  const suffix = parameters
+    .filter((parameter) => parameter.thisParameter !== true)
+    .map((parameter) => sanitizeManglePart(`${parameter.rest ? "rest " : ""}${parameter.typeAnnotation?.name ?? "unknown"}`))
+    .join("$$") || "void";
+  return `${operatorBaseRuntimeName(operator)}$$${suffix}`;
 }

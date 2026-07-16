@@ -128,6 +128,28 @@ export interface AssignmentExpression extends Node {
     right: Expr
 }
 
+export function compoundAssignmentBinaryOperator(
+    operator: AssignmentExpression["operator"]
+): BinaryExpression["operator"] | null {
+    switch (operator) {
+        case "+=": return "+"
+        case "-=": return "-"
+        case "*=": return "*"
+        case "/=": return "/"
+        case "%=": return "%"
+        case "&=": return "&"
+        case "|=": return "|"
+        case "^=": return "^"
+        case "&&=": return "&&"
+        case "||=": return "||"
+        case "??=": return "??"
+        case "<<=": return "<<"
+        case ">>=": return ">>"
+        case ">>>=": return ">>>"
+        default: return null
+    }
+}
+
 export interface ConditionalExpression extends Node {
     kind: "ConditionalExpression"
     test: Expr

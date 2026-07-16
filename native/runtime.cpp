@@ -908,6 +908,12 @@ inline Value& addAssign(Runtime& runtime, Value& left, Right&& right) {
   return left;
 }
 
+template <typename Target, typename Callback>
+inline Target& assignWith(Target& target, Callback&& callback) {
+  target = std::forward<Callback>(callback)(target);
+  return target;
+}
+
 template <typename Left, typename Right>
 inline std::int32_t compare(const Left& left, const Right& right) {
   return left < right ? -1 : left > right ? 1 : 0;

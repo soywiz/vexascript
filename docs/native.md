@@ -48,7 +48,7 @@ silently producing incorrect C++. Its initial surface includes:
   fields use primitive types or other generated classes, including construction,
   explicit `new` construction, property access, synchronous typed instance and
   static methods, static factory methods that return class instances, and
-  `async`/`sync` methods;
+  `async`/`sync` methods, plus synchronous class operator overloads;
 - homogeneous arrays with a supported native element type and mixed primitive
   arrays represented by managed dynamic values, including literals, indexed
   reads and writes, `length`, `push`, `includes`, `indexOf`, `join`, `reverse`,
@@ -100,7 +100,7 @@ destruction order explicit without introducing a process-global application
 singleton. Function and method parameters require supported type annotations;
 value-returning callables also require an explicit return type. Literal defaults
 are lowered into generated call sites rather than C++ declaration defaults.
-Extension, generic, accessor, and operator callables remain unsupported.
+Extension, generic, and accessor callables remain unsupported.
 
 Both JavaScript and C++ emission consume the analyzer's resolved implicit-receiver
 identifier sets. The analyzer decides whether an unqualified identifier means a
@@ -176,6 +176,16 @@ Class calls and explicit `new Class(...)` use one generated construction path, s
 runtime injection, named arguments, defaults, and Oilpan allocation cannot drift.
 Typed arrows and anonymous function expressions likewise share one native-lambda
 emitter and root captured generated objects using the existing capture policy.
+
+Synchronous class operator methods support unary `+`/`-`, binary overloads,
+compound assignment through the corresponding binary overload, comparisons
+derived from `operator<=>` or `operator==`, and `operator[]`/`operator[]=` with
+one or more indices. The analyzer records the exact selected declaration for each
+operator expression; C++ emission consumes that resolution instead of repeating
+overload matching. JavaScript and C++ operator definitions share the runtime-name
+mangler in `operatorNames.ts`, and compound-assignment mapping lives in the shared
+AST layer. Compound assignment evaluates its target once before invoking and
+storing the overload result.
 
 The initial task lowering executes each async/sync callable body as one microtask;
 it does not yet split a body into continuations at every `await`. Consequently,

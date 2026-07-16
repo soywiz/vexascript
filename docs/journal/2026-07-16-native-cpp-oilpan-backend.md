@@ -237,6 +237,20 @@ source of truth. Parameterized arrows and anonymous function expressions now
 share one native-lambda context, including local symbol tracking and generated
 object parameter types, rather than growing separate callback paths.
 
+Native operator overloading initially risked recreating the JavaScript emitter's
+candidate search inside the C++ backend. The analyzer already knows the exact
+selected declaration, so operator resolutions were expanded to cover direct and
+derived binary comparisons, unary operators, compound assignments, and indexed
+getters/setters. C++ emission maps those declaration nodes to generated class
+methods and performs no independent overload matching. Derived `<=>` and `==`
+behavior is also recorded by analysis, keeping comparison choice backend-neutral.
+
+Operator definition names now come from one `operatorMethodRuntimeName` helper
+used by both JavaScript and C++. The compound-assignment-to-binary mapping moved
+to the shared AST layer and is consumed by analysis and both emitters. A native
+`assignWith` helper binds the compound target once, calls the resolved overload,
+and stores its result, avoiding duplicated side effects for member targets.
+
 ## Investigation notes and rejected paths
 
 Putting source extraction and `g++` directly in the transpiler would have been

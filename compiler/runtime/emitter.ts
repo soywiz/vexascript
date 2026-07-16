@@ -70,6 +70,7 @@ import type {
   WithStatement
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
+import { compoundAssignmentBinaryOperator } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { AnalysisType } from "compiler/analysis/types";
 import { typeToString } from "compiler/analysis/types";
@@ -80,7 +81,7 @@ import {
   emitCommonJsImportStatement,
   type CommonJsRuntimeExportBinding
 } from "./commonJsEmitter";
-import { operatorBaseRuntimeName, sanitizeManglePart } from "./operatorNames";
+import { operatorBaseRuntimeName, operatorMethodRuntimeName, sanitizeManglePart } from "./operatorNames";
 
 type Assoc = "left" | "right";
 
@@ -682,7 +683,7 @@ function emitTypedIntegerBinary(binary: BinaryExpression, leftText: string, righ
 }
 
 function operatorMethodName(operator: OverloadableOperator, parameters: FunctionParameter[]): string {
-  return overloadedFunctionName(operatorBaseRuntimeName(operator), parameters);
+  return operatorMethodRuntimeName(operator, parameters);
 }
 
 /**
@@ -885,26 +886,6 @@ function variableDelegateForTarget(target: Expr): RuntimeVariableDelegateInfo | 
     return null;
   }
   return activeState.variableDelegates.get((target as Identifier).name) ?? null;
-}
-
-function compoundAssignmentBinaryOperator(operator: AssignmentExpression["operator"]): BinaryExpression["operator"] | null {
-  switch (operator) {
-    case "+=": return "+";
-    case "-=": return "-";
-    case "*=": return "*";
-    case "/=": return "/";
-    case "%=": return "%";
-    case "&=": return "&";
-    case "|=": return "|";
-    case "^=": return "^";
-    case "&&=": return "&&";
-    case "||=": return "||";
-    case "??=": return "??";
-    case "<<=": return "<<";
-    case ">>=": return ">>";
-    case ">>>=": return ">>>";
-    default: return null;
-  }
 }
 
 function emitVariableDelegateAssignment(assignment: AssignmentExpression): string | null {

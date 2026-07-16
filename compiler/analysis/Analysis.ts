@@ -147,6 +147,10 @@ export class Analysis {
     return this.expressionTypes;
   }
 
+  getOperatorResolutions(): readonly OperatorResolution[] {
+    return this.operatorResolutions;
+  }
+
   getUnusedImportIdentifiers(): readonly Identifier[] {
     const usedImportedBindings = new Set<Node>();
     for (const resolution of this.identifierResolutions) {
@@ -499,8 +503,12 @@ export class Analysis {
     };
   }
 
-  private operatorRange(expression: BinaryExpression): AnalysisRange | null {
-    const token = expression.operatorToken;
+  private operatorRange(expression: Node): AnalysisRange | null {
+    const token = expression.kind === "BinaryExpression"
+      ? (expression as BinaryExpression).operatorToken
+      : expression.kind === "UnaryExpression"
+        ? expression.firstToken
+        : undefined;
     if (!token) {
       return null;
     }
