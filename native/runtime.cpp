@@ -882,6 +882,44 @@ inline bool Boolean(const Value& value) {
   return !value.string().empty();
 }
 
+template <typename T>
+inline bool Boolean(T* value) {
+  return value != nullptr;
+}
+
+template <typename T>
+inline bool Boolean(const std::vector<T>&) {
+  return true;
+}
+
+template <typename Left, typename Right>
+inline Value add(Runtime& runtime, Left&& leftInput, Right&& rightInput) {
+  const Value left = convertValue<Value>(runtime, std::forward<Left>(leftInput));
+  const Value right = convertValue<Value>(runtime, std::forward<Right>(rightInput));
+  if (left.isString() || right.isString()) {
+    return runtime.string(toString(left) + toString(right));
+  }
+  return Value(Number(left) + Number(right));
+}
+
+template <typename Right>
+inline Value& addAssign(Runtime& runtime, Value& left, Right&& right) {
+  left = add(runtime, left, std::forward<Right>(right));
+  return left;
+}
+
+template <typename Left, typename Right>
+inline std::int32_t compare(const Left& left, const Right& right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+inline std::int32_t compare(const Value& left, const Value& right) {
+  if (left.isString() && right.isString()) {
+    return compare(left.string(), right.string());
+  }
+  return compare(Number(left), Number(right));
+}
+
 inline double parseFloat(const std::string& value) {
   try {
     return std::stod(value);

@@ -87,6 +87,54 @@ for (value of exclusive) console.log(value)`, {
     expect(result.code).toContain("for (auto value : exclusive)");
   });
 
+  it("emits managed addition, truthiness, comparison, and collection membership", () => {
+    const result = transpile(`var message = "hello"
+message += " world"
+val empty: any = ""
+val present: any = "value"
+console.log(message, !empty, present && true, empty || false)
+console.log(2 <=> 4, "b" <=> "a", "a" < "b")
+console.log(2 in (1 ... 3), 8 in [7, 8, 9])`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('vexa::addAssign(runtime, message, runtime.string(" world"))');
+    expect(result.code).toContain("!vexa::Boolean(empty)");
+    expect(result.code).toContain("vexa::Boolean(present) && true");
+    expect(result.code).toContain("vexa::Boolean(empty) || false");
+    expect(result.code).toContain("vexa::compare(2, 4)");
+    expect(result.code).toContain('vexa::compare(vexa::convertValue<vexa::Value>(runtime, runtime.string("b"))');
+    expect(result.code).toContain('vexa::compare(vexa::convertValue<vexa::Value>(runtime, runtime.string("a"))');
+    expect(result.code).toContain("vexa::includes(vexa::range(1, 3, false), 2)");
+    expect(result.code).toContain("vexa::includes(std::vector<std::int32_t>{7, 8, 9}, 8)");
+  });
+
+  it("emits explicit class construction and typed local lambdas", () => {
+    const result = transpile(`class Box(val value: int)
+val box = new Box(4)
+val add = (left: int, right: int) => left + right
+val read = (item: Box) => item.value
+val multiply = function(left: int, right: int): int { return left * right }
+console.log(add(2, 3), read(box), multiply(3, 4))`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("auto box = runtime.make<Box>(4);");
+    expect(result.code).toContain("auto add = [&](std::int32_t left, std::int32_t right)");
+    expect(result.code).toContain("auto read = [&](Box* item)");
+    expect(result.code).toContain("return item->value;");
+    expect(result.code).toContain("auto multiply = [&](std::int32_t left, std::int32_t right)");
+    expect(result.code).toContain("vexa::console.log(add(2, 3), read(box), multiply(3, 4));");
+  });
+
   it("emits primary-constructor classes as Oilpan-managed objects", () => {
     const result = transpile(`class Point(val x: number, val y: number)
 

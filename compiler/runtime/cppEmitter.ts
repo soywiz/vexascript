@@ -18,12 +18,14 @@ import type {
   ExprStatement,
   ExportStatement,
   ForStatement,
+  FunctionExpression,
   FunctionStatement,
   FunctionParameter,
   Identifier,
   IfStatement,
   MemberExpression,
   NamedArgument,
+  NewExpression,
   Node,
   Program,
   RangeExpression,
@@ -262,14 +264,14 @@ function isSupportedDefaultExpression(expression: Expr): boolean {
   ]).has(expression.kind);
 }
 
-function emitCallArguments(call: CallExpression, parameters?: readonly CallableParameter[]): string {
+function emitArguments(argumentsList: readonly Expr[], parameters?: readonly CallableParameter[]): string {
   if (!parameters) {
-    return call.arguments.map(emitExpression).join(", ");
+    return argumentsList.map(emitExpression).join(", ");
   }
 
   const ordered: Array<Expr | undefined> = new Array(parameters.length);
   let positionalIndex = 0;
-  for (const argument of call.arguments) {
+  for (const argument of argumentsList) {
     if (argument.kind === "NamedArgument") {
       const named = argument as NamedArgument;
       const parameterIndex = parameters.findIndex((parameter) => callableParameterName(parameter) === named.name.name);
@@ -291,6 +293,10 @@ function emitCallArguments(call: CallExpression, parameters?: readonly CallableP
   return ordered.map((argument) => emitExpression(argument!)).join(", ");
 }
 
+function emitCallArguments(call: CallExpression, parameters?: readonly CallableParameter[]): string {
+  return emitArguments(call.arguments, parameters);
+}
+
 function withRuntimeArgument(argumentsText: string): string {
   return `${activeRuntimeName}${argumentsText ? `, ${argumentsText}` : ""}`;
 }
@@ -305,6 +311,10 @@ function classNameForExpression(expression: Expr): string | null {
   }
   if (expression.kind === "CallExpression") {
     const calleeName = identifierName((expression as CallExpression).callee);
+    if (calleeName && activeClassNames.has(calleeName)) return calleeName;
+  }
+  if (expression.kind === "NewExpression") {
+    const calleeName = identifierName((expression as NewExpression).callee);
     if (calleeName && activeClassNames.has(calleeName)) return calleeName;
   }
   const type = activeExpressionTypes.get(expression as Node);
@@ -351,21 +361,52 @@ function nativeLambdaCapture(selfName: string, referenceEntryLocals: boolean): {
   };
 }
 
-function emitArrowFunction(expression: ArrowFunctionExpression): string {
-  if (expression.async || expression.sync || expression.parameters.length > 0) {
-    throw new CppEmitError("C++ emission currently supports synchronous zero-argument callbacks only");
-  }
+function emitNativeLambda(parametersList: readonly FunctionParameter[], body: Expr | BlockStatement): string {
   const capture = nativeLambdaCapture("__vexa_callback_self", true);
+  const parameters = callableParameters(parametersList, undefined, false);
+  const previousLocalNames = activeLocalNames;
+  const previousGcObjectTypes = activeGcObjectTypes;
   const previousThisExpression = activeThisExpression;
+  activeLocalNames = new Set([...activeLocalNames, ...parameters.names]);
+  activeGcObjectTypes = new Map([...activeGcObjectTypes, ...parameters.gcTypes]);
   activeThisExpression = capture.thisExpression;
   try {
-    const prefix = `${capture.text}()${activeRuntimeName === "runtime" ? "" : " mutable"}`;
-    return expression.body.kind === "BlockStatement"
-      ? `${prefix} ${emitBlock(expression.body as BlockStatement, "")}`
-      : `${prefix} { return ${emitExpression(expression.body as Expr)}; }`;
+    const prefix = `${capture.text}(${parameters.text})${activeRuntimeName === "runtime" ? "" : " mutable"}`;
+    return body.kind === "BlockStatement"
+      ? `${prefix} ${emitBlock(body as BlockStatement, "")}`
+      : `${prefix} { return ${emitExpression(body as Expr)}; }`;
   } finally {
+    activeLocalNames = previousLocalNames;
+    activeGcObjectTypes = previousGcObjectTypes;
     activeThisExpression = previousThisExpression;
   }
+}
+
+function emitArrowFunction(expression: ArrowFunctionExpression): string {
+  if (expression.async || expression.sync) {
+    throw new CppEmitError("C++ emission currently supports synchronous arrow functions only");
+  }
+  return emitNativeLambda(expression.parameters, expression.body);
+}
+
+function emitFunctionExpression(expression: FunctionExpression): string {
+  if (expression.async || expression.sync || expression.generator || expression.name || expression.typeParameters?.length) {
+    throw new CppEmitError("C++ emission currently supports anonymous synchronous non-generic function expressions only");
+  }
+  return emitNativeLambda(expression.parameters, expression.body);
+}
+
+function emitClassConstruction(callee: Expr, argumentsList: readonly Expr[]): string {
+  const className = identifierName(callee);
+  if (!className || !activeClassNames.has(className)) {
+    throw new CppEmitError("C++ explicit construction currently supports generated classes only");
+  }
+  const classStatement = activeClassStatements.get(className);
+  const constructorArguments = emitArguments(argumentsList, classStatement?.primaryConstructorParameters);
+  const nativeArguments = classUsesRuntimeConstructor(classStatement)
+    ? withRuntimeArgument(constructorArguments)
+    : constructorArguments;
+  return `${activeRuntimeName}.make<${cppName(className)}>(${nativeArguments})`;
 }
 
 function emitTimerCallback(expression: Expr): string {
@@ -511,12 +552,7 @@ function emitCall(call: CallExpression): string {
     return `${cppName(calleeName)}(${withRuntimeArgument(functionArguments)})`;
   }
   if (calleeName && activeClassNames.has(calleeName)) {
-    const classStatement = activeClassStatements.get(calleeName);
-    const constructorArguments = emitCallArguments(call, classStatement?.primaryConstructorParameters);
-    const nativeArguments = classUsesRuntimeConstructor(classStatement)
-      ? withRuntimeArgument(constructorArguments)
-      : constructorArguments;
-    return `${activeRuntimeName}.make<${cppName(calleeName)}>(${nativeArguments})`;
+    return emitClassConstruction(call.callee, call.arguments);
   }
   return `${emitExpression(call.callee)}(${argumentsText})`;
 }
@@ -540,15 +576,50 @@ function emitBinary(expression: BinaryExpression): string {
     }
     return `(${left})`;
   }
+  if (expression.operator === "+" && cppTypeForExpression(expression) === "vexa::Value") {
+    return `vexa::add(${activeRuntimeName}, ${emitExpression(expression.left)}, ${emitExpression(expression.right)})`;
+  }
+  if (expression.operator === "&&" || expression.operator === "||") {
+    return `(${emitCondition(expression.left)} ${expression.operator} ${emitCondition(expression.right)})`;
+  }
+  if (expression.operator === "<=>") {
+    const dynamic = cppTypeForExpression(expression.left) === "vexa::Value" ||
+      cppTypeForExpression(expression.right) === "vexa::Value";
+    const left = dynamic ? emitConvertedValue(expression.left, "vexa::Value") : emitExpression(expression.left);
+    const right = dynamic ? emitConvertedValue(expression.right, "vexa::Value") : emitExpression(expression.right);
+    return `vexa::compare(${left}, ${right})`;
+  }
+  if (expression.operator === "in" && isArrayExpression(expression.right)) {
+    const value = cppTypeForExpression(expression.right) === "std::vector<vexa::Value>"
+      ? emitConvertedValue(expression.left, "vexa::Value")
+      : emitExpression(expression.left);
+    return `vexa::includes(${emitExpression(expression.right)}, ${value})`;
+  }
   const operator = expression.operator === "==="
     ? "=="
     : expression.operator === "!=="
       ? "!="
       : expression.operator;
-  if (operator === "in" || operator === "is" || operator === "instanceof" || operator === "<=>") {
+  if (
+    new Set(["<", ">", "<=", ">=", "==", "!="]).has(operator) &&
+    (cppTypeForExpression(expression.left) === "vexa::Value" || cppTypeForExpression(expression.right) === "vexa::Value")
+  ) {
+    const left = emitConvertedValue(expression.left, "vexa::Value");
+    const right = emitConvertedValue(expression.right, "vexa::Value");
+    if (operator === "==" || operator === "!=") return `(${left} ${operator} ${right})`;
+    const relation = new Map([["<", "< 0"], [">", "> 0"], ["<=", "<= 0"], [">=", ">= 0"]]).get(operator)!;
+    return `(vexa::compare(${left}, ${right}) ${relation})`;
+  }
+  if (operator === "in" || operator === "is" || operator === "instanceof") {
     throw new CppEmitError(`C++ emission does not support the '${operator}' operator yet`);
   }
   return `(${emitExpression(expression.left)} ${operator} ${emitExpression(expression.right)})`;
+}
+
+function emitCondition(expression: Expr): string {
+  const emitted = emitExpression(expression);
+  const type = cppTypeForExpression(expression);
+  return type === "bool" || type === "auto" ? emitted : `vexa::Boolean(${emitted})`;
 }
 
 function emitExpression(expression: Expr): string {
@@ -583,6 +654,7 @@ function emitExpression(expression: Expr): string {
       const unary = expression as UnaryExpression;
       if (unary.operator === "typeof") return `vexa::typeOf(${emitExpression(unary.argument)})`;
       if (unary.operator === "void") return `(static_cast<void>(${emitExpression(unary.argument)}), vexa::Value::undefined())`;
+      if (unary.operator === "!") return `(!${emitCondition(unary.argument)})`;
       if (unary.operator === "await") return `(${emitWithoutAutoAwait(unary.argument)}).get()`;
       if (unary.operator === "go") return emitWithoutAutoAwait(unary.argument);
       if (unary.operator === "yield") {
@@ -601,16 +673,25 @@ function emitExpression(expression: Expr): string {
     }
     case "AssignmentExpression": {
       const assignment = expression as AssignmentExpression;
+      if (assignment.operator === "+=" && cppTypeForExpression(assignment.left) === "vexa::Value") {
+        return `vexa::addAssign(${activeRuntimeName}, ${emitExpression(assignment.left)}, ${emitExpression(assignment.right)})`;
+      }
       return `(${emitExpression(assignment.left)} ${assignment.operator} ${emitExpression(assignment.right)})`;
     }
     case "ConditionalExpression": {
       const conditional = expression as ConditionalExpression;
-      return `(${emitExpression(conditional.test)} ? ${emitExpression(conditional.consequent)} : ${emitExpression(conditional.alternate)})`;
+      return `(${emitCondition(conditional.test)} ? ${emitExpression(conditional.consequent)} : ${emitExpression(conditional.alternate)})`;
     }
     case "CallExpression":
       return maybeAutoAwait(expression, emitCall(expression as CallExpression));
+    case "NewExpression": {
+      const construction = expression as NewExpression;
+      return emitClassConstruction(construction.callee, construction.arguments ?? []);
+    }
     case "ArrowFunctionExpression":
       return emitArrowFunction(expression as ArrowFunctionExpression);
+    case "FunctionExpression":
+      return emitFunctionExpression(expression as FunctionExpression);
     case "MemberExpression": {
       const member = expression as MemberExpression;
       if (!member.computed && identifierName(member.object) === "Math" && member.property.kind === "Identifier") {
@@ -705,7 +786,7 @@ function emitFor(statement: ForStatement, indent: string): string {
         ? emitVariable(statement.initializer as VarStatement, true)
         : emitExpression(statement.initializer as Expr)
       : "";
-    const condition = statement.condition ? emitExpression(statement.condition) : "";
+    const condition = statement.condition ? emitCondition(statement.condition) : "";
     const compactCondition = condition.startsWith("(") && condition.endsWith(")") ? condition.slice(1, -1) : condition;
     return `${indent}for (${initializer}; ${compactCondition}; ${statement.update ? emitExpression(statement.update) : ""}) ${emitBody(statement.body, indent)}`;
   } finally {
@@ -942,7 +1023,7 @@ function callableGeneratorInfo(
   return { resultType: fallback, async: asyncLike };
 }
 
-function callableParameters(parameters: readonly FunctionParameter[], owner: Statement): {
+function callableParameters(parameters: readonly FunctionParameter[], owner: Statement | undefined, allowDefaults = true): {
   text: string;
   names: string[];
   gcTypes: Map<string, string>;
@@ -961,7 +1042,7 @@ function callableParameters(parameters: readonly FunctionParameter[], owner: Sta
         owner
       );
     }
-    if (parameter.defaultValue && !isSupportedDefaultExpression(parameter.defaultValue)) {
+    if (parameter.defaultValue && (!allowDefaults || !isSupportedDefaultExpression(parameter.defaultValue))) {
       throw new CppEmitError("C++ emission currently supports literal parameter defaults only", owner);
     }
     const sourceName = (parameter.name as Identifier).name;
@@ -1367,15 +1448,15 @@ function emitStatement(statement: Statement, indent = ""): string {
     case "IfStatement": {
       const branch = statement as IfStatement;
       const alternate = branch.elseBranch ? ` else ${emitBody(branch.elseBranch, indent)}` : "";
-      return `${indent}if (${emitExpression(branch.condition)}) ${emitBody(branch.thenBranch, indent)}${alternate}`;
+      return `${indent}if (${emitCondition(branch.condition)}) ${emitBody(branch.thenBranch, indent)}${alternate}`;
     }
     case "WhileStatement": {
       const loop = statement as WhileStatement;
-      return `${indent}while (${emitExpression(loop.condition)}) ${emitBody(loop.body, indent)}`;
+      return `${indent}while (${emitCondition(loop.condition)}) ${emitBody(loop.body, indent)}`;
     }
     case "DoWhileStatement": {
       const loop = statement as DoWhileStatement;
-      return `${indent}do ${emitBody(loop.body, indent)} while (${emitExpression(loop.condition)});`;
+      return `${indent}do ${emitBody(loop.body, indent)} while (${emitCondition(loop.condition)});`;
     }
     case "ReturnStatement": {
       const returned = (statement as ReturnStatement).expression;

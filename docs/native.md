@@ -46,8 +46,9 @@ silently producing incorrect C++. Its initial surface includes:
   represented as native `Task<T>` values;
 - concrete classes whose primary-constructor properties and initialized instance
   fields use primitive types or other generated classes, including construction,
-  property access, synchronous typed instance and static methods, static factory
-  methods that return class instances, and `async`/`sync` methods;
+  explicit `new` construction, property access, synchronous typed instance and
+  static methods, static factory methods that return class instances, and
+  `async`/`sync` methods;
 - homogeneous arrays with a supported native element type and mixed primitive
   arrays represented by managed dynamic values, including literals, indexed
   reads and writes, `length`, `push`, `includes`, `indexOf`, `join`, `reverse`,
@@ -56,8 +57,11 @@ silently producing incorrect C++. Its initial surface includes:
   exclusive range expressions backed by typed native vectors;
 - `if`, `while`, `do while`, integral and value-based `switch`, return, break,
   continue, `throw`, `try`/`catch`/`finally`, and `defer` statements;
-- arithmetic, comparison, assignment, unary, update, conditional, comma, and lazy
-  nullish-coalescing expressions;
+- arithmetic and managed string concatenation, comparison including `<=>`, array
+  and range membership, assignment, truthy logical/unary conditions, update,
+  conditional, comma, and lazy nullish-coalescing expressions;
+- synchronous typed arrow functions and anonymous function expressions, including
+  generated-class parameters and captures;
 - `console.log`, `console.info`, `console.warn`, and `console.error`;
 - a single-threaded event loop with microtasks, `setTimeout`, `setInterval`,
   `clearTimeout`, and `clearInterval`;
@@ -160,6 +164,18 @@ allocation-free lowering. Comma expressions preserve left-to-right evaluation.
 Dynamic `??` uses a callback-based runtime helper so the right operand is only
 evaluated for `null` or `undefined`; statically non-null native values omit the
 fallback entirely.
+
+Managed string and dynamic `+`/`+=` expressions share one runtime addition path,
+which keeps resulting strings on the Oilpan heap. Conditions and logical operators
+use the runtime's VexaScript truthiness conversion, including `NaN`, empty managed
+strings, arrays, and generated-object pointers. Primitive `<=>` and relational
+string comparisons use one comparison helper, while `in` over native arrays and
+ranges shares the same `includes` implementation as collection method calls.
+
+Class calls and explicit `new Class(...)` use one generated construction path, so
+runtime injection, named arguments, defaults, and Oilpan allocation cannot drift.
+Typed arrows and anonymous function expressions likewise share one native-lambda
+emitter and root captured generated objects using the existing capture policy.
 
 The initial task lowering executes each async/sync callable body as one microtask;
 it does not yet split a body into continuations at every `await`. Consequently,

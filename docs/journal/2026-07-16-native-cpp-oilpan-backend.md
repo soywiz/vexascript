@@ -220,6 +220,23 @@ callback-based helper rather than a normal function argument: eagerly passing th
 right operand would silently violate source evaluation order. Both the dynamic
 value and generated-object pointer overloads use that same lazy callback contract.
 
+Several expressions initially looked valid in emitted C++ but did not preserve
+VexaScript runtime semantics. Managed strings cannot use C++ `operator+`, `NaN`
+has different truthiness from an ordinary nonzero C++ value, and arrays are always
+truthy even when empty. String/dynamic addition now shares one managed `add` path,
+and every source condition routes non-native booleans through the existing
+`Boolean` conversion. Logical `&&` and `||` retain C++ short-circuit evaluation
+while returning the boolean type already established by the analyzer.
+
+Primitive comparison and collection membership also reuse runtime primitives:
+`<=>` and managed relational operands use one `compare` helper, while `in` over
+an analyzed array/range calls the same `includes` implementation as the method
+surface. Explicit `new` and class-call construction were collapsed into one
+emitter helper so hidden runtime arguments and constructor defaults have one
+source of truth. Parameterized arrows and anonymous function expressions now
+share one native-lambda context, including local symbol tracking and generated
+object parameter types, rather than growing separate callback paths.
+
 ## Investigation notes and rejected paths
 
 Putting source extraction and `g++` directly in the transpiler would have been
