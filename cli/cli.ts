@@ -144,7 +144,22 @@ async function buildNativeFile(
   const { compileNativeExecutable, nativeProgramPaths } = await import("./nativeBuild");
   const paths = nativeProgramPaths(input, out, buildDir);
   await mkdir(paths.buildRoot, { recursive: true });
-  await buildFile(input, paths.cppPath, target, {}, "cpp");
+  const project = await loadProject(paths.sourcePath);
+  const ambientDeclarations = await ambientDeclarationsForProject(paths.sourcePath, project);
+  const globalDeclarations = await globalDeclarationsForProject(project);
+  const { compileNativeModuleGraph } = await import("../compiler/runtime/nativeModuleGraph");
+  const result = await compileNativeModuleGraph(paths.sourcePath, target, {
+    ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
+    importMappings: project?.importMappings ?? {},
+    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
+    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
+  });
+  if (result.errors.length > 0) {
+    printDiagnostics(result, paths.sourcePath);
+    throw new Error(`Compilation failed for ${paths.sourcePath}`);
+  }
+  await vfs().writeFile(paths.cppPath, result.code);
+  console.log(`Compiled: ${paths.sourcePath} -> ${paths.cppPath}`);
   await compileNativeExecutable(paths.cppPath, paths.executablePath);
   console.log(`Linked: ${paths.cppPath} + Oilpan -> ${paths.executablePath}`);
 }

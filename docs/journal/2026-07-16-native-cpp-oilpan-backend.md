@@ -199,11 +199,16 @@ without warnings or undefined fallthrough paths.
 
 Exceptions and cleanup reuse shared lowering as well. Every source throw enters
 one `throwValue` normalization path, catch parameters receive a managed message,
-and one move-only RAII guard implements finally-on-scope-exit. Because `defer` is
-already lowered to `try/finally` before either backend emits code, it became native
-without a second defer interpretation. Control flow originating inside `finally`
-is rejected explicitly: a destructor callback cannot safely reproduce JavaScript's
-return/throw override rules, especially during exception unwinding.
+and `defer` is already lowered to `try/finally` before either backend emits code.
+The first implementation used a move-only RAII guard, but that path could not
+reproduce the rule that a return or throw inside `finally` overrides an earlier
+completion. The durable lowering stores the pending exception or internal control
+signal, runs the cleanup as ordinary emitted code, and rethrows only when cleanup
+finishes normally. Callable, loop, and switch boundaries convert return, continue,
+and break signals back into C++ control flow. Pointer-valued returns use the same
+rooted `TaskStorage` representation as tasks, so the pending value survives GC
+during cleanup. This keeps one shared `try/finally` path for both explicit cleanup
+and `defer` while preserving nested completion ordering.
 
 Ordinary class fields reuse the same declared-type mapping and tracing path as
 primary-constructor properties. Classes with field initializers receive the hidden
@@ -298,6 +303,77 @@ managed `vexa::add` path. This preserves JavaScript/C++ semantic sharing, perfor
 numeric string conversion in the runtime, and keeps the resulting string rooted
 by Oilpan without a second interpolation implementation.
 
+Setter accessors extend that same property path instead of adding special cases
+for each assignment operator. One native property descriptor supplies the
+receiver, getter name, and setter name for both concrete accessors and interface
+bridges; direct, compound, prefix, and postfix lowering therefore keeps identical
+single-evaluation and result semantics. The generated getter and setter are C++
+overloads distinguished by the setter's value parameter.
+
+Testing an implicit `value += 1` exposed a shared analysis bug: class checking
+replaced the accessor property's symbol with each accessor's function type, and
+getter shorthand was not consistently classified as a property in every member
+resolver. Fixing Binder and TypeChecker made getter, setter, and getter-shorthand
+members retain one property type for every backend. The C++ emitter still consumes
+the analyzer's implicit-receiver set and only chooses native call spelling.
+
+Adding dynamic objects exposed two distinct Oilpan ownership boundaries. Values
+on the C++ stack must root strings and records with `Persistent`, but edges stored
+inside a managed record must use `Member`; storing `Persistent` fields inside a
+record would turn cycles into permanent roots. A separate traced stored-value
+variant keeps that distinction explicit while presenting one `Value` API to
+generated code.
+
+Computed compound assignment initially emitted `recordGet<auto>`, because an
+arbitrary runtime key has no statically selected property type. The durable rule
+is that unknown computed reads cross the runtime boundary as `vexa::Value`, then
+reuse dynamic addition and conversion helpers. The shared native property
+descriptor also caches a computed key once before getter and setter calls, so
+record properties and class accessors preserve the same evaluation order.
+
+Structural interface compatibility cannot be represented by a raw record pointer
+when C++ dispatch expects an abstract interface pointer. Property-only interfaces
+now receive one generated Oilpan adapter that traces its record and forwards the
+existing virtual getter/setter protocol. Callable interface members remain a
+separate future step because the current dynamic `Value` deliberately does not
+store type-erased functions.
+
+Multi-file native compilation reuses `moduleGraph.ts`'s parser selection and
+local-import resolution instead of teaching the CLI another extension/mapping
+algorithm. Local ASTs are merged in dependency order and analyzed once, which is
+important for C++ because independently emitted files would each contain a
+runtime include and `main`. Import aliases are rejected explicitly for now:
+blindly concatenating them would silently call the wrong global C++ symbol, while
+correct support needs module-local symbol namespaces or binding-aware renaming.
+
+Oilpan directly supports a `GarbageCollected<Base>` non-final class with ordinary
+derived classes. This allowed native class inheritance to keep one managed object
+identity: roots inherit `GarbageCollected`, derived classes inherit their base,
+and each trace override delegates upward. Abstract methods map cleanly to pure
+virtual methods, while analyzer-validated overrides and multiple interfaces map
+to the same C++ virtual dispatch table used by existing interface calls.
+
+The original async lowering queued an entire function body and implemented every
+`await` with blocking `Task.get()`. Turning `Task` into a C++20 coroutine return
+type removed both semantic mismatches: `initial_suspend` is `suspend_never`, so
+code before the first await runs during the call, and settlement stores coroutine
+continuations that the runtime resumes as microtasks. Top-level `.get()` remains
+only as the native entrypoint bridge that drives the event loop.
+
+C++ forbids `co_await` directly inside a catch handler. Promise recovery and
+finally helpers therefore capture the exception or rooted result first, leave
+the handler, and only then await continuation callbacks. This also makes the
+Oilpan lifetime boundary explicit: pointer results use `TaskStorage` while a
+finally callback is suspended rather than sitting as an untraced raw pointer in
+the coroutine frame.
+
+Expanding collection APIs reinforced that call classification belongs in one
+place. Array higher-order methods must not pass callback lambdas through the
+dynamic-value argument conversion used by `push` and membership queries; the
+emitter now distinguishes value-taking operations from callback-taking ones
+before routing both to the runtime. Managed strings continue to cross APIs as
+`Value`, while split results become owned native strings in a typed vector.
+
 ## Investigation notes and rejected paths
 
 Putting source extraction and `g++` directly in the transpiler would have been
@@ -334,8 +410,9 @@ incorrect native programs.
 - Interface pointers must remain Oilpan mixins when they cross a traced field,
   persistent callback capture, task, or coroutine boundary. A plain abstract C++
   base can pass dispatch tests while still being unsound under collection.
-- Array support deliberately depends on one representable native element type.
-  Heterogeneous, sparse, and spread arrays need a deliberate dynamic
-  value/container design instead of relying on C++ deduction or silent coercion.
+- Homogeneous arrays retain their typed-vector path. Heterogeneous and sparse
+  arrays deliberately use `Value`, and future collection features must preserve
+  that explicit dynamic representation instead of relying on C++ deduction or
+  silent coercion.
 - Packaged CLI releases must continue including both `native/runtime.cpp` and
   `native/oilpan-standalone-main.zip`.

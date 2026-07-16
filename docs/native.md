@@ -114,8 +114,9 @@ value-returning callables also require an explicit return type. Literal defaults
 are lowered into generated call sites rather than C++ declaration defaults.
 Synchronous instance getters written with either `get name()` or the expression
 shorthand `name: Type => expression` are emitted as ordinary native methods and
-property reads call them automatically. Extension, generic, and setter callables
-remain unsupported.
+property reads call them automatically. Synchronous `set name(value)` accessors
+use an overloaded native method and preserve direct, compound, prefix, and postfix
+assignment results. Extension and generic callables remain unsupported.
 
 Both JavaScript and C++ emission consume the analyzer's resolved implicit-receiver
 identifier sets. The analyzer decides whether an unqualified identifier means a
@@ -130,8 +131,9 @@ receiver type and walks an interface's declared base, so virtual dispatch adds n
 parallel assignability or overload-selection logic to the emitter. Required
 properties implemented by primary-constructor fields, regular class fields, or
 computed class getters receive virtual getter bridges; mutable field-backed
-properties also receive setter bridges. Direct, compound, prefix, and postfix
-writes preserve single receiver evaluation. Generic, optional, setter-backed, and
+properties also receive setter bridges. Getter/setter accessor pairs implement
+mutable interface properties through the same bridges. Direct, compound, prefix,
+and postfix writes preserve single receiver evaluation. Generic, optional, and
 multiple-inheritance interfaces remain unsupported by native emission and are
 rejected explicitly.
 
@@ -188,10 +190,13 @@ duplicating the discriminant expression.
 
 Source throws are normalized through `throwValue` into native exceptions. Catch
 bindings receive the exception message as a managed VexaScript string. `finally`
-uses a move-only RAII guard, so it runs for normal completion, return, or exception;
-the shared lowering means `defer` uses exactly the same path. A native `finally`
-block currently rejects `return`, `break`, `continue`, and `throw`, whose JavaScript
-override semantics cannot be represented safely by a destructor callback.
+uses explicit pending-completion propagation, so it runs for normal completion,
+return, throw, break, and continue. A completion produced by the `finally` block
+overrides the pending completion, matching the source-language ordering even for
+nested cleanup. Callable and loop boundaries convert internal completion signals
+back into native control flow; GC pointer return values remain rooted while cleanup
+runs. The shared lowering means `defer` uses exactly the same path. Labeled break
+and continue remain unsupported by native emission.
 
 Reusable `...` and `..<` expressions materialize a typed native vector, so they
 can be stored and traversed more than once; direct range `for` loops keep their
@@ -210,6 +215,22 @@ Template-string interpolation uses that same parser-level concatenation lowering
 including nested interface and computed-property reads; the C++ backend does not
 maintain a separate template-string implementation.
 
+Object literals use Oilpan-managed records. Static, shorthand, numeric, nested,
+and computed properties share one runtime representation; object spread copies
+properties in source order, so later entries overwrite earlier entries. Dot and
+computed reads and writes, compound and update assignments, optional reads,
+`in`, and `delete` all use the same property descriptor lowering and preserve
+single receiver/key evaluation. Record fields trace managed strings and nested
+records with Oilpan `Member` edges, while values held by generated C++ stack code
+remain `Persistent` roots.
+
+Structurally compatible records can cross property-only interface boundaries.
+The emitter creates a small Oilpan-managed adapter for each such interface, with
+virtual property access bridged back to the record. This applies both to typed
+variable initializers and call arguments. Interfaces containing callable methods
+still require a generated class implementation because record-stored functions
+are not yet part of the dynamic value representation.
+
 Class calls and explicit `new Class(...)` use one generated construction path, so
 runtime injection, named arguments, defaults, and Oilpan allocation cannot drift.
 Typed arrows and anonymous function expressions likewise share one native-lambda
@@ -225,10 +246,34 @@ mangler in `operatorNames.ts`, and compound-assignment mapping lives in the shar
 AST layer. Compound assignment evaluates its target once before invoking and
 storing the overload result.
 
-The initial task lowering executes each async/sync callable body as one microtask;
-it does not yet split a body into continuations at every `await`. Consequently,
-statements before a callable's first `await` begin when its queued microtask runs,
-rather than synchronously at the original call as in JavaScript.
+Async and sync callables lower to C++20 task coroutines. They execute immediately
+through their first pending `await`, suspend without blocking the event loop, and
+resume as a microtask when the awaited task settles. Task continuations preserve
+Oilpan pointer results through `Persistent` storage. `Promise.resolve`,
+`Promise.reject`, `then`, `catch`, `finally`, and `Promise.all` share this task
+state; callbacks returning another task are flattened. Top-level `await` still
+drives the event loop synchronously through the generated entrypoint's `.get()`.
 
-Native emission currently supports single-file builds only and cannot be
-combined with `--bundle` or project-directory builds.
+Native collection helpers include array `push`/`pop`/`shift`/`unshift`,
+`includes`, `indexOf`, `join`, `reverse`, `slice`, `concat`, `map`, `filter`, and
+`reduce`. String values support casing and trimming plus `includes`, `startsWith`,
+`endsWith`, `charAt`, `substring`, `slice`, and `split`. `Object.keys` and
+`Object.values` enumerate managed records. These calls retain their analyzed
+element/result types and reuse the same native lambda emitter as user callbacks.
+
+Native builds follow transitive local `.vx`, `.ts`, and `.tsx` imports through
+the same resolver and project import mappings used by JavaScript module graphs.
+Dependencies are analyzed and emitted once in dependency order into one C++
+translation unit, so top-level initialization happens before the importing
+module. Named imports and side-effect imports are supported. Default, namespace,
+and aliased imports are diagnosed until native module-local symbol namespaces are
+available. Native emission still cannot be combined with `--bundle` or
+project-directory builds.
+
+Generated classes support concrete and abstract single inheritance. Non-final
+bases expose virtual trace and method dispatch, derived classes delegate tracing
+to their base, abstract methods become pure virtual methods, overrides use C++
+virtual dispatch, and `super.member` calls use qualified base calls. A class can
+also implement multiple emitted interfaces, including property bridges for each.
+Derived native classes currently require their generated base class to have a
+default constructor.

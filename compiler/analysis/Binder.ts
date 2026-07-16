@@ -752,7 +752,7 @@ export class Binder {
     for (const member of statement.members) {
       if (member.kind === "ClassMethodMember") {
         const method = member as ClassMethodMember;
-        if (method.accessorKind === "get") {
+        if (method.accessorKind === "get" || method.getterShorthand === true) {
           const propertyType = this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE;
           this.declare(classScope, {
             name: method.name.name,
@@ -1175,7 +1175,7 @@ export class Binder {
         });
         continue;
       }
-      if (member.accessorKind === "get") {
+      if (member.accessorKind === "get" || member.getterShorthand === true) {
         if (member.computed) {
           continue;
         }

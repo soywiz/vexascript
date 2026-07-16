@@ -13,12 +13,14 @@
 #include <exception>
 #include <functional>
 #include <iomanip>
+#include <initializer_list>
 #include <iostream>
 #include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <queue>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -67,16 +69,24 @@ class StringObject final : public cppgc::GarbageCollected<StringObject> {
 
 struct Undefined final {};
 struct Null final {};
+class RecordObject;
 
 class Value final {
  public:
-  using Storage = std::variant<Undefined, Null, bool, double, cppgc::Persistent<StringObject>>;
+  using Storage = std::variant<
+      Undefined,
+      Null,
+      bool,
+      double,
+      cppgc::Persistent<StringObject>,
+      cppgc::Persistent<RecordObject>>;
 
   Value() : storage_(Undefined{}) {}
   Value(bool value) : storage_(value) {}
   Value(double value) : storage_(value) {}
   Value(int value) : storage_(static_cast<double>(value)) {}
   explicit Value(StringObject* value) : storage_(cppgc::Persistent<StringObject>(value)) {}
+  explicit Value(RecordObject* value);
 
   static Value undefined() { return Value(); }
   static Value null() { return Value(Null{}); }
@@ -86,25 +96,131 @@ class Value final {
   bool isBoolean() const { return std::holds_alternative<bool>(storage_); }
   bool isNumber() const { return std::holds_alternative<double>(storage_); }
   bool isString() const { return std::holds_alternative<cppgc::Persistent<StringObject>>(storage_); }
+  bool isRecord() const { return std::holds_alternative<cppgc::Persistent<RecordObject>>(storage_); }
 
   bool boolean() const { return std::get<bool>(storage_); }
   double number() const { return std::get<double>(storage_); }
   const std::string& string() const {
     return std::get<cppgc::Persistent<StringObject>>(storage_)->value();
   }
+  RecordObject* record() const;
 
-  bool operator==(const Value& other) const {
-    if (storage_.index() != other.storage_.index()) return false;
-    if (isUndefined() || isNull()) return true;
-    if (isBoolean()) return boolean() == other.boolean();
-    if (isNumber()) return number() == other.number();
-    return string() == other.string();
-  }
+  bool operator==(const Value& other) const;
 
  private:
+  friend class StoredValue;
   explicit Value(Null value) : storage_(value) {}
   Storage storage_;
 };
+
+class StoredValue final {
+ public:
+  using Storage = std::variant<
+      Undefined,
+      Null,
+      bool,
+      double,
+      cppgc::Member<StringObject>,
+      cppgc::Member<RecordObject>>;
+
+  StoredValue() : storage_(Undefined{}) {}
+  explicit StoredValue(const Value& value) { store(value); }
+
+  Value load() const;
+  void store(const Value& value);
+  void Trace(cppgc::Visitor* visitor) const;
+
+ private:
+  Storage storage_;
+};
+
+class RecordObject final : public cppgc::GarbageCollected<RecordObject> {
+ public:
+  Value get(const std::string& key) const {
+    const auto property = properties_.find(key);
+    return property == properties_.end() ? Value::undefined() : property->second.load();
+  }
+
+  void set(std::string key, const Value& value) {
+    properties_.insert_or_assign(std::move(key), StoredValue(value));
+  }
+
+  bool has(const std::string& key) const { return properties_.contains(key); }
+  bool erase(const std::string& key) { return properties_.erase(key) > 0; }
+
+  void copyTo(RecordObject* target) const {
+    for (const auto& [key, value] : properties_) target->set(key, value.load());
+  }
+
+  std::vector<std::string> keys() const {
+    std::vector<std::string> result;
+    result.reserve(properties_.size());
+    for (const auto& [key, value] : properties_) result.push_back(key);
+    return result;
+  }
+
+  std::vector<Value> values() const {
+    std::vector<Value> result;
+    result.reserve(properties_.size());
+    for (const auto& [key, value] : properties_) result.push_back(value.load());
+    return result;
+  }
+
+  void Trace(cppgc::Visitor* visitor) const {
+    for (const auto& [key, value] : properties_) value.Trace(visitor);
+  }
+
+ private:
+  std::unordered_map<std::string, StoredValue> properties_;
+};
+
+inline Value::Value(RecordObject* value)
+    : storage_(cppgc::Persistent<RecordObject>(value)) {}
+
+inline RecordObject* Value::record() const {
+  return std::get<cppgc::Persistent<RecordObject>>(storage_).Get();
+}
+
+inline bool Value::operator==(const Value& other) const {
+  if (storage_.index() != other.storage_.index()) return false;
+  if (isUndefined() || isNull()) return true;
+  if (isBoolean()) return boolean() == other.boolean();
+  if (isNumber()) return number() == other.number();
+  if (isString()) return string() == other.string();
+  return record() == other.record();
+}
+
+inline Value StoredValue::load() const {
+  if (std::holds_alternative<Undefined>(storage_)) return Value::undefined();
+  if (std::holds_alternative<Null>(storage_)) return Value::null();
+  if (const auto* value = std::get_if<bool>(&storage_)) return Value(*value);
+  if (const auto* value = std::get_if<double>(&storage_)) return Value(*value);
+  if (const auto* value = std::get_if<cppgc::Member<StringObject>>(&storage_)) {
+    return Value(value->Get());
+  }
+  return Value(std::get<cppgc::Member<RecordObject>>(storage_).Get());
+}
+
+inline void StoredValue::store(const Value& value) {
+  if (value.isUndefined()) storage_ = Undefined{};
+  else if (value.isNull()) storage_ = Null{};
+  else if (value.isBoolean()) storage_ = value.boolean();
+  else if (value.isNumber()) storage_ = value.number();
+  else if (value.isString()) {
+    storage_ = cppgc::Member<StringObject>(
+        std::get<cppgc::Persistent<StringObject>>(value.storage_).Get());
+  } else {
+    storage_ = cppgc::Member<RecordObject>(value.record());
+  }
+}
+
+inline void StoredValue::Trace(cppgc::Visitor* visitor) const {
+  if (const auto* value = std::get_if<cppgc::Member<StringObject>>(&storage_)) {
+    visitor->Trace(*value);
+  } else if (const auto* value = std::get_if<cppgc::Member<RecordObject>>(&storage_)) {
+    visitor->Trace(*value);
+  }
+}
 
 class Error final {
  public:
@@ -117,6 +233,27 @@ class Error final {
  private:
   std::string message_;
 };
+
+class RegExp final {
+ public:
+  RegExp(std::string pattern, const std::string& flags)
+      : expression_(std::move(pattern), flags.find('i') != std::string::npos
+          ? std::regex_constants::ECMAScript | std::regex_constants::icase
+          : std::regex_constants::ECMAScript) {}
+
+  bool test(const std::string& value) const { return std::regex_search(value, expression_); }
+
+ private:
+  std::regex expression_;
+};
+
+inline bool regexTest(const RegExp& expression, const std::string& value) {
+  return expression.test(value);
+}
+
+inline bool regexTest(const RegExp& expression, const Value& value) {
+  return expression.test(value.isString() ? value.string() : "");
+}
 
 template <typename Callback>
 class Finally final {
@@ -168,6 +305,13 @@ class Runtime final {
   Value string(std::string value) {
     return Value(cppgc::MakeGarbageCollected<StringObject>(
         heap_->GetAllocationHandle(), std::move(value)));
+  }
+
+  RecordObject* record(
+      std::initializer_list<std::pair<std::string, Value>> properties = {}) {
+    auto* result = make<RecordObject>();
+    for (const auto& [key, value] : properties) result->set(key, value);
+    return result;
   }
 
   template <typename T, typename... Arguments>
@@ -289,9 +433,87 @@ Result convertValue(Runtime& runtime, Input&& input) {
     } else {
       return Value(std::forward<Input>(input));
     }
+  } else if constexpr (std::is_same_v<Source, Value>) {
+    if constexpr (std::is_same_v<Result, bool>) {
+      if (input.isBoolean()) return input.boolean();
+      if (input.isNumber()) return input.number() != 0 && !std::isnan(input.number());
+      return !input.isUndefined() && !input.isNull();
+    } else if constexpr (std::is_arithmetic_v<Result>) {
+      if (input.isNumber()) return static_cast<Result>(input.number());
+      if (input.isBoolean()) return static_cast<Result>(input.boolean());
+      throw std::runtime_error("VexaScript value is not numeric");
+    } else if constexpr (std::is_same_v<Result, RecordObject*>) {
+      if (!input.isRecord()) throw std::runtime_error("VexaScript value is not an object");
+      return input.record();
+    } else {
+      return std::forward<Input>(input);
+    }
   } else {
     return std::forward<Input>(input);
   }
+}
+
+template <typename Result>
+Result recordGet(Runtime& runtime, RecordObject* record, const std::string& key) {
+  if (!record) throw std::runtime_error("Cannot read a property of null");
+  return convertValue<Result>(runtime, record->get(key));
+}
+
+template <typename Input>
+std::remove_cvref_t<Input> recordSet(
+    Runtime& runtime,
+    RecordObject* record,
+    const std::string& key,
+    Input&& input) {
+  if (!record) throw std::runtime_error("Cannot write a property of null");
+  using Result = std::remove_cvref_t<Input>;
+  Result result = std::forward<Input>(input);
+  record->set(key, convertValue<Value>(runtime, result));
+  return result;
+}
+
+inline const std::string& propertyKey(const std::string& value) { return value; }
+inline std::string propertyKey(double value) {
+  std::ostringstream output;
+  output << std::setprecision(15) << value;
+  return output.str();
+}
+inline std::string propertyKey(std::int32_t value) { return std::to_string(value); }
+inline std::string propertyKey(std::int64_t value) { return std::to_string(value); }
+inline std::string propertyKey(bool value) { return value ? "true" : "false"; }
+inline std::string propertyKey(const Value& value) {
+  if (value.isString()) return value.string();
+  if (value.isNumber()) return propertyKey(value.number());
+  if (value.isBoolean()) return propertyKey(value.boolean());
+  if (value.isNull()) return "null";
+  if (value.isUndefined()) return "undefined";
+  return "[object Object]";
+}
+
+inline RecordObject* recordSpread(RecordObject* target, RecordObject* source) {
+  if (!target || !source) throw std::runtime_error("Cannot spread a null object");
+  source->copyTo(target);
+  return target;
+}
+
+inline bool recordHas(RecordObject* record, const std::string& key) {
+  return record && record->has(key);
+}
+
+inline bool recordDelete(RecordObject* record, const std::string& key) {
+  return record && record->erase(key);
+}
+
+inline Value recordGetOptional(RecordObject* record, const std::string& key) {
+  return record ? record->get(key) : Value::undefined();
+}
+
+inline std::vector<std::string> recordKeys(RecordObject* record) {
+  return record ? record->keys() : std::vector<std::string>{};
+}
+
+inline std::vector<Value> recordValues(RecordObject* record) {
+  return record ? record->values() : std::vector<Value>{};
 }
 
 template <typename Callback>
@@ -332,8 +554,64 @@ struct TaskStorage<T*> final {
 };
 
 template <typename T>
+class ReturnSignal final {
+ public:
+  explicit ReturnSignal(T value) : value_(TaskStorage<T>::store(std::move(value))) {}
+  T value() const { return TaskStorage<T>::load(value_); }
+
+ private:
+  typename TaskStorage<T>::Type value_;
+};
+
+template <>
+class ReturnSignal<void> final {};
+
+class BreakSignal final {};
+class ContinueSignal final {};
+
+template <typename T>
 class Task final {
  public:
+  struct State final {
+    Runtime* runtime = nullptr;
+    std::optional<typename TaskStorage<T>::Type> value;
+    std::exception_ptr error;
+    std::vector<std::function<void()>> continuations;
+    bool settled = false;
+  };
+
+  struct promise_type final {
+    template <typename... Arguments>
+    explicit promise_type(Runtime& runtime, Arguments&&...) : state(makeState(runtime)) {}
+
+    template <typename Owner, typename... Arguments>
+    promise_type(Owner&, Runtime& runtime, Arguments&&...) : state(makeState(runtime)) {}
+
+    Task get_return_object() { return Task(state); }
+    std::suspend_never initial_suspend() const noexcept { return {}; }
+    std::suspend_never final_suspend() const noexcept { return {}; }
+    void return_value(T value) { resolve(state, std::move(value)); }
+    void unhandled_exception() { reject(state, std::current_exception()); }
+
+    std::shared_ptr<State> state;
+  };
+
+  class Awaiter final {
+   public:
+    explicit Awaiter(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    bool await_ready() const noexcept { return state_->settled; }
+    void await_suspend(std::coroutine_handle<> continuation) {
+      onSettled(state_, [continuation]() mutable { continuation.resume(); });
+    }
+    T await_resume() const {
+      if (state_->error) std::rethrow_exception(state_->error);
+      return TaskStorage<T>::load(*state_->value);
+    }
+
+   private:
+    std::shared_ptr<State> state_;
+  };
+
   template <typename Executor>
   static Task create(Runtime& runtime, Executor executor) {
     auto state = makeState(runtime);
@@ -364,14 +642,9 @@ class Task final {
     return TaskStorage<T>::load(*state_->value);
   }
 
- private:
-  struct State final {
-    Runtime* runtime = nullptr;
-    std::optional<typename TaskStorage<T>::Type> value;
-    std::exception_ptr error;
-    bool settled = false;
-  };
+  Awaiter operator co_await() const { return Awaiter(state_); }
 
+ private:
   class Resolver final {
    public:
     explicit Resolver(std::shared_ptr<State> state) : state_(std::move(state)) {}
@@ -421,12 +694,26 @@ class Task final {
     if (state->settled) return;
     state->value.emplace(TaskStorage<T>::store(std::move(value)));
     state->settled = true;
+    notify(state);
   }
 
   static void reject(const std::shared_ptr<State>& state, std::exception_ptr error) {
     if (state->settled) return;
     state->error = std::move(error);
     state->settled = true;
+    notify(state);
+  }
+
+  static void onSettled(const std::shared_ptr<State>& state, std::function<void()> continuation) {
+    if (state->settled) state->runtime->enqueueMicrotask(std::move(continuation));
+    else state->continuations.push_back(std::move(continuation));
+  }
+
+  static void notify(const std::shared_ptr<State>& state) {
+    for (auto& continuation : state->continuations) {
+      state->runtime->enqueueMicrotask(std::move(continuation));
+    }
+    state->continuations.clear();
   }
 
   explicit Task(std::shared_ptr<State> state) : state_(std::move(state)) {}
@@ -437,6 +724,44 @@ class Task final {
 template <>
 class Task<void> final {
  public:
+  struct State final {
+    Runtime* runtime = nullptr;
+    std::exception_ptr error;
+    std::vector<std::function<void()>> continuations;
+    bool settled = false;
+  };
+
+  struct promise_type final {
+    template <typename... Arguments>
+    explicit promise_type(Runtime& runtime, Arguments&&...) : state(makeState(runtime)) {}
+
+    template <typename Owner, typename... Arguments>
+    promise_type(Owner&, Runtime& runtime, Arguments&&...) : state(makeState(runtime)) {}
+
+    Task get_return_object() { return Task(state); }
+    std::suspend_never initial_suspend() const noexcept { return {}; }
+    std::suspend_never final_suspend() const noexcept { return {}; }
+    void return_void() { resolve(state); }
+    void unhandled_exception() { reject(state, std::current_exception()); }
+
+    std::shared_ptr<State> state;
+  };
+
+  class Awaiter final {
+   public:
+    explicit Awaiter(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    bool await_ready() const noexcept { return state_->settled; }
+    void await_suspend(std::coroutine_handle<> continuation) {
+      onSettled(state_, [continuation]() mutable { continuation.resume(); });
+    }
+    void await_resume() const {
+      if (state_->error) std::rethrow_exception(state_->error);
+    }
+
+   private:
+    std::shared_ptr<State> state_;
+  };
+
   template <typename Executor>
   static Task create(Runtime& runtime, Executor executor) {
     auto state = makeState(runtime);
@@ -467,13 +792,9 @@ class Task<void> final {
     if (state_->error) std::rethrow_exception(state_->error);
   }
 
- private:
-  struct State final {
-    Runtime* runtime = nullptr;
-    std::exception_ptr error;
-    bool settled = false;
-  };
+  Awaiter operator co_await() const { return Awaiter(state_); }
 
+ private:
   class Resolver final {
    public:
     explicit Resolver(std::shared_ptr<State> state) : state_(std::move(state)) {}
@@ -513,12 +834,26 @@ class Task<void> final {
   static void resolve(const std::shared_ptr<State>& state) {
     if (state->settled) return;
     state->settled = true;
+    notify(state);
   }
 
   static void reject(const std::shared_ptr<State>& state, std::exception_ptr error) {
     if (state->settled) return;
     state->error = std::move(error);
     state->settled = true;
+    notify(state);
+  }
+
+  static void onSettled(const std::shared_ptr<State>& state, std::function<void()> continuation) {
+    if (state->settled) state->runtime->enqueueMicrotask(std::move(continuation));
+    else state->continuations.push_back(std::move(continuation));
+  }
+
+  static void notify(const std::shared_ptr<State>& state) {
+    for (auto& continuation : state->continuations) {
+      state->runtime->enqueueMicrotask(std::move(continuation));
+    }
+    state->continuations.clear();
   }
 
   explicit Task(std::shared_ptr<State> state) : state_(std::move(state)) {}
@@ -733,6 +1068,17 @@ inline double push(std::vector<T>& array, Values&&... values) {
   return static_cast<double>(array.size());
 }
 
+template <typename T>
+inline void appendAll(std::vector<T>& target, const std::vector<T>& source) {
+  target.insert(target.end(), source.begin(), source.end());
+}
+
+template <typename T>
+inline void appendAllConverted(Runtime& runtime, std::vector<Value>& target, const std::vector<T>& source) {
+  target.reserve(target.size() + source.size());
+  for (const auto& value : source) target.push_back(convertValue<Value>(runtime, value));
+}
+
 template <typename T, typename U>
 inline bool includes(const std::vector<T>& array, const U& value) {
   return std::any_of(array.begin(), array.end(), [&](const T& element) {
@@ -754,6 +1100,73 @@ inline std::vector<T>& reverse(std::vector<T>& array) {
   return array;
 }
 
+template <typename T>
+inline T pop(std::vector<T>& array) {
+  if (array.empty()) return T{};
+  T value = std::move(array.back());
+  array.pop_back();
+  return value;
+}
+
+template <typename T>
+inline T shift(std::vector<T>& array) {
+  if (array.empty()) return T{};
+  T value = std::move(array.front());
+  array.erase(array.begin());
+  return value;
+}
+
+template <typename T, typename... Values>
+inline double unshift(std::vector<T>& array, Values&&... values) {
+  std::vector<T> prefix{std::forward<Values>(values)...};
+  array.insert(array.begin(), std::make_move_iterator(prefix.begin()), std::make_move_iterator(prefix.end()));
+  return static_cast<double>(array.size());
+}
+
+inline std::size_t normalizedSliceIndex(double index, std::size_t size) {
+  const auto integer = static_cast<std::int64_t>(index);
+  if (integer < 0) return static_cast<std::size_t>(std::max<std::int64_t>(0, static_cast<std::int64_t>(size) + integer));
+  return std::min<std::size_t>(static_cast<std::size_t>(integer), size);
+}
+
+template <typename T>
+inline std::vector<T> slice(const std::vector<T>& array, double start = 0, double end = std::numeric_limits<double>::infinity()) {
+  const std::size_t first = normalizedSliceIndex(start, array.size());
+  const std::size_t last = std::isinf(end) ? array.size() : normalizedSliceIndex(end, array.size());
+  if (last <= first) return {};
+  return std::vector<T>(array.begin() + static_cast<std::ptrdiff_t>(first), array.begin() + static_cast<std::ptrdiff_t>(last));
+}
+
+template <typename T>
+inline std::vector<T> concat(const std::vector<T>& array, const std::vector<T>& other) {
+  std::vector<T> result = array;
+  result.insert(result.end(), other.begin(), other.end());
+  return result;
+}
+
+template <typename T, typename Callback>
+inline auto map(const std::vector<T>& array, Callback callback)
+    -> std::vector<std::remove_cvref_t<std::invoke_result_t<Callback, T>>> {
+  using Result = std::remove_cvref_t<std::invoke_result_t<Callback, T>>;
+  std::vector<Result> result;
+  result.reserve(array.size());
+  for (const auto& value : array) result.push_back(callback(value));
+  return result;
+}
+
+template <typename T, typename Callback>
+inline std::vector<T> filter(const std::vector<T>& array, Callback callback) {
+  std::vector<T> result;
+  for (const auto& value : array) if (callback(value)) result.push_back(value);
+  return result;
+}
+
+template <typename T, typename Callback, typename Accumulator>
+inline Accumulator reduce(const std::vector<T>& array, Callback callback, Accumulator initial) {
+  for (const auto& value : array) initial = callback(std::move(initial), value);
+  return initial;
+}
+
 inline std::string numberToString(double value) {
   if (std::isnan(value)) return "NaN";
   if (std::isinf(value)) return value < 0 ? "-Infinity" : "Infinity";
@@ -768,7 +1181,8 @@ inline std::string toString(const Value& value) {
   if (value.isNull()) return "null";
   if (value.isBoolean()) return value.boolean() ? "true" : "false";
   if (value.isNumber()) return numberToString(value.number());
-  return value.string();
+  if (value.isString()) return value.string();
+  return "[object Object]";
 }
 
 inline std::string toString(double value) { return numberToString(value); }
@@ -784,6 +1198,115 @@ inline const std::string& toString(const std::string& value) { return value; }
 template <typename T>
 [[noreturn]] inline void throwValue(const T& value) {
   throw std::runtime_error(toString(value));
+}
+
+template <typename Result>
+struct PromiseResult final {
+  using Type = std::remove_cvref_t<Result>;
+  static constexpr bool task = false;
+};
+
+template <typename Result>
+struct PromiseResult<Task<Result>> final {
+  using Type = Result;
+  static constexpr bool task = true;
+};
+
+template <typename Input>
+Task<std::remove_cvref_t<Input>> resolvedTask(Runtime& runtime, Input value) {
+  co_return std::move(value);
+}
+
+template <typename Result, typename Reason>
+Task<Result> rejectedTask(Runtime& runtime, const Reason& reason) {
+  throwValue(reason);
+  co_return defaultValue<Result>();
+}
+
+template <typename T>
+Task<std::vector<T>> promiseAll(Runtime& runtime, std::vector<Task<T>> tasks) {
+  std::vector<T> values;
+  values.reserve(tasks.size());
+  for (auto& task : tasks) values.push_back(co_await task);
+  co_return values;
+}
+
+template <typename T, typename Callback>
+Task<typename PromiseResult<std::invoke_result_t<Callback, T>>::Type> promiseThen(
+    Runtime& runtime,
+    Task<T> source,
+    Callback callback) {
+  using CallbackResult = std::invoke_result_t<Callback, T>;
+  using Result = typename PromiseResult<CallbackResult>::Type;
+  T value = co_await source;
+  if constexpr (PromiseResult<CallbackResult>::task) {
+    if constexpr (std::is_void_v<Result>) {
+      co_await callback(std::move(value));
+      co_return;
+    } else {
+      co_return co_await callback(std::move(value));
+    }
+  } else if constexpr (std::is_void_v<CallbackResult>) {
+    callback(std::move(value));
+    co_return;
+  } else {
+    co_return callback(std::move(value));
+  }
+}
+
+template <typename Callback>
+Task<typename PromiseResult<std::invoke_result_t<Callback>>::Type> promiseThen(
+    Runtime& runtime,
+    Task<void> source,
+    Callback callback) {
+  using CallbackResult = std::invoke_result_t<Callback>;
+  using Result = typename PromiseResult<CallbackResult>::Type;
+  co_await source;
+  if constexpr (PromiseResult<CallbackResult>::task) {
+    if constexpr (std::is_void_v<Result>) {
+      co_await callback();
+      co_return;
+    } else {
+      co_return co_await callback();
+    }
+  } else if constexpr (std::is_void_v<CallbackResult>) {
+    callback();
+    co_return;
+  } else {
+    co_return callback();
+  }
+}
+
+template <typename T, typename Callback>
+Task<T> promiseCatch(Runtime& runtime, Task<T> source, Callback callback) {
+  std::string message;
+  try {
+    co_return co_await source;
+  } catch (const std::exception& error) {
+    message = error.what();
+  }
+  using CallbackResult = std::invoke_result_t<Callback, Value>;
+  if constexpr (PromiseResult<CallbackResult>::task) {
+    co_return co_await callback(runtime.string(std::move(message)));
+  } else {
+    co_return callback(runtime.string(std::move(message)));
+  }
+}
+
+template <typename T, typename Callback>
+Task<T> promiseFinally(Runtime& runtime, Task<T> source, Callback callback) {
+  std::optional<typename TaskStorage<T>::Type> value;
+  std::exception_ptr error;
+  try {
+    value.emplace(TaskStorage<T>::store(co_await source));
+  } catch (...) {
+    error = std::current_exception();
+  }
+  using CallbackResult = std::invoke_result_t<Callback>;
+  if constexpr (PromiseResult<CallbackResult>::task) co_await callback();
+  else callback();
+  if (error) std::rethrow_exception(error);
+  co_return TaskStorage<T>::load(*value);
 }
 
 template <typename T>
@@ -854,6 +1377,76 @@ inline std::string trim(std::string value) {
 }
 inline std::string trim(const Value& value) { return trim(toString(value)); }
 
+inline bool stringIncludes(const std::string& value, const std::string& search, double position = 0) {
+  return value.find(search, normalizedSliceIndex(position, value.size())) != std::string::npos;
+}
+inline bool stringIncludes(const Value& value, const Value& search, double position = 0) {
+  return stringIncludes(toString(value), toString(search), position);
+}
+
+inline bool startsWith(const std::string& value, const std::string& search, double position = 0) {
+  return value.compare(normalizedSliceIndex(position, value.size()), search.size(), search) == 0;
+}
+inline bool startsWith(const Value& value, const Value& search, double position = 0) {
+  return startsWith(toString(value), toString(search), position);
+}
+
+inline bool endsWith(const std::string& value, const std::string& search) {
+  return search.size() <= value.size() && value.compare(value.size() - search.size(), search.size(), search) == 0;
+}
+inline bool endsWith(const Value& value, const Value& search) {
+  return endsWith(toString(value), toString(search));
+}
+
+inline std::string charAt(const std::string& value, double index = 0) {
+  const auto position = static_cast<std::int64_t>(index);
+  return position >= 0 && static_cast<std::size_t>(position) < value.size()
+      ? value.substr(static_cast<std::size_t>(position), 1)
+      : "";
+}
+inline std::string charAt(const Value& value, double index = 0) { return charAt(toString(value), index); }
+
+inline std::string substring(const std::string& value, double start, double end = std::numeric_limits<double>::infinity()) {
+  std::size_t first = normalizedSliceIndex(std::max(0.0, start), value.size());
+  std::size_t last = std::isinf(end) ? value.size() : normalizedSliceIndex(std::max(0.0, end), value.size());
+  if (first > last) std::swap(first, last);
+  return value.substr(first, last - first);
+}
+inline std::string substring(const Value& value, double start, double end = std::numeric_limits<double>::infinity()) {
+  return substring(toString(value), start, end);
+}
+
+inline std::string stringSlice(const std::string& value, double start, double end = std::numeric_limits<double>::infinity()) {
+  const std::size_t first = normalizedSliceIndex(start, value.size());
+  const std::size_t last = std::isinf(end) ? value.size() : normalizedSliceIndex(end, value.size());
+  return last <= first ? "" : value.substr(first, last - first);
+}
+inline std::string stringSlice(const Value& value, double start, double end = std::numeric_limits<double>::infinity()) {
+  return stringSlice(toString(value), start, end);
+}
+
+inline std::vector<std::string> split(const std::string& value, const std::string& separator) {
+  if (separator.empty()) {
+    std::vector<std::string> characters;
+    for (char character : value) characters.emplace_back(1, character);
+    return characters;
+  }
+  std::vector<std::string> result;
+  std::size_t start = 0;
+  while (true) {
+    const std::size_t next = value.find(separator, start);
+    if (next == std::string::npos) {
+      result.push_back(value.substr(start));
+      return result;
+    }
+    result.push_back(value.substr(start, next - start));
+    start = next + separator.size();
+  }
+}
+inline std::vector<std::string> split(const Value& value, const Value& separator) {
+  return split(toString(value), toString(separator));
+}
+
 inline double Number(double value) { return value; }
 inline double Number(bool value) { return value ? 1 : 0; }
 inline double Number(const Value& value) {
@@ -861,6 +1454,7 @@ inline double Number(const Value& value) {
   if (value.isBoolean()) return value.boolean() ? 1 : 0;
   if (value.isNull()) return 0;
   if (value.isUndefined()) return std::numeric_limits<double>::quiet_NaN();
+  if (!value.isString()) return std::numeric_limits<double>::quiet_NaN();
   try {
     return std::stod(value.string());
   } catch (...) {
@@ -879,7 +1473,7 @@ inline bool Boolean(const Value& value) {
   if (value.isUndefined() || value.isNull()) return false;
   if (value.isBoolean()) return value.boolean();
   if (value.isNumber()) return Boolean(value.number());
-  return !value.string().empty();
+  return !value.isString() || !value.string().empty();
 }
 
 template <typename T>

@@ -62,6 +62,7 @@ This section is the fast onboarding map for agents and contributors.
   - Lowering tests: `compiler/runtime/lowering.test.ts`
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - Initial browser-compatible C++ emission backend, sharing the normal parse, analysis, and range-loop lowering pipeline while rejecting unsupported constructs explicitly: `compiler/runtime/cppEmitter.ts`, tests: `compiler/runtime/cppEmitter.test.ts`
+  - Native dependency-ordered module-graph compilation, reusing the shared import resolver and merging local module ASTs into one analyzed C++ translation unit: `compiler/runtime/nativeModuleGraph.ts`, tests: `compiler/runtime/nativeModuleGraph.test.ts`
   - Single source of truth mapping overloadable operators to their mangled runtime method names (`operator$star`, ...) plus the shared identifier `sanitizeManglePart`, consumed by both the emitter and the implicit-export planner so an exported operator overload is always re-exported under the exact name it was emitted with: `compiler/runtime/operatorNames.ts`
   - CommonJS-specific import/export emission helpers extracted from the generic emitter path: `compiler/runtime/commonJsEmitter.ts`, `compiler/runtime/commonJsEmitter.test.ts`
   - Shared implicit Vexa export planning used by both module-graph ESM output and module-graph CommonJS-shaped output: `compiler/runtime/implicitExports.ts`, `compiler/runtime/implicitExports.test.ts`
@@ -131,7 +132,7 @@ This section is the fast onboarding map for agents and contributors.
   - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
 - Native C++ support:
   - Single-file Oilpan runtime and the vendored standalone Oilpan source archive used by generated C++ builds: `native/runtime.cpp`, `native/oilpan-standalone-main.zip`
-  - Native backend usage, requirements, supported surface, and current single-file limitation: `docs/native.md`
+  - Native backend usage, requirements, supported surface, and module limitations: `docs/native.md`
 - Monaco editor support for the website embeds (project folder: `website/src/assets/monaco/`):
   - Browser-only virtual-workspace and persistence helpers (workspace tabs, folders, runtime declarations, `localStorage`): `website/src/assets/monaco/workspace.ts`
   - Monaco virtual file-system adapter that exposes workspace files through the compiler's async VFS interface: `website/src/assets/monaco/workspaceVfs.ts`

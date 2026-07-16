@@ -801,6 +801,29 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("Property 'value' does not exist"))).toBe(false);
   });
 
+  it("keeps implicit getter-setter references typed as properties inside class methods", () => {
+    const source = dedent`
+      class Counter(var stored: int) {
+        get value(): int {
+          return stored
+        }
+        set value(next: int) {
+          stored = next
+        }
+        fun bump(): int {
+          value += 1
+          return value
+        }
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
   it("treats getter shorthand members as typed properties", () => {
     const source = dedent`
       class Rect {

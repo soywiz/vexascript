@@ -1798,14 +1798,30 @@ export class TypeChecker {
             if (methodIsAsyncLike) {
               this.validateAsyncReturnTypeAnnotation(declaredMethodReturnType, method.returnType ?? method.name);
             }
-            const methodType = this.buildFunctionType(
-              method.parameters,
-              declaredMethodReturnType ?? builtinType("void"),
+            const methodSymbolType = (returnType: AnalysisType): AnalysisType => {
+              if (method.accessorKind === "get" || method.getterShorthand === true) {
+                return returnType;
+              }
+              if (method.accessorKind === "set") {
+                return this.resolveTypeAnnotation(method.parameters[0]?.typeAnnotation, classScope) ?? UNKNOWN_TYPE;
+              }
+              return this.buildFunctionType(
+                method.parameters,
+                returnType,
+                classScope,
+                method.typeParameters ?? [],
+                method.returnType?.name
+              );
+            };
+            this.updateSymbolType(
               classScope,
-              method.typeParameters ?? [],
-              method.returnType?.name
+              method.name.name,
+              methodSymbolType(declaredMethodReturnType ?? (
+                method.accessorKind === "get" || method.getterShorthand === true
+                  ? UNKNOWN_TYPE
+                  : builtinType("void")
+              ))
             );
-            this.updateSymbolType(classScope, method.name.name, methodType);
             this.namedTypeMembersCache.clear();
 
             const methodScope = this.scopeFor(method, classScope);
@@ -1843,15 +1859,9 @@ export class TypeChecker {
             );
             this.updateSymbolType(
               classScope,
-                method.name.name,
-                this.buildFunctionType(
-                  method.parameters,
-                  resolvedMethodReturnType,
-                  classScope,
-                  method.typeParameters ?? [],
-                  method.returnType?.name
-                )
-              );
+              method.name.name,
+              methodSymbolType(resolvedMethodReturnType)
+            );
             this.namedTypeMembersCache.clear();
             if (statement.declared !== true && method.missingBody !== true && method.abstract !== true) {
               this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, methodIsAsyncLike, method.generator === true);
@@ -3560,7 +3570,7 @@ export class TypeChecker {
   }
 
   private createMethodSymbol(method: ClassMethodMember): AnalysisSymbol {
-    if (method.accessorKind === "get") {
+    if (method.accessorKind === "get" || method.getterShorthand === true) {
       const propertyType = this.typeFromAnnotationLoose(method.returnType, this.classNameForMember(method)) ?? UNKNOWN_TYPE;
       return {
         name: method.name.name,
@@ -11162,14 +11172,18 @@ export class TypeChecker {
             classStatement.name.name
           );
         });
-        if (!rawReturnType && symbolType?.kind === "function") {
-          rawReturnType = symbolType.returnType;
+        if (!rawReturnType && symbolType) {
+          rawReturnType = classMember.accessorKind === "get" || classMember.getterShorthand === true
+            ? symbolType
+            : symbolType.kind === "function"
+              ? symbolType.returnType
+              : undefined;
         }
         rawReturnType ??= builtinType("void");
         const returnType = isAsyncLike(classMember) && !this.getAsyncReturnValueType(rawReturnType)
           ? namedType("Promise", [rawReturnType])
           : rawReturnType;
-        if (classMember.accessorKind === "get") {
+        if (classMember.accessorKind === "get" || classMember.getterShorthand === true) {
           members.set(classMember.name.name, this.substituteTypeParameters(returnType, substitutions));
           continue;
         }
@@ -11550,11 +11564,12 @@ export class TypeChecker {
       }
 
       const symbolType = classScope?.symbols.get(classMember.name.name)?.type;
+      const isGetter = classMember.accessorKind === "get" || classMember.getterShorthand === true;
       const returnType =
         this.typeFromAnnotationLoose(classMember.returnType, classStatement.name.name) ??
-        (symbolType?.kind === "function" ? symbolType.returnType : undefined) ??
+        (isGetter ? symbolType : symbolType?.kind === "function" ? symbolType.returnType : undefined) ??
         builtinType("void");
-      if (classMember.accessorKind === "get") {
+      if (isGetter) {
         return this.substituteTypeParameters(returnType, substitutions);
       }
       if (classMember.accessorKind === "set") {

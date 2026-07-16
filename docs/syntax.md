@@ -789,9 +789,11 @@ class Box<T extends Entity> extends Base<T> {
 
 Class bodies support TypeScript-style property accessors. Getter accessors must not declare parameters, and setter accessors must declare exactly one parameter. Accessor type annotations participate in member type analysis as property types. Getters also support a shorthand form that omits `get` and the empty parameter list when the body is a single returned expression.
 
-Native C++ emission supports synchronous instance getters in both forms, including
-their use as read-only interface-property implementations. Setter accessors and
-compound accessor blocks are not yet supported by the native backend.
+Native C++ emission supports synchronous instance getters in both forms and
+synchronous setter accessors. Getter/setter pairs can implement mutable interface
+properties, and concrete or interface-typed writes support direct, compound,
+prefix, and postfix operations. Compound accessor blocks are not yet supported by
+the native backend.
 
 VexaScript also supports a compound accessor block where the property name is written once and `get`/`set` sub-blocks are nested inside `{ }`. The setter parameter defaults to the implicit name `newValue` typed to the declared property type; it can be overridden by writing `set(name)` or `set(name: Type)`. Either `get`/`set` order is accepted.
 
@@ -1603,6 +1605,12 @@ try {
 }
 ```
 
+The native C++ backend preserves abrupt completion through `finally`: cleanup runs
+before a pending `return`, `throw`, `break`, or `continue`, while a new abrupt
+completion inside `finally` replaces the pending one. This also applies to nested
+`finally` blocks and to `defer`. Native labeled `break` and `continue` are not yet
+supported.
+
 ### Defer
 
 `defer expression` schedules cleanup for the end of the current block. It wraps everything that remains in that block in a `try` / `finally`, so the deferred expression still runs when the block returns early or throws.
@@ -1758,3 +1766,32 @@ try {
 - Mixed incompatible arrays (with no common supertype, for example `[10, "string"]`) fall back to `any[]`.
 - An array variable whose element type is still unknown (for example `const array: unknown[] = []` or `let xs = []`) evolves its element type from the first `push`/`unshift` mutation, so `array.push(10)` refines the inferred type of `array` to `int[]`.
 - Object literals checked against an expected object, class, or interface type use matching property types as context for nested generic calls.
+
+The native C++ backend represents object literals as managed records. It supports
+shorthand and computed keys, nested objects, ordered object spread, dot and
+bracket access, direct/compound/update writes, optional property reads, `in`, and
+`delete`. Property-only interfaces accept structurally compatible record values
+through generated native adapters; interfaces with methods currently require a
+class implementation in native builds.
+
+Native C++ classes support abstract methods, concrete single inheritance,
+virtual overrides, qualified `super.member` calls, access sections, and multiple
+implemented interfaces. A generated base class used by a derived class currently
+needs a default constructor; forwarding source constructor arguments to a base
+constructor is not yet represented in the class AST.
+
+Native CLI builds resolve transitive local modules and project import mappings
+into one dependency-ordered translation unit. Named imports without aliases and
+side-effect imports are supported; default, namespace, and aliased imports are
+currently rejected with an explicit native diagnostic.
+
+Native async and sync functions are continuation-based C++20 coroutines: source
+code runs synchronously until the first pending `await`, then resumes through the
+runtime microtask queue. The native Promise surface includes executor creation,
+`resolve`, `reject`, `then`, `catch`, `finally`, and `all`, including flattening a
+task returned by a continuation.
+
+The native standard-library subset includes the common mutating, searching,
+slicing, concatenation, and higher-order array methods; common string search,
+slicing, and splitting methods; and `Object.keys`/`Object.values` for managed
+records. Higher-order array callbacks use ordinary typed VexaScript lambdas.

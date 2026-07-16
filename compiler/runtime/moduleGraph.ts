@@ -60,7 +60,7 @@ function isInlineAssetModulePath(filePath: string): boolean {
   return extension === ".json" || extension === ".txt";
 }
 
-function parserOptionsForModulePath(filePath: string): ParserOptions {
+export function parserOptionsForModulePath(filePath: string): ParserOptions {
   const extension = extname(filePath).toLowerCase();
   if (extension === ".ts") {
     return { language: "typescript" };
@@ -253,7 +253,7 @@ async function collectNodeModulesTypings(
   }
 }
 
-async function localImportSpecifiers(
+export async function localImportSpecifiers(
   ast: Program,
   importerFilePath: string,
   vfs: Vfs,
