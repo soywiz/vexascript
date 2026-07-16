@@ -33,6 +33,7 @@
 #include <cppgc/allocation.h>
 #include <cppgc/garbage-collected.h>
 #include <cppgc/heap.h>
+#include <cppgc/member.h>
 #include <cppgc/persistent.h>
 #include <cppgc/platform.h>
 #include <cppgc/visitor.h>
@@ -116,6 +117,30 @@ class Error final {
  private:
   std::string message_;
 };
+
+template <typename Callback>
+class Finally final {
+ public:
+  explicit Finally(Callback callback) : callback_(std::move(callback)) {}
+  Finally(const Finally&) = delete;
+  Finally& operator=(const Finally&) = delete;
+
+  Finally(Finally&& other) noexcept
+      : callback_(std::move(other.callback_)), active_(std::exchange(other.active_, false)) {}
+
+  ~Finally() noexcept(false) {
+    if (active_) callback_();
+  }
+
+ private:
+  Callback callback_;
+  bool active_ = true;
+};
+
+template <typename Callback>
+Finally<std::decay_t<Callback>> finally(Callback&& callback) {
+  return Finally<std::decay_t<Callback>>(std::forward<Callback>(callback));
+}
 
 class Runtime final {
  public:
@@ -267,6 +292,27 @@ Result convertValue(Runtime& runtime, Input&& input) {
   } else {
     return std::forward<Input>(input);
   }
+}
+
+template <typename Callback>
+Value nullishCoalesce(Value value, Callback&& fallback) {
+  return value.isNull() || value.isUndefined()
+      ? std::forward<Callback>(fallback)()
+      : value;
+}
+
+template <typename T, typename Callback>
+T* nullishCoalesce(T* value, Callback&& fallback) {
+  return value ? value : std::forward<Callback>(fallback)();
+}
+
+template <typename T>
+std::vector<T> range(T start, T end, bool exclusive) {
+  std::vector<T> values;
+  for (T current = start; exclusive ? current < end : current <= end; ++current) {
+    values.push_back(current);
+  }
+  return values;
 }
 
 template <typename T>
@@ -730,6 +776,15 @@ inline std::string toString(int value) { return std::to_string(value); }
 inline std::string toString(std::int64_t value) { return std::to_string(value); }
 inline std::string toString(bool value) { return value ? "true" : "false"; }
 inline const std::string& toString(const std::string& value) { return value; }
+
+[[noreturn]] inline void throwValue(const Error& error) {
+  throw std::runtime_error(error.message());
+}
+
+template <typename T>
+[[noreturn]] inline void throwValue(const T& value) {
+  throw std::runtime_error(toString(value));
+}
 
 template <typename T>
 inline std::string joinWithSeparator(const std::vector<T>& array, const std::string& separator) {

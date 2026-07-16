@@ -181,6 +181,45 @@ every backend. Native mixed primitive arrays map that type to
 share one `convertValue` helper, avoiding separate dynamic-string conversion
 rules that could drift.
 
+Object-valued primary-constructor fields exposed a different Oilpan boundary from
+locals and coroutine frames. A pointer stored inside a garbage-collected object
+must be an interior `cppgc::Member<T>`, not a `Persistent` root and not a raw
+pointer. Generated classes now derive their field storage and `Trace` calls from
+the same declared class type used by constructor signature mapping. Primitive
+fields remain untraced, while every generated-object field is visited by one
+generated trace method.
+
+Native switch support started with direct integral C++ switches. Managed strings
+cannot be C++ case labels, and repeating the discriminant in an if-chain would
+change side effects. The general path therefore evaluates the discriminant once,
+selects a numeric case index through an ordered equality chain, and reuses one
+case-body emitter for the final C++ switch. Using a real `default` label for the
+source default also lets the C++ compiler see exhaustive value-returning switches
+without warnings or undefined fallthrough paths.
+
+Exceptions and cleanup reuse shared lowering as well. Every source throw enters
+one `throwValue` normalization path, catch parameters receive a managed message,
+and one move-only RAII guard implements finally-on-scope-exit. Because `defer` is
+already lowered to `try/finally` before either backend emits code, it became native
+without a second defer interpretation. Control flow originating inside `finally`
+is rejected explicitly: a destructor callback cannot safely reproduce JavaScript's
+return/throw override rules, especially during exception unwinding.
+
+Ordinary class fields reuse the same declared-type mapping and tracing path as
+primary-constructor properties. Classes with field initializers receive the hidden
+runtime in their generated constructor, which lets managed strings and nested
+generated objects be initialized without a global runtime. Object fields remain
+interior `Member` references and contribute to the same generated `Trace` method.
+
+Reusable range expressions cannot use the allocation-free loop rewrite because
+their value may outlive and be traversed independently of the original expression.
+They therefore map the analyzer's existing `range<T>` type to `std::vector<T>` and
+share one runtime constructor, while direct range loops retain their existing
+lowering. Comma expressions are emitted structurally. Nullish coalescing needs a
+callback-based helper rather than a normal function argument: eagerly passing the
+right operand would silently violate source evaluation order. Both the dynamic
+value and generated-object pointer overloads use that same lazy callback contract.
+
 ## Investigation notes and rejected paths
 
 Putting source extraction and `g++` directly in the transpiler would have been
@@ -212,8 +251,8 @@ incorrect native programs.
   generated `main` declares `Runtime` first so later values are destroyed first
   by C++ reverse destruction order.
 - GC object member access uses one name-to-class map seeded by parameters,
-  initializers, and shared expression analysis. Assignments and object-valued
-  fields will need to preserve that same source of truth when they are added.
+  initializers, and shared expression analysis. Future inheritance and container
+  fields must preserve that same source of truth.
 - Array support deliberately depends on one representable native element type.
   Heterogeneous, sparse, and spread arrays need a deliberate dynamic
   value/container design instead of relying on C++ deduction or silent coercion.

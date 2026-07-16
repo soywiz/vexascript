@@ -6,9 +6,11 @@ import type {
   BlockStatement,
   BreakStatement,
   CallExpression,
+  ClassFieldMember,
   ClassMethodMember,
   ClassPrimaryConstructorParameter,
   ClassStatement,
+  CommaExpression,
   ConditionalExpression,
   ContinueStatement,
   DoWhileStatement,
@@ -24,8 +26,12 @@ import type {
   NamedArgument,
   Node,
   Program,
+  RangeExpression,
   ReturnStatement,
   Statement,
+  SwitchStatement,
+  ThrowStatement,
+  TryStatement,
   UnaryExpression,
   UpdateExpression,
   VarStatement,
@@ -70,6 +76,8 @@ let activeSuppressAutoAwait = false;
 let activeAsyncResultType: string | null = null;
 let activeGeneratorResultType: string | null = null;
 let activeYieldTemporaryCounter = 0;
+let activeExceptionTemporaryCounter = 0;
+let activeSwitchTemporaryCounter = 0;
 
 function cppName(name: string): string {
   const sanitized = name.replace(/[^A-Za-z0-9_]/g, "_");
@@ -157,6 +165,10 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
     const elementType = cppArrayElementType(type.elementType);
     return elementType ? `std::vector<${elementType}>` : null;
   }
+  if (type.kind === "range") {
+    const elementType = cppArrayElementType(type.elementType);
+    return elementType ? `std::vector<${elementType}>` : null;
+  }
   if (type.kind === "tuple") {
     const elementTypes = new Set(type.elements.map(cppArrayElementType));
     const elementType = elementTypes.size === 1 ? [...elementTypes][0] : null;
@@ -194,7 +206,8 @@ function cppTypeForExpression(expression: Expr): string {
 
 function isArrayExpression(expression: Expr): boolean {
   const type = activeExpressionTypes.get(expression as Node);
-  return type?.kind === "array" || type?.kind === "tuple" || expression.kind === "ArrayLiteral";
+  return type?.kind === "array" || type?.kind === "tuple" || type?.kind === "range" ||
+    expression.kind === "ArrayLiteral" || expression.kind === "RangeExpression";
 }
 
 function isGeneratorExpression(expression: Expr): boolean {
@@ -309,6 +322,10 @@ function classMethodForMember(member: { object: Expr; propertyName: string }): C
   const statement = className ? activeClassStatements.get(className) : undefined;
   return (statement?.members.find((candidate): candidate is ClassMethodMember =>
     candidate.kind === "ClassMethodMember" && candidate.name.name === member.propertyName) ?? null);
+}
+
+function classUsesRuntimeConstructor(statement: ClassStatement | undefined): boolean {
+  return Boolean(statement?.members.some((member) => member.kind === "ClassFieldMember"));
 }
 
 function nativeLambdaCapture(selfName: string, referenceEntryLocals: boolean): {
@@ -496,7 +513,10 @@ function emitCall(call: CallExpression): string {
   if (calleeName && activeClassNames.has(calleeName)) {
     const classStatement = activeClassStatements.get(calleeName);
     const constructorArguments = emitCallArguments(call, classStatement?.primaryConstructorParameters);
-    return `${activeRuntimeName}.make<${cppName(calleeName)}>(${constructorArguments})`;
+    const nativeArguments = classUsesRuntimeConstructor(classStatement)
+      ? withRuntimeArgument(constructorArguments)
+      : constructorArguments;
+    return `${activeRuntimeName}.make<${cppName(calleeName)}>(${nativeArguments})`;
   }
   return `${emitExpression(call.callee)}(${argumentsText})`;
 }
@@ -509,12 +529,23 @@ function emitBinary(expression: BinaryExpression): string {
   if (expression.operator === "**") {
     return `vexa::Math::pow(${emitExpression(expression.left)}, ${emitExpression(expression.right)})`;
   }
+  if (expression.operator === "??") {
+    const leftType = cppTypeForExpression(expression.left);
+    const left = emitExpression(expression.left);
+    if (leftType === "vexa::Value") {
+      return `vexa::nullishCoalesce(${left}, [&]() { return ${emitConvertedValue(expression.right, "vexa::Value")}; })`;
+    }
+    if (leftType.endsWith("*")) {
+      return `vexa::nullishCoalesce(${left}, [&]() { return ${emitExpression(expression.right)}; })`;
+    }
+    return `(${left})`;
+  }
   const operator = expression.operator === "==="
     ? "=="
     : expression.operator === "!=="
       ? "!="
       : expression.operator;
-  if (operator === "in" || operator === "is" || operator === "instanceof" || operator === "<=>" || operator === "??") {
+  if (operator === "in" || operator === "is" || operator === "instanceof" || operator === "<=>") {
     throw new CppEmitError(`C++ emission does not support the '${operator}' operator yet`);
   }
   return `(${emitExpression(expression.left)} ${operator} ${emitExpression(expression.right)})`;
@@ -534,6 +565,12 @@ function emitExpression(expression: Expr): string {
       return `${activeRuntimeName}.string(${cppString((expression as unknown as { value: string }).value)})`;
     case "ArrayLiteral":
       return emitArrayLiteral(expression as unknown as ArrayLiteral);
+    case "CommaExpression":
+      return `(${(expression as CommaExpression).expressions.map(emitExpression).join(", ")})`;
+    case "RangeExpression": {
+      const range = expression as RangeExpression;
+      return `vexa::range(${emitExpression(range.start)}, ${emitExpression(range.end)}, ${range.exclusive ? "true" : "false"})`;
+    }
     case "NullLiteral":
       return "vexa::Value::null()";
     case "UndefinedLiteral":
@@ -675,6 +712,142 @@ function emitFor(statement: ForStatement, indent: string): string {
     activeLocalNames = previousLocalNames;
     activeGcObjectTypes = previousGcObjectTypes;
   }
+}
+
+function appendSwitchCases(
+  lines: string[],
+  statement: SwitchStatement,
+  indent: string,
+  label: (index: number) => string
+): void {
+  statement.cases.forEach((switchCase, index) => {
+    lines.push(`${indent}  ${label(index)}:`);
+    if (switchCase.consequent.length === 0) return;
+    lines.push(`${indent}  {`);
+    for (const consequent of switchCase.consequent) {
+      lines.push(emitStatement(consequent, `${indent}    `));
+    }
+    lines.push(`${indent}  }`);
+  });
+}
+
+function emitSwitchBody(statement: SwitchStatement, indent: string): string {
+  const discriminantType = activeExpressionTypes.get(statement.discriminant as Node);
+  const mappedType = discriminantType ? cppTypeForAnalysisType(discriminantType) : null;
+  if (new Set(["std::int32_t", "std::int64_t", "bool"]).has(mappedType ?? "")) {
+    const lines = [`${indent}switch (${emitExpression(statement.discriminant)}) {`];
+    appendSwitchCases(lines, statement, indent, (index) => {
+      const switchCase = statement.cases[index]!;
+      return switchCase.test ? `case ${emitExpression(switchCase.test)}` : "default";
+    });
+    lines.push(`${indent}}`);
+    return lines.join("\n");
+  }
+
+  const temporaryIndex = activeSwitchTemporaryCounter++;
+  const valueName = `__vexa_switch_value_${temporaryIndex}`;
+  const caseName = `__vexa_switch_case_${temporaryIndex}`;
+  const defaultIndex = statement.cases.findIndex((switchCase) => !switchCase.test);
+  const lines = [
+    `${indent}{`,
+    `${indent}  auto ${valueName} = ${emitExpression(statement.discriminant)};`,
+    `${indent}  std::int32_t ${caseName} = ${defaultIndex};`,
+  ];
+  let conditionIndex = 0;
+  statement.cases.forEach((switchCase, index) => {
+    if (!switchCase.test) return;
+    lines.push(
+      `${indent}  ${conditionIndex++ === 0 ? "if" : "else if"} (${valueName} == ${emitExpression(switchCase.test)}) { ${caseName} = ${index}; }`
+    );
+  });
+  lines.push(`${indent}  switch (${caseName}) {`);
+  appendSwitchCases(lines, statement, `${indent}  `, (index) =>
+    statement.cases[index]!.test ? `case ${index}` : "default"
+  );
+  lines.push(`${indent}  }`);
+  lines.push(`${indent}}`);
+  return lines.join("\n");
+}
+
+function emitSwitch(statement: SwitchStatement, indent: string): string {
+  const previousLocalNames = new Set(activeLocalNames);
+  const previousGcObjectTypes = new Map(activeGcObjectTypes);
+  try {
+    return emitSwitchBody(statement, indent);
+  } finally {
+    activeLocalNames = previousLocalNames;
+    activeGcObjectTypes = previousGcObjectTypes;
+  }
+}
+
+function containsFinallyControlFlow(statement: Statement): boolean {
+  switch (statement.kind) {
+    case "ReturnStatement":
+    case "BreakStatement":
+    case "ContinueStatement":
+    case "ThrowStatement":
+      return true;
+    case "BlockStatement":
+      return (statement as BlockStatement).body.some(containsFinallyControlFlow);
+    case "IfStatement": {
+      const branch = statement as IfStatement;
+      return containsFinallyControlFlow(branch.thenBranch) || Boolean(branch.elseBranch && containsFinallyControlFlow(branch.elseBranch));
+    }
+    case "WhileStatement":
+      return containsFinallyControlFlow((statement as WhileStatement).body);
+    case "DoWhileStatement":
+      return containsFinallyControlFlow((statement as DoWhileStatement).body);
+    case "ForStatement":
+      return containsFinallyControlFlow((statement as ForStatement).body);
+    case "SwitchStatement":
+      return (statement as SwitchStatement).cases.some((switchCase) => switchCase.consequent.some(containsFinallyControlFlow));
+    case "TryStatement": {
+      const nested = statement as TryStatement;
+      return containsFinallyControlFlow(nested.tryBlock) ||
+        Boolean(nested.catchClause && containsFinallyControlFlow(nested.catchClause.body)) ||
+        Boolean(nested.finallyBlock && containsFinallyControlFlow(nested.finallyBlock));
+    }
+    default:
+      return false;
+  }
+}
+
+function emitTry(statement: TryStatement, indent: string): string {
+  if (statement.finallyBlock && containsFinallyControlFlow(statement.finallyBlock)) {
+    throw new CppEmitError("C++ finally emission does not support return, break, continue, or throw", statement);
+  }
+  const temporaryIndex = activeExceptionTemporaryCounter++;
+  const lines: string[] = [];
+  const scoped = Boolean(statement.finallyBlock);
+  if (scoped) {
+    lines.push(`${indent}{`);
+    const finallyBody = emitBlock(statement.finallyBlock!, `${indent}  `);
+    lines.push(`${indent}  auto __vexa_finally_${temporaryIndex} = vexa::finally([&]() ${finallyBody});`);
+  }
+  const tryIndent = scoped ? `${indent}  ` : indent;
+  if (!statement.catchClause) {
+    lines.push(`${tryIndent}${emitBlock(statement.tryBlock, tryIndent)}`);
+  } else {
+    lines.push(`${tryIndent}try ${emitBlock(statement.tryBlock, tryIndent)}`);
+    const caughtName = `__vexa_caught_error_${temporaryIndex}`;
+    const parameter = statement.catchClause.parameter;
+    const previousLocalNames = new Set(activeLocalNames);
+    if (parameter) activeLocalNames.add(parameter.name);
+    try {
+      let catchBody = emitBlock(statement.catchClause.body, tryIndent);
+      if (parameter) {
+        const binding = `auto ${cppName(parameter.name)} = ${activeRuntimeName}.string(${caughtName}.what());`;
+        catchBody = catchBody === "{}"
+          ? `{ ${binding} }`
+          : catchBody.replace("{\n", `{\n${tryIndent}  ${binding}\n`);
+      }
+      lines.push(`${tryIndent}catch (const std::exception& ${caughtName}) ${catchBody}`);
+    } finally {
+      activeLocalNames = previousLocalNames;
+    }
+  }
+  if (scoped) lines.push(`${indent}}`);
+  return lines.join("\n");
 }
 
 function containsValueReturn(statement: Statement): boolean {
@@ -964,12 +1137,58 @@ function emitFunction(statement: FunctionStatement): string {
 
 function primaryConstructorParameterType(parameter: ClassPrimaryConstructorParameter, statement: ClassStatement): string {
   const typeName = parameter.typeAnnotation?.name;
-  const mapped = typeName ? cppTypeForBuiltin(typeName as BuiltinTypeName) : null;
+  const mapped = typeName ? cppTypeForDeclaredName(typeName) : null;
   if (mapped && mapped !== "void") return mapped;
   throw new CppEmitError(
-    `C++ emission currently requires primitive type annotations on class primary constructor properties`,
+    `C++ emission currently requires supported type annotations on class primary constructor properties`,
     statement
   );
+}
+
+function classFieldType(field: ClassFieldMember, statement: ClassStatement): {
+  valueType: string;
+  storageType: string;
+  traced: boolean;
+} {
+  if (
+    field.static ||
+    field.abstract ||
+    field.computed ||
+    field.optional ||
+    !field.typeAnnotation
+  ) {
+    throw new CppEmitError("C++ emission supports concrete typed instance fields only", statement);
+  }
+  const declaredType = field.typeAnnotation.name;
+  const valueType = cppTypeForDeclaredName(declaredType);
+  if (!valueType || valueType === "void") {
+    throw new CppEmitError(`C++ emission does not support class field type '${declaredType}' yet`, statement);
+  }
+  const traced = activeClassNames.has(declaredType);
+  return {
+    valueType,
+    storageType: traced ? `cppgc::Member<${cppName(declaredType)}>` : valueType,
+    traced,
+  };
+}
+
+function emitClassFieldInitializer(expression: Expr, statement: ClassStatement): string {
+  const previousRuntimeName = activeRuntimeName;
+  const previousClassName = activeCurrentClassName;
+  const previousMethodStatic = activeCurrentMethodStatic;
+  const previousThisExpression = activeThisExpression;
+  activeRuntimeName = "__vexa_runtime";
+  activeCurrentClassName = statement.name.name;
+  activeCurrentMethodStatic = false;
+  activeThisExpression = "this";
+  try {
+    return emitExpression(expression);
+  } finally {
+    activeRuntimeName = previousRuntimeName;
+    activeCurrentClassName = previousClassName;
+    activeCurrentMethodStatic = previousMethodStatic;
+    activeThisExpression = previousThisExpression;
+  }
 }
 
 function validateClassMethod(method: ClassMethodMember, statement: ClassStatement): void {
@@ -1031,10 +1250,10 @@ function emitClass(statement: ClassStatement): string {
     statement.extendsType ||
     statement.implementsTypes?.length ||
     statement.classDelegates?.length ||
-    statement.members.some((member) => member.kind !== "ClassMethodMember")
+    statement.members.some((member) => member.kind !== "ClassMethodMember" && member.kind !== "ClassFieldMember")
   ) {
     throw new CppEmitError(
-      "C++ emission currently supports concrete primary-constructor classes with instance methods only",
+      "C++ emission currently supports concrete non-generic classes with fields and instance methods only",
       statement
     );
   }
@@ -1049,18 +1268,58 @@ function emitClass(statement: ClassStatement): string {
     name: cppName(parameter.name.name),
     type: primaryConstructorParameterType(parameter, statement),
   }));
-  const constructorParameters = typedParameters.map(({ type, name }) => `${type} ${name}`).join(", ");
-  const initializers = typedParameters.map(({ name }) => `${name}(${name})`).join(", ");
-  const constructor = initializers
-    ? `${className}(${constructorParameters}) : ${initializers} {}`
+  const fieldMembers = statement.members.filter((member): member is ClassFieldMember => member.kind === "ClassFieldMember");
+  const typedFieldMembers = fieldMembers.map((field) => ({
+    field,
+    name: cppName(field.name.name),
+    ...classFieldType(field, statement),
+  }));
+  const sourceConstructorParameters = typedParameters.map(({ type, name }) => `${type} ${name}`).join(", ");
+  const usesRuntime = classUsesRuntimeConstructor(statement);
+  const constructorParameters = usesRuntime
+    ? `vexa::Runtime& __vexa_runtime${sourceConstructorParameters ? `, ${sourceConstructorParameters}` : ""}`
+    : sourceConstructorParameters;
+  const initializers = [
+    ...typedParameters.map(({ name }) => `${name}(${name})`),
+    ...typedFieldMembers.map(({ field, name, valueType }) =>
+      `${name}(${field.initializer
+        ? emitClassFieldInitializer(field.initializer, statement)
+        : `vexa::defaultValue<${valueType}>()`})`
+    ),
+  ].join(", ");
+  const constructor = initializers || usesRuntime || constructorParameters
+    ? `${className}(${constructorParameters})${initializers ? ` : ${initializers}` : ""} {}`
     : `${className}() = default;`;
-  const fields = typedParameters.map(({ parameter, type, name }) => {
+  const primaryFields = typedParameters.map(({ parameter, type, name }) => {
     const immutable = parameter.declarationKind === "val" || parameter.declarationKind === "const";
-    return `  ${immutable ? "const " : ""}${type} ${name};`;
+    const declaredType = parameter.typeAnnotation?.name;
+    const storageType = declaredType && activeClassNames.has(declaredType)
+      ? `cppgc::Member<${cppName(declaredType)}>`
+      : type;
+    return `  ${immutable ? "const " : ""}${storageType} ${name};`;
   });
-  const methods = statement.members as ClassMethodMember[];
-  const methodLines: string[] = [];
+  const explicitFields = typedFieldMembers.map(({ field, name, storageType }) => {
+    const immutable = field.declarationKind === "val" || field.declarationKind === "const" || field.readonly;
+    return { access: field.accessModifier ?? "public", text: `  ${immutable ? "const " : ""}${storageType} ${name};` };
+  });
+  const fieldLines = [...primaryFields];
   let activeAccess: "public" | "private" | "protected" = "public";
+  for (const field of explicitFields) {
+    if (field.access !== activeAccess) {
+      fieldLines.push(` ${field.access}:`);
+      activeAccess = field.access;
+    }
+    fieldLines.push(field.text);
+  }
+  const tracedFields = typedParameters
+    .filter(({ parameter }) => Boolean(parameter.typeAnnotation && activeClassNames.has(parameter.typeAnnotation.name)))
+    .map(({ name }) => `visitor->Trace(${name});`);
+  tracedFields.push(...typedFieldMembers.filter(({ traced }) => traced).map(({ name }) => `visitor->Trace(${name});`));
+  const trace = tracedFields.length > 0
+    ? `  void Trace(cppgc::Visitor* visitor) const { ${tracedFields.join(" ")} }`
+    : "  void Trace(cppgc::Visitor*) const {}";
+  const methods = statement.members.filter((member): member is ClassMethodMember => member.kind === "ClassMethodMember");
+  const methodLines: string[] = [];
   for (const method of methods) {
     const access = method.accessModifier ?? "public";
     if (access !== activeAccess) {
@@ -1074,8 +1333,8 @@ function emitClass(statement: ClassStatement): string {
     `class ${className} final : public cppgc::GarbageCollected<${className}> {`,
     " public:",
     `  ${constructor}`,
-    "  void Trace(cppgc::Visitor*) const {}",
-    ...fields,
+    trace,
+    ...fieldLines,
     ...methodLines,
     "};",
   ].join("\n");
@@ -1103,6 +1362,8 @@ function emitStatement(statement: Statement, indent = ""): string {
       return `${indent}${emitVariable(statement as VarStatement)};`;
     case "ForStatement":
       return emitFor(statement as ForStatement, indent);
+    case "SwitchStatement":
+      return emitSwitch(statement as SwitchStatement, indent);
     case "IfStatement": {
       const branch = statement as IfStatement;
       const alternate = branch.elseBranch ? ` else ${emitBody(branch.elseBranch, indent)}` : "";
@@ -1134,6 +1395,10 @@ function emitStatement(statement: Statement, indent = ""): string {
       }
       return `${indent}return${returned ? ` ${emitExpression(returned)}` : ""};`;
     }
+    case "ThrowStatement":
+      return `${indent}vexa::throwValue(${emitExpression((statement as ThrowStatement).expression)});`;
+    case "TryStatement":
+      return emitTry(statement as TryStatement, indent);
     case "BreakStatement":
       return `${indent}break${(statement as BreakStatement).label ? ` /* ${(statement as BreakStatement).label!.name} */` : ""};`;
     case "ContinueStatement":
@@ -1186,6 +1451,8 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeAsyncResultType = null;
   activeGeneratorResultType = null;
   activeYieldTemporaryCounter = 0;
+  activeExceptionTemporaryCounter = 0;
+  activeSwitchTemporaryCounter = 0;
   activeCurrentClassName = null;
   activeCurrentMethodStatic = false;
   activeLocalNames = new Set();

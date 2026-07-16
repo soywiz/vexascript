@@ -33,6 +33,24 @@ describe("C++ emission", () => {
     expect(result.code).toContain('vexa::toUpperCase(vexa::trim(runtime.string(" ok ")))');
   });
 
+  it("emits comma expressions and lazy nullish coalescing", () => {
+    const result = transpile(`val present: any = "value"
+val missing: any = null
+val comma = (console.log("before"), 7)
+console.log(present ?? "fallback", missing ?? "fallback", comma)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('(vexa::console.log(runtime.string("before")), 7)');
+    expect(result.code).toContain("vexa::nullishCoalesce(present, [&]()");
+    expect(result.code).toContain('vexa::convertValue<vexa::Value>(runtime, runtime.string("fallback"))');
+    expect(result.code).toContain("vexa::nullishCoalesce(missing, [&]()");
+  });
+
   it("preserves int and long range iterator types", () => {
     const result = transpile(`for (n of 0 ..< 10) {
   console.log(n)
@@ -49,6 +67,24 @@ for (n of 0L ..< 10L) {
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("for (std::int32_t n = 0; n < 10; n++)");
     expect(result.code).toContain("for (std::int64_t n = 0LL; n < 10LL; n++)");
+  });
+
+  it("emits reusable inclusive and exclusive range expressions", () => {
+    const result = transpile(`val inclusive = 1 ... 3
+val exclusive = 4 ..< 6
+for (value of inclusive) console.log(value)
+for (value of exclusive) console.log(value)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("auto inclusive = vexa::range(1, 3, false);");
+    expect(result.code).toContain("auto exclusive = vexa::range(4, 6, true);");
+    expect(result.code).toContain("for (auto value : inclusive)");
+    expect(result.code).toContain("for (auto value : exclusive)");
   });
 
   it("emits primary-constructor classes as Oilpan-managed objects", () => {
@@ -74,6 +110,63 @@ console.log(point.x, point.y)`, {
     expect(result.code).toContain("auto point = runtime.make<Point>(1, 2);");
     expect(result.code).toContain('vexa::console.log(runtime.string("Hello World!"));');
     expect(result.code).toContain("vexa::console.log(point->x, point->y);");
+  });
+
+  it("traces generated objects stored in primary-constructor fields", () => {
+    const result = transpile(`class Leaf(var value: int)
+
+class Branch(val leaf: Leaf) {
+  fun read(): int {
+    return leaf.value
+  }
+}
+
+val leaf = Leaf(4)
+val branch = Branch(leaf)
+console.log(branch.leaf.value, branch.read())`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("Branch(Leaf* leaf) : leaf(leaf) {}");
+    expect(result.code).toContain("const cppgc::Member<Leaf> leaf;");
+    expect(result.code).toContain("void Trace(cppgc::Visitor* visitor) const { visitor->Trace(leaf); }");
+    expect(result.code).toContain("return this->leaf->value;");
+  });
+
+  it("emits initialized instance fields with runtime-backed strings and objects", () => {
+    const result = transpile(`class Leaf(var value: int)
+
+class Profile {
+  var name: string = "Ada"
+  var score: int = 1
+  val leaf: Leaf = Leaf(5)
+
+  fun total(): int {
+    return score + leaf.value
+  }
+}
+
+val profile = Profile()
+profile.score += 2
+console.log(profile.name, profile.total())`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("Profile(vexa::Runtime& __vexa_runtime)");
+    expect(result.code).toContain('name(__vexa_runtime.string("Ada"))');
+    expect(result.code).toContain("score(1)");
+    expect(result.code).toContain("leaf(__vexa_runtime.make<Leaf>(5))");
+    expect(result.code).toContain("cppgc::Member<Leaf> leaf;");
+    expect(result.code).toContain("visitor->Trace(leaf);");
+    expect(result.code).toContain("runtime.make<Profile>(runtime)");
   });
 
   it("emits typed arrays with indexed access, length, and push", () => {
@@ -131,6 +224,59 @@ for (name of names) {
     expect(result.code).toContain('vexa::push(names, runtime.string("Katherine"));');
     expect(result.code).toContain("for (auto name : names)");
     expect(result.code).toContain("vexa::console.log(vexa::toUpperCase(name));");
+  });
+
+  it("emits integral switch statements with fallthrough and default cases", () => {
+    const result = transpile(`fun label(value: int): string {
+  switch (value) {
+    case 1:
+      return "one"
+    case 2:
+    case 3:
+      return "few"
+    default:
+      return "many"
+  }
+}
+
+console.log(label(2))`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("switch (value) {");
+    expect(result.code).toContain("case 1:");
+    expect(result.code).toContain("case 3:");
+    expect(result.code).toContain("default:");
+  });
+
+  it("lowers string switch statements through a single evaluated case index", () => {
+    const result = transpile(`fun category(value: string): int {
+  switch (value) {
+    case "start":
+      return 1
+    case "stop":
+      return 2
+    default:
+      return 0
+  }
+}
+
+console.log(category("stop"))`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("auto __vexa_switch_value_0 = value;");
+    expect(result.code).toContain("std::int32_t __vexa_switch_case_0 = 2;");
+    expect(result.code).toContain('if (__vexa_switch_value_0 == __vexa_runtime.string("start"))');
+    expect(result.code).toContain("switch (__vexa_switch_case_0)");
   });
 
   it("rejects non-array for-of loops before producing invalid C++", () => {
@@ -344,6 +490,70 @@ clearTimeout(cancelled)`, {
     expect(result.code).toContain("runtime.clearInterval(interval);");
     expect(result.code).toContain("runtime.clearTimeout(cancelled);");
     expect(result.code).toContain("runtime.runEventLoop();");
+  });
+
+  it("emits throw, catch bindings, and finally through native exceptions and RAII", () => {
+    const result = transpile(`fun parse(ok: boolean): int {
+  try {
+    if (!ok) throw Error("bad")
+    return 4
+  } catch (error) {
+    console.log(error)
+    return -1
+  } finally {
+    console.log("done")
+  }
+}
+
+console.log(parse(false))`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("auto __vexa_finally_0 = vexa::finally([&]()");
+    expect(result.code).toContain('vexa::throwValue(vexa::Error(__vexa_runtime.string("bad")));');
+    expect(result.code).toContain("catch (const std::exception& __vexa_caught_error_0)");
+    expect(result.code).toContain("auto error = __vexa_runtime.string(__vexa_caught_error_0.what());");
+  });
+
+  it("emits defer through the shared try-finally lowering", () => {
+    const result = transpile(`fun work(): int {
+  defer console.log("deferred")
+  console.log("working")
+  return 3
+}
+
+console.log(work())`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("auto __vexa_finally_0 = vexa::finally([&]()");
+    expect(result.code).toContain('vexa::console.log(__vexa_runtime.string("deferred"));');
+    expect(result.code).toContain("return 3;");
+  });
+
+  it("rejects control flow that cannot safely escape a native finally guard", () => {
+    const result = transpile(`fun choose(): int {
+  try {
+    return 1
+  } finally {
+    return 2
+  }
+}`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toContain("C++ finally emission does not support return, break, continue, or throw");
   });
 
   it("emits native tasks for async and sync functions with explicit and implicit awaits", () => {

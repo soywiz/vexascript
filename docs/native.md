@@ -44,17 +44,20 @@ silently producing incorrect C++. Its initial surface includes:
   literal default arguments, recursion, inferred `void` returns, class-instance
   parameters, calls from other functions or methods, and `async`/`sync` functions
   represented as native `Task<T>` values;
-- concrete primary-constructor classes whose `val`/`var` properties use primitive
-  types, including construction, property access, and synchronous typed instance
-  and static methods, including static factory methods that return class instances
-  and `async`/`sync` methods;
+- concrete classes whose primary-constructor properties and initialized instance
+  fields use primitive types or other generated classes, including construction,
+  property access, synchronous typed instance and static methods, static factory
+  methods that return class instances, and `async`/`sync` methods;
 - homogeneous arrays with a supported native element type and mixed primitive
   arrays represented by managed dynamic values, including literals, indexed
   reads and writes, `length`, `push`, `includes`, `indexOf`, `join`, `reverse`,
   and synchronous `for-of` loops;
-- range-based `for` loops lowered to native C++ loops;
-- `if`, `while`, `do while`, return, break, and continue statements;
-- arithmetic, comparison, assignment, unary, update, and conditional expressions;
+- range-based `for` loops lowered to native C++ loops and reusable inclusive or
+  exclusive range expressions backed by typed native vectors;
+- `if`, `while`, `do while`, integral and value-based `switch`, return, break,
+  continue, `throw`, `try`/`catch`/`finally`, and `defer` statements;
+- arithmetic, comparison, assignment, unary, update, conditional, comma, and lazy
+  nullish-coalescing expressions;
 - `console.log`, `console.info`, `console.warn`, and `console.error`;
 - a single-threaded event loop with microtasks, `setTimeout`, `setInterval`,
   `clearTimeout`, and `clearInterval`;
@@ -82,6 +85,10 @@ Oilpan heap. Homogeneous string arrays use owned `std::string` elements and
 normal C++ lifetime management rather than Oilpan tracing. Mixed primitive array
 literals infer `any[]`, use `std::vector<vexa::Value>`, and convert every inserted
 or queried value through the runtime so strings retain their managed roots.
+Generated objects stored in another generated object's primary-constructor or
+ordinary instance fields use `cppgc::Member<T>` and are visited by the owner's
+generated `Trace` method. Field initializers that allocate managed strings or
+objects use the hidden runtime passed to the generated constructor.
 
 Generated functions and methods receive the active runtime through a hidden C++
 parameter. VexaScript call sites remain unchanged. This keeps heap ownership and
@@ -133,6 +140,26 @@ matching the usual timer lifecycle. Timer callbacks currently support synchronou
 zero-argument functions and arrows. Top-level arrows capture entrypoint locals by
 reference; arrows created inside a callable capture ordinary values by value and
 root captured generated class objects with `cppgc::Persistent`.
+
+Integral and boolean switches emit direct C++ `switch` statements. Other
+comparable discriminants, including managed strings and dynamic values, are
+evaluated once and mapped to a native case index before entering a C++ switch;
+this preserves source case-expression order, fallthrough, and defaults without
+duplicating the discriminant expression.
+
+Source throws are normalized through `throwValue` into native exceptions. Catch
+bindings receive the exception message as a managed VexaScript string. `finally`
+uses a move-only RAII guard, so it runs for normal completion, return, or exception;
+the shared lowering means `defer` uses exactly the same path. A native `finally`
+block currently rejects `return`, `break`, `continue`, and `throw`, whose JavaScript
+override semantics cannot be represented safely by a destructor callback.
+
+Reusable `...` and `..<` expressions materialize a typed native vector, so they
+can be stored and traversed more than once; direct range `for` loops keep their
+allocation-free lowering. Comma expressions preserve left-to-right evaluation.
+Dynamic `??` uses a callback-based runtime helper so the right operand is only
+evaluated for `null` or `undefined`; statically non-null native values omit the
+fallback entirely.
 
 The initial task lowering executes each async/sync callable body as one microtask;
 it does not yet split a body into continuations at every `await`. Consequently,
