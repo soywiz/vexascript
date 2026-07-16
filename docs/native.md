@@ -49,6 +49,10 @@ silently producing incorrect C++. Its initial surface includes:
   explicit `new` construction, property access, synchronous typed instance and
   static methods, static factory methods that return class instances, and
   `async`/`sync` methods, plus synchronous class operator overloads;
+- required method-only interfaces, single-interface inheritance, concrete class
+  conformance with one interface through either `:` or `implements`, virtual
+  calls through interface-typed parameters and fields, and homogeneous arrays
+  containing different implementations of one interface;
 - homogeneous arrays with a supported native element type and mixed primitive
   arrays represented by managed dynamic values, including literals, indexed
   reads and writes, `length`, `push`, `includes`, `indexOf`, `join`, `reverse`,
@@ -93,6 +97,9 @@ Generated objects stored in another generated object's primary-constructor or
 ordinary instance fields use `cppgc::Member<T>` and are visited by the owner's
 generated `Trace` method. Field initializers that allocate managed strings or
 objects use the hidden runtime passed to the generated constructor.
+Generated interfaces inherit `cppgc::GarbageCollectedMixin`, so interface-typed
+fields and persistent callback captures retain the concrete Oilpan object and
+dispatch tracing through the interface hierarchy.
 
 Generated functions and methods receive the active runtime through a hidden C++
 parameter. VexaScript call sites remain unchanged. This keeps heap ownership and
@@ -107,6 +114,14 @@ identifier sets. The analyzer decides whether an unqualified identifier means a
 local, an instance member, or a static member; each backend only chooses its target
 spelling (`this.member`, `this->member`, or `Class::member`). The C++ emitter does
 not repeat field-name or local-shadowing inference.
+
+Native interfaces are emitted before their implementing classes as abstract C++
+bases. Their method signatures use the same hidden-runtime and argument-conversion
+helpers as ordinary class methods. Member-call lookup starts from the analyzer's
+receiver type and walks an interface's declared base, so virtual dispatch adds no
+parallel assignability or overload-selection logic to the emitter. Generic,
+optional, property-bearing, and multiple-inheritance interfaces remain unsupported
+by native emission and are rejected explicitly.
 
 Native `async` and `sync` calls enqueue their callable body as a microtask on the
 same `Runtime` that owns timers. `await` waits for a `Task<T>` while pumping that

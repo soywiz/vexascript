@@ -178,6 +178,76 @@ console.log(sum.value, negative.value, less, same, different, indexed)`, {
     expect(result.code).toContain("sum->operator_set__int__int(runtime, 8, 2)");
   });
 
+  it("emits interface contracts and dispatches different implementations through one type", () => {
+    const result = transpile(`interface Greeter {
+  fun greet(prefix: string): string
+}
+
+interface NamedGreeter extends Greeter {
+  fun label(): string
+}
+
+class English(val name: string) : NamedGreeter {
+  override fun greet(prefix: string): string => prefix + " " + name
+  override fun label(): string => "English"
+}
+
+class Spanish(val name: string) implements NamedGreeter {
+  override fun greet(prefix: string): string => prefix + ", " + name
+  override fun label(): string => "Spanish"
+}
+
+class GreeterHolder(val value: Greeter) {
+  fun greet(): string => value.greet("Stored")
+}
+
+fun greet(value: Greeter, prefix: string): string {
+  return value.greet(prefix)
+}
+
+fun identify(value: NamedGreeter): string {
+  return value.greet("Welcome") + " from " + value.label()
+}
+
+val first: NamedGreeter = English("Ada")
+val second: NamedGreeter = Spanish("Luz")
+val greeters: Greeter[] = [first, second]
+val holder = GreeterHolder(second)
+console.log(greet(first, "Hello"), greet(second, "Hola"), identify(first), holder.greet())
+for (greeter of greeters) console.log(greeter.greet("Hi"))`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("class Greeter;");
+    expect(result.code).toContain("class Greeter : public cppgc::GarbageCollectedMixin {");
+    expect(result.code).toContain("class NamedGreeter : public Greeter {");
+    expect(result.code).toContain(
+      "virtual vexa::Value greet(vexa::Runtime& __vexa_runtime, vexa::Value prefix) = 0;"
+    );
+    expect(result.code).toContain(
+      "class English final : public cppgc::GarbageCollected<English>, public NamedGreeter"
+    );
+    expect(result.code).toContain(
+      "class Spanish final : public cppgc::GarbageCollected<Spanish>, public NamedGreeter"
+    );
+    expect(result.code).toContain("vexa::Value greet(vexa::Runtime& __vexa_runtime, vexa::Value prefix) override");
+    expect(result.code).toContain("vexa::Value greet(vexa::Runtime& __vexa_runtime, Greeter* value, vexa::Value prefix);");
+    expect(result.code).toContain("return value->greet(__vexa_runtime, prefix);");
+    expect(result.code).toContain('value->greet(__vexa_runtime, __vexa_runtime.string("Welcome"))');
+    expect(result.code).toContain("value->label(__vexa_runtime)");
+    expect(result.code).toContain("std::vector<Greeter*>{first, second}");
+    expect(result.code).toContain("const cppgc::Member<Greeter> value;");
+    expect(result.code).toContain("visitor->Trace(value);");
+    expect(result.code).toContain('greeter->greet(runtime, runtime.string("Hi"))');
+    expect(result.code).toContain(
+      'greet(runtime, first, runtime.string("Hello")), greet(runtime, second, runtime.string("Hola")), identify(runtime, first)'
+    );
+  });
+
   it("emits primary-constructor classes as Oilpan-managed objects", () => {
     const result = transpile(`class Point(val x: number, val y: number)
 

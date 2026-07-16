@@ -251,6 +251,21 @@ to the shared AST layer and is consumed by analysis and both emitters. A native
 `assignWith` helper binds the compound target once, calls the resolved overload,
 and stores its result, avoiding duplicated side effects for member targets.
 
+Native interfaces exposed a similar drift risk. Recomputing structural
+assignability in the C++ emitter was unnecessary: analyzed receiver types already
+identify the interface whose method signature supplies argument conversion, and
+the analyzer already verifies each concrete implementation. The emitter now only
+walks the declared single-interface inheritance chain to recover that signature,
+then relies on C++ virtual dispatch for the concrete call.
+
+Using an ordinary C++ abstract base compiled and dispatched correctly, but it was
+not enough for interface-typed object fields or callback captures: Oilpan cannot
+trace an erased concrete pointer through an unrelated base. Emitted root
+interfaces therefore inherit `GarbageCollectedMixin`, inherited interfaces
+delegate `Trace` to their base, and concrete classes delegate before tracing their
+own `Member` fields. This keeps interface-typed `Member` and `Persistent` handles
+valid without adding a parallel registry of concrete implementations.
+
 ## Investigation notes and rejected paths
 
 Putting source extraction and `g++` directly in the transpiler would have been
@@ -284,6 +299,9 @@ incorrect native programs.
 - GC object member access uses one name-to-class map seeded by parameters,
   initializers, and shared expression analysis. Future inheritance and container
   fields must preserve that same source of truth.
+- Interface pointers must remain Oilpan mixins when they cross a traced field,
+  persistent callback capture, task, or coroutine boundary. A plain abstract C++
+  base can pass dispatch tests while still being unsound under collection.
 - Array support deliberately depends on one representable native element type.
   Heterogeneous, sparse, and spread arrays need a deliberate dynamic
   value/container design instead of relying on C++ deduction or silent coercion.

@@ -1056,6 +1056,12 @@ interface PairStore<K, V> extends Iterable<K> {
 
 `interface` declarations are type-only and are omitted from emitted JavaScript output.
 
+The native C++ backend supports required, non-generic method-only interfaces with
+at most one base interface. Classes can conform to one interface through either
+the colon form or `implements`; interface-typed parameters, fields, local values,
+returns, and homogeneous arrays use virtual dispatch, so different implementing
+classes can be passed and called through the same interface type.
+
 
 ### Enums
 

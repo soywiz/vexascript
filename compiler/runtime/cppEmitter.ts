@@ -23,6 +23,8 @@ import type {
   FunctionParameter,
   Identifier,
   IfStatement,
+  InterfaceMethodMember,
+  InterfaceStatement,
   MemberExpression,
   NamedArgument,
   NewExpression,
@@ -65,10 +67,12 @@ const CPP_RESERVED_WORDS = new Set([
 ]);
 
 let activeClassNames: ReadonlySet<string> = new Set();
+let activeInterfaceNames: ReadonlySet<string> = new Set();
 let activeGcObjectTypes: Map<string, string> = new Map();
 let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> = new Map();
 let activeFunctionStatements: ReadonlyMap<string, FunctionStatement> = new Map();
 let activeClassStatements: ReadonlyMap<string, ClassStatement> = new Map();
+let activeInterfaceStatements: ReadonlyMap<string, InterfaceStatement> = new Map();
 let activeCurrentClassName: string | null = null;
 let activeCurrentMethodStatic = false;
 let activeLocalNames: Set<string> = new Set();
@@ -186,7 +190,7 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
     const elementType = elementTypes.size === 1 ? [...elementTypes][0] : null;
     return elementType ? `std::vector<${elementType}>` : null;
   }
-  if (type.kind === "named" && activeClassNames.has(type.name)) {
+  if (type.kind === "named" && isNativeObjectTypeName(type.name)) {
     return `${cppName(type.name)}*`;
   }
   return null;
@@ -195,7 +199,11 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
 function cppTypeForDeclaredName(typeName: string): string | null {
   const builtin = cppTypeForBuiltin(typeName as BuiltinTypeName);
   if (builtin) return builtin;
-  return activeClassNames.has(typeName) ? `${cppName(typeName)}*` : null;
+  return isNativeObjectTypeName(typeName) ? `${cppName(typeName)}*` : null;
+}
+
+function isNativeObjectTypeName(typeName: string): boolean {
+  return activeClassNames.has(typeName) || activeInterfaceNames.has(typeName);
 }
 
 function cppArrayElementType(type: AnalysisType): string | null {
@@ -230,7 +238,8 @@ function isGeneratorExpression(expression: Expr): boolean {
   const functionName = identifierName(call.callee);
   if (functionName && activeFunctionStatements.get(functionName)?.generator) return true;
   const member = memberParts(call.callee);
-  return Boolean(member && classMethodForMember(member)?.generator);
+  const method = member ? classMethodForMember(member) : null;
+  return method?.kind === "ClassMethodMember" && Boolean(method.generator);
 }
 
 function emitConvertedValue(expression: Expr, resultType: string): string {
@@ -317,7 +326,7 @@ function classNameForExpression(expression: Expr): string | null {
     if (name === "this") return activeCurrentClassName;
     const tracked = activeGcObjectTypes.get(name);
     if (tracked) return tracked;
-    if (activeClassNames.has(name)) return null;
+    if (isNativeObjectTypeName(name)) return null;
   }
   if (expression.kind === "CallExpression") {
     const calleeName = identifierName((expression as CallExpression).callee);
@@ -328,7 +337,7 @@ function classNameForExpression(expression: Expr): string | null {
     if (calleeName && activeClassNames.has(calleeName)) return calleeName;
   }
   const type = activeExpressionTypes.get(expression as Node);
-  return type?.kind === "named" && activeClassNames.has(type.name) ? type.name : null;
+  return type?.kind === "named" && isNativeObjectTypeName(type.name) ? type.name : null;
 }
 
 function staticClassNameForExpression(expression: Expr): string | null {
@@ -337,11 +346,35 @@ function staticClassNameForExpression(expression: Expr): string | null {
   return activeClassNames.has(name) && !activeLocalNames.has(name) ? name : null;
 }
 
-function classMethodForMember(member: { object: Expr; propertyName: string }): ClassMethodMember | null {
+function interfaceMethodForName(
+  statement: InterfaceStatement,
+  methodName: string,
+  visited = new Set<string>()
+): InterfaceMethodMember | null {
+  if (visited.has(statement.name.name)) return null;
+  visited.add(statement.name.name);
+  const ownMethod = statement.members.find((candidate): candidate is InterfaceMethodMember =>
+    candidate.kind === "InterfaceMethodMember" && candidate.name.name === methodName);
+  if (ownMethod) return ownMethod;
+  for (const extendedType of statement.extendsTypes ?? []) {
+    const parent = activeInterfaceStatements.get(extendedType.name);
+    const inheritedMethod = parent ? interfaceMethodForName(parent, methodName, visited) : null;
+    if (inheritedMethod) return inheritedMethod;
+  }
+  return null;
+}
+
+function classMethodForMember(
+  member: { object: Expr; propertyName: string }
+): ClassMethodMember | InterfaceMethodMember | null {
   const className = staticClassNameForExpression(member.object) ?? classNameForExpression(member.object);
-  const statement = className ? activeClassStatements.get(className) : undefined;
-  return (statement?.members.find((candidate): candidate is ClassMethodMember =>
-    candidate.kind === "ClassMethodMember" && candidate.name.name === member.propertyName) ?? null);
+  if (!className) return null;
+  const classStatement = activeClassStatements.get(className);
+  const classMethod = classStatement?.members.find((candidate): candidate is ClassMethodMember =>
+    candidate.kind === "ClassMethodMember" && candidate.name.name === member.propertyName);
+  if (classMethod) return classMethod;
+  const interfaceStatement = activeInterfaceStatements.get(className);
+  return interfaceStatement ? interfaceMethodForName(interfaceStatement, member.propertyName) : null;
 }
 
 function classUsesRuntimeConstructor(statement: ClassStatement | undefined): boolean {
@@ -511,7 +544,7 @@ function emitCall(call: CallExpression): string {
     const method = classMethodForMember(member);
     if (method) {
       const methodArguments = emitCallArguments(call, method.parameters);
-      if (method.static) {
+      if (method.kind === "ClassMethodMember" && method.static) {
         const className = staticClassNameForExpression(member.object);
         if (!className) {
           throw new CppEmitError("C++ static methods must be called through their class name");
@@ -1116,7 +1149,7 @@ function callableParameters(parameters: readonly FunctionParameter[], owner: Sta
       throw new CppEmitError("C++ emission requires supported type annotations on function and method parameters", owner);
     }
     names.push(sourceName);
-    if (typeName && activeClassNames.has(typeName)) gcTypes.set(sourceName, typeName);
+    if (typeName && isNativeObjectTypeName(typeName)) gcTypes.set(sourceName, typeName);
     return `${type} ${cppName(sourceName)}`;
   }).join(", ");
   return { text, names, gcTypes };
@@ -1310,7 +1343,7 @@ function classFieldType(field: ClassFieldMember, statement: ClassStatement): {
   if (!valueType || valueType === "void") {
     throw new CppEmitError(`C++ emission does not support class field type '${declaredType}' yet`, statement);
   }
-  const traced = activeClassNames.has(declaredType);
+  const traced = isNativeObjectTypeName(declaredType);
   return {
     valueType,
     storageType: traced ? `cppgc::Member<${cppName(declaredType)}>` : valueType,
@@ -1357,6 +1390,80 @@ function validateClassMethod(method: ClassMethodMember, statement: ClassStatemen
   }
 }
 
+function emitInterfaceMethod(method: InterfaceMethodMember, statement: InterfaceStatement): string {
+  if (
+    method.accessorKind ||
+    method.computed ||
+    method.optional ||
+    method.typeParameters?.length
+  ) {
+    throw new CppEmitError("C++ emission supports required, non-generic interface methods only", statement);
+  }
+  const resultType = method.returnType
+    ? cppTypeForDeclaredName(method.returnType.name)
+    : "void";
+  if (!resultType) {
+    throw new CppEmitError(
+      `C++ emission does not support interface method return type '${method.returnType?.name}' yet`,
+      statement
+    );
+  }
+  const parameters = callableParameters(method.parameters, statement, false).text;
+  return `  virtual ${resultType} ${cppName(method.name.name)}(vexa::Runtime& __vexa_runtime${parameters ? `, ${parameters}` : ""}) = 0;`;
+}
+
+function emitInterface(statement: InterfaceStatement): string {
+  if (
+    statement.typeParameters?.length ||
+    (statement.extendsTypes?.length ?? 0) > 1 ||
+    statement.members.some((member) => member.kind !== "InterfaceMethodMember")
+  ) {
+    throw new CppEmitError("C++ emission supports non-generic method-only interfaces with at most one base interface", statement);
+  }
+  const extendedInterfaces = (statement.extendsTypes ?? []).map((extendedType) => {
+    if (!activeInterfaceNames.has(extendedType.name)) {
+      throw new CppEmitError(
+        `C++ interface '${statement.name.name}' can only extend another emitted interface`,
+        statement
+      );
+    }
+    return `public ${cppName(extendedType.name)}`;
+  });
+  const inheritance = extendedInterfaces.length > 0
+    ? ` : ${extendedInterfaces.join(", ")}`
+    : " : public cppgc::GarbageCollectedMixin";
+  const traceBody = (statement.extendsTypes ?? [])
+    .map((extendedType) => `${cppName(extendedType.name)}::Trace(visitor);`)
+    .join(" ");
+  const trace = traceBody
+    ? `  void Trace(cppgc::Visitor* visitor) const override { ${traceBody} }`
+    : "  void Trace(cppgc::Visitor*) const override {}";
+  return [
+    `class ${cppName(statement.name.name)}${inheritance} {`,
+    " public:",
+    `  virtual ~${cppName(statement.name.name)}() = default;`,
+    trace,
+    ...statement.members.map((member) => emitInterfaceMethod(member as InterfaceMethodMember, statement)),
+    "};",
+  ].join("\n");
+}
+
+function classImplementsMethod(statement: ClassStatement, methodName: string): boolean {
+  return implementedInterfaceTypes(statement).some((implementedType) => {
+    const interfaceStatement = activeInterfaceStatements.get(implementedType.name);
+    return Boolean(interfaceStatement && interfaceMethodForName(interfaceStatement, methodName));
+  });
+}
+
+function implementedInterfaceTypes(statement: ClassStatement): Identifier[] {
+  return [
+    ...(statement.extendsType && activeInterfaceNames.has(statement.extendsType.name)
+      ? [statement.extendsType]
+      : []),
+    ...(statement.implementsTypes ?? []),
+  ];
+}
+
 function emitClassMethod(
   method: ClassMethodMember,
   statement: ClassStatement
@@ -1382,8 +1489,9 @@ function emitClassMethod(
     generatorInfo,
     method.operator ? operatorMethodRuntimeName(method.operator, method.parameters) : method.name.name
   );
+  const override = classImplementsMethod(statement, method.name.name) ? " override" : "";
   return withCallableContext(method.parameters, statement.name.name, Boolean(method.static), asyncResultType, generatorInfo?.resultType ?? null, statement, () =>
-    `  ${method.static ? "static " : ""}${signature} ${generatorInfo
+    `  ${method.static ? "static " : ""}${signature}${override} ${generatorInfo
       ? emitGeneratorCallableBlock(method.body, "  ", generatorInfo.resultType)
       : asyncResultType
         ? emitScheduledCallableBlock(method.body, "  ", asyncResultType)
@@ -1396,18 +1504,21 @@ function emitClass(statement: ClassStatement): string {
     statement.declared ||
     statement.abstract ||
     statement.typeParameters?.length ||
-    statement.extendsType ||
-    statement.implementsTypes?.length ||
+    (statement.extendsType && !activeInterfaceNames.has(statement.extendsType.name)) ||
+    statement.implementsTypes?.some((implementedType) => !activeInterfaceNames.has(implementedType.name)) ||
+    implementedInterfaceTypes(statement).length > 1 ||
     statement.classDelegates?.length ||
     statement.members.some((member) => member.kind !== "ClassMethodMember" && member.kind !== "ClassFieldMember")
   ) {
     throw new CppEmitError(
-      "C++ emission currently supports concrete non-generic classes with fields and instance methods only",
+      "C++ emission currently supports concrete non-generic classes with fields, methods, and one emitted interface only",
       statement
     );
   }
 
   const className = cppName(statement.name.name);
+  const implementedInterfaces = implementedInterfaceTypes(statement)
+    .map((implementedType) => `public ${cppName(implementedType.name)}`);
   const parameters = statement.primaryConstructorParameters ?? [];
   if (parameters.some((parameter) => parameter.defaultValue && !isSupportedDefaultExpression(parameter.defaultValue))) {
     throw new CppEmitError("C++ emission currently supports literal class constructor defaults only", statement);
@@ -1442,7 +1553,7 @@ function emitClass(statement: ClassStatement): string {
   const primaryFields = typedParameters.map(({ parameter, type, name }) => {
     const immutable = parameter.declarationKind === "val" || parameter.declarationKind === "const";
     const declaredType = parameter.typeAnnotation?.name;
-    const storageType = declaredType && activeClassNames.has(declaredType)
+    const storageType = declaredType && isNativeObjectTypeName(declaredType)
       ? `cppgc::Member<${cppName(declaredType)}>`
       : type;
     return `  ${immutable ? "const " : ""}${storageType} ${name};`;
@@ -1461,11 +1572,14 @@ function emitClass(statement: ClassStatement): string {
     fieldLines.push(field.text);
   }
   const tracedFields = typedParameters
-    .filter(({ parameter }) => Boolean(parameter.typeAnnotation && activeClassNames.has(parameter.typeAnnotation.name)))
+    .filter(({ parameter }) => Boolean(parameter.typeAnnotation && isNativeObjectTypeName(parameter.typeAnnotation.name)))
     .map(({ name }) => `visitor->Trace(${name});`);
   tracedFields.push(...typedFieldMembers.filter(({ traced }) => traced).map(({ name }) => `visitor->Trace(${name});`));
-  const trace = tracedFields.length > 0
-    ? `  void Trace(cppgc::Visitor* visitor) const { ${tracedFields.join(" ")} }`
+  const implementedInterfaceTraceCalls = implementedInterfaceTypes(statement)
+    .map((implementedType) => `${cppName(implementedType.name)}::Trace(visitor);`);
+  const traceStatements = [...implementedInterfaceTraceCalls, ...tracedFields];
+  const trace = traceStatements.length > 0
+    ? `  void Trace(cppgc::Visitor* visitor) const${implementedInterfaceTraceCalls.length > 0 ? " override" : ""} { ${traceStatements.join(" ")} }`
     : "  void Trace(cppgc::Visitor*) const {}";
   const methods = statement.members.filter((member): member is ClassMethodMember => member.kind === "ClassMethodMember");
   const methodLines: string[] = [];
@@ -1479,7 +1593,7 @@ function emitClass(statement: ClassStatement): string {
   }
 
   return [
-    `class ${className} final : public cppgc::GarbageCollected<${className}> {`,
+    `class ${className} final : public cppgc::GarbageCollected<${className}>${implementedInterfaces.length > 0 ? `, ${implementedInterfaces.join(", ")}` : ""} {`,
     " public:",
     `  ${constructor}`,
     trace,
@@ -1580,16 +1694,42 @@ export interface CppEmitSemantics {
   operatorResolutions?: ReadonlyMap<Node, AnalysisSymbol>;
 }
 
+function interfacesInDependencyOrder(interfaces: readonly InterfaceStatement[]): InterfaceStatement[] {
+  const byName = new Map(interfaces.map((statement) => [statement.name.name, statement]));
+  const emitted = new Set<string>();
+  const visiting = new Set<string>();
+  const result: InterfaceStatement[] = [];
+  const visit = (statement: InterfaceStatement): void => {
+    const name = statement.name.name;
+    if (emitted.has(name) || visiting.has(name)) return;
+    visiting.add(name);
+    for (const extendedType of statement.extendsTypes ?? []) {
+      const parent = byName.get(extendedType.name);
+      if (parent) visit(parent);
+    }
+    visiting.delete(name);
+    emitted.add(name);
+    result.push(statement);
+  };
+  interfaces.forEach(visit);
+  return result;
+}
+
 export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {}): string {
   const statements = program.body.map((statement) =>
     statement.kind === "ExportStatement" && (statement as ExportStatement).declaration
       ? (statement as ExportStatement).declaration!
       : statement
   );
+  const interfaces = statements.filter(
+    (statement): statement is InterfaceStatement => statement.kind === "InterfaceStatement"
+  );
   const classes = statements.filter((statement): statement is ClassStatement => statement.kind === "ClassStatement");
   const functions = statements.filter((statement): statement is FunctionStatement => statement.kind === "FunctionStatement");
   activeClassStatements = new Map(classes.map((statement) => [statement.name.name, statement]));
   activeClassNames = new Set(activeClassStatements.keys());
+  activeInterfaceStatements = new Map(interfaces.map((statement) => [statement.name.name, statement]));
+  activeInterfaceNames = new Set(activeInterfaceStatements.keys());
   activeFunctionStatements = new Map(functions.map((statement) => [statement.name.name, statement]));
   activeGcObjectTypes = new Map();
   activeExpressionTypes = semantics.expressionTypes ?? new Map();
@@ -1614,11 +1754,19 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeLocalNames = new Set();
   activeRuntimeName = "runtime";
 
+  const forwardInterfaces = interfaces.map((statement) => `class ${cppName(statement.name.name)};`);
   const forwardClasses = classes.map((statement) => `class ${cppName(statement.name.name)};`);
+  const interfaceDefinitions = interfacesInDependencyOrder(interfaces).map(emitInterface);
   const functionPrototypes = functions.map((statement) => `${functionSignature(statement)};`);
   const classDefinitions = classes.map(emitClass);
   const functionDefinitions = functions.map(emitFunction);
-  const declarationSections = [forwardClasses, functionPrototypes, classDefinitions, functionDefinitions]
+  const declarationSections = [
+    [...forwardInterfaces, ...forwardClasses],
+    interfaceDefinitions,
+    functionPrototypes,
+    classDefinitions,
+    functionDefinitions,
+  ]
     .filter((section) => section.length > 0);
   const declarations = declarationSections.flatMap((section, index) =>
     index === declarationSections.length - 1 ? section : [...section, ""]
