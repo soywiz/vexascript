@@ -1840,18 +1840,23 @@ function functionSignature(statement: FunctionStatement): string {
 
 function emitFunction(statement: FunctionStatement): string {
   const signature = functionSignature(statement);
+  const asyncLike = Boolean(statement.async || statement.sync);
   const generatorInfo = callableGeneratorInfo(
     statement.name,
     statement.returnType,
     Boolean(statement.generator),
-    Boolean(statement.async || statement.sync),
+    asyncLike,
     statement
   );
+  const producesTask = !generatorInfo && callableProducesTask(statement.name, statement.returnType, asyncLike);
   const asyncResultType = !generatorInfo && (statement.async || statement.sync)
     ? callableReturnType(statement.returnType, statement.body, statement, statement.name, true)
     : null;
-  const callableResultType = generatorInfo?.resultType ?? asyncResultType ??
-    callableReturnType(statement.returnType, statement.body, statement, statement.name);
+  const valueResultType = generatorInfo?.resultType ?? asyncResultType ??
+    callableReturnType(statement.returnType, statement.body, statement, statement.name, producesTask);
+  const callableResultType = producesTask && !asyncResultType
+    ? `vexa::Task<${valueResultType}>`
+    : valueResultType;
   return withCallableContext(
     statement.parameters,
     null,
@@ -2305,6 +2310,11 @@ function emitClassMethod(
     Boolean(method.async || method.sync),
     statement
   );
+  const producesTask = !generatorInfo && callableProducesTask(
+    method.name,
+    method.returnType,
+    Boolean(method.async || method.sync)
+  );
   const asyncResultType = !generatorInfo && (method.async || method.sync)
     ? callableReturnType(method.returnType, method.body, statement, method.name, true)
     : null;
@@ -2314,7 +2324,7 @@ function emitClassMethod(
     method.returnType,
     method.body,
     statement,
-    generatorInfo ? false : callableProducesTask(method.name, method.returnType, asyncResultType !== null),
+    producesTask,
     generatorInfo,
     method.operator ? operatorMethodRuntimeName(method.operator, method.parameters) : method.name.name
   );
@@ -2324,8 +2334,11 @@ function emitClassMethod(
     return `  virtual ${signature} = 0;`;
   }
   const virtual = activeDerivedClassNames.has(statement.name.name) && !method.static ? "virtual " : "";
-  const callableResultType = generatorInfo?.resultType ?? asyncResultType ??
-    callableReturnType(method.returnType, method.body, statement, method.name);
+  const valueResultType = generatorInfo?.resultType ?? asyncResultType ??
+    callableReturnType(method.returnType, method.body, statement, method.name, producesTask);
+  const callableResultType = producesTask && !asyncResultType
+    ? `vexa::Task<${valueResultType}>`
+    : valueResultType;
   return withCallableContext(
     method.parameters,
     statement.name.name,

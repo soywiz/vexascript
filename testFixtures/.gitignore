@@ -1,5 +1,6 @@
 loop
 loop.cpp
+timer
 *.cpp
 *.build
 *.map

@@ -374,6 +374,16 @@ emitter now distinguishes value-taking operations from callback-taking ones
 before routing both to the runtime. Managed strings continue to cross APIs as
 `Value`, while split results become owned native strings in a typed vector.
 
+Validating the standalone timer fixture after the exact-finally rewrite exposed
+a distinction hidden by emitter-only tests: a non-async function declared to
+return `Promise<T>` returns `Task<T>` directly, while an async function's coroutine
+completion carries only `T`. The first return-signal boundary used the resolved
+type for both cases, producing a C++ catch that attempted to return `T` from a
+`Task<T>` function. Callable emission now derives the boundary completion type
+from the same task-producing decision used by the signature. The focused emitter
+test asserts the complete `Task<T>` signal type, and the timer fixture is also
+compiled and executed as a native integration check.
+
 ## Investigation notes and rejected paths
 
 Putting source extraction and `g++` directly in the transpiler would have been

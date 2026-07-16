@@ -1288,6 +1288,8 @@ console.log(await resolvedValue())`, {
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("vexa::Task<vexa::Value> delay(vexa::Runtime& __vexa_runtime, double ms);");
     expect(result.code).toContain("return vexa::Task<vexa::Value>::create(__vexa_runtime,");
+    expect(result.code).toContain("catch (const vexa::ReturnSignal<vexa::Task<vexa::Value>>& __vexa_return)");
+    expect(result.code).not.toContain("catch (const vexa::ReturnSignal<vexa::Value>& __vexa_return)");
     expect(result.code).toContain("(auto resolve, auto reject) mutable");
     expect(result.code).toContain("__vexa_runtime.setTimeout(resolve, ms);");
     expect(result.code).toContain("resolve(5);");
