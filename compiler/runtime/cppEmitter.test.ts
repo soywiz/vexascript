@@ -923,6 +923,22 @@ console.log(total, last, words.slice(1).join("-"), "hello".startsWith("he"), Obj
     expect(result.code).toContain("vexa::recordKeys(runtime.record(");
   });
 
+  it("infers native generic-lambda parameters for implicit it callbacks", () => {
+    const result = transpile(`val values = [1, 2, 3, 4]
+val selected = values.map { it * 3 }.filter { it % 2 == 0 }
+console.log(selected)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("(auto it)");
+    expect(result.code).toContain("vexa::map(values");
+    expect(result.code).toContain("vexa::filter(");
+  });
+
   it("emits typed custom functions and injects the runtime into calls", () => {
     const result = transpile(`fun twice(value: int): int {
   return multiply(factor: 2, value: value)

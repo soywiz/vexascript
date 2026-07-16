@@ -3,21 +3,22 @@
 VexaScript can emit a C++ translation unit from a single source file:
 
 ```sh
-vexa build main.vx --emit cpp
+vexa cpp main.vx
 ```
 
-The default output is `main.cpp`. To compile directly to a native executable,
-use:
+The default output is `main.cpp`; `-o <file>` selects another C++ output path.
+`vexa build main.vx --emit cpp` remains available as the equivalent compatibility
+form. To compile directly to a native executable, use:
 
 ```sh
-vexa native main.vx
+vexa executable main.vx
 ./main
 ```
 
 The intermediate C++ file is written to `main.vx.build/main.cpp`. Use
 `--build-dir <dir>` to select a different intermediate directory and
-`-o <file>` to select the executable path. `vexa build main.vx --native` remains
-an alias for this direct native workflow.
+`-o <file>` to select the executable path. `vexa native main.vx` and
+`vexa build main.vx --native` remain compatibility forms of this workflow.
 
 The first native build extracts `native/oilpan-standalone-main.zip` and builds
 `liboilpan_gc.a` under the operating system's temporary directory, with CMake
@@ -235,6 +236,9 @@ Class calls and explicit `new Class(...)` use one generated construction path, s
 runtime injection, named arguments, defaults, and Oilpan allocation cannot drift.
 Typed arrows and anonymous function expressions likewise share one native-lambda
 emitter and root captured generated objects using the existing capture policy.
+Contextually inferred callback parameters, including brace-lambda `it`, emit as
+C++ generic-lambda parameters so collection callbacks do not require redundant
+source annotations.
 
 Synchronous class operator methods support unary `+`/`-`, binary overloads,
 compound assignment through the corresponding binary overload, comparisons
@@ -260,6 +264,7 @@ Native collection helpers include array `push`/`pop`/`shift`/`unshift`,
 `endsWith`, `charAt`, `substring`, `slice`, and `split`. `Object.keys` and
 `Object.values` enumerate managed records. These calls retain their analyzed
 element/result types and reuse the same native lambda emitter as user callbacks.
+Native console methods print typed and dynamic arrays using bracketed elements.
 
 Native builds follow transitive local `.vx`, `.ts`, and `.tsx` imports through
 the same resolver and project import mappings used by JavaScript module graphs.

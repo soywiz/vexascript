@@ -4,8 +4,8 @@ fun delay(ms: number) => Promise { resolve, reject ->
 
 sync fun demo() {
   console.log('start')
-  go delay(1000)
-  console.log('after one second')
+  delay(1000)
+  console.log('after one second', [1, 2, 3, 4].map { it * 3 }.filter { it % 2 == 0 })
 }
 
 demo()

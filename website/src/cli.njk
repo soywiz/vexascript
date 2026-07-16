@@ -18,6 +18,14 @@ permalink: /cli.html
           <p>Compile a VexaScript file to JavaScript, with optional bundling and JSX factory overrides.</p>
         </div>
         <div>
+          <code>cpp</code> <code class="command_switch">&lt;input.vx&gt;</code>
+          <p>Emit a C++ translation unit without compiling it.</p>
+        </div>
+        <div>
+          <code>executable</code> <code class="command_switch">&lt;input.vx&gt;</code>
+          <p>Emit C++, build the Oilpan runtime when needed, and link a native executable. <code>native</code> remains a compatibility alias.</p>
+        </div>
+        <div>
           <code>bundle</code> <code class="command_switch">&lt;input&gt;</code>
           <p>Bundle a VexaScript entry file and all referenced modules as ESM output.</p>
         </div>
@@ -64,7 +72,7 @@ permalink: /cli.html
       <div class="cli-flag-grid">
         <div>
           <code>-o, --out &lt;file&gt;</code>
-          <p>Available on <code>build</code>, <code>bundle</code>, and <code>format</code> to control the output path.</p>
+          <p>Available on <code>build</code>, <code>cpp</code>, <code>executable</code>, <code>bundle</code>, and <code>format</code> to control the output path.</p>
         </div>
         <div>
           <code>--target &lt;mode&gt;</code>
@@ -84,6 +92,8 @@ permalink: /cli.html
   </div>
 {% highlightVexaScript %}
 pnpm tsx cli/cli.ts build src/main.vx --out dist/main.js --target optimized
+pnpm tsx cli/cli.ts cpp src/main.vx --out dist/main.cpp
+pnpm tsx cli/cli.ts executable src/main.vx --out dist/main
 pnpm tsx cli/cli.ts serve demo/ --bundle demo/main.vx
 pnpm tsx cli/cli.ts syntax --monaco
 pnpm tsx cli/cli.ts test samples/

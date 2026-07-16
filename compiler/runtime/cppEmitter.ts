@@ -756,7 +756,7 @@ function nativeLambdaCapture(selfName: string, referenceEntryLocals: boolean): {
 
 function emitNativeLambda(parametersList: readonly FunctionParameter[], body: Expr | BlockStatement): string {
   const capture = nativeLambdaCapture("__vexa_callback_self", true);
-  const parameters = callableParameters(parametersList, undefined, false);
+  const parameters = callableParameters(parametersList, undefined, false, true);
   const previousLocalNames = activeLocalNames;
   const previousGcObjectTypes = activeGcObjectTypes;
   const previousThisExpression = activeThisExpression;
@@ -1646,11 +1646,12 @@ function callableGeneratorInfo(
   return { resultType: fallback, async: asyncLike };
 }
 
-function callableParameters(parameters: readonly FunctionParameter[], owner: Statement | undefined, allowDefaults = true): {
-  text: string;
-  names: string[];
-  gcTypes: Map<string, string>;
-} {
+function callableParameters(
+  parameters: readonly FunctionParameter[],
+  owner: Statement | undefined,
+  allowDefaults = true,
+  allowInferredTypes = false
+): { text: string; names: string[]; gcTypes: Map<string, string> } {
   const names: string[] = [];
   const gcTypes = new Map<string, string>();
   const text = parameters.map((parameter) => {
@@ -1670,7 +1671,7 @@ function callableParameters(parameters: readonly FunctionParameter[], owner: Sta
     }
     const sourceName = (parameter.name as Identifier).name;
     const typeName = parameter.typeAnnotation?.name;
-    const type = typeName ? cppTypeForDeclaredName(typeName) : null;
+    const type = typeName ? cppTypeForDeclaredName(typeName) : allowInferredTypes ? "auto" : null;
     if (!type || type === "void") {
       throw new CppEmitError("C++ emission requires supported type annotations on function and method parameters", owner);
     }

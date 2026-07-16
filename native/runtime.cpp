@@ -1620,6 +1620,16 @@ class Console final {
     output << value;
   }
 
+  template <typename T>
+  static void print(std::ostream& output, const std::vector<T>& values) {
+    output << '[';
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      if (index > 0) output << ", ";
+      print(output, values[index]);
+    }
+    output << ']';
+  }
+
   template <typename... Arguments>
   static void write(std::ostream& output, const Arguments&... arguments) {
     bool first = true;

@@ -33,8 +33,11 @@ vexa run hello.vx
 # Compile to JavaScript
 vexa build hello.vx -o dist/hello.js
 
-# Emit C++ in hello.vx.build/, then build and link an Oilpan executable
-vexa native hello.vx
+# Emit C++ without compiling it
+vexa cpp hello.vx
+
+# Emit C++, then build and link an Oilpan executable
+vexa executable hello.vx
 
 # Format in place
 vexa format hello.vx --write
@@ -53,9 +56,11 @@ Install the [VexaScript VS Code extension](https://marketplace.visualstudio.com/
 |---|---|
 | `vexa run <file>` | Execute a `.vx` file |
 | `vexa build <file> -o <out>` | Compile to JavaScript |
-| `vexa build <file> --emit cpp` | Emit a C++ translation unit |
-| `vexa native <file> [-o executable]` | Emit C++ in `<file>.build/`, build Oilpan with `g++`, and link an executable |
-| `vexa build <file> --native` | Alias for the direct `native` workflow |
+| `vexa cpp <file> [-o output.cpp]` | Emit a C++ translation unit without compiling it |
+| `vexa executable <file> [-o executable]` | Emit C++ in `<file>.build/`, build Oilpan with `g++`, and link an executable |
+| `vexa native <file>` | Compatibility alias for `executable` |
+| `vexa build <file> --emit cpp` | Compatibility form of the `cpp` workflow |
+| `vexa build <file> --native` | Compatibility form of the `executable` workflow |
 | `vexa format <file> [--write]` | Format source (print or overwrite) |
 | `vexa tokens <file>` | Print the token stream |
 | `vexa ast <file>` | Print the simplified AST |

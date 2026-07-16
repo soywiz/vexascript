@@ -197,6 +197,30 @@ describe("CLI", () => {
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });
 
+  it("cpp command emits a C++ translation unit without compiling it", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-command-"));
+    const input = join(dir, "input.vx");
+    const output = join(dir, "output.cpp");
+    await writeFile(input, "console.log('cpp')", "utf8");
+
+    await runCli(["node", "vexa", "cpp", input, "--out", output]);
+
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).toContain('#include "runtime.cpp"');
+    expect(outputCode).toContain('vexa::console.log(runtime.string("cpp"));');
+    await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
+  });
+
+  it("executable command routes inputs through native executable validation", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-executable-command-"));
+    const input = join(dir, "input.ts");
+    await writeFile(input, "console.log('native')", "utf8");
+
+    await expect(runCli(["node", "vexa", "executable", input])).rejects.toThrow(
+      "Native compilation expects a .vx input file"
+    );
+  });
+
   it("build command uses JSX factories from vexascript.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
     const input = join(dir, "input-jsx.vx");
@@ -523,15 +547,18 @@ describe("CLI", () => {
     expect(output).toContain("\"defaultToken\"");
   });
 
-  it("lists the direct native compilation command in CLI help", async () => {
+  it("lists the direct C++ and executable commands in CLI help", async () => {
     const stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     await runCli(["node", "vexa", "--help"]);
 
-    expect(stdoutWriteSpy.mock.calls.some((call) => String(call[0] ?? "").includes("native [options] <input>"))).toBe(true);
+    const help = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
+    expect(help).toContain("cpp [options] <input>");
+    expect(help).toContain("executable [options] <input>");
+    expect(help).toContain("native [options] <input>");
   });
 
-  it("prints command-specific build and native help", async () => {
+  it("prints command-specific build, cpp, executable, and native help", async () => {
     const stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation((...args: unknown[]) => {
       throw new Error(`process.exit:${typeof args[0] === "number" ? args[0] : 0}`);
@@ -542,6 +569,16 @@ describe("CLI", () => {
     expect(buildHelp).toContain("Usage: vexa build [options] <input>");
     expect(buildHelp).toContain("--emit <language>");
     expect(buildHelp).toContain("--native");
+
+    await expect(runCli(["node", "vexa", "cpp", "--help"])).rejects.toThrow("process.exit:0");
+    const cppHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
+    expect(cppHelp).toContain("Usage: vexa cpp [options] <input>");
+    expect(cppHelp).toContain("--jsx-factory <factory>");
+
+    await expect(runCli(["node", "vexa", "executable", "--help"])).rejects.toThrow("process.exit:0");
+    const executableHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
+    expect(executableHelp).toContain("Usage: vexa executable [options] <input>");
+    expect(executableHelp).toContain("--build-dir <dir>");
 
     await expect(runCli(["node", "vexa", "native", "--help"])).rejects.toThrow("process.exit:0");
     const nativeHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");

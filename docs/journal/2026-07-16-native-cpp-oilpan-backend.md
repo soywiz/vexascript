@@ -384,6 +384,27 @@ from the same task-producing decision used by the signature. The focused emitter
 test asserts the complete `Task<T>` signal type, and the timer fixture is also
 compiled and executed as a native integration check.
 
+Adding direct `cpp` and `executable` CLI commands reinforced that command behavior
+and command presentation have separate lightweight entrypoints. The Commander
+program owns execution and detailed help, while `cli-bin.ts` serves startup help
+without loading the compiler graph; `runCli` also keeps a small known-command set
+for file shorthand detection. A new command must update all three surfaces and
+exercise both dispatch and help in tests. The implementations themselves reuse
+the existing C++ emission and native-link functions, and `native` remains a thin
+compatibility command instead of creating a second build path.
+
+Running the new executable command from the fixture directory with the user's
+contextual `map { it ... }.filter { it ... }` callbacks exposed two integration
+gaps that emitter-only typed-arrow coverage had hidden. The native lambda helper
+required explicit annotations even though semantic analysis had already accepted
+implicit `it`; it now emits missing callback types as C++ `auto`, leaving generic
+lambda instantiation to the typed collection helper. The initial error was also
+attached to the enclosing function, which made its correctly annotated `number`
+parameter look responsible. Once that was fixed, native compilation revealed
+that console output lacked a `std::vector<T>` printer. The runtime now recursively
+prints vector elements in brackets. The exact `../vexa executable timer.vx`
+workflow compiles, links, and produces `after one second [6, 12]`.
+
 ## Investigation notes and rejected paths
 
 Putting source extraction and `g++` directly in the transpiler would have been

@@ -116,7 +116,7 @@ This section is the fast onboarding map for agents and contributors.
 - CLI (`cli/`):
   - Node-only local disk implementation of the shared VFS contract for CLI/LSP/test flows: `cli/localVfs.ts`
   - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `cli/cli-bin.ts`
-  - CLI entrypoint and command implementation, including single-file transpilation plus directory-based static site builds that materialize the `serve` bundle and mapped assets into `dist`/`outDir`: `cli/cli.ts`
+  - CLI entrypoint and command implementation, including direct `cpp` source emission, `executable` native linking (`native` remains a compatibility alias), single-file transpilation, and directory-based static site builds that materialize the `serve` bundle and mapped assets into `dist`/`outDir`: `cli/cli.ts`
   - Node-only native build adapter that plans `<input>.vx.build/main.cpp` intermediates, extracts the vendored Oilpan archive into an OS temporary cache, configures its dedicated CMake cache with `g++`, builds `liboilpan_gc.a`, and links generated C++: `cli/nativeBuild.ts`
   - Node-only dependency installer helpers used by CLI bundle/run/serve flows: `cli/deps.ts`
   - Node-only child-process helper used by CLI dependency installation and sample test setup: `cli/io.ts`
@@ -128,7 +128,7 @@ This section is the fast onboarding map for agents and contributors.
   - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `cli/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - CLI tests: `cli/cli.test.ts`
   - `test` command delegates test-file discovery and helper injection to `cli/testRunner.ts`, keeping CLI command parsing separate from test orchestration.
-  - `native` compiles one `.vx` file directly to an executable while isolating generated C++ in `<input>.build/`; `build --native` is the compatible alias.
+  - `cpp` emits one `.vx` file as C++ without compiling it. `executable` compiles one `.vx` file directly to an executable while isolating generated C++ in `<input>.build/`; `native`, `build --emit cpp`, and `build --native` remain compatible forms of those workflows.
   - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
 - Native C++ support:
   - Single-file Oilpan runtime and the vendored standalone Oilpan source archive used by generated C++ builds: `native/runtime.cpp`, `native/oilpan-standalone-main.zip`

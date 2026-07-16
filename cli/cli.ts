@@ -538,6 +538,20 @@ function createProgram(): Command {
     }
   });
 
+  const addExecutableCommand = (name: "executable" | "native", description: string): void => {
+    program
+      .command(name)
+      .description(description)
+      .argument("<input>", "Input .vx file")
+      .option("-o, --out <file>", "Output executable (defaults next to the source)")
+      .option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)")
+      .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
+      .action(async (input: string, opts: { out?: string; buildDir?: string; target?: string }) => {
+        const target = opts.target === "conservative" ? "conservative" : "optimized";
+        await buildNativeFile(input, opts.out, opts.buildDir, target);
+      });
+  };
+
   program
     .command("build")
     .description("Compile a VexaScript file to JavaScript or C++, optionally linking a native Oilpan executable")
@@ -579,16 +593,20 @@ function createProgram(): Command {
     });
 
   program
-    .command("native")
-    .description("Compile one VexaScript file directly to a native Oilpan executable")
+    .command("cpp")
+    .description("Emit one VexaScript file as a C++ translation unit without compiling it")
     .argument("<input>", "Input .vx file")
-    .option("-o, --out <file>", "Output executable (defaults next to the source)")
-    .option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)")
+    .option("-o, --out <file>", "Output C++ file (defaults to <input>.cpp)")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
-    .action(async (input: string, opts: { out?: string; buildDir?: string; target?: string }) => {
-      const target = opts.target === "conservative" ? "conservative" : "optimized";
-      await buildNativeFile(input, opts.out, opts.buildDir, target);
+    .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
+    .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
+    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }) => {
+      const { target, jsxOptions } = resolveBuildOptions(opts);
+      await buildFile(input, opts.out, target, jsxOptions, "cpp");
     });
+
+  addExecutableCommand("executable", "Compile one VexaScript file directly to a native Oilpan executable");
+  addExecutableCommand("native", "Compatibility alias for the executable command");
 
   program
     .command("bundle")
@@ -709,7 +727,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(["build", "native", "bundle", "serve", "run", "test", "tokens", "ast", "format", "syntax", "lsp", "mcp"]);
+  const knownCommands = new Set(["build", "cpp", "executable", "native", "bundle", "serve", "run", "test", "tokens", "ast", "format", "syntax", "lsp", "mcp"]);
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");
