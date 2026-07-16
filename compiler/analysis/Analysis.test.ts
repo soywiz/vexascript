@@ -2222,6 +2222,8 @@ let bad = "Ada" satisfies number
       class Animation {}
       let frames: [int, number, Animation][] = [[1, 0.5, Animation()]]
       let broken: [int, string][] = [1, "hello"]
+      var demo1: [string, int][] = ["hello", 20]
+      var demo2: [string, int][] = [["hello", 20]]
       const [frame, weight, animation] = frames[0]
       fun demo() {
         return animation
@@ -2235,6 +2237,9 @@ let bad = "Ada" satisfies number
 
     expect(messages).toContain(
       "Type '[int, string]' is not assignable to type '[int, string][]'"
+    );
+    expect(messages).toContain(
+      "Type '[string, int]' is not assignable to type '[string, int][]'"
     );
     expect(symbols.get("frame")?.valueType).toBe("int");
     expect(symbols.get("weight")?.valueType).toBe("number");
