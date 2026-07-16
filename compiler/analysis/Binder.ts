@@ -73,7 +73,13 @@ const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typ
   ["setInterval", functionType([
     { name: "code", type: functionType([], builtinType("void")) },
     { name: "time", type: builtinType("number") }
-  ], builtinType("int"))]
+  ], builtinType("int"))],
+  ["clearTimeout", functionType([
+    { name: "id", type: builtinType("int") }
+  ], builtinType("void"))],
+  ["clearInterval", functionType([
+    { name: "id", type: builtinType("int") }
+  ], builtinType("void"))]
 ]);
 
 function symbolOffset(node: Node): number {

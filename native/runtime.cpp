@@ -8,15 +8,26 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
+#include <deque>
+#include <exception>
+#include <functional>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <memory>
+#include <optional>
+#include <queue>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <stdexcept>
+#include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include <cppgc/allocation.h>
 #include <cppgc/garbage-collected.h>
@@ -80,13 +91,36 @@ class Value final {
     return std::get<cppgc::Persistent<StringObject>>(storage_)->value();
   }
 
+  bool operator==(const Value& other) const {
+    if (storage_.index() != other.storage_.index()) return false;
+    if (isUndefined() || isNull()) return true;
+    if (isBoolean()) return boolean() == other.boolean();
+    if (isNumber()) return number() == other.number();
+    return string() == other.string();
+  }
+
  private:
   explicit Value(Null value) : storage_(value) {}
   Storage storage_;
 };
 
+class Error final {
+ public:
+  explicit Error(const Value& value)
+      : message_(value.isString() ? value.string() : "Error") {}
+  explicit Error(std::string message) : message_(std::move(message)) {}
+
+  const std::string& message() const { return message_; }
+
+ private:
+  std::string message_;
+};
+
 class Runtime final {
  public:
+  using TimerId = std::int32_t;
+  using TimerCallback = std::function<void()>;
+
   Runtime() : platform_(std::make_shared<OilpanPlatform>()) {
     cppgc::InitializeProcess(platform_->GetPageAllocator());
     cppgc::Heap::HeapOptions options;
@@ -118,10 +152,358 @@ class Runtime final {
 
   cppgc::Heap& heap() { return *heap_; }
 
+  TimerId setTimeout(TimerCallback callback, double delay = 0) {
+    return scheduleTimer(std::move(callback), delay, false);
+  }
+
+  TimerId setInterval(TimerCallback callback, double delay = 0) {
+    return scheduleTimer(std::move(callback), delay, true);
+  }
+
+  void clearTimeout(TimerId id) { timers_.erase(id); }
+  void clearInterval(TimerId id) { timers_.erase(id); }
+
+  void runEventLoop() {
+    while (runOneEvent()) {}
+  }
+
+  void enqueueMicrotask(TimerCallback callback) {
+    microtasks_.push_back(std::move(callback));
+  }
+
+  template <typename Predicate>
+  void runUntil(Predicate settled) {
+    while (!settled()) {
+      if (!runOneEvent()) {
+        throw std::runtime_error("VexaScript task cannot settle because the event loop is empty");
+      }
+    }
+  }
+
  private:
+  using Clock = std::chrono::steady_clock;
+
+  struct TimerState final {
+    TimerCallback callback;
+    double delay;
+    bool repeating;
+  };
+
+  struct ScheduledTimer final {
+    Clock::time_point due;
+    TimerId id;
+  };
+
+  struct EarlierTimer final {
+    bool operator()(const ScheduledTimer& left, const ScheduledTimer& right) const {
+      if (left.due != right.due) return left.due > right.due;
+      return left.id > right.id;
+    }
+  };
+
+  static Clock::time_point deadline(double delay) {
+    const auto milliseconds = std::chrono::duration<double, std::milli>(std::max(0.0, delay));
+    return Clock::now() + std::chrono::duration_cast<Clock::duration>(milliseconds);
+  }
+
+  TimerId scheduleTimer(TimerCallback callback, double delay, bool repeating) {
+    const TimerId id = nextTimerId_++;
+    timers_.emplace(id, TimerState{std::move(callback), delay, repeating});
+    scheduledTimers_.push({deadline(delay), id});
+    return id;
+  }
+
+  bool runOneEvent() {
+    if (!microtasks_.empty()) {
+      TimerCallback callback = std::move(microtasks_.front());
+      microtasks_.pop_front();
+      callback();
+      return true;
+    }
+
+    while (!scheduledTimers_.empty()) {
+      const ScheduledTimer scheduled = scheduledTimers_.top();
+      scheduledTimers_.pop();
+      auto timer = timers_.find(scheduled.id);
+      if (timer == timers_.end()) continue;
+
+      const auto now = Clock::now();
+      if (scheduled.due > now) std::this_thread::sleep_until(scheduled.due);
+
+      TimerCallback callback = timer->second.callback;
+      const bool repeating = timer->second.repeating;
+      if (!repeating) timers_.erase(timer);
+      callback();
+
+      timer = timers_.find(scheduled.id);
+      if (repeating && timer != timers_.end()) {
+        scheduledTimers_.push({deadline(timer->second.delay), scheduled.id});
+      }
+      return true;
+    }
+    return false;
+  }
+
   std::shared_ptr<OilpanPlatform> platform_;
   std::unique_ptr<cppgc::Heap> heap_;
+  TimerId nextTimerId_ = 1;
+  std::deque<TimerCallback> microtasks_;
+  std::unordered_map<TimerId, TimerState> timers_;
+  std::priority_queue<ScheduledTimer, std::vector<ScheduledTimer>, EarlierTimer> scheduledTimers_;
 };
+
+template <typename T>
+struct TaskStorage final {
+  using Type = T;
+
+  static Type store(T value) { return std::move(value); }
+  static T load(const Type& value) { return value; }
+};
+
+template <typename T>
+struct TaskStorage<T*> final {
+  using Type = cppgc::Persistent<T>;
+
+  static Type store(T* value) { return Type(value); }
+  static T* load(const Type& value) { return value.Get(); }
+};
+
+template <typename T>
+class Task final {
+ public:
+  template <typename Executor>
+  static Task create(Runtime& runtime, Executor executor) {
+    auto state = makeState(runtime);
+    try {
+      executor(Resolver(state), Rejecter(state));
+    } catch (...) {
+      reject(state, std::current_exception());
+    }
+    return Task(std::move(state));
+  }
+
+  template <typename Work>
+  static Task schedule(Runtime& runtime, Work work) {
+    auto state = makeState(runtime);
+    runtime.enqueueMicrotask([state, work = std::move(work)]() mutable {
+      try {
+        resolve(state, work());
+      } catch (...) {
+        reject(state, std::current_exception());
+      }
+    });
+    return Task(std::move(state));
+  }
+
+  T get() const {
+    state_->runtime->runUntil([this] { return state_->settled; });
+    if (state_->error) std::rethrow_exception(state_->error);
+    return TaskStorage<T>::load(*state_->value);
+  }
+
+ private:
+  struct State final {
+    Runtime* runtime = nullptr;
+    std::optional<typename TaskStorage<T>::Type> value;
+    std::exception_ptr error;
+    bool settled = false;
+  };
+
+  class Resolver final {
+   public:
+    explicit Resolver(std::shared_ptr<State> state) : state_(std::move(state)) {}
+
+    void operator()() const {
+      if constexpr (std::is_same_v<T, Value>) {
+        resolve(state_, Value::undefined());
+      } else {
+        resolve(state_, T{});
+      }
+    }
+
+    void operator()(T value) const { resolve(state_, std::move(value)); }
+
+   private:
+    std::shared_ptr<State> state_;
+  };
+
+  class Rejecter final {
+   public:
+    explicit Rejecter(std::shared_ptr<State> state) : state_(std::move(state)) {}
+
+    void operator()() const {
+      reject(state_, std::make_exception_ptr(std::runtime_error("Promise rejected")));
+    }
+
+    void operator()(const Error& error) const {
+      reject(state_, std::make_exception_ptr(std::runtime_error(error.message())));
+    }
+
+    template <typename Reason>
+    void operator()(const Reason&) const {
+      reject(state_, std::make_exception_ptr(std::runtime_error("Promise rejected")));
+    }
+
+   private:
+    std::shared_ptr<State> state_;
+  };
+
+  static std::shared_ptr<State> makeState(Runtime& runtime) {
+    auto state = std::make_shared<State>();
+    state->runtime = &runtime;
+    return state;
+  }
+
+  static void resolve(const std::shared_ptr<State>& state, T value) {
+    if (state->settled) return;
+    state->value.emplace(TaskStorage<T>::store(std::move(value)));
+    state->settled = true;
+  }
+
+  static void reject(const std::shared_ptr<State>& state, std::exception_ptr error) {
+    if (state->settled) return;
+    state->error = std::move(error);
+    state->settled = true;
+  }
+
+  explicit Task(std::shared_ptr<State> state) : state_(std::move(state)) {}
+
+  std::shared_ptr<State> state_;
+};
+
+template <>
+class Task<void> final {
+ public:
+  template <typename Executor>
+  static Task create(Runtime& runtime, Executor executor) {
+    auto state = makeState(runtime);
+    try {
+      executor(Resolver(state), Rejecter(state));
+    } catch (...) {
+      reject(state, std::current_exception());
+    }
+    return Task(std::move(state));
+  }
+
+  template <typename Work>
+  static Task schedule(Runtime& runtime, Work work) {
+    auto state = makeState(runtime);
+    runtime.enqueueMicrotask([state, work = std::move(work)]() mutable {
+      try {
+        work();
+        resolve(state);
+      } catch (...) {
+        reject(state, std::current_exception());
+      }
+    });
+    return Task(std::move(state));
+  }
+
+  void get() const {
+    state_->runtime->runUntil([this] { return state_->settled; });
+    if (state_->error) std::rethrow_exception(state_->error);
+  }
+
+ private:
+  struct State final {
+    Runtime* runtime = nullptr;
+    std::exception_ptr error;
+    bool settled = false;
+  };
+
+  class Resolver final {
+   public:
+    explicit Resolver(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    void operator()() const { resolve(state_); }
+
+   private:
+    std::shared_ptr<State> state_;
+  };
+
+  class Rejecter final {
+   public:
+    explicit Rejecter(std::shared_ptr<State> state) : state_(std::move(state)) {}
+
+    void operator()() const {
+      reject(state_, std::make_exception_ptr(std::runtime_error("Promise rejected")));
+    }
+
+    void operator()(const Error& error) const {
+      reject(state_, std::make_exception_ptr(std::runtime_error(error.message())));
+    }
+
+    template <typename Reason>
+    void operator()(const Reason&) const {
+      reject(state_, std::make_exception_ptr(std::runtime_error("Promise rejected")));
+    }
+
+   private:
+    std::shared_ptr<State> state_;
+  };
+
+  static std::shared_ptr<State> makeState(Runtime& runtime) {
+    auto state = std::make_shared<State>();
+    state->runtime = &runtime;
+    return state;
+  }
+
+  static void resolve(const std::shared_ptr<State>& state) {
+    if (state->settled) return;
+    state->settled = true;
+  }
+
+  static void reject(const std::shared_ptr<State>& state, std::exception_ptr error) {
+    if (state->settled) return;
+    state->error = std::move(error);
+    state->settled = true;
+  }
+
+  explicit Task(std::shared_ptr<State> state) : state_(std::move(state)) {}
+
+  std::shared_ptr<State> state_;
+};
+
+template <typename Left, typename Right>
+inline bool sameValueZero(const Left& left, const Right& right) {
+  return left == right;
+}
+
+inline bool sameValueZero(double left, double right) {
+  return left == right || (std::isnan(left) && std::isnan(right));
+}
+
+inline bool sameValueZero(const Value& left, const Value& right) {
+  return left == right || (
+      left.isNumber() && right.isNumber() &&
+      std::isnan(left.number()) && std::isnan(right.number()));
+}
+
+template <typename T, typename... Values>
+inline double push(std::vector<T>& array, Values&&... values) {
+  (array.push_back(std::forward<Values>(values)), ...);
+  return static_cast<double>(array.size());
+}
+
+template <typename T, typename U>
+inline bool includes(const std::vector<T>& array, const U& value) {
+  return std::any_of(array.begin(), array.end(), [&](const T& element) {
+    return sameValueZero(element, value);
+  });
+}
+
+template <typename T, typename U>
+inline double indexOf(const std::vector<T>& array, const U& value) {
+  const auto iterator = std::find(array.begin(), array.end(), value);
+  return iterator == array.end()
+      ? -1
+      : static_cast<double>(std::distance(array.begin(), iterator));
+}
+
+template <typename T>
+inline std::vector<T>& reverse(std::vector<T>& array) {
+  std::reverse(array.begin(), array.end());
+  return array;
+}
 
 inline std::string numberToString(double value) {
   if (std::isnan(value)) return "NaN";
@@ -142,8 +524,44 @@ inline std::string toString(const Value& value) {
 
 inline std::string toString(double value) { return numberToString(value); }
 inline std::string toString(int value) { return std::to_string(value); }
+inline std::string toString(std::int64_t value) { return std::to_string(value); }
 inline std::string toString(bool value) { return value ? "true" : "false"; }
 inline const std::string& toString(const std::string& value) { return value; }
+
+template <typename T>
+inline std::string joinWithSeparator(const std::vector<T>& array, const std::string& separator) {
+  std::ostringstream output;
+  for (std::size_t index = 0; index < array.size(); ++index) {
+    if (index > 0) output << separator;
+    output << toString(array[index]);
+  }
+  return output.str();
+}
+
+template <typename T>
+inline std::string join(const std::vector<T>& array) {
+  return joinWithSeparator(array, ",");
+}
+
+template <typename T, typename Separator>
+inline std::string join(const std::vector<T>& array, const Separator& separator) {
+  return joinWithSeparator(array, toString(separator));
+}
+
+inline bool includes(const std::vector<std::string>& array, const Value& value) {
+  return includes(array, toString(value));
+}
+
+inline double indexOf(const std::vector<std::string>& array, const Value& value) {
+  return indexOf(array, toString(value));
+}
+
+template <typename... Values>
+inline double push(std::vector<std::string>& array, Values&&... values) {
+  (array.push_back(toString(std::forward<Values>(values))), ...);
+  return static_cast<double>(array.size());
+}
+
 inline double valueOf(double value) { return value; }
 inline bool valueOf(bool value) { return value; }
 inline const Value& valueOf(const Value& value) { return value; }

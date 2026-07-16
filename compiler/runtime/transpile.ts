@@ -375,7 +375,13 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
       return {
         code: emitCppProgram(
           lowerProgram(artifacts.ast, { lowerRangeForLoops: true }),
-          artifacts.analysis.getExpressionTypes()
+          {
+            expressionTypes: artifacts.analysis.getExpressionTypes(),
+            implicitReceiverIdentifiers: artifacts.analysis.getImplicitReceiverIdentifiers(),
+            staticImplicitReceiverIdentifiers: artifacts.analysis.getStaticImplicitReceiverIdentifiers(),
+            autoAwaitExpressions: artifacts.analysis.getAutoAwaitExpressions(),
+            topLevelSymbolType: (name) => artifacts.analysis!.getTopLevelSymbolType(name)
+          }
         ),
         warnings: [],
         errors: [],

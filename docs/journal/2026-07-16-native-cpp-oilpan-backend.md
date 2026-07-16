@@ -58,12 +58,102 @@ analysis type map as the JavaScript backend. Native loops now map `int` to
 `std::int32_t`, `long` to `std::int64_t`, and `number` to `double`; AST literal
 kinds remain only a fallback when no analyzed type is available.
 
+Arrays reinforced the same lesson. Emitting every literal through a dynamic
+container would erase the element types the analyzer already knows, while C++
+class template argument deduction cannot represent empty or heterogeneous
+JavaScript-style arrays reliably. The backend now maps analyzed homogeneous
+array and tuple element types to `std::vector<T>`, keeps unsupported element
+types explicit errors, and provides a small runtime `push` helper so the
+generated call retains JavaScript's returned length. Indexed access and
+iteration stay ordinary C++ operations, while the `length` property is emitted
+as a numeric `.size()` conversion. Subsequent array APIs follow the same shared
+runtime route: `includes` uses SameValueZero semantics, `indexOf` keeps strict
+equality semantics, `join` shares the primitive string conversions, and
+`reverse` mutates and returns the original native vector.
+
+Custom functions and class methods exposed a calling-convention issue: string
+literals and class allocation require access to the active heap, but free C++
+functions and inline methods do not naturally see the `Runtime` local in
+`main`. The emitter now gives every generated callable one hidden
+`vexa::Runtime&` parameter and injects it at direct, instance, and implicit
+method call sites. One signature builder owns parameter and return-type mapping
+for both functions and methods. Forward class declarations and function
+prototypes allow functions to call later functions and accept class pointers,
+while definitions are ordered after complete class declarations.
+
+The same change made implicit receiver handling explicit in the small backend.
+Within a method, primary-constructor fields and sibling methods resolve through
+`this` unless a parameter or local shadows the name. GC object locals and class
+parameters now share one name-to-class map, which controls both `->` member
+access and method signature lookup instead of maintaining parallel boolean and
+type caches.
+
+Default arguments stay in the same call-routing path. Instead of emitting C++
+declaration defaults—which cannot safely allocate runtime strings and do not
+match VexaScript named-argument reordering—the backend fills omitted literal
+defaults at each generated call site. This works uniformly for top-level
+functions, instance methods, static methods, and primary constructors. More
+complex defaults remain explicit errors because defaults that reference earlier
+parameters require callee-scope substitution rather than caller-scope emission.
+
+Static methods reuse the callable signature and runtime convention but emit
+with C++ `static` and are invoked through `Class::method`. A static factory's
+analyzed class return type feeds the same name-to-class tracking used by direct
+constructors, so its result immediately supports instance `->` access without a
+parallel factory-specific path. Explicit return types also make recursive
+function prototypes valid, while no-value functions safely infer C++ `void`.
+
+The first implicit-member implementation inferred `this` again inside the C++
+emitter from class field/method names plus a local-name set. That duplicated a
+semantic decision already made by the analyzer and risked drifting from JavaScript
+emission, especially around shadowing and static receivers. The C++ backend now
+consumes the same `getImplicitReceiverIdentifiers()` and
+`getStaticImplicitReceiverIdentifiers()` results as the JavaScript backend. The
+only backend-specific decision is target spelling: `this.` in JavaScript versus
+`this->` or `Class::` in C++.
+
+Timers and async callables also reinforced why the runtime should remain an
+explicit owned object. `Runtime` now owns one single-threaded queue for timer
+events and microtasks. Generated `main` drains it before Oilpan shutdown, while
+`Task<T>::get()` pumps the same queue until its state settles. This avoids a second
+task scheduler with different ordering rules and makes `sync` auto-await reuse the
+analyzer's existing `autoAwaitExpressions` set rather than rediscovering Promise
+expressions in the C++ emitter.
+
+Queued callbacks cannot leave generated Oilpan objects as untraced raw pointers in
+native heap closures. Async method receivers and captured generated class values
+are therefore copied into `cppgc::Persistent` roots before the microtask or timer
+callback is stored. Top-level timer callbacks may safely capture by reference
+because the generated entrypoint drains the queue before its stack frame exits.
+
+This first task lowering schedules a whole async/sync callable body as one
+microtask. It supports task production, explicit `await`, `sync` auto-await, `go`,
+Promise-return annotations, task flattening, and exception propagation, but does
+not yet transform each individual `await` into a continuation boundary. That
+limitation is documented rather than hidden behind JavaScript-looking output.
+
+The source `Promise { resolve, reject -> ... }` form initially exposed another
+tempting split: a separate native Promise class with its own queue. Instead,
+Promise construction is a source-level facade over the same `Task<T>` settlement
+state used by async/sync functions. Its executor runs immediately, resolver and
+rejecter handles share a first-settlement-wins state, timers store those handles as
+ordinary safe callbacks, and `Task<T>::get()` remains the single waiting path.
+Inferred return types come from `Analysis.getTopLevelSymbolType()`; the C++ emitter
+does not independently decide that an expression-bodied `delay` function returns
+a Promise.
+
 ## Investigation notes and rejected paths
 
 Putting source extraction and `g++` directly in the transpiler would have been
 shorter, but it would introduce Node APIs into a compiler module used by browser
 embeds. It was rejected in favor of a compiler/backend boundary plus a
 Node-only CLI build adapter.
+
+A static application runtime was considered as a way to avoid the hidden
+parameter. It was rejected because `Runtime` owns process initialization and the
+Oilpan heap: global initialization order, shutdown order, and test isolation
+would become implicit. Passing the runtime in generated C++ keeps the public
+VexaScript syntax unchanged while preserving an auditable lifetime.
 
 Generating an absolute include path to `native/runtime.cpp` would make a local
 build work but would make emitted C++ machine-specific. Generated code instead
@@ -82,9 +172,11 @@ incorrect native programs.
 - Runtime-owned Oilpan roots must be destroyed before the `Runtime` heap. The
   generated `main` declares `Runtime` first so later values are destroyed first
   by C++ reverse destruction order.
-- GC object member access currently relies on emitter knowledge of locals that
-  are initialized directly from class calls. When assignments, returns, or
-  object-valued fields are added, that knowledge should come from shared
-  analysis types rather than growing more syntax-specific tracking.
+- GC object member access uses one name-to-class map seeded by parameters,
+  initializers, and shared expression analysis. Assignments and object-valued
+  fields will need to preserve that same source of truth when they are added.
+- Array support deliberately depends on one representable native element type.
+  Heterogeneous, sparse, and spread arrays need a deliberate dynamic
+  value/container design instead of relying on C++ deduction or silent coercion.
 - Packaged CLI releases must continue including both `native/runtime.cpp` and
   `native/oilpan-standalone-main.zip`.
