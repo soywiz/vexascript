@@ -25,6 +25,7 @@ import {
   mapAnalysisIssueCodeToDiagnosticCode
 } from "compiler/diagnosticCodes";
 import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
+import { CppEmitError, emitCppProgram } from "./cppEmitter";
 
 export interface TranspileDiagnostic {
   file: string;
@@ -45,6 +46,7 @@ export interface TranspileResult {
 }
 
 export type TranspileTarget = "conservative" | "optimized";
+export type EmitLanguage = "javascript" | "cpp";
 
 function ensureTrailingSemicolon(code: string): string {
   const trimmed = code.trim();
@@ -91,6 +93,8 @@ export interface TranspileOptions {
   parserOptions?: ParserOptions;
   outputFilePath?: string;
   target?: TranspileTarget;
+  /** Output language. Defaults to JavaScript. */
+  emit?: EmitLanguage;
   preserveSourceLineOffsets?: boolean;
   /**
    * Whether to generate a source map. Defaults to true so direct transpile
@@ -366,6 +370,25 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const programForEmission = lowerProgram(artifacts.ast, {
     lowerRangeForLoops: target !== "conservative"
   });
+  if (options.emit === "cpp") {
+    try {
+      return {
+        code: emitCppProgram(lowerProgram(artifacts.ast, { lowerRangeForLoops: true })),
+        warnings: [],
+        errors: [],
+        diagnostics: []
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const statement = error instanceof CppEmitError ? error.statement : undefined;
+      return {
+        code: "",
+        warnings: [],
+        errors: [message],
+        diagnostics: [makeDiagnostic(message, statement?.firstToken?.range, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)]
+      };
+    }
+  }
   // Emission collects classes, constructor-only runtime globals, operator
   // overloads and extension properties from a context program. Including the
   // built-in, ambient, and imported declarations lets the emitter lower calls

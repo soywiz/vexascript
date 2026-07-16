@@ -8,7 +8,9 @@
     "vexa": "dist/vexa.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "native/runtime.cpp",
+    "native/oilpan-standalone-main.zip"
   ],
   "scripts": {
     "clean": "tsx scripts/clean.ts",

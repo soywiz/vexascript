@@ -61,6 +61,7 @@ This section is the fast onboarding map for agents and contributors.
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
   - Lowering tests: `compiler/runtime/lowering.test.ts`
   - JavaScript emission: `compiler/runtime/emitter.ts`
+  - Initial browser-compatible C++ emission backend, sharing the normal parse, analysis, and range-loop lowering pipeline while rejecting unsupported constructs explicitly: `compiler/runtime/cppEmitter.ts`, tests: `compiler/runtime/cppEmitter.test.ts`
   - Single source of truth mapping overloadable operators to their mangled runtime method names (`operator$star`, ...) plus the shared identifier `sanitizeManglePart`, consumed by both the emitter and the implicit-export planner so an exported operator overload is always re-exported under the exact name it was emitted with: `compiler/runtime/operatorNames.ts`
   - CommonJS-specific import/export emission helpers extracted from the generic emitter path: `compiler/runtime/commonJsEmitter.ts`, `compiler/runtime/commonJsEmitter.test.ts`
   - Shared implicit Vexa export planning used by both module-graph ESM output and module-graph CommonJS-shaped output: `compiler/runtime/implicitExports.ts`, `compiler/runtime/implicitExports.test.ts`
@@ -94,6 +95,7 @@ This section is the fast onboarding map for agents and contributors.
   - Expression lab sample: `samples/expression-lab/` is a larger multi-file calculator fixture with lexer, parser, AST, optimizer, evaluator, and pretty-printer modules that stress imports, classes, enums, sequences, calls, assignments, loops, and heavier expression workloads for both correctness and performance.
   - TypeScript import sample: `samples/typescript-import/` validates a `.vx` entry importing a local `.ts` module with TypeScript enums, interfaces, type aliases, classes, generics, destructuring, arrow functions, and async functions that are transpiled into the bundled runtime output.
   - JSON/text asset import sample: `samples/json-text-import/` validates a `.vx` entry importing local `.json` and `.txt` assets as default imports that are inlined into the bundled runtime output.
+  - Native Oilpan sample: `samples/native-oilpan/` is the minimal range-loop and `console.log` program validated by both the normal sample harness and the C++/native build path.
 - Formatter:
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`
@@ -114,6 +116,7 @@ This section is the fast onboarding map for agents and contributors.
   - Node-only local disk implementation of the shared VFS contract for CLI/LSP/test flows: `cli/localVfs.ts`
   - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `cli/cli-bin.ts`
   - CLI entrypoint and command implementation, including single-file transpilation plus directory-based static site builds that materialize the `serve` bundle and mapped assets into `dist`/`outDir`: `cli/cli.ts`
+  - Node-only native build adapter that plans `<input>.vx.build/main.cpp` intermediates, extracts the vendored Oilpan archive into an OS temporary cache, configures its dedicated CMake cache with `g++`, builds `liboilpan_gc.a`, and links generated C++: `cli/nativeBuild.ts`
   - Node-only dependency installer helpers used by CLI bundle/run/serve flows: `cli/deps.ts`
   - Node-only child-process helper used by CLI dependency installation and sample test setup: `cli/io.ts`
   - Shared CLI build/runtime preparation helpers reused by `build`, `bundle`, `run`, and `serve`: `cli/cliShared.ts`
@@ -124,7 +127,11 @@ This section is the fast onboarding map for agents and contributors.
   - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `cli/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - CLI tests: `cli/cli.test.ts`
   - `test` command delegates test-file discovery and helper injection to `cli/testRunner.ts`, keeping CLI command parsing separate from test orchestration.
+  - `native` compiles one `.vx` file directly to an executable while isolating generated C++ in `<input>.build/`; `build --native` is the compatible alias.
   - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
+- Native C++ support:
+  - Single-file Oilpan runtime and the vendored standalone Oilpan source archive used by generated C++ builds: `native/runtime.cpp`, `native/oilpan-standalone-main.zip`
+  - Native backend usage, requirements, supported surface, and current single-file limitation: `docs/native.md`
 - Monaco editor support for the website embeds (project folder: `website/src/assets/monaco/`):
   - Browser-only virtual-workspace and persistence helpers (workspace tabs, folders, runtime declarations, `localStorage`): `website/src/assets/monaco/workspace.ts`
   - Monaco virtual file-system adapter that exposes workspace files through the compiler's async VFS interface: `website/src/assets/monaco/workspaceVfs.ts`

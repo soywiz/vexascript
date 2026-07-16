@@ -9,7 +9,8 @@ const CLI_HELP_TEXT = [
   `Usage: ${LANGUAGE_CLI_BIN} [options] [command]`,
   "",
   "Commands:",
-  "  build <input>     Compile a VexaScript file",
+  "  build <input>     Compile a VexaScript file to JavaScript or C++",
+  "  native <input>    Compile a VexaScript file to a native Oilpan executable",
   "  bundle <input>    Bundle a VexaScript entry file and its local/package modules as ESM",
   "  run <input>       Transpile and run a VexaScript file with Node.js",
   `  test [paths...]    Discover and run .test.vx files`,
@@ -31,9 +32,7 @@ function isVersionRequest(argv: string[]): boolean {
 
 function isHelpRequest(argv: string[]): boolean {
   return argv.length <= 2
-    || argv.includes("--help")
-    || argv.includes("-h")
-    || argv[2] === "help";
+    || (argv.length === 3 && (argv[2] === "--help" || argv[2] === "-h" || argv[2] === "help"));
 }
 
 async function runSourceCliIfAvailable(argv: string[]): Promise<boolean> {

@@ -1,6 +1,6 @@
 # VexaScript
 
-VexaScript is a modern language derived from TypeScript. It is a non-strict TypeScript superset that compiles to JavaScript and integrates directly with the existing JS/TS ecosystem — no wrappers, no adapters.
+VexaScript is a modern language derived from TypeScript. It is a non-strict TypeScript superset that compiles to JavaScript and, for a growing native subset, C++ backed by Oilpan GC.
 
 It is designed to be concise for humans and efficient for AI: less syntactic noise, fewer tokens, same expressive power.
 
@@ -16,6 +16,7 @@ It is designed to be concise for humans and efficient for AI: less syntactic noi
 - **Trailing lambdas** — pass a lambda after the closing paren of a call
 - **Null-aware access** — `?.`, `??`, and non-null assertions
 - **Full JS/TS interop** — consume any npm package or TypeScript declaration file
+- **Native C++ output** — emit C++ or link a native Oilpan executable with `g++`
 
 ## Install
 
@@ -31,6 +32,9 @@ vexa run hello.vx
 
 # Compile to JavaScript
 vexa build hello.vx -o dist/hello.js
+
+# Emit C++ in hello.vx.build/, then build and link an Oilpan executable
+vexa native hello.vx
 
 # Format in place
 vexa format hello.vx --write
@@ -49,6 +53,9 @@ Install the [VexaScript VS Code extension](https://marketplace.visualstudio.com/
 |---|---|
 | `vexa run <file>` | Execute a `.vx` file |
 | `vexa build <file> -o <out>` | Compile to JavaScript |
+| `vexa build <file> --emit cpp` | Emit a C++ translation unit |
+| `vexa native <file> [-o executable]` | Emit C++ in `<file>.build/`, build Oilpan with `g++`, and link an executable |
+| `vexa build <file> --native` | Alias for the direct `native` workflow |
 | `vexa format <file> [--write]` | Format source (print or overwrite) |
 | `vexa tokens <file>` | Print the token stream |
 | `vexa ast <file>` | Print the simplified AST |
@@ -90,6 +97,7 @@ count++
 - [CLI guide](https://vexascript.com/cli)
 - [Quickstart](https://vexascript.com/quickstart)
 - [Embedding guide](https://vexascript.com/embed)
+- [Native C++ backend](docs/native.md)
 - [Playground](https://vexascript.com/playground)
 
 ## Development

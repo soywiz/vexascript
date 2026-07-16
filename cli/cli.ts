@@ -1,7 +1,7 @@
 import "./localVfs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { Command } from "commander";
-import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
+import type { EmitLanguage, TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
 import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "../compiler/language";
 import { loadProject } from "../compiler/project";
 import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "../compiler/syntax";
@@ -89,12 +89,14 @@ async function buildFile(
   input: string,
   out?: string,
   target: TranspileTarget = "optimized",
-  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {}
+  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {},
+  emit: EmitLanguage = "javascript"
 ): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = (await vfs().readFile(sourcePath))!;
   const project = await loadProject(sourcePath);
-  const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
+  const outputExtension = emit === "cpp" ? ".cpp" : ".js";
+  const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, outputExtension));
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
   const { transpile } = await import("../compiler/runtime/transpile");
@@ -102,6 +104,8 @@ async function buildFile(
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
+    emit,
+    emitSourceMap: emit === "javascript",
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     rewriteImportExtensions: true,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
@@ -129,6 +133,20 @@ async function buildFile(
       console.warn(`warning: ${warning}`);
     }
   }
+}
+
+async function buildNativeFile(
+  input: string,
+  out?: string,
+  buildDir?: string,
+  target: TranspileTarget = "optimized"
+): Promise<void> {
+  const { compileNativeExecutable, nativeProgramPaths } = await import("./nativeBuild");
+  const paths = nativeProgramPaths(input, out, buildDir);
+  await mkdir(paths.buildRoot, { recursive: true });
+  await buildFile(input, paths.cppPath, target, {}, "cpp");
+  await compileNativeExecutable(paths.cppPath, paths.executablePath);
+  console.log(`Linked: ${paths.cppPath} + Oilpan -> ${paths.executablePath}`);
 }
 
 async function bundleFile(
@@ -507,26 +525,54 @@ function createProgram(): Command {
 
   program
     .command("build")
-    .description("Compile a VexaScript file to JavaScript, or build a static site from a project directory")
+    .description("Compile a VexaScript file to JavaScript or C++, optionally linking a native Oilpan executable")
     .argument("<input>", "Input file or project directory")
     .option("-o, --out <path>", "Output file for file builds, or output directory for project builds")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
+    .option("--emit <language>", "Output language for file builds: javascript|cpp", "javascript")
+    .option("--native", "Emit C++, build Oilpan with g++, and link a native executable")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and node_modules packages as ESM")
-    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean }) => {
+    .action(async (input: string, opts: { out?: string; target?: string; emit?: string; native?: boolean; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
+      const emit = opts.native ? "cpp" : opts.emit ?? "javascript";
+      if (emit !== "javascript" && emit !== "cpp") {
+        throw new Error(`Unsupported output language "${emit}". Supported languages: javascript, cpp`);
+      }
       const inputPath = resolve(process.cwd(), input);
       const inputStats = await vfs().stat(inputPath).catch(() => null);
       if (inputStats?.isDirectory) {
+        if (emit === "cpp" || opts.native) {
+          throw new Error("C++ emission currently supports single-file builds only");
+        }
         await buildDirectory(input, opts.out, target, jsxOptions);
         return;
       }
       if (opts.bundle) {
+        if (emit === "cpp" || opts.native) {
+          throw new Error("C++ emission cannot be combined with --bundle");
+        }
         await bundleFile(input, opts.out, target, jsxOptions);
         return;
       }
-      await buildFile(input, opts.out, target, jsxOptions);
+      if (opts.native) {
+        await buildNativeFile(input, opts.out, undefined, target);
+        return;
+      }
+      await buildFile(input, opts.out, target, jsxOptions, emit);
+    });
+
+  program
+    .command("native")
+    .description("Compile one VexaScript file directly to a native Oilpan executable")
+    .argument("<input>", "Input .vx file")
+    .option("-o, --out <file>", "Output executable (defaults next to the source)")
+    .option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)")
+    .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
+    .action(async (input: string, opts: { out?: string; buildDir?: string; target?: string }) => {
+      const target = opts.target === "conservative" ? "conservative" : "optimized";
+      await buildNativeFile(input, opts.out, opts.buildDir, target);
     });
 
   program
@@ -631,7 +677,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  if (argv.length <= 2 || argv.includes("--help") || argv.includes("-h") || argv[2] === "help") {
+  if (argv.length <= 2) {
     createProgram().outputHelp();
     return;
   }
@@ -648,7 +694,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(["build", "bundle", "serve", "run", "test", "tokens", "ast", "format", "syntax", "lsp", "mcp"]);
+  const knownCommands = new Set(["build", "native", "bundle", "serve", "run", "test", "tokens", "ast", "format", "syntax", "lsp", "mcp"]);
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");

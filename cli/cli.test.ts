@@ -182,6 +182,21 @@ describe("CLI", () => {
     );
   });
 
+  it("build command emits C++ without a JavaScript source map", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-"));
+    const input = join(dir, "input.vx");
+    const output = join(dir, "output.cpp");
+    await writeFile(input, "for (n of 0 ..< 10) { console.log(n) }", "utf8");
+
+    await runCli(["node", "vexa", "build", input, "--emit", "cpp", "--out", output]);
+
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).toContain('#include "runtime.cpp"');
+    expect(outputCode).toContain("for (double n = 0; n < 10; n++)");
+    expect(outputCode).toContain("vexa::console.log(n);");
+    await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
+  });
+
   it("build command uses JSX factories from vexascript.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
     const input = join(dir, "input-jsx.vx");
@@ -508,6 +523,32 @@ describe("CLI", () => {
     expect(output).toContain("\"defaultToken\"");
   });
 
+  it("lists the direct native compilation command in CLI help", async () => {
+    const stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runCli(["node", "vexa", "--help"]);
+
+    expect(stdoutWriteSpy.mock.calls.some((call) => String(call[0] ?? "").includes("native [options] <input>"))).toBe(true);
+  });
+
+  it("prints command-specific build and native help", async () => {
+    const stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation((...args: unknown[]) => {
+      throw new Error(`process.exit:${typeof args[0] === "number" ? args[0] : 0}`);
+    });
+
+    await expect(runCli(["node", "vexa", "help", "build"])).rejects.toThrow("process.exit:0");
+    const buildHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
+    expect(buildHelp).toContain("Usage: vexa build [options] <input>");
+    expect(buildHelp).toContain("--emit <language>");
+    expect(buildHelp).toContain("--native");
+
+    await expect(runCli(["node", "vexa", "native", "--help"])).rejects.toThrow("process.exit:0");
+    const nativeHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
+    expect(nativeHelp).toContain("Usage: vexa native [options] <input>");
+    expect(nativeHelp).toContain("--build-dir <dir>");
+  });
+
   it("reports the compiler version from the root package.json", async () => {
     const stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((...args: unknown[]) => {
@@ -593,6 +634,21 @@ describe("CLI", () => {
     const run = await spawnAndCapture(process.execPath, ["dist/vexa.js"], process.cwd());
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("Usage: vexa [options] [command]");
+    expect(run.stderr).toBe("");
+  });
+
+  it("built CLI prints command-specific build help", async () => {
+    const distPath = join(process.cwd(), "dist");
+    await rm(distPath, { recursive: true, force: true });
+
+    const build = await buildBundledCli();
+    expect(build.code).toBe(0);
+
+    const run = await spawnAndCapture(process.execPath, ["dist/vexa.js", "help", "build"], process.cwd());
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain("Usage: vexa build [options] <input>");
+    expect(run.stdout).toContain("--emit <language>");
+    expect(run.stdout).toContain("--native");
     expect(run.stderr).toBe("");
   });
 

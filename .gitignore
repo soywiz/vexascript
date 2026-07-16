@@ -17,3 +17,4 @@ website/src/assets/generated
 /temp
 /.claude
 /.codegraph
+/native/oilpan-standalone-main/
