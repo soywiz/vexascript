@@ -266,6 +266,38 @@ delegate `Trace` to their base, and concrete classes delegate before tracing the
 own `Member` fields. This keeps interface-typed `Member` and `Persistent` handles
 valid without adding a parallel registry of concrete implementations.
 
+Numeric enums did not require copying the type checker's constant evaluator into
+the backend. They emit as `std::int32_t` constants whose automatic members refer
+to the previous member and whose explicit expressions remain C++ constant
+expressions. The emitter only validates and translates the supported expression
+shape. Type aliases similarly recurse through the existing declared-type mapper;
+declared array suffixes use the shared `splitArraySuffixTypeName` helper instead
+of introducing another parser for `T[]` text.
+
+Interface properties cannot be represented by ordinary C++ fields on an abstract
+base. Each required property therefore emits a virtual getter and, when mutable,
+a virtual setter. Implementing primary-constructor and regular fields receive
+small bridge methods; assignability remains the analyzer's responsibility. The
+assignment lowering evaluates the receiver once before its current value and
+right operand, then returns either the new or previous value according to direct,
+compound, prefix, or postfix source semantics. Local GC tracking now prefers an
+explicit interface annotation over the concrete initializer so later member
+access continues using the source program's static dispatch type.
+
+Computed getters reuse the same callable emitter as ordinary methods. Concrete
+property reads only add the hidden runtime argument, while interface conformance
+adds the same virtual bridge already used by field-backed properties. Implicit
+getter identifiers continue to come from the analyzer's shared implicit-receiver
+set; the C++ backend only decides whether the selected class member is spelled as
+a field access or a zero-source-argument method call.
+
+Template strings needed no new native AST case. The tokenizer already lowers each
+template into binary string additions, so extending the interface-property test to
+`` `${meter.label}:${meter.value}:${meter.leaf.value}` `` exercised the existing
+managed `vexa::add` path. This preserves JavaScript/C++ semantic sharing, performs
+numeric string conversion in the runtime, and keeps the resulting string rooted
+by Oilpan without a second interpolation implementation.
+
 ## Investigation notes and rejected paths
 
 Putting source extraction and `g++` directly in the transpiler would have been

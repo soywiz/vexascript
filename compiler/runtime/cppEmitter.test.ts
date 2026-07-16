@@ -248,6 +248,199 @@ for (greeter of greeters) console.log(greeter.greet("Hi"))`, {
     );
   });
 
+  it("dispatches interface property reads and writes to field-backed implementations", () => {
+    const result = transpile(`class Leaf(val value: int)
+
+interface Meter {
+  var value: int
+  val label: string
+  val leaf: Leaf
+}
+
+class Counter(var value: int, val label: string, val leaf: Leaf) : Meter
+
+fun update(meter: Meter, next: int): string {
+  meter.value = next
+  meter.value += 2
+  meter.value++
+  return \`\${meter.label}:\${meter.value}:\${meter.leaf.value}\`
+}
+
+val counter: Meter = Counter(1, "main", Leaf(7))
+console.log(update(counter, 4), counter.value, counter.label)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain(
+      "virtual std::int32_t __vexa_property_get_value(vexa::Runtime& __vexa_runtime) = 0;"
+    );
+    expect(result.code).toContain(
+      "virtual void __vexa_property_set_value(vexa::Runtime& __vexa_runtime, std::int32_t value) = 0;"
+    );
+    expect(result.code).toContain(
+      "vexa::Value __vexa_property_get_label(vexa::Runtime&) override"
+    );
+    expect(result.code).toContain(
+      "Leaf* __vexa_property_get_leaf(vexa::Runtime&) override"
+    );
+    expect(result.code).toContain("return this->leaf;");
+    expect(result.code).toContain(
+      "__vexa_property_receiver->__vexa_property_set_value(__vexa_runtime, __vexa_property_value)"
+    );
+    expect(result.code).toContain(
+      "auto __vexa_property_current = __vexa_property_receiver->__vexa_property_get_value(__vexa_runtime)"
+    );
+    expect(result.code).toContain(
+      "auto __vexa_property_value = (__vexa_property_current + __vexa_property_operand)"
+    );
+    expect(result.code).toContain("auto __vexa_property_value = (__vexa_property_current + 1)");
+    expect(result.code).toContain("meter->__vexa_property_get_label(__vexa_runtime)");
+    expect(result.code).toContain("meter->__vexa_property_get_value(__vexa_runtime)");
+    expect(result.code).toContain("meter->__vexa_property_get_leaf(__vexa_runtime)->value");
+    expect(result.code).toContain("vexa::add(__vexa_runtime");
+    expect(result.code).toContain("counter->__vexa_property_get_value(runtime)");
+  });
+
+  it("emits computed class getters and uses them as interface property implementations", () => {
+    const result = transpile(`interface Shape {
+  val area: int
+  val title: string
+}
+
+class Rectangle(val width: int, val height: int) : Shape {
+  override area: int => width * height
+
+  override get title(): string {
+    return "rectangle"
+  }
+
+  fun summary(): string {
+    return title + ":" + area.toString()
+  }
+}
+
+fun inspect(shape: Shape): string {
+  return shape.title + ":" + shape.area.toString()
+}
+
+val rectangle = Rectangle(3, 4)
+console.log(rectangle.area, rectangle.title, rectangle.summary(), inspect(rectangle))`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("std::int32_t area(vexa::Runtime& __vexa_runtime)");
+    expect(result.code).toContain("vexa::Value title(vexa::Runtime& __vexa_runtime)");
+    expect(result.code).toContain(
+      "std::int32_t __vexa_property_get_area(vexa::Runtime& __vexa_runtime) override { return this->area(__vexa_runtime); }"
+    );
+    expect(result.code).toContain(
+      "vexa::Value __vexa_property_get_title(vexa::Runtime& __vexa_runtime) override { return this->title(__vexa_runtime); }"
+    );
+    expect(result.code).toContain("this->title(__vexa_runtime)");
+    expect(result.code).toContain("this->area(__vexa_runtime)");
+    expect(result.code).toContain("rectangle->area(runtime)");
+    expect(result.code).toContain("rectangle->title(runtime)");
+    expect(result.code).toContain("shape->__vexa_property_get_area(__vexa_runtime)");
+  });
+
+  it("emits numeric enums as typed constants across functions, arrays, and switches", () => {
+    const result = transpile(`enum Permission {
+  None,
+  Read = 1,
+  Write = Read << 1,
+  Execute = Permission.Write << 1,
+  All = Read | Write | Execute
+}
+
+fun has(value: Permission, flag: Permission): boolean {
+  return (value & flag) != 0
+}
+
+fun writable(): Permission {
+  return Permission.Write
+}
+
+val permissions: Permission = Permission.All
+val ordered: Permission[] = [Permission.None, writable(), Permission.Execute]
+console.log(Permission.None, Permission.Read, has(permissions, Permission.Write), ordered[2])
+switch (permissions) {
+  case Permission.All:
+    console.log("all")
+    break
+  default:
+    console.log("partial")
+}`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("struct Permission final {");
+    expect(result.code).toContain("static constexpr std::int32_t None = 0;");
+    expect(result.code).toContain("static constexpr std::int32_t Read = 1;");
+    expect(result.code).toContain("static constexpr std::int32_t Write = (Read << 1);");
+    expect(result.code).toContain("static constexpr std::int32_t Execute = (Permission::Write << 1);");
+    expect(result.code).toContain("static constexpr std::int32_t All = ((Read | Write) | Execute);");
+    expect(result.code).toContain(
+      "bool has(vexa::Runtime& __vexa_runtime, std::int32_t value, std::int32_t flag);"
+    );
+    expect(result.code).toContain("std::int32_t writable(vexa::Runtime& __vexa_runtime);");
+    expect(result.code).toContain("return Permission::Write;");
+    expect(result.code).toContain(
+      "std::vector<std::int32_t>{Permission::None, writable(runtime), Permission::Execute}"
+    );
+    expect(result.code).toContain("case Permission::All:");
+  });
+
+  it("rejects string enums before producing invalid native constants", () => {
+    const result = transpile(`enum Label {
+  Ready = "ready"
+}
+console.log(Label.Ready)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual(["C++ emission supports numeric enum constant expressions only"]);
+  });
+
+  it("resolves native type aliases and declared array parameter types", () => {
+    const result = transpile(`type Count = int
+type Counts = Count[]
+
+fun total(values: Counts): Count {
+  return values[0] + values[1]
+}
+
+val values: Counts = [2, 3]
+console.log(total(values))`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain(
+      "std::int32_t total(vexa::Runtime& __vexa_runtime, std::vector<std::int32_t> values);"
+    );
+    expect(result.code).toContain("return (values[0] + values[1]);");
+    expect(result.code).toContain("std::vector<std::int32_t>{2, 3}");
+    expect(result.code).not.toContain("type Count");
+  });
+
   it("emits primary-constructor classes as Oilpan-managed objects", () => {
     const result = transpile(`class Point(val x: number, val y: number)
 

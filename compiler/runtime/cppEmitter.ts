@@ -14,6 +14,7 @@ import type {
   ConditionalExpression,
   ContinueStatement,
   DoWhileStatement,
+  EnumStatement,
   Expr,
   ExprStatement,
   ExportStatement,
@@ -23,7 +24,9 @@ import type {
   FunctionParameter,
   Identifier,
   IfStatement,
+  InterfaceMember,
   InterfaceMethodMember,
+  InterfacePropertyMember,
   InterfaceStatement,
   MemberExpression,
   NamedArgument,
@@ -37,6 +40,7 @@ import type {
   SwitchStatement,
   ThrowStatement,
   TryStatement,
+  TypeAliasStatement,
   UnaryExpression,
   UpdateExpression,
   VarStatement,
@@ -45,6 +49,7 @@ import type {
 import { compoundAssignmentBinaryOperator } from "compiler/ast/ast";
 import type { AnalysisType, BuiltinTypeName } from "compiler/analysis/types";
 import type { AnalysisSymbol } from "compiler/analysis/model";
+import { splitArraySuffixTypeName } from "compiler/analysis/typeNames";
 import { operatorMethodRuntimeName } from "./operatorNames";
 
 export class CppEmitError extends Error {
@@ -68,6 +73,8 @@ const CPP_RESERVED_WORDS = new Set([
 
 let activeClassNames: ReadonlySet<string> = new Set();
 let activeInterfaceNames: ReadonlySet<string> = new Set();
+let activeEnumNames: ReadonlySet<string> = new Set();
+let activeTypeAliases: ReadonlyMap<string, string> = new Map();
 let activeGcObjectTypes: Map<string, string> = new Map();
 let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> = new Map();
 let activeFunctionStatements: ReadonlyMap<string, FunctionStatement> = new Map();
@@ -112,6 +119,12 @@ function emitIdentifier(identifier: Identifier): string {
     return `${cppName(staticClassName)}::${cppName(identifier.name)}`;
   }
   if (activeImplicitReceiverIdentifiers.has(identifier as Node)) {
+    const currentClass = activeCurrentClassName
+      ? activeClassStatements.get(activeCurrentClassName)
+      : undefined;
+    if (currentClass && classGetterForName(currentClass, identifier.name)) {
+      return `${activeThisExpression}->${cppName(identifier.name)}(${activeRuntimeName})`;
+    }
     return `${activeThisExpression}->${cppName(identifier.name)}`;
   }
   return cppName(identifier.name);
@@ -190,16 +203,35 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
     const elementType = elementTypes.size === 1 ? [...elementTypes][0] : null;
     return elementType ? `std::vector<${elementType}>` : null;
   }
+  if (type.kind === "named" && activeEnumNames.has(type.name)) return "std::int32_t";
   if (type.kind === "named" && isNativeObjectTypeName(type.name)) {
     return `${cppName(type.name)}*`;
   }
   return null;
 }
 
-function cppTypeForDeclaredName(typeName: string): string | null {
+function cppTypeForDeclaredName(typeName: string, visitedAliases = new Set<string>()): string | null {
+  const arrayType = splitArraySuffixTypeName(typeName);
+  if (arrayType) {
+    const elementType = arrayType.elementTypeName === "string"
+      ? "std::string"
+      : cppTypeForDeclaredName(arrayType.elementTypeName, visitedAliases);
+    if (!elementType || elementType === "void") return null;
+    let result = elementType;
+    for (let depth = 0; depth < arrayType.arrayDepth; depth += 1) {
+      result = `std::vector<${result}>`;
+    }
+    return result;
+  }
   const builtin = cppTypeForBuiltin(typeName as BuiltinTypeName);
   if (builtin) return builtin;
-  return isNativeObjectTypeName(typeName) ? `${cppName(typeName)}*` : null;
+  if (activeEnumNames.has(typeName)) return "std::int32_t";
+  if (isNativeObjectTypeName(typeName)) return `${cppName(typeName)}*`;
+  if (visitedAliases.has(typeName)) return null;
+  const aliasTarget = activeTypeAliases.get(typeName);
+  if (!aliasTarget) return null;
+  visitedAliases.add(typeName);
+  return cppTypeForDeclaredName(aliasTarget, visitedAliases);
 }
 
 function isNativeObjectTypeName(typeName: string): boolean {
@@ -346,22 +378,89 @@ function staticClassNameForExpression(expression: Expr): string | null {
   return activeClassNames.has(name) && !activeLocalNames.has(name) ? name : null;
 }
 
-function interfaceMethodForName(
+function interfaceMemberForName(
   statement: InterfaceStatement,
-  methodName: string,
+  memberName: string,
   visited = new Set<string>()
-): InterfaceMethodMember | null {
+): InterfaceMember | null {
   if (visited.has(statement.name.name)) return null;
   visited.add(statement.name.name);
-  const ownMethod = statement.members.find((candidate): candidate is InterfaceMethodMember =>
-    candidate.kind === "InterfaceMethodMember" && candidate.name.name === methodName);
-  if (ownMethod) return ownMethod;
+  const ownMember = statement.members.find((candidate) => candidate.name.name === memberName);
+  if (ownMember) return ownMember;
   for (const extendedType of statement.extendsTypes ?? []) {
     const parent = activeInterfaceStatements.get(extendedType.name);
-    const inheritedMethod = parent ? interfaceMethodForName(parent, methodName, visited) : null;
-    if (inheritedMethod) return inheritedMethod;
+    const inheritedMember = parent ? interfaceMemberForName(parent, memberName, visited) : null;
+    if (inheritedMember) return inheritedMember;
   }
   return null;
+}
+
+function interfaceMethodForName(statement: InterfaceStatement, methodName: string): InterfaceMethodMember | null {
+  const member = interfaceMemberForName(statement, methodName);
+  return member?.kind === "InterfaceMethodMember" ? member : null;
+}
+
+function interfacePropertyForName(statement: InterfaceStatement, propertyName: string): InterfacePropertyMember | null {
+  const member = interfaceMemberForName(statement, propertyName);
+  return member?.kind === "InterfacePropertyMember" ? member : null;
+}
+
+function interfacePropertyForMember(member: { object: Expr; propertyName: string }): InterfacePropertyMember | null {
+  const typeName = classNameForExpression(member.object);
+  const statement = typeName ? activeInterfaceStatements.get(typeName) : undefined;
+  return statement ? interfacePropertyForName(statement, member.propertyName) : null;
+}
+
+function resolvedInterfacePropertyMember(
+  expression: Expr
+): { member: MemberExpression; property: InterfacePropertyMember } | null {
+  if (expression.kind !== "MemberExpression") return null;
+  const member = expression as MemberExpression;
+  const propertyName = !member.computed ? identifierName(member.property) : null;
+  const property = propertyName
+    ? interfacePropertyForMember({ object: member.object, propertyName })
+    : null;
+  return property ? { member, property } : null;
+}
+
+function emitInterfacePropertyAssignment(
+  assignment: AssignmentExpression,
+  member: MemberExpression,
+  property: InterfacePropertyMember
+): string {
+  if (!isMutableInterfaceProperty(property)) {
+    throw new CppEmitError(`C++ cannot assign to read-only interface property '${property.name.name}'`);
+  }
+  const receiver = emitExpression(member.object);
+  const setter = interfacePropertySetterName(property.name.name);
+  if (assignment.operator === "=") {
+    return `([&]() { auto* __vexa_property_receiver = ${receiver}; auto __vexa_property_value = ${emitExpression(assignment.right)}; __vexa_property_receiver->${setter}(${activeRuntimeName}, __vexa_property_value); return __vexa_property_value; }())`;
+  }
+  const binaryOperator = compoundAssignmentBinaryOperator(assignment.operator);
+  if (!binaryOperator || !new Set(["+", "-", "*", "/", "%", "<<", ">>", "&", "|", "^"]).has(binaryOperator)) {
+    throw new CppEmitError(`C++ interface properties do not support '${assignment.operator}' assignment yet`);
+  }
+  const getter = interfacePropertyGetterName(property.name.name);
+  const propertyType = cppTypeForDeclaredName(property.typeAnnotation.name);
+  const value = binaryOperator === "+" && propertyType === "vexa::Value"
+    ? `vexa::add(${activeRuntimeName}, __vexa_property_current, __vexa_property_operand)`
+    : `(__vexa_property_current ${binaryOperator} __vexa_property_operand)`;
+  return `([&]() { auto* __vexa_property_receiver = ${receiver}; auto __vexa_property_current = __vexa_property_receiver->${getter}(${activeRuntimeName}); auto __vexa_property_operand = ${emitExpression(assignment.right)}; auto __vexa_property_value = ${value}; __vexa_property_receiver->${setter}(${activeRuntimeName}, __vexa_property_value); return __vexa_property_value; }())`;
+}
+
+function emitInterfacePropertyUpdate(
+  update: UpdateExpression,
+  member: MemberExpression,
+  property: InterfacePropertyMember
+): string {
+  if (!isMutableInterfaceProperty(property)) {
+    throw new CppEmitError(`C++ cannot update read-only interface property '${property.name.name}'`);
+  }
+  const delta = update.operator === "++" ? "+" : "-";
+  const getter = interfacePropertyGetterName(property.name.name);
+  const setter = interfacePropertySetterName(property.name.name);
+  const returned = update.prefix ? "__vexa_property_value" : "__vexa_property_current";
+  return `([&]() { auto* __vexa_property_receiver = ${emitExpression(member.object)}; auto __vexa_property_current = __vexa_property_receiver->${getter}(${activeRuntimeName}); auto __vexa_property_value = (__vexa_property_current ${delta} 1); __vexa_property_receiver->${setter}(${activeRuntimeName}, __vexa_property_value); return ${returned}; }())`;
 }
 
 function classMethodForMember(
@@ -375,6 +474,24 @@ function classMethodForMember(
   if (classMethod) return classMethod;
   const interfaceStatement = activeInterfaceStatements.get(className);
   return interfaceStatement ? interfaceMethodForName(interfaceStatement, member.propertyName) : null;
+}
+
+function classGetterForName(
+  statement: ClassStatement,
+  propertyName: string
+): ClassMethodMember | null {
+  return statement.members.find((member): member is ClassMethodMember =>
+    member.kind === "ClassMethodMember" &&
+    member.name.name === propertyName &&
+    (member.getterShorthand === true || member.accessorKind === "get")) ?? null;
+}
+
+function classGetterForMember(
+  member: { object: Expr; propertyName: string }
+): ClassMethodMember | null {
+  const className = classNameForExpression(member.object);
+  const statement = className ? activeClassStatements.get(className) : undefined;
+  return statement ? classGetterForName(statement, member.propertyName) : null;
 }
 
 function classUsesRuntimeConstructor(statement: ClassStatement | undefined): boolean {
@@ -750,6 +867,10 @@ function emitExpression(expression: Expr): string {
     }
     case "UpdateExpression": {
       const update = expression as UpdateExpression;
+      const interfaceProperty = resolvedInterfacePropertyMember(update.argument);
+      if (interfaceProperty) {
+        return emitInterfacePropertyUpdate(update, interfaceProperty.member, interfaceProperty.property);
+      }
       const text = `${emitExpression(update.argument)}${update.operator}`;
       return update.prefix ? `${update.operator}${emitExpression(update.argument)}` : text;
     }
@@ -759,6 +880,14 @@ function emitExpression(expression: Expr): string {
       if (overloaded?.operator === "[]=" && assignment.left.kind === "MemberExpression") {
         const member = assignment.left as MemberExpression;
         return emitClassOperatorCall(overloaded, member.object, [assignment.right, ...computedMemberArguments(member)]);
+      }
+      const interfaceProperty = resolvedInterfacePropertyMember(assignment.left);
+      if (interfaceProperty) {
+        return emitInterfacePropertyAssignment(
+          assignment,
+          interfaceProperty.member,
+          interfaceProperty.property
+        );
       }
       const compoundOperator = compoundAssignmentBinaryOperator(assignment.operator);
       if (overloaded?.operator === compoundOperator) {
@@ -791,11 +920,28 @@ function emitExpression(expression: Expr): string {
       if (overloaded?.operator === "[]") {
         return emitClassOperatorCall(overloaded, member.object, computedMemberArguments(member));
       }
+      const enumName = !member.computed ? identifierName(member.object) : null;
+      if (enumName && activeEnumNames.has(enumName) && member.property.kind === "Identifier") {
+        return `${cppName(enumName)}::${cppName((member.property as Identifier).name)}`;
+      }
       if (!member.computed && identifierName(member.object) === "Math" && member.property.kind === "Identifier") {
         return `vexa::Math::${cppName((member.property as Identifier).name)}`;
       }
       if (!member.computed && isArrayExpression(member.object) && identifierName(member.property) === "length") {
         return `static_cast<double>(${emitExpression(member.object)}.size())`;
+      }
+      const propertyName = !member.computed ? identifierName(member.property) : null;
+      const interfaceProperty = propertyName
+        ? interfacePropertyForMember({ object: member.object, propertyName })
+        : null;
+      if (interfaceProperty) {
+        return `${emitExpression(member.object)}->${interfacePropertyGetterName(interfaceProperty.name.name)}(${activeRuntimeName})`;
+      }
+      const classGetter = propertyName
+        ? classGetterForMember({ object: member.object, propertyName })
+        : null;
+      if (classGetter) {
+        return `${emitExpression(member.object)}->${cppName(classGetter.name.name)}(${activeRuntimeName})`;
       }
       return member.computed
         ? `${emitExpression(member.object)}[${emitExpression(member.property)}]`
@@ -824,7 +970,10 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
   }
   const type = forInitializer ? cppTypeForExpression(statement.initializer) : "auto";
   const initializer = emitExpression(statement.initializer);
-  const className = classNameForExpression(statement.initializer);
+  const declaredTypeName = statement.typeAnnotation?.name;
+  const className = declaredTypeName && isNativeObjectTypeName(declaredTypeName)
+    ? declaredTypeName
+    : classNameForExpression(statement.initializer);
   activeLocalNames.add(sourceName);
   if (className) {
     activeGcObjectTypes.set(sourceName, className);
@@ -1373,8 +1522,7 @@ function emitClassFieldInitializer(expression: Expr, statement: ClassStatement):
 function validateClassMethod(method: ClassMethodMember, statement: ClassStatement): void {
   if (
     method.abstract ||
-    method.accessorKind ||
-    method.getterShorthand ||
+    method.accessorKind === "set" ||
     method.computed ||
     method.optional ||
     method.missingBody ||
@@ -1385,9 +1533,103 @@ function validateClassMethod(method: ClassMethodMember, statement: ClassStatemen
       statement
     );
   }
+  if ((method.accessorKind === "get" || method.getterShorthand) && (
+    method.static ||
+    method.parameters.length > 0 ||
+    method.async ||
+    method.sync ||
+    method.generator ||
+    method.operator
+  )) {
+    throw new CppEmitError("C++ emission supports synchronous instance getters without parameters only", statement);
+  }
   if (method.operator && (method.static || method.async || method.sync || method.generator)) {
     throw new CppEmitError("C++ emission supports synchronous instance operator methods only", statement);
   }
+}
+
+function emitEnumConstantExpression(expression: Expr): string {
+  switch (expression.kind) {
+    case "IntLiteral":
+      return String((expression as unknown as { value: number }).value);
+    case "Identifier":
+      return cppName((expression as Identifier).name);
+    case "UnaryExpression": {
+      const unary = expression as UnaryExpression;
+      if (!new Set(["+", "-", "~"]).has(unary.operator)) break;
+      return `(${unary.operator}${emitEnumConstantExpression(unary.argument)})`;
+    }
+    case "BinaryExpression": {
+      const binary = expression as BinaryExpression;
+      if (!new Set(["+", "-", "*", "/", "%", "<<", ">>", "&", "|", "^"]).has(binary.operator)) break;
+      return `(${emitEnumConstantExpression(binary.left)} ${binary.operator} ${emitEnumConstantExpression(binary.right)})`;
+    }
+    case "MemberExpression": {
+      const member = expression as MemberExpression;
+      const enumName = !member.computed ? identifierName(member.object) : null;
+      const memberName = !member.computed ? identifierName(member.property) : null;
+      if (enumName && memberName && activeEnumNames.has(enumName)) {
+        return `${cppName(enumName)}::${cppName(memberName)}`;
+      }
+      break;
+    }
+    case "AsExpression":
+    case "SatisfiesExpression":
+    case "NonNullExpression":
+      return emitEnumConstantExpression((expression as unknown as { expression: Expr }).expression);
+  }
+  throw new CppEmitError("C++ emission supports numeric enum constant expressions only");
+}
+
+function emitEnum(statement: EnumStatement): string {
+  if (statement.declared) {
+    throw new CppEmitError("C++ emission does not support ambient enum declarations", statement);
+  }
+  const lines = [`struct ${cppName(statement.name.name)} final {`];
+  statement.members.forEach((member, index) => {
+    const value = member.initializer
+      ? emitEnumConstantExpression(member.initializer)
+      : index === 0
+        ? "0"
+        : `(${cppName(statement.members[index - 1]!.name.name)} + 1)`;
+    lines.push(`  static constexpr std::int32_t ${cppName(member.name.name)} = ${value};`);
+  });
+  lines.push("};");
+  return lines.join("\n");
+}
+
+function interfacePropertyGetterName(propertyName: string): string {
+  return `__vexa_property_get_${cppName(propertyName)}`;
+}
+
+function interfacePropertySetterName(propertyName: string): string {
+  return `__vexa_property_set_${cppName(propertyName)}`;
+}
+
+function isMutableInterfaceProperty(property: InterfacePropertyMember): boolean {
+  return property.declarationKind !== "val" && property.declarationKind !== "const";
+}
+
+function emitInterfaceProperty(property: InterfacePropertyMember, statement: InterfaceStatement): string[] {
+  if (property.optional) {
+    throw new CppEmitError("C++ emission supports required interface properties only", statement);
+  }
+  const type = cppTypeForDeclaredName(property.typeAnnotation.name);
+  if (!type || type === "void") {
+    throw new CppEmitError(
+      `C++ emission does not support interface property type '${property.typeAnnotation.name}' yet`,
+      statement
+    );
+  }
+  const lines = [
+    `  virtual ${type} ${interfacePropertyGetterName(property.name.name)}(vexa::Runtime& __vexa_runtime) = 0;`,
+  ];
+  if (isMutableInterfaceProperty(property)) {
+    lines.push(
+      `  virtual void ${interfacePropertySetterName(property.name.name)}(vexa::Runtime& __vexa_runtime, ${type} value) = 0;`
+    );
+  }
+  return lines;
 }
 
 function emitInterfaceMethod(method: InterfaceMethodMember, statement: InterfaceStatement): string {
@@ -1415,10 +1657,9 @@ function emitInterfaceMethod(method: InterfaceMethodMember, statement: Interface
 function emitInterface(statement: InterfaceStatement): string {
   if (
     statement.typeParameters?.length ||
-    (statement.extendsTypes?.length ?? 0) > 1 ||
-    statement.members.some((member) => member.kind !== "InterfaceMethodMember")
+    (statement.extendsTypes?.length ?? 0) > 1
   ) {
-    throw new CppEmitError("C++ emission supports non-generic method-only interfaces with at most one base interface", statement);
+    throw new CppEmitError("C++ emission supports non-generic interfaces with at most one base interface", statement);
   }
   const extendedInterfaces = (statement.extendsTypes ?? []).map((extendedType) => {
     if (!activeInterfaceNames.has(extendedType.name)) {
@@ -1443,7 +1684,9 @@ function emitInterface(statement: InterfaceStatement): string {
     " public:",
     `  virtual ~${cppName(statement.name.name)}() = default;`,
     trace,
-    ...statement.members.map((member) => emitInterfaceMethod(member as InterfaceMethodMember, statement)),
+    ...statement.members.flatMap((member) => member.kind === "InterfaceMethodMember"
+      ? [emitInterfaceMethod(member, statement)]
+      : emitInterfaceProperty(member, statement)),
     "};",
   ].join("\n");
 }
@@ -1462,6 +1705,102 @@ function implementedInterfaceTypes(statement: ClassStatement): Identifier[] {
       : []),
     ...(statement.implementsTypes ?? []),
   ];
+}
+
+function interfaceProperties(
+  statement: InterfaceStatement,
+  visited = new Set<string>()
+): InterfacePropertyMember[] {
+  if (visited.has(statement.name.name)) return [];
+  visited.add(statement.name.name);
+  const properties = new Map<string, InterfacePropertyMember>();
+  for (const extendedType of statement.extendsTypes ?? []) {
+    const parent = activeInterfaceStatements.get(extendedType.name);
+    for (const property of parent ? interfaceProperties(parent, visited) : []) {
+      properties.set(property.name.name, property);
+    }
+  }
+  for (const member of statement.members) {
+    if (member.kind === "InterfacePropertyMember") properties.set(member.name.name, member);
+  }
+  return [...properties.values()];
+}
+
+function implementedInterfaceProperties(statement: ClassStatement): InterfacePropertyMember[] {
+  const implementedType = implementedInterfaceTypes(statement)[0];
+  const interfaceStatement = implementedType
+    ? activeInterfaceStatements.get(implementedType.name)
+    : undefined;
+  return interfaceStatement ? interfaceProperties(interfaceStatement) : [];
+}
+
+type ClassPropertyImplementation =
+  | { kind: "field"; mutable: boolean }
+  | { kind: "getter"; method: ClassMethodMember };
+
+function classPropertyImplementation(
+  statement: ClassStatement,
+  propertyName: string
+): ClassPropertyImplementation | null {
+  const primaryProperty = (statement.primaryConstructorParameters ?? [])
+    .find((parameter) => parameter.name.name === propertyName);
+  if (primaryProperty) {
+    return {
+      kind: "field",
+      mutable: primaryProperty.declarationKind !== "val" && primaryProperty.declarationKind !== "const",
+    };
+  }
+  const field = statement.members.find((member): member is ClassFieldMember =>
+    member.kind === "ClassFieldMember" && member.name.name === propertyName);
+  if (field) {
+    return {
+      kind: "field",
+      mutable: field.declarationKind !== "val" && field.declarationKind !== "const" && !field.readonly,
+    };
+  }
+  const getter = classGetterForName(statement, propertyName);
+  return getter ? { kind: "getter", method: getter } : null;
+}
+
+function emitInterfacePropertyBridges(statement: ClassStatement): string[] {
+  return implementedInterfaceProperties(statement).flatMap((property) => {
+    const implementation = classPropertyImplementation(statement, property.name.name);
+    if (!implementation) {
+      throw new CppEmitError(
+        `C++ interface property '${property.name.name}' requires a field or getter implementation`,
+        statement
+      );
+    }
+    const type = cppTypeForDeclaredName(property.typeAnnotation.name);
+    if (!type || type === "void") {
+      throw new CppEmitError(
+        `C++ emission does not support interface property type '${property.typeAnnotation.name}' yet`,
+        statement
+      );
+    }
+    const propertyName = cppName(property.name.name);
+    const getterValue = implementation.kind === "getter"
+      ? `this->${propertyName}(__vexa_runtime)`
+      : `this->${propertyName}`;
+    const runtimeParameter = implementation.kind === "getter"
+      ? "vexa::Runtime& __vexa_runtime"
+      : "vexa::Runtime&";
+    const lines = [
+      `  ${type} ${interfacePropertyGetterName(property.name.name)}(${runtimeParameter}) override { return ${getterValue}; }`,
+    ];
+    if (isMutableInterfaceProperty(property)) {
+      if (implementation.kind !== "field" || !implementation.mutable) {
+        throw new CppEmitError(
+          `C++ mutable interface property '${property.name.name}' requires a mutable class field`,
+          statement
+        );
+      }
+      lines.push(
+        `  void ${interfacePropertySetterName(property.name.name)}(vexa::Runtime&, ${type} __vexa_property_value) override { this->${propertyName} = __vexa_property_value; }`
+      );
+    }
+    return lines;
+  });
 }
 
 function emitClassMethod(
@@ -1583,6 +1922,14 @@ function emitClass(statement: ClassStatement): string {
     : "  void Trace(cppgc::Visitor*) const {}";
   const methods = statement.members.filter((member): member is ClassMethodMember => member.kind === "ClassMethodMember");
   const methodLines: string[] = [];
+  const propertyBridges = emitInterfacePropertyBridges(statement);
+  if (propertyBridges.length > 0) {
+    if (activeAccess !== "public") {
+      methodLines.push(" public:");
+      activeAccess = "public";
+    }
+    methodLines.push(...propertyBridges);
+  }
   for (const method of methods) {
     const access = method.accessModifier ?? "public";
     if (access !== activeAccess) {
@@ -1678,6 +2025,7 @@ function emitStatement(statement: Statement, indent = ""): string {
       return `${indent};`;
     case "TypeAliasStatement":
     case "InterfaceStatement":
+    case "EnumStatement":
     case "ImportStatement":
       return "";
     default:
@@ -1724,12 +2072,22 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   const interfaces = statements.filter(
     (statement): statement is InterfaceStatement => statement.kind === "InterfaceStatement"
   );
+  const enums = statements.filter(
+    (statement): statement is EnumStatement => statement.kind === "EnumStatement"
+  );
+  const typeAliases = statements.filter(
+    (statement): statement is TypeAliasStatement => statement.kind === "TypeAliasStatement"
+  );
   const classes = statements.filter((statement): statement is ClassStatement => statement.kind === "ClassStatement");
   const functions = statements.filter((statement): statement is FunctionStatement => statement.kind === "FunctionStatement");
   activeClassStatements = new Map(classes.map((statement) => [statement.name.name, statement]));
   activeClassNames = new Set(activeClassStatements.keys());
   activeInterfaceStatements = new Map(interfaces.map((statement) => [statement.name.name, statement]));
   activeInterfaceNames = new Set(activeInterfaceStatements.keys());
+  activeEnumNames = new Set(enums.map((statement) => statement.name.name));
+  activeTypeAliases = new Map(typeAliases
+    .filter((statement) => !statement.typeParameters?.length)
+    .map((statement) => [statement.name.name, statement.targetType.name]));
   activeFunctionStatements = new Map(functions.map((statement) => [statement.name.name, statement]));
   activeGcObjectTypes = new Map();
   activeExpressionTypes = semantics.expressionTypes ?? new Map();
@@ -1756,12 +2114,14 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
 
   const forwardInterfaces = interfaces.map((statement) => `class ${cppName(statement.name.name)};`);
   const forwardClasses = classes.map((statement) => `class ${cppName(statement.name.name)};`);
+  const enumDefinitions = enums.map(emitEnum);
   const interfaceDefinitions = interfacesInDependencyOrder(interfaces).map(emitInterface);
   const functionPrototypes = functions.map((statement) => `${functionSignature(statement)};`);
   const classDefinitions = classes.map(emitClass);
   const functionDefinitions = functions.map(emitFunction);
   const declarationSections = [
     [...forwardInterfaces, ...forwardClasses],
+    enumDefinitions,
     interfaceDefinitions,
     functionPrototypes,
     classDefinitions,

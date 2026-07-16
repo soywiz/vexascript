@@ -789,6 +789,10 @@ class Box<T extends Entity> extends Base<T> {
 
 Class bodies support TypeScript-style property accessors. Getter accessors must not declare parameters, and setter accessors must declare exactly one parameter. Accessor type annotations participate in member type analysis as property types. Getters also support a shorthand form that omits `get` and the empty parameter list when the body is a single returned expression.
 
+Native C++ emission supports synchronous instance getters in both forms, including
+their use as read-only interface-property implementations. Setter accessors and
+compound accessor blocks are not yet supported by the native backend.
+
 VexaScript also supports a compound accessor block where the property name is written once and `get`/`set` sub-blocks are nested inside `{ }`. The setter parameter defaults to the implicit name `newValue` typed to the declared property type; it can be overridden by writing `set(name)` or `set(name: Type)`. Either `get`/`set` order is accepted.
 
 Example:
@@ -1056,11 +1060,13 @@ interface PairStore<K, V> extends Iterable<K> {
 
 `interface` declarations are type-only and are omitted from emitted JavaScript output.
 
-The native C++ backend supports required, non-generic method-only interfaces with
-at most one base interface. Classes can conform to one interface through either
-the colon form or `implements`; interface-typed parameters, fields, local values,
-returns, and homogeneous arrays use virtual dispatch, so different implementing
-classes can be passed and called through the same interface type.
+The native C++ backend supports required, non-generic method-and-property
+interfaces with at most one base interface. Classes can conform to one interface
+through either the colon form or `implements`; interface-typed parameters, fields,
+local values, returns, and homogeneous arrays use virtual dispatch. Interface
+properties can be implemented by primary-constructor or regular class fields;
+`val`/`const` properties emit a getter, while mutable properties also support
+direct, compound, prefix, and postfix writes through a virtual setter.
 
 
 ### Enums
@@ -1085,6 +1091,11 @@ const enum Status {
 let direction: Direction = Direction.Up
 ```
 
+The native C++ backend supports numeric enums whose explicit initializers are
+integer arithmetic, shift, or bitwise constant expressions. Enum values can be
+used in typed parameters, returns, arrays, comparisons, bitwise expressions, and
+switch cases. Native string and ambient enums are rejected explicitly.
+
 ### Type aliases
 
 VexaScript supports type aliases for naming another supported type annotation form. Aliases may be generic and can be used anywhere a type annotation is accepted:
@@ -1107,6 +1118,10 @@ let boxed: Boxed<Text> = new Box<string>()
 ```
 
 `type` declarations are type-only and are omitted from emitted JavaScript output. Mapped and conditional types are preserved structurally by the parser; semantic analysis resolves the portions it understands and otherwise treats them conservatively as `unknown`. Template literal types are also resolved when their interpolated members reduce to literal or union-of-literal values; when an interpolation stays wide (for example `${string}`), the result degrades conservatively to `string` instead of `unknown`. Top-level conditional aliases also resolve a practical subset of common `infer` patterns such as array element extraction, `Promise<infer T>`, function return types, constrained forms like `infer U extends string`, and nested conditional branches; naked-type-parameter conditionals also distribute over unions in common cases. TypeScript readonly container shorthand such as `readonly string[]` and `readonly [string, int]` is also resolved semantically, including readonly-aware assignability and write/mutation diagnostics for readonly index access. Homomorphic mapped aliases also support practical key-remapping forms such as `as K`, `as Exclude<K, ...>`, and template-literal remaps like `` as `label_${K}` ``, plus `readonly`/`-readonly` and `?`/`-?` modifiers when the remapped keys reduce to string literals. `unique symbol` currently resolves conservatively as `symbol`, and TypeScript assertion signatures such as `(value: unknown) => asserts value is T` or `(value: T) => asserts value` are preserved as assertion-aware function types that participate in flow-sensitive narrowing for direct call-site checks. Constructor-signature type forms such as `new (...) => T` and `abstract new (...) => T` are also understood well enough for utility aliases like `ConstructorParameters` and `InstanceType`. Common TypeScript utility aliases such as `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Exclude`, `Extract`, `NonNullable`, `Record`, `Awaited`, `ReturnType`, `Parameters`, `ConstructorParameters`, `InstanceType`, `ThisParameterType`, `OmitThisParameter`, `NoInfer`, `ThisType`, `Uppercase`, `Lowercase`, `Capitalize`, and `Uncapitalize` are also resolved when their inputs fit the currently supported type forms.
+
+Native C++ emission resolves non-generic aliases of supported native types,
+including nested aliases and homogeneous array aliases. Generic and structural
+aliases remain analysis-only for native builds.
 
 ### Type annotation forms
 

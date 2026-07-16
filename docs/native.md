@@ -49,10 +49,15 @@ silently producing incorrect C++. Its initial surface includes:
   explicit `new` construction, property access, synchronous typed instance and
   static methods, static factory methods that return class instances, and
   `async`/`sync` methods, plus synchronous class operator overloads;
-- required method-only interfaces, single-interface inheritance, concrete class
-  conformance with one interface through either `:` or `implements`, virtual
-  calls through interface-typed parameters and fields, and homogeneous arrays
-  containing different implementations of one interface;
+- required method-and-property interfaces, single-interface inheritance,
+  concrete class conformance with one interface through either `:` or
+  `implements`, virtual method/property dispatch through interface-typed values,
+  and homogeneous arrays containing different implementations of one interface;
+- numeric `enum` and `const enum` declarations with automatic values, explicit
+  integer constant expressions, enum-typed parameters and returns, member access,
+  bitwise operations, homogeneous arrays, and switch cases;
+- non-generic type aliases of supported native types, including nested aliases
+  and declared homogeneous array parameter types;
 - homogeneous arrays with a supported native element type and mixed primitive
   arrays represented by managed dynamic values, including literals, indexed
   reads and writes, `length`, `push`, `includes`, `indexOf`, `join`, `reverse`,
@@ -107,7 +112,10 @@ destruction order explicit without introducing a process-global application
 singleton. Function and method parameters require supported type annotations;
 value-returning callables also require an explicit return type. Literal defaults
 are lowered into generated call sites rather than C++ declaration defaults.
-Extension, generic, and accessor callables remain unsupported.
+Synchronous instance getters written with either `get name()` or the expression
+shorthand `name: Type => expression` are emitted as ordinary native methods and
+property reads call them automatically. Extension, generic, and setter callables
+remain unsupported.
 
 Both JavaScript and C++ emission consume the analyzer's resolved implicit-receiver
 identifier sets. The analyzer decides whether an unqualified identifier means a
@@ -119,9 +127,21 @@ Native interfaces are emitted before their implementing classes as abstract C++
 bases. Their method signatures use the same hidden-runtime and argument-conversion
 helpers as ordinary class methods. Member-call lookup starts from the analyzer's
 receiver type and walks an interface's declared base, so virtual dispatch adds no
-parallel assignability or overload-selection logic to the emitter. Generic,
-optional, property-bearing, and multiple-inheritance interfaces remain unsupported
-by native emission and are rejected explicitly.
+parallel assignability or overload-selection logic to the emitter. Required
+properties implemented by primary-constructor fields, regular class fields, or
+computed class getters receive virtual getter bridges; mutable field-backed
+properties also receive setter bridges. Direct, compound, prefix, and postfix
+writes preserve single receiver evaluation. Generic, optional, setter-backed, and
+multiple-inheritance interfaces remain unsupported by native emission and are
+rejected explicitly.
+
+Numeric enums emit a type namespace containing `std::int32_t` constants. Automatic
+members refer to the previous constant, while explicit arithmetic, shift, and
+bitwise initializers remain C++ constant expressions; the emitter changes syntax
+but does not independently calculate enum values. String, ambient, and non-constant
+native enums remain unsupported. Non-generic aliases recursively use the ordinary
+declared-type mapper, and array aliases use the same array-suffix parser as semantic
+analysis.
 
 Native `async` and `sync` calls enqueue their callable body as a microtask on the
 same `Runtime` that owns timers. `await` waits for a `Task<T>` while pumping that
@@ -186,6 +206,9 @@ use the runtime's VexaScript truthiness conversion, including `NaN`, empty manag
 strings, arrays, and generated-object pointers. Primitive `<=>` and relational
 string comparisons use one comparison helper, while `in` over native arrays and
 ranges shares the same `includes` implementation as collection method calls.
+Template-string interpolation uses that same parser-level concatenation lowering,
+including nested interface and computed-property reads; the C++ backend does not
+maintain a separate template-string implementation.
 
 Class calls and explicit `new Class(...)` use one generated construction path, so
 runtime injection, named arguments, defaults, and Oilpan allocation cannot drift.
