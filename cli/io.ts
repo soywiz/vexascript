@@ -1,6 +1,12 @@
 import { spawn, type StdioOptions } from "node:child_process";
 export { fileExists, isDirectory } from "../compiler/utils/fs";
 
+export interface CommandOutput {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}
+
 export async function runCommand(
   command: string,
   args: string[],
@@ -21,6 +27,27 @@ export async function runCommand(
 
       reject(new Error(`${command} ${args.join(" ")} exited with code ${code}`));
     });
+  });
+}
+
+export async function runCommandCapture(
+  command: string,
+  args: string[],
+  options: { cwd?: string } = {}
+): Promise<CommandOutput> {
+  return await new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => resolvePromise({ code, stdout, stderr }));
   });
 }
 

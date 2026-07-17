@@ -1,0 +1,25 @@
+module module 12
+functions 5 7 10
+interface cpu:4:9 7
+dispatch Hello Ada Hola, Luz
+operators 10 -6 true 10
+inheritance base!
+shared 3 1|2|3
+arrays 6,12 18 0 4 3,2,1
+array-copy 3|2 3|2|1|8|9
+array-string [1, 2]
+mixed true 2 1|two|true|three
+record Ada 42 false true true Ada
+enum 0 3
+switch compiled
+strings VEXA true
+math-regex 7 3 true
+control 32
+finally
+defer
+errors 7
+generator false 0 6 true
+promises 9 1 2 7
+async 20 40
+interval cancelled
+timeout done

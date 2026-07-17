@@ -125,7 +125,7 @@ console.log(2 in (1 ... 3), 8 in [7, 8, 9])`, {
     expect(result.code).toContain('vexa::compare(vexa::convertValue<vexa::Value>(runtime, runtime.string("b"))');
     expect(result.code).toContain('vexa::compare(vexa::convertValue<vexa::Value>(runtime, runtime.string("a"))');
     expect(result.code).toContain("vexa::includes(vexa::range(1, 3, false), 2)");
-    expect(result.code).toContain("vexa::includes(std::vector<std::int32_t>{7, 8, 9}, 8)");
+    expect(result.code).toContain("vexa::includes(vexa::arrayPointer(runtime.array<std::int32_t>({7, 8, 9})), 8)");
   });
 
   it("emits explicit class construction and typed local lambdas", () => {
@@ -254,7 +254,7 @@ for (greeter of greeters) console.log(greeter.greet("Hi"))`, {
     expect(result.code).toContain("return value->greet(__vexa_runtime, prefix);");
     expect(result.code).toContain('value->greet(__vexa_runtime, __vexa_runtime.string("Welcome"))');
     expect(result.code).toContain("value->label(__vexa_runtime)");
-    expect(result.code).toContain("std::vector<Greeter*>{first, second}");
+    expect(result.code).toContain("runtime.array<Greeter*>({first, second})");
     expect(result.code).toContain("const cppgc::Member<Greeter> value;");
     expect(result.code).toContain("visitor->Trace(value);");
     expect(result.code).toContain('greeter->greet(runtime, runtime.string("Hi"))');
@@ -585,7 +585,7 @@ switch (permissions) {
     expect(result.code).toContain("std::int32_t writable(vexa::Runtime& __vexa_runtime);");
     expect(result.code).toContain("return Permission::Write;");
     expect(result.code).toContain(
-      "std::vector<std::int32_t>{Permission::None, writable(runtime), Permission::Execute}"
+      "runtime.array<std::int32_t>({Permission::None, writable(runtime), Permission::Execute})"
     );
     expect(result.code).toContain("case Permission::All:");
   });
@@ -622,10 +622,10 @@ console.log(total(values))`, {
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain(
-      "std::int32_t total(vexa::Runtime& __vexa_runtime, std::vector<std::int32_t> values);"
+      "std::int32_t total(vexa::Runtime& __vexa_runtime, vexa::ArrayObject<std::int32_t>* values);"
     );
-    expect(result.code).toContain("return (values[0] + values[1]);");
-    expect(result.code).toContain("std::vector<std::int32_t>{2, 3}");
+    expect(result.code).toContain("return (vexa::arrayGet(vexa::arrayPointer(values), 0) + vexa::arrayGet(vexa::arrayPointer(values), 1));");
+    expect(result.code).toContain("runtime.array<std::int32_t>({2, 3})");
     expect(result.code).not.toContain("type Count");
   });
 
@@ -723,10 +723,63 @@ console.log(values[0], values.length)`, {
     });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("auto values = std::vector<std::int32_t>{1, 2, 3};");
-    expect(result.code).toContain("vexa::push(values, 4);");
-    expect(result.code).toContain("(values[0] = static_cast<double>(values.size()));");
-    expect(result.code).toContain("vexa::console.log(values[0], static_cast<double>(values.size()));");
+    expect(result.code).toContain("auto values = runtime.array<std::int32_t>({1, 2, 3});");
+    expect(result.code).toContain("vexa::push(vexa::arrayPointer(values), 4);");
+    expect(result.code).toContain("vexa::arraySet(vexa::arrayPointer(values), 0, static_cast<double>(vexa::arrayPointer(values)->size()));");
+    expect(result.code).toContain("vexa::arrayGet(vexa::arrayPointer(values), 0)");
+  });
+
+  it("keeps arrays shared between managed object fields and traces their backing storage", async () => {
+    const result = transpile(`class Holder(var values: int[])
+
+val shared = [1, 2]
+val first = Holder(shared)
+val second = Holder(shared)
+first.values.push(3)
+second.values[0] = 9
+console.log(first.values[0], second.values.join(","))`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("auto shared = runtime.array<std::int32_t>({1, 2});");
+    expect(result.code).toContain("cppgc::Member<vexa::ArrayObject<std::int32_t>> values;");
+    expect(result.code).toContain("visitor->Trace(values);");
+    expect(result.code).toContain("runtime.make<Holder>(shared)");
+    expect(result.code).toContain("vexa::push(vexa::arrayPointer(first->values), 3)");
+    expect(result.code).toContain("vexa::arraySet(vexa::arrayPointer(second->values), 0, 9)");
+    expect(result.code).toContain("vexa::arrayGet(vexa::arrayPointer(first->values), 0)");
+
+    const runtime = await readFile(join(process.cwd(), "native", "runtime.cpp"), "utf8");
+    expect(runtime).toContain("class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>");
+    expect(runtime).toContain("class ArraySlot<T*> final");
+    expect(runtime).toContain("cppgc::Member<T> value_");
+    expect(runtime).toContain("visitor->Trace(value_)");
+  });
+
+  it("formats managed arrays through their bracketed string conversion", async () => {
+    const result = transpile(`val values = [1, 2, 3, 4].map { it * 3 }.filter { it % 2 == 0 }
+console.log("values", values)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::console.log(runtime.string(\"values\"), values)");
+
+    const runtime = await readFile(join(process.cwd(), "native", "runtime.cpp"), "utf8");
+    expect(runtime).toContain("std::string toString() const;");
+    expect(runtime).toContain("inline std::string toString(ArrayObject<T>* array)");
+    expect(runtime).toContain("return array ? array->toString() : \"null\"");
+    expect(runtime).toContain("return array->map(runtime, std::move(callback))");
+    expect(runtime).toContain("return array->filter(runtime, std::move(callback))");
+    expect(runtime).toContain("static void print(std::ostream& output, ArrayObject<T>* values)");
+    expect(runtime).toContain("output << toString(values)");
   });
 
   it("emits mixed primitive arrays through dynamic managed values", () => {
@@ -742,11 +795,11 @@ for (value of mixed) console.log(value)`, {
     });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("std::vector<vexa::Value>");
+    expect(result.code).toContain("runtime.array<vexa::Value>");
     expect(result.code).toContain("vexa::convertValue<vexa::Value>(runtime, 1)");
     expect(result.code).toContain('vexa::convertValue<vexa::Value>(runtime, runtime.string("two"))');
-    expect(result.code).toContain("vexa::push(mixed, vexa::convertValue<vexa::Value>");
-    expect(result.code).toContain("for (auto value : mixed)");
+    expect(result.code).toContain("vexa::push(vexa::arrayPointer(mixed), vexa::convertValue<vexa::Value>");
+    expect(result.code).toContain("for (auto value : *vexa::arrayPointer(mixed))");
   });
 
   it("emits array spreads, sparse holes, Vexa for-in iteration, and debugger", () => {
@@ -763,9 +816,9 @@ console.log(sparse[1])`, {
     });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("vexa::appendAll(__vexa_array, values)");
+    expect(result.code).toContain("vexa::appendAll(__vexa_array, vexa::arrayPointer(values))");
     expect(result.code).toContain("vexa::Value::undefined()");
-    expect(result.code).toContain("for (auto value : merged)");
+    expect(result.code).toContain("for (auto value : *vexa::arrayPointer(merged))");
     expect(result.code).toContain("/* debugger */");
   });
 
@@ -781,8 +834,8 @@ console.log(first, rest.join("-"), name, amount)`, {
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("auto __vexa_destructure_");
-    expect(result.code).toContain("auto first = __vexa_destructure_");
-    expect(result.code).toContain("auto rest = vexa::slice(__vexa_destructure_");
+    expect(result.code).toContain("auto first = vexa::arrayGet(vexa::arrayPointer(__vexa_destructure_");
+    expect(result.code).toContain("auto rest = vexa::slice(runtime, vexa::arrayPointer(__vexa_destructure_");
     expect(result.code).toContain('vexa::recordGet<vexa::Value>(runtime, __vexa_destructure_');
     expect(result.code).toContain('vexa::recordGet<vexa::Value>(runtime, __vexa_destructure_');
   });
@@ -800,9 +853,9 @@ for (name of names) {
     });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("auto names = std::vector<std::string>{vexa::toString(vexa::trim(");
-    expect(result.code).toContain('vexa::push(names, runtime.string("Katherine"));');
-    expect(result.code).toContain("for (auto name : names)");
+    expect(result.code).toContain("auto names = runtime.array<std::string>({vexa::toString(vexa::trim(");
+    expect(result.code).toContain('vexa::push(vexa::arrayPointer(names), runtime.string("Katherine"));');
+    expect(result.code).toContain("for (auto name : *vexa::arrayPointer(names))");
     expect(result.code).toContain("vexa::console.log(vexa::toUpperCase(name));");
   });
 
@@ -888,13 +941,13 @@ console.log(names.includes("Grace"), names.indexOf("Ada"), names.join(" + "))`, 
     });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("vexa::includes(values, 1)");
-    expect(result.code).toContain("vexa::indexOf(values, 4)");
-    expect(result.code).toContain('vexa::join(values, runtime.string("-"))');
-    expect(result.code).toContain("vexa::reverse(values);");
-    expect(result.code).toContain("vexa::join(values)");
-    expect(result.code).toContain('vexa::includes(names, runtime.string("Grace"))');
-    expect(result.code).toContain('vexa::indexOf(names, runtime.string("Ada"))');
+    expect(result.code).toContain("vexa::includes(vexa::arrayPointer(values), 1)");
+    expect(result.code).toContain("vexa::indexOf(vexa::arrayPointer(values), 4)");
+    expect(result.code).toContain('vexa::join(vexa::arrayPointer(values), runtime.string("-"))');
+    expect(result.code).toContain("vexa::reverse(vexa::arrayPointer(values));");
+    expect(result.code).toContain("vexa::join(vexa::arrayPointer(values))");
+    expect(result.code).toContain('vexa::includes(vexa::arrayPointer(names), runtime.string("Grace"))');
+    expect(result.code).toContain('vexa::indexOf(vexa::arrayPointer(names), runtime.string("Ada"))');
   });
 
   it("maps broader array, string, and Object collection APIs", () => {
@@ -913,14 +966,39 @@ console.log(total, last, words.slice(1).join("-"), "hello".startsWith("he"), Obj
     });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("vexa::map(values");
-    expect(result.code).toContain("vexa::filter(doubled");
-    expect(result.code).toContain("vexa::reduce(selected");
-    expect(result.code).toContain("vexa::unshift(values, 0)");
-    expect(result.code).toContain("vexa::pop(values)");
-    expect(result.code).toContain("vexa::split(runtime.string(\"a,b,c\")");
+    expect(result.code).toContain("vexa::map(runtime, vexa::arrayPointer(values)");
+    expect(result.code).toContain("vexa::filter(runtime, vexa::arrayPointer(doubled)");
+    expect(result.code).toContain("vexa::reduce(vexa::arrayPointer(selected)");
+    expect(result.code).toContain("vexa::unshift(vexa::arrayPointer(values), 0)");
+    expect(result.code).toContain("vexa::pop(vexa::arrayPointer(values))");
+    expect(result.code).toContain("vexa::split(runtime, runtime.string(\"a,b,c\")");
     expect(result.code).toContain("vexa::startsWith(runtime.string(\"hello\")");
-    expect(result.code).toContain("vexa::recordKeys(runtime.record(");
+    expect(result.code).toContain("vexa::recordKeys(runtime, runtime.record(");
+  });
+
+  it("concatenates scalar and array arguments through the managed Array API", async () => {
+    const result = transpile(`val values = [1, 2]
+val combined = values.concat(3, [4, 5], 6)
+val mixed = [1, "two"].concat([true], "three")
+console.log(combined.join("|"), mixed.join("|"))`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain(
+      "vexa::concat(runtime, vexa::arrayPointer(values), 3, vexa::arrayPointer(runtime.array<std::int32_t>({4, 5})), 6)"
+    );
+    expect(result.code).toContain(
+      "vexa::concat(runtime, vexa::arrayPointer(runtime.array<vexa::Value>"
+    );
+    expect(result.code).toContain("vexa::arrayPointer(runtime.array<vexa::Value>({vexa::convertValue<vexa::Value>(runtime, true)}))");
+
+    const runtime = await readFile(join(process.cwd(), "native", "runtime.cpp"), "utf8");
+    expect(runtime).toContain("ArrayObject* concat(Runtime& runtime, Items&&... items) const");
+    expect(runtime).toContain("(appendConcatItem(result, std::forward<Items>(items)), ...)");
   });
 
   it("infers native generic-lambda parameters for implicit it callbacks", () => {
@@ -935,8 +1013,8 @@ console.log(selected)`, {
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("(auto it)");
-    expect(result.code).toContain("vexa::map(values");
-    expect(result.code).toContain("vexa::filter(");
+    expect(result.code).toContain("vexa::map(runtime, vexa::arrayPointer(values)");
+    expect(result.code).toContain("vexa::filter(runtime,");
   });
 
   it("emits typed custom functions and injects the runtime into calls", () => {
@@ -1352,7 +1430,7 @@ console.log(await recovered, values[0], values[1])`, {
     expect(result.code).toContain("vexa::rejectedTask<vexa::Value>(runtime");
     expect(result.code).toContain("vexa::promiseCatch(runtime");
     expect(result.code).toContain("vexa::promiseAll(runtime");
-    expect(result.code).toContain("std::vector<vexa::Task<std::int32_t>>");
+    expect(result.code).toContain("runtime.array<vexa::Task<std::int32_t>>");
   });
 
   it("emits lazy generator functions with yield, yield delegation, next, and for-of", () => {
@@ -1377,7 +1455,7 @@ console.log(finished.done, finished.value)`, {
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("vexa::Generator<std::int32_t> values(vexa::Runtime& __vexa_runtime, std::int32_t limit);");
     expect(result.code).toContain("co_yield n;");
-    expect(result.code).toContain("for (auto&& __vexa_yield_value_0 : std::vector<std::int32_t>{limit, (limit + 1)})");
+    expect(result.code).toContain("for (auto&& __vexa_yield_value_0 : *vexa::arrayPointer(__vexa_runtime.array<std::int32_t>({limit, (limit + 1)})))");
     expect(result.code).toContain("co_yield vexa::convertValue<std::int32_t>(__vexa_runtime, __vexa_yield_value_0);");
     expect(result.code).toContain("co_return (limit + 10);");
     expect(result.code).toContain("auto first = iterator.next();");

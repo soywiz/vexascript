@@ -1,6 +1,6 @@
 import { describe, expect, it, join, mkdtemp, rm, tmpdir, writeFile } from "../test/expect";
 import { fileExists, isDirectory } from "./fs";
-import { runCommand } from "../../cli/io";
+import { runCommand, runCommandCapture } from "../../cli/io";
 
 describe("io utilities", () => {
   it("reports whether a file exists", async () => {
@@ -39,5 +39,14 @@ describe("io utilities", () => {
     await expect(
       runCommand(process.execPath, ["-e", "process.exit(7)"], { stdio: "ignore" })
     ).rejects.toThrow(/exited with code 7/);
+  });
+
+  it("captures command output and exit status asynchronously", async () => {
+    const result = await runCommandCapture(process.execPath, [
+      "-e",
+      "process.stdout.write('out'); process.stderr.write('err'); process.exit(3)",
+    ]);
+
+    expect(result).toEqual({ code: 3, stdout: "out", stderr: "err" });
   });
 });

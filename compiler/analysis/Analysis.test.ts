@@ -2494,6 +2494,16 @@ let bad = "Ada" satisfies number
     expect(symbols.get("mixedContinues")?.valueType).toBe("any[]");
   });
 
+  it("accepts ordinary arrays as JavaScript ConcatArray arguments", () => {
+    const source = dedent`
+      val values = [1, 2]
+      val combined = values.concat(3, [4, 5], 6)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("unifies the integer and big-integer numeric families to numeric in array literals", () => {
     const source = dedent`
       let mixedNumeric = [10, 10L]

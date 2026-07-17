@@ -70,6 +70,7 @@ class StringObject final : public cppgc::GarbageCollected<StringObject> {
 struct Undefined final {};
 struct Null final {};
 class RecordObject;
+class Runtime;
 
 class Value final {
  public:
@@ -222,6 +223,157 @@ inline void StoredValue::Trace(cppgc::Visitor* visitor) const {
   }
 }
 
+template <typename T>
+class ArraySlot final {
+ public:
+  ArraySlot() = default;
+  explicit ArraySlot(T value) : value_(std::move(value)) {}
+
+  T load() const { return value_; }
+  void store(T value) { value_ = std::move(value); }
+  void Trace(cppgc::Visitor*) const {}
+
+ private:
+  T value_{};
+};
+
+template <typename T>
+class ArraySlot<T*> final {
+ public:
+  ArraySlot() = default;
+  explicit ArraySlot(T* value) : value_(value) {}
+
+  T* load() const { return value_.Get(); }
+  void store(T* value) { value_ = value; }
+  void Trace(cppgc::Visitor* visitor) const { visitor->Trace(value_); }
+
+ private:
+  cppgc::Member<T> value_;
+};
+
+template <>
+class ArraySlot<Value> final {
+ public:
+  ArraySlot() = default;
+  explicit ArraySlot(Value value) : value_(value) {}
+
+  Value load() const { return value_.load(); }
+  void store(Value value) { value_.store(value); }
+  void Trace(cppgc::Visitor* visitor) const { value_.Trace(visitor); }
+
+ private:
+  StoredValue value_;
+};
+
+// Language arrays have reference semantics. The backing storage is an Oilpan
+// object, and every GC-managed element is represented by a traced Member edge.
+template <typename T>
+class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>> {
+ public:
+  ArrayObject() = default;
+  explicit ArrayObject(std::initializer_list<T> values) {
+    values_.reserve(values.size());
+    for (const auto& value : values) values_.emplace_back(value);
+  }
+
+  std::size_t size() const { return values_.size(); }
+  bool empty() const { return values_.empty(); }
+  T get(std::size_t index) const {
+    if (index >= values_.size()) throw std::out_of_range("VexaScript array index is out of range");
+    return values_[index].load();
+  }
+  T set(std::size_t index, T value) {
+    if (index >= values_.size()) values_.resize(index + 1);
+    values_[index].store(value);
+    return value;
+  }
+  void append(T value) { values_.emplace_back(value); }
+  void prepend(T value) { values_.insert(values_.begin(), ArraySlot<T>(value)); }
+  double push(T value) {
+    append(std::move(value));
+    return static_cast<double>(size());
+  }
+  T removeLast() {
+    if (values_.empty()) return T{};
+    T value = values_.back().load();
+    values_.pop_back();
+    return value;
+  }
+  T removeFirst() {
+    if (values_.empty()) return T{};
+    T value = values_.front().load();
+    values_.erase(values_.begin());
+    return value;
+  }
+  T pop() { return removeLast(); }
+  T shift() { return removeFirst(); }
+  double unshift(T value) {
+    prepend(std::move(value));
+    return static_cast<double>(size());
+  }
+  ArrayObject* reverse() {
+    std::reverse(values_.begin(), values_.end());
+    return this;
+  }
+
+  template <typename U>
+  bool includes(const U& value) const;
+  template <typename U>
+  double indexOf(const U& value) const;
+  ArrayObject* slice(
+      Runtime& runtime,
+      double start = 0,
+      double end = std::numeric_limits<double>::infinity()) const;
+  template <typename... Items>
+  ArrayObject* concat(Runtime& runtime, Items&&... items) const;
+  template <typename Callback>
+  auto map(Runtime& runtime, Callback callback) const
+      -> ArrayObject<std::remove_cvref_t<std::invoke_result_t<Callback, T>>>*;
+  template <typename Callback>
+  ArrayObject* filter(Runtime& runtime, Callback callback) const;
+  template <typename Callback, typename Accumulator>
+  Accumulator reduce(Callback callback, Accumulator initial) const;
+  std::string join(const std::string& separator = ",") const;
+  std::string toString() const;
+
+  class Iterator final {
+   public:
+    Iterator(const ArrayObject* array, std::size_t index) : array_(array), index_(index) {}
+    T operator*() const { return array_->get(index_); }
+    Iterator& operator++() { ++index_; return *this; }
+    bool operator!=(const Iterator& other) const { return index_ != other.index_; }
+
+   private:
+    const ArrayObject* array_;
+    std::size_t index_;
+  };
+
+  Iterator begin() const { return Iterator(this, 0); }
+  Iterator end() const { return Iterator(this, size()); }
+
+  void Trace(cppgc::Visitor* visitor) const {
+    for (const auto& value : values_) value.Trace(visitor);
+  }
+
+ private:
+  std::vector<ArraySlot<T>> values_;
+};
+
+template <typename T>
+inline ArrayObject<T>* arrayPointer(ArrayObject<T>* array) {
+  return array;
+}
+
+template <typename T>
+inline ArrayObject<T>* arrayPointer(const cppgc::Member<ArrayObject<T>>& array) {
+  return array.Get();
+}
+
+template <typename T>
+inline ArrayObject<T>* arrayPointer(const cppgc::Persistent<ArrayObject<T>>& array) {
+  return array.Get();
+}
+
 class Error final {
  public:
   explicit Error(const Value& value)
@@ -312,6 +464,11 @@ class Runtime final {
     auto* result = make<RecordObject>();
     for (const auto& [key, value] : properties) result->set(key, value);
     return result;
+  }
+
+  template <typename T>
+  ArrayObject<T>* array(std::initializer_list<T> values = {}) {
+    return make<ArrayObject<T>>(values);
   }
 
   template <typename T, typename... Arguments>
@@ -508,12 +665,16 @@ inline Value recordGetOptional(RecordObject* record, const std::string& key) {
   return record ? record->get(key) : Value::undefined();
 }
 
-inline std::vector<std::string> recordKeys(RecordObject* record) {
-  return record ? record->keys() : std::vector<std::string>{};
+inline ArrayObject<std::string>* recordKeys(Runtime& runtime, RecordObject* record) {
+  auto* result = runtime.array<std::string>();
+  if (record) for (const auto& key : record->keys()) result->append(key);
+  return result;
 }
 
-inline std::vector<Value> recordValues(RecordObject* record) {
-  return record ? record->values() : std::vector<Value>{};
+inline ArrayObject<Value>* recordValues(Runtime& runtime, RecordObject* record) {
+  auto* result = runtime.array<Value>();
+  if (record) for (const auto& value : record->values()) result->append(value);
+  return result;
 }
 
 template <typename Callback>
@@ -1068,9 +1229,20 @@ inline double push(std::vector<T>& array, Values&&... values) {
   return static_cast<double>(array.size());
 }
 
+template <typename T, typename... Values>
+inline double push(ArrayObject<T>* array, Values&&... values) {
+  (array->push(static_cast<T>(std::forward<Values>(values))), ...);
+  return static_cast<double>(array->size());
+}
+
 template <typename T>
 inline void appendAll(std::vector<T>& target, const std::vector<T>& source) {
   target.insert(target.end(), source.begin(), source.end());
+}
+
+template <typename T>
+inline void appendAll(ArrayObject<T>* target, const ArrayObject<T>* source) {
+  for (const auto value : *source) target->append(value);
 }
 
 template <typename T>
@@ -1079,11 +1251,28 @@ inline void appendAllConverted(Runtime& runtime, std::vector<Value>& target, con
   for (const auto& value : source) target.push_back(convertValue<Value>(runtime, value));
 }
 
+template <typename T>
+inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, const ArrayObject<T>* source) {
+  for (const auto value : *source) target->append(convertValue<Value>(runtime, value));
+}
+
 template <typename T, typename U>
 inline bool includes(const std::vector<T>& array, const U& value) {
   return std::any_of(array.begin(), array.end(), [&](const T& element) {
     return sameValueZero(element, value);
   });
+}
+
+template <typename T>
+template <typename U>
+inline bool ArrayObject<T>::includes(const U& value) const {
+  for (const auto element : *this) if (sameValueZero(element, value)) return true;
+  return false;
+}
+
+template <typename T, typename U>
+inline bool includes(const ArrayObject<T>* array, const U& value) {
+  return array->includes(value);
 }
 
 template <typename T, typename U>
@@ -1095,9 +1284,28 @@ inline double indexOf(const std::vector<T>& array, const U& value) {
 }
 
 template <typename T>
+template <typename U>
+inline double ArrayObject<T>::indexOf(const U& value) const {
+  for (std::size_t index = 0; index < size(); ++index) {
+    if (sameValueZero(get(index), value)) return static_cast<double>(index);
+  }
+  return -1;
+}
+
+template <typename T, typename U>
+inline double indexOf(const ArrayObject<T>* array, const U& value) {
+  return array->indexOf(value);
+}
+
+template <typename T>
 inline std::vector<T>& reverse(std::vector<T>& array) {
   std::reverse(array.begin(), array.end());
   return array;
+}
+
+template <typename T>
+inline ArrayObject<T>* reverse(ArrayObject<T>* array) {
+  return array->reverse();
 }
 
 template <typename T>
@@ -1109,6 +1317,11 @@ inline T pop(std::vector<T>& array) {
 }
 
 template <typename T>
+inline T pop(ArrayObject<T>* array) {
+  return array->pop();
+}
+
+template <typename T>
 inline T shift(std::vector<T>& array) {
   if (array.empty()) return T{};
   T value = std::move(array.front());
@@ -1116,11 +1329,23 @@ inline T shift(std::vector<T>& array) {
   return value;
 }
 
+template <typename T>
+inline T shift(ArrayObject<T>* array) {
+  return array->shift();
+}
+
 template <typename T, typename... Values>
 inline double unshift(std::vector<T>& array, Values&&... values) {
   std::vector<T> prefix{std::forward<Values>(values)...};
   array.insert(array.begin(), std::make_move_iterator(prefix.begin()), std::make_move_iterator(prefix.end()));
   return static_cast<double>(array.size());
+}
+
+template <typename T, typename... Values>
+inline double unshift(ArrayObject<T>* array, Values&&... values) {
+  std::vector<T> prefix{static_cast<T>(std::forward<Values>(values))...};
+  for (auto iterator = prefix.rbegin(); iterator != prefix.rend(); ++iterator) array->unshift(*iterator);
+  return static_cast<double>(array->size());
 }
 
 inline std::size_t normalizedSliceIndex(double index, std::size_t size) {
@@ -1138,10 +1363,48 @@ inline std::vector<T> slice(const std::vector<T>& array, double start = 0, doubl
 }
 
 template <typename T>
+inline ArrayObject<T>* ArrayObject<T>::slice(Runtime& runtime, double start, double end) const {
+  auto* result = runtime.array<T>();
+  const std::size_t first = normalizedSliceIndex(start, size());
+  const std::size_t last = std::isinf(end) ? size() : normalizedSliceIndex(end, size());
+  for (std::size_t index = first; index < last; ++index) result->append(get(index));
+  return result;
+}
+
+template <typename T>
+inline ArrayObject<T>* slice(Runtime& runtime, const ArrayObject<T>* array, double start = 0, double end = std::numeric_limits<double>::infinity()) {
+  return array->slice(runtime, start, end);
+}
+
+template <typename T>
 inline std::vector<T> concat(const std::vector<T>& array, const std::vector<T>& other) {
   std::vector<T> result = array;
   result.insert(result.end(), other.begin(), other.end());
   return result;
+}
+
+template <typename T>
+inline void appendConcatItem(ArrayObject<T>* result, T value) {
+  result->append(std::move(value));
+}
+
+template <typename T>
+inline void appendConcatItem(ArrayObject<T>* result, const ArrayObject<T>* values) {
+  appendAll(result, values);
+}
+
+template <typename T>
+template <typename... Items>
+inline ArrayObject<T>* ArrayObject<T>::concat(Runtime& runtime, Items&&... items) const {
+  auto* result = runtime.array<T>();
+  appendAll(result, this);
+  (appendConcatItem(result, std::forward<Items>(items)), ...);
+  return result;
+}
+
+template <typename T, typename... Items>
+inline ArrayObject<T>* concat(Runtime& runtime, const ArrayObject<T>* array, Items&&... items) {
+  return array->concat(runtime, std::forward<Items>(items)...);
 }
 
 template <typename T, typename Callback>
@@ -1154,6 +1417,22 @@ inline auto map(const std::vector<T>& array, Callback callback)
   return result;
 }
 
+template <typename T>
+template <typename Callback>
+inline auto ArrayObject<T>::map(Runtime& runtime, Callback callback) const
+    -> ArrayObject<std::remove_cvref_t<std::invoke_result_t<Callback, T>>>* {
+  using Result = std::remove_cvref_t<std::invoke_result_t<Callback, T>>;
+  auto* result = runtime.array<Result>();
+  for (const auto value : *this) result->append(callback(value));
+  return result;
+}
+
+template <typename T, typename Callback>
+inline auto map(Runtime& runtime, const ArrayObject<T>* array, Callback callback)
+    -> ArrayObject<std::remove_cvref_t<std::invoke_result_t<Callback, T>>>* {
+  return array->map(runtime, std::move(callback));
+}
+
 template <typename T, typename Callback>
 inline std::vector<T> filter(const std::vector<T>& array, Callback callback) {
   std::vector<T> result;
@@ -1161,10 +1440,45 @@ inline std::vector<T> filter(const std::vector<T>& array, Callback callback) {
   return result;
 }
 
+template <typename T>
+template <typename Callback>
+inline ArrayObject<T>* ArrayObject<T>::filter(Runtime& runtime, Callback callback) const {
+  auto* result = runtime.array<T>();
+  for (const auto value : *this) if (callback(value)) result->append(value);
+  return result;
+}
+
+template <typename T, typename Callback>
+inline ArrayObject<T>* filter(Runtime& runtime, const ArrayObject<T>* array, Callback callback) {
+  return array->filter(runtime, std::move(callback));
+}
+
 template <typename T, typename Callback, typename Accumulator>
 inline Accumulator reduce(const std::vector<T>& array, Callback callback, Accumulator initial) {
   for (const auto& value : array) initial = callback(std::move(initial), value);
   return initial;
+}
+
+template <typename T>
+template <typename Callback, typename Accumulator>
+inline Accumulator ArrayObject<T>::reduce(Callback callback, Accumulator initial) const {
+  for (const auto value : *this) initial = callback(std::move(initial), value);
+  return initial;
+}
+
+template <typename T, typename Callback, typename Accumulator>
+inline Accumulator reduce(const ArrayObject<T>* array, Callback callback, Accumulator initial) {
+  return array->reduce(std::move(callback), std::move(initial));
+}
+
+template <typename T, typename Index>
+inline T arrayGet(const ArrayObject<T>* array, Index index) {
+  return array->get(static_cast<std::size_t>(index));
+}
+
+template <typename T, typename Index, typename U>
+inline T arraySet(ArrayObject<T>* array, Index index, U&& value) {
+  return array->set(static_cast<std::size_t>(index), static_cast<T>(std::forward<U>(value)));
 }
 
 inline std::string numberToString(double value) {
@@ -1190,6 +1504,9 @@ inline std::string toString(int value) { return std::to_string(value); }
 inline std::string toString(std::int64_t value) { return std::to_string(value); }
 inline std::string toString(bool value) { return value ? "true" : "false"; }
 inline const std::string& toString(const std::string& value) { return value; }
+
+template <typename T>
+inline std::string toString(ArrayObject<T>* array);
 
 [[noreturn]] inline void throwValue(const Error& error) {
   throw std::runtime_error(error.message());
@@ -1224,10 +1541,11 @@ Task<Result> rejectedTask(Runtime& runtime, const Reason& reason) {
 }
 
 template <typename T>
-Task<std::vector<T>> promiseAll(Runtime& runtime, std::vector<Task<T>> tasks) {
-  std::vector<T> values;
-  values.reserve(tasks.size());
-  for (auto& task : tasks) values.push_back(co_await task);
+Task<ArrayObject<T>*> promiseAll(Runtime& runtime, ArrayObject<Task<T>>* tasks) {
+  cppgc::Persistent<ArrayObject<Task<T>>> rootedTasks(tasks);
+  auto* values = runtime.array<T>();
+  cppgc::Persistent<ArrayObject<T>> rootedValues(values);
+  for (auto task : *tasks) values->append(co_await task);
   co_return values;
 }
 
@@ -1320,8 +1638,28 @@ inline std::string joinWithSeparator(const std::vector<T>& array, const std::str
 }
 
 template <typename T>
+inline std::string joinWithSeparator(const ArrayObject<T>* array, const std::string& separator) {
+  std::ostringstream output;
+  for (std::size_t index = 0; index < array->size(); ++index) {
+    if (index > 0) output << separator;
+    output << toString(array->get(index));
+  }
+  return output.str();
+}
+
+template <typename T>
+inline std::string ArrayObject<T>::join(const std::string& separator) const {
+  return joinWithSeparator(this, separator);
+}
+
+template <typename T>
 inline std::string join(const std::vector<T>& array) {
   return joinWithSeparator(array, ",");
+}
+
+template <typename T>
+inline std::string join(const ArrayObject<T>* array) {
+  return array->join();
 }
 
 template <typename T, typename Separator>
@@ -1329,7 +1667,36 @@ inline std::string join(const std::vector<T>& array, const Separator& separator)
   return joinWithSeparator(array, toString(separator));
 }
 
+template <typename T, typename Separator>
+inline std::string join(const ArrayObject<T>* array, const Separator& separator) {
+  return array->join(toString(separator));
+}
+
+template <typename T>
+inline std::string ArrayObject<T>::toString() const {
+  return "[" + join(", ") + "]";
+}
+
+template <typename T>
+inline std::string toString(ArrayObject<T>* array) {
+  return array ? array->toString() : "null";
+}
+
+template <typename T>
+inline std::string toString(const cppgc::Member<ArrayObject<T>>& array) {
+  return toString(array.Get());
+}
+
+template <typename T>
+inline std::string toString(const cppgc::Persistent<ArrayObject<T>>& array) {
+  return toString(array.Get());
+}
+
 inline bool includes(const std::vector<std::string>& array, const Value& value) {
+  return includes(array, toString(value));
+}
+
+inline bool includes(const ArrayObject<std::string>* array, const Value& value) {
   return includes(array, toString(value));
 }
 
@@ -1337,10 +1704,20 @@ inline double indexOf(const std::vector<std::string>& array, const Value& value)
   return indexOf(array, toString(value));
 }
 
+inline double indexOf(const ArrayObject<std::string>* array, const Value& value) {
+  return indexOf(array, toString(value));
+}
+
 template <typename... Values>
 inline double push(std::vector<std::string>& array, Values&&... values) {
   (array.push_back(toString(std::forward<Values>(values))), ...);
   return static_cast<double>(array.size());
+}
+
+template <typename... Values>
+inline double push(ArrayObject<std::string>* array, Values&&... values) {
+  (array->append(toString(std::forward<Values>(values))), ...);
+  return static_cast<double>(array->size());
 }
 
 inline double valueOf(double value) { return value; }
@@ -1425,26 +1802,25 @@ inline std::string stringSlice(const Value& value, double start, double end = st
   return stringSlice(toString(value), start, end);
 }
 
-inline std::vector<std::string> split(const std::string& value, const std::string& separator) {
+inline ArrayObject<std::string>* split(Runtime& runtime, const std::string& value, const std::string& separator) {
+  auto* result = runtime.array<std::string>();
   if (separator.empty()) {
-    std::vector<std::string> characters;
-    for (char character : value) characters.emplace_back(1, character);
-    return characters;
+    for (char character : value) result->append(std::string(1, character));
+    return result;
   }
-  std::vector<std::string> result;
   std::size_t start = 0;
   while (true) {
     const std::size_t next = value.find(separator, start);
     if (next == std::string::npos) {
-      result.push_back(value.substr(start));
+      result->append(value.substr(start));
       return result;
     }
-    result.push_back(value.substr(start, next - start));
+    result->append(value.substr(start, next - start));
     start = next + separator.size();
   }
 }
-inline std::vector<std::string> split(const Value& value, const Value& separator) {
-  return split(toString(value), toString(separator));
+inline ArrayObject<std::string>* split(Runtime& runtime, const Value& value, const Value& separator) {
+  return split(runtime, toString(value), toString(separator));
 }
 
 inline double Number(double value) { return value; }
@@ -1614,6 +1990,21 @@ class Console final {
   static void print(std::ostream& output, bool value) { output << (value ? "true" : "false"); }
   static void print(std::ostream& output, double value) { output << numberToString(value); }
   static void print(std::ostream& output, float value) { output << numberToString(value); }
+
+  template <typename T>
+  static void print(std::ostream& output, ArrayObject<T>* values) {
+    output << toString(values);
+  }
+
+  template <typename T>
+  static void print(std::ostream& output, const cppgc::Member<ArrayObject<T>>& values) {
+    output << toString(values);
+  }
+
+  template <typename T>
+  static void print(std::ostream& output, const cppgc::Persistent<ArrayObject<T>>& values) {
+    output << toString(values);
+  }
 
   template <typename T>
   static void print(std::ostream& output, const T& value) {

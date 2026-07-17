@@ -1795,3 +1795,19 @@ The native standard-library subset includes the common mutating, searching,
 slicing, concatenation, and higher-order array methods; common string search,
 slicing, and splitting methods; and `Object.keys`/`Object.values` for managed
 records. Higher-order array callbacks use ordinary typed VexaScript lambdas.
+
+Native arrays preserve JavaScript-style reference identity. Assigning one array
+to another variable, passing it to a function, or storing it in multiple class
+instances does not duplicate its contents; mutation through any reference is
+visible through the others. Their backing storage and any managed object
+elements are traced by Oilpan, including cycles, and become collectible after
+the last reachable owner disappears. Operations defined to produce a new array,
+including `slice`, `concat`, `map`, and `filter`, still return distinct backing
+storage.
+
+Native `concat` accepts both scalar items and arrays, including variadic mixtures
+such as `values.concat(3, [4, 5], 6)`, matching the visible JavaScript API.
+
+Native array string conversion uses a bracketed representation: `values.toString()`,
+`String(values)`, template/string conversion paths, and `console.log(values)` all
+format an array as `[item, item]` rather than exposing its C++ backing pointer.

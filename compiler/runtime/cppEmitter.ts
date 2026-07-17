@@ -85,6 +85,7 @@ let activeInterfaceNames: ReadonlySet<string> = new Set();
 let activeEnumNames: ReadonlySet<string> = new Set();
 let activeTypeAliases: ReadonlyMap<string, string> = new Map();
 let activeGcObjectTypes: Map<string, string> = new Map();
+let activeGcArrayTypes: Map<string, string> = new Map();
 let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> = new Map();
 let activeFunctionStatements: ReadonlyMap<string, FunctionStatement> = new Map();
 let activeClassStatements: ReadonlyMap<string, ClassStatement> = new Map();
@@ -209,7 +210,7 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
   }
   if (type.kind === "array") {
     const elementType = cppArrayElementType(type.elementType);
-    return elementType ? `std::vector<${elementType}>` : null;
+    return elementType ? `vexa::ArrayObject<${elementType}>*` : null;
   }
   if (type.kind === "range") {
     const elementType = cppArrayElementType(type.elementType);
@@ -218,9 +219,16 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
   if (type.kind === "tuple") {
     const elementTypes = new Set(type.elements.map(cppArrayElementType));
     const elementType = elementTypes.size === 1 ? [...elementTypes][0] : null;
-    return elementType ? `std::vector<${elementType}>` : null;
+    return elementType ? `vexa::ArrayObject<${elementType}>*` : null;
   }
   if (type.kind === "object") return "vexa::RecordObject*";
+  if (
+    type.kind === "named" &&
+    (type.name === "Array" || type.name === "ReadonlyArray" || type.name === "ConcatArray")
+  ) {
+    const elementType = cppArrayElementType(type.typeArguments?.[0] ?? { kind: "builtin", name: "unknown" });
+    return elementType ? `vexa::ArrayObject<${elementType}>*` : null;
+  }
   if (type.kind === "named" && type.name === "Promise") {
     const resultType = cppTypeForAnalysisType(type.typeArguments?.[0] ?? { kind: "builtin", name: "unknown" });
     return `vexa::Task<${resultType ?? "vexa::Value"}>`;
@@ -242,7 +250,7 @@ function cppTypeForDeclaredName(typeName: string, visitedAliases = new Set<strin
     if (!elementType || elementType === "void") return null;
     let result = elementType;
     for (let depth = 0; depth < arrayType.arrayDepth; depth += 1) {
-      result = `std::vector<${result}>`;
+      result = `vexa::ArrayObject<${result}>*`;
     }
     return result;
   }
@@ -264,6 +272,7 @@ function isNativeObjectTypeName(typeName: string): boolean {
 function cppArrayElementType(type: AnalysisType): string | null {
   if (type.kind === "builtin" && type.name === "string") return "std::string";
   if (type.kind === "literal" && type.base === "string") return "std::string";
+  if (type.kind === "union") return "vexa::Value";
   return cppTypeForAnalysisType(type);
 }
 
@@ -277,6 +286,36 @@ function cppTypeForExpression(expression: Expr): string {
   if (expression.kind === "LongLiteral") return "std::int64_t";
   if (expression.kind === "FloatLiteral") return "double";
   return "auto";
+}
+
+function managedArrayElementType(type: string): string | null {
+  const prefix = "vexa::ArrayObject<";
+  return type.startsWith(prefix) && type.endsWith(">*")
+    ? type.slice(prefix.length, -2)
+    : null;
+}
+
+function managedArrayCppTypeForExpression(expression: Expr): string | null {
+  const mapped = cppTypeForExpression(expression);
+  if (managedArrayElementType(mapped) !== null) return mapped;
+  const taskPrefix = "vexa::Task<";
+  if (mapped.startsWith(taskPrefix) && mapped.endsWith(">")) {
+    const result = mapped.slice(taskPrefix.length, -1);
+    if (managedArrayElementType(result) !== null) return result;
+  }
+  const type = activeExpressionTypes.get(expression as Node);
+  if (type?.kind === "array" || type?.kind === "tuple") return cppTypeForAnalysisType(type);
+  return null;
+}
+
+function isManagedArrayExpression(expression: Expr): boolean {
+  if (managedArrayElementType(cppTypeForExpression(expression)) !== null) return true;
+  const type = activeExpressionTypes.get(expression as Node);
+  return type?.kind === "array" || type?.kind === "tuple" || expression.kind === "ArrayLiteral";
+}
+
+function emitManagedArrayPointer(expression: Expr): string {
+  return `vexa::arrayPointer(${emitExpression(expression)})`;
 }
 
 function isArrayExpression(expression: Expr): boolean {
@@ -307,40 +346,44 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
 
 function emitArrayLiteral(array: ArrayLiteral): string {
   const type = cppTypeForExpression(array as unknown as Expr);
-  if (!type.startsWith("std::vector<")) {
+  const elementType = managedArrayElementType(type);
+  if (!elementType) {
     throw new CppEmitError("C++ emission requires arrays with one supported element type");
   }
   const emitElement = (element: Expr): string => {
     const emitted = emitExpression(element);
-    return type === "std::vector<std::string>" ? `vexa::toString(${emitted})` : emitted;
+    return elementType === "std::string" ? `vexa::toString(${emitted})` : emitted;
   };
   const hasExpandedElements = array.elements.some((element) =>
     element.kind === "ArrayHole" || element.kind === "SpreadExpression");
   if (hasExpandedElements) {
     const operations = array.elements.map((element) => {
       if (element.kind === "ArrayHole") {
-        if (type !== "std::vector<vexa::Value>") {
+        if (elementType !== "vexa::Value") {
           throw new CppEmitError("C++ sparse arrays require a dynamic value element type");
         }
-        return "__vexa_array.push_back(vexa::Value::undefined())";
+        return "vexa::push(__vexa_array, vexa::Value::undefined())";
       }
       if (element.kind === "SpreadExpression") {
         const argument = (element as SpreadExpression).argument;
-        return type === "std::vector<vexa::Value>"
-          ? `vexa::appendAllConverted(${activeRuntimeName}, __vexa_array, ${emitExpression(argument)})`
-          : `vexa::appendAll(__vexa_array, ${emitExpression(argument)})`;
+        const source = isManagedArrayExpression(argument)
+          ? emitManagedArrayPointer(argument)
+          : emitExpression(argument);
+        return elementType === "vexa::Value"
+          ? `vexa::appendAllConverted(${activeRuntimeName}, __vexa_array, ${source})`
+          : `vexa::appendAll(__vexa_array, ${source})`;
       }
-      const value = type === "std::vector<vexa::Value>"
+      const value = elementType === "vexa::Value"
         ? emitConvertedValue(element as Expr, "vexa::Value")
         : emitElement(element as Expr);
-      return `__vexa_array.push_back(${value})`;
+      return `vexa::push(__vexa_array, ${value})`;
     });
-    return `([&]() { ${type} __vexa_array; ${operations.join("; ")}; return __vexa_array; }())`;
+    return `([&]() { auto* __vexa_array = ${activeRuntimeName}.array<${elementType}>(); ${operations.join("; ")}; return __vexa_array; }())`;
   }
-  const elements = type === "std::vector<vexa::Value>"
+  const elements = elementType === "vexa::Value"
     ? array.elements.map((element) => emitConvertedValue(element as Expr, "vexa::Value"))
     : array.elements.map((element) => emitElement(element as Expr));
-  return `${type}{${elements.join(", ")}}`;
+  return `${activeRuntimeName}.array<${elementType}>({${elements.join(", ")}})`;
 }
 
 function objectPropertyName(property: ObjectProperty): string | null {
@@ -743,6 +786,10 @@ function nativeLambdaCapture(selfName: string, referenceEntryLocals: boolean): {
     const name = cppName(sourceName);
     captures.push(`${name} = cppgc::Persistent<${cppName(className)}>(${name})`);
   }
+  for (const [sourceName, pointeeType] of activeGcArrayTypes) {
+    const name = cppName(sourceName);
+    captures.push(`${name} = cppgc::Persistent<${pointeeType}>(vexa::arrayPointer(${name}))`);
+  }
   const rootThis = activeCurrentClassName !== null && !activeCurrentMethodStatic;
   if (rootThis) {
     captures.push(`${selfName} = cppgc::Persistent<${cppName(activeCurrentClassName!)}>(this)`);
@@ -759,9 +806,11 @@ function emitNativeLambda(parametersList: readonly FunctionParameter[], body: Ex
   const parameters = callableParameters(parametersList, undefined, false, true);
   const previousLocalNames = activeLocalNames;
   const previousGcObjectTypes = activeGcObjectTypes;
+  const previousGcArrayTypes = activeGcArrayTypes;
   const previousThisExpression = activeThisExpression;
   activeLocalNames = new Set([...activeLocalNames, ...parameters.names]);
   activeGcObjectTypes = new Map([...activeGcObjectTypes, ...parameters.gcTypes]);
+  activeGcArrayTypes = new Map([...activeGcArrayTypes, ...parameters.gcArrayTypes]);
   activeThisExpression = capture.thisExpression;
   try {
     const prefix = `${capture.text}(${parameters.text})${activeRuntimeName === "runtime" ? "" : " mutable"}`;
@@ -771,6 +820,7 @@ function emitNativeLambda(parametersList: readonly FunctionParameter[], body: Ex
   } finally {
     activeLocalNames = previousLocalNames;
     activeGcObjectTypes = previousGcObjectTypes;
+    activeGcArrayTypes = previousGcArrayTypes;
     activeThisExpression = previousThisExpression;
   }
 }
@@ -863,7 +913,7 @@ function emitCall(call: CallExpression): string {
   }
   if (member?.objectName === "Object" && new Set(["keys", "values"]).has(member.propertyName)) {
     if (call.arguments.length !== 1) throw new CppEmitError(`C++ Object.${member.propertyName} expects one object`);
-    return `vexa::record${member.propertyName === "keys" ? "Keys" : "Values"}(${emitExpression(call.arguments[0]!)})`;
+    return `vexa::record${member.propertyName === "keys" ? "Keys" : "Values"}(${activeRuntimeName}, ${emitExpression(call.arguments[0]!)})`;
   }
   if (member?.objectName === "Promise") {
     if (member.propertyName === "resolve") {
@@ -882,7 +932,10 @@ function emitCall(call: CallExpression): string {
     }
     if (member.propertyName === "all") {
       if (call.arguments.length !== 1) throw new CppEmitError("C++ Promise.all expects one task array");
-      return `vexa::promiseAll(${activeRuntimeName}, ${emitExpression(call.arguments[0]!)})`;
+      const tasks = isManagedArrayExpression(call.arguments[0]!)
+        ? emitManagedArrayPointer(call.arguments[0]!)
+        : emitExpression(call.arguments[0]!);
+      return `vexa::promiseAll(${activeRuntimeName}, ${tasks})`;
     }
   }
   if (member && new Set(["then", "catch", "finally"]).has(member.propertyName)) {
@@ -901,13 +954,25 @@ function emitCall(call: CallExpression): string {
     "slice", "concat", "map", "filter", "reduce",
   ]);
   if (member && isArrayExpression(member.object) && arrayRuntimeMethods.has(member.propertyName)) {
-    const receiver = emitExpression(member.object);
+    const receiver = isManagedArrayExpression(member.object)
+      ? emitManagedArrayPointer(member.object)
+      : emitExpression(member.object);
     const convertsValueArguments = new Set(["push", "unshift", "includes", "indexOf", "concat"])
       .has(member.propertyName);
-    const arrayArguments = cppTypeForExpression(member.object) === "std::vector<vexa::Value>" && convertsValueArguments
-      ? call.arguments.map((argument) => emitConvertedValue(argument, "vexa::Value")).join(", ")
-      : argumentsText;
-    return `vexa::${member.propertyName}(${receiver}${arrayArguments ? `, ${arrayArguments}` : ""})`;
+    const receiverElementType = managedArrayElementType(cppTypeForExpression(member.object));
+    const arrayArguments = member.propertyName === "concat"
+      ? call.arguments.map((argument) => {
+        if (isManagedArrayExpression(argument)) return emitManagedArrayPointer(argument);
+        return receiverElementType === "vexa::Value"
+          ? emitConvertedValue(argument, "vexa::Value")
+          : emitExpression(argument);
+      }).join(", ")
+      : receiverElementType === "vexa::Value" && convertsValueArguments
+        ? call.arguments.map((argument) => emitConvertedValue(argument, "vexa::Value")).join(", ")
+        : argumentsText;
+    const allocatesArray = isManagedArrayExpression(member.object) &&
+      new Set(["slice", "concat", "map", "filter"]).has(member.propertyName);
+    return `vexa::${member.propertyName}(${allocatesArray ? `${activeRuntimeName}, ` : ""}${receiver}${arrayArguments ? `, ${arrayArguments}` : ""})`;
   }
   if (member?.propertyName === "return" && isGeneratorExpression(member.object)) {
     if (call.arguments.length > 1) {
@@ -934,7 +999,8 @@ function emitCall(call: CallExpression): string {
     ]).get(member.propertyName);
     if (primitiveMethod) {
       const receiver = emitExpression(member.object);
-      return `vexa::${primitiveMethod}(${receiver}${argumentsText ? `, ${argumentsText}` : ""})`;
+      const runtimeArgument = primitiveMethod === "split" ? `${activeRuntimeName}, ` : "";
+      return `vexa::${primitiveMethod}(${runtimeArgument}${receiver}${argumentsText ? `, ${argumentsText}` : ""})`;
     }
   }
 
@@ -1068,10 +1134,13 @@ function emitBinary(expression: BinaryExpression): string {
     return `vexa::compare(${left}, ${right})`;
   }
   if (expression.operator === "in" && isArrayExpression(expression.right)) {
-    const value = cppTypeForExpression(expression.right) === "std::vector<vexa::Value>"
+    const value = cppTypeForExpression(expression.right) === "vexa::ArrayObject<vexa::Value>*"
       ? emitConvertedValue(expression.left, "vexa::Value")
       : emitExpression(expression.left);
-    return `vexa::includes(${emitExpression(expression.right)}, ${value})`;
+    const receiver = isManagedArrayExpression(expression.right)
+      ? emitManagedArrayPointer(expression.right)
+      : emitExpression(expression.right);
+    return `vexa::includes(${receiver}, ${value})`;
   }
   if (expression.operator === "in" && isRecordExpression(expression.right)) {
     return `vexa::recordHas(${emitExpression(expression.right)}, vexa::propertyKey(${emitExpression(expression.left)}))`;
@@ -1167,6 +1236,16 @@ function emitExpression(expression: Expr): string {
     }
     case "UpdateExpression": {
       const update = expression as UpdateExpression;
+      if (update.argument.kind === "MemberExpression") {
+        const member = update.argument as MemberExpression;
+        if (member.computed && isManagedArrayExpression(member.object)) {
+          const receiver = emitManagedArrayPointer(member.object);
+          const index = emitExpression(member.property);
+          const delta = update.operator === "++" ? "+" : "-";
+          const returned = update.prefix ? "__vexa_array_value" : "__vexa_array_current";
+          return `([&]() { auto* __vexa_array = ${receiver}; auto __vexa_array_index = ${index}; auto __vexa_array_current = vexa::arrayGet(__vexa_array, __vexa_array_index); auto __vexa_array_value = vexa::arraySet(__vexa_array, __vexa_array_index, (__vexa_array_current ${delta} 1)); return ${returned}; }())`;
+        }
+      }
       const property = resolvedNativePropertyMember(update.argument);
       if (property) {
         return emitPropertyUpdate(update, property);
@@ -1180,6 +1259,19 @@ function emitExpression(expression: Expr): string {
       if (overloaded?.operator === "[]=" && assignment.left.kind === "MemberExpression") {
         const member = assignment.left as MemberExpression;
         return emitClassOperatorCall(overloaded, member.object, [assignment.right, ...computedMemberArguments(member)]);
+      }
+      if (assignment.left.kind === "MemberExpression") {
+        const member = assignment.left as MemberExpression;
+        if (member.computed && isManagedArrayExpression(member.object)) {
+          const receiver = emitManagedArrayPointer(member.object);
+          const index = emitExpression(member.property);
+          if (assignment.operator === "=") {
+            return `vexa::arraySet(${receiver}, ${index}, ${emitExpression(assignment.right)})`;
+          }
+          const binaryOperator = compoundAssignmentBinaryOperator(assignment.operator);
+          if (!binaryOperator) throw new CppEmitError(`C++ arrays do not support '${assignment.operator}' assignment yet`);
+          return `([&]() { auto* __vexa_array = ${receiver}; auto __vexa_array_index = ${index}; auto __vexa_array_value = (vexa::arrayGet(__vexa_array, __vexa_array_index) ${binaryOperator} ${emitExpression(assignment.right)}); return vexa::arraySet(__vexa_array, __vexa_array_index, __vexa_array_value); }())`;
+        }
       }
       const property = resolvedNativePropertyMember(assignment.left);
       if (property) {
@@ -1234,7 +1326,10 @@ function emitExpression(expression: Expr): string {
         return `vexa::Math::${cppName((member.property as Identifier).name)}`;
       }
       if (!member.computed && isArrayExpression(member.object) && identifierName(member.property) === "length") {
-        return `static_cast<double>(${emitExpression(member.object)}.size())`;
+        const receiver = isManagedArrayExpression(member.object)
+          ? `${emitManagedArrayPointer(member.object)}->size()`
+          : `${emitExpression(member.object)}.size()`;
+        return `static_cast<double>(${receiver})`;
       }
       const propertyName = !member.computed ? identifierName(member.property) : null;
       const nativeProperty = resolvedNativePropertyMember(expression);
@@ -1257,7 +1352,9 @@ function emitExpression(expression: Expr): string {
         return `${emitExpression(member.object)}->${cppName(classGetter.name.name)}(${activeRuntimeName})`;
       }
       return member.computed
-        ? `${emitExpression(member.object)}[${emitExpression(member.property)}]`
+        ? isManagedArrayExpression(member.object)
+          ? `vexa::arrayGet(${emitManagedArrayPointer(member.object)}, ${emitExpression(member.property)})`
+          : `${emitExpression(member.object)}[${emitExpression(member.property)}]`
         : `${emitExpression(member.object)}${isGcObjectExpression(member.object) ? "->" : "."}${cppName((member.property as Identifier).name)}`;
     }
     case "NamedArgument":
@@ -1295,9 +1392,9 @@ function emitDestructuredBindings(binding: BindingName, source: string, lines: s
         if (element.name.kind !== "Identifier") {
           throw new CppEmitError("C++ nested rest destructuring is not implemented yet");
         }
-        emitDestructuredBindings(element.name, `vexa::slice(${source}, ${index})`, lines);
+        emitDestructuredBindings(element.name, `vexa::slice(${activeRuntimeName}, vexa::arrayPointer(${source}), ${index})`, lines);
       } else {
-        emitDestructuredBindings(element.name, `${source}[${index}]`, lines);
+        emitDestructuredBindings(element.name, `vexa::arrayGet(vexa::arrayPointer(${source}), ${index})`, lines);
       }
     });
     return;
@@ -1345,8 +1442,16 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
   if (className) {
     activeGcObjectTypes.set(sourceName, className);
   }
+  const declaredCppType = declaredTypeName ? cppTypeForDeclaredName(declaredTypeName) : null;
+  const arrayType = declaredCppType && managedArrayElementType(declaredCppType) !== null
+    ? declaredCppType
+    : managedArrayCppTypeForExpression(statement.initializer);
+  if (arrayType) activeGcArrayTypes.set(sourceName, arrayType.slice(0, -1));
   if (className && activeGeneratorResultType) {
     return `cppgc::Persistent<${cppName(className)}> ${name}(${initializer})`;
+  }
+  if (arrayType && activeGeneratorResultType) {
+    return `cppgc::Persistent<${arrayType.slice(0, -1)}> ${name}(${initializer})`;
   }
   return `${type} ${name} = ${initializer}`;
 }
@@ -1354,6 +1459,7 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
 function emitBlock(block: BlockStatement, indent: string, trailingStatement?: string): string {
   const previousLocalNames = new Set(activeLocalNames);
   const previousGcObjectTypes = new Map(activeGcObjectTypes);
+  const previousGcArrayTypes = new Map(activeGcArrayTypes);
   try {
     const childIndent = `${indent}  `;
     const lines = block.body.map((statement) => emitStatement(statement, childIndent));
@@ -1362,6 +1468,7 @@ function emitBlock(block: BlockStatement, indent: string, trailingStatement?: st
   } finally {
     activeLocalNames = previousLocalNames;
     activeGcObjectTypes = previousGcObjectTypes;
+    activeGcArrayTypes = previousGcArrayTypes;
   }
 }
 
@@ -1392,6 +1499,7 @@ function emitLoopBody(statement: Statement, indent: string): string {
 function emitFor(statement: ForStatement, indent: string): string {
   const previousLocalNames = new Set(activeLocalNames);
   const previousGcObjectTypes = new Map(activeGcObjectTypes);
+  const previousGcArrayTypes = new Map(activeGcArrayTypes);
   try {
     if (statement.iterationKind || statement.iterator || statement.iterable) {
       if ((statement.iterationKind !== "of" && statement.iterationKind !== "in") || !statement.iterator || !statement.iterable) {
@@ -1410,7 +1518,8 @@ function emitFor(statement: ForStatement, indent: string): string {
       }
       const iterable = emitExpression(statement.iterable);
       activeLocalNames.add(iteratorName);
-      return `${indent}for (auto ${cppName(iteratorName)} : ${iterable}) ${emitLoopBody(statement.body, indent)}`;
+      const range = isManagedArrayExpression(statement.iterable) ? `*vexa::arrayPointer(${iterable})` : iterable;
+      return `${indent}for (auto ${cppName(iteratorName)} : ${range}) ${emitLoopBody(statement.body, indent)}`;
     }
     const initializer = statement.initializer
       ? statement.initializer.kind === "VarStatement"
@@ -1423,6 +1532,7 @@ function emitFor(statement: ForStatement, indent: string): string {
   } finally {
     activeLocalNames = previousLocalNames;
     activeGcObjectTypes = previousGcObjectTypes;
+    activeGcArrayTypes = previousGcArrayTypes;
   }
 }
 
@@ -1484,6 +1594,7 @@ function emitSwitchBody(statement: SwitchStatement, indent: string): string {
 function emitSwitch(statement: SwitchStatement, indent: string): string {
   const previousLocalNames = new Set(activeLocalNames);
   const previousGcObjectTypes = new Map(activeGcObjectTypes);
+  const previousGcArrayTypes = new Map(activeGcArrayTypes);
   activeBreakBoundaryDepths.push(activeFinallyProtectedDepth);
   try {
     const body = emitSwitchBody(statement, `${indent}  `);
@@ -1498,6 +1609,7 @@ function emitSwitch(statement: SwitchStatement, indent: string): string {
     activeBreakBoundaryDepths.pop();
     activeLocalNames = previousLocalNames;
     activeGcObjectTypes = previousGcObjectTypes;
+    activeGcArrayTypes = previousGcArrayTypes;
   }
 }
 
@@ -1651,9 +1763,10 @@ function callableParameters(
   owner: Statement | undefined,
   allowDefaults = true,
   allowInferredTypes = false
-): { text: string; names: string[]; gcTypes: Map<string, string> } {
+): { text: string; names: string[]; gcTypes: Map<string, string>; gcArrayTypes: Map<string, string> } {
   const names: string[] = [];
   const gcTypes = new Map<string, string>();
+  const gcArrayTypes = new Map<string, string>();
   const text = parameters.map((parameter) => {
     if (
       parameter.name.kind !== "Identifier" ||
@@ -1677,9 +1790,10 @@ function callableParameters(
     }
     names.push(sourceName);
     if (typeName && isNativeObjectTypeName(typeName)) gcTypes.set(sourceName, typeName);
+    if (managedArrayElementType(type) !== null) gcArrayTypes.set(sourceName, type.slice(0, -1));
     return `${type} ${cppName(sourceName)}`;
   }).join(", ");
-  return { text, names, gcTypes };
+  return { text, names, gcTypes, gcArrayTypes };
 }
 
 function callableSignature(
@@ -1718,6 +1832,7 @@ function withCallableContext<T>(
   const previousMethodStatic = activeCurrentMethodStatic;
   const previousLocalNames = activeLocalNames;
   const previousGcObjectTypes = activeGcObjectTypes;
+  const previousGcArrayTypes = activeGcArrayTypes;
   const previousAsyncResultType = activeAsyncResultType;
   const previousGeneratorResultType = activeGeneratorResultType;
   const previousCallableResultType = activeCallableResultType;
@@ -1731,6 +1846,7 @@ function withCallableContext<T>(
   activeCurrentMethodStatic = staticMethod;
   activeLocalNames = new Set(parameterInfo.names);
   activeGcObjectTypes = new Map(parameterInfo.gcTypes);
+  activeGcArrayTypes = new Map(parameterInfo.gcArrayTypes);
   activeAsyncResultType = asyncResultType;
   activeGeneratorResultType = generatorResultType;
   activeCallableResultType = callableResultType;
@@ -1746,6 +1862,7 @@ function withCallableContext<T>(
     activeCurrentMethodStatic = previousMethodStatic;
     activeLocalNames = previousLocalNames;
     activeGcObjectTypes = previousGcObjectTypes;
+    activeGcArrayTypes = previousGcArrayTypes;
     activeAsyncResultType = previousAsyncResultType;
     activeGeneratorResultType = previousGeneratorResultType;
     activeCallableResultType = previousCallableResultType;
@@ -1786,6 +1903,11 @@ function emitGeneratorCallableBlock(body: BlockStatement, indent: string, result
   for (const [sourceName, className] of activeGcObjectTypes) {
     roots.push(
       `${childIndent}cppgc::Persistent<${cppName(className)}> __vexa_generator_root_${cppName(sourceName)}(${cppName(sourceName)});`
+    );
+  }
+  for (const [sourceName, pointeeType] of activeGcArrayTypes) {
+    roots.push(
+      `${childIndent}cppgc::Persistent<${pointeeType}> __vexa_generator_root_${cppName(sourceName)}(vexa::arrayPointer(${cppName(sourceName)}));`
     );
   }
   const previousThisExpression = activeThisExpression;
@@ -1906,10 +2028,15 @@ function classFieldType(field: ClassFieldMember, statement: ClassStatement): {
   if (!valueType || valueType === "void") {
     throw new CppEmitError(`C++ emission does not support class field type '${declaredType}' yet`, statement);
   }
-  const traced = isNativeObjectTypeName(declaredType);
+  const traced = isNativeObjectTypeName(declaredType) || managedArrayElementType(valueType) !== null;
+  const storageType = managedArrayElementType(valueType) !== null
+    ? `cppgc::Member<${valueType.slice(0, -1)}>`
+    : isNativeObjectTypeName(declaredType)
+      ? `cppgc::Member<${cppName(declaredType)}>`
+      : valueType;
   return {
     valueType,
-    storageType: traced ? `cppgc::Member<${cppName(declaredType)}>` : valueType,
+    storageType,
     traced,
   };
 }
@@ -2420,9 +2547,11 @@ function emitClass(statement: ClassStatement): string {
   const primaryFields = typedParameters.map(({ parameter, type, name }) => {
     const immutable = parameter.declarationKind === "val" || parameter.declarationKind === "const";
     const declaredType = parameter.typeAnnotation?.name;
-    const storageType = declaredType && isNativeObjectTypeName(declaredType)
-      ? `cppgc::Member<${cppName(declaredType)}>`
-      : type;
+    const storageType = managedArrayElementType(type) !== null
+      ? `cppgc::Member<${type.slice(0, -1)}>`
+      : declaredType && isNativeObjectTypeName(declaredType)
+        ? `cppgc::Member<${cppName(declaredType)}>`
+        : type;
     return `  ${immutable ? "const " : ""}${storageType} ${name};`;
   });
   const explicitFields = typedFieldMembers.map(({ field, name, storageType }) => {
@@ -2439,7 +2568,10 @@ function emitClass(statement: ClassStatement): string {
     fieldLines.push(field.text);
   }
   const tracedFields = typedParameters
-    .filter(({ parameter }) => Boolean(parameter.typeAnnotation && isNativeObjectTypeName(parameter.typeAnnotation.name)))
+    .filter(({ parameter, type }) => Boolean(
+      (parameter.typeAnnotation && isNativeObjectTypeName(parameter.typeAnnotation.name)) ||
+      managedArrayElementType(type) !== null
+    ))
     .map(({ name }) => `visitor->Trace(${name});`);
   tracedFields.push(...typedFieldMembers.filter(({ traced }) => traced).map(({ name }) => `visitor->Trace(${name});`));
   const implementedInterfaceTraceCalls = implementedInterfaceTypes(statement)
@@ -2496,7 +2628,11 @@ function emitStatement(statement: Statement, indent = ""): string {
       if (expression.kind === "UnaryExpression" && (expression as UnaryExpression).operator === "yield*") {
         if (!activeGeneratorResultType) throw new CppEmitError("C++ yield* emission requires a generator callable", statement);
         const temporary = `__vexa_yield_value_${activeYieldTemporaryCounter++}`;
-        const iterable = emitExpression((expression as UnaryExpression).argument);
+        const argument = (expression as UnaryExpression).argument;
+        const emittedIterable = emitExpression(argument);
+        const iterable = isManagedArrayExpression(argument)
+          ? `*vexa::arrayPointer(${emittedIterable})`
+          : emittedIterable;
         return [
           `${indent}for (auto&& ${temporary} : ${iterable}) {`,
           `${indent}  co_yield vexa::convertValue<${activeGeneratorResultType}>(${activeRuntimeName}, ${temporary});`,
@@ -2674,6 +2810,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
     .map((statement) => [statement.name.name, statement.targetType.name]));
   activeFunctionStatements = new Map(functions.map((statement) => [statement.name.name, statement]));
   activeGcObjectTypes = new Map();
+  activeGcArrayTypes = new Map();
   activeExpressionTypes = semantics.expressionTypes ?? new Map();
   activeImplicitReceiverIdentifiers = semantics.implicitReceiverIdentifiers ?? new Set();
   activeStaticImplicitReceiverIdentifiers = semantics.staticImplicitReceiverIdentifiers ?? new Map();
@@ -2722,6 +2859,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   );
 
   activeGcObjectTypes = new Map();
+  activeGcArrayTypes = new Map();
   activeCurrentClassName = null;
   activeCurrentMethodStatic = false;
   activeLocalNames = new Set();

@@ -35,6 +35,14 @@ generated translation unit is compiled and linked with `g++ -std=c++20`.
 The vendored Oilpan source is prepared for macOS and Linux on arm64/aarch64 and
 x86_64.
 
+The end-to-end regression lives in `samples/native-language-smoke/`. It is a
+multi-file program covering functions, classes, interfaces, operators, managed
+arrays and records, control flow, exceptions, generators, promises, timers, and
+local imports. `cli/nativeSmoke.test.ts` compiles it through the public
+`executable` command, runs the resulting process, and compares its complete
+stdout with `expected.native.txt`. The ordinary sample harness separately runs
+the same entry through JavaScript and compares it with `expected.txt`.
+
 ## Initial supported surface
 
 The native backend intentionally rejects unsupported AST constructs instead of
@@ -95,10 +103,18 @@ The runtime lives entirely in `native/runtime.cpp`. It initializes an actual
 cppgc heap, represents dynamic `vexa::Value` strings as
 `cppgc::GarbageCollected` objects, keeps live dynamic strings rooted with
 `cppgc::Persistent`, and allocates generated class instances through the same
-Oilpan heap. Homogeneous string arrays use owned `std::string` elements and
-normal C++ lifetime management rather than Oilpan tracing. Mixed primitive array
-literals infer `any[]`, use `std::vector<vexa::Value>`, and convert every inserted
-or queried value through the runtime so strings retain their managed roots.
+Oilpan heap. Language arrays are `cppgc::GarbageCollected` backing objects with
+reference semantics: assignment, parameter passing, and storage in multiple
+objects copy only the array handle, so mutation remains visible through every
+reference. Generated object fields store those handles as `cppgc::Member` edges
+and visit them from `Trace`; when the last reachable owner disappears, Oilpan can
+collect the array even when it participates in a cycle. Primitive and owned
+`std::string` elements need no interior tracing, generated-object elements use
+`cppgc::Member`, and mixed `vexa::Value` elements use the same traced
+`StoredValue` representation as managed records. Array-producing operations such
+as literals, `slice`, `concat`, `map`, `filter`, `split`, `Object.keys`, and
+`Promise.all` allocate a new managed backing object, while mutating operations
+retain the original identity.
 Generated objects stored in another generated object's primary-constructor or
 ordinary instance fields use `cppgc::Member<T>` and are visited by the owner's
 generated `Trace` method. Field initializers that allocate managed strings or
@@ -264,7 +280,19 @@ Native collection helpers include array `push`/`pop`/`shift`/`unshift`,
 `endsWith`, `charAt`, `substring`, `slice`, and `split`. `Object.keys` and
 `Object.values` enumerate managed records. These calls retain their analyzed
 element/result types and reuse the same native lambda emitter as user callbacks.
-Native console methods print typed and dynamic arrays using bracketed elements.
+Native array `toString`, `String(array)`, and console methods share one bracketed
+representation such as `[1, 2, 3]`, including arrays reached through traced class
+fields or persistent coroutine/callback roots.
+`ArrayObject<T>` is the canonical implementation of this API: mutation,
+searching, slicing, concatenation, higher-order operations, joining, and string
+conversion live on the managed class. The emitter-facing free functions are
+thin adapters that only normalize handles and inject the active runtime for
+operations that allocate another managed array.
+`concat` accepts the JavaScript forms in one call: individual element values,
+other arrays, or any mixture of both. Each array argument contributes its
+elements, while scalar arguments append one element.
+Only reusable numeric range expressions keep an internal `std::vector`; that is
+an eager iteration value, not the representation of a VexaScript array.
 
 Native builds follow transitive local `.vx`, `.ts`, and `.tsx` imports through
 the same resolver and project import mappings used by JavaScript module graphs.

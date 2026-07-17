@@ -97,6 +97,7 @@ This section is the fast onboarding map for agents and contributors.
   - TypeScript import sample: `samples/typescript-import/` validates a `.vx` entry importing a local `.ts` module with TypeScript enums, interfaces, type aliases, classes, generics, destructuring, arrow functions, and async functions that are transpiled into the bundled runtime output.
   - JSON/text asset import sample: `samples/json-text-import/` validates a `.vx` entry importing local `.json` and `.txt` assets as default imports that are inlined into the bundled runtime output.
   - Native Oilpan sample: `samples/native-oilpan/` is the minimal range-loop and `console.log` program validated by both the normal sample harness and the C++/native build path.
+  - Native language smoke sample: `samples/native-language-smoke/` is the multi-file end-to-end native fixture. `expected.txt` validates JavaScript execution through the normal sample harness, while `cli/nativeSmoke.test.ts` invokes the public `executable` command, runs the linked Oilpan binary, and compares stdout with `expected.native.txt`.
 - Formatter:
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`
@@ -131,7 +132,7 @@ This section is the fast onboarding map for agents and contributors.
   - `cpp` emits one `.vx` file as C++ without compiling it. `executable` compiles one `.vx` file directly to an executable while isolating generated C++ in `<input>.build/`; `native`, `build --emit cpp`, and `build --native` remain compatible forms of those workflows.
   - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
 - Native C++ support:
-  - Single-file Oilpan runtime and the vendored standalone Oilpan source archive used by generated C++ builds: `native/runtime.cpp`, `native/oilpan-standalone-main.zip`
+  - Single-file Oilpan runtime, including reference-semantic traced `ArrayObject<T>` storage, and the vendored standalone Oilpan source archive used by generated C++ builds: `native/runtime.cpp`, `native/oilpan-standalone-main.zip`
   - Native backend usage, requirements, supported surface, and module limitations: `docs/native.md`
 - Monaco editor support for the website embeds (project folder: `website/src/assets/monaco/`):
   - Browser-only virtual-workspace and persistence helpers (workspace tabs, folders, runtime declarations, `localStorage`): `website/src/assets/monaco/workspace.ts`

@@ -4,40 +4,14 @@ import { chmod } from "node:fs/promises";
 import { ensureLspTransportArg, runCli } from "./cli";
 import { startServeSession } from "./cliServe";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
-
-async function spawnAndCapture(command: string, args: string[], cwd: string): Promise<{
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}> {
-  return await new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      resolvePromise({ code, stdout, stderr });
-    });
-  });
-}
+import { runCommandCapture } from "./io";
 
 async function buildBundledCli(): Promise<{
   code: number | null;
   stdout: string;
   stderr: string;
 }> {
-  return await spawnAndCapture(
+  return await runCommandCapture(
     process.execPath,
     [
       "node_modules/esbuild/bin/esbuild",
@@ -55,7 +29,7 @@ async function buildBundledCli(): Promise<{
       "--banner:js=#!/usr/bin/env node",
       "--log-level=error",
     ],
-    process.cwd()
+    { cwd: process.cwd() }
   );
 }
 
@@ -605,7 +579,7 @@ describe("CLI", () => {
     expect(build.code).toBe(0);
     expect(build.stderr).toBe("");
 
-    const run = await spawnAndCapture(process.execPath, ["dist/vexa.js", "--version"], process.cwd());
+    const run = await runCommandCapture(process.execPath, ["dist/vexa.js", "--version"], { cwd: process.cwd() });
     expect(run.code).toBe(0);
     expect(run.stdout).toContain(COMPILER_VERSION);
     expect(run.stderr).not.toContain("Detected unsettled top-level await");
@@ -619,7 +593,7 @@ describe("CLI", () => {
     // exits with code 13 in a restart loop. The server must bundle without one.
     const dir = await mkdtemp(join(tmpdir(), "vexa-lsp-bundle-"));
     const outfile = join(dir, "vexa.mjs");
-    const build = await spawnAndCapture(
+    const build = await runCommandCapture(
       process.execPath,
       [
         "node_modules/esbuild/bin/esbuild",
@@ -634,7 +608,7 @@ describe("CLI", () => {
         "--external:vscode-languageserver-textdocument",
         "--log-level=error",
       ],
-      process.cwd()
+      { cwd: process.cwd() }
     );
     expect(build.code).toBe(0);
     expect(build.stderr).toBe("");
@@ -668,7 +642,7 @@ describe("CLI", () => {
     const build = await buildBundledCli();
     expect(build.code).toBe(0);
 
-    const run = await spawnAndCapture(process.execPath, ["dist/vexa.js"], process.cwd());
+    const run = await runCommandCapture(process.execPath, ["dist/vexa.js"], { cwd: process.cwd() });
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("Usage: vexa [options] [command]");
     expect(run.stderr).toBe("");
@@ -681,7 +655,7 @@ describe("CLI", () => {
     const build = await buildBundledCli();
     expect(build.code).toBe(0);
 
-    const run = await spawnAndCapture(process.execPath, ["dist/vexa.js", "help", "build"], process.cwd());
+    const run = await runCommandCapture(process.execPath, ["dist/vexa.js", "help", "build"], { cwd: process.cwd() });
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("Usage: vexa build [options] <input>");
     expect(run.stdout).toContain("--emit <language>");
@@ -696,7 +670,11 @@ describe("CLI", () => {
     const build = await buildBundledCli();
     expect(build.code).toBe(0);
 
-    const run = await spawnAndCapture(process.execPath, ["dist/vexa.js", "run", "samples/node/main.vx"], process.cwd());
+    const run = await runCommandCapture(
+      process.execPath,
+      ["dist/vexa.js", "run", "samples/node/main.vx"],
+      { cwd: process.cwd() }
+    );
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("hello/world");
     expect(run.stdout).toContain("0010");

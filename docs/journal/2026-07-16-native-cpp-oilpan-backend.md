@@ -58,18 +58,59 @@ analysis type map as the JavaScript backend. Native loops now map `int` to
 `std::int32_t`, `long` to `std::int64_t`, and `number` to `double`; AST literal
 kinds remain only a fallback when no analyzed type is available.
 
-Arrays reinforced the same lesson. Emitting every literal through a dynamic
-container would erase the element types the analyzer already knows, while C++
-class template argument deduction cannot represent empty or heterogeneous
-JavaScript-style arrays reliably. The backend now maps analyzed homogeneous
-array and tuple element types to `std::vector<T>`, keeps unsupported element
-types explicit errors, and provides a small runtime `push` helper so the
-generated call retains JavaScript's returned length. Indexed access and
-iteration stay ordinary C++ operations, while the `length` property is emitted
-as a numeric `.size()` conversion. Subsequent array APIs follow the same shared
-runtime route: `includes` uses SameValueZero semantics, `indexOf` keeps strict
-equality semantics, `join` shares the primitive string conversions, and
-`reverse` mutates and returns the original native vector.
+Arrays reinforced the same lesson, but the first representation was incomplete.
+The backend initially mapped analyzed arrays to `std::vector<T>`, which preserved
+element types but silently introduced C++ value semantics: assignment, function
+parameters, and two object constructors duplicated the contents. It also left
+generated-object pointers inside vector-valued fields outside Oilpan's traced
+object graph. A focused regression with two holders sharing one array exposed
+the copy directly before the fix.
+
+Language arrays now use `ArrayObject<T>`, an Oilpan-allocated backing object.
+Locals and parameters carry one pointer, generated fields carry a traced
+`cppgc::Member<ArrayObject<T>>`, and suspended/captured arrays receive the same
+`Persistent` rooting treatment as generated objects. Element storage is selected
+once by `ArraySlot`: primitives and owned strings are ordinary values, generated
+object pointers become traced `Member` edges, and dynamic values reuse
+`StoredValue`. This preserves identity and allows unreachable cycles to be
+collected; using `shared_ptr<vector<T>>` was considered but rejected because an
+array/object cycle would require permanent roots for its Oilpan elements and
+would leak. Only numeric range materialization remains an internal vector.
+
+Indexed access, iteration, and collection methods now share the managed-array
+helpers. Array-producing APIs receive the active runtime and allocate a new
+backing object; mutating APIs retain the original identity. The decisive native
+validation stored the same array in two holders, mutated through both, and
+printed `9 9,2,3`. Additional compile-and-run checks covered mixed values,
+managed-object elements, destructuring, `map`/`filter`/`slice`, `Promise.all`, and
+an array retained across generator suspension.
+
+The first console overload for managed arrays accepted
+`const ArrayObject<T>*`. For a raw `ArrayObject<T>*`, C++ preferred the generic
+`const T&` printer because it avoided the pointer-to-const qualification
+conversion, so console output exposed an address such as `0x1048a08c0`. Making
+the pointer overload exact and routing it through the array's real `toString`
+fixed the symptom and unified direct pointers, interior `Member` handles, and
+`Persistent` roots behind the same bracketed formatter. The timer/map/filter
+reproduction now prints `after one second [6, 12]`.
+
+That formatting bug also exposed an architectural smell: `ArrayObject<T>` owned
+storage and tracing while free runtime helpers owned most visible Array behavior.
+The managed class is now the canonical native API for mutation, lookup,
+`slice`/`concat`, `map`/`filter`/`reduce`, `join`, and `toString`. Existing free
+functions remain only thin emission adapters, mainly to inject `Runtime&` into
+methods that allocate a result array. This keeps one semantic implementation
+without leaking GC allocation details into source-level method signatures.
+
+Focused emitter assertions were not enough to prove this surface. The first
+large native smoke program exposed that the real project declarations model
+`concat` with `ConcatArray<T>`, while native lowering only accepted one array.
+The analyzer now treats ordinary arrays as `ConcatArray<T>`, contextual union
+element arrays remain managed dynamic arrays, and emission distinguishes scalar
+arguments from array arguments before delegating to one variadic managed-class
+implementation. The canonical `samples/native-language-smoke/` regression now
+passes through the public `executable` CLI, links Oilpan, executes the binary,
+and compares its complete output rather than only inspecting generated text.
 
 Custom functions and class methods exposed a calling-convention issue: string
 literals and class allocation require access to the active heap, but free C++
@@ -157,11 +198,12 @@ values go through one typed runtime conversion helper so dynamic strings enter
 the same Oilpan-backed `Value` representation as direct string expressions.
 
 Coroutine frames are ordinary C++ allocations and are not traced by Oilpan.
-Keeping raw generated-object pointers in parameters, method receivers, locals, or
-yield slots would therefore create suspension-time collection hazards. Generated
-coroutine bodies install `cppgc::Persistent` roots for incoming objects and method
-receivers, generated-object locals use persistent storage, and the shared
-generator task storage roots yielded and returned pointer values. The native
+Keeping raw generated-object or managed-array pointers in parameters, method
+receivers, locals, or yield slots would therefore create suspension-time
+collection hazards. Generated coroutine bodies install `cppgc::Persistent` roots
+for incoming objects and arrays plus method receivers, managed locals use
+persistent storage, and the shared generator task storage roots yielded and
+returned pointer values. The native
 compile-and-run fixture deliberately resumes the same yielded object after a
 mutation and delegates managed strings to cover these lifetime boundaries.
 
@@ -177,7 +219,7 @@ After two incompatible elements produced `any`, the next element could narrow th
 common type again because `any` is assignable to everything. `commonSupertype`
 now treats `any` as an absorbing result, so `[1, "x", true]` remains `any[]` in
 every backend. Native mixed primitive arrays map that type to
-`std::vector<vexa::Value>`. Array insertion/query arguments and delegated yields
+`ArrayObject<vexa::Value>`. Array insertion/query arguments and delegated yields
 share one `convertValue` helper, avoiding separate dynamic-string conversion
 rules that could drift.
 

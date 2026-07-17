@@ -4094,7 +4094,7 @@ export class TypeChecker {
 
     if (sourceType.kind === "array" && targetType.kind === "named") {
       if (
-        targetType.name === "ReadonlyArray"
+        (targetType.name === "ReadonlyArray" || targetType.name === "ConcatArray")
         && (targetType.typeArguments?.length ?? 0) === 1
       ) {
         return this.isTypeAssignable(sourceType.elementType, targetType.typeArguments![0]!);

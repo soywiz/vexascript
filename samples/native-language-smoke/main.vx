@@ -1,0 +1,207 @@
+import { importedDouble, importedLabel } from "./support.vx"
+
+enum Permission {
+  None,
+  Read = 1,
+  Write = Read << 1,
+  All = Read | Write
+}
+
+type Scores = int[]
+
+class Leaf(val value: int)
+
+interface Meter {
+  var value: int
+  val label: string
+  val leaf: Leaf
+  fun add(delta: int): int
+}
+
+class Counter(var value: int, val label: string, val leaf: Leaf) : Meter {
+  override fun add(delta: int): int {
+    value += delta
+    return value
+  }
+
+  fun addAgain(delta: int): int => add(delta)
+}
+
+interface Greeter {
+  fun greet(prefix: string): string
+}
+
+class English(val name: string) : Greeter {
+  override fun greet(prefix: string): string => prefix + " " + name
+}
+
+class Spanish(val name: string) : Greeter {
+  override fun greet(prefix: string): string => prefix + ", " + name
+}
+
+class NumberBox(var value: int) {
+  operator+(other: NumberBox): NumberBox => NumberBox(value + other.value)
+  operator-(): NumberBox => NumberBox(-value)
+  operator<=>(other: NumberBox): int => value <=> other.value
+  operator[](offset: int): int => value + offset
+  operator[]=(next: int, offset: int): void { value = next + offset }
+}
+
+class Bag(val values: int[])
+
+class Animal {
+  fun speak(): string => "base"
+}
+
+class Dog extends Animal {
+  override fun speak(): string => super.speak() + "!"
+}
+
+fun render(meter: Meter): string {
+  meter.value += 2
+  meter.value++
+  return `${meter.label}:${meter.value}:${meter.leaf.value}`
+}
+
+fun greet(greeter: Greeter, prefix: string): string => greeter.greet(prefix)
+
+fun add(value: int, delta: int = 1): int => value + delta
+
+fun sumDown(value: int): int {
+  if (value <= 0) return 0
+  return value + sumDown(value - 1)
+}
+
+fun classify(value: string): string {
+  switch (value) {
+    case "native":
+      return "compiled"
+    default:
+      return "other"
+  }
+}
+
+fun guarded(): int {
+  defer console.log("defer")
+  try {
+    throw Error("expected")
+  } catch (error) {
+    return 7
+  } finally {
+    console.log("finally")
+  }
+}
+
+fun loopControl(): int {
+  var total = 0
+  for (value of [1, 2, 3]) {
+    try {
+      if (value == 1) continue
+      if (value == 3) break
+      total += value
+    } finally {
+      total += 10
+    }
+  }
+  return total
+}
+
+fun * sequence(limit: int): int {
+  for (value of 0 ..< limit) yield value
+  yield* [limit, limit + 1]
+  return limit + 10
+}
+
+async fun asyncValue(): Promise<int> {
+  return 20
+}
+
+sync fun doubledAsync(): int {
+  return asyncValue() * 2
+}
+
+fun delay(ms: number) => Promise { resolve, reject ->
+  setTimeout(resolve, ms)
+}
+
+console.log("module", importedLabel(), importedDouble(6))
+console.log("functions", add(4), add(delta: 3, value: 4), sumDown(4))
+
+val counter: Meter = Counter(1, "cpu", Leaf(9))
+console.log("interface", render(counter), counter.add(3))
+
+val greeters: Greeter[] = [English("Ada"), Spanish("Luz")]
+console.log("dispatch", greet(greeters[0], "Hello"), greet(greeters[1], "Hola"))
+
+var box = NumberBox(2) + NumberBox(3)
+box += NumberBox(1)
+val negative = -box
+val less = NumberBox(1) < NumberBox(2)
+val indexed = box[4]
+box[2] = 8
+console.log("operators", box.value, negative.value, less, indexed)
+console.log("inheritance", Dog().speak())
+
+val shared: Scores = [1, 2]
+val firstBag = Bag(shared)
+val secondBag = Bag(shared)
+firstBag.values.push(3)
+console.log("shared", secondBag.values.length, secondBag.values.join("|"))
+
+val numbers = [1, 2, 3, 4]
+val transformed = numbers.map { it * 3 }.filter { it % 2 == 0 }
+val reduced = transformed.reduce((total: int, item: int) => total + item, 0)
+numbers.unshift(0)
+val shifted = numbers.shift()
+val popped = numbers.pop()
+numbers.reverse()
+console.log("arrays", transformed.join(","), reduced, shifted, popped, numbers.join(","))
+console.log("array-copy", numbers.slice(0, 2).join("|"), numbers.concat(8, 9).join("|"))
+console.log("array-string", [1, 2].toString())
+
+val mixed = [1, "two", true]
+mixed.push("three")
+console.log("mixed", mixed.includes("two"), mixed.indexOf(true), mixed.join("|"))
+
+val key = "score"
+val base = { name: "Ada", stale: true }
+val record = { ...base, [key]: 40, score: 41, nested: { active: true } }
+record[key] += 1
+record.nested.active = false
+val hadName = "name" in record
+val removed = delete record.stale
+console.log("record", record.name, record.score, record.nested.active, hadName, removed, record?.name)
+
+console.log("enum", Permission.None, Permission.All)
+switch (Permission.All) {
+  case Permission.All:
+    console.log("switch", classify("native"))
+    break
+  default:
+    console.log("switch", "wrong")
+}
+
+console.log("strings", "  Vexa  ".trim().toUpperCase(), "language".includes("gua"))
+console.log("math-regex", Math.max(3, 7), Math.round(2.6), /vexa/i.test("VEXA"))
+
+console.log("control", loopControl())
+console.log("errors", guarded())
+
+val iterator = sequence(2)
+val firstYield = iterator.next()
+var yieldedTotal = firstYield.value
+for (value of iterator) yieldedTotal += value
+val finished = iterator.next()
+console.log("generator", firstYield.done, firstYield.value, yieldedTotal, finished.done)
+
+val recovered = Promise.reject(Error("bad")).catch((reason: any) => 9)
+val all = await Promise.all([Promise.resolve(1), Promise.resolve(2)])
+val chained = await Promise.resolve(3).then((value: int) => value + 4)
+console.log("promises", await recovered, all[0], all[1], chained)
+console.log("async", await asyncValue(), await doubledAsync())
+
+val cancelledInterval = setInterval(() => console.log("unexpected interval"), 0)
+clearInterval(cancelledInterval)
+console.log("interval", "cancelled")
+await delay(0)
+console.log("timeout", "done")
