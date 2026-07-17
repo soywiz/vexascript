@@ -68,18 +68,23 @@ const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typ
   })],
   ["setTimeout", functionType([
     { name: "code", type: functionType([], builtinType("void")) },
-    { name: "time", type: builtinType("number") }
+    { name: "time", type: builtinType("number") },
+    { name: "arguments", type: UNKNOWN_TYPE, rest: true }
   ], builtinType("int"))],
   ["setInterval", functionType([
     { name: "code", type: functionType([], builtinType("void")) },
-    { name: "time", type: builtinType("number") }
+    { name: "time", type: builtinType("number") },
+    { name: "arguments", type: UNKNOWN_TYPE, rest: true }
   ], builtinType("int"))],
   ["clearTimeout", functionType([
     { name: "id", type: builtinType("int") }
   ], builtinType("void"))],
   ["clearInterval", functionType([
     { name: "id", type: builtinType("int") }
-  ], builtinType("void"))]
+  ], builtinType("void"))],
+  ["readTextFile", functionType([
+    { name: "path", type: builtinType("string") }
+  ], namedType("Promise", [builtinType("string")]))]
 ]);
 
 function symbolOffset(node: Node): number {

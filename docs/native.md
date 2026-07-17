@@ -58,10 +58,10 @@ silently producing incorrect C++. Its initial surface includes:
   explicit `new` construction, property access, synchronous typed instance and
   static methods, static factory methods that return class instances, and
   `async`/`sync` methods, plus synchronous class operator overloads;
-- required method-and-property interfaces, single-interface inheritance,
-  concrete class conformance with one interface through either `:` or
-  `implements`, virtual method/property dispatch through interface-typed values,
-  and homogeneous arrays containing different implementations of one interface;
+- required and optional method-and-property interfaces, multiple interface
+  inheritance, concrete and structural conformance, virtual method/property
+  dispatch through interface-typed values, and homogeneous arrays containing
+  different implementations of one interface;
 - numeric `enum` and `const enum` declarations with automatic values, explicit
   integer constant expressions, enum-typed parameters and returns, member access,
   bitwise operations, homogeneous arrays, and switch cases;
@@ -69,9 +69,10 @@ silently producing incorrect C++. Its initial surface includes:
   and declared homogeneous array parameter types;
 - homogeneous arrays with a supported native element type and mixed primitive
   arrays represented by managed dynamic values, including literals, indexed
-  reads and writes, `length`, `push`, `includes`, `indexOf`, `join`, `reverse`,
-  `forEach`, `some`, `every`, `findIndex`, comparator/default `sort`, and
-  synchronous `for-of` loops;
+  reads and writes, `length`, `push`, `includes`, `indexOf`, `lastIndexOf`, `at`,
+  `join`, `reverse`, `splice`, `fill`, `copyWithin`, `flat`, `flatMap`, `forEach`,
+  `some`, `every`, `find`, `findIndex`, comparator/default `sort`, and synchronous
+  `for-of` loops with identifier or destructuring bindings;
 - range-based `for` loops lowered to native C++ loops and reusable inclusive or
   exclusive range expressions backed by typed native vectors;
 - `if`, `while`, `do while`, integral and value-based `switch`, return, break,
@@ -139,11 +140,18 @@ destruction order explicit without introducing a process-global application
 singleton. Function and method parameters require supported type annotations;
 value-returning callables also require an explicit return type. Literal defaults
 are lowered into generated call sites rather than C++ declaration defaults.
+Callable values stored in `vexa::Value` are managed `FunctionObject` instances.
+Their actually referenced managed captures are copied into traceable
+`StoredValue` edges owned by the function object, while the C++ lambda keeps
+non-rooting handles. Consequently record/array/object/closure cycles remain alive
+while reachable and become collectible together; unrelated lexical values are
+not retained merely because they were in scope when the closure was created.
 Synchronous instance getters written with either `get name()` or the expression
 shorthand `name: Type => expression` are emitted as ordinary native methods and
 property reads call them automatically. Synchronous `set name(value)` accessors
 use an overloaded native method and preserve direct, compound, prefix, and postfix
-assignment results. Extension and generic callables remain unsupported.
+assignment results. Generic functions, classes, methods, interfaces, and
+extension methods emit as C++ templates using analyzer-resolved types.
 
 Both JavaScript and C++ emission consume the analyzer's resolved implicit-receiver
 identifier sets. The analyzer decides whether an unqualified identifier means a
@@ -160,9 +168,10 @@ properties implemented by primary-constructor fields, regular class fields, or
 computed class getters receive virtual getter bridges; mutable field-backed
 properties also receive setter bridges. Getter/setter accessor pairs implement
 mutable interface properties through the same bridges. Direct, compound, prefix,
-and postfix writes preserve single receiver evaluation. Generic, optional, and
-multiple-inheritance interfaces remain unsupported by native emission and are
-rejected explicitly.
+and postfix writes preserve single receiver evaluation. Generic, optional-member,
+and multiple-inheritance interfaces are supported. Missing optional properties
+read as `undefined`; invoking a missing optional method raises a native runtime
+error, as calling an undefined JavaScript member would.
 
 Numeric enums emit a type namespace containing `std::int32_t` constants. Automatic
 members refer to the previous constant, while explicit arithmetic, shift, and
@@ -182,7 +191,8 @@ an async callable is flattened.
 Source-level `Promise` construction does not create a parallel runtime object or
 scheduler. The C++ emitter lowers its executor to `Task<T>::create`; the executor
 runs immediately, while its `resolve` and `reject` handles retain shared settlement
-state and may safely be passed to `setTimeout`. An unparameterized `Promise` uses
+state and may safely be passed to `setTimeout`. Timers accept heterogeneous
+callback arguments and async anonymous callbacks. An unparameterized `Promise` uses
 dynamic `vexa::Value`, so calling `resolve()` settles it with `undefined` and
 `resolve(value)` stores the supplied value. Repeated resolve/reject attempts are
 ignored after the first settlement, and awaiting a rejection rethrows it.
@@ -204,8 +214,8 @@ that analyzed type to its native representation.
 
 The generated entrypoint drains the event loop before destroying the runtime and
 Oilpan heap. A live interval therefore keeps the process alive until it is cleared,
-matching the usual timer lifecycle. Timer callbacks currently support synchronous,
-zero-argument functions and arrows. Top-level arrows capture entrypoint locals by
+matching the usual timer lifecycle. Timer callbacks support async or synchronous
+functions and arrows with source callback arguments. Top-level arrows capture entrypoint locals by
 reference; arrows created inside a callable capture ordinary values by value and
 root captured generated class objects with `cppgc::Persistent`.
 
@@ -223,7 +233,8 @@ overrides the pending completion, matching the source-language ordering even for
 nested cleanup. Callable and loop boundaries convert internal completion signals
 back into native control flow; GC pointer return values remain rooted while cleanup
 runs. The shared lowering means `defer` uses exactly the same path. Labeled break
-and continue remain unsupported by native emission.
+and continue use labeled completion signals, so they cross nested loops and
+`finally` cleanup before being consumed by the selected loop.
 
 Reusable `...` and `..<` expressions materialize a typed native vector, so they
 can be stored and traversed more than once; direct range `for` loops keep their
@@ -251,12 +262,11 @@ single receiver/key evaluation. Record fields trace managed strings and nested
 records with Oilpan `Member` edges, while values held by generated C++ stack code
 remain `Persistent` roots.
 
-Structurally compatible records can cross property-only interface boundaries.
+Structurally compatible records can cross interface boundaries.
 The emitter creates a small Oilpan-managed adapter for each such interface, with
 virtual property access bridged back to the record. This applies both to typed
-variable initializers and call arguments. Interfaces containing callable methods
-still require a generated class implementation because record-stored functions
-are not yet part of the dynamic value representation.
+variable initializers and call arguments. Callable fields and object-literal
+methods use the same dynamic callable representation.
 
 Class calls and explicit `new Class(...)` use one generated construction path, so
 runtime injection, named arguments, defaults, and Oilpan allocation cannot drift.
@@ -280,13 +290,15 @@ Async and sync callables lower to C++20 task coroutines. They execute immediatel
 through their first pending `await`, suspend without blocking the event loop, and
 resume as a microtask when the awaited task settles. Task continuations preserve
 Oilpan pointer results through `Persistent` storage. `Promise.resolve`,
-`Promise.reject`, `then`, `catch`, `finally`, and `Promise.all` share this task
+`Promise.reject`, `then`, `catch`, `finally`, `Promise.all`, `Promise.race`,
+`Promise.allSettled`, and `Promise.any` share this task
 state; callbacks returning another task are flattened. Top-level `await` still
 drives the event loop synchronously through the generated entrypoint's `.get()`.
 
 Native collection helpers include array `push`/`pop`/`shift`/`unshift`,
-`includes`, `indexOf`, `join`, `reverse`, `slice`, `concat`, `map`, `filter`, and
-`reduce`, plus `forEach`, `some`, `every`, `findIndex`, and `sort`. String values
+`includes`, `indexOf`, `lastIndexOf`, `at`, `join`, `reverse`, `slice`, `splice`,
+`concat`, `fill`, `copyWithin`, `map`, `flat`, `flatMap`, `filter`, and `reduce`,
+plus `forEach`, `some`, `every`, `find`, `findIndex`, and `sort`. String values
 support casing and trimming plus `includes`, `startsWith`,
 `endsWith`, `charAt`, `substring`, `slice`, and `split`. `Object.keys` and
 `Object.values` enumerate managed records. These calls retain their analyzed
@@ -316,15 +328,124 @@ Native builds follow transitive local `.vx`, `.ts`, and `.tsx` imports through
 the same resolver and project import mappings used by JavaScript module graphs.
 Dependencies are analyzed and emitted once in dependency order into one C++
 translation unit, so top-level initialization happens before the importing
-module. Named imports and side-effect imports are supported. Default, namespace,
-and aliased imports are diagnosed until native module-local symbol namespaces are
-available. Native emission still cannot be combined with `--bundle` or
-project-directory builds.
+module. Per-module native symbol identity prevents private-name collisions.
+Named, aliased, default, namespace, re-export, and side-effect imports are
+supported, as are configured project-directory entrypoints and output folders.
 
 Generated classes support concrete and abstract single inheritance. Non-final
 bases expose virtual trace and method dispatch, derived classes delegate tracing
 to their base, abstract methods become pure virtual methods, overrides use C++
 virtual dispatch, and `super.member` calls use qualified base calls. A class can
 also implement multiple emitted interfaces, including property bridges for each.
-Derived native classes currently require their generated base class to have a
-default constructor.
+TypeScript-style constructors and VexaScript primary constructors share the same
+Oilpan allocation path. Derived constructors forward analyzer-ordered arguments
+through `super(...)`, including hidden runtime propagation, so a generated base
+class no longer needs a default constructor. Constructor parameter properties
+are initialized after the base and traced when they contain managed values.
+
+## Native standard library inventory
+
+The native surface is an audited subset of `compiler/runtime/es2025.d.ts`:
+
+- `ArrayObject<T>` owns array identity, tracing, indexed mutation, iterators, and
+  the common search, copy, and higher-order methods listed above.
+- `Map`, `Set`, `WeakMap`, and `WeakSet` use managed storage. Weak collection keys
+  use Oilpan weak edges; `Map` and `Set` preserve insertion order and SameValueZero
+  lookup behavior.
+- `JSON.parse` supports objects, arrays, primitives, escapes, UTF-16 surrogate
+  pairs, and deterministic insertion-order records. `JSON.stringify` supports
+  dynamic native value graphs and rejects cycles.
+- `Date` supports current time, numeric and ISO date-only construction,
+  `Date.now`, `Date.parse`, UTC getters, numeric comparison, ISO formatting, and
+  JSON formatting.
+- `ArrayBuffer`, `Uint8Array`, and `DataView` share one backing buffer. Integer,
+  float32, and float64 DataView reads and writes honor endianness.
+- Dependency-free `BigInt` supports signed decimal plus `0x`, `0o`, and `0b`
+  string input, arithmetic, power, bitwise operations, and shifts.
+
+APIs outside this inventory are not guessed from a member name. The emitter
+produces a targeted diagnostic for unsupported constructors, methods, argument
+shapes, open generic types, non-native package dependencies, and unrepresentable
+dynamic conversions.
+
+## Async I/O and shutdown
+
+Timers, promise continuations, async generators, and native I/O all resume via
+the runtime's single microtask path. `readTextFile(path)` is the first platform
+adapter: file bytes are read on a background standard-library task, while
+settlement and managed-string allocation occur on the runtime thread. The event
+loop polls pending I/O without allowing a distant timer to starve it. Runtime
+shutdown cancels timers and discards queued callbacks and I/O pollers before
+destroying the Oilpan heap, so no callback resumes against a destroyed runtime.
+
+Promise resolution recursively assimilates nested native tasks. Rejections keep
+arbitrary `vexa::Value` reasons through continuations and combinators; ordinary
+C++ failures become managed error messages at the runtime boundary.
+
+## Packages and native bindings
+
+Native module resolution reuses the normal project resolver and accepts packages
+whose resolved entry and transitive dependencies are compilable `.vx`, `.ts`, or
+`.tsx` source within the supported native surface. A package that resolves only
+to JavaScript is rejected explicitly because JavaScript binaries cannot be linked
+into the C++ translation unit.
+
+Native-only libraries should currently ship a VexaScript/TypeScript declaration
+and source facade that calls supported runtime primitives; there is not yet a
+stable user-defined C ABI annotation. This source-package contract keeps package
+identity, aliases, defaults, namespace imports, re-exports, and project mappings
+on the shared resolver instead of introducing a native-only package map. The
+published package includes `native/runtime.cpp`, `native/bigint.h`, and the
+vendored Oilpan archive required by both `cpp` and `executable`.
+
+## Diagnostics and sanitizer mode
+
+Generated translation units emit `#line` directives and update the runtime's
+current VexaScript source location before source statements. C++ compiler
+diagnostics therefore name the originating `.vx` file, including dependency
+modules, and an uncaught native exception reports `file:line:column` before the
+runtime exits with status 1.
+
+Set `VEXA_NATIVE_DEBUG=1` to compile generated programs with debug symbols. Set
+`VEXA_NATIVE_SANITIZERS=1`, or run `pnpm test:native:sanitized`, to build the
+native smoke with AddressSanitizer and UndefinedBehaviorSanitizer, debug symbols,
+and frame pointers. Set `VEXA_NATIVE_GC_STRESS=1` to force an Oilpan collection
+after each small batch of source-statement safe points. `pnpm test:native:stress`
+runs that mode across the complete native smoke, including dynamic cycles,
+closures, promises, tasks, and generators. Sanitizer and forced-collection runs
+remain separate because macOS ASan's instrumented stack is not compatible with
+Oilpan's forced conservative stack scan. The bundled executable workflow is
+tested on macOS and Linux; Windows remains an explicit future portability target.
+
+Run `pnpm benchmark:native` to measure native compile time, binary size, startup,
+array and bigint workloads, event-loop latency, and forced-GC execution. Recorded
+results live in `docs/native-benchmarks.md`; they are informational baselines
+rather than cross-machine pass/fail thresholds.
+
+## Explicit rejection inventory
+
+The backend currently rejects these shapes before producing C++:
+
+- generic or generator function expressions (named generic/generator declarations
+  are supported), non-literal parameter defaults, untyped native callable
+  parameters, and unsupported return annotations;
+- sparse arrays whose element representation is not dynamic, arrays with no
+  single representable element type, non-array/non-generator `for-of` sources,
+  and typed-array compound index assignments;
+- construction of runtime values outside the generated classes and the documented
+  collection, Date, and binary types; iterable collection constructors whose
+  source cannot be represented as a native array;
+- Date component/local-time constructors and setters, JSON replacer/reviver/space
+  arguments, and standard-library methods outside the inventory above;
+- ambient or string-valued enums, class delegation, static/abstract/computed/
+  optional class fields, async accessors, and async/operator methods;
+- computed, accessor, or generic interface method forms that cannot be represented
+  by the current virtual contract (ordinary optional methods and properties are
+  supported);
+- delete targets other than managed record/dynamic properties and dynamic casts
+  whose source value has no trace-safe native representation.
+
+Each case is owned by an explicit `CppEmitError` branch and reported as a source
+diagnostic. Analyzer-selected calls, implicit `this`, operators, extension
+properties, generic arguments, and assignability are consumed from semantic maps
+rather than re-decided by these rejection checks.

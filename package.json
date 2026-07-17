@@ -15,9 +15,13 @@
   ],
   "scripts": {
     "clean": "tsx scripts/clean.ts",
+    "prepack": "pnpm build",
     "cli": "pnpm --silent build && node dist/vexa.js",
     "build": "rm -rf dist && mkdir -p dist && node_modules/.bin/esbuild cli/cli-bin.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/vexa.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --external:source-map --external:esbuild --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && cp compiler/runtime/vexascript.d.vx dist/vexascript.d.vx && chmod +x dist/vexa.js",
     "test": "tsc --noEmit && node --import tsx --test --test-reporter spec",
+    "test:native:sanitized": "VEXA_NATIVE_SANITIZERS=1 node --import tsx --test --test-reporter spec cli/nativeSmoke.test.ts",
+    "test:native:stress": "VEXA_NATIVE_GC_STRESS=1 node --import tsx --test --test-reporter spec cli/nativeSmoke.test.ts",
+    "benchmark:native": "node --import tsx scripts/nativeBenchmark.ts",
     "coverage": "tsx --test --experimental-test-coverage",
     "code": "pnpm build && code --extensionDevelopmentPath=$(pwd)/plugins/vscode",
     "code:install": "pnpm --dir plugins/vscode install",

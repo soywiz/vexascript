@@ -78,6 +78,7 @@ import type {
   AnalysisSymbol,
   BoundAnalysis,
   CheckedAnalysis,
+  ExtensionPropertyResolution,
   FlowContext,
   IdentifierResolution,
   JsxAttributeResolution,
@@ -154,6 +155,7 @@ type EnumResolvedValue =
 
 type ExtensionPropertyInfo = {
   type: AnalysisType;
+  declaration: VarStatement;
   receiverTypeArguments?: Identifier[];
   typeParameterNames: string[];
 };
@@ -163,6 +165,7 @@ export class TypeChecker {
   private readonly identifierResolutions: IdentifierResolution[] = [];
   private readonly jsxAttributeResolutions: JsxAttributeResolution[] = [];
   private readonly operatorResolutions: OperatorResolution[] = [];
+  private readonly extensionPropertyResolutions: Map<MemberExpression, ExtensionPropertyResolution> = new Map();
   private readonly selectedCallResolutions: SelectedCallResolution[] = [];
   private readonly assertionCallEffects: WeakMap<CallExpression, { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> }> = new WeakMap();
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
@@ -453,6 +456,7 @@ export class TypeChecker {
       identifierResolutions: [...this.identifierResolutions],
       jsxAttributeResolutions: [...this.jsxAttributeResolutions],
       operatorResolutions: [...this.operatorResolutions],
+      extensionPropertyResolutions: [...this.extensionPropertyResolutions.values()],
       expressionTypes: this.expressionTypes,
       selectedCallResolutions: [...this.selectedCallResolutions],
       autoAwaitExpressions: this.autoAwaitExpressions,
@@ -1085,6 +1089,7 @@ export class TypeChecker {
         }
         const propertyType = explicitType ?? initializerType;
         this.setExtensionProperty(
+          statement,
           receiverType,
           statement.receiverTypeArguments,
           bindingIdentifiers(statement.name)[0]!.name,
@@ -2573,11 +2578,10 @@ export class TypeChecker {
           const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>
             this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
           );
-          this.validateNamedTypeArgumentConstraints(
-            calledClass.name.name,
-            explicitTypeArguments,
-            call.callee,
-            scope
+          this.validateExplicitTypeArgumentArity(
+            calledClass.typeParameters?.length ?? 0,
+            explicitTypeArguments.length,
+            call.callee
           );
           result = this.inferConstructedType(
             call,
@@ -2803,11 +2807,10 @@ export class TypeChecker {
 
         const classStatement = this.classStatementForNewExpression(newExpression, calleeType);
         if (classStatement) {
-          this.validateNamedTypeArgumentConstraints(
-            classStatement.name.name,
-            explicitTypeArguments,
-            newExpression.callee,
-            scope
+          this.validateExplicitTypeArgumentArity(
+            classStatement.typeParameters?.length ?? 0,
+            explicitTypeArguments.length,
+            newExpression.callee
           );
           const constructedType = this.inferConstructedType(
             newExpression,
@@ -2985,6 +2988,18 @@ export class TypeChecker {
           result = builtinType("int");
           break;
         }
+        if ((unary.operator === "+" || unary.operator === "-") && isNumberType(argumentType)) {
+          result = builtinType("number");
+          break;
+        }
+        if (unary.operator === "-" && isBigIntType(argumentType)) {
+          result = builtinType("bigint");
+          break;
+        }
+        if (unary.operator === "-" && isLongType(argumentType)) {
+          result = builtinType("long");
+          break;
+        }
         if (unary.operator === "+" || unary.operator === "-") {
           const overload = this.resolveUnaryOperatorOverload(unary.operator, argumentType, scope);
           if (overload) {
@@ -3018,7 +3033,12 @@ export class TypeChecker {
         }
         const readonlyTarget = this.validateReadonlyAssignmentTarget(updateExpr.argument, scope);
         const updateOperandType = this.visitExpression(updateExpr.argument, scope);
-        if (!readonlyTarget && !isUnknownType(updateOperandType) && !isNumericFamilyType(updateOperandType)) {
+        if (
+          !readonlyTarget &&
+          !isUnknownType(updateOperandType) &&
+          !(updateOperandType.kind === "builtin" && updateOperandType.name === "any") &&
+          !isNumericFamilyType(updateOperandType)
+        ) {
           this.issues.push({
             message: `Operator '${updateExpr.operator}' cannot be applied to type '${typeToString(updateOperandType)}'`,
             node: updateExpr.argument,
@@ -3455,6 +3475,12 @@ export class TypeChecker {
     if (inferredType.kind !== "unknown") {
       return false;
     }
+    if (
+      (leftType.kind === "builtin" && leftType.name === "any") ||
+      (rightType.kind === "builtin" && rightType.name === "any")
+    ) {
+      return false;
+    }
     if (leftType.kind === "unknown" && isPrimitiveLikeOperatorType(rightType)) {
       return false;
     }
@@ -3500,12 +3526,15 @@ export class TypeChecker {
 
   /**
    * Native ordering category of a type. Numbers (the whole numeric family plus
-   * int-backed enums) and strings are the only built-ins that support
+   * int-backed enums), strings, and Date timestamps support
    * `< > <= >= <=>` without an operator overload; both sides must share the
    * same category. Returns null for anything else.
    */
-  private nativeOrderingCategory(type: AnalysisType): "numeric" | "string" | null {
+  private nativeOrderingCategory(type: AnalysisType): "numeric" | "string" | "date" | null {
     const expanded = this.expandTypeAliases(type);
+    if (expanded.kind === "named" && expanded.name === "Date") {
+      return "date";
+    }
     if (isStringLikeType(expanded)) {
       return "string";
     }
@@ -3809,6 +3838,12 @@ export class TypeChecker {
       operator === "|" ||
       operator === "^"
     ) {
+      if (
+        (leftType.kind === "builtin" && leftType.name === "any") ||
+        (rightType.kind === "builtin" && rightType.name === "any")
+      ) {
+        return builtinType("any");
+      }
       if (this.isIntEnumLikeType(leftType) && this.isIntEnumLikeType(rightType)) {
         return builtinType("int");
       }
@@ -4089,7 +4124,10 @@ export class TypeChecker {
       if (!namedMembers) {
         return false;
       }
-      return this.objectPropertiesAreAssignable(sourceType.properties, namedMembers);
+      return this.objectPropertiesAreAssignable(
+        sourceType.properties,
+        this.withOptionalInterfaceMembers(targetType, namedMembers)
+      );
     }
 
     if (sourceType.kind === "array" && targetType.kind === "named") {
@@ -4402,6 +4440,43 @@ export class TypeChecker {
       }
     }
     return true;
+  }
+
+  private optionalInterfaceMemberNames(
+    type: AnalysisType & { kind: "named" },
+    visited = new Set<string>()
+  ): Set<string> {
+    const result = new Set<string>();
+    if (visited.has(type.name)) return result;
+    visited.add(type.name);
+    const statement = this.interfaceStatementsByName.get(type.name);
+    if (!statement) return result;
+    for (const member of statement.members) {
+      if (member.optional === true) result.add(member.name.name);
+    }
+    const substitutions = this.typeParameterSubstitutions(statement.typeParameters ?? [], type);
+    for (const parent of statement.extendsTypes ?? []) {
+      const resolved = this.typeFromTypeNameLooseWithSubstitutions(parent.name, substitutions);
+      if (resolved.kind !== "named") continue;
+      for (const name of this.optionalInterfaceMemberNames(resolved, visited)) result.add(name);
+    }
+    return result;
+  }
+
+  private withOptionalInterfaceMembers(
+    type: AnalysisType & { kind: "named" },
+    members: ReadonlyMap<string, AnalysisType>
+  ): ReadonlyMap<string, AnalysisType> {
+    const optionalNames = this.optionalInterfaceMemberNames(type);
+    if (optionalNames.size === 0) return members;
+    const result = new Map(members);
+    for (const name of optionalNames) {
+      const memberType = result.get(name);
+      if (memberType && !propertyTypeAllowsUndefined(memberType)) {
+        result.set(name, unionType([memberType, builtinType("undefined")]));
+      }
+    }
+    return result;
   }
 
   private isPropertyAssignableToTargetType(sourceType: AnalysisType, targetType: AnalysisType): boolean {
@@ -5029,8 +5104,11 @@ export class TypeChecker {
     const typeParameterSet = new Set(typeParameters);
     for (let index = 0; index < calleeType.parameters.length; index += 1) {
       const parameter = calleeType.parameters[index]!;
+      const restArguments = parameter.rest ? argumentTypes.slice(index) : [];
       const argumentType = parameter.rest
-        ? tupleType(argumentTypes.slice(index))
+        ? restArguments.length === 1 && restArguments[0]?.kind === "tuple"
+          ? restArguments[0]
+          : tupleType(restArguments)
         : argumentTypes[index];
       if (!argumentType) {
         continue;
@@ -5324,10 +5402,30 @@ export class TypeChecker {
     }
 
     if (parameterType.kind === "function" && argumentType.kind === "function") {
-      for (let index = 0; index < parameterType.parameters.length && index < argumentType.parameters.length; index += 1) {
+      const restParameter = parameterType.parameters.at(-1)?.rest === true
+        ? parameterType.parameters.at(-1)
+        : undefined;
+      const fixedParameters = restParameter
+        ? parameterType.parameters.slice(0, -1)
+        : parameterType.parameters;
+      for (let index = 0; index < fixedParameters.length && index < argumentType.parameters.length; index += 1) {
         this.inferTypeParameterSubstitutions(
-          parameterType.parameters[index]!.type,
+          fixedParameters[index]!.type,
           argumentType.parameters[index]!.type,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+      if (restParameter) {
+        const argumentRestParameter = argumentType.parameters.at(-1)?.rest === true
+          ? argumentType.parameters.at(-1)
+          : undefined;
+        this.inferTypeParameterSubstitutions(
+          restParameter.type,
+          argumentRestParameter && argumentType.parameters.length - 1 === fixedParameters.length
+            ? argumentRestParameter.type
+            : tupleType(argumentType.parameters.slice(fixedParameters.length).map((parameter) => parameter.type)),
           typeParameters,
           explicitlyProvidedTypeParameters,
           substitutions
@@ -5938,14 +6036,29 @@ export class TypeChecker {
       return true;
     }
 
-    const argumentRequiredCount = argumentType.parameters.filter((parameter) => !parameter.optional).length;
-    if (argumentRequiredCount > expectedType.parameters.length) {
+    const expandTupleRestParameters = (parameters: typeof argumentType.parameters): typeof argumentType.parameters => {
+      const restParameter = parameters.at(-1);
+      if (restParameter?.rest !== true || restParameter.type.kind !== "tuple") {
+        return parameters;
+      }
+      return [
+        ...parameters.slice(0, -1),
+        ...restParameter.type.elements.map((type, index) => ({
+          name: `${restParameter.name}${index + 1}`,
+          type
+        }))
+      ];
+    };
+    const argumentParameters = expandTupleRestParameters(argumentType.parameters);
+    const expectedParameters = expandTupleRestParameters(expectedType.parameters);
+    const argumentRequiredCount = argumentParameters.filter((parameter) => !parameter.optional).length;
+    if (argumentRequiredCount > expectedParameters.length) {
       return false;
     }
 
-    for (let index = 0; index < argumentType.parameters.length; index += 1) {
-      const argumentParameter = argumentType.parameters[index];
-      const expectedParameter = expectedType.parameters[index];
+    for (let index = 0; index < argumentParameters.length; index += 1) {
+      const argumentParameter = argumentParameters[index];
+      const expectedParameter = expectedParameters[index];
       if (!argumentParameter || !expectedParameter) {
         return false;
       }
@@ -5957,6 +6070,9 @@ export class TypeChecker {
       }
     }
 
+    if (expectedType.returnType.kind === "builtin" && expectedType.returnType.name === "void") {
+      return true;
+    }
     return this.isTypeAssignable(argumentType.returnType, expectedType.returnType);
   }
 
@@ -6451,6 +6567,7 @@ export class TypeChecker {
     this.validateCallArguments(newExpression, finalConstructorType, argumentTypes);
 
     const typeArguments = typeParameterNames.map((typeParameterName) => substitutions.get(typeParameterName) ?? namedType(typeParameterName));
+    this.validateTypeParameterConstraints(typeParameters, typeArguments, newExpression.callee, scope);
     return namedType(classStatement.name.name, typeArguments);
   }
 
@@ -9581,6 +9698,7 @@ export class TypeChecker {
         const propertyName = bindingIdentifiers(statement.name)[0]?.name;
         if (!propertyName) return;
         this.setExtensionProperty(
+          statement,
           receiverType,
           statement.receiverTypeArguments,
           propertyName,
@@ -9592,6 +9710,7 @@ export class TypeChecker {
   }
 
   private setExtensionProperty(
+    declaration: VarStatement,
     receiverType: Identifier,
     receiverTypeArguments: Identifier[] | undefined,
     propertyName: string,
@@ -9601,6 +9720,7 @@ export class TypeChecker {
     const properties = this.extensionPropertiesByReceiver.get(receiverType.name) ?? new Map<string, ExtensionPropertyInfo>();
     const info: ExtensionPropertyInfo = {
       type: propertyType,
+      declaration,
       typeParameterNames
     };
     if (receiverTypeArguments && receiverTypeArguments.length > 0) {
@@ -9674,11 +9794,22 @@ export class TypeChecker {
     }
   }
 
-  private resolveExtensionPropertyType(objectType: AnalysisType, propertyName: string): AnalysisType | null {
+  private resolveExtensionPropertyType(
+    objectType: AnalysisType,
+    propertyName: string,
+    expression?: MemberExpression
+  ): AnalysisType | null {
     const receiverNames = this.extensionReceiverNames(objectType);
     for (const receiverName of receiverNames) {
       const property = this.extensionPropertiesByReceiver.get(receiverName)?.get(propertyName);
       if (property) {
+        if (expression) {
+          this.extensionPropertyResolutions.set(expression, {
+            expression,
+            declaration: property.declaration,
+            receiverTypeArguments: this.extensionReceiverTypeArguments(objectType, receiverName)
+          });
+        }
         return this.specializeExtensionPropertyType(objectType, receiverName, property);
       }
     }
@@ -10195,6 +10326,10 @@ export class TypeChecker {
     }
     const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
     const importedExtensionType = (): AnalysisType | null => {
+      const propertyType = this.resolveExtensionPropertyType(resolvedObjectType, memberName, member);
+      if (propertyType) {
+        return propertyType;
+      }
       const extensionType = this.resolveExtensionMemberType(resolvedObjectType, memberName);
       if (extensionType) {
         return extensionType;
@@ -10957,7 +11092,8 @@ export class TypeChecker {
     interfaceStatement: InterfaceStatement,
     substitutions: Map<string, AnalysisType>,
     visited: Set<string>,
-    preferExistingMembers: boolean
+    preferExistingMembers: boolean,
+    contextualThisTypeName: string
   ): void {
     for (const interfaceMember of interfaceStatement.members) {
       if (interfaceMember.kind === "InterfaceMethodMember" && interfaceMember.computed) {
@@ -10975,7 +11111,7 @@ export class TypeChecker {
         continue;
       }
       if (interfaceMember.accessorKind === "get") {
-        const memberType = this.typeFromAnnotationLoose(interfaceMember.returnType, interfaceStatement.name.name) ?? UNKNOWN_TYPE;
+        const memberType = this.typeFromAnnotationLoose(interfaceMember.returnType, contextualThisTypeName) ?? UNKNOWN_TYPE;
         if (!preferExistingMembers || !members.has(interfaceMember.name.name)) {
           this.addResolvedMemberType(
             members,
@@ -11014,9 +11150,9 @@ export class TypeChecker {
             rest: parameter.rest === true
           })),
           this.typeFromAnnotationLooseWithTypeParameters(
-            interfaceMember.returnType,
-            availableTypeParameterNames,
-            interfaceStatement.name.name
+              interfaceMember.returnType,
+              availableTypeParameterNames,
+              contextualThisTypeName
           ) ?? builtinType("void"),
           methodTypeParameterNames,
           this.typeParameterConstraintMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames),
@@ -11262,7 +11398,8 @@ export class TypeChecker {
           mergedInterfaceStatement,
           substitutions,
           visited,
-          true
+          true,
+          typeToString(type)
         );
       }
 
@@ -11297,7 +11434,7 @@ export class TypeChecker {
       return null;
     }
     const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], type);
-    this.collectInterfaceMembersInto(members, interfaceStatement, substitutions, visited, false);
+    this.collectInterfaceMembersInto(members, interfaceStatement, substitutions, visited, false, typeToString(type));
     return members;
   }
 
@@ -11357,6 +11494,12 @@ export class TypeChecker {
       for (const [memberName, expectedType] of interfaceMembers.entries()) {
         const classMemberType = classMembers.get(memberName);
         if (!classMemberType) {
+          if (
+            propertyTypeAllowsUndefined(expectedType) ||
+            this.optionalInterfaceMemberNames(resolvedImplementedType).has(memberName)
+          ) {
+            continue;
+          }
           this.issues.push({
             message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is missing`,
             node: classStatement.name,

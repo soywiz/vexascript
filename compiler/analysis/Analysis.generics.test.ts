@@ -968,6 +968,24 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("Type argument 'User' does not satisfy"))).toBe(false);
   });
 
+  it("validates inferred generic class constraints for constructor calls", () => {
+    const source = dedent`
+      class Entity(val id: int)
+      class Box<T extends Entity>(val value: T)
+      val valid = Box(Entity(1))
+      val invalid = Box("nope")
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain(
+      "Type argument 'string' does not satisfy constraint 'Entity' for type parameter 'T'"
+    );
+    expect(messages.some((message) => message.includes("Type argument 'Entity' does not satisfy"))).toBe(false);
+  });
+
   it("accepts DataView constructor constraints for ArrayBuffer values", () => {
     const source = dedent`
       fun demo() {
@@ -1861,6 +1879,28 @@ describe("Analysis", () => {
     expect(symbols.get("optionalElement")?.valueType).toBe("int?");
     expect(messages).toContain("Argument 2 of type 'string' is not assignable to parameter 'values' of type 'int'");
     expect(messages).toContain("Type 'int?' is not assignable to type 'int'");
+  });
+
+  it("infers heterogeneous variadic tuples and accepts value-returning void callbacks", () => {
+    const source = dedent`
+      declare fun schedule<TArgs extends any[]>(
+        callback: (...args: TArgs) => void,
+        delay?: number,
+        ...args: TArgs
+      ): int
+      fun announce(label: string, value: int) {
+        console.log(label, value)
+      }
+      schedule(announce, 0, "named", 3)
+      schedule(async (value: int) => {
+        await Promise.resolve(value)
+      }, 0, 4)
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
   it("reports member access on nullable receivers unless ?. or ! is used", () => {

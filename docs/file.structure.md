@@ -119,6 +119,7 @@ This section is the fast onboarding map for agents and contributors.
   - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `cli/cli-bin.ts`
   - CLI entrypoint and command implementation, including direct `cpp` source emission, `executable` native linking (`native` remains a compatibility alias), single-file transpilation, and directory-based static site builds that materialize the `serve` bundle and mapped assets into `dist`/`outDir`: `cli/cli.ts`
   - Node-only native build adapter that plans `<input>.vx.build/main.cpp` intermediates, extracts the vendored Oilpan archive into an OS temporary cache, configures its dedicated CMake cache with `g++`, builds `liboilpan_gc.a`, and links generated C++: `cli/nativeBuild.ts`
+  - Reproducible native production benchmark runner and its thin script entrypoint, covering compile time, binary size, startup, arrays, bigint, the event loop, and forced-GC execution: `cli/nativeBenchmark.ts`, `scripts/nativeBenchmark.ts`, baselines: `docs/native-benchmarks.md`
   - Node-only dependency installer helpers used by CLI bundle/run/serve flows: `cli/deps.ts`
   - Node-only child-process helper used by CLI dependency installation and sample test setup: `cli/io.ts`
   - Shared CLI build/runtime preparation helpers reused by `build`, `bundle`, `run`, and `serve`: `cli/cliShared.ts`
@@ -134,6 +135,7 @@ This section is the fast onboarding map for agents and contributors.
 - Native C++ support:
   - Oilpan runtime, including reference-semantic traced `ArrayObject<T>` storage, a dependency-free arbitrary-precision integer implementation, and the vendored standalone Oilpan source archive used by generated C++ builds: `native/runtime.cpp`, `native/bigint.h`, `native/oilpan-standalone-main.zip`
   - Native backend usage, requirements, supported surface, and module limitations: `docs/native.md`
+  - Informational native performance baselines and reproduction command: `docs/native-benchmarks.md`
 - Monaco editor support for the website embeds (project folder: `website/src/assets/monaco/`):
   - Browser-only virtual-workspace and persistence helpers (workspace tabs, folders, runtime declarations, `localStorage`): `website/src/assets/monaco/workspace.ts`
   - Monaco virtual file-system adapter that exposes workspace files through the compiler's async VFS interface: `website/src/assets/monaco/workspaceVfs.ts`

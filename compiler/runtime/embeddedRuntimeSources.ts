@@ -11636,5 +11636,8 @@ export const VEXA_SCRIPT_RUNTIME_DECLARATIONS = [
   "  name: string",
   "  value: T",
   "}",
+  "",
+  "/// Reads a UTF-8/text file asynchronously on the native C++ runtime.",
+  "declare fun readTextFile(path: string): Promise<string>",
   ""
 ].join("\n");

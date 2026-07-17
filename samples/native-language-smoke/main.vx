@@ -31,6 +31,13 @@ interface Greeter {
   fun greet(prefix: string): string
 }
 
+interface NativeTransformer {
+  val label: string
+  fun apply(value: int): int
+}
+
+fun runNativeTransformer(transformer: NativeTransformer, value: int): int => transformer.apply(value)
+
 class English(val name: string) : Greeter {
   override fun greet(prefix: string): string => prefix + " " + name
 }
@@ -49,6 +56,40 @@ class NumberBox(var value: int) {
 
 class Bag(val values: int[])
 
+class ConstructorBase {
+  constructor(public baseValue: int) {}
+}
+
+class ConstructorChild extends ConstructorBase {
+  constructor(public readonly ownValue: int) {
+    super(ownValue + 1)
+  }
+
+  fun total(): int => baseValue + ownValue
+}
+
+class NativeBox<T>(val value: T) {
+  fun get(): T => value
+  fun echo<U>(other: U): U => other
+}
+
+class NativeDefaultBox<T = bigint>(val value: T)
+
+fun nativeSingleton<T>(value: T): T[] => [value]
+
+fun nativeRecursiveFirst<T>(values: T[], index: int): T {
+  if (index <= 0) return values[0]
+  return nativeRecursiveFirst(values, index - 1)
+}
+
+async fun nativePromised<T>(value: T): Promise<T> {
+  return value
+}
+
+fun * nativeRepeated<T>(value: T): T {
+  yield value
+}
+
 class Animal {
   fun speak(): string => "base"
 }
@@ -66,6 +107,43 @@ fun render(meter: Meter): string {
 fun greet(greeter: Greeter, prefix: string): string => greeter.greet(prefix)
 
 fun add(value: int, delta: int = 1): int => value + delta
+
+fun nativeIdentity<T>(value: T): T => value
+
+fun <T> Array<T>.nativeFirstOr(fallback: T): T {
+  return length > 0 ? this[0] : fallback
+}
+
+fun <T> Array<T>.nativeFirstOrElse(fallback: T): T {
+  return nativeFirstOr(fallback)
+}
+
+val <T> Array<T>.nativeDoubledLength: number => length * 2
+
+class NativePoint(val x: int, val y: int)
+
+class NativeView(var x: int, var y: int)
+
+var NativeView.nativePoint: NativePoint {
+  get => NativePoint(x, y)
+  set {
+    x = newValue.x
+    y = newValue.y
+  }
+}
+
+interface NativeReadable<T> {
+  val value: T
+  fun read(): T
+}
+
+interface NativeLabeledReadable<T> extends NativeReadable<T> {
+  val label: string
+}
+
+class NativeReader<T>(val value: T, val label: string) implements NativeLabeledReadable<T> {
+  override fun read(): T => value
+}
 
 fun sumDown(value: int): int {
   if (value <= 0) return 0
@@ -106,6 +184,18 @@ fun loopControl(): int {
   return total
 }
 
+fun labeledControl(): int {
+  var total = 0
+  outer: for (i of 0 ..< 3) {
+    for (j of 0 ..< 3) {
+      if (j == 1) continue outer
+      if (i == 2) break outer
+      total += 1
+    }
+  }
+  return total
+}
+
 fun * sequence(limit: int): int {
   for (value of 0 ..< limit) yield value
   yield* [limit, limit + 1]
@@ -124,8 +214,72 @@ fun delay(ms: number) => Promise { resolve, reject ->
   setTimeout(resolve, ms)
 }
 
+fun timerMessage(label: string, value: int) {
+  console.log("timer arguments", label, value)
+}
+
 console.log("module", importedLabel(), importedDouble(6))
 console.log("functions", add(4), add(delta: 3, value: 4), sumDown(4))
+val nativeNumberBox = NativeBox(7)
+val nativeTextBox = NativeBox("boxed")
+console.log("generics", nativeIdentity(4), nativeIdentity("value"), nativeNumberBox.get(), nativeTextBox.get())
+val nestedNativeBox = nativeSingleton(NativeBox(13))[0]
+val defaultedNativeBox: NativeDefaultBox = NativeDefaultBox(14n)
+console.log("generic nested", nestedNativeBox.get(), defaultedNativeBox.value, nativeRecursiveFirst([15], 2), await nativePromised(16), nativeRepeated(17).next().value)
+val nativeReader: NativeLabeledReadable<int> = NativeReader(8, "count")
+console.log("generic interface", nativeReader.label, nativeReader.read())
+console.log("generic extension", [11, 12].nativeFirstOr(0), ["x"].nativeFirstOrElse("empty"))
+console.log("generic property", [1, 2].nativeDoubledLength, ["x"].nativeDoubledLength)
+val nativeView = NativeView(1, 2)
+nativeView.nativePoint = NativePoint(3, 4)
+console.log("extension property", nativeView.nativePoint.x, nativeView.x, nativeView.y)
+val dynamicShared = [1, 2]
+val dynamicArray: any = dynamicShared
+val dynamicRestored = dynamicArray as int[]
+dynamicRestored.push(3)
+console.log("dynamic array", dynamicShared, dynamicArray, dynamicRestored)
+val dynamicCounterSource = Counter(2, "dynamic", Leaf(0))
+val dynamicCounter: any = dynamicCounterSource
+val dynamicCounterRestored = dynamicCounter as Counter
+val dynamicMeter = dynamicCounter as Meter
+dynamicCounterRestored.value += 3
+dynamicMeter.value += 4
+console.log("dynamic object", dynamicCounterSource.value, dynamicCounterRestored.value, dynamicMeter.value, dynamicCounter)
+val dynamicOffset = 3
+val dynamicFunction: any = (value: int) => value + dynamicOffset
+val dynamicFunctions = {
+  apply: (value: int) => value * 2,
+  add(value: int): int { return value + 5 }
+}
+console.log("dynamic function", dynamicFunction(4), dynamicFunctions.apply(5), dynamicFunctions.add(6))
+val dynamicZero: any = 0
+val dynamicZeroText: any = "0"
+val dynamicNull: any = null
+val dynamicUndefined: any = undefined
+val dynamicZeroBig: any = 0n
+console.log("dynamic semantics", dynamicZero == dynamicZeroText, dynamicZero === dynamicZeroText, dynamicNull == dynamicUndefined, dynamicNull === dynamicUndefined, Boolean(dynamicZeroBig), typeof dynamicFunction)
+var dynamicArithmetic: any = 10
+val dynamicArithmeticValues: any[] = [5]
+val dynamicArithmeticRecord = { value: 6 as any }
+console.log("dynamic arithmetic", dynamicArithmetic - 3, dynamicArithmetic * 2, dynamicArithmetic / 4, dynamicArithmetic % 6, dynamicArithmetic ** 2, dynamicArithmetic & 3, dynamicArithmetic << 2, -dynamicArithmetic)
+dynamicArithmetic -= 3
+dynamicArithmetic++
+dynamicArithmeticValues[0] *= 3
+dynamicArithmeticRecord.value--
+console.log("dynamic updates", dynamicArithmetic, dynamicArithmeticValues[0], dynamicArithmeticRecord.value)
+val firstTransformer: NativeTransformer = { label: "double", apply: (value: int) => value * 2 }
+val secondTransformer: NativeTransformer = { label: "offset", apply(value: int): int { return value + 3 } }
+console.log("callable interface", firstTransformer.label, runNativeTransformer(firstTransformer, 4), secondTransformer.label, runNativeTransformer(secondTransformer, 4))
+val arrayApiValues = [1, 2, 3, 2]
+val arrayApiFound = arrayApiValues.find { value, index, array -> value == 2 && index < array.length }
+val arrayApiRemoved = arrayApiValues.splice(1, 2, 8, 9)
+arrayApiValues.fill(5, 1, 2).copyWithin(2, 0, 2)
+console.log("array api", arrayApiValues.at(-1), arrayApiValues.lastIndexOf(5), arrayApiFound, arrayApiRemoved, arrayApiValues)
+console.log("array flatten", [[1, 2], [3]].flat(), [1, 2].flatMap((value: int) => [value, value * 10]))
+var destructuredLoopTotal = 0
+for (val [left, right] of [[1, 2], [3, 4]]) destructuredLoopTotal += left + right
+for (val { value: int } of [{ value: 5 }, { value: 6 }]) destructuredLoopTotal += value
+console.log("loop destructuring", destructuredLoopTotal)
 
 val counter: Meter = Counter(1, "cpu", Leaf(9))
 console.log("interface", render(counter), counter.add(3))
@@ -141,6 +295,9 @@ val indexed = box[4]
 box[2] = 8
 console.log("operators", box.value, negative.value, less, indexed)
 console.log("inheritance", Dog().speak())
+val checkedDog = Dog()
+val dynamicDog: any = checkedDog
+console.log("type checks", checkedDog is Dog, checkedDog instanceof Animal, dynamicDog is Animal)
 
 val shared: Scores = [1, 2]
 val firstBag = Bag(shared)
@@ -156,6 +313,7 @@ val shifted = numbers.shift()
 val popped = numbers.pop()
 numbers.reverse()
 console.log("arrays", transformed.join(","), reduced, shifted, popped, numbers.join(","))
+console.log("constructor forwarding", new ConstructorChild(4).total())
 console.log("array-copy", numbers.slice(0, 2).join("|"), numbers.concat(8, 9).join("|"))
 console.log("array-string", [1, 2].toString())
 
@@ -182,6 +340,52 @@ val indexedEvery = callbackValues.every((value: int, index: number, array: int[]
 val indexedFound = callbackValues.findIndex((value: int, index: number, array: int[]) => value == array[index] && index == 2)
 val indexedTotal = callbackValues.reduce((sum: number, value: int, index: number, array: int[]) => sum + value + index + array.length, 0.0)
 console.log("array-callbacks", indexedMap.join("|"), indexedFilter.join("|"), indexedVisited, indexedSome, indexedEvery, indexedFound, indexedTotal)
+
+val nativeScores = new Map<string, int>([["a", 1], ["b", 2]])
+nativeScores.set("c", 3)
+nativeScores.delete("c")
+val nativeSeen = new Set<int>([1, 2, 2])
+nativeSeen.add(3)
+nativeSeen.delete(3)
+var nativeCollectionTotal = 0
+nativeScores.forEach((value: int) => { nativeCollectionTotal += value })
+nativeSeen.forEach((value: int) => { nativeCollectionTotal += value })
+nativeScores.keys()
+nativeScores.values()
+nativeScores.entries()
+nativeSeen.values()
+val removedNativeScore = nativeScores.delete("b")
+val removedNativeSeen = nativeSeen.delete(1)
+console.log("collections", nativeScores.get("a"), nativeScores.get("missing"), removedNativeScore, nativeScores.size, nativeSeen.has(2), removedNativeSeen, nativeSeen.size, nativeCollectionTotal)
+
+val nativeJson = JSON.stringify({ name: "Ada", values: [1, 2], active: true })
+val parsedNativeJson: any = JSON.parse(nativeJson)
+parsedNativeJson.values[1] += 3
+console.log("json", nativeJson, parsedNativeJson.name, parsedNativeJson.values[1])
+console.log("json unicode", JSON.parse("\"\\u0041\\ud83d\\ude00\""))
+
+val nativeWeakKey = Leaf(21)
+val nativeWeakMap = new WeakMap<Leaf, string>()
+val nativeWeakSet = new WeakSet<Leaf>()
+nativeWeakMap.set(nativeWeakKey, "stored")
+nativeWeakSet.add(nativeWeakKey)
+console.log("weak collections", nativeWeakMap.get(nativeWeakKey), nativeWeakMap.has(nativeWeakKey), nativeWeakSet.has(nativeWeakKey), nativeWeakMap.delete(nativeWeakKey), nativeWeakSet.delete(nativeWeakKey))
+
+val nativeEpoch = new Date(0)
+val nativeLater = new Date(1000)
+console.log("date", nativeEpoch.getTime(), nativeEpoch.getUTCFullYear(), nativeEpoch.getUTCMonth(), nativeEpoch.toISOString(), nativeEpoch < nativeLater, JSON.stringify(nativeEpoch))
+console.log("date parsing", new Date("2000-01-02").toISOString(), Date.parse("2000-01-02"))
+
+val nativeBuffer = new ArrayBuffer(4)
+val nativeBytes = new Uint8Array(nativeBuffer)
+val nativeDataView = new DataView(nativeBuffer)
+nativeBytes[0] = 1
+nativeDataView.setUint16(1, 515)
+val copiedNativeBytes = new Uint8Array([255, 256, -1])
+console.log("binary", nativeBuffer.byteLength, nativeBytes.length, nativeBytes.byteOffset, nativeBytes[0], nativeBytes[1], nativeBytes[2], nativeDataView.getUint16(1), copiedNativeBytes[0], copiedNativeBytes[1], copiedNativeBytes[2])
+val nativeFloatView = new DataView(new ArrayBuffer(8))
+nativeFloatView.setFloat64(0, 1.5, true)
+console.log("binary float", nativeFloatView.getFloat64(0, true))
 
 val mixed = [1, "two", true]
 mixed.push("three")
@@ -216,8 +420,10 @@ console.log("bigint-bits", huge > hugeDivisor, 2n ** 100n, -5n >> 1n, -5n & 3n, 
 console.log("bigint-signed", -17n / 5n, -17n % 5n, 17n / -5n, 17n % -5n, ~5n, -5n | 2n, -5n ^ 2n)
 val incrementedHuge = [1n, huge].map((value: bigint) => value + 1n)
 console.log("bigint-values", incrementedHuge.join("|"), [1n, "x"].join("|"), typeof huge, Boolean(0n), Number(42n))
+console.log("bigint-prefixes", BigInt("0xff"), BigInt("0b101"), BigInt("0o77"), BigInt(" 42 "))
 
 console.log("control", loopControl())
+console.log("labeled control", labeledControl())
 console.log("errors", guarded())
 
 val iterator = sequence(2)
@@ -231,10 +437,26 @@ val recovered = Promise.reject(Error("bad")).catch((reason: any) => 9)
 val all = await Promise.all([Promise.resolve(1), Promise.resolve(2)])
 val chained = await Promise.resolve(3).then((value: int) => value + 4)
 console.log("promises", await recovered, all[0], all[1], chained)
+val flattenedPromise = await Promise.resolve(Promise.resolve(11))
+val preservedRejection = await Promise.reject("why").catch((reason: any) => reason)
+console.log("promise assimilation", flattenedPromise, preservedRejection)
+val raced = await Promise.race([Promise.resolve(5), Promise.resolve(6)])
+val settled = await Promise.allSettled([Promise.resolve(7), Promise.reject(Error("settled rejection"))])
+val firstAny = await Promise.any([Promise.reject(Error("ignored")), Promise.resolve(8)])
+console.log("promise combinators", raced, settled.length, firstAny)
 console.log("async", await asyncValue(), await doubledAsync())
 
 val cancelledInterval = setInterval(() => console.log("unexpected interval"), 0)
 clearInterval(cancelledInterval)
 console.log("interval", "cancelled")
+setTimeout(timerMessage, 0, "named", 3)
+setTimeout(async (value: int) => {
+  val resolved = await Promise.resolve(value + 1)
+  console.log("async timer", resolved)
+}, 0, 4)
 await delay(0)
 console.log("timeout", "done")
+
+val [defaulted = 7, ...[nestedRest]] = [undefined, 8]
+val { missing = 3, ...objectRest } = { extra: 9 }
+console.log("destructuring defaults", defaulted, nestedRest, missing, objectRest.extra)

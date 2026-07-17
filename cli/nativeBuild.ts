@@ -102,15 +102,20 @@ export function nativeCompilerArguments(
   root: string,
   gcRoot: string,
   libraryPath: string,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  options: { sanitizers?: boolean; debug?: boolean; gcStress?: boolean } = {}
 ): string[] {
+  const instrumented = options.sanitizers === true;
   return [
     "-std=c++20",
-    "-O2",
+    instrumented ? "-O1" : "-O2",
+    ...(options.debug || instrumented ? ["-g"] : []),
+    ...(instrumented ? ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] : []),
     "-fno-rtti",
     "-DCPPGC_IS_STANDALONE=1",
     "-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO",
     "-DV8_LOGGING_LEVEL=0",
+    ...(options.gcStress ? ["-DVEXA_NATIVE_GC_STRESS=1"] : []),
     cppPath,
     `-I${root}`,
     `-I${gcRoot}`,
@@ -131,7 +136,11 @@ export async function compileNativeExecutable(
   const { gcRoot, libraryPath } = await ensureOilpanLibrary(root);
   await mkdir(dirname(executablePath), { recursive: true });
 
-  const args = nativeCompilerArguments(cppPath, executablePath, root, gcRoot, libraryPath);
+  const args = nativeCompilerArguments(cppPath, executablePath, root, gcRoot, libraryPath, process.platform, {
+    sanitizers: process.env["VEXA_NATIVE_SANITIZERS"] === "1",
+    debug: process.env["VEXA_NATIVE_DEBUG"] === "1",
+    gcStress: process.env["VEXA_NATIVE_GC_STRESS"] === "1",
+  });
   await runCommand("g++", args);
   return { executablePath, oilpanLibraryPath: libraryPath };
 }

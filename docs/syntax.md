@@ -1519,6 +1519,22 @@ for (value of iterable) {
 }
 ```
 
+Native C++ emission also supports declaration-based array and object
+destructuring in `for-of` loops:
+
+```vexa
+for (val [key, value] of entries) consume(key, value)
+for (val { name: string } of records) console.log(name)
+```
+
+Native C++ emission also supports declaration-based array and object
+destructuring in `for-of` loops:
+
+```vexa
+for (val [key, value] of entries) consume(key, value)
+for (val { name: string } of records) console.log(name)
+```
+
 Range iteration syntax is supported and transpiles to a classic index loop:
 
 ```vexa
@@ -1608,8 +1624,8 @@ try {
 The native C++ backend preserves abrupt completion through `finally`: cleanup runs
 before a pending `return`, `throw`, `break`, or `continue`, while a new abrupt
 completion inside `finally` replaces the pending one. This also applies to nested
-`finally` blocks and to `defer`. Native labeled `break` and `continue` are not yet
-supported.
+`finally` blocks and to `defer`. Native labeled `break` and `continue` use the
+same completion propagation, including jumps across nested loops and cleanup.
 
 ### Defer
 
@@ -1770,32 +1786,38 @@ try {
 The native C++ backend represents object literals as managed records. It supports
 shorthand and computed keys, nested objects, ordered object spread, dot and
 bracket access, direct/compound/update writes, optional property reads, `in`, and
-`delete`. Property-only interfaces accept structurally compatible record values
-through generated native adapters; interfaces with methods currently require a
-class implementation in native builds.
+`delete`. Structurally compatible record values use generated native adapters for
+both properties and methods; callable fields and object-literal methods share the
+dynamic callable representation.
 
 Native C++ classes support abstract methods, concrete single inheritance,
 virtual overrides, qualified `super.member` calls, access sections, and multiple
-implemented interfaces. A generated base class used by a derived class currently
-needs a default constructor; forwarding source constructor arguments to a base
-constructor is not yet represented in the class AST.
+implemented interfaces. TypeScript-style derived constructors forward arguments
+to non-default generated base constructors through `super(...)`; constructor
+parameter properties initialize after the base and participate in native GC
+tracing. Optional interface properties and methods may be omitted by concrete or
+structural implementations.
 
 Native CLI builds resolve transitive local modules and project import mappings
-into one dependency-ordered translation unit. Named imports without aliases and
-side-effect imports are supported; default, namespace, and aliased imports are
-currently rejected with an explicit native diagnostic.
+into one dependency-ordered translation unit. Named, aliased, default, namespace,
+re-export, and side-effect imports are supported with module-local native symbol
+identity.
 
 Native async and sync functions are continuation-based C++20 coroutines: source
 code runs synchronously until the first pending `await`, then resumes through the
 runtime microtask queue. The native Promise surface includes executor creation,
-`resolve`, `reject`, `then`, `catch`, `finally`, and `all`, including flattening a
-task returned by a continuation.
+`resolve`, `reject`, `then`, `catch`, `finally`, `all`, `race`, `allSettled`, and
+`any`, including flattening a task returned by a continuation. Timers accept
+heterogeneous callback arguments and async anonymous callbacks.
+`readTextFile(path)` returns a `Promise<string>` whose native implementation reads
+off-thread and settles through that same microtask queue.
 
 The native standard-library subset includes the common mutating, searching,
 slicing, concatenation, and higher-order array methods; common string search,
 slicing, and splitting methods; and `Object.keys`/`Object.values` for managed
 records. Higher-order array callbacks use ordinary typed VexaScript lambdas.
-Managed arrays support `forEach`, `some`, `every`, `findIndex`, and both lexical
+Managed arrays support `forEach`, `some`, `every`, `find`, `findIndex`, `at`,
+`lastIndexOf`, `splice`, `fill`, `copyWithin`, `flat`, `flatMap`, and both lexical
 `sort()` and comparator-based `sort(callback)` in addition to
 `map`/`filter`/`reduce`. Native higher-order methods use the JavaScript callback
 contract: `map`, `filter`, `forEach`, `some`, `every`, and `findIndex` supply

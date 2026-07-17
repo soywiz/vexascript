@@ -376,13 +376,18 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
         code: emitCppProgram(
           lowerProgram(artifacts.ast, { lowerRangeForLoops: true }),
           {
+            ...(options.sourceFilePath ? { sourceFilePath: options.sourceFilePath } : {}),
             expressionTypes: artifacts.analysis.getExpressionTypes(),
             implicitReceiverIdentifiers: artifacts.analysis.getImplicitReceiverIdentifiers(),
+            implicitReceiverExtensionIdentifiers: artifacts.analysis.getImplicitReceiverExtensionIdentifiers(),
             staticImplicitReceiverIdentifiers: artifacts.analysis.getStaticImplicitReceiverIdentifiers(),
             autoAwaitExpressions: artifacts.analysis.getAutoAwaitExpressions(),
             callableTypes: artifacts.analysis.getCallableTypes(),
             operatorResolutions: new Map(
               artifacts.analysis.getOperatorResolutions().map((resolution) => [resolution.expression, resolution.symbol])
+            ),
+            extensionPropertyResolutions: new Map(
+              artifacts.analysis.getExtensionPropertyResolutions().map((resolution) => [resolution.expression, resolution])
             )
           }
         ),

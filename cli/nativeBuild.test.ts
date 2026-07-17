@@ -18,6 +18,36 @@ describe("native build", () => {
     expect(args).toContain("-ldl");
   });
 
+  it("offers a debug sanitizer mode for native CI and stress runs", () => {
+    const args = nativeCompilerArguments(
+      "/tmp/main.cpp",
+      "/tmp/main",
+      "/repo/native",
+      "/repo/native/oilpan/gc",
+      "/repo/native/oilpan/gc/build/liboilpan_gc.a",
+      "linux",
+      { sanitizers: true }
+    );
+    expect(args).toContain("-O1");
+    expect(args).toContain("-g");
+    expect(args).toContain("-fsanitize=address,undefined");
+    expect(args).toContain("-fno-omit-frame-pointer");
+  });
+
+  it("offers an Oilpan collection stress mode independently of sanitizers", () => {
+    const args = nativeCompilerArguments(
+      "/tmp/main.cpp",
+      "/tmp/main",
+      "/repo/native",
+      "/repo/native/oilpan/gc",
+      "/repo/native/oilpan/gc/build/liboilpan_gc.a",
+      "linux",
+      { gcStress: true }
+    );
+    expect(args).toContain("-DVEXA_NATIVE_GC_STRESS=1");
+    expect(args).not.toContain("-fsanitize=address,undefined");
+  });
+
   it("keeps generated C++ in a source-specific build directory", () => {
     expect(nativeProgramPaths("src/main.vx", undefined, undefined, "/project")).toEqual({
       sourcePath: "/project/src/main.vx",

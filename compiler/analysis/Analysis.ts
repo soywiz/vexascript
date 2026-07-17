@@ -4,6 +4,7 @@ import { Binder } from "./Binder";
 import type {
   AnalysisIssue,
   AnalysisSymbol,
+  ExtensionPropertyResolution,
   IdentifierResolution,
   JsxAttributeResolution,
   OperatorResolution,
@@ -83,6 +84,7 @@ export class Analysis {
   private readonly identifierResolutions: IdentifierResolution[];
   private readonly jsxAttributeResolutions: JsxAttributeResolution[];
   private readonly operatorResolutions: OperatorResolution[];
+  private readonly extensionPropertyResolutions: ExtensionPropertyResolution[];
   private readonly expressionTypes: Map<Node, AnalysisType>;
   private readonly selectedCallResolutions: SelectedCallResolution[];
   private readonly autoAwaitExpressions: Set<Node>;
@@ -114,6 +116,7 @@ export class Analysis {
     this.identifierResolutions = checked.identifierResolutions;
     this.jsxAttributeResolutions = checked.jsxAttributeResolutions;
     this.operatorResolutions = checked.operatorResolutions;
+    this.extensionPropertyResolutions = checked.extensionPropertyResolutions;
     this.expressionTypes = checked.expressionTypes;
     this.selectedCallResolutions = checked.selectedCallResolutions;
     this.autoAwaitExpressions = checked.autoAwaitExpressions;
@@ -149,6 +152,10 @@ export class Analysis {
 
   getOperatorResolutions(): readonly OperatorResolution[] {
     return this.operatorResolutions;
+  }
+
+  getExtensionPropertyResolutions(): readonly ExtensionPropertyResolution[] {
+    return this.extensionPropertyResolutions;
   }
 
   getUnusedImportIdentifiers(): readonly Identifier[] {
@@ -237,6 +244,11 @@ export class Analysis {
     };
     visit(this.rootScope);
     return result;
+  }
+
+  /** Resolved identifier bindings for backend-safe symbol rewriting. */
+  getIdentifierResolutions(): readonly IdentifierResolution[] {
+    return this.identifierResolutions;
   }
 
   getImplicitReceiverIdentifiers(): ReadonlySet<Node> {

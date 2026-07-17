@@ -727,6 +727,20 @@ let after = bind`));
       expect(messages.filter((m) => m.includes("Unary operator"))).toEqual([]);
     });
 
+    it("preserves bigint typing through unary minus regardless of literal size", () => {
+      const source = `val negative = -999999999999999999999999999999999999n
+val total = negative + (-4294967297n)
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+      const expressionTypes = analysis.getExpressionTypes();
+      const negative = (ast.body[0] as import("../ast/ast.js").VarStatement).initializer!;
+      const total = (ast.body[1] as import("../ast/ast.js").VarStatement).initializer!;
+      expect(expressionTypes.get(negative)).toEqual({ kind: "builtin", name: "bigint" });
+      expect(expressionTypes.get(total)).toEqual({ kind: "builtin", name: "bigint" });
+    });
+
     it("a class can have both unary operator- and binary operator- independently", () => {
       const source = dedent`
         class Point(val x: number, val y: number) {

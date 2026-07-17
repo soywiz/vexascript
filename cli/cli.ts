@@ -142,9 +142,26 @@ async function buildNativeFile(
   target: TranspileTarget = "optimized"
 ): Promise<void> {
   const { compileNativeExecutable, nativeProgramPaths } = await import("./nativeBuild");
-  const paths = nativeProgramPaths(input, out, buildDir);
+  const inputPath = resolve(process.cwd(), input);
+  const inputStats = await vfs().stat(inputPath).catch(() => null);
+  const project = await loadProject(inputPath);
+  const directoryBuild = inputStats?.isDirectory === true;
+  const sourcePath = directoryBuild
+    ? project?.bundleEntrypoint
+    : inputPath;
+  if (!sourcePath) {
+    throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
+  }
+  const projectOutputDir = project?.buildOutputDir ?? resolve(inputPath, "dist");
+  const executableName = basename(sourcePath).replace(/\.[^.]+$/, process.platform === "win32" ? ".exe" : "");
+  const paths = nativeProgramPaths(
+    sourcePath,
+    directoryBuild
+      ? resolve(process.cwd(), out ? resolve(out, executableName) : resolve(projectOutputDir, executableName))
+      : out,
+    directoryBuild ? resolve(process.cwd(), buildDir ?? resolve(projectOutputDir, ".vexa-native")) : buildDir
+  );
   await mkdir(paths.buildRoot, { recursive: true });
-  const project = await loadProject(paths.sourcePath);
   const ambientDeclarations = await ambientDeclarationsForProject(paths.sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
   const { compileNativeModuleGraph } = await import("../compiler/runtime/nativeModuleGraph");
@@ -162,6 +179,40 @@ async function buildNativeFile(
   console.log(`Compiled: ${paths.sourcePath} -> ${paths.cppPath}`);
   await compileNativeExecutable(paths.cppPath, paths.executablePath);
   console.log(`Linked: ${paths.cppPath} + Oilpan -> ${paths.executablePath}`);
+}
+
+async function buildCppModuleGraph(
+  input: string,
+  out: string | undefined,
+  target: TranspileTarget
+): Promise<void> {
+  const inputPath = resolve(process.cwd(), input);
+  const inputStats = await vfs().stat(inputPath).catch(() => null);
+  const project = await loadProject(inputPath);
+  const directoryBuild = inputStats?.isDirectory === true;
+  const sourcePath = directoryBuild ? project?.bundleEntrypoint : inputPath;
+  if (!sourcePath) {
+    throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
+  }
+  const outputPath = directoryBuild
+    ? resolve(process.cwd(), out ?? project?.buildOutputDir ?? resolve(inputPath, "dist"), "main.cpp")
+    : resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".cpp"));
+  const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
+  const globalDeclarations = await globalDeclarationsForProject(project);
+  const { compileNativeModuleGraph } = await import("../compiler/runtime/nativeModuleGraph");
+  const result = await compileNativeModuleGraph(sourcePath, target, {
+    ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
+    importMappings: project?.importMappings ?? {},
+    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
+    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
+  });
+  if (result.errors.length > 0) {
+    printDiagnostics(result, sourcePath);
+    throw new Error(`Compilation failed for ${sourcePath}`);
+  }
+  await mkdir(dirname(outputPath), { recursive: true });
+  await vfs().writeFile(outputPath, result.code);
+  console.log(`Compiled: ${sourcePath} -> ${outputPath}`);
 }
 
 async function bundleFile(
@@ -542,8 +593,8 @@ function createProgram(): Command {
     program
       .command(name)
       .description(description)
-      .argument("<input>", "Input .vx file")
-      .option("-o, --out <file>", "Output executable (defaults next to the source)")
+      .argument("<input>", "Input .vx file or configured project directory")
+      .option("-o, --out <path>", "Output executable, or output directory for project builds")
       .option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)")
       .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
       .action(async (input: string, opts: { out?: string; buildDir?: string; target?: string }) => {
@@ -572,8 +623,13 @@ function createProgram(): Command {
       const inputPath = resolve(process.cwd(), input);
       const inputStats = await vfs().stat(inputPath).catch(() => null);
       if (inputStats?.isDirectory) {
-        if (emit === "cpp" || opts.native) {
-          throw new Error("C++ emission currently supports single-file builds only");
+        if (opts.native) {
+          await buildNativeFile(input, opts.out, undefined, target);
+          return;
+        }
+        if (emit === "cpp") {
+          await buildCppModuleGraph(input, opts.out, target);
+          return;
         }
         await buildDirectory(input, opts.out, target, jsxOptions);
         return;
@@ -594,15 +650,16 @@ function createProgram(): Command {
 
   program
     .command("cpp")
-    .description("Emit one VexaScript file as a C++ translation unit without compiling it")
-    .argument("<input>", "Input .vx file")
-    .option("-o, --out <file>", "Output C++ file (defaults to <input>.cpp)")
+    .description("Emit a VexaScript file or configured project as a C++ translation unit without compiling it")
+    .argument("<input>", "Input .vx file or project directory")
+    .option("-o, --out <path>", "Output C++ file, or output directory for project builds")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
-      await buildFile(input, opts.out, target, jsxOptions, "cpp");
+      void jsxOptions;
+      await buildCppModuleGraph(input, opts.out, target);
     });
 
   addExecutableCommand("executable", "Compile one VexaScript file directly to a native Oilpan executable");

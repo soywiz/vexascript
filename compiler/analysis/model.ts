@@ -1,4 +1,4 @@
-import type { Node } from "compiler/ast/ast";
+import type { MemberExpression, Node, VarStatement } from "compiler/ast/ast";
 import type { AnalysisRange } from "./Analysis";
 import type { AnalysisType } from "./types";
 import type { AnalysisIssueCode, AnalysisIssueData } from "./issueCodes";
@@ -66,6 +66,12 @@ export interface OperatorResolution {
   symbol: AnalysisSymbol;
 }
 
+export interface ExtensionPropertyResolution {
+  expression: MemberExpression;
+  declaration: VarStatement;
+  receiverTypeArguments: AnalysisType[];
+}
+
 export interface SelectedCallResolution {
   call: Node;
   callee: Node;
@@ -78,6 +84,7 @@ export interface CheckedAnalysis {
   identifierResolutions: IdentifierResolution[];
   jsxAttributeResolutions: JsxAttributeResolution[];
   operatorResolutions: OperatorResolution[];
+  extensionPropertyResolutions: ExtensionPropertyResolution[];
   expressionTypes: Map<Node, AnalysisType>;
   selectedCallResolutions: SelectedCallResolution[];
   // Expressions that receive an implicit `await` because they evaluate to a Promise inside a

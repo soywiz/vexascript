@@ -1,15 +1,41 @@
 module module 12
 functions 5 7 10
+generics 4 value 7 boxed
+generic nested 13 14 15 16 17
+generic interface count 8
+generic extension 11 x
+generic property 4 2
+extension property 3 3 4
+dynamic array [1, 2, 3] [1, 2, 3] [1, 2, 3]
+dynamic object 9 9 9 [object Object]
+dynamic function 7 10 11
+dynamic semantics true false true false false function
+dynamic arithmetic 7 20 2.5 4 100 2 40 -10
+dynamic updates 8 15 5
+callable interface double 8 offset 7
+array api 5 3 2 [2, 3] [1, 5, 1, 5]
+array flatten [1, 2, 3] [1, 10, 2, 20]
+loop destructuring 21
 interface cpu:4:9 7
 dispatch Hello Ada Hola, Luz
 operators 10 -6 true 10
 inheritance base!
+type checks true true true
 shared 3 1|2|3
 arrays 6,12 18 0 4 3,2,1
+constructor forwarding 9
 array-copy 3|2 3|2|1|8|9
 array-string [1, 2]
 array-predicates 10 true true 2 1|2|3|4 1|10|2
 array-callbacks 7|6|10|9 3|4 32 true true 2 32
+collections 1 undefined true 1 true true 1 6
+json {"name":"Ada","values":[1,2],"active":true} Ada 5
+json unicode A😀
+weak collections stored true true true true
+date 0 1970 0 1970-01-01T00:00:00.000Z true "1970-01-01T00:00:00.000Z"
+date parsing 2000-01-02T00:00:00.000Z 946771200000
+binary 4 4 0 1 2 3 515 255 0 255
+binary float 1.5
 mixed true 2 1|two|true|three
 record Ada 42 false true true Ada
 enum 0 3
@@ -20,12 +46,19 @@ bigint-arithmetic 1123456789012345678901234567889 123456789012345678891358024680
 bigint-bits true 1267650600228229401496703205376 -3 3 5902958103587056517120
 bigint-signed -3 -2 -3 2 -6 -5 -7
 bigint-values 2|123456789012345678901234567891 1|x bigint false 42
+bigint-prefixes 255 5 63 42
 control 32
+labeled control 2
 finally
 defer
 errors 7
 generator false 0 6 true
 promises 9 1 2 7
+promise assimilation 11 why
+promise combinators 5 2 8
 async 20 40
 interval cancelled
+timer arguments named 3
+async timer 5
 timeout done
+destructuring defaults 7 8 3 9

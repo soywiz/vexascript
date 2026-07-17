@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <compare>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
@@ -186,17 +187,35 @@ class BigInt final {
   }
 
   void parse(std::string_view text) {
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) text.remove_prefix(1);
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.remove_suffix(1);
     if (text.empty()) throw std::runtime_error("Invalid BigInt value");
     std::size_t index = 0;
     if (text[index] == '+' || text[index] == '-') {
       negative_ = text[index] == '-';
       if (++index == text.size()) throw std::runtime_error("Invalid BigInt value");
     }
+    std::uint32_t base = 10;
+    if (index == 0 && text.size() >= 2 && text[0] == '0') {
+      const char prefix = text[1];
+      if (prefix == 'x' || prefix == 'X') base = 16;
+      else if (prefix == 'o' || prefix == 'O') base = 8;
+      else if (prefix == 'b' || prefix == 'B') base = 2;
+      if (base != 10) index = 2;
+    }
+    if (index == text.size()) throw std::runtime_error("Invalid BigInt value");
     for (; index < text.size(); ++index) {
-      const char digit = text[index];
-      if (digit < '0' || digit > '9') throw std::runtime_error("Invalid BigInt value");
-      multiplySmall(10);
-      addSmall(static_cast<std::uint32_t>(digit - '0'));
+      const char character = text[index];
+      const std::uint32_t digit = character >= '0' && character <= '9'
+          ? static_cast<std::uint32_t>(character - '0')
+          : character >= 'a' && character <= 'f'
+            ? static_cast<std::uint32_t>(character - 'a' + 10)
+            : character >= 'A' && character <= 'F'
+              ? static_cast<std::uint32_t>(character - 'A' + 10)
+              : base;
+      if (digit >= base) throw std::runtime_error("Invalid BigInt value");
+      multiplySmall(base);
+      addSmall(digit);
     }
     normalize();
   }
