@@ -232,6 +232,25 @@ describe("transpileModuleSource", () => {
 });
 
 describe("bundleNodeModuleGraph", () => {
+  it("bundles extensionless relative imports whose basename contains a dot", async () => {
+    await withTempProject(
+      {
+        "main.js": 'const shared = require("./declarations.shared"); exports.value = shared.value;\n',
+        "declarations.shared.ts": "export const value: number = 42;\n"
+      },
+      async (dir) => {
+        const entryPath = join(dir, "main.js");
+        const result = await bundleNodeModuleGraph(
+          'const shared = require("./declarations.shared"); exports.value = shared.value;',
+          entryPath
+        );
+
+        expect(result.code).toContain('const value = 42;');
+        expect(result.code).not.toContain("Unbundled external dependency './declarations.shared'");
+      }
+    );
+  });
+
   it("lowers bundled .mjs imports to runtime requires inside wrapped factories", async () => {
     await withTempProject(
       {

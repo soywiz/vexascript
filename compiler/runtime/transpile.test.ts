@@ -55,6 +55,40 @@ function decodeSourceLinesFromMappings(mappings: string): number[] {
 }
 
 describe("transpile", () => {
+  it("can emit valid TypeScript while retaining semantic diagnostics only when type checking is enabled", () => {
+    const source = "const value: MissingType = 1; console.log(value)";
+
+    const checked = transpile(source, {
+      sourceFilePath: "/tmp/demo.ts",
+      emitSourceMap: false
+    });
+    const transpileOnly = transpile(source, {
+      sourceFilePath: "/tmp/demo.ts",
+      emitSourceMap: false,
+      typeCheck: false
+    });
+
+    expect(checked.errors.length).toBeGreaterThan(0);
+    expect(transpileOnly.errors).toEqual([]);
+    expect(transpileOnly.diagnostics).toEqual([]);
+    expect(transpileOnly.code).toContain("const value = 1;");
+    expect(transpileOnly.code).toContain("console.log(value);");
+  });
+
+  it("keeps an asserted object literal parenthesized in a concise arrow body", () => {
+    const result = transpile(
+      'const values = [1].map((value) => ({ kind: "item", value } as const))',
+      {
+        sourceFilePath: "/tmp/demo.ts",
+        emitSourceMap: false,
+        typeCheck: false
+      }
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('(value) => ({kind: "item", value})');
+  });
+
   it("returns a source map for successful transpilation", () => {
     const source = "let value = 1\nlet doubled = value * 2";
     const result = transpile(source, {

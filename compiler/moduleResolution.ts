@@ -1,5 +1,5 @@
-import { LANGUAGE_FILE_EXTENSION } from "./language";
-import { dirname, extname, resolve } from "./utils/path";
+import { hasRecognizedModuleFileExtension, LANGUAGE_FILE_EXTENSION } from "./language";
+import { dirname, resolve } from "./utils/path";
 import { vfs, type Vfs } from "./vfs";
 
 /** Returns the specifier without the Node builtin `node:` prefix (no-op otherwise). */
@@ -33,7 +33,7 @@ export function candidateImportTargetFilePaths(
 ): string[] {
   const baseDir = dirname(importerFilePath);
   const direct = resolve(baseDir, importPath);
-  return extname(direct)
+  return hasRecognizedModuleFileExtension(direct)
     ? [direct]
     : [direct, `${direct}${LANGUAGE_FILE_EXTENSION}`, `${direct}.ts`, `${direct}.tsx`, `${direct}.json`, `${direct}.txt`];
 }
@@ -101,7 +101,7 @@ export async function resolveImportTargetFilePath(
   const mappedTarget = options.importMappings?.[importPath];
   if (mappedTarget) {
     const mappedPath = resolve(mappedTarget);
-    const candidates = extname(mappedPath)
+    const candidates = hasRecognizedModuleFileExtension(mappedPath)
       ? [mappedPath]
       : [mappedPath, `${mappedPath}${LANGUAGE_FILE_EXTENSION}`, `${mappedPath}.ts`, `${mappedPath}.tsx`, `${mappedPath}.json`, `${mappedPath}.txt`];
     for (const candidate of candidates) {

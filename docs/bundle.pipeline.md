@@ -19,6 +19,7 @@ Owns local graph preparation.
 Responsibilities:
 
 - resolve local relative imports between `.vx`, `.ts`, `.tsx`, and inline asset files
+- resolve TypeScript non-relative source imports against project `baseUrl`
 - parse and compile local source files through the shared compiler pipeline
 - provide imported declarations/types from local dependencies and ambient packages to downstream local-module analysis
 - emit module-shaped local sources through the VexaScript emitter
@@ -44,6 +45,7 @@ Responsibilities:
 - transpile remaining package modules when a format conversion is needed
 - wrap all bundled modules into the final runtime loader/factory structure
 - emit the final single-file ESM bundle
+- optionally bridge true Node externals through `createRequire` for `--platform node`; browser-safe rejection remains the default
 
 It does **not** re-run semantic analysis for already-emitted local VexaScript modules.
 

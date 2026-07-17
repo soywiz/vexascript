@@ -367,6 +367,21 @@ function maybeWrap(text: string, shouldWrap: boolean): string {
   return shouldWrap ? `(${text})` : text;
 }
 
+function conciseArrowBodyStartsWithObjectLiteral(expression: Expr): boolean {
+  switch (expression.kind) {
+    case "ObjectLiteral":
+      return true;
+    case "AsExpression":
+      return conciseArrowBodyStartsWithObjectLiteral((expression as AsExpression).expression);
+    case "SatisfiesExpression":
+      return conciseArrowBodyStartsWithObjectLiteral((expression as SatisfiesExpression).expression);
+    case "NonNullExpression":
+      return conciseArrowBodyStartsWithObjectLiteral((expression as NonNullExpression).expression);
+    default:
+      return false;
+  }
+}
+
 
 function parameterTypeName(parameter: FunctionParameter): string {
   return parameter.typeAnnotation?.name ?? "unknown";
@@ -1575,7 +1590,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           if (temps.length > 0) {
             return `${asyncEmitPrefix(arrow)}${parameters} => {\n${emitOptionalAssignmentTempDeclaration(temps)}\nreturn ${bodyText};\n}`;
           }
-          if (bodyExpression.kind === "ObjectLiteral") {
+          if (conciseArrowBodyStartsWithObjectLiteral(bodyExpression)) {
             return `${asyncEmitPrefix(arrow)}${parameters} => (${bodyText})`;
           }
           return `${asyncEmitPrefix(arrow)}${parameters} => ${bodyText}`;

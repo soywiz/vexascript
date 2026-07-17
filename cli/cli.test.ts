@@ -278,6 +278,37 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
   });
 
+  it("bundle command can preserve Node builtins through a createRequire bridge", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-node-bundle-"));
+    const input = join(dir, "main.ts");
+    const output = join(dir, "node-bundle.js");
+    await writeFile(join(dir, "package.json"), JSON.stringify({ type: "module" }), "utf8");
+    await writeFile(
+      input,
+      'import { basename } from "node:path"\nexport const bundled = basename("/tmp/compiler.ts")\n',
+      "utf8"
+    );
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await runCli([
+      "node",
+      "vexa",
+      "bundle",
+      input,
+      "--out",
+      output,
+      "--platform",
+      "node",
+      "--transpile-only"
+    ]);
+
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).toContain('from "node:module"');
+    const imported = await import(`${pathToFileURL(output).href}?${Date.now()}`) as { bundled: string };
+    expect(imported.bundled).toBe("compiler.ts");
+    expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
+  });
+
   it("build command turns a project directory into a static dist with copied assets and mappings", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-build-dir-"));
     await mkdir(join(dir, "public", "assets"), { recursive: true });

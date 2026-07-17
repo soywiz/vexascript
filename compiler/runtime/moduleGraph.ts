@@ -83,18 +83,32 @@ export interface ModuleGraphOptions {
   ambientDeclarations?: Statement[];
   importMappings?: Readonly<Record<string, string>>;
   globalSymbols?: GlobalSymbolSourceOptions;
+  /** Forwarded to transpilation; false keeps semantic analysis metadata but does not fail emission. */
+  typeCheck?: boolean;
+  /** Root used to resolve TypeScript-style non-relative source imports. */
+  baseUrl?: string;
 }
 
 async function resolveLocalModulePath(
   importerFilePath: string,
   importPath: string,
   vfs: Vfs,
-  importMappings: Readonly<Record<string, string>>
+  importMappings: Readonly<Record<string, string>>,
+  baseUrl?: string
 ): Promise<string | null> {
-  if (!importPath.startsWith(".") && !importMappings[importPath]) {
+  const baseUrlTarget = baseUrl && !importPath.startsWith(".")
+    ? resolve(baseUrl, importPath)
+    : undefined;
+  if (!importPath.startsWith(".") && !importMappings[importPath] && !baseUrlTarget) {
     return null;
   }
-  const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs, importMappings });
+  const effectiveImportMappings = baseUrlTarget && !importMappings[importPath]
+    ? { ...importMappings, [importPath]: baseUrlTarget }
+    : importMappings;
+  const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, {
+    vfs,
+    importMappings: effectiveImportMappings
+  });
   return targetPath && isBundledLocalModulePath(targetPath) ? targetPath : null;
 }
 
@@ -257,7 +271,8 @@ export async function localImportSpecifiers(
   ast: Program,
   importerFilePath: string,
   vfs: Vfs,
-  importMappings: Readonly<Record<string, string>>
+  importMappings: Readonly<Record<string, string>>,
+  baseUrl?: string
 ): Promise<{ statement: ImportStatement; targetPath: string }[]> {
   const imports: { statement: ImportStatement; targetPath: string }[] = [];
   for (const statement of ast.body) {
@@ -265,7 +280,13 @@ export async function localImportSpecifiers(
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetPath = await resolveLocalModulePath(importerFilePath, importStatement.from.value, vfs, importMappings);
+    const targetPath = await resolveLocalModulePath(
+      importerFilePath,
+      importStatement.from.value,
+      vfs,
+      importMappings,
+      baseUrl
+    );
     if (targetPath) {
       imports.push({ statement: importStatement, targetPath });
     }
@@ -482,7 +503,7 @@ export async function bundleModuleGraph(
           errors.push(`Unable to load asset module '${targetPath}': ${message}`);
         }
       }
-      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
+      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs, importMappings, options.baseUrl)) {
         bundledSpecifiers.add(statement.from.value);
         if (!globalSourceFileSet.has(targetPath)) {
           await visit(targetPath);
@@ -535,6 +556,7 @@ export async function bundleModuleGraph(
       externalDeclarations,
       importedSymbols,
       ambientDeclarations: moduleAmbientDeclarations,
+      typeCheck: options.typeCheck ?? true,
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     });
@@ -593,6 +615,7 @@ export async function bundleModuleGraph(
         parserOptions: parserOptionsForModulePath(filePath),
         externalDeclarations: globalDeclarations,
         ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
+        typeCheck: options.typeCheck ?? true,
         ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
         ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
       });
@@ -716,7 +739,7 @@ export async function bundleModuleGraphAsModules(
           errors.push(`Unable to load asset module '${targetPath}': ${message}`);
         }
       }
-      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
+      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs, importMappings, options.baseUrl)) {
         if (!globalSourceFileSet.has(targetPath)) {
           await visit(targetPath);
         }
@@ -765,6 +788,7 @@ export async function bundleModuleGraphAsModules(
       externalDeclarations,
       importedSymbols,
       ambientDeclarations: moduleAmbientDeclarations,
+      typeCheck: options.typeCheck ?? true,
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     });
@@ -828,6 +852,7 @@ export async function bundleModuleGraphAsModules(
         parserOptions: parserOptionsForModulePath(filePath),
         externalDeclarations: globalDeclarations,
         ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
+        typeCheck: options.typeCheck ?? true,
         ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
         ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
       });

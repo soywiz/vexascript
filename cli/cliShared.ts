@@ -68,7 +68,10 @@ export async function createBundledModuleArtifacts(
   target: TranspileTarget,
   project: VexaProject | null,
   jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {},
-  options: { externalDependencyStrategy?: "runtime-error" | "node-require" } = {}
+  options: {
+    externalDependencyStrategy?: "runtime-error" | "node-require";
+    typeCheck?: boolean;
+  } = {}
 ): Promise<BundledModuleArtifacts> {
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const { bundleModuleGraphAsModules } = await import("../compiler/runtime/moduleGraph");
@@ -76,6 +79,8 @@ export async function createBundledModuleArtifacts(
     ambientDeclarations,
     importMappings: project?.importMappings ?? {},
     moduleFormat: "commonjs",
+    typeCheck: options.typeCheck ?? true,
+    ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.globalSymbols ? { globalSymbols: project.globalSymbols } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
@@ -96,6 +101,7 @@ export async function createBundledModuleArtifacts(
   const bundled = await bundleNodeModuleGraph(result.entrySource, sourcePath, {
     virtualSources: result.moduleSources,
     importMappings: project?.importMappings ?? {},
+    ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     externalDependencyStrategy: options.externalDependencyStrategy ?? "runtime-error"
   });
   return {

@@ -851,6 +851,45 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("can bundle TypeScript modules without treating VexaScript semantic diagnostics as emission failures", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "dependency.ts": "export const value: MissingType = 42\n",
+        "main.ts": 'import { value } from "./dependency"\nexport { value }\n'
+      },
+      async (dir) => {
+        const result = await bundleModuleGraphAsModules(join(dir, "main.ts"), "conservative", {
+          moduleFormat: "commonjs",
+          typeCheck: false
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(result.moduleSources.get(join(dir, "dependency.ts"))).toContain("const value = 42;");
+      }
+    );
+  });
+
+  it("resolves non-relative TypeScript source imports through baseUrl", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "compiler/value.ts": "export const value = 42\n",
+        "main.ts": 'import { value } from "compiler/value"\nexport { value }\n'
+      },
+      async (dir) => {
+        const result = await bundleModuleGraphAsModules(join(dir, "main.ts"), "conservative", {
+          moduleFormat: "commonjs",
+          baseUrl: dir,
+          typeCheck: false
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(result.moduleSources.has(join(dir, "compiler", "value.ts"))).toBe(true);
+      }
+    );
+  });
+
   it("keeps namespace-shaped node_modules default imports navigable for member calls", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(

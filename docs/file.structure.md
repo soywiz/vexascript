@@ -27,8 +27,8 @@ This section is the fast onboarding map for agents and contributors.
 - Module resolution and virtual file access:
   - Shared asynchronous virtual file-system interface used across compiler, LSP, runtime bundling, and browser adapters: `compiler/vfs.ts`
   - Shared abstract VFS contract used by compiler/runtime code across browser and Node hosts: `compiler/vfs.ts`
-  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.vx` or `.ts` file), used by the semantic project index, runtime module graph, and LSP cross-file/member-completion features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
-  - Project configuration loading from package.json dependencies plus VexaScript/TypeScript project-config compiler-option defaults and `serveMappings` asset aliases used by CLI build/run/test/serve flows: `compiler/project.ts`
+  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.vx` or `.ts` file), used by the semantic project index, runtime module graph, and LSP cross-file/member-completion features, parameterized by the selected VFS, able to resolve dotted extensionless basenames such as `declarations.shared`, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
+  - Project configuration loading from package.json dependencies plus VexaScript/TypeScript project-config compiler-option defaults (including TypeScript `baseUrl`) and `serveMappings` asset aliases used by CLI build/run/test/serve flows: `compiler/project.ts`
   - Shared imported-binding normalization/view helpers that keep analysis, transpilation, and LSP import resolution converged on one canonical `importedSymbols` representation: `compiler/importedSymbols.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
 - Semantic analysis:
@@ -120,6 +120,7 @@ This section is the fast onboarding map for agents and contributors.
   - CLI entrypoint and command implementation, including direct `cpp` source emission, `executable` native linking (`native` remains a compatibility alias), single-file transpilation, and directory-based static site builds that materialize the `serve` bundle and mapped assets into `dist`/`outDir`: `cli/cli.ts`
   - Node-only native build adapter that plans `<input>.vx.build/main.cpp` intermediates, extracts the vendored Oilpan archive into an OS temporary cache, configures its dedicated CMake cache with `g++`, builds `liboilpan_gc.a`, and links generated C++: `cli/nativeBuild.ts`
   - Reproducible native production benchmark runner and its thin script entrypoint, covering compile time, binary size, startup, arrays, bigint, the event loop, and forced-GC execution: `cli/nativeBenchmark.ts`, `scripts/nativeBenchmark.ts`, baselines: `docs/native-benchmarks.md`
+  - Compiler self-hosting orchestrator and script entrypoint: `cli/selfHost.ts` builds the TypeScript compiler with the source CLI, executes generated compilers from an isolated directory for two more roundtrips, and requires byte-stable output; `scripts/selfHostCompiler.ts` exposes it through `pnpm self-host`, `cli/selfHost.test.ts` verifies the third compiler against a normal fixture, and `docs/self-hosting.md` documents the contract.
   - Node-only dependency installer helpers used by CLI bundle/run/serve flows: `cli/deps.ts`
   - Node-only child-process helper used by CLI dependency installation and sample test setup: `cli/io.ts`
   - Shared CLI build/runtime preparation helpers reused by `build`, `bundle`, `run`, and `serve`: `cli/cliShared.ts`

@@ -54,6 +54,15 @@ describe("resolveImportTargetFilePath", () => {
     expect(await resolveImportTargetFilePath(importer, "./utils")).toBe(target);
   });
 
+  it("appends .ts when an extensionless module basename contains a dot", async () => {
+    const importer = join(root, "main.ts");
+    await writeFile(importer, "");
+    const target = join(root, "declarations.shared.ts");
+    await writeFile(target, "");
+
+    expect(await resolveImportTargetFilePath(importer, "./declarations.shared")).toBe(target);
+  });
+
   it("resolves an import that already includes the extension", async () => {
     const importer = join(root, "main.vx");
     await writeFile(importer, "");

@@ -3,6 +3,25 @@ import { loadProject } from "./project";
 import { resolveServeBundleInput } from "../cli/cliShared";
 
 describe("project configuration", () => {
+  it("resolves TypeScript baseUrl relative to the tsconfig that declares it", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-base-url-"));
+    const input = join(dir, "src", "main.ts");
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { baseUrl: "." }
+    }), "utf8");
+    await writeFile(input, "", "utf8");
+
+    expect(await loadProject(input)).toEqual({
+      projectDir: join(dir, "src"),
+      dependencies: {},
+      baseUrl: dir,
+      libs: [],
+      types: [],
+      serveMappings: []
+    });
+  });
+
   it("loads dependencies from package.json and JSX factories from vexascript.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
     const input = join(dir, "main.vx");

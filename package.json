@@ -22,6 +22,7 @@
     "test:native:sanitized": "VEXA_NATIVE_SANITIZERS=1 node --import tsx --test --test-reporter spec cli/nativeSmoke.test.ts",
     "test:native:stress": "VEXA_NATIVE_GC_STRESS=1 node --import tsx --test --test-reporter spec cli/nativeSmoke.test.ts",
     "benchmark:native": "node --import tsx scripts/nativeBenchmark.ts",
+    "self-host": "node --import tsx scripts/selfHostCompiler.ts",
     "coverage": "tsx --test --experimental-test-coverage",
     "code": "pnpm build && code --extensionDevelopmentPath=$(pwd)/plugins/vscode",
     "code:install": "pnpm --dir plugins/vscode install",

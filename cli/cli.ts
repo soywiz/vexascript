@@ -219,14 +219,19 @@ async function bundleFile(
   input: string,
   out?: string,
   target: TranspileTarget = "optimized",
-  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {}
+  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {},
+  typeCheck = true,
+  platform: "browser" | "node" = "browser"
 ): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   await ensureRuntimeDependencies(sourcePath, project);
 
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
-  const result = await createBundledModuleArtifacts(sourcePath, target, project, jsxOptions);
+  const result = await createBundledModuleArtifacts(sourcePath, target, project, jsxOptions, {
+    typeCheck,
+    externalDependencyStrategy: platform === "node" ? "node-require" : "runtime-error"
+  });
   if (result.errors.length > 0) {
     printDiagnostics(result, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
@@ -614,7 +619,9 @@ function createProgram(): Command {
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and node_modules packages as ESM")
-    .action(async (input: string, opts: { out?: string; target?: string; emit?: string; native?: boolean; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean }) => {
+    .option("--transpile-only", "Emit TypeScript without failing on VexaScript semantic diagnostics")
+    .option("--platform <platform>", "Bundle platform: browser|node", "browser")
+    .action(async (input: string, opts: { out?: string; target?: string; emit?: string; native?: boolean; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean; transpileOnly?: boolean; platform?: string }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
       const emit = opts.native ? "cpp" : opts.emit ?? "javascript";
       if (emit !== "javascript" && emit !== "cpp") {
@@ -638,7 +645,10 @@ function createProgram(): Command {
         if (emit === "cpp" || opts.native) {
           throw new Error("C++ emission cannot be combined with --bundle");
         }
-        await bundleFile(input, opts.out, target, jsxOptions);
+        if (opts.platform !== "browser" && opts.platform !== "node") {
+          throw new Error(`Unsupported bundle platform "${opts.platform}". Supported platforms: browser, node`);
+        }
+        await bundleFile(input, opts.out, target, jsxOptions, !opts.transpileOnly, opts.platform);
         return;
       }
       if (opts.native) {
@@ -673,9 +683,14 @@ function createProgram(): Command {
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
-    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }) => {
+    .option("--transpile-only", "Emit TypeScript without failing on VexaScript semantic diagnostics")
+    .option("--platform <platform>", "Bundle platform: browser|node", "browser")
+    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; platform?: string }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
-      await bundleFile(input, opts.out, target, jsxOptions);
+      if (opts.platform !== "browser" && opts.platform !== "node") {
+        throw new Error(`Unsupported bundle platform "${opts.platform}". Supported platforms: browser, node`);
+      }
+      await bundleFile(input, opts.out, target, jsxOptions, !opts.transpileOnly, opts.platform);
     });
 
   program

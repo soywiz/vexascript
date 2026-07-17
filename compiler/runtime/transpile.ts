@@ -93,6 +93,12 @@ export interface TranspileOptions {
   parserOptions?: ParserOptions;
   outputFilePath?: string;
   target?: TranspileTarget;
+  /**
+   * Whether semantic diagnostics prevent JavaScript emission. Defaults to true.
+   * Set to false for TypeScript transpile-only workflows whose types were
+   * already validated by TypeScript itself, such as compiler bootstrapping.
+   */
+  typeCheck?: boolean;
   /** Output language. Defaults to JavaScript. */
   emit?: EmitLanguage;
   preserveSourceLineOffsets?: boolean;
@@ -331,27 +337,29 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     return { code: "", warnings: [], errors, diagnostics };
   }
 
-  for (const issue of artifacts.semanticIssues) {
-    errors.push(formatSemanticIssue(issue));
-    const range = issue.range
-      ? {
-          start: {
-            offset: 0,
-            line: issue.range.start.line,
-            column: issue.range.start.character
-          },
-          end: {
-            offset: 0,
-            line: issue.range.end.line,
-            column: issue.range.end.character
+  if (options.typeCheck ?? true) {
+    for (const issue of artifacts.semanticIssues) {
+      errors.push(formatSemanticIssue(issue));
+      const range = issue.range
+        ? {
+            start: {
+              offset: 0,
+              line: issue.range.start.line,
+              column: issue.range.start.character
+            },
+            end: {
+              offset: 0,
+              line: issue.range.end.line,
+              column: issue.range.end.character
+            }
           }
-        }
-      : issue.node.firstToken?.range;
-    const code =
-      mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
-      classifySemanticDiagnosticMessage(issue.message) ??
-      VEXA_DIAGNOSTIC_CODES.SEMANTIC_ERROR;
-    diagnostics.push(makeDiagnostic(issue.message, range, code));
+        : issue.node.firstToken?.range;
+      const code =
+        mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
+        classifySemanticDiagnosticMessage(issue.message) ??
+        VEXA_DIAGNOSTIC_CODES.SEMANTIC_ERROR;
+      diagnostics.push(makeDiagnostic(issue.message, range, code));
+    }
   }
   if (errors.length > 0) {
     return { code: "", warnings: [], errors, diagnostics };

@@ -6,6 +6,7 @@ export interface VexaProject {
   projectDir: string;
   dependencies: Record<string, string>;
   importMappings?: Record<string, string>;
+  baseUrl?: string;
   globalSymbols?: VexaGlobalSymbols;
   jsxFactory?: string;
   jsxFragmentFactory?: string;
@@ -41,6 +42,7 @@ interface TsConfigJson {
     jsxImportSource?: unknown;
     lib?: unknown;
     types?: unknown;
+    baseUrl?: unknown;
   };
 }
 
@@ -52,6 +54,7 @@ interface CompilerOptionsConfig {
     jsxImportSource?: unknown;
     lib?: unknown;
     types?: unknown;
+    baseUrl?: unknown;
   };
 }
 
@@ -266,6 +269,7 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
   let dir = resolve(startDir);
   let packageDir: string | null = null;
   let tsconfig: TsConfigJson | null = null;
+  let tsconfigDir: string | null = null;
   let vexaConfigDir: string | null = null;
   let vexaConfig: VexaScriptConfigJson | null = null;
   let dependencies: Record<string, string> = {};
@@ -281,6 +285,9 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
 
     if (!tsconfig) {
       tsconfig = await readJsonFile<TsConfigJson>(resolve(dir, "tsconfig.json"));
+      if (tsconfig) {
+        tsconfigDir = dir;
+      }
     }
 
     if (!vexaConfig) {
@@ -316,11 +323,21 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
   const serveMappings = serveMappingsFromConfig(configDir, vexaConfig);
   const importMappings = importMappingsFromConfig(configDir, vexaConfig);
   const globalSymbols = globalSymbolsFromConfig(configDir, vexaConfig);
+  const configuredBaseUrl = typeof vexaConfig?.compilerOptions?.baseUrl === "string"
+    ? vexaConfig.compilerOptions.baseUrl
+    : typeof tsconfig?.compilerOptions?.baseUrl === "string"
+      ? tsconfig.compilerOptions.baseUrl
+      : undefined;
+  const baseUrlConfigDir = typeof vexaConfig?.compilerOptions?.baseUrl === "string"
+    ? vexaConfigDir ?? startDir
+    : tsconfigDir ?? startDir;
+  const baseUrl = configuredBaseUrl ? resolve(baseUrlConfigDir, configuredBaseUrl) : undefined;
 
   return {
     projectDir: packageDir ?? resolve(startDir),
     dependencies,
     ...(Object.keys(importMappings).length > 0 ? { importMappings } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
     ...(globalSymbols.paths.length > 0 ? { globalSymbols } : {}),
     libs: libsFromConfig(config),
     types: typesFromConfig(config),
