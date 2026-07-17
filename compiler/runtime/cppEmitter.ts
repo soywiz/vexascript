@@ -187,6 +187,8 @@ function cppTypeForBuiltin(typeName: BuiltinTypeName): string | null {
       return "std::int32_t";
     case "long":
       return "std::int64_t";
+    case "bigint":
+      return "vexa::BigInt";
     case "number":
     case "numeric":
       return "double";
@@ -284,6 +286,7 @@ function cppTypeForExpression(expression: Expr): string {
   }
   if (expression.kind === "IntLiteral") return "std::int32_t";
   if (expression.kind === "LongLiteral") return "std::int64_t";
+  if (expression.kind === "BigIntLiteral") return "vexa::BigInt";
   if (expression.kind === "FloatLiteral") return "double";
   return "auto";
 }
@@ -1034,8 +1037,9 @@ function emitCall(call: CallExpression): string {
     }
     return `${activeRuntimeName}.${calleeName}(${emitExpression(call.arguments[0]!)})`;
   }
-  const runtimeGlobals = new Set(["String", "Number", "Boolean", "Error", "parseInt", "parseFloat", "isNaN", "isFinite"]);
+  const runtimeGlobals = new Set(["String", "Number", "Boolean", "BigInt", "Error", "parseInt", "parseFloat", "isNaN", "isFinite"]);
   if (calleeName && runtimeGlobals.has(calleeName)) {
+    if (calleeName === "BigInt") return `vexa::makeBigInt(${argumentsText})`;
     return `vexa::${cppName(calleeName)}(${argumentsText})`;
   }
   if (calleeName && (
@@ -1108,6 +1112,9 @@ function emitBinary(expression: BinaryExpression): string {
   const overloaded = emitResolvedBinaryOperator(expression);
   if (overloaded) return overloaded;
   if (expression.operator === "**") {
+    if (cppTypeForExpression(expression) === "vexa::BigInt") {
+      return `vexa::pow(${emitExpression(expression.left)}, ${emitExpression(expression.right)})`;
+    }
     return `vexa::Math::pow(${emitExpression(expression.left)}, ${emitExpression(expression.right)})`;
   }
   if (expression.operator === "%") {
@@ -1182,6 +1189,7 @@ function emitExpression(expression: Expr): string {
     case "FloatLiteral":
       return String((expression as unknown as { value: number }).value);
     case "BigIntLiteral":
+      return `vexa::BigInt(${cppString(String((expression as unknown as { value: bigint }).value))})`;
     case "LongLiteral":
       return `${String((expression as unknown as { value: bigint }).value)}LL`;
     case "BooleanLiteral":

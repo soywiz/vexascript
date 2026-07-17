@@ -1804,6 +1804,13 @@ contract: `map`, `filter`, `forEach`, `some`, `every`, and `findIndex` supply
 The native numeric remainder operator also supports both integral values and
 floating-point `number` values.
 
+Native `bigint` values are arbitrary precision and do not depend on a system
+bigint library. Literals and `BigInt(...)` construction support arithmetic,
+remainder, exponentiation with a non-negative exponent, comparisons, bitwise
+operators, signed shifts, `String`/`Number`/`Boolean` conversion, homogeneous
+arrays, and mixed dynamic arrays. The initial native division implementation is
+intentionally simple and may be slow for very large operands.
+
 Native arrays preserve JavaScript-style reference identity. Assigning one array
 to another variable, passing it to a function, or storing it in multiple class
 instances does not duplicate its contents; mutation through any reference is

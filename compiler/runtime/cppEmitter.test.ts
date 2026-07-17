@@ -84,6 +84,25 @@ for (n of 0L ..< 10L) {
     expect(result.code).toContain("for (std::int64_t n = 0LL; n < 10LL; n++)");
   });
 
+  it("emits arbitrary-precision bigint operations without external libraries", () => {
+    const result = transpile(`val large: bigint = 123456789012345678901234567890n
+val divisor = 9876543210n
+val parsed = BigInt("999999999999999999999999999999")
+console.log(large + parsed, large - divisor, large * divisor)
+console.log(large / divisor, large % divisor, -large)
+console.log(large > divisor, 2n ** 100n)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('auto large = vexa::BigInt("123456789012345678901234567890")');
+    expect(result.code).toContain('vexa::makeBigInt(runtime.string("999999999999999999999999999999"))');
+    expect(result.code).toContain('vexa::pow(vexa::BigInt("2"), vexa::BigInt("100"))');
+  });
+
   it("emits reusable inclusive and exclusive range expressions", () => {
     const result = transpile(`val inclusive = 1 ... 3
 val exclusive = 4 ..< 6

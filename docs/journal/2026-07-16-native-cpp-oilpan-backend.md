@@ -135,6 +135,18 @@ method implementations. The same test then reached `index % 2` with a
 Binary remainder emission now uses one runtime operation that preserves native
 integral remainder and delegates floating-point operands to `std::fmod`.
 
+Native `BigIntLiteral` initially shared the `LongLiteral` emission branch and
+silently became a `long long`, even though semantic analysis deliberately keeps
+`long` and arbitrary-precision `bigint` distinct. The native mapping now
+preserves that distinction through one dependency-free `BigInt` value type with
+base-2^32 limbs. Literal emission, declared/inferred types, operators,
+`BigInt(...)`, dynamic `Value` storage, and managed arrays all consume that same
+representation. A bit-at-a-time magnitude division was chosen for the first
+version because it keeps signed quotient/remainder behavior auditable; replacing
+it with a faster algorithm later should not require emitter or value-model
+changes. The executable smoke uses values beyond 64 bits so a regression to a
+built-in integer cannot pass unnoticed.
+
 Custom functions and class methods exposed a calling-convention issue: string
 literals and class allocation require access to the active heap, but free C++
 functions and inline methods do not naturally see the `Runtime` local in

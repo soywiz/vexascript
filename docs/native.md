@@ -79,6 +79,9 @@ silently producing incorrect C++. Its initial surface includes:
 - arithmetic and managed string concatenation, comparison including `<=>`, array
   and range membership, assignment, truthy logical/unary conditions, update,
   conditional, comma, and lazy nullish-coalescing expressions;
+- arbitrary-precision `bigint` literals and construction, arithmetic,
+  exponentiation, comparisons, bitwise operations, shifts, conversion, managed
+  arrays, and dynamic-value storage without an external bigint library;
 - synchronous typed arrow functions and anonymous function expressions, including
   generated-class parameters and captures;
 - `console.log`, `console.info`, `console.warn`, and `console.error`;
@@ -97,8 +100,12 @@ silently producing incorrect C++. Its initial surface includes:
 
 Numeric VexaScript types keep their intended native representation: `int` maps
 to `std::int32_t`, `long` maps to `std::int64_t`, and `number` maps to C++
-`double`. Range-loop iterators use the analyzed element type rather than a
-single hard-coded numeric type. Numeric remainder uses the shared native
+`double`. `bigint` maps to the runtime's arbitrary-precision `vexa::BigInt`,
+which stores a sign and base-2^32 magnitude limbs. Its multiplication is
+grade-school and its division is deliberately bit-at-a-time: the initial
+implementation favors correctness and no dependencies over speed. Range-loop
+iterators use the analyzed element type rather than a single hard-coded numeric
+type. Numeric remainder uses the shared native
 `remainder` helper, preserving integral `%` behavior while mapping `number`
 operands to `std::fmod` instead of emitting invalid C++ floating-point `%`.
 

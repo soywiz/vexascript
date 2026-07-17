@@ -208,6 +208,15 @@ switch (Permission.All) {
 console.log("strings", "  Vexa  ".trim().toUpperCase(), "language".includes("gua"))
 console.log("math-regex", Math.max(3, 7), Math.round(2.6), /vexa/i.test("VEXA"))
 
+val huge: bigint = 123456789012345678901234567890n
+val hugeDivisor = 9876543210n
+val parsedHuge = BigInt("999999999999999999999999999999")
+console.log("bigint-arithmetic", huge + parsedHuge, huge - hugeDivisor, huge * hugeDivisor, huge / hugeDivisor, huge % hugeDivisor, -huge)
+console.log("bigint-bits", huge > hugeDivisor, 2n ** 100n, -5n >> 1n, -5n & 3n, 5n << 70n)
+console.log("bigint-signed", -17n / 5n, -17n % 5n, 17n / -5n, 17n % -5n, ~5n, -5n | 2n, -5n ^ 2n)
+val incrementedHuge = [1n, huge].map((value: bigint) => value + 1n)
+console.log("bigint-values", incrementedHuge.join("|"), [1n, "x"].join("|"), typeof huge, Boolean(0n), Number(42n))
+
 console.log("control", loopControl())
 console.log("errors", guarded())
 

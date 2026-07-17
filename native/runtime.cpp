@@ -32,6 +32,8 @@
 #include <variant>
 #include <vector>
 
+#include "bigint.h"
+
 #include <cppgc/allocation.h>
 #include <cppgc/garbage-collected.h>
 #include <cppgc/heap.h>
@@ -79,6 +81,7 @@ class Value final {
       Null,
       bool,
       double,
+      BigInt,
       cppgc::Persistent<StringObject>,
       cppgc::Persistent<RecordObject>>;
 
@@ -86,6 +89,7 @@ class Value final {
   Value(bool value) : storage_(value) {}
   Value(double value) : storage_(value) {}
   Value(int value) : storage_(static_cast<double>(value)) {}
+  Value(BigInt value) : storage_(std::move(value)) {}
   explicit Value(StringObject* value) : storage_(cppgc::Persistent<StringObject>(value)) {}
   explicit Value(RecordObject* value);
 
@@ -96,11 +100,13 @@ class Value final {
   bool isNull() const { return std::holds_alternative<Null>(storage_); }
   bool isBoolean() const { return std::holds_alternative<bool>(storage_); }
   bool isNumber() const { return std::holds_alternative<double>(storage_); }
+  bool isBigInt() const { return std::holds_alternative<BigInt>(storage_); }
   bool isString() const { return std::holds_alternative<cppgc::Persistent<StringObject>>(storage_); }
   bool isRecord() const { return std::holds_alternative<cppgc::Persistent<RecordObject>>(storage_); }
 
   bool boolean() const { return std::get<bool>(storage_); }
   double number() const { return std::get<double>(storage_); }
+  const BigInt& bigint() const { return std::get<BigInt>(storage_); }
   const std::string& string() const {
     return std::get<cppgc::Persistent<StringObject>>(storage_)->value();
   }
@@ -121,6 +127,7 @@ class StoredValue final {
       Null,
       bool,
       double,
+      BigInt,
       cppgc::Member<StringObject>,
       cppgc::Member<RecordObject>>;
 
@@ -187,6 +194,7 @@ inline bool Value::operator==(const Value& other) const {
   if (isUndefined() || isNull()) return true;
   if (isBoolean()) return boolean() == other.boolean();
   if (isNumber()) return number() == other.number();
+  if (isBigInt()) return bigint() == other.bigint();
   if (isString()) return string() == other.string();
   return record() == other.record();
 }
@@ -196,6 +204,7 @@ inline Value StoredValue::load() const {
   if (std::holds_alternative<Null>(storage_)) return Value::null();
   if (const auto* value = std::get_if<bool>(&storage_)) return Value(*value);
   if (const auto* value = std::get_if<double>(&storage_)) return Value(*value);
+  if (const auto* value = std::get_if<BigInt>(&storage_)) return Value(*value);
   if (const auto* value = std::get_if<cppgc::Member<StringObject>>(&storage_)) {
     return Value(value->Get());
   }
@@ -207,6 +216,7 @@ inline void StoredValue::store(const Value& value) {
   else if (value.isNull()) storage_ = Null{};
   else if (value.isBoolean()) storage_ = value.boolean();
   else if (value.isNumber()) storage_ = value.number();
+  else if (value.isBigInt()) storage_ = value.bigint();
   else if (value.isString()) {
     storage_ = cppgc::Member<StringObject>(
         std::get<cppgc::Persistent<StringObject>>(value.storage_).Get());
@@ -604,10 +614,22 @@ Result convertValue(Runtime& runtime, Input&& input) {
     if constexpr (std::is_same_v<Result, bool>) {
       if (input.isBoolean()) return input.boolean();
       if (input.isNumber()) return input.number() != 0 && !std::isnan(input.number());
+      if (input.isBigInt()) return !input.bigint().isZero();
       return !input.isUndefined() && !input.isNull();
+    } else if constexpr (std::is_same_v<Result, BigInt>) {
+      if (input.isBigInt()) return input.bigint();
+      if (input.isBoolean()) return BigInt(input.boolean() ? 1 : 0);
+      if (input.isNumber() && std::isfinite(input.number()) && std::trunc(input.number()) == input.number()) {
+        std::ostringstream text;
+        text << std::fixed << std::setprecision(0) << input.number();
+        return BigInt(text.str());
+      }
+      if (input.isString()) return BigInt(input.string());
+      throw std::runtime_error("VexaScript value cannot be converted to bigint");
     } else if constexpr (std::is_arithmetic_v<Result>) {
       if (input.isNumber()) return static_cast<Result>(input.number());
       if (input.isBoolean()) return static_cast<Result>(input.boolean());
+      if (input.isBigInt()) return static_cast<Result>(input.bigint().toDouble());
       throw std::runtime_error("VexaScript value is not numeric");
     } else if constexpr (std::is_same_v<Result, RecordObject*>) {
       if (!input.isRecord()) throw std::runtime_error("VexaScript value is not an object");
@@ -647,10 +669,12 @@ inline std::string propertyKey(double value) {
 }
 inline std::string propertyKey(std::int32_t value) { return std::to_string(value); }
 inline std::string propertyKey(std::int64_t value) { return std::to_string(value); }
+inline std::string propertyKey(const BigInt& value) { return value.toString(); }
 inline std::string propertyKey(bool value) { return value ? "true" : "false"; }
 inline std::string propertyKey(const Value& value) {
   if (value.isString()) return value.string();
   if (value.isNumber()) return propertyKey(value.number());
+  if (value.isBigInt()) return propertyKey(value.bigint());
   if (value.isBoolean()) return propertyKey(value.boolean());
   if (value.isNull()) return "null";
   if (value.isUndefined()) return "undefined";
@@ -1635,6 +1659,7 @@ inline std::string toString(const Value& value) {
   if (value.isNull()) return "null";
   if (value.isBoolean()) return value.boolean() ? "true" : "false";
   if (value.isNumber()) return numberToString(value.number());
+  if (value.isBigInt()) return value.bigint().toString();
   if (value.isString()) return value.string();
   return "[object Object]";
 }
@@ -1644,6 +1669,27 @@ inline std::string toString(int value) { return std::to_string(value); }
 inline std::string toString(std::int64_t value) { return std::to_string(value); }
 inline std::string toString(bool value) { return value ? "true" : "false"; }
 inline const std::string& toString(const std::string& value) { return value; }
+
+inline BigInt makeBigInt(const BigInt& value) { return value; }
+inline BigInt makeBigInt(bool value) { return BigInt(value ? 1 : 0); }
+inline BigInt makeBigInt(std::int32_t value) { return BigInt(value); }
+inline BigInt makeBigInt(std::int64_t value) { return BigInt(static_cast<long long>(value)); }
+inline BigInt makeBigInt(double value) {
+  if (!std::isfinite(value) || std::trunc(value) != value) {
+    throw std::runtime_error("Cannot convert a non-integer number to BigInt");
+  }
+  std::ostringstream text;
+  text << std::fixed << std::setprecision(0) << value;
+  return BigInt(text.str());
+}
+inline BigInt makeBigInt(const std::string& value) { return BigInt(value); }
+inline BigInt makeBigInt(const Value& value) {
+  if (value.isBigInt()) return value.bigint();
+  if (value.isBoolean()) return makeBigInt(value.boolean());
+  if (value.isNumber()) return makeBigInt(value.number());
+  if (value.isString()) return makeBigInt(value.string());
+  throw std::runtime_error("Cannot convert value to BigInt");
+}
 
 template <typename T>
 inline std::string toString(ArrayObject<T>* array);
@@ -1982,9 +2028,11 @@ inline ArrayObject<std::string>* split(Runtime& runtime, const Value& value, con
 
 inline double Number(double value) { return value; }
 inline double Number(bool value) { return value ? 1 : 0; }
+inline double Number(const BigInt& value) { return value.toDouble(); }
 inline double Number(const Value& value) {
   if (value.isNumber()) return value.number();
   if (value.isBoolean()) return value.boolean() ? 1 : 0;
+  if (value.isBigInt()) return value.bigint().toDouble();
   if (value.isNull()) return 0;
   if (value.isUndefined()) return std::numeric_limits<double>::quiet_NaN();
   if (!value.isString()) return std::numeric_limits<double>::quiet_NaN();
@@ -2052,6 +2100,12 @@ inline Value add(Runtime& runtime, Left&& leftInput, Right&& rightInput) {
   if (left.isString() || right.isString()) {
     return runtime.string(toString(left) + toString(right));
   }
+  if (left.isBigInt() || right.isBigInt()) {
+    if (!left.isBigInt() || !right.isBigInt()) {
+      throw std::runtime_error("Cannot mix bigint and number arithmetic");
+    }
+    return Value(left.bigint() + right.bigint());
+  }
   return Value(Number(left) + Number(right));
 }
 
@@ -2075,6 +2129,9 @@ inline std::int32_t compare(const Left& left, const Right& right) {
 inline std::int32_t compare(const Value& left, const Value& right) {
   if (left.isString() && right.isString()) {
     return compare(left.string(), right.string());
+  }
+  if (left.isBigInt() && right.isBigInt()) {
+    return compare(left.bigint(), right.bigint());
   }
   return compare(Number(left), Number(right));
 }
@@ -2103,10 +2160,12 @@ inline std::string typeOf(const Value& value) {
   if (value.isUndefined()) return "undefined";
   if (value.isBoolean()) return "boolean";
   if (value.isNumber()) return "number";
+  if (value.isBigInt()) return "bigint";
   if (value.isString()) return "string";
   return "object";
 }
 inline std::string typeOf(double) { return "number"; }
+inline std::string typeOf(const BigInt&) { return "bigint"; }
 inline std::string typeOf(bool) { return "boolean"; }
 inline std::string typeOf(const std::string&) { return "string"; }
 

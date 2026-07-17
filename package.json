@@ -10,6 +10,7 @@
   "files": [
     "dist",
     "native/runtime.cpp",
+    "native/bigint.h",
     "native/oilpan-standalone-main.zip"
   ],
   "scripts": {
