@@ -45,8 +45,8 @@ import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import type { AnalysisIssue } from "./model";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
-import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
-import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations";
+import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
+import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations.shared";
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import { declarationIndexForStatements } from "./declarationIndex";
 

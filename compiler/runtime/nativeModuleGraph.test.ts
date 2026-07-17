@@ -141,4 +141,74 @@ console.log([1, 2, 3].doubledLength, ["x"].doubledLength)`,
       expect(result.code.match(/__vexa_extension_property_Array_doubledLength\(runtime,/g)?.length).toBe(2);
     });
   });
+
+  it("converts native array elements at dynamic string parameter boundaries", async () => {
+    await withTempProject({
+      "main.vx": `fun printValue(value: string) { console.log(value) }
+val values: string[] = ["native"]
+printValue(values[0])`,
+    }, async (dir) => {
+      const result = await compileNativeModuleGraph(join(dir, "main.vx"), "optimized");
+
+      expect(result.errors).toEqual([]);
+      expect(result.code).toContain(
+        "vexa::convertValue<vexa::Value>(runtime, vexa::arrayGet(vexa::arrayPointer(__vexa_module_0_values), 0))"
+      );
+    });
+  });
+
+  it("allows type-only cycles without treating them as initialization cycles", async () => {
+    await withTempProject({
+      "analysis.ts": `import type { Issue } from "./model"
+export interface AnalysisRange { line: number }
+export function issueCount(): number { return 0 }`,
+      "model.ts": `import type { AnalysisRange } from "./analysis"
+export interface Issue { range: AnalysisRange }`,
+      "main.ts": `import { issueCount } from "./analysis"
+console.log(issueCount())`,
+    }, async (dir) => {
+      const result = await compileNativeModuleGraph(join(dir, "main.ts"), "optimized");
+
+      expect(result.errors).toEqual([]);
+      expect(result.code).toContain("__vexa_module_1_issueCount");
+    });
+  });
+
+  it("renames imported types throughout composite type syntax", async () => {
+    await withTempProject({
+      "types.ts": `export interface Item { value: number }
+export class Box<T> {
+  constructor(public value: T) {}
+  peek(): T | undefined { return this.value }
+}`,
+      "helper.ts": `import { Box, type Item } from "./types"
+export class Failure {
+  item: Item | undefined
+}
+export class Reader {
+  peek(): Item { return { value: 1 } as Item }
+  read(): number {
+    const item = this.peek()
+    return item.value
+  }
+}
+export class GenericReader {
+  constructor(private box: Box<Item>) {}
+  read(): number {
+    const item = this.box.peek()
+    return item.value
+  }
+}
+export function count(values: readonly Item[]): number { return values.length }`,
+      "main.ts": `import { count } from "./helper"
+console.log(1)`,
+    }, async (dir) => {
+      const result = await compileNativeModuleGraph(join(dir, "main.ts"), "optimized", { typeCheck: false });
+
+      expect(result.errors).toEqual([]);
+      expect(result.code).toContain("vexa::ArrayObject<__vexa_module_0_Item*>* values");
+      expect(result.code).toContain("cppgc::Member<__vexa_module_0_Item> item;");
+      expect(result.code.match(/item->__vexa_property_get_value\(__vexa_runtime\)/g)?.length).toBe(2);
+    });
+  });
 });

@@ -16,6 +16,7 @@
 #include <exception>
 #include <functional>
 #include <fstream>
+#include <filesystem>
 #include <future>
 #include <iomanip>
 #include <initializer_list>
@@ -49,6 +50,10 @@
 #include <cppgc/visitor.h>
 #include <src/base/page-allocator.h>
 
+#if !defined(_WIN32)
+extern char** environ;
+#endif
+
 namespace vexa {
 
 class OilpanPlatform final : public cppgc::Platform {
@@ -80,6 +85,7 @@ struct Null final {};
 class RecordObject;
 class Runtime;
 class DynamicValueObject;
+class EnumerableObject;
 class Value;
 std::string toString(const Value&);
 std::string jsonQuoted(const std::string&);
@@ -204,19 +210,30 @@ class RecordObject final : public cppgc::GarbageCollected<RecordObject> {
  public:
   Value get(const std::string& key) const {
     const auto property = properties_.find(key);
-    return property == properties_.end() ? Value::undefined() : property->second.load();
+    if (property != properties_.end()) return property->second.load();
+    const auto hidden = hidden_properties_.find(key);
+    return hidden == hidden_properties_.end() ? Value::undefined() : hidden->second.load();
   }
 
   void set(std::string key, const Value& value) {
+    hidden_properties_.erase(key);
     if (!properties_.contains(key)) property_order_.push_back(key);
     properties_.insert_or_assign(std::move(key), StoredValue(value));
   }
 
-  bool has(const std::string& key) const { return properties_.contains(key); }
+  void setHidden(std::string key, const Value& value) {
+    if (properties_.erase(key) > 0) {
+      property_order_.erase(std::remove(property_order_.begin(), property_order_.end(), key), property_order_.end());
+    }
+    hidden_properties_.insert_or_assign(std::move(key), StoredValue(value));
+  }
+
+  bool has(const std::string& key) const { return properties_.contains(key) || hidden_properties_.contains(key); }
   bool erase(const std::string& key) {
-    if (properties_.erase(key) == 0) return false;
-    property_order_.erase(std::remove(property_order_.begin(), property_order_.end(), key), property_order_.end());
-    return true;
+    const bool visible = properties_.erase(key) > 0;
+    const bool hidden = hidden_properties_.erase(key) > 0;
+    if (visible) property_order_.erase(std::remove(property_order_.begin(), property_order_.end(), key), property_order_.end());
+    return visible || hidden;
   }
 
   void copyTo(RecordObject* target) const {
@@ -239,12 +256,40 @@ class RecordObject final : public cppgc::GarbageCollected<RecordObject> {
 
   void Trace(cppgc::Visitor* visitor) const {
     for (const auto& [key, value] : properties_) value.Trace(visitor);
+    for (const auto& [key, value] : hidden_properties_) value.Trace(visitor);
   }
 
  private:
   std::unordered_map<std::string, StoredValue> properties_;
+  std::unordered_map<std::string, StoredValue> hidden_properties_;
   std::vector<std::string> property_order_;
 };
+
+class EnumerableObject {
+ public:
+  virtual ~EnumerableObject() = default;
+  virtual std::vector<std::string> enumerableKeys() const { return {}; }
+  virtual Value enumerableGet(Runtime&, const std::string&) { return Value::undefined(); }
+  virtual void defineProperty(Runtime&, const std::string&, const Value&, bool) {
+    throw std::runtime_error("Native object does not support dynamic property definitions");
+  }
+};
+
+inline std::vector<std::string> objectKeys(RecordObject* object) {
+  return object ? object->keys() : std::vector<std::string>{};
+}
+
+inline std::vector<std::string> objectKeys(EnumerableObject* object) {
+  return object ? object->enumerableKeys() : std::vector<std::string>{};
+}
+
+inline Value enumerableGet(Runtime&, RecordObject* object, const std::string& key) {
+  return object ? object->get(key) : Value::undefined();
+}
+
+inline Value enumerableGet(Runtime& runtime, EnumerableObject* object, const std::string& key) {
+  return object ? object->enumerableGet(runtime, key) : Value::undefined();
+}
 
 inline Value::Value(RecordObject* value)
     : storage_(cppgc::Persistent<RecordObject>(value)) {}
@@ -396,6 +441,9 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
     return value;
   }
   void append(T value) { values_.emplace_back(value); }
+  void insert(std::size_t index, T value) {
+    values_.insert(values_.begin() + static_cast<std::ptrdiff_t>(std::min(index, values_.size())), ArraySlot<T>(value));
+  }
   void prepend(T value) { values_.insert(values_.begin(), ArraySlot<T>(value)); }
   double push(T value) {
     append(std::move(value));
@@ -559,8 +607,13 @@ inline bool sameValueZero(const Value& left, const Value& right) {
       std::isnan(left.number()) && std::isnan(right.number()));
 }
 
+class MapLikeObject : public DynamicValueObject {};
+class SetLikeObject : public DynamicValueObject {};
+class WeakMapLikeObject : public DynamicValueObject {};
+class WeakSetLikeObject : public DynamicValueObject {};
+
 template <typename K, typename V>
-class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public DynamicValueObject {
+class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public MapLikeObject {
  public:
   std::size_t size() const { return entries_.size(); }
 
@@ -630,7 +683,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
 };
 
 template <typename T>
-class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public DynamicValueObject {
+class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public SetLikeObject {
  public:
   std::size_t size() const { return values_.size(); }
 
@@ -684,7 +737,7 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Dyn
 };
 
 template <typename K, typename V>
-class WeakMapObject final : public cppgc::GarbageCollected<WeakMapObject<K, V>>, public DynamicValueObject {
+class WeakMapObject final : public cppgc::GarbageCollected<WeakMapObject<K, V>>, public WeakMapLikeObject {
   static_assert(std::is_pointer_v<K>, "WeakMap keys must be managed object pointers");
   using KeyObject = std::remove_pointer_t<K>;
 
@@ -740,7 +793,7 @@ class WeakMapObject final : public cppgc::GarbageCollected<WeakMapObject<K, V>>,
 };
 
 template <typename T>
-class WeakSetObject final : public cppgc::GarbageCollected<WeakSetObject<T>>, public DynamicValueObject {
+class WeakSetObject final : public cppgc::GarbageCollected<WeakSetObject<T>>, public WeakSetLikeObject {
   static_assert(std::is_pointer_v<T>, "WeakSet values must be managed object pointers");
   using ValueObject = std::remove_pointer_t<T>;
 
@@ -780,6 +833,93 @@ class WeakSetObject final : public cppgc::GarbageCollected<WeakSetObject<T>>, pu
     }), values_.end());
   }
   std::vector<cppgc::WeakMember<ValueObject>> values_;
+};
+
+template <typename Kind>
+inline bool isCollectionLikeValue(const Value& value) {
+  return value.isDynamicObject() && dynamic_cast<Kind*>(value.dynamicObject()) != nullptr;
+}
+
+template <typename Kind, typename T>
+inline bool isCollectionLikePointer(T* value) {
+  return value && dynamic_cast<Kind*>(value) != nullptr;
+}
+
+inline bool isMapLike(const Value& value) { return isCollectionLikeValue<MapLikeObject>(value); }
+inline bool isSetLike(const Value& value) { return isCollectionLikeValue<SetLikeObject>(value); }
+inline bool isWeakMapLike(const Value& value) { return isCollectionLikeValue<WeakMapLikeObject>(value); }
+inline bool isWeakSetLike(const Value& value) { return isCollectionLikeValue<WeakSetLikeObject>(value); }
+
+template <typename T> inline bool isMapLike(T* value) { return isCollectionLikePointer<MapLikeObject>(value); }
+template <typename T> inline bool isSetLike(T* value) { return isCollectionLikePointer<SetLikeObject>(value); }
+template <typename T> inline bool isWeakMapLike(T* value) { return isCollectionLikePointer<WeakMapLikeObject>(value); }
+template <typename T> inline bool isWeakSetLike(T* value) { return isCollectionLikePointer<WeakSetLikeObject>(value); }
+
+inline int uriHexValue(char value) {
+  if (value >= '0' && value <= '9') return value - '0';
+  if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+  if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+  return -1;
+}
+
+inline std::string decodeUriComponentText(const std::string& value) {
+  std::string result;
+  result.reserve(value.size());
+  for (std::size_t index = 0; index < value.size(); ++index) {
+    if (value[index] == '%' && index + 2 < value.size()) {
+      const int high = uriHexValue(value[index + 1]);
+      const int low = uriHexValue(value[index + 2]);
+      if (high >= 0 && low >= 0) {
+        result.push_back(static_cast<char>((high << 4) | low));
+        index += 2;
+        continue;
+      }
+    }
+    result.push_back(value[index]);
+  }
+  return result;
+}
+
+inline std::string encodeUriComponentText(const std::string& value) {
+  static constexpr char HEX[] = "0123456789ABCDEF";
+  std::string result;
+  for (const unsigned char byte : value) {
+    if (std::isalnum(byte) || byte == '-' || byte == '_' || byte == '.' || byte == '!' ||
+        byte == '~' || byte == '*' || byte == '\'' || byte == '(' || byte == ')') {
+      result.push_back(static_cast<char>(byte));
+    } else {
+      result.push_back('%');
+      result.push_back(HEX[byte >> 4]);
+      result.push_back(HEX[byte & 0x0f]);
+    }
+  }
+  return result;
+}
+
+class URLObject final : public cppgc::GarbageCollected<URLObject>, public DynamicValueObject {
+ public:
+  explicit URLObject(std::string value) : href(std::move(value)) {
+    const auto separator = href.find(':');
+    if (separator == std::string::npos) {
+      pathname = href;
+    } else {
+      protocol = href.substr(0, separator + 1);
+      const std::size_t pathStart = href.compare(separator + 1, 2, "//") == 0
+          ? separator + 3
+          : separator + 1;
+      pathname = pathStart < href.size() ? href.substr(pathStart) : "";
+      if (protocol == "file:" && (pathname.empty() || pathname.front() != '/')) pathname.insert(pathname.begin(), '/');
+    }
+  }
+
+  const void* dynamicTypeToken() const override { return nativeTypeToken<URLObject>(); }
+  void* dynamicCast(const void* type) override { return type == nativeTypeToken<URLObject>() ? this : nullptr; }
+  std::string dynamicToString() const override { return href; }
+  void Trace(cppgc::Visitor*) const override {}
+
+  std::string href;
+  std::string protocol;
+  std::string pathname;
 };
 
 class DateObject final : public cppgc::GarbageCollected<DateObject>, public DynamicValueObject {
@@ -1046,6 +1186,14 @@ inline ArrayObject<T>* arrayPointer(const cppgc::Persistent<ArrayObject<T>>& arr
   return array.Get();
 }
 
+inline ArrayObject<Value>* arrayPointer(const Value& value) {
+  if (!value.isDynamicObject()) throw std::runtime_error("Value is not an array");
+  auto* array = static_cast<ArrayObject<Value>*>(
+      value.dynamicObject()->dynamicCast(nativeTypeToken<ArrayObject<Value>>()));
+  if (!array) throw std::runtime_error("Value is not a dynamically typed array");
+  return array;
+}
+
 template <typename T>
 inline T* rawPointer(T* value) {
   return value;
@@ -1061,13 +1209,31 @@ inline T* rawPointer(const cppgc::Persistent<T>& value) {
   return value.Get();
 }
 
-class Error final {
+template <typename T>
+inline void defineProperty(Runtime& runtime, T&& object, std::string key, const Value& value, bool enumerable) {
+  auto* pointer = rawPointer(std::forward<T>(object));
+  using Object = std::remove_pointer_t<decltype(pointer)>;
+  if constexpr (std::is_base_of_v<EnumerableObject, Object>) {
+    if (!pointer) throw std::runtime_error("Cannot define a property on null");
+    pointer->defineProperty(runtime, key, value, enumerable);
+  } else if constexpr (std::is_same_v<Object, RecordObject>) {
+    if (!pointer) throw std::runtime_error("Cannot define a property on null");
+    if (enumerable) pointer->set(std::move(key), value);
+    else pointer->setHidden(std::move(key), value);
+  } else {
+    throw std::runtime_error("Native Object.defineProperty requires an enumerable native object");
+  }
+}
+
+class Error {
  public:
   explicit Error(const Value& value)
-      : message_(value.isString() ? value.string() : "Error") {}
-  explicit Error(std::string message) : message_(std::move(message)) {}
+      : message_(value.isString() ? value.string() : toString(value)) {}
+  explicit Error(std::string value)
+      : message_(std::move(value)) {}
 
-  const std::string& message() const { return message_; }
+  const std::string& messageText() const { return message_; }
+  Value name;
 
  private:
   std::string message_;
@@ -1081,6 +1247,9 @@ class RegExp final {
           : std::regex_constants::ECMAScript) {}
 
   bool test(const std::string& value) const { return std::regex_search(value, expression_); }
+  std::string replace(const std::string& value, const std::string& replacement) const {
+    return std::regex_replace(value, expression_, replacement);
+  }
 
  private:
   std::regex expression_;
@@ -1092,6 +1261,14 @@ inline bool regexTest(const RegExp& expression, const std::string& value) {
 
 inline bool regexTest(const RegExp& expression, const Value& value) {
   return expression.test(value.isString() ? value.string() : "");
+}
+
+inline std::string stringReplace(const std::string& value, const RegExp& expression, const Value& replacement) {
+  return expression.replace(value, toString(replacement));
+}
+
+inline std::string stringReplace(const Value& value, const RegExp& expression, const Value& replacement) {
+  return expression.replace(toString(value), toString(replacement));
 }
 
 template <typename Callback>
@@ -1386,6 +1563,17 @@ Result convertValue(Runtime& runtime, Input&& input) {
   }
 }
 
+template <typename Interface, typename Adapter, typename Input>
+inline Interface* adaptInterface(Runtime& runtime, Input&& input) {
+  using Source = std::remove_cvref_t<Input>;
+  if constexpr (std::is_same_v<Source, Value>) {
+    if (input.isRecord()) return runtime.make<Adapter>(input.record());
+  } else if constexpr (std::is_same_v<Source, RecordObject*>) {
+    return runtime.make<Adapter>(input);
+  }
+  return convertValue<Interface*>(runtime, std::forward<Input>(input));
+}
+
 template <typename K, typename V, typename Key>
 inline Value mapGet(Runtime& runtime, MapObject<K, V>* map, Key&& key) {
   const auto found = map->get(convertValue<K>(runtime, std::forward<Key>(key)));
@@ -1456,6 +1644,22 @@ inline MapObject<K, V>* mapFromEntries(
   return result;
 }
 
+template <typename K, typename V, typename Entry>
+inline MapObject<K, V>* mapFromIterable(
+    Runtime& runtime,
+    const ArrayObject<ArrayObject<Entry>*>* entries) {
+  return mapFromEntries<K, V>(runtime, entries);
+}
+
+template <typename K, typename V, typename InputK, typename InputV>
+inline MapObject<K, V>* mapFromIterable(Runtime& runtime, MapObject<InputK, InputV>* source) {
+  auto* result = runtime.make<MapObject<K, V>>();
+  source->forEach([&](InputV value, InputK key) {
+    result->set(convertValue<K>(runtime, key), convertValue<V>(runtime, value));
+  });
+  return result;
+}
+
 template <typename T, typename Input>
 inline SetObject<T>* setAdd(Runtime& runtime, SetObject<T>* set, Input&& value) {
   return set->add(convertValue<T>(runtime, std::forward<Input>(value)));
@@ -1487,6 +1691,25 @@ inline ArrayObject<T>* setValues(Runtime& runtime, SetObject<T>* set) {
 template <typename T, typename Input>
 inline SetObject<T>* setFromArray(Runtime& runtime, const ArrayObject<Input>* values) {
   auto* result = runtime.make<SetObject<T>>();
+  for (const auto& value : *values) result->add(convertValue<T>(runtime, value));
+  return result;
+}
+
+template <typename T, typename Input>
+inline SetObject<T>* setFromIterable(Runtime& runtime, const ArrayObject<Input>* values) {
+  return setFromArray<T>(runtime, values);
+}
+
+template <typename T, typename Input>
+inline SetObject<T>* setFromIterable(Runtime& runtime, SetObject<Input>* source) {
+  auto* result = runtime.make<SetObject<T>>();
+  source->forEach([&](Input value) { result->add(convertValue<T>(runtime, value)); });
+  return result;
+}
+
+template <typename T, typename Input>
+inline WeakSetObject<T>* weakSetFromArray(Runtime& runtime, const ArrayObject<Input>* values) {
+  auto* result = runtime.make<WeakSetObject<T>>();
   for (const auto& value : *values) result->add(convertValue<T>(runtime, value));
   return result;
 }
@@ -1692,6 +1915,13 @@ inline RecordObject* recordSpread(RecordObject* target, RecordObject* source) {
   return target;
 }
 
+inline RecordObject* recordSpread(RecordObject* target, EnumerableObject* source) {
+  if (!source) return target;
+  auto& runtime = Runtime::current();
+  for (const auto& key : source->enumerableKeys()) target->set(key, source->enumerableGet(runtime, key));
+  return target;
+}
+
 inline RecordObject* recordRest(
     Runtime& runtime,
     RecordObject* source,
@@ -1719,6 +1949,23 @@ T destructureDefault(Runtime&, T value, Callback&&) {
 
 inline bool recordHas(RecordObject* record, const std::string& key) {
   return record && record->has(key);
+}
+
+inline bool hasProperty(Runtime& runtime, const Value& value, const std::string& key) {
+  if (value.isRecord()) return value.record()->has(key);
+  if (value.isDynamicObject()) return !value.dynamicObject()->dynamicGet(runtime, key).isUndefined();
+  return false;
+}
+
+inline bool hasProperty(Runtime&, RecordObject* record, const std::string& key) {
+  return recordHas(record, key);
+}
+
+template <typename T>
+inline bool hasProperty(Runtime& runtime, T* value, const std::string& key) {
+  if constexpr (std::is_base_of_v<RecordObject, T>) return recordHas(value, key);
+  if constexpr (std::is_base_of_v<DynamicValueObject, T>) return value && !value->dynamicGet(runtime, key).isUndefined();
+  return false;
 }
 
 inline bool recordDelete(RecordObject* record, const std::string& key) {
@@ -1962,7 +2209,7 @@ class Task final {
     }
 
     void operator()(const Error& error) const {
-      reject(state_, std::make_exception_ptr(RejectedValue(state_->runtime->string(error.message()))));
+      reject(state_, std::make_exception_ptr(RejectedValue(state_->runtime->string(error.messageText()))));
     }
 
     template <typename Reason>
@@ -2118,7 +2365,7 @@ class Task<void> final {
     }
 
     void operator()(const Error& error) const {
-      reject(state_, std::make_exception_ptr(RejectedValue(state_->runtime->string(error.message()))));
+      reject(state_, std::make_exception_ptr(RejectedValue(state_->runtime->string(error.messageText()))));
     }
 
     template <typename Reason>
@@ -2190,6 +2437,69 @@ inline Task<Value> readTextFile(Runtime& runtime, std::string path) {
   });
 }
 
+inline Task<void> writeTextFile(Runtime& runtime, std::string path, std::string contents) {
+  auto operation = std::async(std::launch::async, [path = std::move(path), contents = std::move(contents)] {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output) throw std::runtime_error("Cannot open file for writing: " + path);
+    output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+    if (!output) throw std::runtime_error("Cannot write file: " + path);
+  }).share();
+  return Task<void>::create(runtime, [&runtime, operation = std::move(operation)](auto resolve, auto reject) mutable {
+    runtime.enqueueIo([operation = std::move(operation), resolve, reject]() mutable {
+      if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
+      try {
+        operation.get();
+        resolve();
+      } catch (const std::exception& error) {
+        reject(Error(std::string(error.what())));
+      }
+      return true;
+    });
+  });
+}
+
+class Process final {
+ public:
+  Process(Runtime& runtime, int argc, char** arguments)
+      : argv(runtime.array<std::string>()), env(runtime.record()) {
+    const std::string executable = argc > 0 && arguments[0] ? arguments[0] : "vexa";
+    argv->append(executable);
+    argv->append(executable);
+    for (int index = 1; index < argc; ++index) argv->append(arguments[index] ? arguments[index] : "");
+#if defined(_WIN32)
+    char** environment = _environ;
+#else
+    char** environment = ::environ;
+#endif
+    if (environment) {
+      for (char** entry = environment; *entry; ++entry) {
+        const std::string item(*entry);
+        const auto separator = item.find('=');
+        if (separator == std::string::npos) continue;
+        env->set(item.substr(0, separator), runtime.string(item.substr(separator + 1)));
+      }
+    }
+  }
+
+  std::string cwd() const { return std::filesystem::current_path().string(); }
+  [[noreturn]] void exit(double code = 0) const { std::exit(static_cast<int>(code)); }
+
+  ArrayObject<std::string>* argv;
+  RecordObject* env;
+  double exitCode = 0;
+};
+
+inline Process* process = nullptr;
+
+inline ArrayObject<std::string>* commandLineArguments(Runtime& runtime) {
+  auto* result = runtime.array<std::string>();
+  if (!process || !process->argv) return result;
+  for (std::size_t index = 2; index < process->argv->size(); ++index) {
+    result->append(process->argv->get(index));
+  }
+  return result;
+}
+
 template <typename T>
 inline std::string toString(const Task<T>&) {
   return "[object Promise]";
@@ -2198,6 +2508,14 @@ inline std::string toString(const Task<T>&) {
 template <typename T>
 inline T defaultValue() {
   return T{};
+}
+
+template <typename T>
+inline ArrayObject<T>* arrayWithLength(Runtime& runtime, double length) {
+  auto* result = runtime.array<T>();
+  const auto size = static_cast<std::size_t>(std::max(0.0, std::floor(length)));
+  for (std::size_t index = 0; index < size; ++index) result->append(defaultValue<T>());
+  return result;
 }
 
 template <>
@@ -2401,6 +2719,12 @@ inline void appendAll(std::vector<T>& target, const std::vector<T>& source) {
 template <typename T>
 inline void appendAll(ArrayObject<T>* target, const ArrayObject<T>* source) {
   for (const auto value : *source) target->append(value);
+}
+
+template <typename T>
+inline double pushAll(ArrayObject<T>* target, const ArrayObject<T>* source) {
+  appendAll(target, source);
+  return static_cast<double>(target->size());
 }
 
 template <typename T>
@@ -2856,6 +3180,23 @@ inline ArrayObject<T>* splice(
   return array->splice(runtime, start, deleteCount, std::forward<Items>(items)...);
 }
 
+template <typename T, typename Input>
+inline ArrayObject<T>* spliceAll(
+    Runtime& runtime,
+    ArrayObject<T>* array,
+    double start,
+    double deleteCount,
+    const ArrayObject<Input>* items) {
+  const std::size_t first = normalizedSliceIndex(start, array->size());
+  auto* removed = array->splice(runtime, start, deleteCount);
+  std::size_t offset = 0;
+  for (const auto& item : *items) {
+    array->insert(first + offset, convertValue<T>(runtime, item));
+    ++offset;
+  }
+  return removed;
+}
+
 template <typename T>
 inline ArrayObject<T>* ArrayObject<T>::fill(T value, double start, double end) {
   const std::size_t first = normalizedSliceIndex(start, size());
@@ -2974,10 +3315,16 @@ template <typename T>
 inline std::string toString(ArrayObject<T>* array);
 
 [[noreturn]] inline void throwValue(const Error& error) {
-  throw RejectedValue(Runtime::current().string(error.message()));
+  throw RejectedValue(Runtime::current().string(error.messageText()));
 }
 
 [[noreturn]] inline void throwValue(const Value& value) { throw RejectedValue(value); }
+
+template <typename T>
+  requires std::is_base_of_v<DynamicValueObject, T>
+[[noreturn]] inline void throwValue(T* value) {
+  throw RejectedValue(Value(value));
+}
 
 template <typename T>
 [[noreturn]] inline void throwValue(const T& value) {
@@ -3645,6 +3992,12 @@ inline bool endsWith(const std::string& value, const std::string& search) {
 inline bool endsWith(const Value& value, const Value& search) {
   return endsWith(toString(value), toString(search));
 }
+inline bool endsWith(const std::string& value, const Value& search) {
+  return endsWith(value, toString(search));
+}
+inline bool endsWith(const Value& value, const std::string& search) {
+  return endsWith(toString(value), search);
+}
 
 inline std::string charAt(const std::string& value, double index = 0) {
   const auto position = static_cast<std::int64_t>(index);
@@ -3653,6 +4006,28 @@ inline std::string charAt(const std::string& value, double index = 0) {
       : "";
 }
 inline std::string charAt(const Value& value, double index = 0) { return charAt(toString(value), index); }
+
+inline double charCodeAt(const std::string& value, double index = 0) {
+  const auto position = static_cast<std::int64_t>(std::trunc(index));
+  if (position < 0 || static_cast<std::size_t>(position) >= value.size()) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return static_cast<unsigned char>(value[static_cast<std::size_t>(position)]);
+}
+
+inline double charCodeAt(const Value& value, double index = 0) { return charCodeAt(toString(value), index); }
+
+inline std::string stringRepeat(const std::string& value, double count) {
+  const auto repetitions = std::max<std::int64_t>(0, static_cast<std::int64_t>(count));
+  std::string result;
+  result.reserve(value.size() * static_cast<std::size_t>(repetitions));
+  for (std::int64_t index = 0; index < repetitions; ++index) result += value;
+  return result;
+}
+
+inline std::string stringRepeat(const Value& value, double count) {
+  return stringRepeat(toString(value), count);
+}
 
 inline std::string substring(const std::string& value, double start, double end = std::numeric_limits<double>::infinity()) {
   std::size_t first = normalizedSliceIndex(std::max(0.0, start), value.size());
@@ -3697,6 +4072,9 @@ inline ArrayObject<std::string>* split(Runtime& runtime, const Value& value, con
 inline double Number(double value) { return value; }
 inline double Number(bool value) { return value ? 1 : 0; }
 inline double Number(const BigInt& value) { return value.toDouble(); }
+inline double Number(const std::string& value) {
+  try { return std::stod(value); } catch (...) { return std::numeric_limits<double>::quiet_NaN(); }
+}
 inline double numberFromString(const std::string& value) {
   const auto first = value.find_first_not_of(" \t\n\r\f\v");
   if (first == std::string::npos) return 0;
@@ -3961,6 +4339,24 @@ inline double parseInt(const std::string& value, int radix = 10) {
 inline double parseInt(const Value& value, int radix = 10) { return parseInt(toString(value), radix); }
 inline bool isNaN(double value) { return std::isnan(value); }
 inline bool isFinite(double value) { return std::isfinite(value); }
+inline bool isErrorLike(const Error&) { return true; }
+inline bool isErrorLike(const Value& value) {
+  return value.isString() ||
+    (value.isDynamicObject() && value.dynamicObject()->dynamicCast(nativeTypeToken<Error>()) != nullptr);
+}
+template <typename T>
+inline bool isErrorLike(T* value) {
+  if constexpr (std::is_base_of_v<Error, T>) return value != nullptr;
+  return value && value->dynamicCast(nativeTypeToken<Error>()) != nullptr;
+}
+inline Value encodeURIComponent(const std::string& value) {
+  return Runtime::current().string(encodeUriComponentText(value));
+}
+inline Value encodeURIComponent(const Value& value) { return encodeURIComponent(toString(value)); }
+inline Value decodeURIComponent(const std::string& value) {
+  return Runtime::current().string(decodeUriComponentText(value));
+}
+inline Value decodeURIComponent(const Value& value) { return decodeURIComponent(toString(value)); }
 
 inline std::string typeOf(const Value& value) {
   if (value.isUndefined()) return "undefined";

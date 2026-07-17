@@ -1,0 +1,41 @@
+import { compileNativeModuleGraph } from "compiler/runtime/nativeModuleGraph"
+import { Vfs } from "compiler/vfs"
+
+class NativeCompilerVfs extends Vfs {
+  override async fun readFile(path: string): Promise<string> {
+    return await readTextFile(path)
+  }
+
+  override async fun fileExists(path: string): Promise<boolean> {
+    try {
+      await readTextFile(path)
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
+sync fun compileNativeGeneration() {
+  val args = commandLineArguments()
+  if (args.length < 2) {
+    console.error("Usage: vexa-native-compiler <entry> <output.cpp> [base-url]")
+    process.exitCode = 2
+    return
+  }
+
+  val baseUrl = args.length > 2 ? args[2] : process.cwd()
+  val result = compileNativeModuleGraph(args[0], "optimized", {
+    vfs: NativeCompilerVfs(),
+    baseUrl,
+    typeCheck: false,
+  })
+  if (result.errors.length > 0) {
+    console.error(result.errors.join("\n"))
+    process.exitCode = 1
+    return
+  }
+  writeTextFile(args[1], result.code)
+}
+
+compileNativeGeneration()

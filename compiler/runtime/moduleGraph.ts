@@ -1,4 +1,3 @@
-import type { ParserOptions } from "compiler/parser/parser";
 import type {
   FunctionStatement,
   Identifier,
@@ -27,6 +26,13 @@ import { extname, resolve } from "compiler/utils/path";
 import { collectImplicitVexaExportPlan } from "./implicitExports";
 import { stripBundledCommonJsImports, stripBundledModuleSyntax } from "./bundlingStripping";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
+import {
+  isBundledLocalModulePath,
+  localImportSpecifiers,
+  parserOptionsForModulePath
+} from "./localModuleResolution";
+import type { ModuleGraphOptions } from "./moduleGraphModel";
+export type { GlobalSymbolSourceOptions, ModuleGraphOptions } from "./moduleGraphModel";
 
 /**
  * Resolves a project's local module graph and bundles it into a single
@@ -50,66 +56,9 @@ const TYPE_DECLARATION_KINDS = new Set<Statement["kind"]>([
   "TypeAliasStatement"
 ]);
 
-function isBundledLocalModulePath(filePath: string): boolean {
-  const extension = extname(filePath).toLowerCase();
-  return extension === ".vx" || extension === ".ts" || extension === ".tsx";
-}
-
 function isInlineAssetModulePath(filePath: string): boolean {
   const extension = extname(filePath).toLowerCase();
   return extension === ".json" || extension === ".txt";
-}
-
-export function parserOptionsForModulePath(filePath: string): ParserOptions {
-  const extension = extname(filePath).toLowerCase();
-  if (extension === ".ts") {
-    return { language: "typescript" };
-  }
-  if (extension === ".tsx") {
-    return { language: "typescript", jsx: true };
-  }
-  return {};
-}
-
-export interface GlobalSymbolSourceOptions {
-  paths?: string[];
-  emit?: "globalThis" | "assume";
-}
-
-export interface ModuleGraphOptions {
-  vfs?: Vfs;
-  jsxFactory?: string;
-  jsxFragmentFactory?: string;
-  ambientDeclarations?: Statement[];
-  importMappings?: Readonly<Record<string, string>>;
-  globalSymbols?: GlobalSymbolSourceOptions;
-  /** Forwarded to transpilation; false keeps semantic analysis metadata but does not fail emission. */
-  typeCheck?: boolean;
-  /** Root used to resolve TypeScript-style non-relative source imports. */
-  baseUrl?: string;
-}
-
-async function resolveLocalModulePath(
-  importerFilePath: string,
-  importPath: string,
-  vfs: Vfs,
-  importMappings: Readonly<Record<string, string>>,
-  baseUrl?: string
-): Promise<string | null> {
-  const baseUrlTarget = baseUrl && !importPath.startsWith(".")
-    ? resolve(baseUrl, importPath)
-    : undefined;
-  if (!importPath.startsWith(".") && !importMappings[importPath] && !baseUrlTarget) {
-    return null;
-  }
-  const effectiveImportMappings = baseUrlTarget && !importMappings[importPath]
-    ? { ...importMappings, [importPath]: baseUrlTarget }
-    : importMappings;
-  const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, {
-    vfs,
-    importMappings: effectiveImportMappings
-  });
-  return targetPath && isBundledLocalModulePath(targetPath) ? targetPath : null;
 }
 
 async function resolveInlineAssetModulePath(
@@ -265,33 +214,6 @@ async function collectNodeModulesTypings(
   for (const [name, resolution] of imported.importedSymbols) {
     importedSymbols.set(name, resolution);
   }
-}
-
-export async function localImportSpecifiers(
-  ast: Program,
-  importerFilePath: string,
-  vfs: Vfs,
-  importMappings: Readonly<Record<string, string>>,
-  baseUrl?: string
-): Promise<{ statement: ImportStatement; targetPath: string }[]> {
-  const imports: { statement: ImportStatement; targetPath: string }[] = [];
-  for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    const targetPath = await resolveLocalModulePath(
-      importerFilePath,
-      importStatement.from.value,
-      vfs,
-      importMappings,
-      baseUrl
-    );
-    if (targetPath) {
-      imports.push({ statement: importStatement, targetPath });
-    }
-  }
-  return imports;
 }
 
 async function localAssetImportSpecifiers(
@@ -876,3 +798,4 @@ export async function bundleModuleGraphAsModules(
     watchedFiles: [...watchedFiles]
   };
 }
+import type { ParserOptions } from "compiler/parser/parser";

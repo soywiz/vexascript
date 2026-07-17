@@ -48,6 +48,19 @@ describe("native build", () => {
     expect(args).not.toContain("-fsanitize=address,undefined");
   });
 
+  it("suppresses generated-code-only Clang warning noise on macOS", () => {
+    const args = nativeCompilerArguments(
+      "/tmp/main.cpp",
+      "/tmp/main",
+      "/repo/native",
+      "/repo/native/oilpan/gc",
+      "/repo/native/oilpan/gc/build/liboilpan_gc.a",
+      "darwin"
+    );
+    expect(args).toContain("-Wno-inconsistent-missing-override");
+    expect(args).toContain("-Wno-trigraphs");
+  });
+
   it("keeps generated C++ in a source-specific build directory", () => {
     expect(nativeProgramPaths("src/main.vx", undefined, undefined, "/project")).toEqual({
       sourcePath: "/project/src/main.vx",

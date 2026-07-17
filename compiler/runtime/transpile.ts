@@ -14,7 +14,7 @@ import {
   type EmitOptions
 } from "./emitter";
 import { lowerProgram } from "./lowering";
-import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
 import type { Program, Statement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";

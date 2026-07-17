@@ -125,8 +125,8 @@ import {
   tupleElementTypeText
 } from "./typeNames";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
-import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
-import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations";
+import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
+import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations.shared";
 import { declarationIndexForStatements } from "./declarationIndex";
 import { walkAst } from "compiler/ast/traversal";
 import { boxedInterfaceNameForBuiltin, expressionSnippet, isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";

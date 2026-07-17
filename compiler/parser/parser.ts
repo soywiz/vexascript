@@ -197,8 +197,6 @@ interface TokenCheckpoint {
     mutatedTokens: Map<number, Token>;
 }
 
-const RECOVERY_MARKERS_SYMBOL: unique symbol = Symbol("vexa.parseRecoveryMarkers");
-
 export class ParseError extends Error {
     token: Token | undefined;
     recoveryHint: RecoveryHint | undefined;
@@ -288,12 +286,14 @@ export class Parser {
             startToken,
             this.getLastNonEofReadToken() ?? startToken
         );
-        Object.defineProperty(program, RECOVERY_MARKERS_SYMBOL, {
-            value: [...this.recoveryMarkers],
-            enumerable: false,
-            writable: true,
-            configurable: true
-        });
+        if (this.recoveryMarkers.length > 0) {
+            Object.defineProperty(program, "__vexaRecoveryMarkers", {
+                value: [...this.recoveryMarkers],
+                enumerable: false,
+                writable: true,
+                configurable: true
+            });
+        }
         return program;
     }
 
@@ -584,10 +584,11 @@ export class Parser {
     recover(recoveryHint?: RecoveryHint, originToken?: Token): void {
         const startToken = originToken ?? this.tokens.peek();
         if (startToken && !isEofToken(startToken)) {
-            this.recoveryMarkers.push({
-                token: startToken,
-                ...(recoveryHint ? { recoveryHint } : {})
-            });
+            const marker: ParseRecoveryMarker = { token: startToken };
+            if (recoveryHint) {
+                marker.recoveryHint = recoveryHint;
+            }
+            this.recoveryMarkers.push(marker);
         }
         const startLine = startToken?.range.start.line ?? -1;
         const allowSwitchCaseLabels = recoveryHint === "switch";
@@ -2184,7 +2185,9 @@ export class Parser {
                     this.tokens.skip();
                 }
 
-                const { key, computed } = this.parseObjectLiteralKey();
+                const parsedKey = this.parseObjectLiteralKey();
+                const key: Expr = parsedKey.key;
+                const computed: boolean = parsedKey.computed;
                 let separator = this.tokens.peek();
 
                 if (!computed && key.kind === "Identifier" && (
@@ -7394,7 +7397,7 @@ export class Parser {
 }
 
 export function getProgramRecoveryMarkers(program: Program): ParseRecoveryMarker[] {
-    const markers = (program as unknown as { [RECOVERY_MARKERS_SYMBOL]?: ParseRecoveryMarker[] })[RECOVERY_MARKERS_SYMBOL];
+    const markers = program.__vexaRecoveryMarkers as ParseRecoveryMarker[] | undefined;
     if (!markers) {
         return [];
     }

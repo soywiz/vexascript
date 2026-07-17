@@ -10,16 +10,14 @@ import type {
 } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { childNodes, unwrapExportedDeclaration } from "compiler/ast/traversal";
-import { parseTypeNameShape } from "compiler/analysis/typeNames";
+import { substituteTypeNameText } from "compiler/analysis/typeNames";
 import { compileParsedSource } from "compiler/pipeline/compile";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { vfs, type Vfs } from "compiler/vfs";
-import {
-  localImportSpecifiers,
-  parserOptionsForModulePath,
-  type ModuleGraphOptions,
-} from "./moduleGraph";
+import { resolve } from "compiler/utils/path";
+import { localImportSpecifiers, parserOptionsForModulePath } from "./localModuleResolution";
+import type { ModuleGraphOptions } from "./moduleGraphModel";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
 export interface NativeModuleGraphResult extends TranspileResult {
@@ -47,6 +45,15 @@ interface NativeModuleInfo {
   reexportTargets: Map<ExportStatement, string>;
 }
 
+function isTypeOnlyImport(statement: ImportStatement): boolean {
+  return statement.typeOnly === true || (
+    !statement.defaultImport &&
+    !statement.namespaceImport &&
+    statement.specifiers.length > 0 &&
+    statement.specifiers.every((specifier) => specifier.typeOnly === true)
+  );
+}
+
 const NATIVE_SOURCE_PATH = "__vexaNativeSourcePath";
 
 function markNativeSourcePath(node: Node, path: string): void {
@@ -69,14 +76,7 @@ function nativeSymbolName(moduleIndex: number, sourceName: string): string {
 }
 
 function typeNameWithRenamedBase(typeName: string, names: ReadonlyMap<string, string>): string {
-  const direct = names.get(typeName);
-  if (direct) return direct;
-  const shape = parseTypeNameShape(typeName);
-  const baseName = names.get(shape.baseName) ?? shape.baseName;
-  const argumentsText = shape.typeArguments.length > 0
-    ? `<${shape.typeArguments.map((argument) => typeNameWithRenamedBase(argument, names)).join(", ")}>`
-    : "";
-  return `${baseName}${argumentsText}${"[]".repeat(shape.arrayDepth)}`;
+  return substituteTypeNameText(typeName, names);
 }
 
 function replaceNode(target: Node, replacement: Node): void {
@@ -145,6 +145,7 @@ function moduleInfo(program: Program, path: string, moduleIndex: number): Native
         extensionSymbols.set(identifier.name, `__vexa_extension_import_${moduleIndex}_${identifier.name}`);
         continue;
       }
+      (identifier as unknown as { __vexaNativeOriginalName?: string }).__vexaNativeOriginalName = identifier.name;
       localSymbols.set(identifier.name, nativeSymbolName(moduleIndex, identifier.name));
     }
   }
@@ -220,7 +221,8 @@ export async function compileNativeModuleGraph(
       parsed.ast,
       filePath,
       activeVfs,
-      importMappings
+      importMappings,
+      options.baseUrl
     );
     importsByPath.set(filePath, imports);
     const reexports: { statement: ExportStatement; targetPath: string }[] = [];
@@ -230,6 +232,9 @@ export async function compileNativeModuleGraph(
       const targetPath = await resolveImportTargetFilePath(filePath, exported.from!.value, {
         vfs: activeVfs,
         importMappings,
+        ...(options.baseUrl && !exported.from!.value.startsWith(".")
+          ? { importMappings: { ...importMappings, [exported.from!.value]: resolve(options.baseUrl, exported.from!.value) } }
+          : {}),
       });
       if (!targetPath) {
         errors.push(`Native re-export '${exported.from!.value}' from '${filePath}' did not resolve to compilable source`);
@@ -250,18 +255,22 @@ export async function compileNativeModuleGraph(
     }
     for (const dependency of imports) {
       if (visiting.has(dependency.targetPath)) {
-        const cycleStart = visitStack.indexOf(dependency.targetPath);
-        errors.push(`Native module initialization cycle: ${[
-          ...visitStack.slice(Math.max(0, cycleStart)),
-          dependency.targetPath,
-        ].join(" -> ")}`);
+        if (!isTypeOnlyImport(dependency.statement)) {
+          const cycleStart = visitStack.indexOf(dependency.targetPath);
+          errors.push(`Native module initialization cycle: ${[
+            ...visitStack.slice(Math.max(0, cycleStart)),
+            dependency.targetPath,
+          ].join(" -> ")}`);
+        }
         continue;
       }
       await visit(dependency.targetPath);
     }
     for (const dependency of reexports) {
       if (visiting.has(dependency.targetPath)) {
-        errors.push(`Native module initialization cycle through re-export '${dependency.targetPath}'`);
+        if (!dependency.statement.typeOnly) {
+          errors.push(`Native module initialization cycle through re-export '${dependency.targetPath}'`);
+        }
         continue;
       }
       await visit(dependency.targetPath);
@@ -396,6 +405,7 @@ export async function compileNativeModuleGraph(
     target,
     emit: "cpp",
     emitSourceMap: false,
+    typeCheck: options.typeCheck ?? true,
     ambientDeclarations: options.ambientDeclarations ?? [],
     ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
     ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {}),

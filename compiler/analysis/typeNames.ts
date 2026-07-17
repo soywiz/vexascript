@@ -236,7 +236,7 @@ export function boxedPrimitiveTypeName(typeName: string): string {
   return typeName;
 }
 
-export function substituteTypeNameText(typeName: string, substitutions: Map<string, string>): string {
+export function substituteTypeNameText(typeName: string, substitutions: ReadonlyMap<string, string>): string {
   const substituteIdentifierTokens = (text: string): string => {
     let result = "";
     let index = 0;

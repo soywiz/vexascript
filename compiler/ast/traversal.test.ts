@@ -25,11 +25,13 @@ describe("AST traversal", () => {
     };
     const identifier: Node = { kind: "Identifier", firstToken: token, lastToken: token };
     const literal: Node = { kind: "IntLiteral" };
-    const root: Node & { body: Node[] } = {
+    const recoveryMarker: Node = { kind: "RecoveryMarker" };
+    const root: Node & { body: Node[]; __vexaRecoveryMarkers: Node[] } = {
       kind: "Program",
       firstToken: token,
       lastToken: token,
-      body: [identifier, literal]
+      body: [identifier, literal],
+      __vexaRecoveryMarkers: [recoveryMarker]
     };
 
     expect(childNodes(root).map((node) => node.kind)).toEqual(["Identifier", "IntLiteral"]);

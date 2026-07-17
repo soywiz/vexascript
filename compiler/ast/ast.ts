@@ -762,4 +762,6 @@ export type JsxChild = JsxElement | JsxFragment | JsxExpressionContainer | JsxTe
 export interface Program extends Node {
     kind: "Program"
     body: Statement[]
+    /** Parser recovery metadata. Structural AST traversal deliberately ignores it. */
+    __vexaRecoveryMarkers?: unknown
 }

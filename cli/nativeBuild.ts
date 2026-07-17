@@ -111,6 +111,7 @@ export function nativeCompilerArguments(
     instrumented ? "-O1" : "-O2",
     ...(options.debug || instrumented ? ["-g"] : []),
     ...(instrumented ? ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] : []),
+    ...(platform === "darwin" ? ["-Wno-inconsistent-missing-override", "-Wno-trigraphs"] : []),
     "-fno-rtti",
     "-DCPPGC_IS_STANDALONE=1",
     "-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO",

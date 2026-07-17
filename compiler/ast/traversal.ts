@@ -22,7 +22,7 @@ function isNode(value: unknown): value is Node {
 }
 
 function isMetadataKey(key: string): boolean {
-  return key === "firstToken" || key === "lastToken";
+  return key === "firstToken" || key === "lastToken" || key === "__vexaRecoveryMarkers";
 }
 
 /** Returns the direct structural AST children of a node, excluding source-token metadata. */
