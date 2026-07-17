@@ -170,6 +170,19 @@ val lexical = [10, 2, 1]
 lexical.sort()
 console.log("array-predicates", visited, hasEven, allPositive, firstLarge, searchable.join("|"), lexical.join("|"))
 
+val callbackValues = [3, 1, 4, 2]
+val indexedMap = callbackValues.map((value: int, index: number, array: int[]) => value + index + array.length)
+val indexedFilter = callbackValues.filter((value: int, index: number, array: int[]) => index % 2 == 0 && array.length == 4)
+var indexedVisited: number = 0
+callbackValues.forEach((value: int, index: number, array: int[]) => {
+  indexedVisited += value + index + array.length
+})
+val indexedSome = callbackValues.some((value: int, index: number, array: int[]) => value == 1 && index == 1 && array.length == 4)
+val indexedEvery = callbackValues.every((value: int, index: number, array: int[]) => index < array.length && value > 0)
+val indexedFound = callbackValues.findIndex((value: int, index: number, array: int[]) => value == array[index] && index == 2)
+val indexedTotal = callbackValues.reduce((sum: number, value: int, index: number, array: int[]) => sum + value + index + array.length, 0.0)
+console.log("array-callbacks", indexedMap.join("|"), indexedFilter.join("|"), indexedVisited, indexedSome, indexedEvery, indexedFound, indexedTotal)
+
 val mixed = [1, "two", true]
 mixed.push("three")
 console.log("mixed", mixed.includes("two"), mixed.indexOf(true), mixed.join("|"))

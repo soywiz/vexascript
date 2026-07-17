@@ -9,6 +9,7 @@ arrays 6,12 18 0 4 3,2,1
 array-copy 3|2 3|2|1|8|9
 array-string 1,2
 array-predicates 10 true true 2 1|2|3|4 1|10|2
+array-callbacks 7|6|10|9 3|4 32 true true 2 32
 mixed true 2 1|two|true|three
 record Ada 42 false true true Ada
 enum 0 3

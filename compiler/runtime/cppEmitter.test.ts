@@ -1003,7 +1003,7 @@ console.log(combined.join("|"), mixed.join("|"))`, {
 
   it("maps Array iteration, predicates, lookup, and sorting to the managed API", async () => {
     const result = transpile(`val values = [3, 1, 4, 2]
-var visited = 0
+var visited: number = 0
 values.forEach((value: int) => { visited += value })
 val hasEven = values.some((value: int) => value % 2 == 0)
 val allPositive = values.every((value: int) => value > 0)
@@ -1032,6 +1032,32 @@ console.log(visited, hasEven, allPositive, firstLarge, values.join("|"), lexical
     expect(runtime).toContain("double findIndex(Callback callback) const");
     expect(runtime).toContain("ArrayObject* sort()");
     expect(runtime).toContain("ArrayObject* sort(Callback callback)");
+  });
+
+  it("passes JavaScript callback indices and array receivers through one native helper", async () => {
+    const result = transpile(`val values = [3, 1, 4, 2]
+val mapped = values.map((value: int, index: number, array: int[]) => value + index + array.length)
+val filtered = values.filter((value: int, index: number, array: int[]) => index % 2 == 0 && array.length == 4)
+var visited: number = 0
+values.forEach((value: int, index: number, array: int[]) => { visited += value + index + array.length })
+val hasIndexed = values.some((value: int, index: number, array: int[]) => value == 1 && index == 1 && array.length == 4)
+val allIndexed = values.every((value: int, index: number, array: int[]) => index < array.length && value > 0)
+val found = values.findIndex((value: int, index: number, array: int[]) => value == array[index] && index == 2)
+val total = values.reduce((sum: number, value: int, index: number, array: int[]) => sum + value + index + array.length, 0.0)
+console.log(mapped.join("|"), filtered.join("|"), visited, hasIndexed, allIndexed, found, total)`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("std::int32_t value, double index, vexa::ArrayObject<std::int32_t>* array");
+    expect(result.code).toContain("vexa::remainder(index, 2)");
+
+    const runtime = await readFile(join(process.cwd(), "native", "runtime.cpp"), "utf8");
+    expect(runtime).toContain("invokeArrayCallback(callback, value, index, this)");
+    expect(runtime).toContain("invokeArrayReduceCallback(callback, std::move(initial), value, index, this)");
   });
 
   it("infers native generic-lambda parameters for implicit it callbacks", () => {

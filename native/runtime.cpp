@@ -327,8 +327,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>> {
   template <typename... Items>
   ArrayObject* concat(Runtime& runtime, Items&&... items) const;
   template <typename Callback>
-  auto map(Runtime& runtime, Callback callback) const
-      -> ArrayObject<std::remove_cvref_t<std::invoke_result_t<Callback, T>>>*;
+  auto map(Runtime& runtime, Callback callback) const;
   template <typename Callback>
   ArrayObject* filter(Runtime& runtime, Callback callback) const;
   template <typename Callback, typename Accumulator>
@@ -1418,6 +1417,54 @@ inline ArrayObject<T>* concat(Runtime& runtime, const ArrayObject<T>* array, Ite
   return array->concat(runtime, std::forward<Items>(items)...);
 }
 
+template <typename Callback, typename T>
+inline decltype(auto) invokeArrayCallback(
+    Callback& callback,
+    T value,
+    std::size_t index,
+    const ArrayObject<T>* array) {
+  auto* mutableArray = const_cast<ArrayObject<T>*>(array);
+  if constexpr (std::is_invocable_v<Callback, T, double, ArrayObject<T>*>) {
+    return callback(value, static_cast<double>(index), mutableArray);
+  } else if constexpr (std::is_invocable_v<Callback, T, double>) {
+    return callback(value, static_cast<double>(index));
+  } else {
+    return callback(value);
+  }
+}
+
+template <typename Callback, typename Accumulator, typename T>
+inline decltype(auto) invokeArrayReduceCallback(
+    Callback& callback,
+    Accumulator accumulator,
+    T value,
+    std::size_t index,
+    const ArrayObject<T>* array) {
+  auto* mutableArray = const_cast<ArrayObject<T>*>(array);
+  if constexpr (std::is_invocable_v<Callback, Accumulator, T, double, ArrayObject<T>*>) {
+    return callback(std::move(accumulator), value, static_cast<double>(index), mutableArray);
+  } else if constexpr (std::is_invocable_v<Callback, Accumulator, T, double>) {
+    return callback(std::move(accumulator), value, static_cast<double>(index));
+  } else {
+    return callback(std::move(accumulator), value);
+  }
+}
+
+inline bool arrayCallbackBoolean(const Value& value) {
+  if (value.isUndefined() || value.isNull()) return false;
+  if (value.isBoolean()) return value.boolean();
+  if (value.isNumber()) return value.number() != 0 && !std::isnan(value.number());
+  return !value.isString() || !value.string().empty();
+}
+
+inline bool arrayCallbackBoolean(const std::string& value) { return !value.empty(); }
+
+template <typename T>
+inline bool arrayCallbackBoolean(const T& value) {
+  if constexpr (std::is_pointer_v<T>) return value != nullptr;
+  else return static_cast<bool>(value);
+}
+
 template <typename T, typename Callback>
 inline auto map(const std::vector<T>& array, Callback callback)
     -> std::vector<std::remove_cvref_t<std::invoke_result_t<Callback, T>>> {
@@ -1430,17 +1477,18 @@ inline auto map(const std::vector<T>& array, Callback callback)
 
 template <typename T>
 template <typename Callback>
-inline auto ArrayObject<T>::map(Runtime& runtime, Callback callback) const
-    -> ArrayObject<std::remove_cvref_t<std::invoke_result_t<Callback, T>>>* {
-  using Result = std::remove_cvref_t<std::invoke_result_t<Callback, T>>;
+inline auto ArrayObject<T>::map(Runtime& runtime, Callback callback) const {
+  using Result = std::remove_cvref_t<decltype(
+      invokeArrayCallback(callback, std::declval<T>(), std::size_t{}, this))>;
   auto* result = runtime.array<Result>();
-  for (const auto value : *this) result->append(callback(value));
+  for (std::size_t index = 0; index < size(); ++index) {
+    result->append(invokeArrayCallback(callback, get(index), index, this));
+  }
   return result;
 }
 
 template <typename T, typename Callback>
-inline auto map(Runtime& runtime, const ArrayObject<T>* array, Callback callback)
-    -> ArrayObject<std::remove_cvref_t<std::invoke_result_t<Callback, T>>>* {
+inline auto map(Runtime& runtime, const ArrayObject<T>* array, Callback callback) {
   return array->map(runtime, std::move(callback));
 }
 
@@ -1455,7 +1503,10 @@ template <typename T>
 template <typename Callback>
 inline ArrayObject<T>* ArrayObject<T>::filter(Runtime& runtime, Callback callback) const {
   auto* result = runtime.array<T>();
-  for (const auto value : *this) if (callback(value)) result->append(value);
+  for (std::size_t index = 0; index < size(); ++index) {
+    const auto value = get(index);
+    if (arrayCallbackBoolean(invokeArrayCallback(callback, value, index, this))) result->append(value);
+  }
   return result;
 }
 
@@ -1473,7 +1524,10 @@ inline Accumulator reduce(const std::vector<T>& array, Callback callback, Accumu
 template <typename T>
 template <typename Callback, typename Accumulator>
 inline Accumulator ArrayObject<T>::reduce(Callback callback, Accumulator initial) const {
-  for (const auto value : *this) initial = callback(std::move(initial), value);
+  for (std::size_t index = 0; index < size(); ++index) {
+    const auto value = get(index);
+    initial = invokeArrayReduceCallback(callback, std::move(initial), value, index, this);
+  }
   return initial;
 }
 
@@ -1485,7 +1539,9 @@ inline Accumulator reduce(const ArrayObject<T>* array, Callback callback, Accumu
 template <typename T>
 template <typename Callback>
 inline void ArrayObject<T>::forEach(Callback callback) const {
-  for (const auto value : *this) callback(value);
+  for (std::size_t index = 0; index < size(); ++index) {
+    invokeArrayCallback(callback, get(index), index, this);
+  }
 }
 
 template <typename T, typename Callback>
@@ -1496,7 +1552,9 @@ inline void forEach(const ArrayObject<T>* array, Callback callback) {
 template <typename T>
 template <typename Callback>
 inline bool ArrayObject<T>::some(Callback callback) const {
-  for (const auto value : *this) if (callback(value)) return true;
+  for (std::size_t index = 0; index < size(); ++index) {
+    if (arrayCallbackBoolean(invokeArrayCallback(callback, get(index), index, this))) return true;
+  }
   return false;
 }
 
@@ -1508,7 +1566,9 @@ inline bool some(const ArrayObject<T>* array, Callback callback) {
 template <typename T>
 template <typename Callback>
 inline bool ArrayObject<T>::every(Callback callback) const {
-  for (const auto value : *this) if (!callback(value)) return false;
+  for (std::size_t index = 0; index < size(); ++index) {
+    if (!arrayCallbackBoolean(invokeArrayCallback(callback, get(index), index, this))) return false;
+  }
   return true;
 }
 
@@ -1521,7 +1581,9 @@ template <typename T>
 template <typename Callback>
 inline double ArrayObject<T>::findIndex(Callback callback) const {
   for (std::size_t index = 0; index < size(); ++index) {
-    if (callback(get(index))) return static_cast<double>(index);
+    if (arrayCallbackBoolean(invokeArrayCallback(callback, get(index), index, this))) {
+      return static_cast<double>(index);
+    }
   }
   return -1;
 }
@@ -1931,6 +1993,32 @@ inline double Number(const Value& value) {
   } catch (...) {
     return std::numeric_limits<double>::quiet_NaN();
   }
+}
+
+template <typename Left, typename Right>
+  requires (std::is_arithmetic_v<Left> && std::is_arithmetic_v<Right>)
+inline auto remainder(Left left, Right right) {
+  if constexpr (std::is_integral_v<Left> && std::is_integral_v<Right>) {
+    return left % right;
+  } else {
+    return std::fmod(static_cast<double>(left), static_cast<double>(right));
+  }
+}
+
+inline double remainder(const Value& left, const Value& right) {
+  return std::fmod(Number(left), Number(right));
+}
+
+template <typename Right>
+  requires std::is_arithmetic_v<Right>
+inline double remainder(const Value& left, Right right) {
+  return std::fmod(Number(left), static_cast<double>(right));
+}
+
+template <typename Left>
+  requires std::is_arithmetic_v<Left>
+inline double remainder(Left left, const Value& right) {
+  return std::fmod(static_cast<double>(left), Number(right));
 }
 
 template <typename T>

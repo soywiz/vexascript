@@ -1110,6 +1110,9 @@ function emitBinary(expression: BinaryExpression): string {
   if (expression.operator === "**") {
     return `vexa::Math::pow(${emitExpression(expression.left)}, ${emitExpression(expression.right)})`;
   }
+  if (expression.operator === "%") {
+    return `vexa::remainder(${emitExpression(expression.left)}, ${emitExpression(expression.right)})`;
+  }
   if (expression.operator === "??") {
     const leftType = cppTypeForExpression(expression.left);
     const left = emitExpression(expression.left);

@@ -123,6 +123,18 @@ existing traced slots, preserving the array's identity and its Oilpan edges.
 Both default lexical ordering and numeric comparator ordering execute in the
 multi-file native smoke.
 
+Adding indexed predicates to that smoke exposed two related compatibility gaps.
+The analyzer already gave higher-order callbacks their JavaScript signatures,
+but the native managed-array methods invoked only the first one or two
+arguments. One `invokeArrayCallback` path now supplies `(value, index, array)`
+to `map`, `filter`, `forEach`, `some`, `every`, and `findIndex`, while the
+corresponding reduce helper supplies `(accumulator, value, index, array)`;
+compile-time invocability preserves shorter source signatures without separate
+method implementations. The same test then reached `index % 2` with a
+`number` index and revealed that direct C++ `%` is invalid for `double`.
+Binary remainder emission now uses one runtime operation that preserves native
+integral remainder and delegates floating-point operands to `std::fmod`.
+
 Custom functions and class methods exposed a calling-convention issue: string
 literals and class allocation require access to the active heap, but free C++
 functions and inline methods do not naturally see the `Runtime` local in

@@ -1797,7 +1797,12 @@ slicing, and splitting methods; and `Object.keys`/`Object.values` for managed
 records. Higher-order array callbacks use ordinary typed VexaScript lambdas.
 Managed arrays support `forEach`, `some`, `every`, `findIndex`, and both lexical
 `sort()` and comparator-based `sort(callback)` in addition to
-`map`/`filter`/`reduce`.
+`map`/`filter`/`reduce`. Native higher-order methods use the JavaScript callback
+contract: `map`, `filter`, `forEach`, `some`, `every`, and `findIndex` supply
+`(value, index, array)`, while `reduce` supplies
+`(accumulator, value, index, array)`; callbacks may declare fewer parameters.
+The native numeric remainder operator also supports both integral values and
+floating-point `number` values.
 
 Native arrays preserve JavaScript-style reference identity. Assigning one array
 to another variable, passing it to a function, or storing it in multiple class

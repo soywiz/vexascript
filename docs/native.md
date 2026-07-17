@@ -98,7 +98,9 @@ silently producing incorrect C++. Its initial surface includes:
 Numeric VexaScript types keep their intended native representation: `int` maps
 to `std::int32_t`, `long` maps to `std::int64_t`, and `number` maps to C++
 `double`. Range-loop iterators use the analyzed element type rather than a
-single hard-coded numeric type.
+single hard-coded numeric type. Numeric remainder uses the shared native
+`remainder` helper, preserving integral `%` behavior while mapping `number`
+operands to `std::fmod` instead of emitting invalid C++ floating-point `%`.
 
 The runtime lives entirely in `native/runtime.cpp`. It initializes an actual
 cppgc heap, represents dynamic `vexa::Value` strings as
@@ -290,6 +292,10 @@ searching, slicing, concatenation, higher-order operations, joining, and string
 conversion live on the managed class. The emitter-facing free functions are
 thin adapters that only normalize handles and inject the active runtime for
 operations that allocate another managed array.
+As in JavaScript, `map`, `filter`, `forEach`, `some`, `every`, and `findIndex`
+callbacks may receive `(value, index, array)`. `reduce` callbacks may receive
+`(accumulator, value, index, array)`. Shorter callback signatures remain valid,
+and every method receives the original managed array as its receiver argument.
 `concat` accepts the JavaScript forms in one call: individual element values,
 other arrays, or any mixture of both. Each array argument contributes its
 elements, while scalar arguments append one element.
