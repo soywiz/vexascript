@@ -70,7 +70,8 @@ silently producing incorrect C++. Its initial surface includes:
 - homogeneous arrays with a supported native element type and mixed primitive
   arrays represented by managed dynamic values, including literals, indexed
   reads and writes, `length`, `push`, `includes`, `indexOf`, `join`, `reverse`,
-  and synchronous `for-of` loops;
+  `forEach`, `some`, `every`, `findIndex`, comparator/default `sort`, and
+  synchronous `for-of` loops;
 - range-based `for` loops lowered to native C++ loops and reusable inclusive or
   exclusive range expressions backed by typed native vectors;
 - `if`, `while`, `do while`, integral and value-based `switch`, return, break,
@@ -276,7 +277,8 @@ drives the event loop synchronously through the generated entrypoint's `.get()`.
 
 Native collection helpers include array `push`/`pop`/`shift`/`unshift`,
 `includes`, `indexOf`, `join`, `reverse`, `slice`, `concat`, `map`, `filter`, and
-`reduce`. String values support casing and trimming plus `includes`, `startsWith`,
+`reduce`, plus `forEach`, `some`, `every`, `findIndex`, and `sort`. String values
+support casing and trimming plus `includes`, `startsWith`,
 `endsWith`, `charAt`, `substring`, `slice`, and `split`. `Object.keys` and
 `Object.values` enumerate managed records. These calls retain their analyzed
 element/result types and reuse the same native lambda emitter as user callbacks.
@@ -291,6 +293,9 @@ operations that allocate another managed array.
 `concat` accepts the JavaScript forms in one call: individual element values,
 other arrays, or any mixture of both. Each array argument contributes its
 elements, while scalar arguments append one element.
+`sort()` mutates and returns the same managed array using JavaScript-style
+lexical string ordering. Passing a numeric comparator such as
+`values.sort((left, right) => left - right)` selects comparator ordering.
 Only reusable numeric range expressions keep an internal `std::vector`; that is
 an eager iteration value, not the representation of a VexaScript array.
 

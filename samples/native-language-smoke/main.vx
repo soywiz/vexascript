@@ -159,6 +159,17 @@ console.log("arrays", transformed.join(","), reduced, shifted, popped, numbers.j
 console.log("array-copy", numbers.slice(0, 2).join("|"), numbers.concat(8, 9).join("|"))
 console.log("array-string", [1, 2].toString())
 
+val searchable = [3, 1, 4, 2]
+var visited = 0
+searchable.forEach((value: int) => { visited += value })
+val hasEven = searchable.some((value: int) => value % 2 == 0)
+val allPositive = searchable.every((value: int) => value > 0)
+val firstLarge = searchable.findIndex((value: int) => value > 3)
+searchable.sort((left: int, right: int) => left - right)
+val lexical = [10, 2, 1]
+lexical.sort()
+console.log("array-predicates", visited, hasEven, allPositive, firstLarge, searchable.join("|"), lexical.join("|"))
+
 val mixed = [1, "two", true]
 mixed.push("three")
 console.log("mixed", mixed.includes("two"), mixed.indexOf(true), mixed.join("|"))

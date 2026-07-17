@@ -1795,6 +1795,9 @@ The native standard-library subset includes the common mutating, searching,
 slicing, concatenation, and higher-order array methods; common string search,
 slicing, and splitting methods; and `Object.keys`/`Object.values` for managed
 records. Higher-order array callbacks use ordinary typed VexaScript lambdas.
+Managed arrays support `forEach`, `some`, `every`, `findIndex`, and both lexical
+`sort()` and comparator-based `sort(callback)` in addition to
+`map`/`filter`/`reduce`.
 
 Native arrays preserve JavaScript-style reference identity. Assigning one array
 to another variable, passing it to a function, or storing it in multiple class

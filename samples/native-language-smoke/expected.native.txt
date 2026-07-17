@@ -8,6 +8,7 @@ shared 3 1|2|3
 arrays 6,12 18 0 4 3,2,1
 array-copy 3|2 3|2|1|8|9
 array-string [1, 2]
+array-predicates 10 true true 2 1|2|3|4 1|10|2
 mixed true 2 1|two|true|three
 record Ada 42 false true true Ada
 enum 0 3

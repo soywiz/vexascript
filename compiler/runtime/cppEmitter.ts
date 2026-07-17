@@ -951,7 +951,8 @@ function emitCall(call: CallExpression): string {
   }
   const arrayRuntimeMethods = new Set([
     "push", "pop", "shift", "unshift", "includes", "indexOf", "join", "reverse",
-    "slice", "concat", "map", "filter", "reduce",
+    "slice", "concat", "map", "filter", "reduce", "forEach", "some", "every",
+    "findIndex", "sort",
   ]);
   if (member && isArrayExpression(member.object) && arrayRuntimeMethods.has(member.propertyName)) {
     const receiver = isManagedArrayExpression(member.object)

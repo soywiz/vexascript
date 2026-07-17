@@ -112,6 +112,17 @@ implementation. The canonical `samples/native-language-smoke/` regression now
 passes through the public `executable` CLI, links Oilpan, executes the binary,
 and compares its complete output rather than only inspecting generated text.
 
+Growing that executable smoke with ordinary collection code exposed another
+emitter/runtime mismatch: semantic analysis already resolved `forEach`, `some`,
+`every`, `findIndex`, and `sort`, but the C++ emitter fell through to JavaScript
+member spelling such as `values.some(...)`, which is invalid for a managed
+pointer and had no native implementation. These methods now live on
+`ArrayObject<T>` with thin emitter adapters. Sorting deliberately copies element
+handles to temporary C++ storage, orders them, and writes them back into the
+existing traced slots, preserving the array's identity and its Oilpan edges.
+Both default lexical ordering and numeric comparator ordering execute in the
+multi-file native smoke.
+
 Custom functions and class methods exposed a calling-convention issue: string
 literals and class allocation require access to the active heap, but free C++
 functions and inline methods do not naturally see the `Runtime` local in

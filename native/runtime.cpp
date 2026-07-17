@@ -333,6 +333,17 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>> {
   ArrayObject* filter(Runtime& runtime, Callback callback) const;
   template <typename Callback, typename Accumulator>
   Accumulator reduce(Callback callback, Accumulator initial) const;
+  template <typename Callback>
+  void forEach(Callback callback) const;
+  template <typename Callback>
+  bool some(Callback callback) const;
+  template <typename Callback>
+  bool every(Callback callback) const;
+  template <typename Callback>
+  double findIndex(Callback callback) const;
+  ArrayObject* sort();
+  template <typename Callback>
+  ArrayObject* sort(Callback callback);
   std::string join(const std::string& separator = ",") const;
   std::string toString() const;
 
@@ -1471,6 +1482,73 @@ inline Accumulator reduce(const ArrayObject<T>* array, Callback callback, Accumu
   return array->reduce(std::move(callback), std::move(initial));
 }
 
+template <typename T>
+template <typename Callback>
+inline void ArrayObject<T>::forEach(Callback callback) const {
+  for (const auto value : *this) callback(value);
+}
+
+template <typename T, typename Callback>
+inline void forEach(const ArrayObject<T>* array, Callback callback) {
+  array->forEach(std::move(callback));
+}
+
+template <typename T>
+template <typename Callback>
+inline bool ArrayObject<T>::some(Callback callback) const {
+  for (const auto value : *this) if (callback(value)) return true;
+  return false;
+}
+
+template <typename T, typename Callback>
+inline bool some(const ArrayObject<T>* array, Callback callback) {
+  return array->some(std::move(callback));
+}
+
+template <typename T>
+template <typename Callback>
+inline bool ArrayObject<T>::every(Callback callback) const {
+  for (const auto value : *this) if (!callback(value)) return false;
+  return true;
+}
+
+template <typename T, typename Callback>
+inline bool every(const ArrayObject<T>* array, Callback callback) {
+  return array->every(std::move(callback));
+}
+
+template <typename T>
+template <typename Callback>
+inline double ArrayObject<T>::findIndex(Callback callback) const {
+  for (std::size_t index = 0; index < size(); ++index) {
+    if (callback(get(index))) return static_cast<double>(index);
+  }
+  return -1;
+}
+
+template <typename T, typename Callback>
+inline double findIndex(const ArrayObject<T>* array, Callback callback) {
+  return array->findIndex(std::move(callback));
+}
+
+template <typename T>
+template <typename Callback>
+inline ArrayObject<T>* ArrayObject<T>::sort(Callback callback) {
+  std::vector<T> sorted;
+  sorted.reserve(size());
+  for (const auto value : *this) sorted.push_back(value);
+  std::stable_sort(sorted.begin(), sorted.end(), [&](const T& left, const T& right) {
+    return callback(left, right) < 0;
+  });
+  for (std::size_t index = 0; index < sorted.size(); ++index) values_[index].store(sorted[index]);
+  return this;
+}
+
+template <typename T, typename Callback>
+inline ArrayObject<T>* sort(ArrayObject<T>* array, Callback callback) {
+  return array->sort(std::move(callback));
+}
+
 template <typename T, typename Index>
 inline T arrayGet(const ArrayObject<T>* array, Index index) {
   return array->get(static_cast<std::size_t>(index));
@@ -1675,6 +1753,23 @@ inline std::string join(const ArrayObject<T>* array, const Separator& separator)
 template <typename T>
 inline std::string ArrayObject<T>::toString() const {
   return "[" + join(", ") + "]";
+}
+
+template <typename T>
+inline ArrayObject<T>* ArrayObject<T>::sort() {
+  std::vector<T> sorted;
+  sorted.reserve(size());
+  for (const auto value : *this) sorted.push_back(value);
+  std::stable_sort(sorted.begin(), sorted.end(), [](const T& left, const T& right) {
+    return vexa::toString(left) < vexa::toString(right);
+  });
+  for (std::size_t index = 0; index < sorted.size(); ++index) values_[index].store(sorted[index]);
+  return this;
+}
+
+template <typename T>
+inline ArrayObject<T>* sort(ArrayObject<T>* array) {
+  return array->sort();
 }
 
 template <typename T>

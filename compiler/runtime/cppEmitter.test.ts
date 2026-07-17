@@ -1001,6 +1001,39 @@ console.log(combined.join("|"), mixed.join("|"))`, {
     expect(runtime).toContain("(appendConcatItem(result, std::forward<Items>(items)), ...)");
   });
 
+  it("maps Array iteration, predicates, lookup, and sorting to the managed API", async () => {
+    const result = transpile(`val values = [3, 1, 4, 2]
+var visited = 0
+values.forEach((value: int) => { visited += value })
+val hasEven = values.some((value: int) => value % 2 == 0)
+val allPositive = values.every((value: int) => value > 0)
+val firstLarge = values.findIndex((value: int) => value > 3)
+values.sort((left: int, right: int) => left - right)
+val lexical = [10, 2, 1]
+lexical.sort()
+console.log(visited, hasEven, allPositive, firstLarge, values.join("|"), lexical.join("|"))`, {
+      sourceFilePath: "main.vx",
+      outputFilePath: "main.cpp",
+      emit: "cpp",
+      emitSourceMap: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::forEach(vexa::arrayPointer(values)");
+    expect(result.code).toContain("vexa::some(vexa::arrayPointer(values)");
+    expect(result.code).toContain("vexa::every(vexa::arrayPointer(values)");
+    expect(result.code).toContain("vexa::findIndex(vexa::arrayPointer(values)");
+    expect(result.code).toContain("vexa::sort(vexa::arrayPointer(values)");
+
+    const runtime = await readFile(join(process.cwd(), "native", "runtime.cpp"), "utf8");
+    expect(runtime).toContain("void forEach(Callback callback) const");
+    expect(runtime).toContain("bool some(Callback callback) const");
+    expect(runtime).toContain("bool every(Callback callback) const");
+    expect(runtime).toContain("double findIndex(Callback callback) const");
+    expect(runtime).toContain("ArrayObject* sort()");
+    expect(runtime).toContain("ArrayObject* sort(Callback callback)");
+  });
+
   it("infers native generic-lambda parameters for implicit it callbacks", () => {
     const result = transpile(`val values = [1, 2, 3, 4]
 val selected = values.map { it * 3 }.filter { it % 2 == 0 }
