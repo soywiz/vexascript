@@ -2,6 +2,7 @@ import { describe, expect, it, join, readFile, resolve } from "../compiler/test/
 import { Analysis } from "../compiler/analysis/Analysis";
 import { Parser } from "../compiler/parser/parser";
 import { tokenizeReader } from "../compiler/parser/tokenizer";
+import { ExprStatement, FunctionStatement, NamespaceStatement, Program } from "../compiler/ast/ast";
 
 async function collectDeclarationFiles(rootDir: string): Promise<string[]> {
     const { readdir } = await import("node:fs/promises");
@@ -19,8 +20,8 @@ describe("Parse Typescript Libraries", () => {
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
 
-        expect(ast.kind).toBe("Program");
-        expect(ast.body[0]?.kind).toBe("FunctionStatement");
+        expect(ast).toBeInstanceOf(Program);
+        expect(ast.body[0]).toBeInstanceOf(FunctionStatement);
         expect((ast.body[0] as { declared?: boolean } | undefined)?.declared).toBe(true);
         expect(parser.tokens.hasMore).toBe(false);
         expect(parser.errors).toEqual([]);
@@ -33,11 +34,11 @@ describe("Parse Typescript Libraries", () => {
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
 
-        expect(ast.kind).toBe("Program");
-        expect(ast.body[0]?.kind).toBe("FunctionStatement");
+        expect(ast).toBeInstanceOf(Program);
+        expect(ast.body[0]).toBeInstanceOf(FunctionStatement);
         expect((ast.body[0] as { declared?: boolean } | undefined)?.declared).toBe(true);
-        expect(ast.body[1]?.kind).toBe("NamespaceStatement");
-        expect(ast.body[2]?.kind).toBe("ExprStatement");
+        expect(ast.body[1]).toBeInstanceOf(NamespaceStatement);
+        expect(ast.body[2]).toBeInstanceOf(ExprStatement);
         expect(parser.tokens.hasMore).toBe(false);
         expect(parser.errors).toEqual([]);
     });
@@ -48,7 +49,7 @@ describe("Parse Typescript Libraries", () => {
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
 
-        expect(ast.kind).toBe("Program");
+        expect(ast).toBeInstanceOf(Program);
         expect(parser.tokens.hasMore).toBe(false);
         expect(parser.errors).toEqual([]);
     });
@@ -59,7 +60,7 @@ describe("Parse Typescript Libraries", () => {
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
 
-        expect(ast.kind).toBe("Program");
+        expect(ast).toBeInstanceOf(Program);
         expect(parser.tokens.hasMore).toBe(false);
         expect(parser.errors).toEqual([]);
     });

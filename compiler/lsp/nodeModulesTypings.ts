@@ -397,8 +397,9 @@ async function collectSelectiveTypingsDeclarations(
 function detectExportEqualsName(ast: Program): string | null {
   for (const stmt of ast.body) {
     if (stmt.kind === NodeKind.ExportStatement) {
-      const declaration = (stmt as { default?: boolean; declaration?: Statement }).declaration;
-      if ((stmt as { default?: boolean }).default === true && declaration?.kind === NodeKind.FunctionStatement) {
+      const exportStatement = stmt as ExportStatement;
+      const declaration = exportStatement.declaration;
+      if (exportStatement.isDefault === true && declaration?.kind === NodeKind.FunctionStatement) {
         return (declaration as FunctionStatement).name.name;
       }
     }

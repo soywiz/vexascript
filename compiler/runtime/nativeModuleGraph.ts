@@ -1,11 +1,7 @@
-import { NodeKind } from "compiler/ast/ast";
+import { Identifier, MemberExpression, Node, NodeKind, Program } from "compiler/ast/ast";
 import type {
   ExportStatement,
-  Identifier,
   ImportStatement,
-  MemberExpression,
-  Node,
-  Program,
   Statement,
   VarStatement,
 } from "compiler/ast/ast";
@@ -87,24 +83,40 @@ function rewriteNamespaceMembers(
   node: Node,
   resolvedSymbols: ReadonlyMap<Node, Node>,
   namespaceExports: ReadonlyMap<Node, ReadonlyMap<string, string>>
-): void {
-  if (node.kind === NodeKind.MemberExpression) {
-    const member = node as MemberExpression;
-    if (!member.computed && member.object.kind === NodeKind.Identifier && member.property.kind === NodeKind.Identifier) {
-      const symbolNode = resolvedSymbols.get(member.object as Node);
+): Node {
+  if (node instanceof MemberExpression) {
+    if (!node.computed && node.object instanceof Identifier && node.property instanceof Identifier) {
+      const symbolNode = resolvedSymbols.get(node.object);
       const targetExports: ReadonlyMap<string, string> | undefined = symbolNode
         ? namespaceExports.get(symbolNode)
         : undefined;
-      const targetName = targetExports?.get((member.property as Identifier).name);
+      const targetName = targetExports?.get(node.property.name);
       if (targetName) {
-        const identifier = node as Identifier;
-        identifier.kind = NodeKind.Identifier;
-        identifier.name = targetName;
-        return;
+        const identifier = new Identifier(targetName);
+        if (node.firstToken) identifier.firstToken = node.firstToken;
+        if (node.lastToken) identifier.lastToken = node.lastToken;
+        if (node.__vexaNativeSourcePath) identifier.__vexaNativeSourcePath = node.__vexaNativeSourcePath;
+        return identifier;
       }
     }
   }
-  for (const child of childNodes(node)) rewriteNamespaceMembers(child, resolvedSymbols, namespaceExports);
+
+  const fields = node as unknown as Record<string, unknown>;
+  for (const key in fields) {
+    const value = fields[key];
+    if (value instanceof Node) {
+      fields[key] = rewriteNamespaceMembers(value, resolvedSymbols, namespaceExports);
+      continue;
+    }
+    if (!Array.isArray(value)) continue;
+    for (let index = 0; index < value.length; index += 1) {
+      const element = value[index];
+      if (element instanceof Node) {
+        value[index] = rewriteNamespaceMembers(element, resolvedSymbols, namespaceExports);
+      }
+    }
+  }
+  return node;
 }
 
 const TYPE_NODE_KEYS = new Set([
@@ -405,10 +417,15 @@ export async function compileNativeModuleGraph(
     return { code: "", warnings: [], errors, diagnostics: [], watchedFiles: order };
   }
 
-  const mergedProgram: Program = {
-    ...entryParsed.ast,
-    body: order.flatMap((filePath) => nativeModuleStatements(parsedByPath.get(filePath)!.ast!)),
-  };
+  const mergedProgram = new Program(
+    order.flatMap((filePath) => nativeModuleStatements(parsedByPath.get(filePath)!.ast!)),
+    entryParsed.ast.__vexaRecoveryMarkers
+  );
+  if (entryParsed.ast.firstToken) mergedProgram.firstToken = entryParsed.ast.firstToken;
+  if (entryParsed.ast.lastToken) mergedProgram.lastToken = entryParsed.ast.lastToken;
+  if (entryParsed.ast.__vexaNativeSourcePath) {
+    mergedProgram.__vexaNativeSourcePath = entryParsed.ast.__vexaNativeSourcePath;
+  }
   const compilationArtifacts = compileParsedSource({ ...entryParsed, ast: mergedProgram }, {
     ambientDeclarations: options.ambientDeclarations ?? [],
   });

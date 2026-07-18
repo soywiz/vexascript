@@ -1,4 +1,5 @@
-import { NodeKind } from "compiler/ast/ast";
+import { Node, NodeKind, Program } from "compiler/ast/ast";
+import { walkAst } from "compiler/ast/traversal";
 import { describe, expect, it } from "../test/expect";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
@@ -10,6 +11,10 @@ describe("lowerProgram", () => {
     const lowered = lowerProgram(program);
     const statement = lowered.body[0];
 
+    expect(lowered).toBeInstanceOf(Program);
+    walkAst(lowered, (node) => {
+      expect(node instanceof Node).toBe(true);
+    });
     expect(statement?.kind).toBe(NodeKind.ForStatement);
     expect((statement as any).iterationKind).toBeUndefined();
     expect((statement as any).initializer).toMatchObject({

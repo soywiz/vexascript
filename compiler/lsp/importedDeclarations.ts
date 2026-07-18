@@ -2621,10 +2621,10 @@ function resolveAmbientDefaultImportType(
     const exportEqualsName = detectAmbientExportEqualsName(decls);
 
     for (const statement of decls) {
-      if (statement.kind !== NodeKind.ExportStatement || (statement as { default?: boolean }).default !== true) {
+      if (statement.kind !== NodeKind.ExportStatement || !(statement as ExportStatement).isDefault) {
         continue;
       }
-      const declaration = (statement as { declaration?: Statement }).declaration;
+      const declaration = (statement as ExportStatement).declaration;
       if (declaration?.kind === NodeKind.FunctionStatement) {
         const resolved = buildAmbientFunctionTypeFromStatement(
           declaration as FunctionStatement,

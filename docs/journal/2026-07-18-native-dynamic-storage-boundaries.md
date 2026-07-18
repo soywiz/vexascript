@@ -50,6 +50,28 @@ otherwise identical numeric and string `const enum` variants. The numeric
 variant reduced median time from 5.484 seconds to 5.363 seconds, approximately
 2.2 percent. The numeric form remains the canonical representation.
 
+A second controlled experiment replaced all 1,300 production
+`kind === NodeKind.X` and `kind !== NodeKind.X` checks across 81 files with
+nominal `instanceof` checks. Making that comparison valid exposed two remaining
+violations of the nominal model. Namespace import isolation changed a
+`MemberExpression` into an `Identifier` by mutating its discriminator, while
+lowering and declaration merging used object spread to produce objects that had
+the right fields but no AST prototype. Namespace isolation now returns a newly
+constructed `Identifier`, and lowering, temporary programs, merged namespaces,
+and merged interfaces now construct real node classes. A lowering regression
+walks the complete result and requires every reachable node to inherit from
+`Node`.
+
+After those fixes, both variants passed TypeScript checking and three
+byte-stable self-host roundtrips. Ten interleaved runs measured a 4.911-second
+median for numeric discriminators and a 4.909-second median for `instanceof`.
+The one-sample-trimmed means were 4.922 and 4.979 seconds respectively, making
+`instanceof` about 1.1 percent slower by that statistic. The difference is
+within run-to-run noise, so there is no Node.js performance reason to replace
+the numeric discriminator. The `const enum` remains canonical while nominal
+classes remain available where class identity is semantically useful and for
+future static C++ lowering.
+
 Optional constructor parameter properties are real own properties initialized
 to `undefined`; source metadata fields (`firstToken`, `lastToken`, and
 `__vexaNativeSourcePath`) are also initialized on the shared `Node` base. This
@@ -57,6 +79,19 @@ gives native lowering a stable declared shape instead of relying on properties
 being attached later. Reserved JavaScript property names were replaced by
 explicit AST names such as `args`, `isDefault`, `isReadonly`, `isStatic`,
 `isConst`, and `isAwait`, allowing the constructors to remain parameter-only.
+
+The final full-suite pass found migration gaps that narrower AST searches had
+missed. Two node-module and ambient-default-export paths still accessed the old
+`default` field through anonymous structural casts, so default function imports
+lost their callable type and declaration origin. They now use the declared
+`ExportStatement.isDefault` field directly. A synthetic `BinaryExpression`
+created solely to anchor an operator diagnostic also lost its source bounds
+when its former initializer bag became positional constructor arguments; it now
+copies the operator token into `firstToken` and `lastToken`. Finally, declaration
+fixture tests that asserted string discriminator values now assert nominal class
+instances. This is evidence that field-renaming migrations must search
+compatibility-shaped casts as well as direct property access, and that every
+synthetic diagnostic node must preserve explicit source metadata.
 
 The follow-up optimization and Oilpan work remains recorded in
 `docs/tasks/accelerate-native-self-host-iterations.md`.
@@ -70,4 +105,6 @@ execution. Parser coverage also walks a mixed program, verifies that every
 reachable AST node inherits from `Node`, checks numeric discriminators, and
 checks that shared metadata properties exist immediately after construction.
 The JavaScript self-host test completes three byte-stable compiler roundtrips
-with the nominal numeric AST.
+with the nominal numeric AST. Native module execution covers namespace-member
+rewriting, which now replaces the member node instead of changing its class in
+place. Lowering coverage rejects prototype-losing structural copies.

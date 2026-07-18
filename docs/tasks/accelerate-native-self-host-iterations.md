@@ -49,8 +49,15 @@ development loop.
   `Object.setPrototypeOf` migration: the 2026-07-18 experiment increased parse
   time from about 266 ms to 407 ms and pre-emission time from about 9.1 seconds
   to 10.1 seconds, while interfaces extending the base class could not be
-  represented by the current C++ interface model. Oilpan inheritance, layout,
-  and allocation designed for derived nodes remain pending.
+  represented by the current C++ interface model. A later replacement of all
+  1,300 production discriminator equality checks with `instanceof` completed
+  three stable roundtrips, but ten interleaved runs were effectively tied:
+  4.911 seconds median for numeric checks versus 4.909 seconds for `instanceof`,
+  with the trimmed mean making `instanceof` about 1.1 percent slower. Keep the
+  numeric discriminator for JavaScript; use nominal classes where identity is
+  semantically useful and when native specialization benefits from it. Oilpan
+  inheritance, layout, and allocation designed for derived nodes remain
+  pending.
 * [ ] Provide fast debug and syntax-validation profiles plus a separate final
   optimized roundtrip profile.
 * [ ] Make strict native object mode the final self-host target so compiler

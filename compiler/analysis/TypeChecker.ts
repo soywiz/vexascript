@@ -3708,7 +3708,10 @@ export class TypeChecker {
     if (!token) {
       return binary;
     }
-    return new BinaryExpression(binary.operator, binary.left, binary.right, token);
+    const diagnosticNode = new BinaryExpression(binary.operator, binary.left, binary.right, token);
+    diagnosticNode.firstToken = token;
+    diagnosticNode.lastToken = token;
+    return diagnosticNode;
   }
 
   private createMethodSymbol(method: ClassMethodMember): AnalysisSymbol {
@@ -9788,13 +9791,20 @@ export class TypeChecker {
           if (!existing) {
             this.namespaceStatementsByName.set(name, namespaceStatement);
           } else {
-            this.namespaceStatementsByName.set(name, {
-              ...existing,
-              body: {
-                ...existing.body,
-                body: [...existing.body.body, ...namespaceStatement.body.body]
-              }
-            });
+            this.namespaceStatementsByName.set(name, new NamespaceStatement(
+              existing.declarationKind,
+              new BlockStatement(
+                [...existing.body.body, ...namespaceStatement.body.body],
+                existing.body.annotations,
+                existing.body.jsName
+              ),
+              existing.declared,
+              existing.globalAugmentation,
+              existing.names,
+              existing.externalModuleName,
+              existing.annotations,
+              existing.jsName
+            ));
           }
         }
       }
@@ -10161,10 +10171,15 @@ export class TypeChecker {
         this.interfaceStatementsByName.set(qualifiedName, interfaceStatement);
         continue;
       }
-      const merged: InterfaceStatement = {
-        ...existing,
-        members: [...existing.members, ...interfaceStatement.members],
-      };
+      const merged = new InterfaceStatement(
+        existing.name,
+        [...existing.members, ...interfaceStatement.members],
+        existing.declared,
+        existing.typeParameters,
+        existing.extendsTypes,
+        existing.annotations,
+        existing.jsName
+      );
       const existingTypeParameters = existing.typeParameters;
       const incomingTypeParameters = interfaceStatement.typeParameters;
       const mergedTypeParameters =

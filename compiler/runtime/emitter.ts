@@ -2890,7 +2890,7 @@ function collectEmitProgramRuntimeContext(
   options: EmitOptions = {},
   baseSeed?: EmitProgramRuntimeSeed
 ): EmitProgramRuntimeContext {
-  const seed = baseSeed ? cloneRuntimeSeed(baseSeed) : createEmitProgramRuntimeSeed({ ...contextProgram, body: [] });
+  const seed = baseSeed ? cloneRuntimeSeed(baseSeed) : createEmitProgramRuntimeSeed(new Program([]));
   const overloadBuckets = seed.overloadBuckets;
   const operators = seed.operators;
   const extensionMethods = seed.extensionMethods;
@@ -2927,7 +2927,7 @@ function collectEmitProgramRuntimeContext(
       }
     }
 
-    const statementSeed = createEmitProgramRuntimeSeed({ ...contextProgram, body: [statement] });
+    const statementSeed = createEmitProgramRuntimeSeed(new Program([statement]));
     for (const [name, functions] of statementSeed.overloadBuckets) {
       const existing = overloadBuckets.get(name);
       if (existing) {
