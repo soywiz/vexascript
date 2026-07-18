@@ -1,4 +1,5 @@
 import { compileNativeModuleGraph } from "compiler/runtime/nativeModuleGraph"
+import type { ModuleGraphProfileEvent } from "compiler/runtime/moduleGraphModel"
 import { Vfs } from "compiler/vfs"
 
 class NativeCompilerVfs extends Vfs {
@@ -24,7 +25,7 @@ fun requestedBaseUrl(args: string[]): string {
 sync fun compileNativeGeneration() {
   val args = commandLineArguments()
   if (args.length < 2) {
-    console.error("Usage: vexa-native-compiler <entry> <output.cpp> [base-url]")
+    console.error("Usage: vexa-native-compiler <entry> <output.cpp> [base-url] [--profile]")
     process.exitCode = 2
     return
   }
@@ -32,10 +33,14 @@ sync fun compileNativeGeneration() {
   val baseUrl = requestedBaseUrl(args)
   val entryPath = args[0]
   val outputPath = args[1]
+  val profileEnabled = args.length > 3 && args[3] == "--profile"
   val result = compileNativeModuleGraph(entryPath, "optimized", {
     vfs: NativeCompilerVfs(),
     baseUrl,
     typeCheck: false,
+    profile: (event: ModuleGraphProfileEvent) => {
+      if (profileEnabled) console.error(`[profile] ${event.phase}: ${event.elapsedMs} ms (${event.moduleCount} modules)`)
+    },
   })
   if (result.errors.length > 0) {
     console.error(result.errors.join("\n"))

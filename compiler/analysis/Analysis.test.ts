@@ -22,6 +22,15 @@ function symbolsOfVisibleSymbolsAt(source: string, line: number, character: numb
 }
 
 describe("Analysis", () => {
+  it("reports binding and type-checking profile phases", () => {
+    const ast = parseFile(tokenizeReader("const value: int = 1"));
+    const phases: string[] = [];
+
+    new Analysis(ast, { profile: (event) => phases.push(event.phase) });
+
+    expect(phases).toEqual(["binding", "type-checking"]);
+  });
+
   it("terminates recursive type-alias expansion", () => {
     const ast = parseFile(tokenizeReader(`type Json = string | Json[]\nconst value: Json = "ok"`));
     const analysis = new Analysis(ast);

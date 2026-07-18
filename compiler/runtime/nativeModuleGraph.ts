@@ -347,7 +347,13 @@ export async function compileNativeModuleGraph(
 
   for (const filePath of order) {
     const info = moduleInfos.get(filePath)!;
-    const compilation = compileParsedSource(parsedByPath.get(filePath)!);
+    const compilation = compileParsedSource(parsedByPath.get(filePath)!, {
+      profile: (event) => options.profile?.({
+        phase: `module-isolation-${event.phase}`,
+        elapsedMs: event.elapsedMs,
+        moduleCount: order.length,
+      }),
+    });
     const analysis = compilation.analysis;
     if (!analysis) {
       errors.push(`Unable to analyze native module '${filePath}' for symbol isolation${
@@ -434,6 +440,11 @@ export async function compileNativeModuleGraph(
   }
   const compilationArtifacts = compileParsedSource({ ...entryParsed, ast: mergedProgram }, {
     ambientDeclarations: options.ambientDeclarations ?? [],
+    profile: (event) => options.profile?.({
+      phase: `merged-${event.phase}`,
+      elapsedMs: event.elapsedMs,
+      moduleCount: order.length,
+    }),
   });
   reportPhase("merged-analysis", order.length);
   const result = transpile(entrySource, {
@@ -441,6 +452,7 @@ export async function compileNativeModuleGraph(
     sourceFilePath: entryFilePath,
     target,
     emit: "cpp",
+    emitNativeSourceLocations: options.emitNativeSourceLocations ?? false,
     emitSourceMap: false,
     typeCheck: options.typeCheck ?? true,
     ambientDeclarations: options.ambientDeclarations ?? [],

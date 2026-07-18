@@ -91,7 +91,8 @@ async function buildFile(
   target: TranspileTarget = "optimized",
   jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {},
   emit: EmitLanguage = "javascript",
-  typeCheck = true
+  typeCheck = true,
+  emitNativeSourceLocations = false
 ): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = (await vfs().readFile(sourcePath))!;
@@ -106,6 +107,7 @@ async function buildFile(
     outputFilePath: outputPath,
     target,
     emit,
+    emitNativeSourceLocations,
     typeCheck,
     emitSourceMap: emit === "javascript",
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
@@ -142,7 +144,8 @@ async function buildNativeFile(
   out?: string,
   buildDir?: string,
   target: TranspileTarget = "optimized",
-  typeCheck = true
+  typeCheck = true,
+  emitNativeSourceLocations = false
 ): Promise<void> {
   const { compileNativeExecutable, nativeProgramPaths } = await import("./nativeBuild");
   const inputPath = resolve(process.cwd(), input);
@@ -172,6 +175,7 @@ async function buildNativeFile(
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     importMappings: project?.importMappings ?? {},
     typeCheck,
+    emitNativeSourceLocations,
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
@@ -190,7 +194,8 @@ async function buildCppModuleGraph(
   input: string,
   out: string | undefined,
   target: TranspileTarget,
-  typeCheck = true
+  typeCheck = true,
+  emitNativeSourceLocations = false
 ): Promise<void> {
   const inputPath = resolve(process.cwd(), input);
   const inputStats = await vfs().stat(inputPath).catch(() => null);
@@ -215,6 +220,7 @@ async function buildCppModuleGraph(
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     importMappings: project?.importMappings ?? {},
     typeCheck,
+    emitNativeSourceLocations,
     ...(profile ? { profile } : {}),
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
@@ -617,9 +623,10 @@ function createProgram(): Command {
       .option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)")
       .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
       .option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics")
-      .action(async (input: string, opts: { out?: string; buildDir?: string; target?: string; transpileOnly?: boolean }) => {
+      .option("--native-source-locations", "Emit per-statement native source-location hooks")
+      .action(async (input: string, opts: { out?: string; buildDir?: string; target?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }) => {
         const target = opts.target === "conservative" ? "conservative" : "optimized";
-        await buildNativeFile(input, opts.out, opts.buildDir, target, !opts.transpileOnly);
+        await buildNativeFile(input, opts.out, opts.buildDir, target, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
       });
   };
 
@@ -631,12 +638,13 @@ function createProgram(): Command {
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--emit <language>", "Output language for file builds: javascript|cpp", "javascript")
     .option("--native", "Emit C++, build Oilpan with g++, and link a native executable")
+    .option("--native-source-locations", "Emit per-statement native source-location hooks")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and node_modules packages as ESM")
     .option("--transpile-only", "Emit TypeScript without failing on VexaScript semantic diagnostics")
     .option("--platform <platform>", "Bundle platform: browser|node", "browser")
-    .action(async (input: string, opts: { out?: string; target?: string; emit?: string; native?: boolean; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean; transpileOnly?: boolean; platform?: string }) => {
+    .action(async (input: string, opts: { out?: string; target?: string; emit?: string; native?: boolean; nativeSourceLocations?: boolean; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean; transpileOnly?: boolean; platform?: string }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
       const emit = opts.native ? "cpp" : opts.emit ?? "javascript";
       if (emit !== "javascript" && emit !== "cpp") {
@@ -646,11 +654,11 @@ function createProgram(): Command {
       const inputStats = await vfs().stat(inputPath).catch(() => null);
       if (inputStats?.isDirectory) {
         if (opts.native) {
-          await buildNativeFile(input, opts.out, undefined, target, !opts.transpileOnly);
+          await buildNativeFile(input, opts.out, undefined, target, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
           return;
         }
         if (emit === "cpp") {
-          await buildCppModuleGraph(input, opts.out, target, !opts.transpileOnly);
+          await buildCppModuleGraph(input, opts.out, target, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
           return;
         }
         await buildDirectory(input, opts.out, target, jsxOptions);
@@ -667,10 +675,10 @@ function createProgram(): Command {
         return;
       }
       if (opts.native) {
-        await buildNativeFile(input, opts.out, undefined, target, !opts.transpileOnly);
+        await buildNativeFile(input, opts.out, undefined, target, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
         return;
       }
-      await buildFile(input, opts.out, target, jsxOptions, emit, !opts.transpileOnly);
+      await buildFile(input, opts.out, target, jsxOptions, emit, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
     });
 
   program
@@ -682,10 +690,11 @@ function createProgram(): Command {
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics")
-    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean }) => {
+    .option("--native-source-locations", "Emit per-statement native source-location hooks")
+    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
       void jsxOptions;
-      await buildCppModuleGraph(input, opts.out, target, !opts.transpileOnly);
+      await buildCppModuleGraph(input, opts.out, target, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
     });
 
   addExecutableCommand("executable", "Compile one VexaScript file directly to a native Oilpan executable");

@@ -169,3 +169,51 @@ than compiler-specific exceptions:
 Each language/runtime boundary above is covered in the single native language
 smoke. The full 2278-test suite and the CLI validation passed after the native
 compiler produced and executed the minimal program.
+
+## Generated C++ Dispatch and String Representation
+
+Generated callables no longer receive a `Runtime&` parameter solely to reach
+the active heap. The runtime remains explicit at the application boundary and
+is exposed to generated code through `Runtime::current()`. This removes a
+pervasive parameter and avoids repeatedly rediscovering the same runtime while
+retaining thread-local isolation between independent application threads.
+
+String literals are deduplicated before emission. The generated translation
+unit declares one static raw pointer per literal, initializes it once through
+the application runtime, and keeps it alive with runtime-owned
+`cppgc::Persistent` roots. Literal reads therefore neither allocate nor perform
+a hash lookup. The roots are released only when the runtime and its heap are
+destroyed.
+
+Language strings now have one canonical `std::u16string` representation inside
+`StringObject`. Equality, length, indexing, `charCodeAt`, and string-switch
+dispatch operate directly on UTF-16 code units. UTF-8 conversion is reserved
+for external boundaries such as console and file I/O. `std::wstring` was
+rejected because `wchar_t` is 16 bits on Windows but 32 bits on macOS and Linux,
+so it cannot provide portable JavaScript string semantics.
+
+Dynamic class dispatch also receives UTF-16 property keys. Generated
+`dynamicGet` and `dynamicSet` implementations first switch on code-unit length,
+then on the first code unit, and only compare complete keys inside the matching
+bucket. Each exact comparison is emitted on its own line. The same dispatch
+builder is used for language string switches, avoiding two implementations
+that could drift. Numeric dynamic array keys are parsed directly from UTF-16
+without an intermediate UTF-8 allocation. Record fallback storage still uses
+UTF-8 keys and converts only after declared dynamic dispatch misses; migrating
+records to the same UTF-16 key representation remains a useful cleanup.
+
+Native source-location hooks are now opt-in through
+`--native-source-locations`. Removing them reduced the self-host translation
+unit substantially, but an unoptimized build improved only modestly, so source
+hooks were not the principal compiler bottleneck. Phase profiling showed that
+the first module-isolation binding pass, which initializes and binds the
+standard declarations, dominates minimal-program execution in the current
+unoptimized native compiler. Future performance work should target declaration
+initialization and generated semantic operations rather than relying on source
+size alone.
+
+The single native language smoke covers astral UTF-16 length and both surrogate
+`charCodeAt` results, direct indexing after the surrogate pair, pooled literals,
+dynamic reads and writes, and the existing language-wide edge cases. Source
+locations have focused CLI coverage for both their default absence and their
+explicit opt-in path.

@@ -25,4 +25,6 @@ export interface ModuleGraphOptions {
   baseUrl?: string;
   /** Optional phase timing sink used by benchmarks and Node-only CLI profiling. */
   profile?: (event: ModuleGraphProfileEvent) => void;
+  /** Emit per-statement native source hooks for diagnostic C++ builds. */
+  emitNativeSourceLocations?: boolean;
 }

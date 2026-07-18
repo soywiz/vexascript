@@ -76,6 +76,13 @@ export interface AnalysisOptions {
    * rules. Defaults to `"vexascript"`.
    */
   language?: "vexascript" | "typescript";
+  /** Optional fine-grained timing sink for compiler performance diagnostics. */
+  profile?: (event: AnalysisProfileEvent) => void;
+}
+
+export interface AnalysisProfileEvent {
+  phase: "binding" | "type-checking";
+  elapsedMs: number;
 }
 
 export class Analysis {
@@ -97,14 +104,17 @@ export class Analysis {
     const ambientDeclarations = options.ambientDeclarations ?? [];
     const importedSymbolViews = normalizeImportedSymbolSources(options);
     const importedSymbols: Map<string, ImportedSymbolResolution> = importedSymbolViews.importedSymbols;
+    let phaseStartedAt = Date.now();
     const bound = new Binder(
       program,
       externalDeclarations,
       ambientDeclarations,
       importedSymbols
     ).bind();
+    options.profile?.({ phase: "binding", elapsedMs: Date.now() - phaseStartedAt });
     this.rootScope = bound.rootScope;
 
+    phaseStartedAt = Date.now();
     const checked = new TypeChecker(
       program,
       bound,
@@ -114,6 +124,7 @@ export class Analysis {
       options.language ?? "vexascript",
       options.projectOwnedExternalDeclarations === true
     ).check();
+    options.profile?.({ phase: "type-checking", elapsedMs: Date.now() - phaseStartedAt });
     this.issues = [...bound.issues, ...checked.issues];
     this.identifierResolutions = checked.identifierResolutions;
     this.jsxAttributeResolutions = checked.jsxAttributeResolutions;

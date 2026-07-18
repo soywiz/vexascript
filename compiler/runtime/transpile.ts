@@ -100,6 +100,8 @@ export interface TranspileOptions {
   typeCheck?: boolean;
   /** Output language. Defaults to JavaScript. */
   emit?: EmitLanguage;
+  /** Emit per-statement native source hooks for diagnostic C++ builds. */
+  emitNativeSourceLocations?: boolean;
   preserveSourceLineOffsets?: boolean;
   /**
    * Whether to generate a source map. Defaults to true so direct transpile
@@ -413,6 +415,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
           lowerProgram(artifacts.ast, { lowerRangeForLoops: true }),
           {
             ...(options.sourceFilePath ? { sourceFilePath: options.sourceFilePath } : {}),
+            ...(options.emitNativeSourceLocations ? { emitSourceLocations: true } : {}),
             expressionTypes: artifacts.analysis.getExpressionTypes(),
             implicitReceiverIdentifiers: artifacts.analysis.getImplicitReceiverIdentifiers(),
             implicitReceiverExtensionIdentifiers: artifacts.analysis.getImplicitReceiverExtensionIdentifiers(),

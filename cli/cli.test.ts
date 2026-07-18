@@ -179,8 +179,23 @@ describe("CLI", () => {
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).toContain('#include "runtime.cpp"');
-    expect(outputCode).toContain('vexa::console.log(runtime.string("cpp"));');
+    expect(outputCode).toContain('static vexa::StringObject* __vexa_literal_0 = nullptr;');
+    expect(outputCode).toContain('__vexa_literal_0 = runtime.retainLiteral("cpp");');
+    expect(outputCode).toContain('vexa::console.log(vexa::Value(__vexa_literal_0));');
+    expect(outputCode).not.toContain("VEXA_NATIVE_SOURCE(");
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
+  });
+
+  it("cpp command emits native source locations only when requested", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-source-locations-"));
+    const input = join(dir, "input.vx");
+    const output = join(dir, "output.cpp");
+    await writeFile(input, "console.log('debug cpp')", "utf8");
+
+    await runCli(["node", "vexa", "cpp", input, "--out", output, "--native-source-locations"]);
+
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).toContain("VEXA_NATIVE_SOURCE(runtime,");
   });
 
   it("executable command routes inputs through native executable validation", async () => {

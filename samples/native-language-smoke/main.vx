@@ -556,6 +556,8 @@ switch (Permission.All) {
 console.log("strings", "  Vexa  ".trim().toUpperCase(), "language".includes("gua"))
 val indexedString: string = "Vexa"
 console.log("string index", indexedString[1], indexedString.length)
+val utf16String: string = "A😀é"
+console.log("utf16 string", utf16String.length, utf16String.charCodeAt(1), utf16String.charCodeAt(2), utf16String[3])
 console.log("math-regex", Math.max(3, 7), Math.round(2.6), /vexa/i.test("VEXA"))
 
 val huge: bigint = 123456789012345678901234567890n

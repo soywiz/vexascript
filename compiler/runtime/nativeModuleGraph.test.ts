@@ -20,7 +20,13 @@ describe("native module graph profiling", () => {
       expect(result.errors).toEqual([]);
       expect(events.map((event) => event.phase)).toEqual([
         "load-and-parse",
+        "module-isolation-binding",
+        "module-isolation-type-checking",
+        "module-isolation-binding",
+        "module-isolation-type-checking",
         "module-isolation-analysis",
+        "merged-binding",
+        "merged-type-checking",
         "merged-analysis",
         "cpp-emission",
         "total",
