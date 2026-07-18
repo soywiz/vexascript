@@ -130,6 +130,9 @@ class DynamicValueObject : public cppgc::GarbageCollectedMixin {
   virtual Value dynamicSet(Runtime&, const std::string&, const Value&);
   virtual bool dynamicDelete(const std::string&);
   virtual Value dynamicCall(Runtime&, const std::vector<Value>&);
+  virtual bool dynamicIsArray() const { return false; }
+  virtual std::size_t dynamicArraySize() const { return 0; }
+  virtual Value dynamicArrayGet(Runtime&, std::size_t);
 };
 
 class Value final {
@@ -381,6 +384,10 @@ inline Value DynamicValueObject::dynamicSet(Runtime&, const std::string&, const 
 
 inline bool DynamicValueObject::dynamicDelete(const std::string&) { return false; }
 
+inline Value DynamicValueObject::dynamicArrayGet(Runtime&, std::size_t) {
+  throw std::runtime_error("Dynamic native object is not an array");
+}
+
 inline Value StoredValue::load() const {
   if (std::holds_alternative<Undefined>(storage_)) return Value::undefined();
   if (std::holds_alternative<Null>(storage_)) return Value::null();
@@ -585,6 +592,21 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
     return type == nativeTypeToken<ArrayObject<T>>() ? this : nullptr;
   }
   std::string dynamicToString() const override { return toString(); }
+  bool dynamicIsArray() const override { return true; }
+  std::size_t dynamicArraySize() const override { return size(); }
+  Value dynamicArrayGet(Runtime& runtime, std::size_t index) override {
+    if constexpr (
+      std::is_same_v<T, Value> || std::is_same_v<T, std::string> ||
+      std::is_same_v<T, BigInt> || std::is_arithmetic_v<T> ||
+      (std::is_pointer_v<T> && (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<T>> ||
+        std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>> ||
+        std::is_same_v<std::remove_pointer_t<T>, RecordObject>))
+    ) {
+      return index < size() ? convertValue<Value>(runtime, get(index)) : Value::undefined();
+    } else {
+      throw std::runtime_error("This native array element type cannot flow through dynamic iteration");
+    }
+  }
   std::optional<std::string> dynamicJsonStringify(std::unordered_set<const void*>& seen) const override {
     if (!seen.insert(this).second) throw std::runtime_error("Converting circular structure to JSON");
     std::ostringstream output;
@@ -1267,14 +1289,47 @@ inline ArrayObject<Value>* arrayPointer(const Value& value) {
   return array;
 }
 
+class DynamicArrayRange final {
+ public:
+  DynamicArrayRange(Runtime& runtime, DynamicValueObject* array)
+      : runtime_(&runtime), array_(array) {}
+
+  class Iterator final {
+   public:
+    Iterator(Runtime& runtime, DynamicValueObject* array, std::size_t index)
+        : runtime_(&runtime), array_(array), index_(index) {}
+    Value operator*() const { return array_->dynamicArrayGet(*runtime_, index_); }
+    Iterator& operator++() { ++index_; return *this; }
+    bool operator!=(const Iterator& other) const { return index_ != other.index_; }
+
+   private:
+    Runtime* runtime_;
+    DynamicValueObject* array_;
+    std::size_t index_;
+  };
+
+  Iterator begin() const { return Iterator(*runtime_, array_.Get(), 0); }
+  Iterator end() const { return Iterator(*runtime_, array_.Get(), array_->dynamicArraySize()); }
+
+ private:
+  Runtime* runtime_;
+  cppgc::Persistent<DynamicValueObject> array_;
+};
+
+inline DynamicArrayRange dynamicArrayRange(Runtime& runtime, const Value& value) {
+  if (!value.isDynamicObject() || !value.dynamicObject()->dynamicIsArray()) {
+    throw std::runtime_error("Value is not an array");
+  }
+  return DynamicArrayRange(runtime, value.dynamicObject());
+}
+
 template <typename T>
 inline bool arrayIsArray(const ArrayObject<T>*) {
   return true;
 }
 
 inline bool arrayIsArray(const Value& value) {
-  return value.isDynamicObject() &&
-      value.dynamicObject()->dynamicCast(nativeTypeToken<ArrayObject<Value>>()) != nullptr;
+  return value.isDynamicObject() && value.dynamicObject()->dynamicIsArray();
 }
 
 template <typename T>
@@ -1306,6 +1361,18 @@ inline T* rawPointer(const cppgc::Member<T>& value) {
 template <typename T>
 inline T* rawPointer(const cppgc::Persistent<T>& value) {
   return value.Get();
+}
+
+template <typename Target, typename Callback>
+inline Value optionalCall(Runtime& runtime, Target* target, Callback&& callback) {
+  if (!target) return Value::undefined();
+  using Result = std::invoke_result_t<Callback, Target*>;
+  if constexpr (std::is_void_v<Result>) {
+    std::forward<Callback>(callback)(target);
+    return Value::undefined();
+  } else {
+    return convertValue<Value>(runtime, std::forward<Callback>(callback)(target));
+  }
 }
 
 template <typename T>
@@ -3282,6 +3349,14 @@ inline void appendAll(ArrayObject<T>* target, const ArrayObject<U>* source) {
 }
 
 template <typename T>
+inline void appendAll(ArrayObject<T>* target, const Value& source) {
+  auto& runtime = Runtime::current();
+  for (const auto value : dynamicArrayRange(runtime, source)) {
+    target->append(convertValue<T>(runtime, value));
+  }
+}
+
+template <typename T>
 inline double pushAll(ArrayObject<T>* target, const ArrayObject<T>* source) {
   appendAll(target, source);
   return static_cast<double>(target->size());
@@ -3857,15 +3932,25 @@ inline ArrayObject<T>* sort(ArrayObject<T>* array, Callback callback) {
   return array->sort(std::move(callback));
 }
 
+template <typename Index>
+inline std::size_t arrayIndex(Index&& index) {
+  using Input = std::remove_cvref_t<Index>;
+  if constexpr (std::is_same_v<Input, Value>) {
+    return static_cast<std::size_t>(Number(index));
+  } else {
+    return static_cast<std::size_t>(index);
+  }
+}
+
 template <typename T, typename Index>
-inline T arrayGet(const ArrayObject<T>* array, Index index) {
-  return array->get(static_cast<std::size_t>(index));
+inline T arrayGet(const ArrayObject<T>* array, Index&& index) {
+  return array->get(arrayIndex(std::forward<Index>(index)));
 }
 
 template <typename T, typename Index, typename U>
 inline T arraySet(ArrayObject<T>* array, Index index, U&& value) {
   return array->set(
-      static_cast<std::size_t>(index),
+      arrayIndex(std::forward<Index>(index)),
       convertValue<T>(Runtime::current(), std::forward<U>(value)));
 }
 

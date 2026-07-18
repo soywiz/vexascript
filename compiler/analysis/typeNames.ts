@@ -60,11 +60,11 @@ interface FunctionTypeParameterText {
 }
 
 const TYPE_TEXT_CACHE_LIMIT = 8192;
-const topLevelTypePartsCache = new Map<string, readonly string[]>();
-const typeNameShapeCache = new Map<string, TypeNameShape>();
-const conditionalTypeTextCache = new Map<string, ConditionalTypeText | null>();
+const topLevelTypePartsCache = new Map<string, any>();
+const typeNameShapeCache = new Map<string, any>();
+const conditionalTypeTextCache = new Map<string, any>();
 
-function cacheTypeTextResult<T>(cache: Map<string, T>, key: string, value: T): T {
+function cacheTypeTextResult(cache: Map<string, any>, key: string, value: any): any {
   if (cache.size >= TYPE_TEXT_CACHE_LIMIT) cache.clear();
   cache.set(key, value);
   return value;

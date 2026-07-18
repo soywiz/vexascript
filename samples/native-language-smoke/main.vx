@@ -370,6 +370,22 @@ val mergedNativeScores = new Map<string, int>([
 val spreadNativeSet = [...new Set<int>([6, 7])]
 console.log("collection spread", mergedNativeScores.get("left"), mergedNativeScores.get("right"), spreadNativeSet.join("|"))
 
+val nestedNativeScores = new Map<string, Map<string, int>>()
+nestedNativeScores.set("group", new Map<string, int>([["score", 12]]))
+console.log("nested collections", nestedNativeScores.get("group")?.get("score"), nestedNativeScores.get("missing")?.get("score"))
+
+interface SmokeDynamicName {
+  val name: string
+}
+
+val dynamicMembers: any = [{ kind: "first", name: { name: "one" } }, { kind: "second", name: { name: "two" } }]
+var dynamicMemberText = ""
+for (member of dynamicMembers ?? []) {
+  val dynamicName = member.name as SmokeDynamicName
+  dynamicMemberText += `${member.kind}:${dynamicName.name}|`
+}
+console.log("deferred dynamic array", dynamicMemberText)
+
 val nativeJson = JSON.stringify({ name: "Ada", values: [1, 2], active: true })
 val parsedNativeJson: any = JSON.parse(nativeJson)
 parsedNativeJson.values[1] += 3
