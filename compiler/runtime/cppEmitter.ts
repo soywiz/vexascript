@@ -144,9 +144,14 @@ let activeSuppressAutoAwait = false;
 let activeAsyncResultType: string | null = null;
 let activeGeneratorResultType: string | null = null;
 let activeCallableResultType: string | null = null;
+let activeCallableUsesReturnSignal = false;
 let activeFinallyProtectedDepth = 0;
-let activeBreakBoundaryDepths: number[] = [];
-let activeContinueBoundaryDepths: number[] = [];
+interface ControlBoundary {
+  finallyDepth: number;
+  usesSignal: boolean;
+}
+let activeBreakBoundaries: ControlBoundary[] = [];
+let activeContinueBoundaries: ControlBoundary[] = [];
 let activeYieldTemporaryCounter = 0;
 let activeExceptionTemporaryCounter = 0;
 let activeSwitchTemporaryCounter = 0;
@@ -552,8 +557,9 @@ function stripOuterTypeParentheses(typeName: string): string {
     let depth = 0;
     let wrapsEntireType = true;
     for (let index = 0; index < current.length; index += 1) {
-      if (current[index] === "(") depth += 1;
-      if (current[index] === ")") depth -= 1;
+      const character = current.charCodeAt(index);
+      if (character === 40) depth += 1;
+      if (character === 41) depth -= 1;
       if (depth === 0 && index < current.length - 1) {
         wrapsEntireType = false;
         break;
@@ -728,15 +734,22 @@ function currentClassPropertyCppType(propertyName: string): string | null {
   // field expressions cannot recursively infer the same property forever.
   activeClassPropertyCppTypes.set(cacheKey, null);
   const currentClass = activeClassStatements.get(activeCurrentClassName);
-  let fieldType: string | null = null;
-  if (currentClass) fieldType = classStoredPropertyInfo(currentClass, propertyName)?.valueType ?? null;
+  const storedProperty = currentClass ? classStoredPropertyInfo(currentClass, propertyName) : null;
+  const fieldType = storedProperty ? storedProperty.valueType : null;
   if (fieldType) {
     activeClassPropertyCppTypes.set(cacheKey, fieldType);
     return fieldType;
   }
-  const primaryProperty = currentClass?.primaryConstructorParameters?.find((parameter) =>
-    parameter.name.name === propertyName);
-  const primaryType = primaryProperty?.typeAnnotation
+  let primaryProperty: ClassPrimaryConstructorParameter | undefined;
+  if (currentClass) {
+    for (const parameter of currentClass.primaryConstructorParameters ?? []) {
+      if (parameter.name.name === propertyName) {
+        primaryProperty = parameter;
+        break;
+      }
+    }
+  }
+  const primaryType = primaryProperty && primaryProperty.typeAnnotation
     ? cppTypeForDeclaredName(primaryProperty.typeAnnotation.name)
     : null;
   activeClassPropertyCppTypes.set(cacheKey, primaryType);
@@ -855,10 +868,10 @@ function cppTemplateArguments(type: string, prefix: string): string[] | null {
   let start = 0;
   let depth = 0;
   for (let index = 0; index < body.length; index += 1) {
-    const character = body[index];
-    if (character === "<") depth += 1;
-    if (character === ">") depth -= 1;
-    if (character === "," && depth === 0) {
+    const character = body.charCodeAt(index);
+    if (character === 60) depth += 1;
+    if (character === 62) depth -= 1;
+    if (character === 44 && depth === 0) {
       argumentsList.push(body.slice(start, index).trim());
       start = index + 1;
     }
@@ -972,6 +985,15 @@ function isStringExpression(expression: Expr): boolean {
         ((expression as MemberExpression).property as Identifier).name
       ))
     : null;
+  if (expression.kind === NodeKind.CallExpression) {
+    const member = memberParts((expression as CallExpression).callee);
+    if (member && new Set([
+      "toString", "toUpperCase", "toLowerCase", "trim", "trimStart", "trimEnd", "charAt", "repeat",
+      "replace", "substring", "slice",
+    ]).has(member.propertyName) && isStringExpression(member.object)) {
+      return true;
+    }
+  }
   return localCppType === "std::string" ||
     (type?.kind === "builtin" && type.name === "string") ||
     (type?.kind === "literal" && type.base === "string") ||
@@ -1118,12 +1140,27 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
   const sourceType = activeExpressionTypes.get(expression as Node);
   const alreadyDynamicRecordMember = expression.kind === NodeKind.MemberExpression &&
     activeExpressionTypes.get((expression as MemberExpression).object as Node)?.kind === "object";
-  if (resultType === "vexa::Value" && sourceType?.kind === "function" && !alreadyDynamicRecordMember) {
-    const functionType = sourceType as FunctionType;
-    const callableResult = cppTypeForAnalysisType(functionType.returnType) ?? "vexa::Value";
+  if (resultType === "vexa::Value" &&
+      (sourceType?.kind === "function" || expression.kind === NodeKind.ArrowFunctionExpression || expression.kind === NodeKind.FunctionExpression) &&
+      !alreadyDynamicRecordMember) {
+    const callableExpression = expression.kind === NodeKind.ArrowFunctionExpression || expression.kind === NodeKind.FunctionExpression
+      ? expression as ArrowFunctionExpression | FunctionExpression
+      : null;
+    const functionType = sourceType?.kind === "function" ? sourceType as FunctionType : null;
+    const callableResult = functionType
+      ? cppTypeForAnalysisType(functionType.returnType) ?? "vexa::Value"
+      : callableExpression
+        ? callableExpressionResultCppType(callableExpression) ?? "vexa::Value"
+        : "vexa::Value";
     const callableParameters: string[] = [];
-    for (const parameter of functionType.parameters) {
-      callableParameters.push(cppTypeForAnalysisType(parameter.type) ?? "vexa::Value");
+    if (functionType) {
+      for (const parameter of functionType.parameters) {
+        callableParameters.push(cppTypeForAnalysisType(parameter.type) ?? "vexa::Value");
+      }
+    } else if (callableExpression) {
+      for (const parameter of callableExpression.parameters) {
+        callableParameters.push(emittedCallableParameterCppType(parameter, false) ?? "vexa::Value");
+      }
     }
     const templateArguments = [callableResult, ...callableParameters].join(", ");
     const captureNames = nativeFunctionCaptureNames(expression);
@@ -1173,6 +1210,8 @@ function emitArrayElements(elements: readonly Expr[], elementType: string): stri
   const emitTypedElement = (element: Expr): string =>
     interfaceStatementForCppType(elementType) !== null
       ? emitConvertedValue(element, elementType)
+      : elementType.startsWith("vexa::Task<")
+        ? emitExpressionWithExpectedCppType(element, elementType)
       : emittedCppTypeForExpression(element) !== elementType && elementType.endsWith("*")
         ? emitConvertedValue(element, elementType)
         : emitElement(element);
@@ -1355,6 +1394,42 @@ function isDynamicValueExpression(expression: Expr): boolean {
   return emittedCppTypeForExpression(expression) === "vexa::Value";
 }
 
+function stdFunctionResultCppType(type: string): string | null {
+  const prefix = "std::function<";
+  if (!type.startsWith(prefix) || !type.endsWith(">")) return null;
+  const signature = type.slice(prefix.length, -1);
+  let templateDepth = 0;
+  for (let index = 0; index < signature.length; index += 1) {
+    const character = signature.charCodeAt(index);
+    if (character === 60) templateDepth += 1;
+    else if (character === 62) templateDepth -= 1;
+    else if (character === 40 && templateDepth === 0) return signature.slice(0, index);
+  }
+  return null;
+}
+
+function callableExpressionResultCppType(
+  expression: ArrowFunctionExpression | FunctionExpression
+): string | null {
+  const functionType = activeExpressionTypes.get(expression as Node);
+  if (functionType?.kind === "function") {
+    const mapped = cppTypeForAnalysisType((functionType as FunctionType).returnType);
+    if (mapped) return mapped;
+  }
+  if (expression.returnType) {
+    const mapped = cppTypeForDeclaredName(expression.returnType.name);
+    if (mapped) return mapped;
+  }
+  if (expression.kind === NodeKind.FunctionExpression) {
+    return inferredCallableReturnType((expression as FunctionExpression).body);
+  }
+  const body = (expression as ArrowFunctionExpression).body;
+  const mapped = body.kind === NodeKind.BlockStatement
+    ? inferredCallableReturnType(body as BlockStatement)
+    : emittedCppTypeForExpression(body as Expr) ?? cppTypeForExpression(body as Expr);
+  return mapped === "auto" ? null : mapped;
+}
+
 function emitNativePointerExpression(expression: Expr, expectedPointerType: string | null = null): string {
   const emitted = emitExpression(expression);
   if (!isDynamicValueExpression(expression)) return `vexa::rawPointer(${emitted})`;
@@ -1418,20 +1493,42 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
     const localType = activeLocalCppTypes.get(name);
     if (localType) return localType;
   }
+  if (expression.kind === NodeKind.ArrowFunctionExpression || expression.kind === NodeKind.FunctionExpression) {
+    const callable = expression as ArrowFunctionExpression | FunctionExpression;
+    const resultType = callableExpressionResultCppType(callable);
+    if (resultType) {
+      const parameterTypes: string[] = [];
+      for (const parameter of callable.parameters) {
+        parameterTypes.push(emittedCallableParameterCppType(parameter, false) ?? "vexa::Value");
+      }
+      return `std::function<${resultType}(${parameterTypes.join(", ")})>`;
+    }
+  }
   if (expression.kind === NodeKind.UnaryExpression && (expression as UnaryExpression).operator === "await") {
     const awaited = (expression as UnaryExpression).argument;
     const awaitedType = emittedCppTypeForExpression(awaited) ?? cppTypeForExpression(awaited);
     return cppTemplateArguments(awaitedType, "vexa::Task<")?.[0] ?? awaitedType;
   }
   if (expression.kind === NodeKind.CallExpression) {
+    const calleeName = identifierName((expression as CallExpression).callee);
+    const localCallableType = calleeName ? activeLocalCppTypes.get(calleeName) : undefined;
+    const localCallableResult = localCallableType ? stdFunctionResultCppType(localCallableType) : null;
+    if (localCallableResult) return localCallableResult;
     const member = memberParts((expression as CallExpression).callee);
     const collectionKind = member ? nativeCollectionKind(member.object) : null;
     const collectionType = member ? nativeCollectionPointerCppType(member.object) : null;
+    const emittedCollectionType = member
+      ? emittedCppTypeForExpression(member.object) ?? cppTypeForExpression(member.object)
+      : null;
     if (member?.propertyName === "get" && collectionKind === "map") {
       const resultType = cppTypeForExpression(expression);
       if (resultType.endsWith("*")) return resultType;
     }
     const mapTypes = collectionType ? cppTemplateArguments(collectionType, "vexa::MapObject<") : null;
+    if (member?.propertyName === "get" && mapTypes && emittedCollectionType === collectionType &&
+        !new Set(["auto", "vexa::Value"]).has(mapTypes[1]!)) {
+      return mapTypes[1]!;
+    }
     if (member?.propertyName === "keys" && mapTypes) {
       return `vexa::ArrayObject<${mapTypes[0]}>*`;
     }
@@ -1488,6 +1585,14 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
       if (commonType) return commonType;
     }
     if (consequent === "vexa::Value" || alternate === "vexa::Value") return "vexa::Value";
+  }
+  if (expression.kind === NodeKind.BinaryExpression &&
+      new Set(["&&", "||"]).has((expression as BinaryExpression).operator)) {
+    const binary = expression as BinaryExpression;
+    const left = emittedCppTypeForExpression(binary.left) ?? cppTypeForExpression(binary.left);
+    const right = emittedCppTypeForExpression(binary.right) ?? cppTypeForExpression(binary.right);
+    if (left === "bool" && right === "bool") return "bool";
+    return left === right ? left : "vexa::Value";
   }
   if (expression.kind === NodeKind.BinaryExpression && (expression as BinaryExpression).operator === "??") {
     const binary = expression as BinaryExpression;
@@ -1547,13 +1652,25 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         }
         return `vexa::Task<${resultType}>`;
       }
+      if (member?.objectName === "Promise" && member.propertyName === "reject") {
+        return "vexa::Task<vexa::Value>";
+      }
       if (member?.objectName === "Promise" && new Set(["all", "race", "any"]).has(member.propertyName)) {
         const taskArray = callExpression.args[0];
-        const firstElement = taskArray?.kind === NodeKind.ArrayLiteral
-          ? (taskArray as ArrayLiteral).elements.find((element) => element.kind !== NodeKind.SpreadExpression)
-          : undefined;
-        const taskType = firstElement ? emittedCppTypeForExpression(firstElement) : null;
-        const resultType = taskType ? cppTemplateArguments(taskType, "vexa::Task<")?.[0] : null;
+        let resultType: string | null = null;
+        if (taskArray?.kind === NodeKind.ArrayLiteral) {
+          for (const element of (taskArray as ArrayLiteral).elements) {
+            if (element.kind === NodeKind.SpreadExpression) continue;
+            const taskType = emittedCppTypeForExpression(element);
+            const candidate = taskType ? cppTemplateArguments(taskType, "vexa::Task<")?.[0] : null;
+            if (!candidate) continue;
+            resultType ??= candidate;
+            if (candidate !== "void" && candidate !== "vexa::Value") {
+              resultType = candidate;
+              break;
+            }
+          }
+        }
         if (resultType) {
           return member.propertyName === "all"
             ? `vexa::Task<vexa::ArrayObject<${resultType}>*>`
@@ -1593,6 +1710,10 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
       if (member?.objectName === "Promise" && member.propertyName === "allSettled") {
         return "vexa::Task<vexa::ArrayObject<vexa::RecordObject*>*>";
       }
+      if (member && new Set(["then", "catch", "finally"]).has(member.propertyName)) {
+        const receiverType = emittedCppTypeForExpression(member.object) ?? cppTypeForExpression(member.object);
+        if (receiverType.startsWith("vexa::Task<")) return receiverType;
+      }
       if (member && isStringExpression(member.object)) {
         if (member.propertyName === "split") return "vexa::ArrayObject<std::string>*";
         if (new Set([
@@ -1607,6 +1728,35 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         const receiverType = managedArrayCppTypeForExpression(member.object) ??
           emittedCppTypeForExpression(member.object) ?? cppTypeForExpression(member.object);
         const elementType = managedArrayElementType(receiverType);
+        if (new Set(["slice", "concat", "filter", "splice", "reverse", "fill", "copyWithin", "sort"]).has(member.propertyName)) {
+          return receiverType;
+        }
+        if (new Set(["includes", "some", "every"]).has(member.propertyName)) return "bool";
+        if (member.propertyName === "map" || member.propertyName === "flatMap") {
+          const callback = callExpression.args[0];
+          const callbackType = callback ? activeExpressionTypes.get(callback as Node) : undefined;
+          let callbackResult = callbackType?.kind === "function"
+            ? cppTypeForAnalysisType(callbackType.returnType)
+            : null;
+          if ((!callbackResult || callbackResult === "void" || callbackResult === "auto") && callback &&
+              (callback.kind === NodeKind.ArrowFunctionExpression || callback.kind === NodeKind.FunctionExpression)) {
+            const callable = callback as ArrowFunctionExpression | FunctionExpression;
+            callbackResult = callable.body.kind === NodeKind.BlockStatement
+              ? inferredCallableReturnType(callable.body as BlockStatement)
+              : emittedCppTypeForExpression(callable.body as Expr) ?? cppTypeForExpression(callable.body as Expr);
+          }
+          if (callbackResult && callbackResult !== "void" && callbackResult !== "auto") {
+            const mappedElement = member.propertyName === "flatMap"
+              ? managedArrayElementType(callbackResult) ?? callbackResult
+              : callbackResult;
+            return `vexa::ArrayObject<${mappedElement}>*`;
+          }
+          return `vexa::ArrayObject<${elementType ?? "vexa::Value"}>*`;
+        }
+        if (member.propertyName === "reduce") {
+          const initial = callExpression.args[1];
+          if (initial) return emittedCppTypeForExpression(initial) ?? cppTypeForExpression(initial);
+        }
         if (elementType && new Set(["pop", "shift", "at", "find"]).has(member.propertyName)) {
           return elementType;
         }
@@ -1746,7 +1896,8 @@ function emitArguments(
       return emitArgument(argument, index);
     }
     const previous = activeDefaultArgumentExpressions;
-    const bindings = new Map(previous);
+    const bindings = new Map<string, Expr>();
+    for (const [name, expression] of previous) bindings.set(name, expression);
     for (let parameterIndex = 0; parameterIndex < index; parameterIndex += 1) {
       const name = callableParameterName(parameters[parameterIndex]!);
       if (name) bindings.set(name, ordered[parameterIndex]!);
@@ -1939,8 +2090,13 @@ function declaredTypeNameForExpression(expression: Expr): string | null {
       candidate.kind === NodeKind.ClassFieldMember && candidate.name.name === (member.property as Identifier).name);
     if (field?.typeAnnotation) return substituteTypeName(field.typeAnnotation.name, bindings);
     const propertyName = (member.property as Identifier).name;
-    const primaryProperty = statement.primaryConstructorParameters?.find((parameter) =>
-      parameter.name.name === propertyName);
+    let primaryProperty: ClassPrimaryConstructorParameter | undefined;
+    for (const parameter of statement.primaryConstructorParameters ?? []) {
+      if (parameter.name.name === propertyName) {
+        primaryProperty = parameter;
+        break;
+      }
+    }
     if (primaryProperty?.typeAnnotation) return substituteTypeName(primaryProperty.typeAnnotation.name, bindings);
     const constructor = classConstructorMethod(statement);
     if (!constructor) return null;
@@ -1978,16 +2134,24 @@ function classStoredPropertyInfo(statement: ClassStatement, propertyName: string
       : null;
     if (field && fieldType) return { typeName: field.typeAnnotation?.name ?? null, valueType: fieldType };
 
-    const primaryProperty = candidateClass.primaryConstructorParameters?.find((parameter) =>
-      parameter.name.name === propertyName);
+    let primaryProperty: ClassPrimaryConstructorParameter | undefined;
+    for (const parameter of candidateClass.primaryConstructorParameters ?? []) {
+      if (parameter.name.name === propertyName) {
+        primaryProperty = parameter;
+        break;
+      }
+    }
     const primaryTypeName = primaryProperty?.typeAnnotation?.name;
     const primaryType = primaryTypeName ? cppTypeForDeclaredName(primaryTypeName) ?? "vexa::Value" : null;
     if (primaryTypeName && primaryType) return { typeName: primaryTypeName, valueType: primaryType };
 
-    const constructorProperty = classConstructorMethod(candidateClass)?.parameters.find((parameter) =>
-      parameter.name.kind === NodeKind.Identifier &&
-      (parameter.name as Identifier).name === propertyName &&
-      (parameter.accessModifier !== undefined || parameter.isReadonly === true));
+    const constructorMethod = classConstructorMethod(candidateClass);
+    const constructorProperty = constructorMethod
+      ? constructorMethod.parameters.find((parameter) =>
+          parameter.name.kind === NodeKind.Identifier &&
+          (parameter.name as Identifier).name === propertyName &&
+          (parameter.accessModifier !== undefined || parameter.isReadonly === true))
+      : undefined;
     const constructorTypeName = constructorProperty?.typeAnnotation?.name;
     const constructorType = constructorProperty?.optional
       ? "vexa::Value"
@@ -2215,8 +2379,12 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
   const extensionResolution = activeExtensionPropertyResolutions.get(member as Node);
   if (extensionResolution) {
     const declaration = extensionResolution.declaration;
-    const getter = declaration.initializer || declaration.accessors?.some((accessor) => accessor.accessorKind === "get");
-    const setter = declaration.accessors?.some((accessor) => accessor.accessorKind === "set");
+    let getter = Boolean(declaration.initializer);
+    let setter = false;
+    for (const accessor of declaration.accessors ?? []) {
+      if (accessor.accessorKind === "get") getter = true;
+      if (accessor.accessorKind === "set") setter = true;
+    }
     return {
       kind: "extension",
       expression,
@@ -2392,7 +2560,10 @@ function emitPropertyAssignment(
     const expectedType = interfaceProperty ? interfacePropertyCppType(interfaceProperty) : null;
     const assignedValue = expectedType
       ? emitExpressionWithExpectedCppType(assignment.right, expectedType)
-      : property.kind === "dynamic" && activeExpressionTypes.get(assignment.right as Node)?.kind === "function"
+      : (property.kind === "dynamic" || property.kind === "record") &&
+          (activeExpressionTypes.get(assignment.right as Node)?.kind === "function" ||
+            assignment.right.kind === NodeKind.ArrowFunctionExpression ||
+            assignment.right.kind === NodeKind.FunctionExpression)
         ? emitConvertedValue(assignment.right, "vexa::Value")
         : emitExpression(assignment.right);
     return `([&]() { ${property.kind === "extension" || property.kind === "dynamic" ? "auto" : "auto*"} __vexa_property_receiver = ${receiver};${keyDeclaration} auto __vexa_property_value = ${assignedValue}; ${emitNativePropertySet(property, "__vexa_property_receiver", "__vexa_property_value", key)}; return __vexa_property_value; }())`;
@@ -2546,7 +2717,8 @@ function classUsesRuntimeConstructor(statement: ClassStatement | undefined): boo
 }
 
 function classConstructorMethod(statement: ClassStatement | undefined): ClassMethodMember | null {
-  return statement?.members.find((member): member is ClassMethodMember =>
+  if (!statement) return null;
+  return statement.members.find((member): member is ClassMethodMember =>
     member.kind === NodeKind.ClassMethodMember && member.name.name === "constructor") ?? null;
 }
 
@@ -2741,6 +2913,10 @@ function emitNativeLambda(
   const previousSharedBindingCandidates = activeSharedBindingCandidates;
   const previousThisExpression = activeThisExpression;
   const previousCallableResultType = activeCallableResultType;
+  const previousCallableUsesReturnSignal = activeCallableUsesReturnSignal;
+  const previousFinallyProtectedDepth = activeFinallyProtectedDepth;
+  const previousBreakBoundaries = activeBreakBoundaries;
+  const previousContinueBoundaries = activeContinueBoundaries;
   activeLocalNames = new Set([...activeLocalNames, ...parameters.names]);
   activeLocalCppTypes = new Map(activeLocalCppTypes);
   activeGcObjectTypes = new Map([...activeGcObjectTypes, ...parameters.gcTypes]);
@@ -2762,6 +2938,10 @@ function emitNativeLambda(
   });
   activeThisExpression = capture.thisExpression;
   activeCallableResultType = expectedResultType;
+  activeCallableUsesReturnSignal = false;
+  activeFinallyProtectedDepth = 0;
+  activeBreakBoundaries = [];
+  activeContinueBoundaries = [];
   activeExpectedLambdaResultCppType = null;
   activeExpectedLambdaParameterCppTypes = null;
   activeExpectedExpressionCppType = null;
@@ -2769,7 +2949,7 @@ function emitNativeLambda(
   try {
     const prefix = `${capture.text}(${parameters.text})${activeRuntimeName === "runtime" ? "" : " mutable"}${expectedResultType ? ` -> ${expectedResultType}` : ""}`;
     const preamble = emitParameterDestructuring(parameters, "  ");
-    const emittedBody = body.kind === NodeKind.BlockStatement
+    const rawBody = body.kind === NodeKind.BlockStatement
       ? emitBlock(
           body as BlockStatement,
           "",
@@ -2782,6 +2962,9 @@ function emitNativeLambda(
       : `{ return ${expectedResultType
         ? emitExpressionWithExpectedCppType(body as Expr, expectedResultType)
         : emitExpression(body as Expr)}; }`;
+    const emittedBody = expectedResultType
+      ? emitCallableReturnBoundary(rawBody, "", expectedResultType, false)
+      : rawBody;
     return `${prefix} ${injectBlockPreamble(emittedBody, preamble)}`;
   } finally {
     activeLocalNames = previousLocalNames;
@@ -2793,6 +2976,10 @@ function emitNativeLambda(
     activeSharedBindingCandidates = previousSharedBindingCandidates;
     activeThisExpression = previousThisExpression;
     activeCallableResultType = previousCallableResultType;
+    activeCallableUsesReturnSignal = previousCallableUsesReturnSignal;
+    activeFinallyProtectedDepth = previousFinallyProtectedDepth;
+    activeBreakBoundaries = previousBreakBoundaries;
+    activeContinueBoundaries = previousContinueBoundaries;
     activeExpectedLambdaResultCppType = expectedLambdaResult;
     activeExpectedLambdaParameterCppTypes = expectedLambdaParameters;
     activeExpectedExpressionCppType = expectedLambdaExpression;
@@ -2830,6 +3017,10 @@ function emitAsyncNativeLambda(
   const previousThisExpression = activeThisExpression;
   const previousAsyncResultType = activeAsyncResultType;
   const previousCallableResultType = activeCallableResultType;
+  const previousCallableUsesReturnSignal = activeCallableUsesReturnSignal;
+  const previousFinallyProtectedDepth = activeFinallyProtectedDepth;
+  const previousBreakBoundaries = activeBreakBoundaries;
+  const previousContinueBoundaries = activeContinueBoundaries;
   activeLocalNames = new Set([...activeLocalNames, ...parameters.names]);
   activeLocalCppTypes = new Map(activeLocalCppTypes);
   activeGcObjectTypes = new Map([...activeGcObjectTypes, ...parameters.gcTypes]);
@@ -2843,7 +3034,11 @@ function emitAsyncNativeLambda(
   for (const name of parameters.names) activeSharedBindingNames.delete(name);
   activeThisExpression = capture.thisExpression;
   activeAsyncResultType = resultType;
-  activeCallableResultType = `vexa::Task<${resultType}>`;
+  activeCallableResultType = resultType;
+  activeCallableUsesReturnSignal = false;
+  activeFinallyProtectedDepth = 0;
+  activeBreakBoundaries = [];
+  activeContinueBoundaries = [];
   parametersList.forEach((parameter, index) => {
     if (parameter.name.kind !== NodeKind.Identifier) return;
     const expected = activeExpectedLambdaParameterCppTypes?.[index];
@@ -2854,11 +3049,12 @@ function emitAsyncNativeLambda(
   clearExpressionTypeCaches();
   try {
     const preamble = emitParameterDestructuring(parameters, "  ");
-    const emittedBody = body.kind === NodeKind.BlockStatement
+    const rawBody = body.kind === NodeKind.BlockStatement
       ? emitAsyncCallableBlock(body as BlockStatement, "", resultType)
       : resultType === "void"
         ? `{ ${emitExpression(body as Expr)}; co_return; }`
         : `{ co_return ${emitAsyncResultValue(body as Expr, resultType)}; }`;
+    const emittedBody = emitCallableReturnBoundary(rawBody, "", resultType, true);
     return `${capture.text}(${parameters.text}) mutable -> vexa::Task<${resultType}> ${injectBlockPreamble(emittedBody, preamble)}`;
   } finally {
     activeLocalNames = previousLocalNames;
@@ -2871,6 +3067,10 @@ function emitAsyncNativeLambda(
     activeThisExpression = previousThisExpression;
     activeAsyncResultType = previousAsyncResultType;
     activeCallableResultType = previousCallableResultType;
+    activeCallableUsesReturnSignal = previousCallableUsesReturnSignal;
+    activeFinallyProtectedDepth = previousFinallyProtectedDepth;
+    activeBreakBoundaries = previousBreakBoundaries;
+    activeContinueBoundaries = previousContinueBoundaries;
     clearExpressionTypeCaches();
   }
 }
@@ -3028,9 +3228,11 @@ function extensionReceiverNamesForExpression(expression: Expr): string[] {
 function extensionFunctionForCall(member: ReturnType<typeof memberParts>): FunctionStatement | null {
   if (!member) return null;
   for (const receiverName of extensionReceiverNamesForExpression(member.object)) {
-    const candidate = activeExtensionFunctions.get(receiverName)
-      ?.find((statement) => statement.name.name === member.propertyName);
-    if (candidate) return candidate;
+    const candidates = activeExtensionFunctions.get(receiverName);
+    if (!candidates) continue;
+    for (const candidate of candidates) {
+      if (candidate.name.name === member.propertyName) return candidate;
+    }
   }
   return null;
 }
@@ -3061,7 +3263,14 @@ function extensionTemplateArguments(
   const orderedArguments = orderedCallArguments(argumentsList, statement.parameters);
   statement.parameters.forEach((parameter, index) => {
     const typeName = parameter.typeAnnotation?.name;
-    if (!typeName || bindings.has(typeName) || !statement.typeParameters?.some((item) => item.name.name === typeName)) {
+    let isTypeParameter = false;
+    for (const item of statement.typeParameters ?? []) {
+      if (item.name.name === typeName) {
+        isTypeParameter = true;
+        break;
+      }
+    }
+    if (!typeName || bindings.has(typeName) || !isTypeParameter) {
       return;
     }
     const mapped = cppTypeForExpression(orderedArguments[index]!);
@@ -3121,12 +3330,16 @@ function methodTemplateBindings(
   call: CallExpression,
   method: CallableMember | FunctionStatement
 ): Map<string, string> {
-  const typeParameters = method.typeParameters ?? [];
+  const typeParameters: TypeParameter[] = method.typeParameters ?? [];
+  const parameters: FunctionParameter[] = method.parameters;
   const bindings = new Map<string, string>();
-  call.typeArguments?.forEach((argument, index) => {
-    const parameter = typeParameters[index];
-    if (parameter) bindings.set(parameter.name.name, argument.name);
-  });
+  if (call.typeArguments) {
+    for (let index = 0; index < call.typeArguments.length; index += 1) {
+      const argument = call.typeArguments[index]!;
+      const parameter = typeParameters[index];
+      if (parameter) bindings.set(parameter.name.name, argument.name);
+    }
+  }
   const resultType = cppTypeForExpression(call);
   const resultElementType = managedArrayElementType(resultType);
   const returnArray: ArraySuffixTypeName | null = method.returnType
@@ -3167,7 +3380,7 @@ function methodTemplateBindings(
       }
     });
   };
-  method.parameters.forEach((parameter, index) => {
+  parameters.forEach((parameter, index) => {
     const argument = call.args[index];
     if (!argument || !parameter.typeAnnotation) return;
     const declaredArgumentType = cppTypeForExpression(argument);
@@ -3295,9 +3508,12 @@ function emitCall(call: CallExpression): string {
     if (member.propertyName === "reject") {
       if (call.args.length !== 1) throw new CppEmitError("C++ Promise.reject expects one reason");
       const promiseType = activeExpressionTypes.get(call as Node);
-      const valueType = promiseType?.kind === "named" && promiseType.name === "Promise"
+      const contextualValueType = activeExpectedExpressionCppType
+        ? cppTemplateArguments(activeExpectedExpressionCppType, "vexa::Task<")?.[0]
+        : null;
+      const valueType = contextualValueType ?? (promiseType?.kind === "named" && promiseType.name === "Promise"
         ? cppTypeForAnalysisType(promiseType.typeArguments?.[0] ?? { kind: "builtin", name: "unknown" }) ?? "vexa::Value"
-        : "vexa::Value";
+        : "vexa::Value");
       return `vexa::rejectedTask<${valueType}>(${activeRuntimeName}, ${emitExpression(call.args[0]!)})`;
     }
     const promiseCombinators = new Map([
@@ -3314,9 +3530,19 @@ function emitCall(call: CallExpression): string {
       const taskArray = call.args[0]!;
       let expectedTaskArrayType: string | null = null;
       if (taskArray.kind === NodeKind.ArrayLiteral) {
-        const firstElement = (taskArray as ArrayLiteral).elements.find((element) => element.kind !== NodeKind.SpreadExpression);
-        const firstType = firstElement ? emittedCppTypeForExpression(firstElement) : null;
-        if (firstType?.startsWith("vexa::Task<")) expectedTaskArrayType = `vexa::ArrayObject<${firstType}>*`;
+        let fallbackTaskType: string | null = null;
+        for (const element of (taskArray as ArrayLiteral).elements) {
+          if (element.kind === NodeKind.SpreadExpression) continue;
+          const elementType = emittedCppTypeForExpression(element);
+          if (!elementType?.startsWith("vexa::Task<")) continue;
+          fallbackTaskType ??= elementType;
+          const resultType = cppTemplateArguments(elementType, "vexa::Task<")?.[0];
+          if (resultType && resultType !== "void" && resultType !== "vexa::Value") {
+            fallbackTaskType = elementType;
+            break;
+          }
+        }
+        if (fallbackTaskType) expectedTaskArrayType = `vexa::ArrayObject<${fallbackTaskType}>*`;
       }
       const tasks = expectedTaskArrayType
         ? emitExpressionWithExpectedCppType(taskArray, expectedTaskArrayType)
@@ -3385,20 +3611,23 @@ function emitCall(call: CallExpression): string {
       const receiver = emitNativePointerExpression(member.object, nativeCollectionPointerCppType(member.object));
       if (member.propertyName === "clear") {
         if (call.args.length !== 0) throw new CppEmitError("C++ Set.clear expects no arguments", call);
-        return `vexa::setClear(${receiver})`;
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) => `vexa::setClear(${target})`);
       }
       if (member.propertyName === "add" || member.propertyName === "has" || member.propertyName === "delete") {
         if (call.args.length !== 1) throw new CppEmitError(`C++ Set.${member.propertyName} expects one value`, call);
         const helper = member.propertyName === "add" ? "setAdd" : member.propertyName === "has" ? "setHas" : "setDelete";
-        return `vexa::${helper}(${activeRuntimeName}, ${receiver}, ${emitExpression(call.args[0]!)})`;
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
+          `vexa::${helper}(${activeRuntimeName}, ${target}, ${emitExpression(call.args[0]!)})`);
       }
       if (member.propertyName === "forEach") {
         if (call.args.length !== 1) throw new CppEmitError("C++ Set.forEach expects one callback", call);
-        return `vexa::setForEach(${receiver}, ${emitExpression(call.args[0]!)})`;
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
+          `vexa::setForEach(${target}, ${emitExpression(call.args[0]!)})`);
       }
       if (member.propertyName === "keys" || member.propertyName === "values") {
         if (call.args.length !== 0) throw new CppEmitError(`C++ Set.${member.propertyName} expects no arguments`, call);
-        return `vexa::setValues(${activeRuntimeName}, ${receiver})`;
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
+          `vexa::setValues(${activeRuntimeName}, ${target})`);
       }
     }
     if (collection === "weakMap") {
@@ -3406,11 +3635,13 @@ function emitCall(call: CallExpression): string {
       if (member.propertyName === "get" || member.propertyName === "has" || member.propertyName === "delete") {
         if (call.args.length !== 1) throw new CppEmitError(`C++ WeakMap.${member.propertyName} expects one key`, call);
         const helper = member.propertyName === "get" ? "weakMapGet" : member.propertyName === "has" ? "weakMapHas" : "weakMapDelete";
-        return `vexa::${helper}(${activeRuntimeName}, ${receiver}, ${emitExpression(call.args[0]!)})`;
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
+          `vexa::${helper}(${activeRuntimeName}, ${target}, ${emitExpression(call.args[0]!)})`);
       }
       if (member.propertyName === "set") {
         if (call.args.length !== 2) throw new CppEmitError("C++ WeakMap.set expects a key and value", call);
-        return `vexa::weakMapSet(${activeRuntimeName}, ${receiver}, ${emitExpression(call.args[0]!)}, ${emitExpression(call.args[1]!)})`;
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
+          `vexa::weakMapSet(${activeRuntimeName}, ${target}, ${emitExpression(call.args[0]!)}, ${emitExpression(call.args[1]!)})`);
       }
     }
     if (collection === "weakSet") {
@@ -3418,7 +3649,8 @@ function emitCall(call: CallExpression): string {
       if (member.propertyName === "add" || member.propertyName === "has" || member.propertyName === "delete") {
         if (call.args.length !== 1) throw new CppEmitError(`C++ WeakSet.${member.propertyName} expects one value`, call);
         const helper = member.propertyName === "add" ? "weakSetAdd" : member.propertyName === "has" ? "weakSetHas" : "weakSetDelete";
-        return `vexa::${helper}(${activeRuntimeName}, ${receiver}, ${emitExpression(call.args[0]!)})`;
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
+          `vexa::${helper}(${activeRuntimeName}, ${target}, ${emitExpression(call.args[0]!)})`);
       }
     }
   }
@@ -3694,8 +3926,13 @@ function emitCall(call: CallExpression): string {
   }
   if (calleeName && activeImplicitReceiverExtensionIdentifiers.has(call.callee as Node)) {
     const receiverName = activeImplicitReceiverExtensionIdentifiers.get(call.callee as Node)!;
-    const extension = activeExtensionFunctions.get(receiverName)
-      ?.find((statement) => statement.name.name === calleeName);
+    let extension: FunctionStatement | undefined;
+    for (const statement of activeExtensionFunctions.get(receiverName) ?? []) {
+      if (statement.name.name === calleeName) {
+        extension = statement;
+        break;
+      }
+    }
     if (!extension) {
       throw new CppEmitError(`C++ cannot resolve implicit extension call '${calleeName}'`);
     }
@@ -3707,8 +3944,10 @@ function emitCall(call: CallExpression): string {
     activeStaticImplicitReceiverIdentifiers.has(call.callee as Node)
   )) {
     const currentClass = activeCurrentClassName ? activeClassStatements.get(activeCurrentClassName) : undefined;
-    const method = currentClass?.members.find((candidate): candidate is ClassMethodMember =>
-      candidate.kind === NodeKind.ClassMethodMember && candidate.name.name === calleeName);
+    const method = currentClass
+      ? currentClass.members.find((candidate): candidate is ClassMethodMember =>
+          candidate.kind === NodeKind.ClassMethodMember && candidate.name.name === calleeName)
+      : undefined;
     const methodArguments = emitCallArguments(call, method?.parameters);
     if (method?.isStatic) {
       return `${cppName(activeCurrentClassName!)}::${cppName(calleeName)}${cppCallTemplateArguments(call)}(${withRuntimeArgument(methodArguments)})`;
@@ -3795,6 +4034,18 @@ function emitResolvedBinaryOperator(expression: BinaryExpression): string | null
   throw new CppEmitError(`C++ emission cannot derive '${expression.operator}' from operator '${method.operator}'`);
 }
 
+function emitPointerNullishEquality(expression: BinaryExpression): string | null {
+  if (!new Set(["==", "!=", "===", "!=="]).has(expression.operator)) return null;
+  const leftNullish = expression.left.kind === NodeKind.NullLiteral || expression.left.kind === NodeKind.UndefinedLiteral;
+  const rightNullish = expression.right.kind === NodeKind.NullLiteral || expression.right.kind === NodeKind.UndefinedLiteral;
+  if (leftNullish === rightNullish) return null;
+  const pointer = leftNullish ? expression.right : expression.left;
+  const pointerType = emittedCppTypeForExpression(pointer) ?? cppTypeForExpression(pointer);
+  if (!pointerType.endsWith("*")) return null;
+  const comparison = expression.operator === "!=" || expression.operator === "!==" ? "!=" : "==";
+  return `(vexa::rawPointer(${emitExpression(pointer)}) ${comparison} nullptr)`;
+}
+
 function dynamicBinaryHelper(operator: string): string | null {
   return new Map<string, string>([
     ["+", "add"], ["-", "subtract"], ["*", "multiply"], ["/", "divide"],
@@ -3816,6 +4067,8 @@ function emitDynamicBinaryText(operator: string, left: string, right: string): s
 function emitBinary(expression: BinaryExpression): string {
   const overloaded = emitResolvedBinaryOperator(expression);
   if (overloaded) return overloaded;
+  const pointerNullishEquality = emitPointerNullishEquality(expression);
+  if (pointerNullishEquality) return pointerNullishEquality;
   if (new Set(["&", "|", "^", "<<", ">>", ">>>"]).has(expression.operator)) {
     return emitDynamicBinaryText(
       expression.operator,
@@ -3884,7 +4137,22 @@ function emitBinary(expression: BinaryExpression): string {
     return `(${left})`;
   }
   if (expression.operator === "&&" || expression.operator === "||") {
-    return `(${emitCondition(expression.left)} ${expression.operator} ${emitCondition(expression.right)})`;
+    const resultType = emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
+    const leftType = emittedCppTypeForExpression(expression.left) ?? cppTypeForExpression(expression.left);
+    const rightType = emittedCppTypeForExpression(expression.right) ?? cppTypeForExpression(expression.right);
+    if (leftType === "bool" && rightType === "bool") {
+      return `(${emitCondition(expression.left)} ${expression.operator} ${emitCondition(expression.right)})`;
+    }
+    const left = emitConvertedValue(expression.left, "vexa::Value");
+    const right = emitConvertedValue(expression.right, "vexa::Value");
+    const selectRight = expression.operator === "&&" ? "" : "!";
+    const selected = `([&]() { auto __vexa_logical_left = ${left}; return ${selectRight}vexa::Boolean(__vexa_logical_left) ? ${right} : __vexa_logical_left; }())`;
+    const logicalResultType = resultType === "bool"
+      ? leftType === rightType ? leftType : "vexa::Value"
+      : resultType;
+    return logicalResultType !== "auto" && logicalResultType !== "vexa::Value"
+      ? `vexa::convertValue<${logicalResultType}>(${selected})`
+      : selected;
   }
   if (expression.operator === "<=>") {
     const dynamic = isDynamicValueExpression(expression.left) ||
@@ -4355,7 +4623,11 @@ function emitExpression(expression: Expr): string {
         return `vexa::dynamicGetOptional(vexa::convertValue<vexa::Value>(${emitExpression(member.object)}), u"length")`;
       }
       if (!member.computed && nativeCollectionKind(member.object) && identifierName(member.property) === "size") {
-        return `static_cast<double>(${emitExpression(member.object)}->size())`;
+        const receiver = emitNativePointerExpression(member.object, nativeCollectionPointerCppType(member.object));
+        if (member.optional || isOptionalChainExpression(member.object)) {
+          return `([&]() { auto* __vexa_optional_collection = ${receiver}; return __vexa_optional_collection ? vexa::Value(static_cast<double>(__vexa_optional_collection->size())) : vexa::Value::undefined(); }())`;
+        }
+        return `static_cast<double>(${receiver}->size())`;
       }
       const binaryKind = nativeBinaryObjectKind(member.object);
       if (!member.computed && binaryKind && member.property.kind === NodeKind.Identifier) {
@@ -4485,7 +4757,7 @@ function emitExpression(expression: Expr): string {
       }
       return member.computed
         ? isManagedArrayExpression(member.object)
-          ? member.optional
+          ? member.optional || isOptionalChainExpression(member.object)
             ? (() => {
                 const arrayType = managedArrayCppTypeForExpression(member.object);
                 const elementType = arrayType ? managedArrayElementType(arrayType) : null;
@@ -4781,12 +5053,15 @@ function emitBlock(block: BlockStatement, indent: string, trailingStatement?: st
   const previousSharedBindingNames = new Set(activeSharedBindingNames);
   try {
     const childIndent = `${indent}  `;
-    const lines = block.body.flatMap((statement) => {
+    const lines: string[] = [];
+    for (const statement of block.body) {
       const emitted = emitStatement(statement, childIndent);
-      return emitted
-        ? [...emitStatementPreamble(statement, childIndent), emitted]
-        : [];
-    });
+      if (!emitted) continue;
+      for (const preambleLine of emitStatementPreamble(statement, childIndent)) {
+        lines.push(preambleLine);
+      }
+      lines.push(emitted);
+    }
     if (trailingStatement) lines.push(`${childIndent}${trailingStatement}`);
     return lines.length > 0 ? `{\n${lines.join("\n")}\n${indent}}` : "{}";
   } finally {
@@ -4818,15 +5093,22 @@ function emitBody(statement: Statement, indent: string): string {
 }
 
 function emitLoopBody(statement: Statement, indent: string, label?: string): string {
-  activeBreakBoundaryDepths.push(activeFinallyProtectedDepth);
-  activeContinueBoundaryDepths.push(activeFinallyProtectedDepth);
+  const breakBoundary: ControlBoundary = { finallyDepth: activeFinallyProtectedDepth, usesSignal: false };
+  const continueBoundary: ControlBoundary = { finallyDepth: activeFinallyProtectedDepth, usesSignal: false };
+  activeBreakBoundaries.push(breakBoundary);
+  activeContinueBoundaries.push(continueBoundary);
   try {
     const body = emitBody(statement, `${indent}  `);
+    if (!breakBoundary.usesSignal && !continueBoundary.usesSignal && !label) return body;
     return [
       "{",
       `${indent}  try ${body}`,
-      `${indent}  catch (const vexa::ContinueSignal&) { continue; }`,
-      `${indent}  catch (const vexa::BreakSignal&) { break; }`,
+      ...(continueBoundary.usesSignal
+        ? [`${indent}  catch (const vexa::ContinueSignal&) { continue; }`]
+        : []),
+      ...(breakBoundary.usesSignal
+        ? [`${indent}  catch (const vexa::BreakSignal&) { break; }`]
+        : []),
       ...(label ? [
         `${indent}  catch (const vexa::LabeledContinueSignal& __vexa_signal) { if (__vexa_signal.label() == ${cppString(label)}) continue; throw; }`,
         `${indent}  catch (const vexa::LabeledBreakSignal& __vexa_signal) { if (__vexa_signal.label() == ${cppString(label)}) break; throw; }`,
@@ -4834,8 +5116,8 @@ function emitLoopBody(statement: Statement, indent: string, label?: string): str
       `${indent}}`,
     ].join("\n");
   } finally {
-    activeBreakBoundaryDepths.pop();
-    activeContinueBoundaryDepths.pop();
+    activeBreakBoundaries.pop();
+    activeContinueBoundaries.pop();
   }
 }
 
@@ -5045,9 +5327,11 @@ function emitSwitch(statement: SwitchStatement, indent: string): string {
   const previousLocalNames = new Set(activeLocalNames);
   const previousGcObjectTypes = new Map(activeGcObjectTypes);
   const previousGcArrayTypes = new Map(activeGcArrayTypes);
-  activeBreakBoundaryDepths.push(activeFinallyProtectedDepth);
+  const breakBoundary: ControlBoundary = { finallyDepth: activeFinallyProtectedDepth, usesSignal: false };
+  activeBreakBoundaries.push(breakBoundary);
   try {
     const body = emitSwitchBody(statement, `${indent}  `);
+    if (!breakBoundary.usesSignal) return body;
     return [
       `${indent}{`,
       `${indent}  try {`,
@@ -5056,7 +5340,7 @@ function emitSwitch(statement: SwitchStatement, indent: string): string {
       `${indent}}`,
     ].join("\n");
   } finally {
-    activeBreakBoundaryDepths.pop();
+    activeBreakBoundaries.pop();
     activeLocalNames = previousLocalNames;
     activeGcObjectTypes = previousGcObjectTypes;
     activeGcArrayTypes = previousGcArrayTypes;
@@ -5216,12 +5500,18 @@ function callableReturnType(
     if (syntacticInference) return syntacticInference;
     return "vexa::Value";
   }
-  const promised = /^Promise<(.+)>$/.exec(returnType.name)?.[1]?.trim();
-  if (promised && !asyncLike) {
+  const returnTypeName = returnType.name;
+  let promised = returnTypeName;
+  if (returnTypeName.startsWith("Promise<") && returnTypeName.endsWith(">")) {
+    promised = returnTypeName.slice("Promise<".length, -1).trim();
+  } else {
+    promised = "";
+  }
+  if (promised.length > 0 && !asyncLike) {
     throw new CppEmitError("C++ emission only supports Promise return annotations on async or sync callables", owner);
   }
   let declaredName = returnType.name;
-  if (promised) declaredName = promised;
+  if (promised.length > 0) declaredName = promised;
   const mapped = cppTypeForDeclaredName(declaredName);
   if (!mapped) {
     throw new CppEmitError(`C++ emission does not support return type '${returnType.name}' yet`, owner);
@@ -5401,9 +5691,10 @@ function withCallableContext<T>(
   const previousAsyncResultType = activeAsyncResultType;
   const previousGeneratorResultType = activeGeneratorResultType;
   const previousCallableResultType = activeCallableResultType;
+  const previousCallableUsesReturnSignal = activeCallableUsesReturnSignal;
   const previousFinallyProtectedDepth = activeFinallyProtectedDepth;
-  const previousBreakBoundaryDepths = activeBreakBoundaryDepths;
-  const previousContinueBoundaryDepths = activeContinueBoundaryDepths;
+  const previousBreakBoundaries = activeBreakBoundaries;
+  const previousContinueBoundaries = activeContinueBoundaries;
   const parameterInfo = callableParameters(parameters, owner);
   activeRuntimeName = currentRuntimeExpression;
   activeThisExpression = "this";
@@ -5430,9 +5721,10 @@ function withCallableContext<T>(
   activeAsyncResultType = asyncResultType;
   activeGeneratorResultType = generatorResultType;
   activeCallableResultType = callableResultType;
+  activeCallableUsesReturnSignal = false;
   activeFinallyProtectedDepth = 0;
-  activeBreakBoundaryDepths = [];
-  activeContinueBoundaryDepths = [];
+  activeBreakBoundaries = [];
+  activeContinueBoundaries = [];
   clearExpressionTypeCaches();
   try {
     return emit();
@@ -5452,9 +5744,10 @@ function withCallableContext<T>(
     activeAsyncResultType = previousAsyncResultType;
     activeGeneratorResultType = previousGeneratorResultType;
     activeCallableResultType = previousCallableResultType;
+    activeCallableUsesReturnSignal = previousCallableUsesReturnSignal;
     activeFinallyProtectedDepth = previousFinallyProtectedDepth;
-    activeBreakBoundaryDepths = previousBreakBoundaryDepths;
-    activeContinueBoundaryDepths = previousContinueBoundaryDepths;
+    activeBreakBoundaries = previousBreakBoundaries;
+    activeContinueBoundaries = previousContinueBoundaries;
     clearExpressionTypeCaches();
   }
 }
@@ -5465,6 +5758,15 @@ function emitCallableReturnBoundary(
   resultType: string,
   coroutine: boolean
 ): string {
+  if (!activeCallableUsesReturnSignal) {
+    if (coroutine || resultType === "void") return body;
+    return [
+      "{",
+      body,
+      `${indent}  throw std::runtime_error("VexaScript function completed without returning a value");`,
+      `${indent}}`,
+    ].join("\n");
+  }
   const completion = coroutine ? "co_return" : "return";
   const caughtCompletion = resultType === "void"
     ? `${completion};`
@@ -5566,7 +5868,15 @@ function emitExtensionProperty(statement: VarStatement): string {
     const declaredResult = statement.typeAnnotation
       ? cppTypeForDeclaredName(statement.typeAnnotation.name)
       : null;
-    const getter = statement.accessors?.find((accessor) => accessor.accessorKind === "get");
+    let getter: ClassMethodMember | undefined;
+    if (statement.accessors) {
+      for (const accessor of statement.accessors) {
+        if (accessor.accessorKind === "get") {
+          getter = accessor;
+          break;
+        }
+      }
+    }
     const analyzedResult = statement.initializer
       ? cppTypeForExpression(statement.initializer)
       : getter?.returnType
@@ -6368,11 +6678,17 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     ? parseTypeNameShape(statement.extendsType.name).baseName
     : null;
   const nativeErrorBase = Boolean(extendedBaseName && new Set(["Error", "TypeError", "RangeError", "SyntaxError"]).has(extendedBaseName));
+  let hasUnsupportedImplementedType = false;
+  for (const implementedType of statement.implementsTypes ?? []) {
+    if (!activeInterfaceNames.has(parseTypeNameShape(implementedType.name).baseName)) {
+      hasUnsupportedImplementedType = true;
+      break;
+    }
+  }
   if (
     statement.declared ||
     (extendedBaseName && !nativeErrorBase && !activeInterfaceNames.has(extendedBaseName) && !activeClassNames.has(extendedBaseName)) ||
-    statement.implementsTypes?.some((implementedType) =>
-      !activeInterfaceNames.has(parseTypeNameShape(implementedType.name).baseName)) ||
+    hasUnsupportedImplementedType ||
     statement.classDelegates?.length ||
     statement.members.some((member) => member.kind !== NodeKind.ClassMethodMember && member.kind !== NodeKind.ClassFieldMember)
   ) {
@@ -6526,10 +6842,11 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
             ? emitClassFieldInitializer(field.field.initializer, statement, field.valueType)
             : `vexa::defaultValue<${field.valueType}>()`})`);
         }
-        const body = {
-          ...constructorMethod.body,
-          body: constructorMethod.body.body.filter((candidate) => candidate !== superStatement),
-        } as BlockStatement;
+        const body = new BlockStatement(
+          constructorMethod.body.body.filter((candidate) => candidate !== superStatement),
+          constructorMethod.body.annotations,
+          constructorMethod.body.jsName
+        );
         return `${className}(${nativeParameters})${nativeInitializers.length > 0 ? ` : ${nativeInitializers.join(", ")}` : ""} ${emitBlock(body, "  ")}`;
       }
     );
@@ -6901,6 +7218,7 @@ function emitStatement(statement: Statement, indent = ""): string {
     case NodeKind.ReturnStatement: {
       const returned = (statement as ReturnStatement).expression;
       if (activeFinallyProtectedDepth > 0 && activeCallableResultType) {
+        activeCallableUsesReturnSignal = true;
         if (!returned && activeCallableResultType !== "void") {
           return `${indent}throw vexa::ReturnSignal<${activeCallableResultType}>(vexa::defaultValue<${activeCallableResultType}>());`;
         }
@@ -6943,20 +7261,24 @@ function emitStatement(statement: Statement, indent = ""): string {
       if (control.label) {
         return `${indent}throw vexa::LabeledBreakSignal(${cppString(control.label.name)});`;
       }
-      const boundaryDepth = activeBreakBoundaryDepths.at(-1) ?? activeFinallyProtectedDepth;
-      return activeFinallyProtectedDepth > boundaryDepth
-        ? `${indent}throw vexa::BreakSignal();`
-        : `${indent}break;`;
+      const boundary = activeBreakBoundaries.at(-1);
+      if (boundary && activeFinallyProtectedDepth > boundary.finallyDepth) {
+        boundary.usesSignal = true;
+        return `${indent}throw vexa::BreakSignal();`;
+      }
+      return `${indent}break;`;
     }
     case NodeKind.ContinueStatement: {
       const control = statement as ContinueStatement;
       if (control.label) {
         return `${indent}throw vexa::LabeledContinueSignal(${cppString(control.label.name)});`;
       }
-      const boundaryDepth = activeContinueBoundaryDepths.at(-1) ?? activeFinallyProtectedDepth;
-      return activeFinallyProtectedDepth > boundaryDepth
-        ? `${indent}throw vexa::ContinueSignal();`
-        : `${indent}continue;`;
+      const boundary = activeContinueBoundaries.at(-1);
+      if (boundary && activeFinallyProtectedDepth > boundary.finallyDepth) {
+        boundary.usesSignal = true;
+        return `${indent}throw vexa::ContinueSignal();`;
+      }
+      return `${indent}continue;`;
     }
     case NodeKind.FunctionStatement:
       return `${indent}${emitFunction(statement as FunctionStatement)}`;
@@ -7239,7 +7561,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
     const inferredType = statement.initializer ? emittedCppTypeForExpression(statement.initializer) : null;
     let type: string = "vexa::Value";
     if (declaredType) type = declaredType;
-    else if (inferredType && inferredType !== "auto") type = inferredType;
+    else if (inferredType && inferredType !== "auto" && inferredType !== "void") type = inferredType;
     topLevelVariableInfo.push({ statement, name, type, pointee: type.endsWith("*") ? type.slice(0, -1) : null });
     activeLocalCppTypes.set((statement.name as Identifier).name, type);
   }

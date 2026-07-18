@@ -102,6 +102,7 @@ export class Analysis {
     this.program = program;
     const externalDeclarations = options.externalDeclarations ?? [];
     const ambientDeclarations = options.ambientDeclarations ?? [];
+    const invalidImportedBindings = options.invalidImportedBindings ?? new Set<string>();
     const importedSymbolViews = normalizeImportedSymbolSources(options);
     const importedSymbols: Map<string, ImportedSymbolResolution> = importedSymbolViews.importedSymbols;
     let phaseStartedAt = Date.now();
@@ -120,7 +121,7 @@ export class Analysis {
       bound,
       externalDeclarations,
       ambientDeclarations,
-      options.invalidImportedBindings,
+      invalidImportedBindings,
       options.language ?? "vexascript",
       options.projectOwnedExternalDeclarations === true
     ).check();

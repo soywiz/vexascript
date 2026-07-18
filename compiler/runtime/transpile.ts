@@ -437,8 +437,12 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     } catch (error) {
       let message: string;
       let statement: Node | undefined;
-      message = String(error);
-      if (error instanceof CppEmitError) statement = (error as CppEmitError).statement;
+      if (error instanceof CppEmitError) {
+        message = error.message;
+        statement = error.statement;
+      } else {
+        message = String(error);
+      }
       const range: SourceRange | undefined = statement?.firstToken?.range;
       const fatalDiagnostics: TranspileDiagnostic[] = [
         makeDiagnostic(message, range, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)

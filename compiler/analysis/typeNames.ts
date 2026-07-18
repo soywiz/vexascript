@@ -78,8 +78,8 @@ function scanTypeText(
   let quote: string | null = null;
 
   for (let index = 0; index < text.length; index += 1) {
-    const character = text[index]!;
-    const previous = index > 0 ? text[index - 1] : "";
+    const character = text.charAt(index);
+    const previous = index > 0 ? text.charAt(index - 1) : "";
 
     if (quote) {
       if (character === quote && previous !== "\\") {
@@ -156,8 +156,8 @@ export function findMatchingTypeDelimiter(
   let depth = 0;
   let quote: string | null = null;
   for (let index = openIndex; index < text.length; index += 1) {
-    const character = text[index]!;
-    const previous = index > 0 ? text[index - 1] : "";
+    const character = text.charAt(index);
+    const previous = index > 0 ? text.charAt(index - 1) : "";
     if (quote) {
       if (character === quote && previous !== "\\") quote = null;
       continue;
@@ -272,7 +272,7 @@ export function substituteTypeNameText(typeName: string, substitutions: Readonly
 
     const previousNonWhitespaceCharacter = (start: number): string | null => {
       for (let cursor = start - 1; cursor >= 0; cursor -= 1) {
-        const character = text[cursor]!;
+        const character = text.charAt(cursor);
         if (!/\s/.test(character)) {
           return character;
         }
@@ -281,7 +281,7 @@ export function substituteTypeNameText(typeName: string, substitutions: Readonly
     };
     const nextNonWhitespaceCharacter = (start: number): string | null => {
       for (let cursor = start; cursor < text.length; cursor += 1) {
-        const character = text[cursor]!;
+        const character = text.charAt(cursor);
         if (!/\s/.test(character)) {
           return character;
         }
@@ -290,8 +290,8 @@ export function substituteTypeNameText(typeName: string, substitutions: Readonly
     };
 
     while (index < text.length) {
-      const character = text[index]!;
-      const previous = index > 0 ? text[index - 1] : "";
+      const character = text.charAt(index);
+      const previous = index > 0 ? text.charAt(index - 1) : "";
 
       if (quote) {
         result += character;
@@ -310,7 +310,7 @@ export function substituteTypeNameText(typeName: string, substitutions: Readonly
 
       if (/[A-Za-z_$]/.test(character)) {
         let end = index + 1;
-        while (end < text.length && /[\w$]/.test(text[end]!)) {
+        while (end < text.length && /[\w$]/.test(text.charAt(end))) {
           end += 1;
         }
         const identifier = text.slice(index, end);
@@ -589,8 +589,8 @@ function findTopLevelTypeKeyword(text: string, keyword: string): number {
     if (text.slice(index, index + keyword.length) !== keyword) {
       return;
     }
-    const before = index === 0 ? " " : text[index - 1]!;
-    const after = index + keyword.length >= text.length ? " " : text[index + keyword.length]!;
+    const before = index === 0 ? " " : text.charAt(index - 1);
+    const after = index + keyword.length >= text.length ? " " : text.charAt(index + keyword.length);
     if (/\w/.test(before) || /\w/.test(after)) {
       return;
     }
@@ -895,8 +895,8 @@ export function splitIndexedAccessTypeName(typeName: string): { objectTypeName: 
   let braceDepth = 0;
   let bracketDepth = 0;
   for (let index = trimmed.length - 1; index >= 0; index -= 1) {
-    const ch = trimmed[index]!;
-    const previous = index > 0 ? trimmed[index - 1] : "";
+    const ch = trimmed.charAt(index);
+    const previous = index > 0 ? trimmed.charAt(index - 1) : "";
     if (quote) {
       if (ch === quote && previous !== "\\") quote = null;
       continue;

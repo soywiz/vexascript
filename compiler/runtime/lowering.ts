@@ -118,6 +118,16 @@ function cloneVarDeclarator(declaration: VarDeclarator): VarDeclarator {
 }
 
 function cloneVarStatement(statement: VarStatement): VarStatement {
+  let accessors: ClassMethodMember[] | undefined;
+  if (statement.accessors) {
+    accessors = [];
+    for (const accessor of statement.accessors) accessors.push(cloneClassMethod(accessor));
+  }
+  let declarations: VarDeclarator[] | undefined;
+  if (statement.declarations) {
+    declarations = [];
+    for (const declaration of statement.declarations) declarations.push(cloneVarDeclarator(declaration));
+  }
   return copyNodeBounds(new VarStatement(
     statement.declarationKind,
     statement.name,
@@ -128,8 +138,8 @@ function cloneVarStatement(statement: VarStatement): VarStatement {
     statement.typeParameters,
     statement.typeAnnotation,
     statement.initializer,
-    statement.accessors?.map((accessor) => cloneClassMethod(accessor)),
-    statement.declarations?.map(cloneVarDeclarator),
+    accessors,
+    declarations,
     statement.annotations,
     statement.jsName
   ), statement);

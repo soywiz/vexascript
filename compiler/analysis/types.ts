@@ -306,7 +306,11 @@ function flattenUnionDisplayMembers(type: AnalysisType): AnalysisType[] {
   if (type.kind !== "union") {
     return [type];
   }
-  return type.types.flatMap((member) => flattenUnionDisplayMembers(member));
+  const members: AnalysisType[] = [];
+  for (const member of type.types) {
+    members.push(...flattenUnionDisplayMembers(member));
+  }
+  return members;
 }
 
 function dedupeUnionDisplayMembers(members: AnalysisType[]): AnalysisType[] {

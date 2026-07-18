@@ -184,6 +184,7 @@ class Value;
 std::runtime_error errorAtCurrentSource(std::string);
 template <typename T>
 class ArrayObject;
+ArrayObject<Value>* makeDynamicArrayValueView(DynamicValueObject* backing);
 std::string toString(const Value&);
 std::string jsonQuoted(const std::string&);
 double Number(const Value&);
@@ -696,30 +697,69 @@ class ArraySlot<Value> final {
   StoredValue value_;
 };
 
+template <typename T>
+inline constexpr bool IsDynamicArrayElement =
+    std::is_same_v<T, Value> || std::is_same_v<T, std::string> ||
+    std::is_same_v<T, BigInt> || std::is_arithmetic_v<T> ||
+    (std::is_pointer_v<T> &&
+     (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<T>> ||
+      std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>> ||
+      std::is_same_v<std::remove_pointer_t<T>, RecordObject>));
+
 // Language arrays have reference semantics. The backing storage is an Oilpan
 // object, and every GC-managed element is represented by a traced Member edge.
 template <typename T>
 class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public DynamicValueObject {
  public:
   ArrayObject() = default;
+  explicit ArrayObject(DynamicValueObject* dynamicBacking) : dynamic_backing_(dynamicBacking) {}
   explicit ArrayObject(std::initializer_list<T> values) {
     values_.reserve(values.size());
     for (const auto& value : values) values_.emplace_back(value);
   }
 
-  std::size_t size() const { return values_.size(); }
-  bool empty() const { return values_.empty(); }
-  void resize(std::size_t size) { values_.resize(size); }
+  std::size_t size() const {
+    return dynamic_backing_ ? dynamic_backing_->dynamicArraySize() : values_.size();
+  }
+  bool empty() const { return size() == 0; }
+  void resize(std::size_t size) {
+    if (dynamic_backing_) {
+      dynamic_backing_->dynamicSet(u"length", Value(static_cast<double>(size)));
+      return;
+    }
+    values_.resize(size);
+  }
   T get(std::size_t index) const {
+    if (dynamic_backing_) {
+      if constexpr (IsDynamicArrayElement<T>) {
+        return convertValue<T>(dynamic_backing_->dynamicArrayGet(currentRuntime(), index));
+      } else {
+        throw std::runtime_error("This native array element type cannot flow through a dynamic array view");
+      }
+    }
     if (index >= values_.size()) return T{};
     return values_[index].load();
   }
   T set(std::size_t index, T value) {
+    if (dynamic_backing_) {
+      if constexpr (IsDynamicArrayElement<T>) {
+        dynamic_backing_->dynamicSet(utf8ToUtf16(std::to_string(index)), convertValue<Value>(value));
+        return value;
+      } else {
+        throw std::runtime_error("This native array element type cannot flow through a dynamic array view");
+      }
+    }
     if (index >= values_.size()) values_.resize(index + 1);
     values_[index].store(value);
     return value;
   }
-  void append(T value) { values_.emplace_back(value); }
+  void append(T value) {
+    if (dynamic_backing_) {
+      set(size(), value);
+      return;
+    }
+    values_.emplace_back(value);
+  }
   void insert(std::size_t index, T value) {
     values_.insert(values_.begin() + static_cast<std::ptrdiff_t>(std::min(index, values_.size())), ArraySlot<T>(value));
   }
@@ -801,13 +841,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   bool dynamicIsArray() const override { return true; }
   std::size_t dynamicArraySize() const override { return size(); }
   Value dynamicArrayGet(Runtime& runtime, std::size_t index) override {
-    if constexpr (
-      std::is_same_v<T, Value> || std::is_same_v<T, std::string> ||
-      std::is_same_v<T, BigInt> || std::is_arithmetic_v<T> ||
-      (std::is_pointer_v<T> && (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<T>> ||
-        std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>> ||
-        std::is_same_v<std::remove_pointer_t<T>, RecordObject>))
-    ) {
+    if constexpr (IsDynamicArrayElement<T>) {
       return index < size() ? convertValue<Value>(get(index)) : Value::undefined();
     } else {
       throw std::runtime_error("This native array element type cannot flow through dynamic iteration");
@@ -825,39 +859,14 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
     seen.erase(this);
     return output.str();
   }
-  Value dynamicGet(const PropertyKey& key) override {
-    auto& runtime = currentRuntime();
-    if (key == u"length") return Value(static_cast<double>(size()));
-    if constexpr (
-      std::is_same_v<T, Value> || std::is_same_v<T, std::string> ||
-      std::is_same_v<T, BigInt> || std::is_arithmetic_v<T> ||
-      (std::is_pointer_v<T> && (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<T>> ||
-        std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>> ||
-        std::is_same_v<std::remove_pointer_t<T>, RecordObject>))
-    ) {
-      if (const auto index = propertyIndex(key); index && *index < size()) {
-        if constexpr (std::is_pointer_v<T> && std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>>) {
-          auto* value = get(*index);
-          return value && value->enumerableBackingRecord()
-            ? Value(value->enumerableBackingRecord())
-            : Value::undefined();
-        } else {
-          return convertValue<Value>(get(*index));
-        }
-      }
-      return Value::undefined();
-    } else {
-      throw std::runtime_error("This native array element type cannot flow through dynamic access");
-    }
-  }
+  Value dynamicGet(const PropertyKey& key) override;
   Value dynamicSet(const PropertyKey& key, const Value& value) override {
     auto& runtime = currentRuntime();
-    if constexpr (
-      std::is_same_v<T, Value> || std::is_same_v<T, std::string> ||
-      std::is_same_v<T, BigInt> || std::is_arithmetic_v<T> ||
-      (std::is_pointer_v<T> && (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<T>> ||
-        std::is_same_v<std::remove_pointer_t<T>, RecordObject>))
-    ) {
+    if constexpr (IsDynamicArrayElement<T>) {
+      if (key == u"length") {
+        resize(static_cast<std::size_t>(convertValue<double>(value)));
+        return value;
+      }
       const auto index = propertyIndex(key);
       if (!index) throw std::runtime_error("Invalid dynamic array index");
       set(*index, convertValue<T>(value));
@@ -884,10 +893,12 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   Iterator end() const { return Iterator(this, size()); }
 
   void Trace(cppgc::Visitor* visitor) const override {
+    visitor->Trace(dynamic_backing_);
     for (const auto& value : values_) value.Trace(visitor);
   }
 
  private:
+  cppgc::Member<DynamicValueObject> dynamic_backing_;
   std::vector<ArraySlot<T>> values_;
 };
 
@@ -1522,8 +1533,11 @@ inline ArrayObject<Value>* arrayPointer(const Value& value) {
   if (!value.isDynamicObject()) throw errorAtCurrentSource("Value is not an array");
   auto* array = static_cast<ArrayObject<Value>*>(
       value.dynamicObject()->dynamicCast(nativeTypeToken<ArrayObject<Value>>()));
-  if (!array) throw errorAtCurrentSource("Value is not a dynamically typed array");
-  return array;
+  if (array) return array;
+  if (!value.dynamicObject()->dynamicIsArray()) {
+    throw errorAtCurrentSource("Value is not a dynamically typed array");
+  }
+  return makeDynamicArrayValueView(value.dynamicObject());
 }
 
 class DynamicArrayRange final {
@@ -1592,6 +1606,12 @@ inline DynamicIterationRange dynamicIterationRange(Runtime& runtime, const Value
     throw errorAtCurrentSource("Value is not iterable");
   }
   return DynamicIterationRange(runtime, value.dynamicObject());
+}
+
+template <typename T>
+inline DynamicIterationRange dynamicIterationRange(Runtime& runtime, ArrayObject<T>* value) {
+  if (!value) throw errorAtCurrentSource("Value is not iterable");
+  return DynamicIterationRange(runtime, value);
 }
 
 template <typename T>
@@ -2026,6 +2046,10 @@ class Runtime final {
 
 inline Runtime& currentRuntime() { return Runtime::current(); }
 
+inline ArrayObject<Value>* makeDynamicArrayValueView(DynamicValueObject* backing) {
+  return currentRuntime().make<ArrayObject<Value>>(backing);
+}
+
 inline RecordObject* makeDynamicPropertyRecord(Runtime& runtime) {
   return runtime.record();
 }
@@ -2164,7 +2188,7 @@ Result convertValue(Input&& input) {
       if (!input.isUndefined()) throw std::runtime_error("VexaScript value is not undefined");
       return Undefined{};
     } else if constexpr (std::is_same_v<Result, Null>) {
-      if (!input.isNull()) throw std::runtime_error("VexaScript value is not null");
+      if (!input.isNull()) throw errorAtCurrentSource("VexaScript value is not null");
       return Null{};
     } else if constexpr (std::is_same_v<Result, bool>) {
       if (input.isBoolean()) return input.boolean();
@@ -2203,19 +2227,15 @@ Result convertValue(Input&& input) {
     } else if constexpr (ArrayObjectPointerTraits<Result>::value) {
       using ResultElement = typename ArrayObjectPointerTraits<Result>::Element;
       if (input.isNull() || input.isUndefined()) return nullptr;
-      if (!input.isDynamicObject()) throw std::runtime_error("VexaScript value is not an array");
+      if (!input.isDynamicObject()) throw errorAtCurrentSource("VexaScript value is not an array");
       if (void* exact = input.dynamicObject()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>())) {
         return static_cast<Result>(exact);
       }
-      auto* dynamicArray = static_cast<ArrayObject<Value>*>(
-          input.dynamicObject()->dynamicCast(nativeTypeToken<ArrayObject<Value>>()));
-      if (!dynamicArray) throw std::runtime_error("VexaScript value is not a compatible array");
-      auto& runtime = currentRuntime();
-      auto* converted = runtime.array<ResultElement>();
-      for (std::size_t index = 0; index < dynamicArray->size(); ++index) {
-        converted->append(convertValue<ResultElement>(dynamicArray->get(index)));
+      if (!input.dynamicObject()->dynamicIsArray()) {
+        throw errorAtCurrentSource("VexaScript value is not a compatible array");
       }
-      return converted;
+      auto& runtime = currentRuntime();
+      return runtime.make<ArrayObject<ResultElement>>(input.dynamicObject());
     } else if constexpr (std::is_pointer_v<Result> && RecordAdaptable<std::remove_pointer_t<Result>>) {
       if (input.isDynamicObject()) {
         void* converted = input.dynamicObject()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
@@ -2645,10 +2665,12 @@ class FunctionObject final
   std::string dynamicToString() const override { return "function"; }
 
   Value dynamicCall(Runtime& runtime, const std::vector<Value>& arguments) override {
-    if (arguments.size() != sizeof...(Arguments)) {
-      throw std::runtime_error("VexaScript callable received the wrong number of arguments");
+    if (arguments.size() >= sizeof...(Arguments)) {
+      return dynamicCallWithIndices(arguments, std::index_sequence_for<Arguments...>{});
     }
-    return dynamicCallWithIndices(arguments, std::index_sequence_for<Arguments...>{});
+    auto normalizedArguments = arguments;
+    normalizedArguments.resize(sizeof...(Arguments), Value::undefined());
+    return dynamicCallWithIndices(normalizedArguments, std::index_sequence_for<Arguments...>{});
   }
 
   void Trace(cppgc::Visitor* visitor) const override {
@@ -2678,12 +2700,12 @@ struct FunctionFromValue;
 
 template <typename Result, typename... Arguments>
 struct FunctionFromValue<std::function<Result(Arguments...)>> {
-  static std::function<Result(Arguments...)> convert(Runtime&, const Value& value) {
+  static std::function<Result(Arguments...)> convert(Runtime& runtime, const Value& value) {
     if (value.isUndefined() || value.isNull()) return {};
-    if (!value.isDynamicObject()) throw std::runtime_error("VexaScript value is not callable");
+    if (!value.isDynamicObject()) throw runtime.errorAtCurrentSource("VexaScript value is not callable");
     auto* function = static_cast<FunctionObject<Result, Arguments...>*>(
         value.dynamicObject()->dynamicCast(nativeTypeToken<FunctionObject<Result, Arguments...>>()));
-    if (!function) throw std::runtime_error("VexaScript callable has an incompatible native signature");
+    if (!function) throw runtime.errorAtCurrentSource("VexaScript callable has an incompatible native signature");
     cppgc::Persistent<FunctionObject<Result, Arguments...>> rooted(function);
     return [rooted = std::move(rooted)](Arguments... arguments) mutable -> Result {
       return rooted->invoke(std::forward<Arguments>(arguments)...);
@@ -2706,7 +2728,7 @@ FunctionObject<Result, Arguments...>* makeFunction(
 
 inline Value call(Runtime& runtime, const Value& callable, std::vector<Value> arguments) {
   if (!callable.isDynamicObject()) {
-    throw std::runtime_error("VexaScript value is not callable");
+    throw runtime.errorAtCurrentSource("VexaScript value is not callable");
   }
   return callable.dynamicObject()->dynamicCall(runtime, arguments);
 }
@@ -5345,6 +5367,8 @@ inline ArrayObject<std::string>* split(Runtime& runtime, const std::string& valu
 
 inline double Number(double value) { return value; }
 inline double Number(bool value) { return value ? 1 : 0; }
+inline double Number(int value) { return static_cast<double>(value); }
+inline double Number(std::int64_t value) { return static_cast<double>(value); }
 inline double Number(const BigInt& value) { return value.toDouble(); }
 inline double Number(const std::string& value) {
   try { return std::stod(value); } catch (...) { return std::numeric_limits<double>::quiet_NaN(); }
@@ -5465,6 +5489,155 @@ inline bool Boolean(const Value& value) {
   if (value.isNumber()) return Boolean(value.number());
   if (value.isBigInt()) return !value.bigint().isZero();
   return !value.isString() || !value.utf16().empty();
+}
+
+template <typename T>
+class DynamicArrayMethodObject final
+    : public cppgc::GarbageCollected<DynamicArrayMethodObject<T>>,
+      public DynamicValueObject {
+ public:
+  DynamicArrayMethodObject(ArrayObject<T>* array, PropertyKey method)
+      : array_(array), method_(std::move(method)) {}
+
+  const void* dynamicTypeToken() const override {
+    return nativeTypeToken<DynamicArrayMethodObject<T>>();
+  }
+  void* dynamicCast(const void* type) override {
+    return type == nativeTypeToken<DynamicArrayMethodObject<T>>() ? this : nullptr;
+  }
+  std::string dynamicToString() const override { return "function"; }
+  void Trace(cppgc::Visitor* visitor) const final {
+    DynamicValueObject::Trace(visitor);
+    visitor->Trace(array_);
+  }
+
+  Value dynamicCall(Runtime& runtime, const std::vector<Value>& arguments) override {
+    if (!array_) throw runtime.errorAtCurrentSource("Cannot call an array method on null");
+    if (arguments.empty()) {
+      throw runtime.errorAtCurrentSource("Dynamic array callback method requires a callback");
+    }
+    const Value callback = arguments[0];
+    const auto invoke = [&](std::size_t index, const Value* accumulator = nullptr) {
+      const Value element = array_->dynamicArrayGet(runtime, index);
+      std::vector<Value> callbackArguments;
+      if (accumulator) callbackArguments.push_back(*accumulator);
+      callbackArguments.push_back(element);
+      callbackArguments.push_back(Value(static_cast<double>(index)));
+      callbackArguments.push_back(Value(static_cast<DynamicValueObject*>(array_.Get())));
+      return call(runtime, callback, std::move(callbackArguments));
+    };
+
+    if (method_ == u"map") {
+      auto* result = runtime.array<Value>();
+      for (std::size_t index = 0; index < array_->size(); ++index) result->append(invoke(index));
+      return Value(static_cast<DynamicValueObject*>(result));
+    }
+    if (method_ == u"filter") {
+      auto* result = runtime.array<Value>();
+      for (std::size_t index = 0; index < array_->size(); ++index) {
+        if (Boolean(invoke(index))) result->append(array_->dynamicArrayGet(runtime, index));
+      }
+      return Value(static_cast<DynamicValueObject*>(result));
+    }
+    if (method_ == u"flatMap") {
+      auto* result = runtime.array<Value>();
+      for (std::size_t index = 0; index < array_->size(); ++index) {
+        const Value mapped = invoke(index);
+        if (mapped.isDynamicObject() && mapped.dynamicObject()->dynamicIsArray()) {
+          auto* nested = mapped.dynamicObject();
+          for (std::size_t nestedIndex = 0; nestedIndex < nested->dynamicArraySize(); ++nestedIndex) {
+            result->append(nested->dynamicArrayGet(runtime, nestedIndex));
+          }
+        } else {
+          result->append(mapped);
+        }
+      }
+      return Value(static_cast<DynamicValueObject*>(result));
+    }
+    if (method_ == u"some") {
+      for (std::size_t index = 0; index < array_->size(); ++index) {
+        if (Boolean(invoke(index))) return Value(true);
+      }
+      return Value(false);
+    }
+    if (method_ == u"every") {
+      for (std::size_t index = 0; index < array_->size(); ++index) {
+        if (!Boolean(invoke(index))) return Value(false);
+      }
+      return Value(true);
+    }
+    if (method_ == u"find") {
+      for (std::size_t index = 0; index < array_->size(); ++index) {
+        if (Boolean(invoke(index))) return array_->dynamicArrayGet(runtime, index);
+      }
+      return Value::undefined();
+    }
+    if (method_ == u"findIndex") {
+      for (std::size_t index = 0; index < array_->size(); ++index) {
+        if (Boolean(invoke(index))) return Value(static_cast<double>(index));
+      }
+      return Value(-1.0);
+    }
+    if (method_ == u"forEach") {
+      for (std::size_t index = 0; index < array_->size(); ++index) invoke(index);
+      return Value::undefined();
+    }
+    if (method_ == u"reduce") {
+      std::size_t index = 0;
+      Value accumulator;
+      if (arguments.size() > 1) {
+        accumulator = arguments[1];
+      } else {
+        if (array_->empty()) {
+          throw runtime.errorAtCurrentSource("Reduce of empty array with no initial value");
+        }
+        accumulator = array_->dynamicArrayGet(runtime, index++);
+      }
+      for (; index < array_->size(); ++index) accumulator = invoke(index, &accumulator);
+      return accumulator;
+    }
+    throw runtime.errorAtCurrentSource("Unsupported dynamic array method");
+  }
+
+ private:
+  cppgc::Member<ArrayObject<T>> array_;
+  PropertyKey method_;
+};
+
+template <typename T>
+inline Value ArrayObject<T>::dynamicGet(const PropertyKey& key) {
+  auto& runtime = currentRuntime();
+  if (key == u"length") return Value(static_cast<double>(size()));
+  if (
+    key == u"map" || key == u"filter" || key == u"flatMap" ||
+    key == u"some" || key == u"every" || key == u"find" ||
+    key == u"findIndex" || key == u"forEach" || key == u"reduce"
+  ) {
+    return Value(static_cast<DynamicValueObject*>(
+      runtime.make<DynamicArrayMethodObject<T>>(this, key)
+    ));
+  }
+  if constexpr (
+    std::is_same_v<T, Value> || std::is_same_v<T, std::string> ||
+    std::is_same_v<T, BigInt> || std::is_arithmetic_v<T> ||
+    (std::is_pointer_v<T> && (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<T>> ||
+      std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>> ||
+      std::is_same_v<std::remove_pointer_t<T>, RecordObject>))
+  ) {
+    if (const auto index = propertyIndex(key); index && *index < size()) {
+      if constexpr (std::is_pointer_v<T> && std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>>) {
+        auto* value = get(*index);
+        return value && value->enumerableBackingRecord()
+          ? Value(value->enumerableBackingRecord())
+          : Value::undefined();
+      } else {
+        return convertValue<Value>(get(*index));
+      }
+    }
+    return DynamicValueObject::dynamicGet(key);
+  } else {
+    throw runtime.errorAtCurrentSource("This native array element type cannot flow through dynamic access");
+  }
 }
 
 template <typename T>

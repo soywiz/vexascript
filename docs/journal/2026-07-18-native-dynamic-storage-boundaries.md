@@ -278,3 +278,41 @@ reserved for structural collection and callable conversions, may reduce both
 template instantiation volume and optimizer work. That redesign was deliberately
 deferred until the two-roundtrip bootstrap is functional so its value can be
 measured rather than inferred from optimized-build latency alone.
+
+## Native Emitter Bootstrap Regressions
+
+The first native compiler that could emit the complete language smoke exposed
+several cases where valid C++ generation depended accidentally on the richer
+analysis metadata produced by the Node bootstrap. Optional collections,
+captured nullish arrays, nested maps, Promise rejection arrays, and dynamically
+assigned closures all lost enough metadata to fall through to invalid raw C++.
+The durable fixes recover types from emitted local callable signatures, native
+collection template arguments, explicit callable annotations, and contextual
+array element types. The smoke now covers the optional collection and captured
+array regressions alongside its existing dynamic callable, Promise, and nested
+collection cases.
+
+An attempted unconditional inference of `Map.get` from the analyzed map type
+made the compiler translation unit invalid: an interface exposed
+`Map<Value, Value>` in generated storage while analysis retained a more precise
+array value type. Requiring the emitted receiver type to agree with the native
+collection type prevents analysis from promising a representation the emitted
+getter does not actually return. This is a useful boundary for later static
+specialization: emitted storage is authoritative once lowering has erased a
+source-level type.
+
+The most important runtime discrepancy was string indexing inside compiler
+helpers. JavaScript returns a one-code-unit string from `text[index]`, whereas
+the initial dynamic C++ path produced a numeric code unit. Helpers that parsed
+`std::function<...>` and nested C++ template arguments therefore compared a
+number with strings such as `"<"`, `">"`, and `"("`; the parsers silently
+returned no type and downstream emission became dynamic. Converting scanners
+to `charAt` or numeric `charCodeAt` comparisons gives both runtimes explicit
+UTF-16 semantics. The same cleanup was applied to shared TypeScript type-name
+scanners so future native analysis does not depend on implicit index coercion.
+
+After these fixes the `-O0 -DNDEBUG` native compiler emitted the complete smoke
+in 22.26 seconds. The generated smoke translation unit compiled in 4.18 seconds
+and its output exactly matched `expected.native.txt`. The failed branches above
+were preserved because they explain why adding more inferred precision is not
+always safe unless it agrees with the lowered C++ representation.

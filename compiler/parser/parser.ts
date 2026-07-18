@@ -201,6 +201,11 @@ interface TokenCheckpoint {
     mutatedTokens: Map<number, Token>;
 }
 
+interface ParsedOperatorOverload {
+    operator: OverloadableOperator;
+    endToken: Token;
+}
+
 export class ParseError extends Error {
     token: Token | undefined;
     recoveryHint: RecoveryHint | undefined;
@@ -5466,7 +5471,7 @@ export class Parser {
         return candidate in BINARY_OPERATOR_INFO && candidate !== "in" && candidate !== "instanceof" ? candidate : undefined;
     }
 
-    private parseOperatorOverload(): { operator: OverloadableOperator; endToken: Token } | undefined {
+    private parseOperatorOverload(): ParsedOperatorOverload | undefined {
         const token = this.tokens.peek();
         if (token?.type !== "symbol") {
             return undefined;

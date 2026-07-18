@@ -10,6 +10,7 @@ import { childNodes, unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { substituteTypeNameText } from "compiler/analysis/typeNames";
 import { compileParsedSource } from "compiler/pipeline/compile";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
+import type { ParseIssue } from "compiler/parser/parser";
 import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { vfs, type Vfs } from "compiler/vfs";
 import { resolve } from "compiler/utils/path";
@@ -19,6 +20,11 @@ import { transpile, type TranspileResult, type TranspileTarget } from "./transpi
 
 export interface NativeModuleGraphResult extends TranspileResult {
   watchedFiles: string[];
+}
+
+function formatNativeParseIssue(filePath: string, issue: ParseIssue): string {
+  const start = issue.token?.range.start;
+  return `${filePath}${start ? `:${start.line + 1}:${start.column + 1}` : ""}: ${issue.message}`;
 }
 
 function nativeModuleStatements(program: Program): Statement[] {
@@ -224,7 +230,7 @@ export async function compileNativeModuleGraph(
     sourceByPath.set(filePath, source);
     const parsed = parseSource(source, parserOptionsForModulePath(filePath));
     parsedByPath.set(filePath, parsed);
-    for (const issue of parsed.parserIssues) errors.push(`${filePath}: ${issue.message}`);
+    for (const issue of parsed.parserIssues) errors.push(formatNativeParseIssue(filePath, issue));
     if (parsed.tokenizeError) errors.push(`${filePath}: ${parsed.tokenizeError.message}`);
     if (parsed.fatalError) errors.push(`${filePath}: ${parsed.fatalError}`);
     if (!parsed.ast) {
@@ -465,5 +471,13 @@ export async function compileNativeModuleGraph(
     elapsedMs: Date.now() - startedAt,
     moduleCount: order.length,
   });
-  return { ...result, watchedFiles: order };
+  const nativeResult: NativeModuleGraphResult = {
+    code: result.code,
+    warnings: result.warnings,
+    errors: result.errors,
+    diagnostics: result.diagnostics,
+    watchedFiles: order,
+  };
+  if (result.sourceMap !== undefined) nativeResult.sourceMap = result.sourceMap;
+  return nativeResult;
 }

@@ -268,7 +268,7 @@ export async function resolveNodeModulesTypingsPath(
     const nodeModulesDir = resolve(dir, "node_modules");
     const pkgDir = resolve(nodeModulesDir, rootPackageName);
     let packageTypings: string | null = null;
-    if (exportSubpath || await activeVfs.fileExists(resolve(pkgDir, "package.json"))) {
+    if (exportSubpath !== "" || await activeVfs.fileExists(resolve(pkgDir, "package.json"))) {
       try {
         const pkgText = await activeVfs.readFile(resolve(pkgDir, "package.json"));
         if (pkgText !== null) {

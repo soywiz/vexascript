@@ -48,6 +48,7 @@ deferred dynamic map left:2|right:3| 3
 json {"name":"Ada","values":[1,2],"active":true} Ada 5
 json unicode A😀
 weak collections stored true true true true
+optional collections false:false:false:false
 typed map object 31 undefined
 date 0 1970 0 1970-01-01T00:00:00.000Z true "1970-01-01T00:00:00.000Z"
 date parsing 2000-01-02T00:00:00.000Z 946771200000
@@ -70,6 +71,7 @@ bigint-values 2|123456789012345678901234567891 1|x bigint false 42
 bigint-prefixes 255n 5n 63n 42n
 control 32
 labeled control 2
+optional captured array guard true
 finally
 defer
 errors 7

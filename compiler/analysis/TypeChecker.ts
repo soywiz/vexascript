@@ -534,7 +534,7 @@ export class TypeChecker {
     const boundScope = this.bound.scopeByNode.get(node);
     if (!boundScope) return fallback;
     const mergeFallbackNarrowings = (scope: Scope): Scope => {
-      const mergedSymbols = new Map(scope.symbols);
+      const mergedSymbols = new Map<string, AnalysisSymbol>(scope.symbols);
       for (const [name, fallbackSymbol] of fallback.symbols) {
         const currentSymbol = mergedSymbols.get(name);
         if (
@@ -553,7 +553,7 @@ export class TypeChecker {
         });
       }
       const mergedNarrowedExpressionTypes = fallback.narrowedExpressionTypes
-        ? new Map(fallback.narrowedExpressionTypes)
+        ? new Map<string, AnalysisType>(fallback.narrowedExpressionTypes)
         : scope.narrowedExpressionTypes;
       return {
         ...scope,
@@ -2597,10 +2597,14 @@ export class TypeChecker {
         this.validateNullableMemberAccess(member, rawObjectType);
         const objectType = member.nonNullAsserted === true ? removeNullishFromType(rawObjectType) : rawObjectType;
         if (member.computed) {
+          const computedEnum = objectType.kind === "named"
+            ? this.enumStatementsByName.get(objectType.name)
+            : undefined;
           if (
             objectType.kind === "named" &&
+            computedEnum &&
             member.property.kind === NodeKind.StringLiteral &&
-            this.enumStatementsByName.get(objectType.name)?.members.some(
+            computedEnum.members.some(
               (enumMember) => enumMember.name.name === (member.property as StringLiteral).value
             )
           ) {
@@ -3428,7 +3432,7 @@ export class TypeChecker {
     if (leftType.kind === "named") {
       const classStatement = this.classStatementsByName.get(leftType.name);
       const classSubstitutions = classStatement
-        ? this.typeParameterSubstitutions(classStatement.typeParameters ?? [], leftType)
+        ? this.typeParameterSubstitutions(classStatement.typeParameters, leftType)
         : new Map<string, AnalysisType>();
       for (const member of classStatement?.members ?? []) {
         if (member.kind !== NodeKind.ClassMethodMember) {
@@ -3513,7 +3517,7 @@ export class TypeChecker {
   private hasOperatorOverloadCandidates(operator: OverloadableOperator, leftType: AnalysisType): boolean {
     if (leftType.kind === "named") {
       const classStatement = this.classStatementsByName.get(leftType.name);
-      if (classStatement?.members.some((member) =>
+      if (classStatement && classStatement.members.some((member) =>
         member.kind === NodeKind.ClassMethodMember && (member as ClassMethodMember).operator === operator
       )) {
         return true;
@@ -4496,7 +4500,7 @@ export class TypeChecker {
 
     const classStatement = this.classStatementsByName.get(type.name);
     if (classStatement) {
-      const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], type);
+      const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters, type);
       if (classStatement.extendsType) {
         const parentType = this.typeFromTypeNameLooseWithSubstitutions(classStatement.extendsType.name, substitutions);
         if (parentType.kind === "named") parents.push(parentType);
@@ -4509,7 +4513,7 @@ export class TypeChecker {
 
     const interfaceStatement = this.interfaceStatementsByName.get(type.name);
     if (interfaceStatement) {
-      const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], type);
+      const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters, type);
       for (const parentTypeName of interfaceStatement.extendsTypes ?? []) {
         const parentType = this.typeFromTypeNameLooseWithSubstitutions(parentTypeName.name, substitutions);
         if (parentType.kind === "named") parents.push(parentType);
@@ -4579,7 +4583,7 @@ export class TypeChecker {
     for (const member of statement.members) {
       if (member.optional === true) result.add(member.name.name);
     }
-    const substitutions = this.typeParameterSubstitutions(statement.typeParameters ?? [], type);
+    const substitutions = this.typeParameterSubstitutions(statement.typeParameters, type);
     for (const parent of statement.extendsTypes ?? []) {
       const resolved = this.typeFromTypeNameLooseWithSubstitutions(parent.name, substitutions);
       if (resolved.kind !== "named") continue;
@@ -5688,18 +5692,25 @@ export class TypeChecker {
       ) {
         return true;
       }
-      return (type.typeArguments ?? []).some((argument) =>
-        this.typeContainsUnresolvedNamedReference(argument, scope, localTypeParameters)
-      );
+      for (const argument of type.typeArguments ?? []) {
+        if (this.typeContainsUnresolvedNamedReference(argument, scope, localTypeParameters)) return true;
+      }
+      return false;
     }
     if (type.kind === "array" || type.kind === "range") {
       return this.typeContainsUnresolvedNamedReference(type.elementType, scope, localTypeParameters);
     }
     if (type.kind === "tuple") {
-      return type.elements.some((element) => this.typeContainsUnresolvedNamedReference(element, scope, localTypeParameters));
+      for (const element of type.elements) {
+        if (this.typeContainsUnresolvedNamedReference(element, scope, localTypeParameters)) return true;
+      }
+      return false;
     }
     if (type.kind === "union" || type.kind === "intersection") {
-      return type.types.some((member) => this.typeContainsUnresolvedNamedReference(member, scope, localTypeParameters));
+      for (const member of type.types) {
+        if (this.typeContainsUnresolvedNamedReference(member, scope, localTypeParameters)) return true;
+      }
+      return false;
     }
     if (type.kind === "function") {
       const functionType = type as FunctionType;
@@ -5707,13 +5718,16 @@ export class TypeChecker {
       for (const typeParameter of functionType.typeParameters ?? []) {
         nestedTypeParameters.add(typeParameter);
       }
-      return functionType.parameters.some((parameter) => this.typeContainsUnresolvedNamedReference(parameter.type, scope, nestedTypeParameters)) ||
-        this.typeContainsUnresolvedNamedReference(functionType.returnType, scope, nestedTypeParameters);
+      for (const parameter of functionType.parameters) {
+        if (this.typeContainsUnresolvedNamedReference(parameter.type, scope, nestedTypeParameters)) return true;
+      }
+      return this.typeContainsUnresolvedNamedReference(functionType.returnType, scope, nestedTypeParameters);
     }
     if (type.kind === "object") {
-      return Object.values(type.properties).some((property) =>
-        this.typeContainsUnresolvedNamedReference(property, scope, localTypeParameters)
-      );
+      for (const property of Object.values(type.properties)) {
+        if (this.typeContainsUnresolvedNamedReference(property, scope, localTypeParameters)) return true;
+      }
+      return false;
     }
     return false;
   }
@@ -5726,28 +5740,38 @@ export class TypeChecker {
       if (typeParameters.has(type.name)) {
         return true;
       }
-      return (type.typeArguments ?? []).some((argument) =>
-        this.typeContainsTypeParameterReference(argument, typeParameters)
-      );
+      for (const argument of type.typeArguments ?? []) {
+        if (this.typeContainsTypeParameterReference(argument, typeParameters)) return true;
+      }
+      return false;
     }
     if (type.kind === "array" || type.kind === "range") {
       return this.typeContainsTypeParameterReference(type.elementType, typeParameters);
     }
     if (type.kind === "tuple") {
-      return type.elements.some((element) => this.typeContainsTypeParameterReference(element, typeParameters));
+      for (const element of type.elements) {
+        if (this.typeContainsTypeParameterReference(element, typeParameters)) return true;
+      }
+      return false;
     }
     if (type.kind === "union" || type.kind === "intersection") {
-      return type.types.some((member) => this.typeContainsTypeParameterReference(member, typeParameters));
+      for (const member of type.types) {
+        if (this.typeContainsTypeParameterReference(member, typeParameters)) return true;
+      }
+      return false;
     }
     if (type.kind === "function") {
       const functionType = type as FunctionType;
-      return functionType.parameters.some((parameter) => this.typeContainsTypeParameterReference(parameter.type, typeParameters)) ||
-        this.typeContainsTypeParameterReference(functionType.returnType, typeParameters);
+      for (const parameter of functionType.parameters) {
+        if (this.typeContainsTypeParameterReference(parameter.type, typeParameters)) return true;
+      }
+      return this.typeContainsTypeParameterReference(functionType.returnType, typeParameters);
     }
     if (type.kind === "object") {
-      return Object.values(type.properties).some((property) =>
-        this.typeContainsTypeParameterReference(property, typeParameters)
-      );
+      for (const property of Object.values(type.properties)) {
+        if (this.typeContainsTypeParameterReference(property, typeParameters)) return true;
+      }
+      return false;
     }
     return false;
   }
@@ -6114,7 +6138,7 @@ export class TypeChecker {
       return [];
     }
 
-    const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], type);
+    const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters, type);
     const overloads: FunctionType[] = [];
 
     for (const interfaceMember of interfaceStatement.members) {
@@ -9020,12 +9044,13 @@ export class TypeChecker {
       return false;
     }
     const classStatement = this.classStatementsByName.get(simpleObjectType.name);
-    const classField = classStatement?.members.find(
+    if (!classStatement) return false;
+    const classField = classStatement.members.find(
       (candidate): candidate is ClassFieldMember =>
         candidate.kind === NodeKind.ClassFieldMember && candidate.name.name === propertyName
     );
     let parameterProperty: FunctionParameter | undefined;
-    for (const candidate of classStatement?.members ?? []) {
+    for (const candidate of classStatement.members) {
       if (candidate.kind !== NodeKind.ClassMethodMember || candidate.name.name !== "constructor") continue;
       const constructor = candidate as ClassMethodMember;
       parameterProperty = constructor.parameters.find((parameter) =>
@@ -9294,7 +9319,9 @@ export class TypeChecker {
     }
     for (let index = 0; index < parameters.length; index += 1) {
       const parameter = parameters[index]!;
-      const expectedParameterType = expectedFunctionType?.parameters[index]?.type;
+      const expectedParameterType = expectedFunctionType && index < expectedFunctionType.parameters.length
+        ? expectedFunctionType.parameters[index]?.type
+        : undefined;
       const parameterType =
         this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
         expectedParameterType ??
@@ -9653,7 +9680,7 @@ export class TypeChecker {
 
     const interfaceStatement = this.interfaceStatementsByName.get(type.name);
     if (interfaceStatement) {
-      const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], type);
+      const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters, type);
       for (const parentType of interfaceStatement.extendsTypes ?? []) {
         const resolvedParent = this.substituteTypeParameters(
           this.typeFromTypeNameLoose(parentType.name),
@@ -9671,7 +9698,7 @@ export class TypeChecker {
 
     const classStatement = this.classStatementsByName.get(type.name);
     if (classStatement) {
-      const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], type);
+      const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters, type);
       if (classStatement.extendsType) {
         const resolvedParent = this.substituteTypeParameters(
           this.typeFromTypeNameLoose(classStatement.extendsType.name),
@@ -11508,7 +11535,7 @@ export class TypeChecker {
 
     const classStatement = this.classStatementsByName.get(type.name);
     if (classStatement) {
-      const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], type);
+      const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters, type);
       const members = new Map<string, AnalysisType>();
       const readableNames = new Set<string>();
       const setterNames = new Set<string>();
@@ -11697,7 +11724,7 @@ export class TypeChecker {
     if (!interfaceStatement) {
       return null;
     }
-    const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], type);
+    const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters, type);
     this.collectInterfaceMembersInto(members, interfaceStatement, substitutions, visited, false, typeToString(type));
     return members;
   }
@@ -11734,10 +11761,16 @@ export class TypeChecker {
     return implementedTypes;
   }
 
+  private classTypeArguments(classStatement: ClassStatement): NamedType[] {
+    const result: NamedType[] = [];
+    for (const typeParameter of classStatement.typeParameters ?? []) {
+      result.push(namedType(typeParameter.name.name));
+    }
+    return result;
+  }
+
   private validateImplementedInterfaces(classStatement: ClassStatement): void {
-    const classTypeArguments = (classStatement.typeParameters ?? []).map((typeParameter) =>
-      namedType(typeParameter.name.name)
-    );
+    const classTypeArguments = this.classTypeArguments(classStatement);
     const classType = namedType(classStatement.name.name, classTypeArguments);
     const classMembers = this.resolveNamedTypeMembers(classType);
     if (!classMembers) {
@@ -11854,11 +11887,9 @@ export class TypeChecker {
     const concreteNames = new Set<string>();
     this.collectConcreteMemberNames(classStatement, concreteNames);
 
-    const classTypeArguments = (classStatement.typeParameters ?? []).map((typeParameter) =>
-      namedType(typeParameter.name.name)
-    );
+    const classTypeArguments = this.classTypeArguments(classStatement);
     const classType = namedType(classStatement.name.name, classTypeArguments);
-    const classSubstitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], classType);
+    const classSubstitutions = this.typeParameterSubstitutions(classStatement.typeParameters, classType);
     const substitutedBaseType = this.substituteTypeParameters(baseType, classSubstitutions);
     const baseMembers = substitutedBaseType.kind === "named" ? this.resolveNamedTypeMembers(substitutedBaseType) : null;
 
@@ -12018,11 +12049,9 @@ export class TypeChecker {
    * `override`-keyword checks below.
    */
   private supertypeMemberContext(classStatement: ClassStatement): SupertypeMemberContext {
-    const classTypeArguments = (classStatement.typeParameters ?? []).map((typeParameter) =>
-      namedType(typeParameter.name.name)
-    );
+    const classTypeArguments = this.classTypeArguments(classStatement);
     const classType = namedType(classStatement.name.name, classTypeArguments);
-    const classSubstitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], classType);
+    const classSubstitutions = this.typeParameterSubstitutions(classStatement.typeParameters, classType);
 
     const resolvedExtends = classStatement.extendsType
       ? this.substituteTypeParameters(this.typeFromTypeNameLoose(classStatement.extendsType.name), classSubstitutions)
@@ -12945,11 +12974,11 @@ export class TypeChecker {
         continue;
       }
       const systemClass = this.classStatementsByName.get(systemClassName);
-      const defaultOptionsMember = systemClass?.members.find((member): member is ClassFieldMember =>
+      const defaultOptionsMember = systemClass ? systemClass.members.find((member): member is ClassFieldMember =>
         member.isStatic === true &&
         member.kind === NodeKind.ClassFieldMember &&
         member.name.name === "defaultOptions"
-      );
+      ) : undefined;
       const defaultOptionsType = defaultOptionsMember
         ? this.typeFromAnnotationLoose(defaultOptionsMember.typeAnnotation)
         : null;
@@ -13008,29 +13037,29 @@ export class TypeChecker {
           type.typeArguments.map((typeArgument) => this.expandTypeAliases(typeArgument))
         );
       }
-      const substitutions = this.typeParameterSubstitutions(typeAlias.typeParameters ?? [], type);
-      const mappedUtilityTarget = this.resolveMappedUtilityAliasTarget(typeAlias, substitutions);
-      if (mappedUtilityTarget) {
-        return this.expandTypeAliases(mappedUtilityTarget);
-      }
-      const conditionalTarget = this.resolveConditionalTypeAliasTarget(
-        typeAlias,
-        substitutions,
-        this.typeAliasResolutionScope(typeAlias)
-      );
-      if (
-        conditionalTarget &&
-        !this.typeContainsUnresolvedNamedReference(
-          conditionalTarget,
-          this.typeAliasResolutionScope(typeAlias),
-          new Set()
-        )
-      ) {
-        return this.expandTypeAliases(conditionalTarget);
-      }
-      const typeParameterNames = typeParameterNameList(typeAlias.typeParameters ?? []);
       this.activeTypeAliasNames.add(type.name);
       try {
+        const substitutions = this.typeParameterSubstitutions(typeAlias.typeParameters, type);
+        const mappedUtilityTarget = this.resolveMappedUtilityAliasTarget(typeAlias, substitutions);
+        if (mappedUtilityTarget) {
+          return this.expandTypeAliases(mappedUtilityTarget);
+        }
+        const conditionalTarget = this.resolveConditionalTypeAliasTarget(
+          typeAlias,
+          substitutions,
+          this.typeAliasResolutionScope(typeAlias)
+        );
+        if (
+          conditionalTarget &&
+          !this.typeContainsUnresolvedNamedReference(
+            conditionalTarget,
+            this.typeAliasResolutionScope(typeAlias),
+            new Set()
+          )
+        ) {
+          return this.expandTypeAliases(conditionalTarget);
+        }
+        const typeParameterNames = typeParameterNameList(typeAlias.typeParameters ?? []);
         let targetType: AnalysisType = UNKNOWN_TYPE;
         this.withTypeParameters(typeParameterNames, () => {
           targetType = this.typeFromTypeNameLooseWithTypeParameters(
@@ -13089,10 +13118,11 @@ export class TypeChecker {
   }
 
   private typeParameterSubstitutions(
-    typeParameters: Array<{ name: { name: string }; defaultType?: Identifier | undefined }>,
+    typeParameters: TypeParameter[] | undefined,
     type: NamedType
   ): Map<string, AnalysisType> {
     const substitutions = new Map<string, AnalysisType>();
+    if (!typeParameters) return substitutions;
     const typeArguments = type.typeArguments ?? [];
     for (let i = 0; i < typeParameters.length; i += 1) {
       const typeParameter = typeParameters[i];

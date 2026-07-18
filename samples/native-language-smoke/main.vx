@@ -253,6 +253,21 @@ fun labeledControl(): int {
   return total
 }
 
+fun optionalCapturedArrayGuard(): boolean {
+  var values: int[] | undefined = undefined
+  val assign = { next: int[] -> values = next }
+  return values === undefined || values!.length == 0
+}
+
+fun optionalCollectionCalls(): string {
+  val map: Map<string, int> | undefined = undefined
+  val set: Set<int> | undefined = undefined
+  val weakMap: WeakMap<Leaf, string> | undefined = undefined
+  val weakSet: WeakSet<Leaf> | undefined = undefined
+  val key = Leaf(1)
+  return `${map?.has("missing") ?? false}:${set?.has(1) ?? false}:${weakMap?.has(key) ?? false}:${weakSet?.has(key) ?? false}`
+}
+
 fun * sequence(limit: int): int {
   for (value of 0 ..< limit) yield value
   yield* [limit, limit + 1]
@@ -497,6 +512,7 @@ val nativeWeakSet = new WeakSet<Leaf>()
 nativeWeakMap.set(nativeWeakKey, "stored")
 nativeWeakSet.add(nativeWeakKey)
 console.log("weak collections", nativeWeakMap.get(nativeWeakKey), nativeWeakMap.has(nativeWeakKey), nativeWeakSet.has(nativeWeakKey), nativeWeakMap.delete(nativeWeakKey), nativeWeakSet.delete(nativeWeakKey))
+console.log("optional collections", optionalCollectionCalls())
 val nativeLeafMap = new Map<string, Leaf>()
 nativeLeafMap.set("leaf", Leaf(31))
 console.log("typed map object", nativeLeafMap.get("leaf")?.value, nativeLeafMap.get("missing")?.value)
@@ -573,6 +589,7 @@ console.log("bigint-prefixes", BigInt("0xff"), BigInt("0b101"), BigInt("0o77"), 
 
 console.log("control", loopControl())
 console.log("labeled control", labeledControl())
+console.log("optional captured array guard", optionalCapturedArrayGuard())
 console.log("errors", guarded())
 
 val iterator = sequence(2)
