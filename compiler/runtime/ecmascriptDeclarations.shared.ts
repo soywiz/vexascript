@@ -6,8 +6,8 @@ import {
 } from "./declarationProgramCache";
 import { ECMA_SCRIPT_RUNTIME_DECLARATIONS } from "./embeddedRuntimeSources";
 
-export const TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME = "es2025.d.ts";
-const EXTRA_RUNTIME_DECLARATIONS = [
+export const TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME: string = "es2025.d.ts";
+const EXTRA_RUNTIME_DECLARATIONS: string = [
   "declare var globalThis: typeof globalThis;"
 ].join("\n");
 

@@ -52,20 +52,22 @@ export function declarationIndexForStatements(statements: readonly Statement[]):
   };
 
   const collectNestedNamespaceDeclarations = (items: readonly Statement[]): void => {
-    for (const statement of items) {
-      const candidate = unwrapExportedDeclaration(statement);
+    const pendingItems: Statement[] = [...items];
+    while (pendingItems.length > 0) {
+      const statement = pendingItems.pop()!;
+      const candidate: Statement | undefined = unwrapExportedDeclaration(statement);
       if (candidate?.kind !== "NamespaceStatement") {
         continue;
       }
       const namespaceStatement = candidate as NamespaceStatement;
       index.nestedNamespaceDeclarations.push(...namespaceStatement.body.body);
-      collectNestedNamespaceDeclarations(namespaceStatement.body.body);
+      pendingItems.push(...namespaceStatement.body.body);
     }
   };
 
   const collect = (items: readonly Statement[]): void => {
     for (const statement of items) {
-      const candidate = unwrapExportedDeclaration(statement);
+      const candidate: Statement | undefined = unwrapExportedDeclaration(statement);
       if (!candidate) {
         continue;
       }

@@ -94,7 +94,8 @@ export class Analysis {
     this.program = program;
     const externalDeclarations = options.externalDeclarations ?? [];
     const ambientDeclarations = options.ambientDeclarations ?? [];
-    const { importedSymbols } = normalizeImportedSymbolSources(options);
+    const importedSymbolViews = normalizeImportedSymbolSources(options);
+    const importedSymbols: Map<string, ImportedSymbolResolution> = importedSymbolViews.importedSymbols;
     const bound = new Binder(
       program,
       externalDeclarations,
@@ -139,7 +140,11 @@ export class Analysis {
       }
       current = current.parent;
     }
-    return Array.from(visible.values());
+    const result: AnalysisSymbol[] = [];
+    for (const value of visible.values()) {
+      result.push(value);
+    }
+    return result;
   }
 
   getIssues(): AnalysisIssue[] {
@@ -234,15 +239,19 @@ export class Analysis {
 
   getCallableTypes(): ReadonlyMap<Node, AnalysisType> {
     const result = new Map<Node, AnalysisType>();
-    const visit = (scope: Scope): void => {
-      for (const symbol of scope.symbols.values()) {
+    const pendingScopes: Scope[] = [this.rootScope];
+    while (pendingScopes.length > 0) {
+      const scope = pendingScopes.pop()!;
+      for (const value of scope.symbols.values()) {
+        const symbol: AnalysisSymbol = value;
         if (symbol.type?.kind === "function") {
           result.set(symbol.node, symbol.type);
         }
       }
-      for (const child of scope.children) visit(child);
-    };
-    visit(this.rootScope);
+      for (const child of scope.children) {
+        pendingScopes.push(child);
+      }
+    }
     return result;
   }
 

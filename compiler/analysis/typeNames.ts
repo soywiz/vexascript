@@ -9,6 +9,11 @@ export interface OptionalTypeNameSuffix {
   optional: boolean;
 }
 
+export interface ArraySuffixTypeName {
+  elementTypeName: string;
+  arrayDepth: number;
+}
+
 export interface TemplateLiteralTypeSegment {
   kind: "text" | "type";
   value: string;
@@ -46,6 +51,23 @@ interface TypeTextDepths {
   paren: number;
   bracket: number;
   brace: number;
+}
+
+interface FunctionTypeParameterText {
+  name: string;
+  constraintTypeName?: string;
+  defaultTypeName?: string;
+}
+
+const TYPE_TEXT_CACHE_LIMIT = 8192;
+const topLevelTypePartsCache = new Map<string, readonly string[]>();
+const typeNameShapeCache = new Map<string, TypeNameShape>();
+const conditionalTypeTextCache = new Map<string, ConditionalTypeText | null>();
+
+function cacheTypeTextResult<T>(cache: Map<string, T>, key: string, value: T): T {
+  if (cache.size >= TYPE_TEXT_CACHE_LIMIT) cache.clear();
+  cache.set(key, value);
+  return value;
 }
 
 function scanTypeText(
@@ -194,6 +216,8 @@ export function splitOptionalTypeSuffix(typeName: string): OptionalTypeNameSuffi
 }
 
 export function parseTypeNameShape(typeName: string): TypeNameShape {
+  const cached = typeNameShapeCache.get(typeName);
+  if (cached) return { ...cached, typeArguments: [...cached.typeArguments] };
   let remaining = typeName.trim();
   let arrayDepth = 0;
   while (remaining.endsWith("[]")) {
@@ -203,16 +227,20 @@ export function parseTypeNameShape(typeName: string): TypeNameShape {
 
   const genericStart = remaining.indexOf("<");
   if (genericStart < 0 || !remaining.endsWith(">")) {
-    return { baseName: remaining, typeArguments: [], arrayDepth };
+    const result = { baseName: remaining, typeArguments: [], arrayDepth };
+    cacheTypeTextResult(typeNameShapeCache, typeName, result);
+    return { ...result, typeArguments: [] };
   }
 
   const baseName = remaining.slice(0, genericStart).trim();
   const argumentBody = remaining.slice(genericStart + 1, -1).trim();
-  return {
+  const result = {
     baseName,
     typeArguments: splitTypeArgumentText(argumentBody),
     arrayDepth
   };
+  cacheTypeTextResult(typeNameShapeCache, typeName, result);
+  return { ...result, typeArguments: [...result.typeArguments] };
 }
 
 export function baseTypeName(typeName: string): string {
@@ -326,7 +354,12 @@ export function substituteTypeNameText(typeName: string, substitutions: Readonly
 }
 
 export function splitTopLevelTypeText(typeName: string, separator: "|" | "&" | ","): string[] {
-  return splitTopLevelDelimitedTypeText(typeName, new Set([separator]));
+  const key = `${separator}:${typeName}`;
+  const cached = topLevelTypePartsCache.get(key);
+  if (cached) return [...cached];
+  const result = splitTopLevelDelimitedTypeText(typeName, new Set([separator]));
+  cacheTypeTextResult(topLevelTypePartsCache, key, result);
+  return [...result];
 }
 
 export function stripEnclosingTypeParens(typeName: string): string {
@@ -409,13 +442,19 @@ export function parseTemplateLiteralTypeText(typeName: string): TemplateLiteralT
 }
 
 export function parseConditionalTypeText(typeName: string): ConditionalTypeText | null {
+  if (conditionalTypeTextCache.has(typeName)) {
+    const cached = conditionalTypeTextCache.get(typeName);
+    return cached ? { ...cached } : null;
+  }
   const trimmed = typeName.trim();
   const questionIndex = findTopLevelTypeCharacter(trimmed, "?");
   if (questionIndex < 0) {
+    cacheTypeTextResult(conditionalTypeTextCache, typeName, null);
     return null;
   }
   const falseBranchSeparator = findTopLevelTypeCharacter(trimmed.slice(questionIndex + 1), ":");
   if (falseBranchSeparator < 0) {
+    cacheTypeTextResult(conditionalTypeTextCache, typeName, null);
     return null;
   }
 
@@ -424,21 +463,25 @@ export function parseConditionalTypeText(typeName: string): ConditionalTypeText 
   const falseTypeText = trimmed.slice(questionIndex + 1 + falseBranchSeparator + 1).trim();
   const extendsIndex = findTopLevelExtendsKeyword(conditionText);
   if (extendsIndex < 0) {
+    cacheTypeTextResult(conditionalTypeTextCache, typeName, null);
     return null;
   }
 
   const checkTypeText = conditionText.slice(0, extendsIndex).trim();
   const extendsTypeText = conditionText.slice(extendsIndex + "extends".length).trim();
   if (!checkTypeText || !extendsTypeText || !trueTypeText || !falseTypeText) {
+    cacheTypeTextResult(conditionalTypeTextCache, typeName, null);
     return null;
   }
 
-  return {
+  const result = {
     checkTypeText,
     extendsTypeText,
     trueTypeText,
     falseTypeText
   };
+  cacheTypeTextResult(conditionalTypeTextCache, typeName, result);
+  return { ...result };
 }
 
 export function parseReadonlyContainerTypeText(typeName: string): ReadonlyContainerTypeText | null {
@@ -456,7 +499,7 @@ export function parseReadonlyContainerTypeText(typeName: string): ReadonlyContai
     };
   }
 
-  const arraySuffix = splitArraySuffixTypeName(inner);
+  const arraySuffix = splitArraySuffixTypeName(inner) as ArraySuffixTypeName | null;
   if (arraySuffix) {
     return {
       kind: "array",
@@ -515,7 +558,10 @@ export function parseMappedTypeMemberText(typeName: string): MappedTypeMemberTex
   const sourceAndRemap = bracketBody.slice(inIndex + "in".length).trim();
   const asIndex = findTopLevelTypeKeyword(sourceAndRemap, "as");
   const keySourceText = (asIndex >= 0 ? sourceAndRemap.slice(0, asIndex) : sourceAndRemap).trim();
-  const keyRemapText = asIndex >= 0 ? sourceAndRemap.slice(asIndex + "as".length).trim() : undefined;
+  let keyRemapText: string | undefined;
+  if (asIndex >= 0) {
+    keyRemapText = sourceAndRemap.slice(asIndex + "as".length).trim();
+  }
   if (!keySourceText) {
     return null;
   }
@@ -570,11 +616,7 @@ export interface FunctionTypeAnnotationShape {
   constructor?: boolean;
 }
 
-function parseFunctionTypeParameterText(typeParameterText: string): {
-  name: string;
-  constraintTypeName?: string;
-  defaultTypeName?: string;
-} | null {
+function parseFunctionTypeParameterText(typeParameterText: string): FunctionTypeParameterText | null {
   const trimmed = typeParameterText.trim();
   if (!trimmed) {
     return null;
@@ -594,7 +636,7 @@ function parseFunctionTypeParameterText(typeParameterText: string): {
     }
   }
   const name = (extendsIndex >= 0 ? beforeDefault.slice(0, extendsIndex) : beforeDefault).trim();
-  const constraintTypeName = extendsIndex >= 0
+  const constraintTypeName: string = extendsIndex >= 0
     ? beforeDefault.slice(extendsIndex + "extends".length).trim()
     : "";
 
@@ -622,7 +664,7 @@ export interface ObjectTypeAnnotationMember {
  */
 export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnotationShape | null {
   const trimmed = typeName.trim();
-  let working = trimmed;
+  let working: string = trimmed;
   let constructor = false;
 
   if (working.startsWith("abstract ")) {
@@ -643,7 +685,7 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
     }
     const typeParameterBody = working.slice(1, closeTypeParameterIndex).trim();
     for (const part of splitTypeArgumentText(typeParameterBody)) {
-      const parsedTypeParameter = parseFunctionTypeParameterText(part);
+      const parsedTypeParameter: FunctionTypeParameterText | null = parseFunctionTypeParameterText(part);
       if (!parsedTypeParameter) {
         continue;
       }
@@ -672,10 +714,11 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
   }
 
   const parameterBody = working.slice(1, closeParenIndex).trim();
-  const parameters =
-    parameterBody.length === 0
-      ? []
-      : splitTopLevelDelimitedTypeText(parameterBody).map((part, index) => {
+  const parameters: FunctionTypeAnnotationParameter[] = [];
+  if (parameterBody.length > 0) {
+    const parameterParts = splitTopLevelDelimitedTypeText(parameterBody);
+    for (let index = 0; index < parameterParts.length; index += 1) {
+          const part = parameterParts[index]!;
           let text = part.trim();
           let rest = false;
           if (text.startsWith("...")) {
@@ -685,11 +728,12 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
 
           const colonIndex = findTopLevelTypeCharacter(text, ":");
           if (colonIndex < 0) {
-            return {
+            parameters.push({
               name: `arg${index + 1}`,
               typeName: text.length > 0 ? text : "unknown",
               ...(rest ? { rest: true as const } : {})
-            };
+            });
+            continue;
           }
 
           let name = text.slice(0, colonIndex).trim();
@@ -699,13 +743,14 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
             optional = true;
             name = name.slice(0, -1).trim();
           }
-          return {
+          parameters.push({
             name: name.length > 0 ? name : `arg${index + 1}`,
             typeName: paramTypeName.length > 0 ? paramTypeName : "unknown",
             ...(optional ? { optional: true as const } : {}),
             ...(rest ? { rest: true as const } : {})
-          };
-        });
+          });
+    }
+  }
 
   return {
     parameters,
@@ -733,9 +778,16 @@ export function parseObjectTypeAnnotation(typeName: string): ObjectTypeAnnotatio
     return [];
   }
 
-  return splitTopLevelDelimitedTypeText(body, new Set([",", ";"])).map((part) => {
-    const trimmedPart = part.trim();
-    const colonIndex = findTopLevelTypeCharacter(trimmedPart, ":");
+  const members: ObjectTypeAnnotationMember[] = [];
+  for (const part of splitTopLevelDelimitedTypeText(body, new Set([",", ";"]))) {
+    members.push(parseObjectTypeAnnotationMember(part));
+  }
+  return members;
+}
+
+function parseObjectTypeAnnotationMember(part: string): ObjectTypeAnnotationMember {
+  const trimmedPart = part.trim();
+  const colonIndex = findTopLevelTypeCharacter(trimmedPart, ":");
     if (trimmedPart.startsWith("new(")) {
       const closeParenIndex = findMatchingTypeDelimiter(trimmedPart, 3, "(", ")");
       if (closeParenIndex >= 0) {
@@ -801,7 +853,6 @@ export function parseObjectTypeAnnotation(typeName: string): ObjectTypeAnnotatio
       ...(readonly ? { readonly: true as const } : {}),
       ...(optional ? { optional: true as const } : {})
     };
-  });
 }
 
 /** Returns true if the type text contains `=>`, suggesting a function type annotation. */
@@ -814,7 +865,7 @@ export function looksLikeFunctionTypeAnnotation(typeName: string): boolean {
  * element type name and the array nesting depth. Returns null when the text
  * does not end with `[]`.
  */
-export function splitArraySuffixTypeName(typeName: string): { elementTypeName: string; arrayDepth: number } | null {
+export function splitArraySuffixTypeName(typeName: string): ArraySuffixTypeName | null {
   let remaining = typeName.trim();
   let arrayDepth = 0;
   while (remaining.endsWith("[]")) {

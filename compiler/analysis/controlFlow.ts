@@ -13,8 +13,8 @@ import type {
   WithStatement,
 } from "compiler/ast/ast";
 
-export function isAsyncLike(node: { async?: boolean; sync?: boolean }): boolean {
-  return node.async === true || node.sync === true;
+export function isAsyncLike(asyncValue?: boolean, syncValue?: boolean): boolean {
+  return asyncValue === true || syncValue === true;
 }
 
 export function statementAllowsLabeledContinue(statement: Statement): boolean {
@@ -108,14 +108,25 @@ export function statementAlwaysExits(statement: Statement): boolean {
       return statementAlwaysExits((statement as DoWhileStatement).body);
     case "SwitchStatement": {
       const switchStatement = statement as SwitchStatement;
-      if (!switchStatement.cases.some((switchCase) => switchCase.test === undefined)) {
+      let hasDefault = false;
+      for (const switchCase of switchStatement.cases) {
+        if (switchCase.test === undefined) hasDefault = true;
+      }
+      if (!hasDefault) {
         return false;
       }
-      return switchStatement.cases.every((_, index) =>
-        statementListAlwaysExits(
-          switchStatement.cases.slice(index).flatMap((switchCase) => switchCase.consequent)
-        )
-      );
+      for (let index = 0; index < switchStatement.cases.length; index += 1) {
+        const consequent: Statement[] = [];
+        let caseIndex = 0;
+        for (const switchCase of switchStatement.cases) {
+          if (caseIndex >= index) {
+            for (const child of switchCase.consequent) consequent.push(child);
+          }
+          caseIndex += 1;
+        }
+        if (!statementListAlwaysExits(consequent)) return false;
+      }
+      return true;
     }
     case "TryStatement": {
       const tryStatement = statement as TryStatement;

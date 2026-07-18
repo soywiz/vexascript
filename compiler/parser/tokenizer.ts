@@ -556,7 +556,12 @@ function readUnicodeEscape(reader: StrReader, start: SourcePosition, context: st
   return String.fromCharCode(readHexValue(reader, 4, `Invalid unicode escape sequence in ${context}`, start));
 }
 
-type TokenFragment = Omit<Token, "index">;
+interface TokenFragment {
+  type: Token["type"];
+  value: string;
+  range: SourceRange;
+  leadingComments?: TokenComment[];
+}
 
 function syntheticRangeAt(position: SourcePosition): SourceRange {
   return {
@@ -999,10 +1004,12 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
   const tokens: Token[] = [];
   let pendingComments: TokenComment[] = [];
   let previousSignificantToken: Token | undefined;
+  let readCodeToken: () => void;
+  let readJsxElement: () => void;
 
   const pushFragment = (fragment: TokenFragment): Token => {
-    const leadingComments =
-      pendingComments.length > 0 ? pendingComments : fragment.leadingComments;
+    const leadingComments: TokenComment[] | undefined =
+      pendingComments.length > 0 ? pendingComments.slice() : fragment.leadingComments;
     const token: Token = {
       type: fragment.type,
       value: fragment.value,
@@ -1201,7 +1208,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
     }
   };
 
-  const readJsxElement = (): void => {
+  readJsxElement = (): void => {
     const ltStart = snapshot(reader);
     advanceCode(reader);
     pushSymbol("<", ltStart);
@@ -1247,7 +1254,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
   };
 
   // Reads a single non-trivia token (or JSX element / template expansion).
-  const readCodeToken = (): void => {
+  readCodeToken = (): void => {
     const code = reader.peekCode();
     const start = snapshot(reader);
 

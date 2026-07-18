@@ -108,7 +108,8 @@ export function nativeCompilerArguments(
   const instrumented = options.sanitizers === true;
   return [
     "-std=c++20",
-    instrumented ? "-O1" : "-O2",
+    instrumented ? "-O1" : "-O3",
+    ...(!instrumented && !options.debug ? ["-DNDEBUG"] : []),
     ...(options.debug || instrumented ? ["-g"] : []),
     ...(instrumented ? ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] : []),
     ...(platform === "darwin" ? ["-Wno-inconsistent-missing-override", "-Wno-trigraphs"] : []),
@@ -116,6 +117,7 @@ export function nativeCompilerArguments(
     "-DCPPGC_IS_STANDALONE=1",
     "-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO",
     "-DV8_LOGGING_LEVEL=0",
+    ...(options.debug || instrumented ? ["-DVEXA_NATIVE_DEBUG=1"] : []),
     ...(options.gcStress ? ["-DVEXA_NATIVE_GC_STRESS=1"] : []),
     cppPath,
     `-I${root}`,

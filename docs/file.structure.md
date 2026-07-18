@@ -61,7 +61,7 @@ This section is the fast onboarding map for agents and contributors.
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
   - Lowering tests: `compiler/runtime/lowering.test.ts`
   - JavaScript emission: `compiler/runtime/emitter.ts`
-  - Initial browser-compatible C++ emission backend, sharing the normal parse, analysis, and range-loop lowering pipeline while rejecting unsupported constructs explicitly: `compiler/runtime/cppEmitter.ts`, tests: `compiler/runtime/cppEmitter.test.ts`
+  - Browser-compatible C++ emission backend, sharing the normal parse and analysis pipeline; native behavior is validated by the compiled executable smoke rather than generated-code string assertions: `compiler/runtime/cppEmitter.ts`, smoke test: `cli/nativeSmoke.test.ts`, fixture: `samples/native-language-smoke/`
   - Native dependency-ordered module-graph compilation, reusing the shared import resolver and merging local module ASTs into one analyzed C++ translation unit: `compiler/runtime/nativeModuleGraph.ts`, tests: `compiler/runtime/nativeModuleGraph.test.ts`
   - Single source of truth mapping overloadable operators to their mangled runtime method names (`operator$star`, ...) plus the shared identifier `sanitizeManglePart`, consumed by both the emitter and the implicit-export planner so an exported operator overload is always re-exported under the exact name it was emitted with: `compiler/runtime/operatorNames.ts`
   - CommonJS-specific import/export emission helpers extracted from the generic emitter path: `compiler/runtime/commonJsEmitter.ts`, `compiler/runtime/commonJsEmitter.test.ts`

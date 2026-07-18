@@ -1,5 +1,6 @@
 import type {
   BlockStatement,
+  AnnotationStatement,
   CatchClause,
   ClassFieldMember,
   ClassMethodMember,
@@ -8,9 +9,12 @@ import type {
   EnumStatement,
   ForStatement,
   FunctionStatement,
+  FunctionParameter,
   ExportStatement,
   Identifier,
   InterfaceStatement,
+  InterfaceMethodMember,
+  InterfacePropertyMember,
   ImportStatement,
   IfStatement,
   LabeledStatement,
@@ -20,6 +24,7 @@ import type {
   SwitchStatement,
   TypeAliasStatement,
   TypeAnnotation,
+  TypeParameter,
   TryStatement,
   VariableDeclarationKind,
   VarStatement,
@@ -41,7 +46,7 @@ import {
   BUILTIN_TYPE_NAMES
 } from "./types";
 import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitArraySuffixTypeName, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, tupleElementTypeText } from "./typeNames";
-import type { AnalysisType, BuiltinTypeName } from "./types";
+import type { AnalysisType, BuiltinTypeName, FunctionTypeParameter } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import type { AnalysisIssue } from "./model";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
@@ -49,10 +54,10 @@ import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarat
 import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations.shared";
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import { declarationIndexForStatements } from "./declarationIndex";
+import type { ImportedSymbolResolution } from "compiler/importedSymbols";
 
-interface ImportedAnalysisSymbolResolution {
-  type?: AnalysisType;
-  displayType?: string;
+function noFunctionParameters(): FunctionTypeParameter[] {
+  return [];
 }
 
 const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typeof UNKNOWN_TYPE>([
@@ -67,12 +72,12 @@ const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typ
     info: functionType([{ name: "args", type: UNKNOWN_TYPE, rest: true }], builtinType("void"))
   })],
   ["setTimeout", functionType([
-    { name: "code", type: functionType([], builtinType("void")) },
+    { name: "code", type: functionType(noFunctionParameters(), builtinType("void")) },
     { name: "time", type: builtinType("number") },
     { name: "arguments", type: UNKNOWN_TYPE, rest: true }
   ], builtinType("int"))],
   ["setInterval", functionType([
-    { name: "code", type: functionType([], builtinType("void")) },
+    { name: "code", type: functionType(noFunctionParameters(), builtinType("void")) },
     { name: "time", type: builtinType("number") },
     { name: "arguments", type: UNKNOWN_TYPE, rest: true }
   ], builtinType("int"))],
@@ -89,6 +94,13 @@ const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typ
 
 function symbolOffset(node: Node): number {
   return node.firstToken?.range.start.offset ?? -1;
+}
+
+function typeParameterNames(parameters: readonly TypeParameter[] | undefined): string[] | undefined {
+  if (!parameters) return undefined;
+  const names: string[] = [];
+  for (const parameter of parameters) names.push(parameter.name.name);
+  return names;
 }
 
 function isReadonlyVariable(kind: VariableDeclarationKind): boolean {
@@ -112,7 +124,7 @@ export class Binder {
     private readonly program: Program,
     private readonly externalDeclarations: Statement[] = [],
     private readonly ambientDeclarations: Statement[] = [],
-    private readonly importedSymbols: ReadonlyMap<string, ImportedAnalysisSymbolResolution> = new Map()
+    private readonly importedSymbols: ReadonlyMap<string, ImportedSymbolResolution> = new Map()
   ) {
     this.rootScope = this.createScope(undefined, program);
   }
@@ -184,7 +196,9 @@ export class Binder {
     if (existing?.implicitReceiver === true && symbol.implicitReceiver === true) {
       return;
     }
-    const declaredOffset = declaredOffsetOverride ?? symbolOffset(symbol.node);
+    const declaredOffset: number = declaredOffsetOverride === undefined
+      ? symbolOffset(symbol.node)
+      : Number(declaredOffsetOverride);
     if (
       existing &&
       (existing.kind === "variable" || existing.kind === "parameter") &&
@@ -202,7 +216,9 @@ export class Binder {
       return;
     }
     if (existing?.kind === "function" && symbol.kind === "function" && existing.type && symbol.type) {
-      const existingTypes = existing.type.kind === "union" ? existing.type.types : [existing.type];
+      const existingTypes: AnalysisType[] = [];
+      if (existing.type.kind === "union") existingTypes.push(...existing.type.types);
+      else existingTypes.push(existing.type);
       if (existingTypes.some((existingType) => existingType.kind === "function" && isSameType(existingType, symbol.type!))) {
         this.issues.push({
           message: `Duplicate function signature for '${symbol.name}'`,
@@ -350,7 +366,7 @@ export class Binder {
             rest: parameter.rest === true
           })),
           this.effectiveReturnType(this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE, fnIsAsyncLike, fnIsGenerator),
-          functionStatement.typeParameters?.map((parameter) => parameter.name.name)
+          typeParameterNames(functionStatement.typeParameters)
         );
         this.declare(scope, {
           name: functionStatement.name.name,
@@ -426,7 +442,7 @@ export class Binder {
       }
 
       if (statement.kind === "AnnotationStatement") {
-        const annotationStatement = statement as import("compiler/ast/ast").AnnotationStatement;
+        const annotationStatement = statement as AnnotationStatement;
         this.declare(scope, {
           name: annotationStatement.name.name,
           kind: "annotation",
@@ -444,7 +460,10 @@ export class Binder {
     const facades = [] as Array<{ name: Identifier; type: AnalysisType }>;
     const namespaceNames = new Set(
       declarationIndexForStatements([...statements]).namespaces
-        .map((namespaceStatement) => namespaceStatement.names?.[0]?.name)
+        .map((namespaceStatement) => {
+          const firstName: Identifier | undefined = namespaceStatement.names?.[0];
+          return firstName?.name;
+        })
         .filter((name): name is string => !!name)
     );
 
@@ -457,7 +476,7 @@ export class Binder {
         continue;
       }
 
-      const facadeType = namespaceNames.has(exportStatement.namespaceExport.name)
+      const facadeType: AnalysisType = namespaceNames.has(exportStatement.namespaceExport.name)
         ? namedType(exportStatement.namespaceExport.name)
         : objectTypeWithProperties(this.collectAmbientNamespaceFacadeProperties(statements));
       facades.push({
@@ -496,19 +515,23 @@ export class Binder {
             rest: parameter.rest === true
           })),
           this.effectiveReturnType(this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE, fnIsAsyncLike, fnIsGenerator),
-          functionStatement.typeParameters?.map((parameter) => parameter.name.name)
+          typeParameterNames(functionStatement.typeParameters)
         );
         continue;
       }
 
       if (declaration.kind === "VarStatement") {
         const variableStatement = declaration as VarStatement;
-        const declarations = variableStatement.declarations && variableStatement.declarations.length > 0
-          ? variableStatement.declarations
-          : [{ name: variableStatement.name, typeAnnotation: variableStatement.typeAnnotation }];
-        for (const variableDeclaration of declarations) {
-          const symbolType = this.typeFromAnnotationLoose(variableDeclaration.typeAnnotation) ?? UNKNOWN_TYPE;
-          for (const binding of bindingIdentifiers(variableDeclaration.name)) {
+        if (variableStatement.declarations && variableStatement.declarations.length > 0) {
+          for (const variableDeclaration of variableStatement.declarations) {
+            const symbolType = this.typeFromAnnotationLoose(variableDeclaration.typeAnnotation) ?? UNKNOWN_TYPE;
+            for (const binding of bindingIdentifiers(variableDeclaration.name)) {
+              properties[binding.name] = symbolType;
+            }
+          }
+        } else {
+          const symbolType = this.typeFromAnnotationLoose(variableStatement.typeAnnotation) ?? UNKNOWN_TYPE;
+          for (const binding of bindingIdentifiers(variableStatement.name)) {
             properties[binding.name] = symbolType;
           }
         }
@@ -536,7 +559,8 @@ export class Binder {
       }
 
       if (declaration.kind === "NamespaceStatement") {
-        const namespaceName = (declaration as NamespaceStatement).names?.[0]?.name;
+        const firstName: Identifier | undefined = (declaration as NamespaceStatement).names?.[0];
+        const namespaceName = firstName?.name;
         if (namespaceName) {
           properties[namespaceName] = namedType(namespaceName);
         }
@@ -646,16 +670,18 @@ export class Binder {
         type: receiverType,
         valueType: typeToString(receiverType)
       }, -1);
-      for (const accessor of statement.accessors ?? []) {
-        const accessorScope = this.createScope(extensionScope, accessor);
-        for (const parameter of accessor.parameters) {
-          if (parameter.thisParameter === true) {
-            continue;
+      if (statement.accessors) {
+        for (const accessor of statement.accessors) {
+          const accessorScope = this.createScope(extensionScope, accessor);
+          for (const parameter of accessor.parameters) {
+            if (parameter.thisParameter === true) {
+              continue;
+            }
+            const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
+            this.declareParameterBinding(accessorScope, parameter.name, parameterType);
           }
-          const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
-          this.declareParameterBinding(accessorScope, parameter.name, parameterType);
+          this.bindStatements(accessor.body.body, accessorScope);
         }
-        this.bindStatements(accessor.body.body, accessorScope);
       }
       return;
     }
@@ -708,7 +734,7 @@ export class Binder {
           rest: parameter.rest === true
         })),
         this.effectiveReturnType(this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE, stmtIsAsyncLike, stmtIsGenerator),
-        statement.typeParameters?.map((parameter) => parameter.name.name)
+        typeParameterNames(statement.typeParameters)
       );
       this.declare(scope, {
         name: statement.name.name,
@@ -786,7 +812,7 @@ export class Binder {
               rest: parameter.rest === true
             })),
             this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE,
-            method.typeParameters?.map((parameter) => parameter.name.name)
+            typeParameterNames(method.typeParameters)
           );
           this.declare(classScope, {
             name: method.name.name,
@@ -837,7 +863,7 @@ export class Binder {
       if (field.computed) {
         continue;
       }
-      const fields = fieldsByName.get(field.name.name) ?? [];
+      const fields: Identifier[] = fieldsByName.get(field.name.name) ?? [];
       fields.push(field.name);
       fieldsByName.set(field.name.name, fields);
     }
@@ -924,9 +950,11 @@ export class Binder {
     }
     visitedClasses.add(classStatement.name.name);
 
-    for (const implementedType of classStatement.implementsTypes ?? []) {
-      if (this.interfaceMatchesReceiver(implementedType.name, receiverName, new Set<string>())) {
-        return true;
+    if (classStatement.implementsTypes) {
+      for (const implementedType of classStatement.implementsTypes) {
+        if (this.interfaceMatchesReceiver(implementedType.name, receiverName, new Set<string>())) {
+          return true;
+        }
       }
     }
 
@@ -965,9 +993,12 @@ export class Binder {
     }
 
     for (const interfaceStatement of interfaceStatements) {
-      for (const parentType of interfaceStatement.extendsTypes ?? []) {
-        if (this.interfaceMatchesReceiver(parentType.name, receiverName, visitedInterfaces)) {
-          return true;
+      const currentInterface = interfaceStatement as InterfaceStatement;
+      if (currentInterface.extendsTypes) {
+        for (const parentType of currentInterface.extendsTypes) {
+          if (this.interfaceMatchesReceiver(parentType.name, receiverName, visitedInterfaces)) {
+            return true;
+          }
         }
       }
     }
@@ -978,22 +1009,24 @@ export class Binder {
   private declareExtensionReceiverMembers(scope: Scope, receiverName: string): void {
     const extensions = this.extensionsByReceiver.get(receiverName);
     if (!extensions) return;
-    for (const ext of extensions) {
+    for (const candidate of extensions) {
+      const ext = candidate as Statement;
       if (ext.kind === "VarStatement") {
-        const name = ext.name.kind === "Identifier" ? (ext.name as Identifier).name : null;
+        const property = ext as VarStatement;
+        const name = property.name.kind === "Identifier" ? (property.name as Identifier).name : null;
         if (!name) continue;
-        const propertyType = this.typeFromAnnotationLoose(ext.typeAnnotation) ?? UNKNOWN_TYPE;
+        const propertyType = this.typeFromAnnotationLoose(property.typeAnnotation) ?? UNKNOWN_TYPE;
         this.declare(scope, {
           name,
           kind: "variable",
-          node: ext.name as Identifier,
+          node: property.name as Identifier,
           implicitReceiver: true,
           implicitReceiverExtensionReceiver: receiverName,
           type: propertyType,
           valueType: typeToString(propertyType)
         });
       } else {
-        const fn = ext as FunctionStatement;
+        const fn = candidate as FunctionStatement;
         if (fn.operator || !fn.name) continue;
         const methodType = functionType(
           fn.parameters.filter((p) => p.thisParameter !== true).map((p) => ({
@@ -1003,11 +1036,13 @@ export class Binder {
             rest: p.rest === true
           })),
           this.typeFromAnnotationLoose(fn.returnType) ?? UNKNOWN_TYPE,
-          fn.typeParameters?.map((tp) => tp.name.name)
+          typeParameterNames(fn.typeParameters)
         );
         const existingMethod = scope.symbols.get(fn.name.name);
         if (existingMethod?.kind === "method" && existingMethod.type) {
-          const existingTypes = existingMethod.type.kind === "union" ? existingMethod.type.types : [existingMethod.type];
+          const existingTypes: AnalysisType[] = [];
+          if (existingMethod.type.kind === "union") existingTypes.push(...existingMethod.type.types);
+          else existingTypes.push(existingMethod.type);
           if (!existingTypes.some((t) => t.kind === "function" && isSameType(t, methodType))) {
             existingMethod.type = unionType([...existingTypes, methodType]);
             existingMethod.valueType = typeToString(existingMethod.type);
@@ -1032,53 +1067,57 @@ export class Binder {
       if (visited.has(statement.name.name)) return;
       visited.add(statement.name.name);
     }
-    for (const extendedType of statement.extendsTypes ?? []) {
-      const parentStatements = this.interfaceStatementsByName.get(extendedType.name);
-      if (parentStatements) {
-        const visitedSet = visited ?? new Set<string>();
-        for (const parentStatement of parentStatements) {
-          this.declareInterfaceMembers(scope, parentStatement, visitedSet);
+    if (statement.extendsTypes) {
+      for (const extendedType of statement.extendsTypes) {
+        const parentStatements = this.interfaceStatementsByName.get(extendedType.name);
+        if (parentStatements) {
+          const visitedSet = visited ?? new Set<string>();
+          for (const parentStatement of parentStatements) {
+            this.declareInterfaceMembers(scope, parentStatement, visitedSet);
+          }
         }
       }
     }
     for (const member of statement.members) {
       if (member.kind === "InterfacePropertyMember") {
-        const propertyType = this.typeFromAnnotationLoose(member.typeAnnotation) ?? UNKNOWN_TYPE;
+        const property = member as InterfacePropertyMember;
+        const propertyType = this.typeFromAnnotationLoose(property.typeAnnotation) ?? UNKNOWN_TYPE;
         this.declare(scope, {
-          name: member.name.name,
+          name: property.name.name,
           kind: "variable",
-          node: member.name,
+          node: property.name,
           implicitReceiver: true,
           type: propertyType,
           valueType: typeToString(propertyType)
         });
         continue;
       }
-      if (member.accessorKind === "get") {
-        if (member.computed) {
+      const method = member as InterfaceMethodMember;
+      if (method.accessorKind === "get") {
+        if (method.computed) {
           continue;
         }
-        const propertyType = this.typeFromAnnotationLooseWithContext(member.returnType, statement.name.name) ?? UNKNOWN_TYPE;
+        const propertyType = this.typeFromAnnotationLooseWithContext(method.returnType, statement.name.name) ?? UNKNOWN_TYPE;
         this.declare(scope, {
-          name: member.name.name,
+          name: method.name.name,
           kind: "variable",
-          node: member.name,
+          node: method.name,
           implicitReceiver: true,
           type: propertyType,
           valueType: typeToString(propertyType)
         });
         continue;
       }
-      if (member.accessorKind === "set") {
-        if (member.computed) {
+      if (method.accessorKind === "set") {
+        if (method.computed) {
           continue;
         }
-        if (!scope.symbols.has(member.name.name)) {
-          const propertyType = this.typeFromAnnotationLoose(member.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
+        if (!scope.symbols.has(method.name.name)) {
+          const propertyType = this.typeFromAnnotationLoose(method.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
           this.declare(scope, {
-            name: member.name.name,
+            name: method.name.name,
             kind: "variable",
-            node: member.name,
+            node: method.name,
             implicitReceiver: true,
             type: propertyType,
             valueType: typeToString(propertyType)
@@ -1087,21 +1126,23 @@ export class Binder {
         continue;
       }
       const methodType = functionType(
-        member.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+        method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
           name: bindingNameText(parameter.name),
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true
         })),
-        this.typeFromAnnotationLooseWithContext(member.returnType, statement.name.name) ?? UNKNOWN_TYPE,
-        member.typeParameters?.map((parameter) => parameter.name.name)
+        this.typeFromAnnotationLooseWithContext(method.returnType, statement.name.name) ?? UNKNOWN_TYPE,
+        typeParameterNames(method.typeParameters)
       );
-      if (member.computed) {
+      if (method.computed) {
         continue;
       }
-      const existingMethod = scope.symbols.get(member.name.name);
+      const existingMethod = scope.symbols.get(method.name.name);
       if (existingMethod?.kind === "method" && existingMethod.type) {
-        const existingTypes = existingMethod.type.kind === "union" ? existingMethod.type.types : [existingMethod.type];
+        const existingTypes: AnalysisType[] = [];
+        if (existingMethod.type.kind === "union") existingTypes.push(...existingMethod.type.types);
+        else existingTypes.push(existingMethod.type);
         if (!existingTypes.some((t) => t.kind === "function" && isSameType(t, methodType))) {
           const mergedType = unionType([...existingTypes, methodType]);
           existingMethod.type = mergedType;
@@ -1110,9 +1151,9 @@ export class Binder {
         continue;
       }
       this.declare(scope, {
-        name: member.name.name,
+        name: method.name.name,
         kind: "method",
-        node: member.name,
+        node: method.name,
         implicitReceiver: true,
         type: methodType,
         valueType: typeToString(methodType)
@@ -1134,24 +1175,27 @@ export class Binder {
       }
     }
 
-    for (const parameter of statement.primaryConstructorParameters ?? []) {
-      const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
-      this.declare(scope, {
-        name: bindingNameText(parameter.name),
-        kind: "variable",
-        node: parameter.name,
-        isReadonly: isReadonlyVariable(parameter.declarationKind),
-        implicitReceiver: true,
-        type: parameterType,
-        valueType: typeToString(parameterType)
-      });
+    if (statement.primaryConstructorParameters) {
+      for (const parameter of statement.primaryConstructorParameters) {
+        const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
+        this.declare(scope, {
+          name: bindingNameText(parameter.name),
+          kind: "variable",
+          node: parameter.name,
+          isReadonly: isReadonlyVariable(parameter.declarationKind),
+          implicitReceiver: true,
+          type: parameterType,
+          valueType: typeToString(parameterType)
+        });
+      }
     }
-    for (const constructor of statement.members.filter(
-      (member): member is ClassMethodMember => member.kind === "ClassMethodMember" && member.name.name === "constructor"
-    )) {
-      for (const parameter of constructor.parameters.filter(
-        (candidate) => candidate.accessModifier !== undefined || candidate.readonly === true
-      )) {
+    for (const candidate of statement.members) {
+      if (candidate.kind !== "ClassMethodMember") continue;
+      const constructor = candidate as ClassMethodMember;
+      if (constructor.name.name !== "constructor") continue;
+      for (const parameterCandidate of constructor.parameters) {
+        const parameter = parameterCandidate as FunctionParameter;
+        if (parameter.accessModifier === undefined && parameter.readonly !== true) continue;
         const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
         this.declare(scope, {
           name: bindingNameText(parameter.name),
@@ -1167,47 +1211,49 @@ export class Binder {
     const className = statement.name.name;
     for (const member of statement.members) {
       if (member.kind === "ClassFieldMember") {
-        const fieldType = this.typeFromAnnotationLoose(member.typeAnnotation) ?? UNKNOWN_TYPE;
+        const field = member as ClassFieldMember;
+        const fieldType = this.typeFromAnnotationLoose(field.typeAnnotation) ?? UNKNOWN_TYPE;
         this.declare(scope, {
-          name: member.name.name,
+          name: field.name.name,
           kind: "variable",
-          node: member.name,
-          isReadonly: member.readonly === true,
+          node: field.name,
+          isReadonly: field.readonly === true,
           implicitReceiver: true,
-          ...(member.static === true ? { implicitReceiverClassName: className } : {}),
+          ...(field.static === true ? { implicitReceiverClassName: className } : {}),
           type: fieldType,
           valueType: typeToString(fieldType)
         });
         continue;
       }
-      if (member.accessorKind === "get" || member.getterShorthand === true) {
-        if (member.computed) {
+      const method = member as ClassMethodMember;
+      if (method.accessorKind === "get" || method.getterShorthand === true) {
+        if (method.computed) {
           continue;
         }
-        const propertyType = this.typeFromAnnotationLooseWithContext(member.returnType, className) ?? UNKNOWN_TYPE;
+        const propertyType = this.typeFromAnnotationLooseWithContext(method.returnType, className) ?? UNKNOWN_TYPE;
         this.declare(scope, {
-          name: member.name.name,
+          name: method.name.name,
           kind: "variable",
-          node: member.name,
+          node: method.name,
           implicitReceiver: true,
-          ...(member.static === true ? { implicitReceiverClassName: className } : {}),
+          ...(method.static === true ? { implicitReceiverClassName: className } : {}),
           type: propertyType,
           valueType: typeToString(propertyType)
         });
         continue;
       }
-      if (member.accessorKind === "set") {
-        if (member.computed) {
+      if (method.accessorKind === "set") {
+        if (method.computed) {
           continue;
         }
-        if (!scope.symbols.has(member.name.name)) {
-          const propertyType = this.typeFromAnnotationLoose(member.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
+        if (!scope.symbols.has(method.name.name)) {
+          const propertyType = this.typeFromAnnotationLoose(method.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
           this.declare(scope, {
-            name: member.name.name,
+            name: method.name.name,
             kind: "variable",
-            node: member.name,
+            node: method.name,
             implicitReceiver: true,
-            ...(member.static === true ? { implicitReceiverClassName: className } : {}),
+            ...(method.static === true ? { implicitReceiverClassName: className } : {}),
             type: propertyType,
             valueType: typeToString(propertyType)
           });
@@ -1215,24 +1261,24 @@ export class Binder {
         continue;
       }
       const methodType = functionType(
-        member.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+        method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
           name: bindingNameText(parameter.name),
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true
         })),
-        this.typeFromAnnotationLooseWithContext(member.returnType, className) ?? UNKNOWN_TYPE,
-        member.typeParameters?.map((parameter) => parameter.name.name)
+        this.typeFromAnnotationLooseWithContext(method.returnType, className) ?? UNKNOWN_TYPE,
+        typeParameterNames(method.typeParameters)
       );
-      if (member.computed) {
+      if (method.computed) {
         continue;
       }
       this.declare(scope, {
-        name: member.name.name,
+        name: method.name.name,
         kind: "method",
-        node: member.name,
+        node: method.name,
         implicitReceiver: true,
-        ...(member.static === true ? { implicitReceiverClassName: className } : {}),
+        ...(method.static === true ? { implicitReceiverClassName: className } : {}),
         type: methodType,
         valueType: typeToString(methodType)
       });
@@ -1482,37 +1528,40 @@ export class Binder {
       return null;
     }
     const parameterBody = trimmed.slice(1, closeParenIndex).trim();
-    const parameters = parameterBody.length === 0
-      ? []
-      : splitTopLevelDelimitedTypeText(parameterBody).map((part, index) => {
-          let text = part.trim();
-          let rest = false;
-          if (text.startsWith("...")) {
-            rest = true;
-            text = text.slice(3).trim();
-          }
-          const colonIndex = findTopLevelTypeCharacter(text, ":");
-          if (colonIndex < 0) {
-            return {
-              name: `arg${index + 1}`,
-              typeName: text.length > 0 ? text : "unknown",
-              ...(rest ? { rest: true } : {})
-            };
-          }
-          let name = text.slice(0, colonIndex).trim();
-          const nestedTypeName = text.slice(colonIndex + 1).trim();
-          let optional = false;
-          if (name.endsWith("?")) {
-            optional = true;
-            name = name.slice(0, -1).trim();
-          }
-          return {
-            name: name.length > 0 ? name : `arg${index + 1}`,
-            typeName: nestedTypeName.length > 0 ? nestedTypeName : "unknown",
-            ...(optional ? { optional: true } : {}),
+    const parameters: Array<{ name: string; typeName: string; optional?: boolean; rest?: boolean }> = [];
+    if (parameterBody.length > 0) {
+      const parts = splitTopLevelDelimitedTypeText(parameterBody);
+      for (let index = 0; index < parts.length; index += 1) {
+        let text = parts[index]!.trim();
+        let rest = false;
+        if (text.startsWith("...")) {
+          rest = true;
+          text = text.slice(3).trim();
+        }
+        const colonIndex = findTopLevelTypeCharacter(text, ":");
+        if (colonIndex < 0) {
+          parameters.push({
+            name: `arg${index + 1}`,
+            typeName: text.length > 0 ? text : "unknown",
             ...(rest ? { rest: true } : {})
-          };
+          });
+          continue;
+        }
+        let name = text.slice(0, colonIndex).trim();
+        const nestedTypeName = text.slice(colonIndex + 1).trim();
+        let optional = false;
+        if (name.endsWith("?")) {
+          optional = true;
+          name = name.slice(0, -1).trim();
+        }
+        parameters.push({
+          name: name.length > 0 ? name : `arg${index + 1}`,
+          typeName: nestedTypeName.length > 0 ? nestedTypeName : "unknown",
+          ...(optional ? { optional: true } : {}),
+          ...(rest ? { rest: true } : {})
         });
+      }
+    }
     return { parameters, returnTypeName: afterParameters.slice(2).trim() };
   }
 }

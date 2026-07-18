@@ -18,3 +18,4 @@ website/src/assets/generated
 /.claude
 /.codegraph
 /native/oilpan-standalone-main/
+**/main.cpp

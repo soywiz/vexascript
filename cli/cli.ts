@@ -206,10 +206,16 @@ async function buildCppModuleGraph(
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
   const { compileNativeModuleGraph } = await import("../compiler/runtime/nativeModuleGraph");
+  const profile = process.env["VEXA_PROFILE_COMPILER"] === "1"
+    ? (event: { phase: string; elapsedMs: number; moduleCount: number }): void => {
+        console.error(`[compiler] ${event.phase}: ${event.elapsedMs}ms (${event.moduleCount} modules)`);
+      }
+    : undefined;
   const result = await compileNativeModuleGraph(sourcePath, target, {
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     importMappings: project?.importMappings ?? {},
     typeCheck,
+    ...(profile ? { profile } : {}),
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),

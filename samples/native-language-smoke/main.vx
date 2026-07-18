@@ -206,6 +206,12 @@ async fun asyncValue(): Promise<int> {
   return 20
 }
 
+sync fun ioRoundtrip(): string {
+  val path = "/tmp/vexa-native-language-smoke.txt"
+  await writeTextFile(path, "native io works")
+  return await readTextFile(path)
+}
+
 sync fun doubledAsync(): int {
   return asyncValue() * 2
 }
@@ -357,6 +363,12 @@ nativeSeen.values()
 val removedNativeScore = nativeScores.delete("b")
 val removedNativeSeen = nativeSeen.delete(1)
 console.log("collections", nativeScores.get("a"), nativeScores.get("missing"), removedNativeScore, nativeScores.size, nativeSeen.has(2), removedNativeSeen, nativeSeen.size, nativeCollectionTotal)
+val mergedNativeScores = new Map<string, int>([
+  ...new Map<string, int>([["left", 4]]),
+  ...new Map<string, int>([["right", 5]])
+])
+val spreadNativeSet = [...new Set<int>([6, 7])]
+console.log("collection spread", mergedNativeScores.get("left"), mergedNativeScores.get("right"), spreadNativeSet.join("|"))
 
 val nativeJson = JSON.stringify({ name: "Ada", values: [1, 2], active: true })
 val parsedNativeJson: any = JSON.parse(nativeJson)
@@ -410,6 +422,8 @@ switch (Permission.All) {
 }
 
 console.log("strings", "  Vexa  ".trim().toUpperCase(), "language".includes("gua"))
+val indexedString: string = "Vexa"
+console.log("string index", indexedString[1], indexedString.length)
 console.log("math-regex", Math.max(3, 7), Math.round(2.6), /vexa/i.test("VEXA"))
 
 val huge: bigint = 123456789012345678901234567890n
@@ -445,6 +459,7 @@ val settled = await Promise.allSettled([Promise.resolve(7), Promise.reject(Error
 val firstAny = await Promise.any([Promise.reject(Error("ignored")), Promise.resolve(8)])
 console.log("promise combinators", raced, settled.length, firstAny)
 console.log("async", await asyncValue(), await doubledAsync())
+if (typeof writeTextFile == "function") console.log("async io", await ioRoundtrip())
 
 val cancelledInterval = setInterval(() => console.log("unexpected interval"), 0)
 clearInterval(cancelledInterval)

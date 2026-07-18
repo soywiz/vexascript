@@ -15,6 +15,9 @@ describe("native build", () => {
     expect(args).toContain("-DCPPGC_IS_STANDALONE=1");
     expect(args).toContain("-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO");
     expect(args).toContain("-DV8_LOGGING_LEVEL=0");
+    expect(args).toContain("-O3");
+    expect(args).toContain("-DNDEBUG");
+    expect(args).not.toContain("-DVEXA_NATIVE_DEBUG=1");
     expect(args).toContain("-ldl");
   });
 
@@ -30,8 +33,10 @@ describe("native build", () => {
     );
     expect(args).toContain("-O1");
     expect(args).toContain("-g");
+    expect(args).not.toContain("-DNDEBUG");
     expect(args).toContain("-fsanitize=address,undefined");
     expect(args).toContain("-fno-omit-frame-pointer");
+    expect(args).toContain("-DVEXA_NATIVE_DEBUG=1");
   });
 
   it("offers an Oilpan collection stress mode independently of sanitizers", () => {

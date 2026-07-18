@@ -16,7 +16,7 @@ import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { vfs, type Vfs } from "compiler/vfs";
 import { resolve } from "compiler/utils/path";
-import { localImportSpecifiers, parserOptionsForModulePath } from "./localModuleResolution";
+import { localImportSpecifiers, parserOptionsForModulePath, type LocalImportDependency } from "./localModuleResolution";
 import type { ModuleGraphOptions } from "./moduleGraphModel";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
@@ -45,6 +45,11 @@ interface NativeModuleInfo {
   reexportTargets: Map<ExportStatement, string>;
 }
 
+interface NativeReexportDependency {
+  statement: ExportStatement;
+  targetPath: string;
+}
+
 function isTypeOnlyImport(statement: ImportStatement): boolean {
   return statement.typeOnly === true || (
     !statement.defaultImport &&
@@ -54,10 +59,8 @@ function isTypeOnlyImport(statement: ImportStatement): boolean {
   );
 }
 
-const NATIVE_SOURCE_PATH = "__vexaNativeSourcePath";
-
 function markNativeSourcePath(node: Node, path: string): void {
-  (node as unknown as Record<string, unknown>)[NATIVE_SOURCE_PATH] = path;
+  node.__vexaNativeSourcePath = path;
   for (const child of childNodes(node)) markNativeSourcePath(child, path);
 }
 
@@ -79,11 +82,6 @@ function typeNameWithRenamedBase(typeName: string, names: ReadonlyMap<string, st
   return substituteTypeNameText(typeName, names);
 }
 
-function replaceNode(target: Node, replacement: Node): void {
-  for (const key of Object.keys(target)) delete (target as unknown as Record<string, unknown>)[key];
-  Object.assign(target, replacement);
-}
-
 function rewriteNamespaceMembers(
   node: Node,
   resolvedSymbols: ReadonlyMap<Node, Node>,
@@ -93,16 +91,14 @@ function rewriteNamespaceMembers(
     const member = node as MemberExpression;
     if (!member.computed && member.object.kind === "Identifier" && member.property.kind === "Identifier") {
       const symbolNode = resolvedSymbols.get(member.object as Node);
-      const targetName = symbolNode
-        ? namespaceExports.get(symbolNode)?.get((member.property as Identifier).name)
+      const targetExports: ReadonlyMap<string, string> | undefined = symbolNode
+        ? namespaceExports.get(symbolNode)
         : undefined;
+      const targetName = targetExports?.get((member.property as Identifier).name);
       if (targetName) {
-        replaceNode(node, {
-          kind: "Identifier",
-          name: targetName,
-          firstToken: node.firstToken,
-          lastToken: node.lastToken,
-        } as Identifier);
+        const identifier = node as Identifier;
+        identifier.kind = "Identifier";
+        identifier.name = targetName;
         return;
       }
     }
@@ -145,7 +141,7 @@ function moduleInfo(program: Program, path: string, moduleIndex: number): Native
         extensionSymbols.set(identifier.name, `__vexa_extension_import_${moduleIndex}_${identifier.name}`);
         continue;
       }
-      (identifier as unknown as { __vexaNativeOriginalName?: string }).__vexaNativeOriginalName = identifier.name;
+      identifier.__vexaNativeOriginalName = identifier.name;
       localSymbols.set(identifier.name, nativeSymbolName(moduleIndex, identifier.name));
     }
   }
@@ -182,40 +178,50 @@ export async function compileNativeModuleGraph(
   target: TranspileTarget,
   options: ModuleGraphOptions = {}
 ): Promise<NativeModuleGraphResult> {
+  const startedAt = Date.now();
+  let phaseStartedAt = startedAt;
+  const reportPhase = (phase: string, moduleCount: number): void => {
+    const now = Date.now();
+    options.profile?.({ phase, elapsedMs: now - phaseStartedAt, moduleCount });
+    phaseStartedAt = now;
+  };
   const activeVfs: Vfs = options.vfs ?? vfs();
   const importMappings = options.importMappings ?? {};
   const parsedByPath = new Map<string, ParseArtifacts>();
   const sourceByPath = new Map<string, string>();
-  const importsByPath = new Map<string, { statement: ImportStatement; targetPath: string }[]>();
-  const reexportsByPath = new Map<string, { statement: ExportStatement; targetPath: string }[]>();
+  const importsByPath = new Map<string, LocalImportDependency[]>();
+  const reexportsByPath = new Map<string, NativeReexportDependency[]>();
   const order: string[] = [];
   const visiting = new Set<string>();
   const visitStack: string[] = [];
   const visited = new Set<string>();
   const errors: string[] = [];
 
-  const visit = async (filePath: string): Promise<void> => {
-    if (visited.has(filePath) || visiting.has(filePath)) return;
+  let visit: (filePath: string) => Promise<undefined>;
+  visit = async (filePath: string): Promise<undefined> => {
+    if (visited.has(filePath) || visiting.has(filePath)) return undefined;
     visiting.add(filePath);
     visitStack.push(filePath);
     const source = await activeVfs.readFile(filePath);
     if (source === null) {
       errors.push(`Unable to read native module '${filePath}'`);
       visiting.delete(filePath);
-      return;
+      return undefined;
     }
     sourceByPath.set(filePath, source);
     const parsed = parseSource(source, parserOptionsForModulePath(filePath));
     parsedByPath.set(filePath, parsed);
-    if (!parsed.ast) {
-      errors.push(`Unable to parse native module '${filePath}'`);
-      visiting.delete(filePath);
-      return;
-    }
-    markNativeSourcePath(parsed.ast, filePath);
     for (const issue of parsed.parserIssues) errors.push(`${filePath}: ${issue.message}`);
     if (parsed.tokenizeError) errors.push(`${filePath}: ${parsed.tokenizeError.message}`);
     if (parsed.fatalError) errors.push(`${filePath}: ${parsed.fatalError}`);
+    if (!parsed.ast) {
+      if (parsed.parserIssues.length === 0 && !parsed.tokenizeError && !parsed.fatalError) {
+        errors.push(`Unable to parse native module '${filePath}'`);
+      }
+      visiting.delete(filePath);
+      return undefined;
+    }
+    markNativeSourcePath(parsed.ast, filePath);
 
     const imports = await localImportSpecifiers(
       parsed.ast,
@@ -225,7 +231,7 @@ export async function compileNativeModuleGraph(
       options.baseUrl
     );
     importsByPath.set(filePath, imports);
-    const reexports: { statement: ExportStatement; targetPath: string }[] = [];
+    const reexports: NativeReexportDependency[] = [];
     for (const statement of parsed.ast.body) {
       if (statement.kind !== "ExportStatement" || !(statement as ExportStatement).from) continue;
       const exported = statement as ExportStatement;
@@ -279,9 +285,11 @@ export async function compileNativeModuleGraph(
     visitStack.pop();
     visited.add(filePath);
     order.push(filePath);
+    return undefined;
   };
 
   await visit(entryFilePath);
+  reportPhase("load-and-parse", order.length);
   const entryParsed = parsedByPath.get(entryFilePath);
   const entrySource = sourceByPath.get(entryFilePath) ?? "";
   if (!entryParsed?.ast || errors.length > 0) {
@@ -326,9 +334,12 @@ export async function compileNativeModuleGraph(
 
   for (const filePath of order) {
     const info = moduleInfos.get(filePath)!;
-    const analysis = compileParsedSource(parsedByPath.get(filePath)!).analysis;
+    const compilation = compileParsedSource(parsedByPath.get(filePath)!);
+    const analysis = compilation.analysis;
     if (!analysis) {
-      errors.push(`Unable to analyze native module '${filePath}' for symbol isolation`);
+      errors.push(`Unable to analyze native module '${filePath}' for symbol isolation${
+        compilation.fatalError ? `: ${compilation.fatalError}` : ""
+      }`);
       continue;
     }
     const resolvedSymbols = new Map<Node, Node>(
@@ -388,6 +399,7 @@ export async function compileNativeModuleGraph(
     }
     rewriteTypeNames(info.program, typeNames);
   }
+  reportPhase("module-isolation-analysis", order.length);
   if (errors.length > 0) {
     return { code: "", warnings: [], errors, diagnostics: [], watchedFiles: order };
   }
@@ -399,6 +411,7 @@ export async function compileNativeModuleGraph(
   const compilationArtifacts = compileParsedSource({ ...entryParsed, ast: mergedProgram }, {
     ambientDeclarations: options.ambientDeclarations ?? [],
   });
+  reportPhase("merged-analysis", order.length);
   const result = transpile(entrySource, {
     compilationArtifacts,
     sourceFilePath: entryFilePath,
@@ -409,6 +422,12 @@ export async function compileNativeModuleGraph(
     ambientDeclarations: options.ambientDeclarations ?? [],
     ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
     ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {}),
+  });
+  reportPhase("cpp-emission", order.length);
+  options.profile?.({
+    phase: "total",
+    elapsedMs: Date.now() - startedAt,
+    moduleCount: order.length,
   });
   return { ...result, watchedFiles: order };
 }

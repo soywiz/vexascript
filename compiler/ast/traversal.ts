@@ -55,18 +55,16 @@ export function childNodes(node: Node): Node[] {
  */
 export function walkAst(root: Node, visit: (node: Node) => unknown): void {
   const visited = new WeakSet<object>();
-  let stopped = false;
-
-  const walk = (node: Node): void => {
-    if (stopped || visited.has(node)) {
-      return;
-    }
+  const pending: Node[] = [root];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (visited.has(node)) continue;
     visited.add(node);
     if (visit(node) === false) {
-      stopped = true;
       return;
     }
 
+    const children: Node[] = [];
     for (const key in node) {
       if (isMetadataKey(key)) {
         continue;
@@ -74,20 +72,18 @@ export function walkAst(root: Node, visit: (node: Node) => unknown): void {
       const value = node[key as keyof Node];
       if (Array.isArray(value)) {
         for (const entry of value) {
-          if (stopped) {
-            return;
-          }
           if (isNode(entry)) {
-            walk(entry);
+            children.push(entry);
           }
         }
       } else if (isNode(value)) {
-        walk(value);
+        children.push(value);
       }
     }
-  };
-
-  walk(root);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push(children[index]!);
+    }
+  }
 }
 
 /** Returns the first node (in pre-order) accepted by the predicate, or null. */

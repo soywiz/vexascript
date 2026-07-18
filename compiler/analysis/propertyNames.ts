@@ -66,9 +66,13 @@ export function propertyNamesMatch(expectedPropertyName: string, actualPropertyN
 export function propertyEntries(
   properties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>
 ): Array<[string, AnalysisType]> {
-  return properties instanceof Map
-    ? Array.from(properties.entries())
-    : Object.entries(properties);
+  if (properties instanceof Map) {
+    const propertyMap: ReadonlyMap<string, AnalysisType> = properties;
+    const entries: Array<[string, AnalysisType]> = [];
+    for (const entry of propertyMap.entries()) entries.push(entry);
+    return entries;
+  }
+  return Object.entries(properties);
 }
 
 export function propertyTypeFrom(
@@ -76,8 +80,8 @@ export function propertyTypeFrom(
   propertyName: string
 ): AnalysisType | undefined {
   const normalizedPropertyName = normalizePropertyName(propertyName);
-  if (typeof (properties as ReadonlyMap<string, AnalysisType>).get === "function") {
-    const propertyMap = properties as ReadonlyMap<string, AnalysisType>;
+  if (properties instanceof Map) {
+    const propertyMap: ReadonlyMap<string, AnalysisType> = properties;
     const direct = propertyMap.get(propertyName);
     if (direct !== undefined) {
       return direct;
@@ -115,7 +119,11 @@ export function propertyTypeAllowsUndefined(type: AnalysisType): boolean {
     return type.name === "undefined" || type.name === "any" || type.name === "unknown";
   }
   if (type.kind === "union") {
-    return type.types.some((member) => propertyTypeAllowsUndefined(member));
+    for (const rawMember of type.types) {
+      const member = rawMember as AnalysisType;
+      if (propertyTypeAllowsUndefined(member)) return true;
+    }
+    return false;
   }
   return false;
 }
@@ -124,9 +132,11 @@ export function propertyTypeWithoutUndefined(type: AnalysisType): AnalysisType |
   if (type.kind !== "union") {
     return null;
   }
-  const definedMembers = type.types.filter(
-    (member) => !(member.kind === "builtin" && member.name === "undefined")
-  );
+  const definedMembers: AnalysisType[] = [];
+  for (const rawMember of type.types) {
+    const member = rawMember as AnalysisType;
+    if (!(member.kind === "builtin" && member.name === "undefined")) definedMembers.push(member);
+  }
   if (definedMembers.length === 0 || definedMembers.length === type.types.length) {
     return null;
   }

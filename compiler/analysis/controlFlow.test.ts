@@ -16,19 +16,19 @@ function stmt(kind: string, extra?: object): Statement {
 
 describe("isAsyncLike", () => {
   it("returns true when async is set", () => {
-    assert.equal(isAsyncLike({ async: true }), true);
+    assert.equal(isAsyncLike(true), true);
   });
 
   it("returns true when sync is set", () => {
-    assert.equal(isAsyncLike({ sync: true }), true);
+    assert.equal(isAsyncLike(undefined, true), true);
   });
 
   it("returns false when neither flag is set", () => {
-    assert.equal(isAsyncLike({}), false);
+    assert.equal(isAsyncLike(), false);
   });
 
   it("returns false when both flags are false", () => {
-    assert.equal(isAsyncLike({ async: false, sync: false }), false);
+    assert.equal(isAsyncLike(false, false), false);
   });
 });
 

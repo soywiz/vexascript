@@ -21,6 +21,12 @@ function symbolsOfVisibleSymbolsAt(source: string, line: number, character: numb
 }
 
 describe("Analysis", () => {
+  it("terminates recursive type-alias expansion", () => {
+    const ast = parseFile(tokenizeReader(`type Json = string | Json[]\nconst value: Json = "ok"`));
+    const analysis = new Analysis(ast);
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("checks exported runtime namespace members", () => {
     const ast = parseFile(tokenizeReader("namespace Tools { export const version: int = 1; const hidden = 2 }\nlet ok: int = Tools.version\nlet bad = Tools.hidden"));
     const analysis = new Analysis(ast);

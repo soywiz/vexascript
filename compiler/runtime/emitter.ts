@@ -28,6 +28,9 @@ import type {
   FunctionStatement,
   Identifier,
   IfStatement,
+  InterfaceMethodMember,
+  InterfaceMember,
+  InterfacePropertyMember,
   InterfaceStatement,
   JsxElement,
   JsxFragment,
@@ -72,7 +75,7 @@ import type {
 import type { Node } from "compiler/ast/ast";
 import { compoundAssignmentBinaryOperator } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
-import type { AnalysisType } from "compiler/analysis/types";
+import type { AnalysisType, FunctionType } from "compiler/analysis/types";
 import { typeToString } from "compiler/analysis/types";
 import type { BindingElement, BindingName } from "compiler/ast/ast";
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
@@ -262,12 +265,8 @@ export interface EmitOptions {
   rewriteImportExtensions?: boolean;
 }
 
-function isAsyncEmittedFunction(node: { async?: boolean; sync?: boolean }): boolean {
-  return node.async === true || node.sync === true;
-}
-
-function asyncEmitPrefix(node: { async?: boolean; sync?: boolean }): string {
-  return isAsyncEmittedFunction(node) ? "async " : "";
+function asyncEmitPrefix(asyncValue?: boolean, syncValue?: boolean): string {
+  return asyncValue === true || syncValue === true ? "async " : "";
 }
 
 function isAutoAwaited(expression: Expr): boolean {
@@ -284,24 +283,24 @@ function normalizeVarKind(kind: string): "let" | "var" | "const" {
   return "let";
 }
 
-function binaryPrecedence(operator: BinaryExpression["operator"]): { precedence: number; assoc: Assoc } {
+function binaryPrecedence(operator: BinaryExpression["operator"]): number {
   switch (operator) {
     case "??":
     case "||":
-      return { precedence: PREC_LOGICAL_OR, assoc: "left" };
+      return PREC_LOGICAL_OR;
     case "&&":
-      return { precedence: PREC_LOGICAL_AND, assoc: "left" };
+      return PREC_LOGICAL_AND;
     case "|":
-      return { precedence: PREC_BITWISE_OR, assoc: "left" };
+      return PREC_BITWISE_OR;
     case "^":
-      return { precedence: PREC_BITWISE_XOR, assoc: "left" };
+      return PREC_BITWISE_XOR;
     case "&":
-      return { precedence: PREC_BITWISE_AND, assoc: "left" };
+      return PREC_BITWISE_AND;
     case "==":
     case "!=":
     case "===":
     case "!==":
-      return { precedence: PREC_EQUALITY, assoc: "left" };
+      return PREC_EQUALITY;
     case "<":
     case ">":
     case "<=":
@@ -309,22 +308,22 @@ function binaryPrecedence(operator: BinaryExpression["operator"]): { precedence:
     case "in":
     case "is":
     case "instanceof":
-      return { precedence: PREC_RELATIONAL, assoc: "left" };
+      return PREC_RELATIONAL;
     case "<<":
     case ">>":
     case ">>>":
-      return { precedence: PREC_SHIFT, assoc: "left" };
+      return PREC_SHIFT;
     case "+":
     case "-":
-      return { precedence: PREC_ADDITIVE, assoc: "left" };
+      return PREC_ADDITIVE;
     case "*":
     case "/":
     case "%":
-      return { precedence: PREC_MULTIPLICATIVE, assoc: "left" };
+      return PREC_MULTIPLICATIVE;
     case "**":
-      return { precedence: PREC_EXPONENT, assoc: "right" };
+      return PREC_EXPONENT;
     default:
-      return { precedence: PREC_ASSIGNMENT, assoc: "left" };
+      return PREC_ASSIGNMENT;
   }
 }
 
@@ -344,7 +343,7 @@ function expressionPrecedence(expression: Expr): number {
     case "ConditionalExpression":
       return PREC_CONDITIONAL;
     case "BinaryExpression":
-      return binaryPrecedence((expression as BinaryExpression).operator).precedence;
+      return binaryPrecedence((expression as BinaryExpression).operator);
     case "UnaryExpression":
       return PREC_UNARY;
     case "UpdateExpression":
@@ -385,6 +384,14 @@ function conciseArrowBodyStartsWithObjectLiteral(expression: Expr): boolean {
 
 function parameterTypeName(parameter: FunctionParameter): string {
   return parameter.typeAnnotation?.name ?? "unknown";
+}
+
+function visibleParameterTypeNames(parameters: FunctionParameter[]): string[] {
+  const names: string[] = [];
+  for (const parameter of parameters) {
+    if (parameter.thisParameter !== true) names.push(parameterTypeName(parameter));
+  }
+  return names;
 }
 
 function overloadSuffix(parameters: FunctionParameter[]): string {
@@ -450,9 +457,10 @@ function runtimeParameterTypeMatches(parameterType: string, argumentType: string
 }
 
 function isOverloadMatch(overload: RuntimeOverloadInfo, argumentTypes: Array<string | null>): boolean {
-  const restParameterType = overload.rest === true
-    ? overload.parameterTypes[overload.parameterTypes.length - 1]
-    : undefined;
+  let restParameterType: string | undefined;
+  if (overload.rest === true) {
+    restParameterType = overload.parameterTypes[overload.parameterTypes.length - 1];
+  }
   const fixedParameterTypes = restParameterType
     ? overload.parameterTypes.slice(0, -1)
     : overload.parameterTypes;
@@ -504,7 +512,8 @@ function emitJavaScriptImplementationCall(call: CallExpression): string | null {
 
   let emitted = implementation.template;
   const parameters = implementation.parameters.filter((parameter) => parameter.thisParameter !== true);
-  for (const [index, parameter] of parameters.entries()) {
+  for (let index = 0; index < parameters.length; index += 1) {
+    const parameter = parameters[index]!;
     if (parameter.name.kind !== "Identifier") {
       continue;
     }
@@ -529,9 +538,25 @@ function resolveOperatorMethodForArguments(
     return null;
   }
   const argumentTypes = argumentExpressions.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
-  return operators.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, argumentTypes))
-    ?? operators.find((candidate) => candidate.hasBody)
-    ?? null;
+  let fallback: RuntimeOperatorInfo | null = null;
+  for (const candidate of operators) {
+    if (!runtimeOperatorHasBody(candidate)) continue;
+    if (fallback === null) fallback = candidate;
+    if (isOverloadMatch(candidate, argumentTypes)) return candidate;
+  }
+  return fallback;
+}
+
+function runtimeOperatorHasBody(candidate: RuntimeOperatorInfo): boolean {
+  return candidate.hasBody;
+}
+
+function runtimeExtensionMethodHasBody(candidate: RuntimeExtensionMethodInfo): boolean {
+  return candidate.hasBody;
+}
+
+function runtimeExtensionMethodName(candidate: RuntimeExtensionMethodInfo): string {
+  return candidate.emittedName;
 }
 
 function resolveOperatorMethod(binary: BinaryExpression): RuntimeOperatorInfo | null {
@@ -591,7 +616,10 @@ function resolveUnaryOperatorMethod(unary: UnaryExpression): RuntimeOperatorInfo
   if (!operators || operators.length === 0) {
     return null;
   }
-  return operators.find((candidate) => candidate.hasBody) ?? null;
+  for (const candidate of operators) {
+    if (runtimeOperatorHasBody(candidate)) return candidate;
+  }
+  return null;
 }
 
 function extensionReceiverTypeName(type: AnalysisType | undefined): string | null {
@@ -626,10 +654,14 @@ function resolveExtensionMethodCall(call: CallExpression): string | null {
     return resolveImportedExtensionMethodName(methodName, argumentTypes);
   }
   const argumentTypes = call.arguments.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
-  return methods.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, argumentTypes))?.emittedName
-    ?? methods.find((candidate) => candidate.hasBody)?.emittedName
-    ?? resolveImportedExtensionMethodName(methodName, argumentTypes)
-    ?? null;
+  let available: RuntimeExtensionMethodInfo | null = null;
+  for (const candidate of methods) {
+    if (!runtimeExtensionMethodHasBody(candidate)) continue;
+    if (available === null) available = candidate;
+    if (isOverloadMatch(candidate, argumentTypes)) return runtimeExtensionMethodName(candidate);
+  }
+  if (available) return runtimeExtensionMethodName(available);
+  return resolveImportedExtensionMethodName(methodName, argumentTypes);
 }
 
 function importedExtensionMethodParameterTypes(methodName: string, emittedName: string): string[] | null {
@@ -1228,7 +1260,10 @@ function resolveCalleeParameterNames(callee: Expr): string[] | null {
   }
   const calleeType = activeState.expressionTypes?.get(callee as unknown as Node);
   if (calleeType?.kind === "function") {
-    return calleeType.parameters.map((parameter) => parameter.name);
+    const functionType = calleeType as FunctionType;
+    const names: string[] = [];
+    for (const parameter of functionType.parameters) names.push(parameter.name);
+    return names;
   }
   return null;
 }
@@ -1335,15 +1370,16 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "BinaryExpression": {
         const binary = expression as BinaryExpression;
-        const { precedence, assoc } = binaryPrecedence(binary.operator);
+        const precedence = binaryPrecedence(binary.operator);
+        const assoc: Assoc = binary.operator === "**" ? "right" : "left";
 
         const leftChildNeedsWrap =
           binary.left.kind === "BinaryExpression" &&
-          binaryPrecedence((binary.left as BinaryExpression).operator).precedence === precedence &&
+          binaryPrecedence((binary.left as BinaryExpression).operator) === precedence &&
           assoc === "right";
         const rightChildNeedsWrap =
           binary.right.kind === "BinaryExpression" &&
-          binaryPrecedence((binary.right as BinaryExpression).operator).precedence === precedence &&
+          binaryPrecedence((binary.right as BinaryExpression).operator) === precedence &&
           assoc === "left";
 
         const leftText = maybeWrap(emitExpression(binary.left, precedence, "left"), leftChildNeedsWrap);
@@ -1481,9 +1517,16 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
             const argumentTypes = call.arguments.map((arg) =>
               typeMangleName(activeState.expressionTypes?.get(arg as unknown as Node))
             );
-            const resolvedName =
-              candidates.find((c) => c.hasBody && isOverloadMatch(c, argumentTypes))?.emittedName ??
-              candidates.find((c) => c.hasBody)?.emittedName;
+            let available: RuntimeExtensionMethodInfo | null = null;
+            for (const candidate of candidates) {
+              if (!runtimeExtensionMethodHasBody(candidate)) continue;
+              if (available === null) available = candidate;
+              if (isOverloadMatch(candidate, argumentTypes)) {
+                available = candidate;
+                break;
+              }
+            }
+            const resolvedName = available ? runtimeExtensionMethodName(available) : undefined;
             if (resolvedName) {
               const thisReceiver = activeExtensionThis ? "$this" : "this";
               const callArguments = [thisReceiver, ...emitCallArgumentTexts(call.callee, call.arguments)];
@@ -1568,7 +1611,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
               const fn = objectProperty.value as FunctionExpression;
               return withVariableDelegateShadows(
                 functionParameterBindingNames(fn.parameters),
-                () => `${asyncEmitPrefix(fn)}${key}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
+                () => `${asyncEmitPrefix(fn.async, fn.sync)}${key}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
               );
             }
             return `${key}: ${emitListElement(objectProperty.value)}`;
@@ -1583,17 +1626,19 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
         return withVariableDelegateShadows(functionParameterBindingNames(arrow.parameters), () => {
           if (arrow.body.kind === "BlockStatement") {
-            return `${asyncEmitPrefix(arrow)}${parameters} => ${emitScopedBlock(arrow.body as BlockStatement)}`;
+            return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => ${emitScopedBlock(arrow.body as BlockStatement)}`;
           }
           const bodyExpression = arrow.body as Expr;
-          const { result: bodyText, temps } = withOptionalAssignmentTempScope(() => emitExpression(bodyExpression));
+          const scope = withOptionalAssignmentTempScope(() => emitExpression(bodyExpression));
+          const bodyText = scope.result;
+          const temps = scope.temps;
           if (temps.length > 0) {
-            return `${asyncEmitPrefix(arrow)}${parameters} => {\n${emitOptionalAssignmentTempDeclaration(temps)}\nreturn ${bodyText};\n}`;
+            return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => {\n${emitOptionalAssignmentTempDeclaration(temps)}\nreturn ${bodyText};\n}`;
           }
           if (conciseArrowBodyStartsWithObjectLiteral(bodyExpression)) {
-            return `${asyncEmitPrefix(arrow)}${parameters} => (${bodyText})`;
+            return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => (${bodyText})`;
           }
-          return `${asyncEmitPrefix(arrow)}${parameters} => ${bodyText}`;
+          return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => ${bodyText}`;
         });
       }
       case "FunctionExpression": {
@@ -1601,7 +1646,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const name = fn.name ? ` ${fn.name.name}` : "";
         return withVariableDelegateShadows(
           functionParameterBindingNames(fn.parameters),
-          () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
+          () => `${asyncEmitPrefix(fn.async, fn.sync)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
         );
       }
       case "ClassExpression":
@@ -1657,7 +1702,9 @@ function emitEnumComputedMemberExpression(member: MemberExpression, objectText: 
   }
 
   const keyText = emitExpression(member.property);
-  const memberNames = JSON.stringify(Array.from(enumInfo.memberNames));
+  const memberNameList: string[] = [];
+  for (const memberName of enumInfo.memberNames) memberNameList.push(memberName);
+  const memberNames = JSON.stringify(memberNameList);
   const body = `(function ($enum, $key) { return ${memberNames}.includes($key) ? $enum[$key] : Object.values($enum).includes($key) ? $key : undefined; })(${objectText}, ${keyText})`;
   return member.optional ? `(${objectText} == null ? undefined : ${body})` : body;
 }
@@ -1749,9 +1796,11 @@ function shouldWrapExpressionStatement(expression: Expr): boolean {
 }
 
 function emitScopedBlock(statement: BlockStatement): string {
-  const { result: emittedStatements, temps } = withOptionalAssignmentTempScope(() =>
+  const scope = withOptionalAssignmentTempScope(() =>
     statement.body.map((child) => emitStatement(child))
   );
+  const emittedStatements = scope.result;
+  const temps = scope.temps;
   const lines = temps.length > 0
     ? [emitOptionalAssignmentTempDeclaration(temps), ...emittedStatements]
     : emittedStatements;
@@ -1785,9 +1834,9 @@ function classInstanceMemberNames(statement: ClassStatement, members: Array<Clas
   for (const parameter of statement.primaryConstructorParameters ?? []) {
     names.add(parameter.name.name);
   }
-  for (const constructor of members.filter(
-    (member): member is ClassMethodMember => member.kind === "ClassMethodMember" && member.name.name === "constructor"
-  )) {
+  for (const member of members) {
+    if (member.kind !== "ClassMethodMember" || member.name.name !== "constructor") continue;
+    const constructor = member as ClassMethodMember;
     for (const parameter of constructor.parameters) {
       if (parameter.name.kind === "Identifier" && (parameter.accessModifier !== undefined || parameter.readonly === true)) {
         names.add(parameter.name.name);
@@ -1826,20 +1875,23 @@ function emitClassDelegateMembers(statement: ClassStatement, members: Array<Clas
   const instanceMemberNames = classInstanceMemberNames(statement, members);
   const lines: string[] = [];
   for (const classDelegate of statement.classDelegates ?? []) {
-    for (const interfaceMember of activeState.interfaceMembers.get(classDelegate.typeAnnotation.name) ?? []) {
-      if (existingNames.has(interfaceMember.name.name)) {
-        continue;
-      }
-      existingNames.add(interfaceMember.name.name);
+    for (const rawInterfaceMember of activeState.interfaceMembers.get(classDelegate.typeAnnotation.name) ?? []) {
+      const interfaceMember = rawInterfaceMember as InterfaceMember;
       const target = emitClassDelegateTarget(classDelegate.expression, instanceMemberNames);
       if (interfaceMember.kind === "InterfacePropertyMember") {
-        lines.push(`get ${interfaceMember.name.name}() { return ${target}.${interfaceMember.name.name}; }`);
+        const property = interfaceMember as InterfacePropertyMember;
+        if (existingNames.has(property.name.name)) continue;
+        existingNames.add(property.name.name);
+        lines.push(`get ${property.name.name}() { return ${target}.${property.name.name}; }`);
       } else {
-        const parameters = emitFunctionParameters(interfaceMember.parameters);
-        const argumentNames = interfaceMember.parameters
+        const method = interfaceMember as InterfaceMethodMember;
+        if (existingNames.has(method.name.name)) continue;
+        existingNames.add(method.name.name);
+        const parameters = emitFunctionParameters(method.parameters);
+        const argumentNames = method.parameters
           .filter((parameter) => parameter.thisParameter !== true)
           .map((parameter) => (parameter.name as Identifier).name);
-        lines.push(`${interfaceMember.name.name}(${parameters}) { return ${target}.${interfaceMember.name.name}(${argumentNames.join(", ")}); }`);
+        lines.push(`${method.name.name}(${parameters}) { return ${target}.${method.name.name}(${argumentNames.join(", ")}); }`);
       }
     }
   }
@@ -1884,9 +1936,11 @@ function emitConstructorBlock(method: ClassMethodMember): string {
   const assignments = method.parameters
     .filter(isParameterProperty)
     .map((parameter) => `this.${(parameter.name as Identifier).name} = ${(parameter.name as Identifier).name};`);
-  const { result: emittedStatements, temps } = withOptionalAssignmentTempScope(() =>
+  const scope = withOptionalAssignmentTempScope(() =>
     method.body.body.map((statement) => emitStatement(statement))
   );
+  const emittedStatements = scope.result;
+  const temps = scope.temps;
   const firstStatement = method.body.body[0];
   const insertAt = firstStatement?.kind === "ExprStatement" &&
     (firstStatement as ExprStatement).expression.kind === "CallExpression" &&
@@ -1921,7 +1975,7 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
 
   const method = member as ClassMethodMember;
   const accessorPrefix = method.accessorKind ? `${method.accessorKind} ` : "";
-  const asyncPrefix = asyncEmitPrefix(method);
+  const asyncPrefix = asyncEmitPrefix(method.async, method.sync);
   const generatorPrefix = method.generator === true ? "*" : "";
   const methodName = method.computed
     ? `[${emitExpression(method.computedKey!)}]`
@@ -2063,7 +2117,8 @@ function exportedDeclarationNames(statement: Statement): string[] {
     return [(statement as FunctionStatement | ClassStatement | EnumStatement).name.name];
   }
   if (statement.kind === "NamespaceStatement") {
-    return (statement as NamespaceStatement).names?.slice(0, 1).map((name) => name.name) ?? [];
+    const firstName = (statement as NamespaceStatement).names?.[0];
+    return firstName ? [firstName.name] : [];
   }
   return [];
 }
@@ -2078,13 +2133,17 @@ function nextGeneratedSymbol(prefix: string): string {
   return symbol;
 }
 
-function withOptionalAssignmentTempScope<T>(emit: () => T): { result: T; temps: string[] } {
+class OptionalAssignmentTempScopeResult<T> {
+  constructor(readonly result: T, readonly temps: string[]) {}
+}
+
+function withOptionalAssignmentTempScope<T>(emit: () => T): OptionalAssignmentTempScopeResult<T> {
   activeState.optionalAssignmentTempScopes.push([]);
   try {
-    return {
-      result: emit(),
-      temps: activeState.optionalAssignmentTempScopes[activeState.optionalAssignmentTempScopes.length - 1] ?? []
-    };
+    return new OptionalAssignmentTempScopeResult(
+      emit(),
+      activeState.optionalAssignmentTempScopes[activeState.optionalAssignmentTempScopes.length - 1] ?? []
+    );
   } finally {
     activeState.optionalAssignmentTempScopes.pop();
   }
@@ -2148,16 +2207,21 @@ function commonJsRuntimeExportBindings(statement: Statement): CommonJsRuntimeExp
       }
       return bindings;
     }
-    const declarations = variable.declarations && variable.declarations.length > 0
-      ? variable.declarations
-      : [{ name: variable.name, delegate: variable.delegate }];
-    return declarations.flatMap((declaration) => {
+    const declarations: Array<{ name: BindingName; delegate?: Expr }> = [];
+    if (variable.declarations && variable.declarations.length > 0) {
+      for (const declaration of variable.declarations) declarations.push(declaration);
+    } else {
+      declarations.push({ name: variable.name, ...(variable.delegate ? { delegate: variable.delegate } : {}) });
+    }
+    const declarationBindings: CommonJsRuntimeExportBinding[] = [];
+    for (const declaration of declarations) {
       if (declaration.name.kind !== "Identifier" || declaration.delegate) {
-        return [];
+        continue;
       }
       const name = resolveJsName(declaration.name.name);
-      return [{ exportedName: name, valueExpression: name }];
-    });
+      declarationBindings.push({ exportedName: name, valueExpression: name });
+    }
+    return declarationBindings;
   }
   if (statement.kind === "FunctionStatement") {
     const fn = statement as FunctionStatement;
@@ -2386,7 +2450,7 @@ export function emitStatement(statement: Statement): string {
         try {
           return withVariableDelegateShadows(
             functionParameterBindingNames(fn.parameters),
-            () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${parameterList}) ${emitScopedBlock(fn.body)}`
+            () => `${asyncEmitPrefix(fn.async, fn.sync)}function${fn.generator === true ? "*" : ""} ${emittedName}(${parameterList}) ${emitScopedBlock(fn.body)}`
           );
         } finally {
           activeExtensionThis = previousExtensionThis;
@@ -2398,7 +2462,7 @@ export function emitStatement(statement: Statement): string {
         ?? (overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name);
       return withVariableDelegateShadows(
         functionParameterBindingNames(fn.parameters),
-        () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
+        () => `${asyncEmitPrefix(fn.async, fn.sync)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
       );
     }
     case "ClassStatement": {
@@ -2487,11 +2551,11 @@ export function emitStatement(statement: Statement): string {
       return `${tryPart}${catchPart}${finallyPart}`;
     }
     case "ContinueStatement": {
-      const label = (statement as import("compiler/ast/ast").ContinueStatement).label;
+      const label: Identifier | undefined = (statement as import("compiler/ast/ast").ContinueStatement).label;
       return label ? `continue ${label.name};` : "continue;";
     }
     case "BreakStatement": {
-      const label = (statement as import("compiler/ast/ast").BreakStatement).label;
+      const label: Identifier | undefined = (statement as import("compiler/ast/ast").BreakStatement).label;
       return label ? `break ${label.name};` : "break;";
     }
     default:
@@ -2584,11 +2648,19 @@ function appendUniqueMapArrayValue(map: Map<string, string[]>, key: string, valu
 }
 
 function cloneMapArrayValues<T>(map: Map<string, T[]>): Map<string, T[]> {
-  return new Map(Array.from(map.entries(), ([key, values]) => [key, [...values]]));
+  const clone = new Map<string, T[]>();
+  for (const [key, values] of map) {
+    clone.set(key, [...values]);
+  }
+  return clone;
 }
 
 function cloneSetMapValues<T>(map: Map<string, Set<T>>): Map<string, Set<T>> {
-  return new Map(Array.from(map.entries(), ([key, values]) => [key, new Set(values)]));
+  const clone = new Map<string, Set<T>>();
+  for (const [key, values] of map) {
+    clone.set(key, new Set(values));
+  }
+  return clone;
 }
 
 function cloneRuntimeSeed(seed: EmitProgramRuntimeSeed): EmitProgramRuntimeSeed {
@@ -2673,7 +2745,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
         const info: RuntimeOperatorInfo = {
           operator: fn.operator,
           emittedName,
-          parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+          parameterTypes: visibleParameterTypeNames(fn.parameters),
           hasBody: fn.missingBody !== true,
           rest: fn.parameters.some((parameter) => parameter.rest === true),
           extension: true
@@ -2685,7 +2757,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
         const info: RuntimeExtensionMethodInfo = {
           name: fn.name.name,
           emittedName,
-          parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+          parameterTypes: visibleParameterTypeNames(fn.parameters),
           hasBody: fn.missingBody !== true,
           rest: fn.parameters.some((parameter) => parameter.rest === true)
         };
@@ -2718,14 +2790,16 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
         if (member.kind !== "ClassMethodMember" || !member.operator) {
           continue;
         }
-        appendMapArrayValue(operators, classStatement.name.name, {
-          operator: member.operator,
-          emittedName: operatorMethodName(member.operator, member.parameters),
-          parameterTypes: member.parameters.map(parameterTypeName),
-          hasBody: member.missingBody !== true,
-          rest: member.parameters.some((parameter) => parameter.rest === true),
+        const operatorMember = member as ClassMethodMember;
+        const operatorInfo: RuntimeOperatorInfo = {
+          operator: operatorMember.operator!,
+          emittedName: operatorMethodName(operatorMember.operator!, operatorMember.parameters),
+          parameterTypes: operatorMember.parameters.map(parameterTypeName),
+          hasBody: operatorMember.missingBody !== true,
+          rest: operatorMember.parameters.some((parameter) => parameter.rest === true),
           extension: false
-        });
+        };
+        appendMapArrayValue(operators, classStatement.name.name, operatorInfo);
       }
       continue;
     }
@@ -2927,7 +3001,7 @@ function collectEmitProgramRuntimeContext(
     }
     overloads.set(name, functions.map((fn) => ({
       emittedName: overloadedFunctionName(name, fn.parameters),
-      parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+      parameterTypes: visibleParameterTypeNames(fn.parameters),
       hasBody: fn.missingBody !== true,
       rest: fn.parameters.some((parameter) => parameter.rest === true)
     })));
@@ -2943,7 +3017,7 @@ function collectEmitProgramRuntimeContext(
     }
     overloads.set(localName, functions.map((fn) => ({
       emittedName: overloadedFunctionName(localName, fn.parameters),
-      parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+      parameterTypes: visibleParameterTypeNames(fn.parameters),
       hasBody: fn.missingBody !== true,
       rest: fn.parameters.some((parameter) => parameter.rest === true)
     })));
@@ -3103,10 +3177,12 @@ export function emitProgramStatementPairs(
     optionalAssignmentTempScopes: []
   };
   try {
-    const { result: emittedStatements, temps } = withOptionalAssignmentTempScope(() => program.body.map((statement) => ({
+    const scope = withOptionalAssignmentTempScope(() => program.body.map((statement) => ({
       statement,
       emitted: emitStatement(statement)
     })));
+    const emittedStatements = scope.result;
+    const temps = scope.temps;
     if (temps.length === 0) {
       return emittedStatements;
     }

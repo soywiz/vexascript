@@ -54,12 +54,19 @@ export interface NamedType {
   typeArguments?: AnalysisType[];
 }
 
+export interface FunctionTypeParameter {
+  name: string;
+  type: AnalysisType;
+  optional?: boolean;
+  rest?: boolean;
+}
+
 export interface FunctionType {
   kind: "function";
   typeParameters?: string[];
   typeParameterConstraints?: Record<string, AnalysisType>;
   typeParameterDefaults?: Record<string, AnalysisType>;
-  parameters: Array<{ name: string; type: AnalysisType; optional?: boolean; rest?: boolean }>;
+  parameters: FunctionTypeParameter[];
   returnType: AnalysisType;
   assertion?: { target: string; type?: AnalysisType };
 }
@@ -148,7 +155,7 @@ export function namedType(name: string, typeArguments?: AnalysisType[]): NamedTy
 }
 
 export function functionType(
-  parameters: Array<{ name: string; type: AnalysisType; optional?: boolean; rest?: boolean }>,
+  parameters: FunctionTypeParameter[],
   returnType: AnalysisType,
   typeParameters?: string[],
   typeParameterConstraints?: Record<string, AnalysisType>,
@@ -237,18 +244,27 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
         }
         return `${type.name}<${type.typeArguments.map((argument) => typeToStringInternal(argument, seen)).join(", ")}>`;
       case "function": {
-        const typeParameterPrefix = type.typeParameters && type.typeParameters.length > 0
-          ? `<${type.typeParameters.map((parameter) => {
-              const constraint = type.typeParameterConstraints?.[parameter];
-              return constraint ? `${parameter} extends ${typeToStringInternal(constraint, seen)}` : parameter;
-            }).join(", ")}>`
+        const functionType = type as FunctionType;
+        const renderedTypeParameters: string[] = [];
+        for (const parameter of functionType.typeParameters ?? []) {
+          const constraint = functionType.typeParameterConstraints?.[parameter];
+          renderedTypeParameters.push(
+            constraint ? `${parameter} extends ${typeToStringInternal(constraint, seen)}` : parameter
+          );
+        }
+        const typeParameterPrefix = renderedTypeParameters.length > 0
+          ? `<${renderedTypeParameters.join(", ")}>`
           : "";
-        const renderedReturnType = type.assertion
-          ? `asserts ${type.assertion.target}${type.assertion.type ? ` is ${typeToStringInternal(type.assertion.type, seen)}` : ""}`
-          : typeToStringInternal(type.returnType, seen);
-        return `${typeParameterPrefix}(${type.parameters
-          .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}: ${typeToStringInternal(parameter.type, seen)}`)
-          .join(", ")}) => ${renderedReturnType}`;
+        const renderedReturnType = functionType.assertion
+          ? `asserts ${functionType.assertion.target}${functionType.assertion.type ? ` is ${typeToStringInternal(functionType.assertion.type, seen)}` : ""}`
+          : typeToStringInternal(functionType.returnType, seen);
+        const renderedParameters: string[] = [];
+        for (const functionParameter of functionType.parameters) {
+          renderedParameters.push(
+            `${functionParameter.rest ? "..." : ""}${functionParameter.name}: ${typeToStringInternal(functionParameter.type, seen)}`
+          );
+        }
+        return `${typeParameterPrefix}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
       }
       case "array":
         return `${type.readonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;

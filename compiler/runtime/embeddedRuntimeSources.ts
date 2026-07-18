@@ -1,6 +1,6 @@
 // Generated from compiler/runtime/es2025.d.ts and compiler/runtime/vexascript.d.vx.
 // Keep this file in sync when those embedded declaration sources change.
-export const ECMA_SCRIPT_RUNTIME_DECLARATIONS = [
+export const ECMA_SCRIPT_RUNTIME_DECLARATIONS: string = [
   "/*!",
   " * Bundled TypeScript runtime declarations for VexaScript.",
   " * Source: https://github.com/microsoft/TypeScript/tree/main/src/lib",
@@ -11628,7 +11628,7 @@ export const ECMA_SCRIPT_RUNTIME_DECLARATIONS = [
   "}",
   ""
 ].join("\n");
-export const VEXA_SCRIPT_RUNTIME_DECLARATIONS = [
+export const VEXA_SCRIPT_RUNTIME_DECLARATIONS: string = [
   "annotation JsName(val name: string)",
   "annotation JsInline(val replacement: string)",
   "",

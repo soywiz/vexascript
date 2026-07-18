@@ -6,6 +6,12 @@ export interface GlobalSymbolSourceOptions {
   emit?: "globalThis" | "assume";
 }
 
+export interface ModuleGraphProfileEvent {
+  phase: string;
+  elapsedMs: number;
+  moduleCount: number;
+}
+
 export interface ModuleGraphOptions {
   vfs?: Vfs;
   jsxFactory?: string;
@@ -17,4 +23,6 @@ export interface ModuleGraphOptions {
   typeCheck?: boolean;
   /** Root used to resolve TypeScript-style non-relative source imports. */
   baseUrl?: string;
+  /** Optional phase timing sink used by benchmarks and Node-only CLI profiling. */
+  profile?: (event: ModuleGraphProfileEvent) => void;
 }

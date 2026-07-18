@@ -16,6 +16,11 @@ class NativeCompilerVfs extends Vfs {
   }
 }
 
+fun requestedBaseUrl(args: string[]): string {
+  if (args.length > 2) return args[2]
+  return process.cwd()
+}
+
 sync fun compileNativeGeneration() {
   val args = commandLineArguments()
   if (args.length < 2) {
@@ -24,7 +29,7 @@ sync fun compileNativeGeneration() {
     return
   }
 
-  val baseUrl = args.length > 2 ? args[2] : process.cwd()
+  val baseUrl = requestedBaseUrl(args)
   val result = compileNativeModuleGraph(args[0], "optimized", {
     vfs: NativeCompilerVfs(),
     baseUrl,

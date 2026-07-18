@@ -1,6 +1,6 @@
 import { hasRecognizedModuleFileExtension, LANGUAGE_FILE_EXTENSION } from "./language";
 import { dirname, resolve } from "./utils/path";
-import { vfs, type Vfs } from "./vfs";
+import { vfs, type Vfs, type VfsDirEntry } from "./vfs";
 
 /** Returns the specifier without the Node builtin `node:` prefix (no-op otherwise). */
 export function stripNodeBuiltinPrefix(specifier: string): string {
@@ -61,12 +61,14 @@ export interface ModuleResolutionSessionLike {
   ast?: unknown | null;
 }
 
+type GetSessionForFilePath = (
+  filePath: string
+) => ModuleResolutionSessionLike | null | Promise<ModuleResolutionSessionLike | null>;
+
 export interface ModuleResolutionOptions {
   vfs?: Vfs | undefined;
   importMappings?: Readonly<Record<string, string>> | undefined;
-  getSessionForFilePath?: (
-    (filePath: string) => ModuleResolutionSessionLike | null | Promise<ModuleResolutionSessionLike | null>
-  ) | undefined;
+  getSessionForFilePath?: GetSessionForFilePath | undefined;
 }
 
 const nodeModulesTypingsPathCache = new Map<string, string | null>();
@@ -78,7 +80,7 @@ export function clearNodeModulesTypingsPathCache(): void {
 async function hasImportTarget(
   candidate: string,
   vfs: Vfs,
-  getSessionForFilePath?: ModuleResolutionOptions["getSessionForFilePath"]
+  getSessionForFilePath?: GetSessionForFilePath
 ): Promise<boolean> {
   if (await vfs.fileExists(candidate)) {
     return true;
@@ -88,7 +90,7 @@ async function hasImportTarget(
     return false;
   }
 
-  const session = await getSessionForFilePath(candidate);
+  const session = await Promise.resolve(getSessionForFilePath(candidate)) as ModuleResolutionSessionLike | null;
   return session?.ast != null;
 }
 
@@ -204,7 +206,7 @@ async function declarationPathFromExports(
 
 async function declarationPathInPnpmVirtualStore(nodeModulesDir: string, packageName: string, vfs: Vfs): Promise<string | null> {
   const storeDir = resolve(nodeModulesDir, ".pnpm");
-  let entries;
+  let entries: VfsDirEntry[];
   try {
     entries = await vfs.readDir(storeDir);
   } catch {

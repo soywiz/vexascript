@@ -1,0 +1,18 @@
+interface NamedValue {
+  val name: string
+  var value: int
+  fun increment(delta: int): int
+}
+
+class Counter(val name: string, var value: int) : NamedValue {
+  override fun increment(delta: int): int {
+    value += delta
+    return value
+  }
+}
+
+fun render(value: NamedValue): string => `${value.name}:${value.increment(2)}`
+
+val first: NamedValue = Counter("first", 3)
+val second: NamedValue = Counter("second", 8)
+val rendered = render(first) + "," + render(second)

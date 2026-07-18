@@ -1475,6 +1475,16 @@ describe("parseExpression", () => {
         });
     });
 
+    it("keeps singleton shorthand braces as object literals in TypeScript mode", () => {
+        expect(parseExpression(tokenizeReader("condition ? { value } : {}"), { language: "typescript" })).toMatchObject({
+            kind: "ConditionalExpression",
+            consequent: {
+                kind: "ObjectLiteral",
+                properties: [{ kind: "ObjectProperty", shorthand: true }]
+            }
+        });
+    });
+
     it("builds an AST for multiplication with parenthesized addition", () => {
         expect(parseExpression(tokenizeReader("1*(2+3)"))).toEqual({
             kind: "BinaryExpression",

@@ -3,10 +3,12 @@ import {
   findMatchingTypeDelimiter,
   findTopLevelTypeCharacter,
   looksLikeFunctionTypeAnnotation,
+  parseConditionalTypeText,
   parseMappedTypeMemberText,
   parseAssertionTypePredicateText,
   parseReadonlyContainerTypeText,
   parseObjectTypeAnnotation,
+  parseTypeNameShape,
   parseFunctionTypeAnnotation,
   splitArraySuffixTypeName,
   splitIndexedAccessTypeName,
@@ -31,6 +33,24 @@ describe("type-name text structure", () => {
       "left: { value: string; count: int }",
       "right: boolean"
     ]);
+  });
+
+  it("does not expose mutable cached type-text results", () => {
+    const parts = splitTopLevelTypeText("string | int", "|");
+    parts.push("boolean");
+    expect(splitTopLevelTypeText("string | int", "|")).toEqual(["string", "int"]);
+
+    const shape = parseTypeNameShape("Map<string, int>[]");
+    shape.typeArguments.push("boolean");
+    expect(parseTypeNameShape("Map<string, int>[]")).toEqual({
+      baseName: "Map",
+      typeArguments: ["string", "int"],
+      arrayDepth: 1,
+    });
+
+    const conditional = parseConditionalTypeText("T extends string ? number : boolean")!;
+    conditional.trueTypeText = "mutated";
+    expect(parseConditionalTypeText("T extends string ? number : boolean")?.trueTypeText).toBe("number");
   });
 
   it("finds top-level characters and matching delimiters while ignoring quoted text", () => {

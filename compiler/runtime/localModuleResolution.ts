@@ -4,6 +4,11 @@ import type { ParserOptions } from "compiler/parser/parser";
 import { extname, resolve } from "compiler/utils/path";
 import type { Vfs } from "compiler/vfs";
 
+export interface LocalImportDependency {
+  statement: ImportStatement;
+  targetPath: string;
+}
+
 export function isBundledLocalModulePath(filePath: string): boolean {
   const extension = extname(filePath).toLowerCase();
   return extension === ".vx" || extension === ".ts" || extension === ".tsx";
@@ -45,8 +50,8 @@ export async function localImportSpecifiers(
   vfs: Vfs,
   importMappings: Readonly<Record<string, string>>,
   baseUrl?: string
-): Promise<{ statement: ImportStatement; targetPath: string }[]> {
-  const imports: { statement: ImportStatement; targetPath: string }[] = [];
+): Promise<LocalImportDependency[]> {
+  const imports: LocalImportDependency[] = [];
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") continue;
     const importStatement = statement as ImportStatement;

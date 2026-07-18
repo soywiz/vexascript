@@ -1,0 +1,9 @@
+fun double(value: int): int => value * 2
+
+fun sum(values: int[]): int {
+  var result = 0
+  for (value of values) result += value
+  return result
+}
+
+val answer = sum([1, 2, 3].map { double(it) })

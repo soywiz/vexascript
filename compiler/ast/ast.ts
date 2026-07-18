@@ -5,6 +5,8 @@ export interface Node {
     kind: string
     firstToken?: Token
     lastToken?: Token
+    /** Internal source path retained while modules are merged for native emission. */
+    __vexaNativeSourcePath?: string
 }
 
 export interface Expr extends Node {
@@ -20,46 +22,48 @@ export interface Statement extends Node {
 
 export type VariableDeclarationKind = "let" | "var" | "val" | "const";
 
-export interface IntLiteral extends Node {
+export interface IntLiteral extends Expr {
     kind: "IntLiteral"
     value: number
 }
 
-export interface FloatLiteral extends Node {
+export interface FloatLiteral extends Expr {
     kind: "FloatLiteral"
     value: number
 }
 
-export interface BigIntLiteral extends Node {
+export interface BigIntLiteral extends Expr {
     kind: "BigIntLiteral"
     value: bigint
 }
 
-export interface LongLiteral extends Node {
+export interface LongLiteral extends Expr {
     kind: "LongLiteral"
     value: bigint
 }
 
-export interface BooleanLiteral extends Node {
+export interface BooleanLiteral extends Expr {
     kind: "BooleanLiteral"
     value: boolean
 }
 
-export interface NullLiteral extends Node {
+export interface NullLiteral extends Expr {
     kind: "NullLiteral"
 }
 
-export interface UndefinedLiteral extends Node {
+export interface UndefinedLiteral extends Expr {
     kind: "UndefinedLiteral"
 }
 
-export interface MissingExpression extends Node {
+export interface MissingExpression extends Expr {
     kind: "MissingExpression"
 }
 
-export interface Identifier extends Node {
+export interface Identifier extends Expr {
     kind: "Identifier"
     name: string
+    /** Original module-local name retained while native symbols are isolated. */
+    __vexaNativeOriginalName?: string
 }
 
 export interface TypeReference extends Node {
@@ -82,23 +86,23 @@ export interface TypeParameter extends Node {
     defaultType?: Identifier
 }
 
-export interface StringLiteral extends Node {
+export interface StringLiteral extends Expr {
     kind: "StringLiteral"
     value: string
 }
 
-export interface RegExpLiteral extends Node {
+export interface RegExpLiteral extends Expr {
     kind: "RegExpLiteral"
     pattern: string
     flags: string
 }
 
-export interface CommaExpression extends Node {
+export interface CommaExpression extends Expr {
     kind: "CommaExpression"
     expressions: Expr[]
 }
 
-export interface BinaryExpression extends Node {
+export interface BinaryExpression extends Expr {
     kind: "BinaryExpression"
     operator: "+" | "-" | "*" | "/" | "%" | "**" | "<<" | ">>" | ">>>" | "<" | ">" | "<=" | ">=" | "<=>" | "in" | "is" | "instanceof" | "==" | "!=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&" | "??"
     operatorToken?: Token
@@ -108,20 +112,20 @@ export interface BinaryExpression extends Node {
 
 export type OverloadableOperator = BinaryExpression["operator"] | "[]" | "[]=";
 
-export interface RangeExpression extends Node {
+export interface RangeExpression extends Expr {
     kind: "RangeExpression"
     start: Expr
     end: Expr
     exclusive: boolean
 }
 
-export interface ChainExpression extends Node {
+export interface ChainExpression extends Expr {
     kind: "ChainExpression"
     receiver: Expr
     operations: Expr[]
 }
 
-export interface AssignmentExpression extends Node {
+export interface AssignmentExpression extends Expr {
     kind: "AssignmentExpression"
     operator: "=" | "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "^=" | "&&=" | "||=" | "??=" | "<<=" | ">>=" | ">>>="
     left: Expr
@@ -150,31 +154,31 @@ export function compoundAssignmentBinaryOperator(
     }
 }
 
-export interface ConditionalExpression extends Node {
+export interface ConditionalExpression extends Expr {
     kind: "ConditionalExpression"
     test: Expr
     consequent: Expr
     alternate: Expr
 }
 
-export interface AsExpression extends Node {
+export interface AsExpression extends Expr {
     kind: "AsExpression"
     expression: Expr
     typeAnnotation: Identifier
 }
 
-export interface SatisfiesExpression extends Node {
+export interface SatisfiesExpression extends Expr {
     kind: "SatisfiesExpression"
     expression: Expr
     typeAnnotation: Identifier
 }
 
-export interface NonNullExpression extends Node {
+export interface NonNullExpression extends Expr {
     kind: "NonNullExpression"
     expression: Expr
 }
 
-export interface MemberExpression extends Node {
+export interface MemberExpression extends Expr {
     kind: "MemberExpression"
     object: Expr
     property: Expr
@@ -183,7 +187,7 @@ export interface MemberExpression extends Node {
     nonNullAsserted?: boolean
 }
 
-export interface PropertyReferenceExpression extends Node {
+export interface PropertyReferenceExpression extends Expr {
     kind: "PropertyReferenceExpression"
     object: Expr
     property: Identifier
@@ -200,7 +204,7 @@ export function memberExpressionFromPropertyReference(propertyReference: Propert
     } as MemberExpression;
 }
 
-export interface CallExpression extends Node {
+export interface CallExpression extends Expr {
     kind: "CallExpression"
     callee: Expr
     arguments: Expr[]
@@ -208,30 +212,29 @@ export interface CallExpression extends Node {
     optional?: boolean
 }
 
-export interface ArrowFunctionExpression extends Node {
-    kind: "ArrowFunctionExpression"
+export interface CallableExpression extends Expr {
     async?: boolean
     sync?: boolean
     parameters: FunctionParameter[]
     returnType?: Identifier
+}
+
+export interface ArrowFunctionExpression extends CallableExpression {
+    kind: "ArrowFunctionExpression"
     body: Expr | BlockStatement
     contextualObjectLiteral?: ObjectLiteral
 }
 
-export interface FunctionExpression extends Node {
+export interface FunctionExpression extends CallableExpression {
     kind: "FunctionExpression"
-    async?: boolean
-    sync?: boolean
     generator?: boolean
     name?: Identifier
     typeParameters?: TypeParameter[]
-    parameters: FunctionParameter[]
     parametersCloseParen?: Token
-    returnType?: Identifier
     body: BlockStatement
 }
 
-export interface ClassExpression extends Node {
+export interface ClassExpression extends Expr {
     kind: "ClassExpression"
     abstract?: boolean
     name?: Identifier
@@ -247,14 +250,14 @@ export interface ClassExpression extends Node {
     members: ClassMember[]
 }
 
-export interface NewExpression extends Node {
+export interface NewExpression extends Expr {
     kind: "NewExpression"
     callee: Expr
     arguments?: Expr[]
     typeArguments?: Identifier[]
 }
 
-export interface SpreadExpression extends Node {
+export interface SpreadExpression extends Expr {
     kind: "SpreadExpression"
     argument: Expr
 }
@@ -265,19 +268,19 @@ export interface SpreadExpression extends Node {
  * the type checker can validate it against the matching parameter and the
  * emitter can reorder it into the callee's positional parameter order.
  */
-export interface NamedArgument extends Node {
+export interface NamedArgument extends Expr {
     kind: "NamedArgument"
     name: Identifier
     value: Expr
 }
 
-export interface UnaryExpression extends Node {
+export interface UnaryExpression extends Expr {
     kind: "UnaryExpression"
     operator: "+" | "-" | "!" | "~" | "typeof" | "void" | "delete" | "await" | "yield" | "yield*" | "go"
     argument: Expr
 }
 
-export interface UpdateExpression extends Node {
+export interface UpdateExpression extends Expr {
     kind: "UpdateExpression"
     operator: "++" | "--"
     argument: Expr
@@ -290,7 +293,7 @@ export interface ArrayHole extends Expr {
 
 export type ArrayLiteralElement = Expr | ArrayHole;
 
-export interface ArrayLiteral extends Node {
+export interface ArrayLiteral extends Expr {
     kind: "ArrayLiteral"
     elements: ArrayLiteralElement[]
 }
@@ -311,7 +314,7 @@ export interface ObjectSpreadProperty extends Node {
 
 export type ObjectLiteralProperty = ObjectProperty | ObjectSpreadProperty;
 
-export interface ObjectLiteral extends Node {
+export interface ObjectLiteral extends Expr {
     kind: "ObjectLiteral"
     properties: ObjectLiteralProperty[]
     trailingComma?: boolean
@@ -460,6 +463,14 @@ export interface ClassMemberModifiers {
     annotations?: AnnotationApplication[]
 }
 
+export interface CallableMember extends Node {
+    name: Identifier
+    parameters: FunctionParameter[]
+    returnType?: Identifier
+    typeParameters?: TypeParameter[]
+    optional?: boolean
+}
+
 export interface ClassFieldMember extends Node, ClassMemberModifiers {
     kind: "ClassFieldMember"
     declarationKind?: VariableDeclarationKind
@@ -474,7 +485,7 @@ export interface ClassFieldMember extends Node, ClassMemberModifiers {
     initializer?: Expr
 }
 
-export interface ClassMethodMember extends Node, ClassMemberModifiers {
+export interface ClassMethodMember extends CallableMember, ClassMemberModifiers {
     kind: "ClassMethodMember"
     declarationKind?: FunctionDeclarationKind
     accessorKind?: "get" | "set"
@@ -540,7 +551,7 @@ export interface InterfacePropertyMember extends Node {
     optional?: boolean
 }
 
-export interface InterfaceMethodMember extends Node {
+export interface InterfaceMethodMember extends CallableMember {
     kind: "InterfaceMethodMember"
     declarationKind?: FunctionDeclarationKind
     computed?: boolean
@@ -713,7 +724,7 @@ export interface TryStatement extends Statement {
  * the `jsx` parser option. An element such as `<div class="x">{value}</div>`
  * parses into a `JsxElement`, a fragment `<>...</>` into a `JsxFragment`.
  */
-export interface JsxElement extends Node {
+export interface JsxElement extends Expr {
     kind: "JsxElement"
     /** Raw tag-name text, e.g. `div` or `Foo.Bar`. */
     tagName: string
@@ -729,7 +740,7 @@ export interface JsxElement extends Node {
     selfClosing: boolean
 }
 
-export interface JsxFragment extends Node {
+export interface JsxFragment extends Expr {
     kind: "JsxFragment"
     children: JsxChild[]
 }

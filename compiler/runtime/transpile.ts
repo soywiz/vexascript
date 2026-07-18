@@ -147,19 +147,19 @@ let cachedEcmaScriptRuntimeEmitSeed: ReturnType<typeof createEmitProgramRuntimeS
 
 function toVlqSigned(value: number): number {
   if (value < 0) {
-    return ((-value) << 1) + 1;
+    return (-value * 2) + 1;
   }
-  return value << 1;
+  return value * 2;
 }
 
 function encodeVlq(value: number): string {
   let vlq = toVlqSigned(value);
   let encoded = "";
   do {
-    let digit = vlq & 31;
-    vlq >>>= 5;
+    let digit = vlq % 32;
+    vlq = Math.floor(vlq / 32);
     if (vlq > 0) {
-      digit |= 32;
+      digit += 32;
     }
     encoded += BASE64_DIGITS[digit] ?? "";
   } while (vlq > 0);
@@ -187,20 +187,32 @@ function createLineStartMappingsForSourceLines(sourceLinesByGeneratedLine: numbe
   return mappings;
 }
 
-function sourceLineRangeForStatement(statement: Statement): { start: number; end: number } {
+interface SourceLineRange {
+  start: number;
+  end: number;
+}
+
+interface EmittedStatementSegment {
+  statement: Statement;
+  emitted: string;
+}
+
+function sourceLineRangeForStatement(statement: Statement): SourceLineRange {
   const start = statement.firstToken?.range.start.line ?? 0;
   const end = statement.lastToken?.range.end.line ?? start;
   return { start, end: Math.max(start, end) };
 }
 
 function sourceLinesForEmittedStatement(statement: Statement, emittedStatement: string): number[] {
-  const lineCount = emittedStatement.length === 0 ? 0 : emittedStatement.split("\n").length;
+  const lineCount: number = emittedStatement.length === 0 ? 0 : emittedStatement.split("\n").length;
   if (lineCount <= 0) {
     return [];
   }
 
-  const { start, end } = sourceLineRangeForStatement(statement);
-  const span = end - start;
+  const range = sourceLineRangeForStatement(statement);
+  const start: number = range.start;
+  const end: number = range.end;
+  const span: number = end - start;
   const lines: number[] = [];
   for (let i = 0; i < lineCount; i += 1) {
     lines.push(start + Math.min(i, span));
@@ -219,7 +231,7 @@ function emitProgramStatementSegments(
   baseRuntimeSeed?: ReturnType<typeof createEmitProgramRuntimeSeed>,
   implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string> = new Map(),
   asyncForStatements: ReadonlySet<Node> = new Set()
-): { statement: Statement; emitted: string }[] {
+): EmittedStatementSegment[] {
   const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes, emitOptions, baseRuntimeSeed);
   return emitProgramStatementPairs(
     program,
@@ -234,11 +246,14 @@ function emitProgramStatementSegments(
   ).filter(({ emitted }) => emitted.trim().length > 0);
 }
 
-function emitSegmentsWithSourceLineOffsets(segments: { statement: Statement; emitted: string }[]): string {
+function emitSegmentsWithSourceLineOffsets(segments: EmittedStatementSegment[]): string {
   const lines: string[] = [];
   let generatedLine = 0;
 
-  for (const { statement, emitted } of segments) {
+  for (const rawSegment of segments) {
+    const segment = rawSegment as EmittedStatementSegment;
+    const statement = segment.statement;
+    const emitted = segment.emitted;
     const sourceStartLine = statement.firstToken?.range.start.line ?? generatedLine;
     while (generatedLine < sourceStartLine) {
       lines.push("");
@@ -276,6 +291,15 @@ function createSourceMap(
   return JSON.stringify(map);
 }
 
+function sourceLineAt(lines: readonly string[], requestedLine: number): string {
+  let currentLine = 1;
+  for (const line of lines) {
+    if (currentLine === requestedLine) return line;
+    currentLine += 1;
+  }
+  return "";
+}
+
 function parserOptionsForTranspile(options: TranspileOptions): ParserOptions {
   if (options.parserOptions) {
     return options.parserOptions;
@@ -306,18 +330,19 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const emitSourceMap = options.emitSourceMap ?? true;
   let sourceLines: string[] | null = null;
 
-  function getSourceLines(): string[] {
+  const getSourceLines = (): string[] => {
     sourceLines ??= source.split("\n");
     return sourceLines;
-  }
+  };
+  const noSourceRange: SourceRange | null = null;
 
-  function makeDiagnostic(message: string, range: SourceRange | null | undefined, code: string): TranspileDiagnostic {
-    const line = (range?.start.line ?? 0) + 1;
-    const column = (range?.start.column ?? 0) + 1;
-    const endColumn = range?.end ? range.end.column + 1 : column + 1;
-    const sourceLine = getSourceLines()[line - 1] ?? "";
+  const makeDiagnostic = (message: string, range: SourceRange | null | undefined, code: string): TranspileDiagnostic => {
+    const line: number = (range?.start.line ?? 0) + 1;
+    const column: number = (range?.start.column ?? 0) + 1;
+    const endColumn: number = range?.end ? range.end.column + 1 : column + 1;
+    const sourceLine = sourceLineAt(getSourceLines(), line);
     return { file, line, column, endColumn, code, message, sourceLine };
-  }
+  };
 
   if (artifacts.tokenizeError) {
     errors.push(
@@ -327,7 +352,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   }
   if (artifacts.fatalError) {
     errors.push(artifacts.fatalError);
-    diagnostics.push(makeDiagnostic(artifacts.fatalError, null, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR));
+    diagnostics.push(makeDiagnostic(artifacts.fatalError, noSourceRange, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR));
   }
   for (const issue of artifacts.parserIssues) {
     errors.push(formatParseIssue(issue));
@@ -340,7 +365,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   if (options.typeCheck ?? true) {
     for (const issue of artifacts.semanticIssues) {
       errors.push(formatSemanticIssue(issue));
-      const range = issue.range
+      const range: SourceRange | undefined = issue.range
         ? {
             start: {
               offset: 0,
@@ -366,11 +391,15 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   }
 
   if (!artifacts.ast || !artifacts.analysis) {
+    const incompleteDiagnostics: TranspileDiagnostic[] = [];
+    incompleteDiagnostics.push(
+      makeDiagnostic("Internal error: compilation artifacts are incomplete", noSourceRange, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)
+    );
     return {
       code: "",
       warnings: [],
       errors: ["Internal error: compilation artifacts are incomplete"],
-      diagnostics: [makeDiagnostic("Internal error: compilation artifacts are incomplete", null, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)]
+      diagnostics: incompleteDiagnostics
     };
   }
 
@@ -404,13 +433,18 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
         diagnostics: []
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const statement = error instanceof CppEmitError ? error.statement : undefined;
+      let message: string;
+      let statement: Statement | undefined;
+      message = String(error);
+      if (error instanceof CppEmitError) statement = (error as CppEmitError).statement;
+      const fatalDiagnostics: TranspileDiagnostic[] = [
+        makeDiagnostic(message, statement?.firstToken?.range, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)
+      ];
       return {
         code: "",
         warnings: [],
         errors: [message],
-        diagnostics: [makeDiagnostic(message, statement?.firstToken?.range, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)]
+        diagnostics: fatalDiagnostics
       };
     }
   }
@@ -453,12 +487,20 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     implicitReceiverExtensionIdentifiers,
     asyncForStatements
   );
-  const emittedWithOffsets = options.preserveSourceLineOffsets
-    ? emitSegmentsWithSourceLineOffsets(emittedSegments)
-    : emittedSegments.map(({ emitted }) => emitted).join("\n");
+  let emittedWithOffsets: string;
+  if (options.preserveSourceLineOffsets) {
+    emittedWithOffsets = emitSegmentsWithSourceLineOffsets(emittedSegments);
+  } else {
+    emittedWithOffsets = emittedSegments.map((segment) => (segment as EmittedStatementSegment).emitted).join("\n");
+  }
   const code = options.preserveSourceLineOffsets
     ? ensureTrailingSemicolonPreservingLines(emittedWithOffsets)
     : ensureTrailingSemicolon(emittedWithOffsets);
+  const sourceLinesByGeneratedLine: number[] = [];
+  for (const segment of emittedSegments) {
+    const segmentSourceLines = sourceLinesForEmittedStatement(segment.statement, segment.emitted);
+    for (const sourceLine of segmentSourceLines) sourceLinesByGeneratedLine.push(sourceLine);
+  }
   return {
     code,
     warnings: [],
@@ -469,7 +511,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
           sourceMap: createSourceMap(
             source,
             code,
-            emittedSegments.flatMap(({ statement, emitted }) => sourceLinesForEmittedStatement(statement, emitted)),
+            sourceLinesByGeneratedLine,
             options
           )
         }

@@ -52,7 +52,7 @@ export function collectInvalidImportedBindings(
 }
 
 export function normalizeImportedSymbolSources(sources: ImportedSymbolSources = {}): ImportedSymbolViews {
-  const importedSymbols = sources.importedSymbols
+  const importedSymbols: Map<string, ImportedSymbolResolution> = sources.importedSymbols
     ? new Map(sources.importedSymbols)
     : new Map<string, ImportedSymbolResolution>();
 

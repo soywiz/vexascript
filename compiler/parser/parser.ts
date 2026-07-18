@@ -456,7 +456,7 @@ export class Parser {
             );
         }
         this.tokens.read();
-        const args = this.parseDelimitedList(")", () => this.tryParseNamedArgument() ?? this.parseAssignment(), "annotation argument list");
+        const args = this.parseDelimitedList<Expr>(")", () => this.tryParseNamedArgument() ?? this.parseAssignment(), "annotation argument list");
         const closeParen = this.tokens.read();
         if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
             this.fail(`Expected ')' after '@${annotationName.value}' arguments`, this.tokenAt(closeParen));
@@ -575,10 +575,12 @@ export class Parser {
 
     emitError(message: string, token: Token | undefined = this.tokens.peek()): void {
         if (token) {
-            this.errors.push({ message, token });
+            const issue: ParseIssue = { message: message, token: token };
+            this.errors.push(issue);
             return;
         }
-        this.errors.push({ message });
+        const issue: ParseIssue = { message: message };
+        this.errors.push(issue);
     }
 
     recover(recoveryHint?: RecoveryHint, originToken?: Token): void {
@@ -712,7 +714,11 @@ export class Parser {
             return;
         }
 
-        this.emitError(error instanceof Error ? error.message : String(error));
+        if (error instanceof Error) {
+            this.emitError(error.message);
+            return;
+        }
+        this.emitError(String(error));
     }
 
     private attachNodeBounds<T extends Node>(node: T, firstToken?: Token, lastToken?: Token): T {
@@ -776,8 +782,9 @@ export class Parser {
             case "StringLiteral":
                 return JSON.stringify((key as StringLiteral).value);
             case "IntLiteral":
+                return String((key as IntLiteral).value);
             case "FloatLiteral":
-                return String((key as IntLiteral | FloatLiteral).value);
+                return String((key as FloatLiteral).value);
             case "MemberExpression": {
                 const member = key as MemberExpression;
                 if (
@@ -2422,7 +2429,7 @@ export class Parser {
     } = {}): ClassStatement | ClassExpression {
         const declared = options.declared ?? false;
         const expression = options.expression ?? false;
-        let classKeyword = options.classKeyword ?? this.tokens.read();
+        let classKeyword: Token | undefined = options.classKeyword ?? this.tokens.read();
         let isAbstractClass = false;
         const startToken = classKeyword;
         if (!options.classKeyword && classKeyword?.type === "identifier" && classKeyword.value === "abstract") {
@@ -2844,6 +2851,7 @@ export class Parser {
             try {
                 const objectLiteral = this.parseObjectLiteralFromConsumedOpen(openBrace);
                 if (
+                    this.language === "vexa" &&
                     !objectLiteral.trailingComma &&
                     objectLiteral.properties.length === 1 &&
                     objectLiteral.properties[0]?.kind === "ObjectProperty" &&
@@ -2905,12 +2913,12 @@ export class Parser {
             async = true;
             this.tokens.skip();
             first = this.tokens.peek();
-            arrowParameterToken = first ?? undefined;
+            arrowParameterToken = first;
         } else if (first?.type === "identifier" && first.value === "sync" && this.peekToken(1)?.type === "identifier" && this.peekToken(2)?.type === "symbol" && this.peekToken(2)?.value === "=>") {
             sync = true;
             this.tokens.skip();
             first = this.tokens.peek();
-            arrowParameterToken = first ?? undefined;
+            arrowParameterToken = first;
         }
         if (!first) {
             return null;
@@ -3170,7 +3178,9 @@ export class Parser {
 
             if (token?.type === "symbol" && token.value === "?." && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "(") {
                 this.tokens.skip();
-                const { args, close } = this.parseCallArgumentList();
+                const parsedArguments = this.parseCallArgumentList();
+                const args = parsedArguments.args;
+                const close = parsedArguments.close;
                 expr = this.attachNodeBounds({
                     kind: "CallExpression",
                     callee: expr,
@@ -3212,7 +3222,7 @@ export class Parser {
 
             if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
                 this.tokens.skip();
-                const property = this.tryParsePrivateIdentifierToken() ?? this.tokens.read();
+                const property: Token | undefined = this.tryParsePrivateIdentifierToken() ?? this.tokens.read() ?? undefined;
                 if (property?.type !== "identifier") {
                     if (this.canRecoverMissingMemberIdentifier(token, property)) {
                         const errorToken = this.tokenAt(property?.type === "eof" ? token : property ?? token);
@@ -3274,7 +3284,9 @@ export class Parser {
             }
 
             if (token?.type === "symbol" && token.value === "(") {
-                const { args, close } = this.parseCallArgumentList();
+                const parsedArguments = this.parseCallArgumentList();
+                const args = parsedArguments.args;
+                const close = parsedArguments.close;
                 expr = this.attachNodeBounds({
                     kind: "CallExpression",
                     callee: expr,
@@ -3442,7 +3454,7 @@ export class Parser {
 
             if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
                 this.tokens.skip();
-                const property = this.tryParsePrivateIdentifierToken() ?? this.tokens.read();
+                const property: Token | undefined = this.tryParsePrivateIdentifierToken() ?? this.tokens.read() ?? undefined;
                 if (property?.type !== "identifier") {
                     this.fail(
                         `Expected identifier after '${token.value}'`,
@@ -3484,7 +3496,9 @@ export class Parser {
             }
 
             if (token?.type === "symbol" && token.value === "(") {
-                const { args, close } = this.parseCallArgumentList();
+                const parsedArguments = this.parseCallArgumentList();
+                const args = parsedArguments.args;
+                const close = parsedArguments.close;
                 return {
                     callee: expr,
                     arguments: args,
@@ -3543,7 +3557,7 @@ export class Parser {
      * A leading `identifier :` is unambiguous in argument position: positional
      * expressions never start that way (ternaries begin with `cond ?`).
      */
-    private tryParseNamedArgument(): NamedArgument | null {
+    private tryParseNamedArgument(): Expr | null {
         const nameToken = this.tokens.peek();
         const colonToken = this.peekToken(1);
         if (
@@ -3771,7 +3785,9 @@ export class Parser {
             );
         }
 
-        const { text: tagName, reference } = this.parseJsxName();
+        const parsedName = this.parseJsxName();
+        const tagName = parsedName.text;
+        const reference = parsedName.reference;
         const attributes = this.parseJsxAttributes();
 
         const afterAttributes = this.tokens.read();
@@ -3824,7 +3840,8 @@ export class Parser {
             this.fail("Expected '/' in JSX closing tag", this.tokenAt(slash));
         }
         if (expectedTagName !== null) {
-            const { text } = this.parseJsxName();
+            const parsedName = this.parseJsxName();
+            const text = parsedName.text;
             if (text !== expectedTagName) {
                 this.fail(`JSX closing tag </${text}> does not match opening tag <${expectedTagName}>`, this.tokenAt(closeLt));
             }
@@ -4426,8 +4443,9 @@ export class Parser {
                 receiverType: extensionHead.receiverType,
                 name: extensionHead.name
             };
-            if (extensionHead.receiverTypeArguments && extensionHead.receiverTypeArguments.length > 0) {
-                statement.receiverTypeArguments = extensionHead.receiverTypeArguments;
+            const receiverTypeArguments: Identifier[] | undefined = extensionHead.receiverTypeArguments;
+            if (receiverTypeArguments && receiverTypeArguments.length > 0) {
+                statement.receiverTypeArguments = receiverTypeArguments;
             }
             if (leadingTypeParameters.length > 0) {
                 statement.typeParameters = leadingTypeParameters;
@@ -4438,11 +4456,11 @@ export class Parser {
 
             const nextToken = this.tokens.peek();
             if (nextToken?.type === "symbol" && nextToken.value === "=>") {
-                const initializer = this.parseExpressionBodyAsBlock().body[0] as ReturnStatement | undefined;
+                const initializer: ReturnStatement | undefined = this.parseExpressionBodyAsBlock().body[0] as ReturnStatement | undefined;
                 if (initializer?.kind !== "ReturnStatement" || !initializer.expression) {
                     this.fail("Expected expression body after '=>'", this.tokenAt(nextToken));
                 }
-                statement.initializer = initializer.expression;
+                statement.initializer = (initializer as ReturnStatement).expression!;
                 return this.attachNodeBounds(
                     statement,
                     declarationKeyword,
@@ -5576,8 +5594,9 @@ export class Parser {
         const bodyTokens = this.tokens.items.slice(bodyStartOffset, this.tokens.offset);
         const nestedParser = new Parser(new ListReader(bodyTokens), { language: this.language });
         const parsed = nestedParser.parseStatement();
-        if (parsed?.kind === "BlockStatement") {
-            return parsed as BlockStatement;
+        const parsedBlock: BlockStatement | undefined = parsed as BlockStatement | undefined;
+        if (parsedBlock?.kind === "BlockStatement") {
+            return parsedBlock;
         }
         return this.attachNodeBounds({ kind: "BlockStatement", body: [] } as BlockStatement, openBrace, closeBrace);
     }
@@ -5804,7 +5823,8 @@ export class Parser {
         const members = this.parseClassMemberDeclaration(allowSignatureOnly);
         if (annotations.length > 0) {
             for (const member of members) {
-                member.annotations = [...(member.annotations ?? []), ...annotations];
+                const existingAnnotations: AnnotationApplication[] = member.annotations ?? [];
+                member.annotations = [...existingAnnotations, ...annotations];
             }
             const firstMember = members[0];
             if (firstMember) {
@@ -5905,7 +5925,7 @@ export class Parser {
         const privateMemberNameToken = memberNameToken?.type === "symbol" && memberNameToken.value === "#"
             ? this.tokens.read()
             : null;
-        const effectiveMemberNameToken =
+        const effectiveMemberNameToken: Token | undefined =
             memberNameToken?.type === "symbol" && memberNameToken.value === "#" && privateMemberNameToken?.type === "identifier"
                 ? {
                     ...privateMemberNameToken,
@@ -6407,7 +6427,7 @@ export class Parser {
     }
 
     private parseClassStatement(declared: boolean = false): ClassStatement {
-        return this.parseClassLike({ declared }) as ClassStatement;
+        return this.parseClassLike({ declared: declared }) as ClassStatement;
     }
 
     private parseInterfaceStatement(declared: boolean = false): InterfaceStatement {

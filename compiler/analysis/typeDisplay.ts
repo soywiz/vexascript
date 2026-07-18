@@ -1,4 +1,4 @@
-import type { AnalysisType } from "./types";
+import type { AnalysisType, FunctionType } from "./types";
 import { typeToString } from "./types";
 import type { Expr } from "compiler/ast/ast";
 
@@ -54,10 +54,12 @@ export function typeToDiagnosticLabel(type: AnalysisType): string {
   if (type.kind !== "function") {
     return typeToString(type);
   }
-  const parameters = type.parameters
-    .map((parameter) =>
-      `${parameter.name}${parameter.optional === true ? "?" : ""}: ${typeToDiagnosticLabel(parameter.type)}`
-    )
-    .join(", ");
-  return `(${parameters}) => ${typeToDiagnosticLabel(type.returnType)}`;
+  const functionType = type as FunctionType;
+  const parameters: string[] = [];
+  for (const functionParameter of functionType.parameters) {
+    parameters.push(
+      `${functionParameter.name}${functionParameter.optional === true ? "?" : ""}: ${typeToDiagnosticLabel(functionParameter.type)}`
+    );
+  }
+  return `(${parameters.join(", ")}) => ${typeToDiagnosticLabel(functionType.returnType)}`;
 }
