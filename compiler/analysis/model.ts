@@ -1,5 +1,4 @@
-import { NodeKind } from "compiler/ast/ast";
-import type { MemberExpression, Node, VarStatement } from "compiler/ast/ast";
+import type { Identifier, JsxAttribute, MemberExpression, Node, VarStatement } from "compiler/ast/ast";
 import type { AnalysisRange } from "./Analysis";
 import type { AnalysisType } from "./types";
 import type { AnalysisIssueCode, AnalysisIssueData } from "./issueCodes";
@@ -53,12 +52,12 @@ export interface BoundAnalysis {
 }
 
 export interface IdentifierResolution {
-  identifier: Node & { kind: NodeKind.Identifier; name: string };
+  identifier: Identifier;
   symbol: AnalysisSymbol;
 }
 
 export interface JsxAttributeResolution {
-  attribute: Node & { kind: NodeKind.JsxAttribute; name: string };
+  attribute: JsxAttribute;
   symbol: AnalysisSymbol;
 }
 

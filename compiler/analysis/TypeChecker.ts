@@ -380,7 +380,7 @@ export class TypeChecker {
   private collectExplicitlyUnknownIdentifiers(program: Program): void {
     walkAst(program, (node) => {
       const candidate = node as Node & { name?: BindingName; typeAnnotation?: Node };
-      const typeAnnotation = candidate.typeAnnotation as (Node & { kind: NodeKind.Identifier; name: string }) | undefined;
+      const typeAnnotation = candidate.typeAnnotation as (Identifier) | undefined;
       if (typeAnnotation?.kind !== NodeKind.Identifier || typeAnnotation.name !== "unknown" || !candidate.name) {
         return;
       }
@@ -2509,7 +2509,7 @@ export class TypeChecker {
           }
         }
         if (assignment.left.kind === NodeKind.Identifier && isUnknownType(leftType) && !isUnknownType(rightType)) {
-          const identifier = assignment.left as Node & { kind: NodeKind.Identifier; name: string };
+          const identifier = assignment.left as Identifier;
           this.updateResolvedSymbolType(scope, identifier, rightType);
         }
         const assignmentResultType = compoundOverload?.type ?? rightType;
@@ -2637,7 +2637,7 @@ export class TypeChecker {
         const memberSymbol = this.resolveKnownMemberSymbol(member, objectType);
         if (memberSymbol && member.property.kind === NodeKind.Identifier) {
           this.identifierResolutions.push({
-            identifier: member.property as Node & { kind: NodeKind.Identifier; name: string },
+            identifier: member.property as Identifier,
             symbol: memberSymbol
           });
         }
@@ -2999,7 +2999,7 @@ export class TypeChecker {
         }
 
         if (newExpression.callee.kind === NodeKind.Identifier) {
-          const calleeIdentifier = newExpression.callee as Node & { kind: NodeKind.Identifier; name: string };
+          const calleeIdentifier = newExpression.callee as Identifier;
           this.validateNamedTypeArgumentConstraints(
             calleeIdentifier.name,
             explicitTypeArguments,
@@ -3277,7 +3277,7 @@ export class TypeChecker {
         break;
       }
       case NodeKind.Identifier:
-        result = this.resolveIdentifierType(expression as Node & { kind: NodeKind.Identifier; name: string }, scope);
+        result = this.resolveIdentifierType(expression as Identifier, scope);
         break;
       case NodeKind.MissingExpression:
         this.issues.push({
@@ -3401,7 +3401,7 @@ export class TypeChecker {
     if (expression.kind !== NodeKind.Identifier) {
       return false;
     }
-    const identifier = expression as Node & { kind: NodeKind.Identifier; name: string };
+    const identifier = expression as Identifier;
     const symbol = this.resolve(identifier.name, scope, identifier.firstToken?.range.start.offset);
     return symbol?.kind === "variable" || symbol?.kind === "parameter";
   }
@@ -7500,7 +7500,7 @@ export class TypeChecker {
   }
 
   private resolveTypeAnnotation(
-    typeAnnotation: (Node & { kind: NodeKind.Identifier; name: string }) | undefined,
+    typeAnnotation: (Identifier) | undefined,
     scope: Scope
   ): AnalysisType | undefined {
     if (!typeAnnotation) {
@@ -7511,7 +7511,7 @@ export class TypeChecker {
   }
 
   private resolveTypeName(
-    typeNameIdentifier: Node & { kind: NodeKind.Identifier; name: string },
+    typeNameIdentifier: Identifier,
     scope: Scope
   ): AnalysisType {
     return this.resolveTypeNameText(typeNameIdentifier.name, typeNameIdentifier, scope, true);
@@ -7671,7 +7671,7 @@ export class TypeChecker {
         if (captureResolution && node.kind === NodeKind.Identifier) {
           if (symbol) {
             this.identifierResolutions.push({
-              identifier: node as Node & { kind: NodeKind.Identifier; name: string },
+              identifier: node as Identifier,
               symbol
             });
           }
@@ -8951,7 +8951,7 @@ export class TypeChecker {
 
   private validateReadonlyAssignmentTarget(expression: Expr, scope: Scope): boolean {
     if (expression.kind === NodeKind.Identifier) {
-      const identifier = expression as Node & { kind: NodeKind.Identifier; name: string };
+      const identifier = expression as Identifier;
       const usageOffset = identifier.firstToken?.range.start.offset;
       const symbol = this.resolve(identifier.name, scope, usageOffset);
       if (!symbol || symbol.kind !== "variable" || symbol.isReadonly !== true) {
@@ -9005,7 +9005,7 @@ export class TypeChecker {
       return false;
     }
 
-    const propertyName = (member.property as Node & { kind: NodeKind.Identifier; name: string }).name;
+    const propertyName = (member.property as Identifier).name;
     const receiverType = this.visitExpression(member.object, scope);
     if (this.hasReadonlyProperty(receiverType, propertyName)) {
       this.issues.push({
@@ -9166,7 +9166,7 @@ export class TypeChecker {
   }
 
   private resolveIdentifierType(
-    identifier: Node & { kind: NodeKind.Identifier; name: string },
+    identifier: Identifier,
     scope: Scope
   ): AnalysisType {
     const usageOffset = identifier.firstToken?.range.start.offset;
@@ -9193,7 +9193,7 @@ export class TypeChecker {
 
   private updateResolvedSymbolType(
     scope: Scope,
-    identifier: Node & { kind: NodeKind.Identifier; name: string },
+    identifier: Identifier,
     type: AnalysisType
   ): void {
     const usageOffset = identifier.firstToken?.range.start.offset;
@@ -9239,7 +9239,7 @@ export class TypeChecker {
     if (argumentTypes.length === 0) {
       return;
     }
-    const identifier = member.object as Node & { kind: NodeKind.Identifier; name: string };
+    const identifier = member.object as Identifier;
     const usageOffset = identifier.firstToken?.range.start.offset;
     const symbol = this.resolve(identifier.name, scope, usageOffset);
     if (!symbol || symbol.type?.kind !== "array") {
@@ -9755,7 +9755,7 @@ export class TypeChecker {
     if (iterator.kind === NodeKind.Identifier) {
       this.updateResolvedSymbolType(
         scope,
-        iterator as Node & { kind: NodeKind.Identifier; name: string },
+        iterator as Identifier,
         iteratorType
       );
       return;
@@ -10320,7 +10320,7 @@ export class TypeChecker {
       return;
     }
 
-    const propertyName = (member.property as Node & { kind: NodeKind.Identifier; name: string }).name;
+    const propertyName = (member.property as Identifier).name;
     const resolvedObjectType = this.resolveConstrainedNamedExpressionType(member.object, objectType) ?? objectType;
     if (isUnknownType(resolvedObjectType) || (resolvedObjectType.kind === "builtin" && resolvedObjectType.name === "unknown")) {
       if (member.object.kind === NodeKind.Identifier) {
@@ -10559,7 +10559,7 @@ export class TypeChecker {
     if (resolvedObjectType.kind === "builtin" && resolvedObjectType.name === "any") {
       return resolvedObjectType;
     }
-    const memberName = (member.property as Node & { kind: NodeKind.Identifier; name: string }).name;
+    const memberName = (member.property as Identifier).name;
     const importedExtensionType = (): AnalysisType | null => {
       const propertyType = this.resolveExtensionPropertyType(resolvedObjectType, memberName, member);
       if (propertyType) {
@@ -10675,7 +10675,7 @@ export class TypeChecker {
     }
 
     const resolvedObjectType = this.resolveConstrainedNamedExpressionType(member.object, objectType) ?? objectType;
-    const memberName = (member.property as Node & { kind: NodeKind.Identifier; name: string }).name;
+    const memberName = (member.property as Identifier).name;
 
     if (resolvedObjectType.kind === "union") {
       for (const type of resolvedObjectType.types) {
@@ -12228,7 +12228,7 @@ export class TypeChecker {
   }
 
   private typeFromAnnotationLoose(
-    typeAnnotation: (Node & { kind: NodeKind.Identifier; name: string }) | undefined,
+    typeAnnotation: (Identifier) | undefined,
     contextualThisTypeName?: string
   ): AnalysisType | undefined {
     if (!typeAnnotation) {

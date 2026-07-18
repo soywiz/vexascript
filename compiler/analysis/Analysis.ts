@@ -1,5 +1,5 @@
 import { NodeKind } from "compiler/ast/ast";
-import type { BinaryExpression, Identifier, ImportStatement, MemberExpression, Node, Program, Statement } from "compiler/ast/ast";
+import type { BinaryExpression, Identifier, ImportStatement, JsxAttribute, MemberExpression, Node, Program, Statement } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
 import { Binder } from "./Binder";
 import type {
@@ -596,7 +596,7 @@ export class Analysis {
     };
   }
 
-  private jsxAttributeNameRange(attribute: Node & { kind: NodeKind.JsxAttribute; name: string }): AnalysisRange | null {
+  private jsxAttributeNameRange(attribute: JsxAttribute): AnalysisRange | null {
     const token = attribute.firstToken;
     if (!token) {
       return null;

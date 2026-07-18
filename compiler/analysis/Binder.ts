@@ -1316,7 +1316,7 @@ export class Binder {
       if (statement.iterator.kind === NodeKind.VarStatement) {
         this.bindVarStatement(statement.iterator as VarStatement, loopScope);
       } else if (statement.iterator.kind === NodeKind.Identifier) {
-        const iteratorIdentifier = statement.iterator as Node & { kind: NodeKind.Identifier; name: string };
+        const iteratorIdentifier = statement.iterator as Identifier;
         this.declare(loopScope, {
           name: iteratorIdentifier.name,
           kind: "variable",

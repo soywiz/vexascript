@@ -188,7 +188,7 @@ std::string toString(const Value&);
 std::string jsonQuoted(const std::string&);
 double Number(const Value&);
 template <typename Result, typename Input>
-Result convertValue(Runtime&, Input&&);
+Result convertValue(Input&&);
 template <typename T>
 T defaultValue();
 template <typename T>
@@ -808,7 +808,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>> ||
         std::is_same_v<std::remove_pointer_t<T>, RecordObject>))
     ) {
-      return index < size() ? convertValue<Value>(runtime, get(index)) : Value::undefined();
+      return index < size() ? convertValue<Value>(get(index)) : Value::undefined();
     } else {
       throw std::runtime_error("This native array element type cannot flow through dynamic iteration");
     }
@@ -842,7 +842,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
             ? Value(value->enumerableBackingRecord())
             : Value::undefined();
         } else {
-          return convertValue<Value>(runtime, get(*index));
+          return convertValue<Value>(get(*index));
         }
       }
       return Value::undefined();
@@ -860,7 +860,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
     ) {
       const auto index = propertyIndex(key);
       if (!index) throw std::runtime_error("Invalid dynamic array index");
-      set(*index, convertValue<T>(runtime, value));
+      set(*index, convertValue<T>(value));
       return value;
     } else {
       throw std::runtime_error("This native array element type cannot flow through dynamic access");
@@ -970,8 +970,8 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
     if (index >= entries_.size()) return Value::undefined();
     return makeDynamicMapEntry(
         runtime,
-        convertValue<Value>(runtime, entries_[index].key.load()),
-        convertValue<Value>(runtime, entries_[index].value.load()));
+        convertValue<Value>(entries_[index].key.load()),
+        convertValue<Value>(entries_[index].value.load()));
   }
 
   void Trace(cppgc::Visitor* visitor) const override {
@@ -1038,7 +1038,7 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
   std::size_t dynamicIterableSize() const override { return values_.size(); }
   Value dynamicIterableGet(Runtime& runtime, std::size_t index) override {
     if (index >= values_.size()) return Value::undefined();
-    return convertValue<Value>(runtime, values_[index].load());
+    return convertValue<Value>(values_[index].load());
   }
 
   void Trace(cppgc::Visitor* visitor) const override {
@@ -1647,7 +1647,7 @@ inline Value optionalCall(Runtime& runtime, Target* target, Callback&& callback)
     std::forward<Callback>(callback)(target);
     return Value::undefined();
   } else {
-    return convertValue<Value>(runtime, std::forward<Callback>(callback)(target));
+    return convertValue<Value>(std::forward<Callback>(callback)(target));
   }
 }
 
@@ -2069,30 +2069,31 @@ concept RecordAdaptable = requires(RecordObject* record) {
 };
 
 template <typename Result, typename Input>
-Result convertValue(Runtime& runtime, Input&& input) {
+Result convertValue(Input&& input) {
   using Source = std::remove_cvref_t<Input>;
   if constexpr (std::is_same_v<Source, StoredValue>) {
-    return convertValue<Result>(runtime, input.load());
+    return convertValue<Result>(input.load());
   } else if constexpr (std::is_same_v<Result, Value> && std::is_same_v<Source, std::nullptr_t>) {
     return Value::null();
   } else if constexpr (std::is_same_v<Result, Source>) {
     return std::forward<Input>(input);
   } else if constexpr (requires(Source value) { value.Get(); }) {
-    return convertValue<Result>(runtime, input.Get());
+    return convertValue<Result>(input.Get());
   } else if constexpr (OptionalTraits<Source>::value) {
     if (!input.has_value()) {
       if constexpr (std::is_same_v<Result, Value>) return Value::undefined();
       else return defaultValue<Result>();
     }
-    return convertValue<Result>(runtime, *input);
+    return convertValue<Result>(*input);
   } else if constexpr (
       ArrayObjectPointerTraits<Result>::value &&
       ArrayObjectPointerTraits<Source>::value) {
     using ResultElement = typename ArrayObjectPointerTraits<Result>::Element;
+    auto& runtime = currentRuntime();
     auto* converted = runtime.array<ResultElement>();
     if (!input) return converted;
     for (std::size_t index = 0; index < input->size(); ++index) {
-      converted->append(convertValue<ResultElement>(runtime, input->get(index)));
+      converted->append(convertValue<ResultElement>(input->get(index)));
     }
     return converted;
   } else if constexpr (std::is_pointer_v<Result> && std::is_same_v<Source, Null>) {
@@ -2112,7 +2113,7 @@ Result convertValue(Runtime& runtime, Input&& input) {
         std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Source>> &&
         std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Result>>) {
       void* converted = input->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
-      if (!converted) throw runtime.errorAtCurrentSource("VexaScript object has an incompatible native pointer type");
+      if (!converted) throw errorAtCurrentSource("VexaScript object has an incompatible native pointer type");
       return static_cast<Result>(converted);
     } else if constexpr (
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>> &&
@@ -2125,7 +2126,7 @@ Result convertValue(Runtime& runtime, Input&& input) {
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>>) {
       return input->enumerableBackingRecord();
     } else {
-      throw runtime.errorAtCurrentSource("VexaScript object has an incompatible native pointer type");
+      throw errorAtCurrentSource("VexaScript object has an incompatible native pointer type");
     }
   } else
   if constexpr (std::is_same_v<Result, Value>) {
@@ -2136,7 +2137,7 @@ Result convertValue(Runtime& runtime, Input&& input) {
     } else if constexpr (std::is_same_v<Source, Null>) {
       return Value::null();
     } else if constexpr (std::is_same_v<Source, std::string>) {
-      return runtime.string(std::forward<Input>(input));
+      return currentRuntime().string(std::forward<Input>(input));
     } else if constexpr (std::is_pointer_v<Source>) {
       if (!input) return Value::null();
       if constexpr (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Source>>) {
@@ -2145,6 +2146,7 @@ Result convertValue(Runtime& runtime, Input&& input) {
         auto* enumerable = static_cast<EnumerableObject*>(input);
         auto* record = enumerable->enumerableBackingRecord();
         if (!record) {
+          auto& runtime = currentRuntime();
           record = runtime.record();
           for (const auto& key : enumerable->enumerableKeys()) {
             record->set(key, enumerable->enumerableGet(key));
@@ -2181,14 +2183,14 @@ Result convertValue(Runtime& runtime, Input&& input) {
       throw std::runtime_error("VexaScript value cannot be converted to bigint");
     } else if constexpr (std::is_same_v<Result, std::string>) {
       if (input.isString()) return input.string();
-      throw runtime.errorAtCurrentSource("VexaScript value is not a string");
+      throw errorAtCurrentSource("VexaScript value is not a string");
     } else if constexpr (std::is_arithmetic_v<Result>) {
       if (input.isNumber()) return static_cast<Result>(input.number());
       if (input.isBoolean()) return static_cast<Result>(input.boolean());
       if (input.isBigInt()) return static_cast<Result>(input.bigint().toDouble());
-      throw runtime.errorAtCurrentSource("VexaScript value is not numeric");
+      throw errorAtCurrentSource("VexaScript value is not numeric");
     } else if constexpr (IsStdFunction<Result>::value) {
-      return functionFromValue<Result>(runtime, input);
+      return functionFromValue<Result>(currentRuntime(), input);
     } else if constexpr (std::is_same_v<Result, RecordObject*>) {
       if (input.isNull() || input.isUndefined()) return nullptr;
       if (!input.isRecord()) throw std::runtime_error("VexaScript value is not an object");
@@ -2197,7 +2199,7 @@ Result convertValue(Runtime& runtime, Input&& input) {
       if (input.isNull() || input.isUndefined()) return nullptr;
       if (input.isRecord()) return input.record();
       if (input.isDynamicObject()) return input.dynamicObject();
-      throw runtime.errorAtCurrentSource("VexaScript WeakMap/WeakSet key is not an object");
+      throw errorAtCurrentSource("VexaScript WeakMap/WeakSet key is not an object");
     } else if constexpr (ArrayObjectPointerTraits<Result>::value) {
       using ResultElement = typename ArrayObjectPointerTraits<Result>::Element;
       if (input.isNull() || input.isUndefined()) return nullptr;
@@ -2208,9 +2210,10 @@ Result convertValue(Runtime& runtime, Input&& input) {
       auto* dynamicArray = static_cast<ArrayObject<Value>*>(
           input.dynamicObject()->dynamicCast(nativeTypeToken<ArrayObject<Value>>()));
       if (!dynamicArray) throw std::runtime_error("VexaScript value is not a compatible array");
+      auto& runtime = currentRuntime();
       auto* converted = runtime.array<ResultElement>();
       for (std::size_t index = 0; index < dynamicArray->size(); ++index) {
-        converted->append(convertValue<ResultElement>(runtime, dynamicArray->get(index)));
+        converted->append(convertValue<ResultElement>(dynamicArray->get(index)));
       }
       return converted;
     } else if constexpr (std::is_pointer_v<Result> && RecordAdaptable<std::remove_pointer_t<Result>>) {
@@ -2224,11 +2227,11 @@ Result convertValue(Runtime& runtime, Input&& input) {
     } else if constexpr (std::is_pointer_v<Result>) {
       if (input.isNull() || input.isUndefined()) return nullptr;
       if (!input.isDynamicObject()) {
-        throw runtime.errorAtCurrentSource("VexaScript dynamic value has an incompatible native object type");
+        throw errorAtCurrentSource("VexaScript dynamic value has an incompatible native object type");
       }
       void* converted = input.dynamicObject()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
       if (!converted) {
-        throw runtime.errorAtCurrentSource("VexaScript dynamic value has an incompatible native object type");
+        throw errorAtCurrentSource("VexaScript dynamic value has an incompatible native object type");
       }
       return static_cast<Result>(converted);
     } else {
@@ -2244,7 +2247,7 @@ inline Interface* adaptInterface(Runtime& runtime, Input&& input) {
   using Source = std::remove_cvref_t<Input>;
   if constexpr (std::is_same_v<Source, Value>) {
     if (input.isRecord()) return runtime.make<Adapter>(input.record());
-    return convertValue<Interface*>(runtime, std::forward<Input>(input));
+    return convertValue<Interface*>(std::forward<Input>(input));
   } else if constexpr (std::is_same_v<Source, RecordObject*>) {
     return runtime.make<Adapter>(input);
   } else if constexpr (std::is_pointer_v<Source> && std::is_convertible_v<Source, Interface*>) {
@@ -2263,7 +2266,7 @@ inline Interface* adaptInterface(Runtime& runtime, Input&& input) {
     }
     return runtime.make<Adapter>(record);
   } else {
-    return convertValue<Interface*>(runtime, std::forward<Input>(input));
+    return convertValue<Interface*>(std::forward<Input>(input));
   }
 }
 
@@ -2281,7 +2284,7 @@ T& nullishAssign(T& target, Callback&& fallback) {
 
 template <typename K, typename V, typename Key>
 inline V mapGet(Runtime& runtime, const MapObject<K, V>* map, Key&& key) {
-  const auto found = map->get(convertValue<K>(runtime, std::forward<Key>(key)));
+  const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
   if (found) return *found;
   if constexpr (std::is_same_v<V, Value>) return Value::undefined();
   return V{};
@@ -2289,25 +2292,25 @@ inline V mapGet(Runtime& runtime, const MapObject<K, V>* map, Key&& key) {
 
 template <typename K, typename V, typename Key>
 inline Value mapGetValue(Runtime& runtime, const MapObject<K, V>* map, Key&& key) {
-  const auto found = map->get(convertValue<K>(runtime, std::forward<Key>(key)));
-  return found ? convertValue<Value>(runtime, *found) : Value::undefined();
+  const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
+  return found ? convertValue<Value>(*found) : Value::undefined();
 }
 
 template <typename K, typename V, typename Key, typename Input>
 inline MapObject<K, V>* mapSet(Runtime& runtime, MapObject<K, V>* map, Key&& key, Input&& value) {
   return map->set(
-      convertValue<K>(runtime, std::forward<Key>(key)),
-      convertValue<V>(runtime, std::forward<Input>(value)));
+      convertValue<K>(std::forward<Key>(key)),
+      convertValue<V>(std::forward<Input>(value)));
 }
 
 template <typename K, typename V, typename Key>
 inline bool mapHas(Runtime& runtime, MapObject<K, V>* map, Key&& key) {
-  return map->has(convertValue<K>(runtime, std::forward<Key>(key)));
+  return map->has(convertValue<K>(std::forward<Key>(key)));
 }
 
 template <typename K, typename V, typename Key>
 inline bool mapDelete(Runtime& runtime, MapObject<K, V>* map, Key&& key) {
-  return map->erase(convertValue<K>(runtime, std::forward<Key>(key)));
+  return map->erase(convertValue<K>(std::forward<Key>(key)));
 }
 
 template <typename K, typename V>
@@ -2335,8 +2338,8 @@ inline ArrayObject<ArrayObject<Value>*>* mapEntries(Runtime& runtime, MapObject<
   auto* result = runtime.array<ArrayObject<Value>*>();
   map->forEach([&](V value, K key) {
     result->append(runtime.array<Value>({
-        convertValue<Value>(runtime, key),
-        convertValue<Value>(runtime, value)}));
+        convertValue<Value>(key),
+        convertValue<Value>(value)}));
   });
   return result;
 }
@@ -2365,8 +2368,8 @@ inline MapObject<K, V>* mapFromEntries(
       throw std::runtime_error("VexaScript Map entry must contain a key and value");
     }
     result->set(
-        convertValue<K>(runtime, entry->get(0)),
-        convertValue<V>(runtime, entry->get(1)));
+        convertValue<K>(entry->get(0)),
+        convertValue<V>(entry->get(1)));
   }
   return result;
 }
@@ -2382,7 +2385,7 @@ template <typename K, typename V, typename InputK, typename InputV>
 inline MapObject<K, V>* mapFromIterable(Runtime& runtime, MapObject<InputK, InputV>* source) {
   auto* result = runtime.make<MapObject<K, V>>();
   source->forEach([&](InputV value, InputK key) {
-    result->set(convertValue<K>(runtime, key), convertValue<V>(runtime, value));
+    result->set(convertValue<K>(key), convertValue<V>(value));
   });
   return result;
 }
@@ -2414,7 +2417,7 @@ inline MapObject<K, V>* mapFromDynamicEntries(
           " has an incompatible array element type");
     }
     if (entry->size() < 2) throw std::runtime_error("VexaScript Map entry must contain a key and value");
-    result->set(convertValue<K>(runtime, entry->get(0)), convertValue<V>(runtime, entry->get(1)));
+    result->set(convertValue<K>(entry->get(0)), convertValue<V>(entry->get(1)));
     ++index;
   }
   return result;
@@ -2442,8 +2445,8 @@ inline MapObject<K, V>* mapFromIterable(Runtime& runtime, const Value& source) {
       throw std::runtime_error("VexaScript Map entry must contain a key and value");
     }
     result->set(
-        convertValue<K>(runtime, entry->dynamicArrayGet(runtime, 0)),
-        convertValue<V>(runtime, entry->dynamicArrayGet(runtime, 1)));
+        convertValue<K>(entry->dynamicArrayGet(runtime, 0)),
+        convertValue<V>(entry->dynamicArrayGet(runtime, 1)));
     ++index;
   }
   return result;
@@ -2451,22 +2454,22 @@ inline MapObject<K, V>* mapFromIterable(Runtime& runtime, const Value& source) {
 
 template <typename T, typename Input>
 inline SetObject<T>* setAdd(Runtime& runtime, SetObject<T>* set, Input&& value) {
-  return set->add(convertValue<T>(runtime, std::forward<Input>(value)));
+  return set->add(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T, typename Input>
 inline bool setHas(Runtime& runtime, SetObject<T>* set, Input&& value) {
-  return set->has(convertValue<T>(runtime, std::forward<Input>(value)));
+  return set->has(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T, typename Input>
 inline bool setHas(Runtime& runtime, const SetObject<T>* set, Input&& value) {
-  return set->has(convertValue<T>(runtime, std::forward<Input>(value)));
+  return set->has(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T, typename Input>
 inline bool setDelete(Runtime& runtime, SetObject<T>* set, Input&& value) {
-  return set->erase(convertValue<T>(runtime, std::forward<Input>(value)));
+  return set->erase(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T>
@@ -2485,7 +2488,7 @@ inline ArrayObject<T>* setValues(Runtime& runtime, SetObject<T>* set) {
 template <typename T, typename Input>
 inline SetObject<T>* setFromArray(Runtime& runtime, const ArrayObject<Input>* values) {
   auto* result = runtime.make<SetObject<T>>();
-  for (const auto& value : *values) result->add(convertValue<T>(runtime, value));
+  for (const auto& value : *values) result->add(convertValue<T>(value));
   return result;
 }
 
@@ -2502,7 +2505,7 @@ inline SetObject<T>* setFromIterable(Runtime& runtime, const cppgc::Persistent<A
 template <typename T, typename Input>
 inline SetObject<T>* setFromIterable(Runtime& runtime, SetObject<Input>* source) {
   auto* result = runtime.make<SetObject<T>>();
-  source->forEach([&](Input value) { result->add(convertValue<T>(runtime, value)); });
+  source->forEach([&](Input value) { result->add(convertValue<T>(value)); });
   return result;
 }
 
@@ -2521,13 +2524,13 @@ inline SetObject<T>* setFromIterable(Runtime& runtime, const Value& source) {
 template <typename T, typename Input>
 inline WeakSetObject<T>* weakSetFromArray(Runtime& runtime, const ArrayObject<Input>* values) {
   auto* result = runtime.make<WeakSetObject<T>>();
-  for (const auto& value : *values) result->add(convertValue<T>(runtime, value));
+  for (const auto& value : *values) result->add(convertValue<T>(value));
   return result;
 }
 
 template <typename K, typename V, typename Key>
 inline V weakMapGet(Runtime& runtime, WeakMapObject<K, V>* map, Key&& key) {
-  const auto found = map->get(convertValue<K>(runtime, std::forward<Key>(key)));
+  const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
   if (found) return *found;
   if constexpr (std::is_same_v<V, Value>) return Value::undefined();
   return V{};
@@ -2536,33 +2539,33 @@ inline V weakMapGet(Runtime& runtime, WeakMapObject<K, V>* map, Key&& key) {
 template <typename K, typename V, typename Key, typename Input>
 inline WeakMapObject<K, V>* weakMapSet(Runtime& runtime, WeakMapObject<K, V>* map, Key&& key, Input&& value) {
   return map->set(
-      convertValue<K>(runtime, std::forward<Key>(key)),
-      convertValue<V>(runtime, std::forward<Input>(value)));
+      convertValue<K>(std::forward<Key>(key)),
+      convertValue<V>(std::forward<Input>(value)));
 }
 
 template <typename K, typename V, typename Key>
 inline bool weakMapHas(Runtime& runtime, WeakMapObject<K, V>* map, Key&& key) {
-  return map->has(convertValue<K>(runtime, std::forward<Key>(key)));
+  return map->has(convertValue<K>(std::forward<Key>(key)));
 }
 
 template <typename K, typename V, typename Key>
 inline bool weakMapDelete(Runtime& runtime, WeakMapObject<K, V>* map, Key&& key) {
-  return map->erase(convertValue<K>(runtime, std::forward<Key>(key)));
+  return map->erase(convertValue<K>(std::forward<Key>(key)));
 }
 
 template <typename T, typename Input>
 inline WeakSetObject<T>* weakSetAdd(Runtime& runtime, WeakSetObject<T>* set, Input&& value) {
-  return set->add(convertValue<T>(runtime, std::forward<Input>(value)));
+  return set->add(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T, typename Input>
 inline bool weakSetHas(Runtime& runtime, WeakSetObject<T>* set, Input&& value) {
-  return set->has(convertValue<T>(runtime, std::forward<Input>(value)));
+  return set->has(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T, typename Input>
 inline bool weakSetDelete(Runtime& runtime, WeakSetObject<T>* set, Input&& value) {
-  return set->erase(convertValue<T>(runtime, std::forward<Input>(value)));
+  return set->erase(convertValue<T>(std::forward<Input>(value)));
 }
 
 inline Uint8ArrayObject* makeUint8Array(Runtime& runtime, double length) {
@@ -2578,7 +2581,7 @@ inline Uint8ArrayObject* makeUint8Array(Runtime& runtime, ArrayBufferObject* buf
 template <typename T>
 inline Uint8ArrayObject* makeUint8Array(Runtime& runtime, const ArrayObject<T>* values) {
   auto* result = makeUint8Array(runtime, static_cast<double>(values->size()));
-  for (std::size_t index = 0; index < values->size(); ++index) result->set(index, Number(convertValue<Value>(runtime, values->get(index))));
+  for (std::size_t index = 0; index < values->size(); ++index) result->set(index, Number(convertValue<Value>(values->get(index))));
   return result;
 }
 
@@ -2645,7 +2648,7 @@ class FunctionObject final
     if (arguments.size() != sizeof...(Arguments)) {
       throw std::runtime_error("VexaScript callable received the wrong number of arguments");
     }
-    return dynamicCallWithIndices(runtime, arguments, std::index_sequence_for<Arguments...>{});
+    return dynamicCallWithIndices(arguments, std::index_sequence_for<Arguments...>{});
   }
 
   void Trace(cppgc::Visitor* visitor) const override {
@@ -2655,16 +2658,14 @@ class FunctionObject final
  private:
   template <std::size_t... Indices>
   Value dynamicCallWithIndices(
-      Runtime& runtime,
       const std::vector<Value>& arguments,
       std::index_sequence<Indices...>) {
     if constexpr (std::is_void_v<Result>) {
-      callback_(convertValue<Arguments>(runtime, arguments[Indices])...);
+      callback_(convertValue<Arguments>(arguments[Indices])...);
       return Value::undefined();
     } else {
       return convertValue<Value>(
-          runtime,
-          callback_(convertValue<Arguments>(runtime, arguments[Indices])...));
+          callback_(convertValue<Arguments>(arguments[Indices])...));
     }
   }
 
@@ -2718,7 +2719,7 @@ inline Value callOptional(Runtime& runtime, const Value& callable, std::vector<V
 template <typename Result>
 Result recordGet(Runtime& runtime, RecordObject* record, const std::string& key) {
   if (!record) throw std::runtime_error("Cannot read a property of null");
-  return convertValue<Result>(runtime, record->get(key));
+  return convertValue<Result>(record->get(key));
 }
 
 template <typename Result>
@@ -2746,7 +2747,7 @@ std::remove_cvref_t<Input> recordSet(
   if (!record) throw std::runtime_error("Cannot write a property of null");
   using Result = std::remove_cvref_t<Input>;
   Result result = std::forward<Input>(input);
-  record->set(key, convertValue<Value>(runtime, result));
+  record->set(key, convertValue<Value>(result));
   return result;
 }
 
@@ -2834,7 +2835,7 @@ inline RecordObject* recordRest(
 template <typename Callback>
 Value destructureDefault(Runtime& runtime, Value value, Callback&& fallback) {
   return value.isUndefined()
-      ? convertValue<Value>(runtime, std::forward<Callback>(fallback)())
+      ? convertValue<Value>(std::forward<Callback>(fallback)())
       : value;
 }
 
@@ -2876,60 +2877,60 @@ inline bool recordDelete(RecordObject* record, const PropertyKey& key) {
   return record && record->erase(key);
 }
 
-inline Value dynamicObjectGet(Runtime& runtime, DynamicValueObject* target, const PropertyKey& key) {
+inline Value dynamicObjectGet(DynamicValueObject* target, const PropertyKey& key) {
   if (!target) throw std::runtime_error("Cannot read a property of null");
   Value value = target->dynamicGet(key);
   if (!value.isUndefined()) return value;
   if (key == u"message") {
     if (void* error = target->dynamicCast(nativeTypeToken<Error>())) {
-      return runtime.string(static_cast<Error*>(error)->messageText());
+      return currentRuntime().string(static_cast<Error*>(error)->messageText());
     }
   }
   return value;
 }
 
-inline Value dynamicGet(Runtime& runtime, const Value& target, const PropertyKey& key) {
+inline Value dynamicGet(const Value& target, const PropertyKey& key) {
   if (target.isRecord()) return target.record()->get(utf16ToUtf8(key));
-  if (target.isDynamicObject()) return dynamicObjectGet(runtime, target.dynamicObject(), key);
+  if (target.isDynamicObject()) return dynamicObjectGet(target.dynamicObject(), key);
   if (target.isString()) {
     if (key == u"message") return target;
     if (key == u"length") return Value(static_cast<double>(target.utf16().size()));
     if (const auto index = propertyIndex(key); index && *index < target.utf16().size()) {
-      return runtime.string(target.utf16().substr(*index, 1));
+      return currentRuntime().string(target.utf16().substr(*index, 1));
     }
     return Value::undefined();
   }
   if (target.isNull() || target.isUndefined()) throw std::runtime_error("Cannot read a property of null or undefined");
-  throw runtime.errorAtCurrentSource("Dynamic native object properties require a declared interface or cast");
+  throw errorAtCurrentSource("Dynamic native object properties require a declared interface or cast");
 }
 
-inline Value dynamicGet(Runtime&, RecordObject* target, const PropertyKey& key) {
+inline Value dynamicGet(RecordObject* target, const PropertyKey& key) {
   if (!target) throw std::runtime_error("Cannot read a property of null");
   return target->get(utf16ToUtf8(key));
 }
 
 template <typename T>
   requires std::is_base_of_v<DynamicValueObject, T>
-inline Value dynamicGet(Runtime& runtime, T* target, const PropertyKey& key) {
-  return dynamicObjectGet(runtime, target, key);
+inline Value dynamicGet(T* target, const PropertyKey& key) {
+  return dynamicObjectGet(target, key);
 }
 
 template <typename T>
-inline Value dynamicGet(Runtime& runtime, const cppgc::Member<T>& target, const PropertyKey& key) {
-  return dynamicGet(runtime, target.Get(), key);
+inline Value dynamicGet(const cppgc::Member<T>& target, const PropertyKey& key) {
+  return dynamicGet(target.Get(), key);
 }
 
-inline Value dynamicGetOptional(Runtime& runtime, const Value& target, const PropertyKey& key) {
-  return target.isNull() || target.isUndefined() ? Value::undefined() : dynamicGet(runtime, target, key);
+inline Value dynamicGetOptional(const Value& target, const PropertyKey& key) {
+  return target.isNull() || target.isUndefined() ? Value::undefined() : dynamicGet(target, key);
 }
 
 template <typename T>
   requires std::is_base_of_v<DynamicValueObject, T>
-inline Value dynamicGetOptional(Runtime& runtime, T* target, const PropertyKey& key) {
-  return target ? dynamicGet(runtime, target, key) : Value::undefined();
+inline Value dynamicGetOptional(T* target, const PropertyKey& key) {
+  return target ? dynamicGet(target, key) : Value::undefined();
 }
 
-inline Value dynamicSet(Runtime& runtime, const Value& target, const PropertyKey& key, const Value& value) {
+inline Value dynamicSet(const Value& target, const PropertyKey& key, const Value& value) {
   if (target.isRecord()) {
     target.record()->set(utf16ToUtf8(key), value);
     return value;
@@ -2938,7 +2939,7 @@ inline Value dynamicSet(Runtime& runtime, const Value& target, const PropertyKey
   throw std::runtime_error("Cannot set a property on this dynamic value");
 }
 
-inline Value dynamicSet(Runtime&, RecordObject* target, const PropertyKey& key, const Value& value) {
+inline Value dynamicSet(RecordObject* target, const PropertyKey& key, const Value& value) {
   if (!target) throw std::runtime_error("Cannot set a property on null");
   target->set(utf16ToUtf8(key), value);
   return value;
@@ -2946,7 +2947,7 @@ inline Value dynamicSet(Runtime&, RecordObject* target, const PropertyKey& key, 
 
 template <typename T>
   requires std::is_base_of_v<DynamicValueObject, T>
-inline Value dynamicSet(Runtime& runtime, T* target, const PropertyKey& key, const Value& value) {
+inline Value dynamicSet(T* target, const PropertyKey& key, const Value& value) {
   if (!target) throw std::runtime_error("Cannot set a property on null");
   return target->dynamicSet(key, value);
 }
@@ -3037,7 +3038,7 @@ inline RecordObject* recordFromEntries(Runtime& runtime, const ArrayObject<Array
   auto* record = runtime.record();
   for (auto* entry : *entries) {
     if (!entry || entry->size() < 2) continue;
-    record->set(propertyKey(convertValue<Value>(runtime, entry->get(0))), convertValue<Value>(runtime, entry->get(1)));
+    record->set(propertyKey(convertValue<Value>(entry->get(0))), convertValue<Value>(entry->get(1)));
   }
   return record;
 }
@@ -3085,7 +3086,7 @@ Value nullishCoalesce(Value value, Callback&& fallback) {
 template <typename T, typename Callback>
 T* nullishCoalesce(T* value, Callback&& fallback) {
   if (value) return value;
-  return convertValue<T*>(Runtime::current(), std::forward<Callback>(fallback)());
+  return convertValue<T*>(std::forward<Callback>(fallback)());
 }
 
 template <typename T, typename Callback>
@@ -3140,7 +3141,7 @@ template <typename T, typename Callback>
     std::forward<Callback>(callback)();
     throw ReturnSignal<void>();
   } else {
-    throw ReturnSignal<T>(convertValue<T>(runtime, std::forward<Callback>(callback)()));
+    throw ReturnSignal<T>(convertValue<T>(std::forward<Callback>(callback)()));
   }
 }
 
@@ -3299,7 +3300,7 @@ class Task final {
       requires (!std::is_same_v<std::remove_cvref_t<Reason>, Error>)
     void operator()(Reason&& reason) const {
       reject(state_, std::make_exception_ptr(RejectedValue(
-          convertValue<Value>(*state_->runtime, std::forward<Reason>(reason)))));
+          convertValue<Value>(std::forward<Reason>(reason)))));
     }
 
    private:
@@ -3457,7 +3458,7 @@ class Task<void> final {
       requires (!std::is_same_v<std::remove_cvref_t<Reason>, Error>)
     void operator()(Reason&& reason) const {
       reject(state_, std::make_exception_ptr(RejectedValue(
-          convertValue<Value>(*state_->runtime, std::forward<Reason>(reason)))));
+          convertValue<Value>(std::forward<Reason>(reason)))));
     }
 
    private:
@@ -3793,7 +3794,7 @@ inline double push(std::vector<T>& array, Values&&... values) {
 
 template <typename T, typename... Values>
 inline double push(ArrayObject<T>* array, Values&&... values) {
-  (array->push(convertValue<T>(Runtime::current(), std::forward<Values>(values))), ...);
+  (array->push(convertValue<T>(std::forward<Values>(values))), ...);
   return static_cast<double>(array->size());
 }
 
@@ -3811,7 +3812,7 @@ template <typename T, typename U>
   requires (!std::is_same_v<T, U>)
 inline void appendAll(ArrayObject<T>* target, const ArrayObject<U>* source) {
   for (const auto value : *source) {
-    target->append(convertValue<T>(Runtime::current(), value));
+    target->append(convertValue<T>(value));
   }
 }
 
@@ -3819,7 +3820,7 @@ template <typename T>
 inline void appendAll(ArrayObject<T>* target, const Value& source) {
   auto& runtime = Runtime::current();
   for (const auto value : dynamicArrayRange(runtime, source)) {
-    target->append(convertValue<T>(runtime, value));
+    target->append(convertValue<T>(value));
   }
 }
 
@@ -3832,20 +3833,20 @@ inline double pushAll(ArrayObject<T>* target, const ArrayObject<T>* source) {
 template <typename T>
 inline void appendAllConverted(Runtime& runtime, std::vector<Value>& target, const std::vector<T>& source) {
   target.reserve(target.size() + source.size());
-  for (const auto& value : source) target.push_back(convertValue<Value>(runtime, value));
+  for (const auto& value : source) target.push_back(convertValue<Value>(value));
 }
 
 template <typename T>
 inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, const ArrayObject<T>* source) {
-  for (const auto value : *source) target->append(convertValue<Value>(runtime, value));
+  for (const auto value : *source) target->append(convertValue<Value>(value));
 }
 
 template <typename K, typename V>
 inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, MapObject<K, V>* source) {
   source->forEach([&](V value, K key) {
-    target->append(convertValue<Value>(runtime, runtime.array<Value>({
-        convertValue<Value>(runtime, key),
-        convertValue<Value>(runtime, value)})));
+    target->append(convertValue<Value>(runtime.array<Value>({
+        convertValue<Value>(key),
+        convertValue<Value>(value)})));
   });
 }
 
@@ -3859,7 +3860,7 @@ inline void appendAllConverted(
 
 template <typename T>
 inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, SetObject<T>* source) {
-  source->forEach([&](T value) { target->append(convertValue<Value>(runtime, value)); });
+  source->forEach([&](T value) { target->append(convertValue<Value>(value)); });
 }
 
 template <typename T>
@@ -4307,7 +4308,7 @@ inline ArrayObject<T>* ArrayObject<T>::splice(
       values_.begin() + static_cast<std::ptrdiff_t>(first),
       values_.begin() + static_cast<std::ptrdiff_t>(first + count));
   std::vector<ArraySlot<T>> inserted{
-      ArraySlot<T>(convertValue<T>(runtime, std::forward<Items>(items)))...};
+      ArraySlot<T>(convertValue<T>(std::forward<Items>(items)))...};
   values_.insert(
       values_.begin() + static_cast<std::ptrdiff_t>(first),
       std::make_move_iterator(inserted.begin()),
@@ -4336,7 +4337,7 @@ inline ArrayObject<T>* spliceAll(
   auto* removed = array->splice(runtime, start, deleteCount);
   std::size_t offset = 0;
   for (const auto& item : *items) {
-    array->insert(first + offset, convertValue<T>(runtime, item));
+    array->insert(first + offset, convertValue<T>(item));
     ++offset;
   }
   return removed;
@@ -4418,7 +4419,7 @@ template <typename T, typename Index, typename U>
 inline T arraySet(ArrayObject<T>* array, Index index, U&& value) {
   return array->set(
       arrayIndex(std::forward<Index>(index)),
-      convertValue<T>(Runtime::current(), std::forward<U>(value)));
+      convertValue<T>(std::forward<U>(value)));
 }
 
 inline std::string numberToString(double value) {
@@ -4594,7 +4595,7 @@ Task<ArrayObject<RecordObject*>*> promiseAllSettled(
             try {
               result = runtime.record({
                   {"status", runtime.string("fulfilled")},
-                  {"value", convertValue<Value>(runtime, task.settledValue())},
+                  {"value", convertValue<Value>(task.settledValue())},
               });
             } catch (const RejectedValue& rejected) {
               result = runtime.record({
@@ -5478,8 +5479,8 @@ inline bool Boolean(const std::vector<T>&) {
 
 template <typename Left, typename Right>
 inline Value add(Runtime& runtime, Left&& leftInput, Right&& rightInput) {
-  const Value left = convertValue<Value>(runtime, std::forward<Left>(leftInput));
-  const Value right = convertValue<Value>(runtime, std::forward<Right>(rightInput));
+  const Value left = convertValue<Value>(std::forward<Left>(leftInput));
+  const Value right = convertValue<Value>(std::forward<Right>(rightInput));
   if (left.isString() || right.isString()) {
     return runtime.string(toString(left) + toString(right));
   }

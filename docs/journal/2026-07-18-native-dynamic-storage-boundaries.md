@@ -237,3 +237,44 @@ sources are now generated as two exact template-string blobs by
 equality and rejects the former array representation. With the UTF-16 operation
 fix and blob representation together, the same unoptimized native parser
 reproduction fell from 49.87 seconds to 4.51 seconds.
+
+## Conversion and Nominal AST Dispatch Boundaries
+
+`convertValue` previously accepted a `Runtime&` even when a conversion only
+copied a scalar, unwrapped a handle, or performed a checked native cast. This
+made the runtime argument part of every generated conversion expression and
+of every recursive template instantiation. The argument has been removed.
+Only branches that allocate a string, collection, adapter, or callable now ask
+`currentRuntime()` for the active heap at the point where it is required.
+
+The same rule now applies to dynamic property helpers. A dynamic `Value` or
+record still needs a free helper because its representation must be inspected,
+but a known generated object pointer calls its virtual `dynamicGet` or
+`dynamicSet` method directly. Generated free dynamic access no longer carries
+a runtime argument. This keeps the generic boundary available without routing
+nominal objects through it.
+
+Several analysis APIs still described concrete AST nodes as structural
+intersections such as `Node & { kind: NodeKind.JsxAttribute; name: string }`.
+Those types prevented the native emitter from seeing the concrete class even
+though the parser always constructs one. Replacing them with `JsxAttribute`
+and `Identifier` made the generated `jsxAttributeNameRange` signature nominal
+and changed its property read to the direct `attribute->firstToken`. This is a
+useful migration pattern: make the TypeScript source tell the truth about a
+known AST class, then let the existing static C++ path work instead of adding
+an emitter special case.
+
+After these changes the self-host translation unit contained 13,431
+`convertValue` call sites but no call that propagated `Runtime`. It contained
+no free `dynamicGet`, `dynamicSet`, or optional variant with a runtime argument.
+Node emitted the 6.74 MB, 59,011-line unit in 20.02 seconds, and GCC compiled it
+with `-O0 -DNDEBUG` in 16.96 seconds. The resulting native compiler generated a
+hello-world translation unit in 9.11 seconds (8.42 seconds inside the profiled
+pipeline); that C++ compiled in 1.83 seconds and printed the expected output.
+
+The large conversion template remains a compile-time optimization candidate.
+Splitting common scalar boxing and unboxing into small overloads, with templates
+reserved for structural collection and callable conversions, may reduce both
+template instantiation volume and optimizer work. That redesign was deliberately
+deferred until the two-roundtrip bootstrap is functional so its value can be
+measured rather than inferred from optimized-build latency alone.
