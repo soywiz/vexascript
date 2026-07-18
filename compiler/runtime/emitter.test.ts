@@ -465,6 +465,14 @@ let promise = go fetchValue()
     expect(emitProgram(program)).toBe("console.log(42, 1);");
   });
 
+  it("omits type-only declare fields from runtime classes", () => {
+    const program = parseFile(
+      tokenizeReader('class Identifier { declare kind: "Identifier"\nvalue = 1 }'),
+      { language: "typescript" }
+    );
+    expect(emitProgram(program)).toBe("class Identifier {\nvalue = 1;\n}");
+  });
+
 
   it("emits constructor parameter properties as runtime assignments", () => {
     const program = parseFile(tokenizeReader("class User { constructor(public readonly id: string, private age = 0) { console.log(id) } }"));

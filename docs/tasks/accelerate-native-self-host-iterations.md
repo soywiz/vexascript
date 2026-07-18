@@ -48,6 +48,8 @@ development loop.
   represented by the current C++ interface model.
 * [ ] Provide fast debug and syntax-validation profiles plus a separate final
   optimized roundtrip profile.
+* [ ] Make strict native object mode the final self-host target so compiler
+  migration diagnostics identify every remaining dynamic object operation.
 
 ## Acceptance Criteria
 

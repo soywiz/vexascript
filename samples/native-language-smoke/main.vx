@@ -390,9 +390,10 @@ for (member of dynamicMembers ?? []) {
 }
 console.log("deferred dynamic array", dynamicMemberText)
 val dynamicPairs: any = new Map<string, int>([["left", 2], ["right", 3]])
+val copiedDynamicPairs = new Map<string, int>(dynamicPairs)
 var dynamicPairText = ""
 for (val [key, value] of dynamicPairs) dynamicPairText += `${key}:${value}|`
-console.log("deferred dynamic map", dynamicPairText)
+console.log("deferred dynamic map", dynamicPairText, copiedDynamicPairs.get("right"))
 
 val nativeJson = JSON.stringify({ name: "Ada", values: [1, 2], active: true })
 val parsedNativeJson: any = JSON.parse(nativeJson)

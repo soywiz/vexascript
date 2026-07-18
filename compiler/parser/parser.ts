@@ -5,11 +5,13 @@ import {
     AnnotationApplication,
     AnnotationStatement,
     ArrowFunctionExpression,
+    ArrayHole,
     ArrayLiteral,
     AsExpression,
     AssignmentExpression,
     BigIntLiteral,
     BindingElement,
+    BindingHole,
     BindingName,
     BinaryExpression,
     BooleanLiteral,
@@ -64,6 +66,7 @@ import {
     LongLiteral,
     LabeledStatement,
     MemberExpression,
+    MissingExpression,
     NewExpression,
     NamespaceStatement,
     NonNullExpression,
@@ -282,7 +285,7 @@ export class Parser {
         }
 
         const program = this.attachNodeBounds(
-            { kind: "Program", body } as Program,
+            new Program({ kind: "Program", body }) as Program,
             startToken,
             this.getLastNonEofReadToken() ?? startToken
         );
@@ -398,7 +401,7 @@ export class Parser {
         }
         if (token?.type === "symbol" && token.value === ";") {
             const semicolon = this.tokens.read();
-            return this.attachNodeBounds({ kind: "EmptyStatement" } as EmptyStatement, semicolon, semicolon);
+            return this.attachNodeBounds(new EmptyStatement({ kind: "EmptyStatement" }) as EmptyStatement, semicolon, semicolon);
         }
         if (token?.type === "identifier" && token.value === "try") {
             return this.parseTryStatement();
@@ -412,10 +415,10 @@ export class Parser {
 
         const expression = this.parseExpressionOrThrow();
         return this.attachNodeBounds(
-            {
+            new ExprStatement({
                 kind: "ExprStatement",
                 expression
-            } as ExprStatement,
+            }) as ExprStatement,
             expression.firstToken,
             expression.lastToken
         );
@@ -446,11 +449,11 @@ export class Parser {
         const openParen = this.tokens.peek();
         if (openParen?.type !== "symbol" || openParen.value !== "(") {
             return this.attachNodeBounds(
-                {
+                new AnnotationApplication({
                     kind: "AnnotationApplication",
                     name: this.buildIdentifierFromToken(annotationName),
                     arguments: []
-                } as AnnotationApplication,
+                }) as AnnotationApplication,
                 atToken,
                 annotationName
             );
@@ -462,11 +465,11 @@ export class Parser {
             this.fail(`Expected ')' after '@${annotationName.value}' arguments`, this.tokenAt(closeParen));
         }
         return this.attachNodeBounds(
-            {
+            new AnnotationApplication({
                 kind: "AnnotationApplication",
                 name: this.buildIdentifierFromToken(annotationName),
                 arguments: args
-            } as AnnotationApplication,
+            }) as AnnotationApplication,
             atToken,
             closeParen
         );
@@ -502,11 +505,11 @@ export class Parser {
         }
         const openParen = this.tokens.peek();
         if (openParen?.type !== "symbol" || openParen.value !== "(") {
-            const statement: AnnotationStatement = {
+            const statement: AnnotationStatement = new AnnotationStatement({
                 kind: "AnnotationStatement",
                 name: this.buildIdentifierFromToken(nameToken),
                 parameters: []
-            };
+            });
             return this.attachNodeBounds(statement, annotationKeyword, nameToken);
         }
         this.tokens.read();
@@ -515,11 +518,11 @@ export class Parser {
         if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
             this.fail("Expected ')' after annotation parameters", this.tokenAt(closeParen));
         }
-        const statement: AnnotationStatement = {
+        const statement: AnnotationStatement = new AnnotationStatement({
             kind: "AnnotationStatement",
             name: this.buildIdentifierFromToken(nameToken),
             parameters
-        };
+        });
         this.attachNonEnumerableToken(statement, "parametersCloseParen", closeParen);
         return this.attachNodeBounds(statement, annotationKeyword, closeParen);
     }
@@ -564,10 +567,10 @@ export class Parser {
         }
 
         return this.attachNodeBounds(
-            {
+            new Program({
                 kind: "Program",
                 body
-            } as Program,
+            }) as Program,
             startToken,
             this.getLastNonEofReadToken() ?? startToken
         );
@@ -760,7 +763,7 @@ export class Parser {
 
     private buildIdentifierFromToken(token: Token): Identifier {
         return this.attachNodeBounds(
-            { kind: "Identifier", name: token.value } as Identifier,
+            new Identifier({ kind: "Identifier", name: token.value }) as Identifier,
             token,
             token
         );
@@ -769,7 +772,7 @@ export class Parser {
     private buildComputedMemberIdentifier(key: Expr, openBracket: Token | undefined, closeBracket: Token): Identifier {
         const displayName = this.computedMemberKeyText(key);
         return this.attachNodeBounds(
-            { kind: "Identifier", name: `[${displayName}]` } as Identifier,
+            new Identifier({ kind: "Identifier", name: `[${displayName}]` }) as Identifier,
             openBracket ?? key.firstToken,
             closeBracket
         );
@@ -839,10 +842,10 @@ export class Parser {
             if (token?.type !== "identifier") {
                 this.fail("Expected type parameter name", this.tokenAt(token));
             }
-            const parameter: TypeParameter = {
+            const parameter: TypeParameter = new TypeParameter({
                 kind: "TypeParameter",
                 name: this.buildIdentifierFromToken(token)
-            };
+            });
             if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
                 this.tokens.skip();
                 parameter.constraint = this.parseTypeAnnotationNode();
@@ -882,7 +885,7 @@ export class Parser {
             this.fail("Expected type identifier", this.tokenAt(firstToken));
         }
         return this.attachNodeBounds(
-            { kind: "Identifier", name: typeName } as Identifier,
+            new Identifier({ kind: "Identifier", name: typeName }) as Identifier,
             firstToken,
             lastToken
         );
@@ -915,7 +918,7 @@ export class Parser {
             this.fail("Expected type identifier", this.tokenAt(firstToken));
         }
         return this.attachNodeBounds(
-            { kind: "Identifier", name: typeName } as Identifier,
+            new Identifier({ kind: "Identifier", name: typeName }) as Identifier,
             firstToken,
             lastToken
         );
@@ -2015,12 +2018,12 @@ export class Parser {
     }
 
     private buildBinary(operator: BinaryOperator, operatorToken: Token, left: Expr, right: Expr): BinaryExpression {
-        const binary = this.attachNodeBounds({
+        const binary = this.attachNodeBounds(new BinaryExpression({
             kind: "BinaryExpression",
             operator,
             left,
             right
-        } as BinaryExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
+        }) as BinaryExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
         return this.attachNonEnumerableToken(binary, "operatorToken", operatorToken);
     }
 
@@ -2061,12 +2064,12 @@ export class Parser {
             const right = this.parseBinaryExpression(nextMinPrecedence);
 
             if (operator === "..." || operator === "..<") {
-                left = this.attachNodeBounds({
+                left = this.attachNodeBounds(new RangeExpression({
                     kind: "RangeExpression",
                     start: left,
                     end: right,
                     exclusive: operator === "..<"
-                } as RangeExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
+                }) as RangeExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
                 continue;
             }
 
@@ -2085,16 +2088,16 @@ export class Parser {
             if (token?.type === "symbol" && token.value === "]") {
                 this.tokens.skip();
                 return this.withNodeBounds(startToken, () => {
-                    return {
+                    return new ArrayLiteral({
                         kind: "ArrayLiteral",
                         elements
-                    } as ArrayLiteral;
+                    }) as ArrayLiteral;
                 });
             }
 
             if (token?.type === "symbol" && token.value === ",") {
                 const comma = this.tokens.read();
-                elements.push(this.attachNodeBounds({ kind: "ArrayHole" }, comma, comma));
+                elements.push(this.attachNodeBounds(new ArrayHole({ kind: "ArrayHole" }), comma, comma));
                 continue;
             }
 
@@ -2134,11 +2137,11 @@ export class Parser {
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}") {
             this.tokens.skip();
             return this.withNodeBounds(startToken, () => {
-                return {
+                return new ObjectLiteral({
                     kind: "ObjectLiteral",
                     properties,
                     ...(trailingComma ? { trailingComma: true } : {})
-                } as ObjectLiteral;
+                }) as ObjectLiteral;
             });
         }
 
@@ -2147,11 +2150,11 @@ export class Parser {
             if (next?.type === "symbol" && next.value === "}") {
                 this.tokens.skip();
                 return this.withNodeBounds(startToken, () => {
-                    return {
+                    return new ObjectLiteral({
                         kind: "ObjectLiteral",
                         properties,
                         ...(trailingComma ? { trailingComma: true } : {})
-                    } as ObjectLiteral;
+                    }) as ObjectLiteral;
                 });
             }
 
@@ -2160,10 +2163,10 @@ export class Parser {
                 const argument = this.parseAssignment();
                 properties.push(
                     this.attachNodeBounds(
-                        {
+                        new ObjectSpreadProperty({
                             kind: "ObjectSpreadProperty",
                             argument
-                        } as ObjectSpreadProperty,
+                        }) as ObjectSpreadProperty,
                         spreadToken,
                         argument.lastToken ?? this.getLastReadToken() ?? spreadToken
                     )
@@ -2202,16 +2205,16 @@ export class Parser {
                 )) {
                     properties.push(
                         this.attachNodeBounds(
-                            {
+                            new ObjectProperty({
                                 kind: "ObjectProperty",
                                 key,
                                 value: this.attachNodeBounds(
-                                    { kind: "Identifier", name: (key as Identifier).name } as Identifier,
+                                    new Identifier({ kind: "Identifier", name: (key as Identifier).name }),
                                     key.firstToken,
                                     key.lastToken
                                 ),
                                 shorthand: true
-                            } as ObjectProperty,
+                            }) as ObjectProperty,
                             key.firstToken,
                             key.lastToken
                         )
@@ -2239,19 +2242,19 @@ export class Parser {
                         returnType = this.parseReturnTypeAnnotationNode();
                     }
                     const body = this.parseBlockStatement();
-                    const value: FunctionExpression = {
+                    const value: FunctionExpression = new FunctionExpression({
                         kind: "FunctionExpression",
                         ...(asyncModifier ? { async: true } : {}),
                         ...(syncModifier ? { sync: true } : {}),
                         parameters,
                         body
-                    };
+                    });
                     if (methodTypeParameters && methodTypeParameters.length > 0) {
                         value.typeParameters = methodTypeParameters;
                     }
                     if (!computed && key.kind === "Identifier") {
                         value.name = this.attachNodeBounds(
-                            { kind: "Identifier", name: (key as Identifier).name } as Identifier,
+                            new Identifier({ kind: "Identifier", name: (key as Identifier).name }) as Identifier,
                             key.firstToken,
                             key.lastToken
                         );
@@ -2261,13 +2264,13 @@ export class Parser {
                     }
                     properties.push(
                         this.attachNodeBounds(
-                            {
+                            new ObjectProperty({
                                 kind: "ObjectProperty",
                                 key,
                                 value: this.attachNodeBounds(value, key.firstToken, body.lastToken ?? this.getLastReadToken() ?? key.lastToken ?? key.firstToken),
                                 method: true,
                                 ...(computed ? { computed: true } : {})
-                            } as ObjectProperty,
+                            }) as ObjectProperty,
                             key.firstToken,
                             body.lastToken ?? this.getLastReadToken() ?? key.lastToken ?? key.firstToken
                         )
@@ -2284,12 +2287,12 @@ export class Parser {
                     const value = this.parseAssignment();
                     properties.push(
                         this.attachNodeBounds(
-                            {
+                            new ObjectProperty({
                                 kind: "ObjectProperty",
                                 key,
                                 value,
                                 ...(computed ? { computed: true } : {})
-                            } as ObjectProperty,
+                            }) as ObjectProperty,
                             key.firstToken,
                             this.getLastReadToken() ?? key.lastToken ?? key.firstToken
                         )
@@ -2308,11 +2311,11 @@ export class Parser {
             if (separator?.type === "symbol" && separator.value === "}") {
                 this.tokens.skip();
                 return this.withNodeBounds(startToken, () => {
-                    return {
+                    return new ObjectLiteral({
                         kind: "ObjectLiteral",
                         properties,
                         ...(trailingComma ? { trailingComma: true } : {})
-                    } as ObjectLiteral;
+                    }) as ObjectLiteral;
                 });
             }
 
@@ -2340,7 +2343,7 @@ export class Parser {
 
         if (token?.type === "string") {
             return {
-                key: this.attachNodeBounds({ kind: "StringLiteral", value: token.value } as StringLiteral, token, token),
+                key: this.attachNodeBounds(new StringLiteral({ kind: "StringLiteral", value: token.value }) as StringLiteral, token, token),
                 computed: false
             };
         }
@@ -2352,8 +2355,8 @@ export class Parser {
                 this.fail("Expected identifier, string, number, or computed key in object literal", this.tokenAt(token));
             }
             const key = normalizedNumberText.includes(".") || normalizedNumberText.includes("e") || normalizedNumberText.includes("E")
-                ? this.attachNodeBounds({ kind: "FloatLiteral", value: numericValue } as FloatLiteral, token, token)
-                : this.attachNodeBounds({ kind: "IntLiteral", value: numericValue } as IntLiteral, token, token);
+                ? this.attachNodeBounds(new FloatLiteral({ kind: "FloatLiteral", value: numericValue }) as FloatLiteral, token, token)
+                : this.attachNodeBounds(new IntLiteral({ kind: "IntLiteral", value: numericValue }) as IntLiteral, token, token);
             return { key, computed: false };
         }
 
@@ -2394,11 +2397,11 @@ export class Parser {
             returnType = this.parseReturnTypeAnnotationNode();
         }
         const body = this.parseBlockStatement();
-        const expression: FunctionExpression = {
+        const expression: FunctionExpression = new FunctionExpression({
             kind: "FunctionExpression",
             parameters,
             body
-        };
+        });
         if (async) {
             expression.async = true;
         }
@@ -2482,11 +2485,11 @@ export class Parser {
                 if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
                     const byToken = this.tokens.read()!;
                     const delegateExpression = this.parseClassDelegateExpression();
-                    classDelegates.push(this.attachNodeBounds({
+                    classDelegates.push(this.attachNodeBounds(new ClassDelegate({
                         kind: "ClassDelegate",
                         typeAnnotation,
                         expression: delegateExpression
-                    } as ClassDelegate, typeAnnotation.firstToken, delegateExpression.lastToken ?? this.getLastReadToken() ?? byToken));
+                    }) as ClassDelegate, typeAnnotation.firstToken, delegateExpression.lastToken ?? this.getLastReadToken() ?? byToken));
                 }
                 colonTypes.push(typeAnnotation);
                 const separator = this.tokens.peek();
@@ -2530,11 +2533,11 @@ export class Parser {
                 if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
                     const byToken = this.tokens.read()!;
                     const delegateExpression = this.parseClassDelegateExpression();
-                    classDelegates.push(this.attachNodeBounds({
+                    classDelegates.push(this.attachNodeBounds(new ClassDelegate({
                         kind: "ClassDelegate",
                         typeAnnotation,
                         expression: delegateExpression
-                    } as ClassDelegate, typeAnnotation.firstToken, delegateExpression.lastToken ?? this.getLastReadToken() ?? byToken));
+                    }) as ClassDelegate, typeAnnotation.firstToken, delegateExpression.lastToken ?? this.getLastReadToken() ?? byToken));
                 }
                 clauseTypes.push(typeAnnotation);
 
@@ -2554,8 +2557,8 @@ export class Parser {
 
         const buildClassLike = (members: ClassMember[]): ClassStatement | ClassExpression => {
             const classLike = expression
-                ? { kind: "ClassExpression", members } as ClassExpression
-                : { kind: "ClassStatement", members } as ClassStatement;
+                ? new ClassExpression({ kind: "ClassExpression", members }) as ClassExpression
+                : new ClassStatement({ kind: "ClassStatement", members }) as ClassStatement;
             if (declared) {
                 (classLike as ClassStatement).declared = true;
             }
@@ -2670,10 +2673,10 @@ export class Parser {
                     parameterTypeAnnotation = this.parseTypeAnnotationNode();
                 }
 
-                const parameter: FunctionParameter = {
+                const parameter: FunctionParameter = new FunctionParameter({
                     kind: "FunctionParameter",
                     name: this.buildIdentifierFromToken(parameterToken)
-                };
+                });
                 if (parameterOptional) {
                     parameter.optional = true;
                 }
@@ -2740,7 +2743,7 @@ export class Parser {
 
         const blockStatements = this.applyImplicitTailLambdaReturn(statements);
         const block = this.attachNodeBounds(
-            { kind: "BlockStatement", body: blockStatements } as BlockStatement,
+            new BlockStatement({ kind: "BlockStatement", body: blockStatements }) as BlockStatement,
             openBrace,
             this.getLastReadToken() ?? openBrace
         );
@@ -2749,14 +2752,14 @@ export class Parser {
             : implicitParameterName
                 ? [
                   this.attachNodeBounds(
-                      {
+                      new FunctionParameter({
                           kind: "FunctionParameter",
                           name: this.attachNodeBounds(
-                              { kind: "Identifier", name: implicitParameterName } as Identifier,
+                              new Identifier({ kind: "Identifier", name: implicitParameterName }),
                               openBrace,
                               openBrace
                           )
-                      } as FunctionParameter,
+                      }) as FunctionParameter,
                       openBrace,
                       openBrace
                   )
@@ -2765,21 +2768,21 @@ export class Parser {
         if (block.body.length === 1 && block.body[0]?.kind === "ExprStatement") {
             const expressionBody = (block.body[0] as ExprStatement).expression;
             return this.attachNodeBounds(
-                {
+                new ArrowFunctionExpression({
                     kind: "ArrowFunctionExpression",
                     parameters,
                     body: expressionBody
-                } as ArrowFunctionExpression,
+                }) as ArrowFunctionExpression,
                 openBrace,
                 block.lastToken ?? this.getLastReadToken() ?? openBrace
             );
         }
         return this.attachNodeBounds(
-            {
+            new ArrowFunctionExpression({
                 kind: "ArrowFunctionExpression",
                 parameters,
                 body: block
-            } as ArrowFunctionExpression,
+            }) as ArrowFunctionExpression,
             openBrace,
             block.lastToken ?? this.getLastReadToken() ?? openBrace
         );
@@ -2804,15 +2807,15 @@ export class Parser {
             return lambda;
         }
         const identifier = lambda.body as Identifier;
-        lambda.contextualObjectLiteral = {
+        lambda.contextualObjectLiteral = new ObjectLiteral({
             kind: "ObjectLiteral",
-            properties: [{
+            properties: [new ObjectProperty({
                 kind: "ObjectProperty",
                 key: identifier,
                 value: identifier,
                 shorthand: true
-            } as ObjectProperty]
-        } as ObjectLiteral;
+            })]
+        }) as ObjectLiteral;
         return lambda;
     }
 
@@ -2885,10 +2888,10 @@ export class Parser {
             return statements;
         }
         const returnStatement = this.attachNodeBounds(
-            {
+            new ReturnStatement({
                 kind: "ReturnStatement",
                 expression: (lastStatement as ExprStatement).expression
-            } as ReturnStatement,
+            }) as ReturnStatement,
             lastStatement.firstToken ?? (lastStatement as ExprStatement).expression.firstToken,
             lastStatement.lastToken ?? (lastStatement as ExprStatement).expression.lastToken
         );
@@ -2931,23 +2934,23 @@ export class Parser {
         ) {
             this.tokens.skip();
             const parameter = this.attachNodeBounds(
-                {
+                new FunctionParameter({
                     kind: "FunctionParameter",
                     name: this.buildIdentifierFromToken(first)
-                } as FunctionParameter,
+                }) as FunctionParameter,
                 first,
                 first
             );
             this.tokens.skip();
             const body = this.parseArrowFunctionBody();
             return this.attachNodeBounds(
-                {
+                new ArrowFunctionExpression({
                     kind: "ArrowFunctionExpression",
                     ...(async ? { async: true } : {}),
                     ...(sync ? { sync: true } : {}),
                     parameters: [parameter],
                     body
-                } as ArrowFunctionExpression,
+                }) as ArrowFunctionExpression,
                 arrowParameterToken ?? first,
                 body.lastToken ?? this.getLastReadToken() ?? arrowParameterToken ?? first
             );
@@ -2982,14 +2985,14 @@ export class Parser {
             this.tokens.skip();
             const body = this.parseArrowFunctionBody();
             return this.attachNodeBounds(
-                {
+                new ArrowFunctionExpression({
                     kind: "ArrowFunctionExpression",
                     ...(async ? { async: true } : {}),
                     ...(sync ? { sync: true } : {}),
                     parameters,
                     ...(returnType ? { returnType } : {}),
                     body
-                } as ArrowFunctionExpression,
+                }) as ArrowFunctionExpression,
                 first,
                 body.lastToken ?? this.getLastReadToken() ?? first
             );
@@ -3007,18 +3010,18 @@ export class Parser {
 
         if (token?.type === "symbol" && token.value === "...") {
             const argument = this.parseUnary();
-            return this.attachNodeBounds({
+            return this.attachNodeBounds(new SpreadExpression({
                 kind: "SpreadExpression",
                 argument
-            } as SpreadExpression, token, argument.lastToken ?? this.getLastReadToken() ?? token);
+            }) as SpreadExpression, token, argument.lastToken ?? this.getLastReadToken() ?? token);
         }
 
         if (token?.type === "symbol" && token.value === "(") {
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
                 const close = this.tokens.read();
-                return this.attachNodeBounds({
+                return this.attachNodeBounds(new MissingExpression({
                     kind: "MissingExpression"
-                } as Expr, token, close ?? token);
+                }) as Expr, token, close ?? token);
             }
             const expr = this.parseExpressionOrThrow();
             const close = this.tokens.read();
@@ -3042,7 +3045,7 @@ export class Parser {
                 const raw = normalizedNumberText.slice(0, -1);
                 try {
                     return this.attachNodeBounds(
-                        { kind: "BigIntLiteral", value: BigInt(raw) } as BigIntLiteral,
+                        new BigIntLiteral({ kind: "BigIntLiteral", value: BigInt(raw) }) as BigIntLiteral,
                         token,
                         token
                     );
@@ -3054,7 +3057,7 @@ export class Parser {
                 const raw = normalizedNumberText.slice(0, -1);
                 try {
                     return this.attachNodeBounds(
-                        { kind: "LongLiteral", value: BigInt(raw) } as LongLiteral,
+                        new LongLiteral({ kind: "LongLiteral", value: BigInt(raw) }) as LongLiteral,
                         token,
                         token
                     );
@@ -3068,13 +3071,13 @@ export class Parser {
             }
             if (normalizedNumberText.includes(".") || normalizedNumberText.includes("e") || normalizedNumberText.includes("E")) {
                 return this.attachNodeBounds(
-                    { kind: "FloatLiteral", value: numericValue } as FloatLiteral,
+                    new FloatLiteral({ kind: "FloatLiteral", value: numericValue }) as FloatLiteral,
                     token,
                     token
                 );
             }
             return this.attachNodeBounds(
-                { kind: "IntLiteral", value: numericValue } as IntLiteral,
+                new IntLiteral({ kind: "IntLiteral", value: numericValue }) as IntLiteral,
                 token,
                 token
             );
@@ -3082,7 +3085,7 @@ export class Parser {
 
         if (token?.type === "string") {
             return this.attachNodeBounds(
-                { kind: "StringLiteral", value: token.value } as StringLiteral,
+                new StringLiteral({ kind: "StringLiteral", value: token.value }) as StringLiteral,
                 token,
                 token
             );
@@ -3093,7 +3096,7 @@ export class Parser {
             const pattern = token.value.slice(1, lastSlashIndex);
             const flags = token.value.slice(lastSlashIndex + 1);
             return this.attachNodeBounds(
-                { kind: "RegExpLiteral", pattern, flags } as RegExpLiteral,
+                new RegExpLiteral({ kind: "RegExpLiteral", pattern, flags }) as RegExpLiteral,
                 token,
                 token
             );
@@ -3121,16 +3124,16 @@ export class Parser {
             }
             if (token.value === "true" || token.value === "false") {
                 return this.attachNodeBounds(
-                    { kind: "BooleanLiteral", value: token.value === "true" } as BooleanLiteral,
+                    new BooleanLiteral({ kind: "BooleanLiteral", value: token.value === "true" }) as BooleanLiteral,
                     token,
                     token
                 );
             }
             if (token.value === "null") {
-                return this.attachNodeBounds({ kind: "NullLiteral" } as NullLiteral, token, token);
+                return this.attachNodeBounds(new NullLiteral({ kind: "NullLiteral" }) as NullLiteral, token, token);
             }
             if (token.value === "undefined") {
-                return this.attachNodeBounds({ kind: "UndefinedLiteral" } as UndefinedLiteral, token, token);
+                return this.attachNodeBounds(new UndefinedLiteral({ kind: "UndefinedLiteral" }) as UndefinedLiteral, token, token);
             }
             if (token.value === "class") {
                 return this.parseClassExpression(token);
@@ -3154,11 +3157,11 @@ export class Parser {
                 this.tokenAt(property?.type === "eof" ? operator : property ?? operator)
             );
         }
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new PropertyReferenceExpression({
             kind: "PropertyReferenceExpression",
             object: receiver,
             property: this.buildIdentifierFromToken(property)
-        } as PropertyReferenceExpression, receiver.firstToken, property);
+        }) as PropertyReferenceExpression, receiver.firstToken, property);
     }
 
     private parsePostfixFrom(initialExpr: Expr): Expr {
@@ -3181,13 +3184,13 @@ export class Parser {
                 const parsedArguments = this.parseCallArgumentList();
                 const args = parsedArguments.args;
                 const close = parsedArguments.close;
-                expr = this.attachNodeBounds({
+                expr = this.attachNodeBounds(new CallExpression({
                     kind: "CallExpression",
                     callee: expr,
                     arguments: args,
                     optional: true,
                     ...(pendingTypeArguments ? { typeArguments: pendingTypeArguments } : {})
-                } as CallExpression, expr.firstToken, close);
+                }) as CallExpression, expr.firstToken, close);
                 pendingTypeArguments = undefined;
                 continue;
             }
@@ -3201,13 +3204,13 @@ export class Parser {
                     this.fail("Expected ']' after optional computed member access", this.tokenAt(close));
                 }
 
-                expr = {
+                expr = new MemberExpression({
                     kind: "MemberExpression",
                     object: expr,
                     property,
                     computed: true,
                     optional: true
-                } as MemberExpression;
+                }) as MemberExpression;
                 this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
                 continue;
             }
@@ -3241,24 +3244,24 @@ export class Parser {
                     );
                 }
 
-                expr = {
+                expr = new MemberExpression({
                     kind: "MemberExpression",
                     object: expr,
                     property: this.buildIdentifierFromToken(property),
                     computed: false,
                     optional: token.value === "?." ? true : undefined,
                     nonNullAsserted: token.value === "!." ? true : undefined
-                } as MemberExpression;
+                }) as MemberExpression;
                 this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, property);
                 continue;
             }
 
             if (token?.type === "symbol" && token.value === "!" && !hasLineBreakBetween(expr.lastToken, token)) {
                 this.tokens.skip();
-                expr = this.attachNodeBounds({
+                expr = this.attachNodeBounds(new NonNullExpression({
                     kind: "NonNullExpression",
                     expression: expr
-                } as NonNullExpression, expr.firstToken, token);
+                }) as NonNullExpression, expr.firstToken, token);
                 continue;
             }
 
@@ -3273,12 +3276,12 @@ export class Parser {
                     this.fail("Expected ']' after computed member access", this.tokenAt(close));
                 }
 
-                expr = {
+                expr = new MemberExpression({
                     kind: "MemberExpression",
                     object: expr,
                     property,
                     computed: true
-                } as MemberExpression;
+                }) as MemberExpression;
                 this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
                 continue;
             }
@@ -3287,30 +3290,30 @@ export class Parser {
                 const parsedArguments = this.parseCallArgumentList();
                 const args = parsedArguments.args;
                 const close = parsedArguments.close;
-                expr = this.attachNodeBounds({
+                expr = this.attachNodeBounds(new CallExpression({
                     kind: "CallExpression",
                     callee: expr,
                     arguments: args,
                     ...(pendingTypeArguments ? { typeArguments: pendingTypeArguments } : {})
-                } as CallExpression, expr.firstToken, close);
+                }) as CallExpression, expr.firstToken, close);
                 pendingTypeArguments = undefined;
                 continue;
             }
 
             if (token?.type === "string" && !hasLineBreakBetween(expr.lastToken, token)) {
                 this.tokens.skip();
-                expr = this.attachNodeBounds({
+                expr = this.attachNodeBounds(new CallExpression({
                     kind: "CallExpression",
                     callee: expr,
                     arguments: [
                         this.attachNodeBounds(
-                            { kind: "StringLiteral", value: token.value } as StringLiteral,
+                            new StringLiteral({ kind: "StringLiteral", value: token.value }),
                             token,
                             token
                         )
                     ],
                     ...(pendingTypeArguments ? { typeArguments: pendingTypeArguments } : {})
-                } as CallExpression, expr.firstToken, token);
+                }) as CallExpression, expr.firstToken, token);
                 pendingTypeArguments = undefined;
                 continue;
             }
@@ -3323,12 +3326,12 @@ export class Parser {
                 if (expr.kind === "NewExpression") {
                     const newExpression = expr as NewExpression;
                     expr = this.attachNodeBounds(
-                        {
+                        new NewExpression({
                             kind: "NewExpression",
                             callee: newExpression.callee,
                             arguments: [...(newExpression.arguments ?? []), tailLambda],
                             ...(newExpression.typeArguments ? { typeArguments: newExpression.typeArguments } : {})
-                        } as NewExpression,
+                        }) as NewExpression,
                         newExpression.firstToken,
                         tailLambda.lastToken ?? this.getLastReadToken()
                     );
@@ -3337,12 +3340,12 @@ export class Parser {
                 if (expr.kind === "CallExpression") {
                     const call = expr as CallExpression;
                     const newCall = this.attachNodeBounds(
-                        {
+                        new CallExpression({
                             kind: "CallExpression",
                             callee: call.callee,
                             arguments: [...call.arguments, tailLambda],
                             ...(call.typeArguments ? { typeArguments: call.typeArguments } : {})
-                        } as CallExpression,
+                        }) as CallExpression,
                         call.firstToken,
                         tailLambda.lastToken ?? this.getLastReadToken()
                     );
@@ -3350,11 +3353,11 @@ export class Parser {
                     continue;
                 }
                 expr = this.attachNodeBounds(
-                    {
+                    new CallExpression({
                         kind: "CallExpression",
                         callee: expr,
                         arguments: [tailLambda]
-                    } as CallExpression,
+                    }) as CallExpression,
                     expr.firstToken,
                     tailLambda.lastToken ?? this.getLastReadToken()
                 );
@@ -3366,12 +3369,12 @@ export class Parser {
                     break;
                 }
                 this.tokens.skip();
-                return this.attachNodeBounds({
+                return this.attachNodeBounds(new UpdateExpression({
                     kind: "UpdateExpression",
                     operator: token.value,
                     argument: expr,
                     prefix: false
-                } as UpdateExpression, expr.firstToken, token);
+                }) as UpdateExpression, expr.firstToken, token);
             }
 
             break;
@@ -3394,17 +3397,17 @@ export class Parser {
                 this.fail("Expected 'target' after 'new.'", this.tokenAt(propertyToken ?? dotToken));
             }
             const metaObject = this.attachNodeBounds(
-                { kind: "Identifier", name: "new" } as Identifier,
+                new Identifier({ kind: "Identifier", name: "new" }) as Identifier,
                 newKeyword,
                 newKeyword
             );
             expr = this.attachNodeBounds(
-                {
+                new MemberExpression({
                     kind: "MemberExpression",
                     object: metaObject,
                     property: this.buildIdentifierFromToken(propertyToken),
                     computed: false
-                } as MemberExpression,
+                }) as MemberExpression,
                 newKeyword,
                 propertyToken
             );
@@ -3433,13 +3436,13 @@ export class Parser {
                     this.fail("Expected ']' after optional computed member access", this.tokenAt(close));
                 }
 
-                expr = {
+                expr = new MemberExpression({
                     kind: "MemberExpression",
                     object: expr,
                     property,
                     computed: true,
                     optional: true
-                } as MemberExpression;
+                }) as MemberExpression;
                 this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
                 continue;
             }
@@ -3462,14 +3465,14 @@ export class Parser {
                     );
                 }
 
-                expr = {
+                expr = new MemberExpression({
                     kind: "MemberExpression",
                     object: expr,
                     property: this.buildIdentifierFromToken(property),
                     computed: false,
                     optional: token.value === "?." ? true : undefined,
                     nonNullAsserted: token.value === "!." ? true : undefined
-                } as MemberExpression;
+                }) as MemberExpression;
                 this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, property);
                 continue;
             }
@@ -3485,12 +3488,12 @@ export class Parser {
                     this.fail("Expected ']' after computed member access", this.tokenAt(close));
                 }
 
-                expr = {
+                expr = new MemberExpression({
                     kind: "MemberExpression",
                     object: expr,
                     property,
                     computed: true
-                } as MemberExpression;
+                }) as MemberExpression;
                 this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
                 continue;
             }
@@ -3571,11 +3574,11 @@ export class Parser {
         this.tokens.skip();
         const value = this.parseAssignment();
         return this.attachNodeBounds(
-            {
+            new NamedArgument({
                 kind: "NamedArgument",
                 name: this.buildIdentifierFromToken(nameToken),
                 value
-            } as NamedArgument,
+            }) as NamedArgument,
             nameToken,
             value.lastToken ?? this.getLastReadToken() ?? nameToken
         );
@@ -3600,9 +3603,9 @@ export class Parser {
                     message: "Expected a number literal, string literal, identifier, '(', '[' or '{'",
                     ...(errorToken ? { token: errorToken } : {})
                 });
-                args.push(this.attachNodeBounds({
+                args.push(this.attachNodeBounds(new MissingExpression({
                     kind: "MissingExpression"
-                } as Expr, comma, comma));
+                }) as Expr, comma, comma));
                 continue;
             }
 
@@ -3646,10 +3649,10 @@ export class Parser {
             const newKeyword = this.tokens.read();
             const constructorTarget = this.parseNewTarget(newKeyword);
 
-            const statement: NewExpression = {
+            const statement: NewExpression = new NewExpression({
                 kind: "NewExpression",
                 callee: constructorTarget.callee
-            };
+            });
 
             if (constructorTarget.arguments) {
                 statement.arguments = constructorTarget.arguments;
@@ -3668,30 +3671,30 @@ export class Parser {
         if (token?.type === "symbol" && (token.value === "++" || token.value === "--")) {
             this.tokens.skip();
             const argument = this.parseUnary();
-            return this.attachNodeBounds({
+            return this.attachNodeBounds(new UpdateExpression({
                 kind: "UpdateExpression",
                 operator: token.value,
                 argument,
                 prefix: true
-            } as UpdateExpression, token, argument.lastToken ?? this.getLastReadToken());
+            }) as UpdateExpression, token, argument.lastToken ?? this.getLastReadToken());
         }
         if (token?.type === "symbol" && (token.value === "+" || token.value === "-")) {
             this.tokens.skip();
             const argument = this.parseUnary();
-            return this.attachNodeBounds({
+            return this.attachNodeBounds(new UnaryExpression({
                 kind: "UnaryExpression",
                 operator: token.value,
                 argument
-            } as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
+            }) as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
         }
         if (token?.type === "symbol" && (token.value === "!" || token.value === "~")) {
             this.tokens.skip();
             const argument = this.parseUnary();
-            return this.attachNodeBounds({
+            return this.attachNodeBounds(new UnaryExpression({
                 kind: "UnaryExpression",
                 operator: token.value,
                 argument
-            } as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
+            }) as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
         }
         if (
             token?.type === "identifier" &&
@@ -3704,11 +3707,11 @@ export class Parser {
                 operator = "yield*";
             }
             const argument = this.parseUnary();
-            return this.attachNodeBounds({
+            return this.attachNodeBounds(new UnaryExpression({
                 kind: "UnaryExpression",
                 operator,
                 argument
-            } as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
+            }) as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
         }
         if (token?.type === "identifier" && token.value === "go") {
             const next = this.peekToken(1);
@@ -3725,11 +3728,11 @@ export class Parser {
             if (startsExpression) {
                 this.tokens.skip();
                 const argument = this.parseUnary();
-                return this.attachNodeBounds({
+                return this.attachNodeBounds(new UnaryExpression({
                     kind: "UnaryExpression",
                     operator: "go",
                     argument
-                } as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
+                }) as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
             }
         }
 
@@ -3753,11 +3756,11 @@ export class Parser {
             }
             const expression = this.parseUnary();
             this.commitTokenCheckpoint(checkpoint);
-            return this.attachNodeBounds({
+            return this.attachNodeBounds(new AsExpression({
                 kind: "AsExpression",
                 expression,
                 typeAnnotation
-            } as AsExpression, open, expression.lastToken ?? this.getLastReadToken() ?? open);
+            }) as AsExpression, open, expression.lastToken ?? this.getLastReadToken() ?? open);
         } catch (error) {
             this.restoreTokenCheckpoint(checkpoint);
             if (error instanceof ParseError) {
@@ -3779,7 +3782,7 @@ export class Parser {
             this.consumeJsxClosingTag(null);
             const close = this.getLastReadToken();
             return this.attachNodeBounds(
-                { kind: "JsxFragment", children } as JsxFragment,
+                new JsxFragment({ kind: "JsxFragment", children }) as JsxFragment,
                 open,
                 close ?? open
             );
@@ -3797,14 +3800,14 @@ export class Parser {
                 this.fail("Expected '>' to close self-closing JSX element", this.tokenAt(gt));
             }
             return this.attachNodeBounds(
-                {
+                new JsxElement({
                     kind: "JsxElement",
                     tagName,
                     ...(reference ? { reference } : {}),
                     attributes,
                     children: [],
                     selfClosing: true
-                } as JsxElement,
+                }) as JsxElement,
                 open,
                 gt
             );
@@ -3817,14 +3820,14 @@ export class Parser {
         this.consumeJsxClosingTag(tagName);
         const close = this.getLastReadToken();
         return this.attachNodeBounds(
-            {
+            new JsxElement({
                 kind: "JsxElement",
                 tagName,
                 ...(reference ? { reference } : {}),
                 attributes,
                 children,
                 selfClosing: false
-            } as JsxElement,
+            }) as JsxElement,
             open,
             close ?? open
         );
@@ -3870,7 +3873,7 @@ export class Parser {
             text += "." + part.value;
             const property = this.buildIdentifierFromToken(part);
             reference = this.attachNodeBounds(
-                { kind: "MemberExpression", object: reference, property, computed: false } as MemberExpression,
+                new MemberExpression({ kind: "MemberExpression", object: reference, property, computed: false }) as MemberExpression,
                 first,
                 part
             );
@@ -3898,7 +3901,7 @@ export class Parser {
                     this.fail("Expected '}' to close JSX spread attribute", this.tokenAt(closeBrace));
                 }
                 attributes.push(this.attachNodeBounds(
-                    { kind: "JsxSpreadAttribute", expression } as JsxSpreadAttribute,
+                    new JsxSpreadAttribute({ kind: "JsxSpreadAttribute", expression }) as JsxSpreadAttribute,
                     openBrace,
                     closeBrace
                 ));
@@ -3916,7 +3919,7 @@ export class Parser {
                 if (valueToken?.type === "string") {
                     this.tokens.skip();
                     value = this.attachNodeBounds(
-                        { kind: "StringLiteral", value: valueToken.value } as StringLiteral,
+                        new StringLiteral({ kind: "StringLiteral", value: valueToken.value }) as StringLiteral,
                         valueToken,
                         valueToken
                     );
@@ -3930,7 +3933,7 @@ export class Parser {
                 }
             }
             attributes.push(this.attachNodeBounds(
-                { kind: "JsxAttribute", name: nameToken.value, ...(value ? { value } : {}) } as JsxAttribute,
+                new JsxAttribute({ kind: "JsxAttribute", name: nameToken.value, ...(value ? { value } : {}) }) as JsxAttribute,
                 nameToken,
                 lastToken
             ));
@@ -3949,7 +3952,7 @@ export class Parser {
             }
             this.commitTokenCheckpoint(checkpoint);
             return this.attachNodeBounds(
-                { kind: "JsxExpressionContainer", expression } as JsxExpressionContainer,
+                new JsxExpressionContainer({ kind: "JsxExpressionContainer", expression }) as JsxExpressionContainer,
                 open,
                 close
             );
@@ -3962,7 +3965,7 @@ export class Parser {
                     this.fail("Expected '}' to close JSX expression", this.tokenAt(close));
                 }
                 return this.attachNodeBounds(
-                    { kind: "JsxExpressionContainer", expression } as JsxExpressionContainer,
+                    new JsxExpressionContainer({ kind: "JsxExpressionContainer", expression }) as JsxExpressionContainer,
                     open,
                     close
                 );
@@ -3983,7 +3986,7 @@ export class Parser {
                 const normalized = normalizeJsxText(token.value);
                 if (normalized.length > 0) {
                     children.push(this.attachNodeBounds(
-                        { kind: "JsxText", value: normalized } as JsxText,
+                        new JsxText({ kind: "JsxText", value: normalized }) as JsxText,
                         token,
                         token
                     ));
@@ -4119,16 +4122,16 @@ export class Parser {
             this.tokens.skip();
             const typeAnnotation = this.parseTypeAnnotationNode();
             expression = operator === "satisfies"
-                ? this.attachNodeBounds({
+                ? this.attachNodeBounds(new SatisfiesExpression({
                     kind: "SatisfiesExpression",
                     expression,
                     typeAnnotation
-                } as SatisfiesExpression, expression.firstToken, typeAnnotation.lastToken ?? this.getLastReadToken())
-                : this.attachNodeBounds({
+                }) as SatisfiesExpression, expression.firstToken, typeAnnotation.lastToken ?? this.getLastReadToken())
+                : this.attachNodeBounds(new AsExpression({
                     kind: "AsExpression",
                     expression,
                     typeAnnotation
-                } as AsExpression, expression.firstToken, typeAnnotation.lastToken ?? this.getLastReadToken());
+                }) as AsExpression, expression.firstToken, typeAnnotation.lastToken ?? this.getLastReadToken());
         }
         return expression;
     }
@@ -4148,12 +4151,12 @@ export class Parser {
         }
         const alternate = this.parseAssignment();
 
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new ConditionalExpression({
             kind: "ConditionalExpression",
             test,
             consequent,
             alternate
-        } as ConditionalExpression, test.firstToken, alternate.lastToken ?? this.getLastReadToken());
+        }) as ConditionalExpression, test.firstToken, alternate.lastToken ?? this.getLastReadToken());
     }
 
     private parseCommaExpression(): Expr {
@@ -4169,10 +4172,10 @@ export class Parser {
             return first;
         }
 
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new CommaExpression({
             kind: "CommaExpression",
             expressions
-        } as CommaExpression, first.firstToken, expressions[expressions.length - 1]?.lastToken ?? this.getLastReadToken());
+        }) as CommaExpression, first.firstToken, expressions[expressions.length - 1]?.lastToken ?? this.getLastReadToken());
     }
 
     private parseAssignment(allowChain: boolean = true): Expr {
@@ -4191,12 +4194,12 @@ export class Parser {
         if (token?.type === "symbol" && ASSIGNMENT_OPERATORS.includes(token.value as AssignmentOperator)) {
             this.tokens.skip();
             const right = this.parseAssignment();
-            return this.attachNodeBounds({
+            return this.attachNodeBounds(new AssignmentExpression({
                 kind: "AssignmentExpression",
                 operator: token.value as AssignmentOperator,
                 left,
                 right
-            } as AssignmentExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
+            }) as AssignmentExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
         }
 
         return left;
@@ -4210,12 +4213,12 @@ export class Parser {
             if (property?.type !== "identifier") {
                 this.fail("Expected identifier after '..'", this.tokenAt(property ?? chainToken));
             }
-            const member = this.attachNodeBounds({
+            const member = this.attachNodeBounds(new MemberExpression({
                 kind: "MemberExpression",
                 object: receiver,
                 property: this.buildIdentifierFromToken(property),
                 computed: false
-            } as MemberExpression, chainToken, property);
+            }) as MemberExpression, chainToken, property);
             let operation = this.parsePostfixFrom(member);
             const assignmentToken = this.tokens.peek();
             if (
@@ -4224,20 +4227,20 @@ export class Parser {
             ) {
                 this.tokens.skip();
                 const right = this.parseAssignment(false);
-                operation = this.attachNodeBounds({
+                operation = this.attachNodeBounds(new AssignmentExpression({
                     kind: "AssignmentExpression",
                     operator: assignmentToken.value as AssignmentOperator,
                     left: operation,
                     right
-                } as AssignmentExpression, chainToken, right.lastToken ?? this.getLastReadToken());
+                }) as AssignmentExpression, chainToken, right.lastToken ?? this.getLastReadToken());
             }
             operations.push(operation);
         }
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new ChainExpression({
             kind: "ChainExpression",
             receiver,
             operations
-        } as ChainExpression, receiver.firstToken, operations[operations.length - 1]?.lastToken ?? receiver.lastToken);
+        }) as ChainExpression, receiver.firstToken, operations[operations.length - 1]?.lastToken ?? receiver.lastToken);
     }
 
     /**
@@ -4340,13 +4343,13 @@ export class Parser {
                 const getterBody = this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>"
                     ? this.parseExpressionBodyAsBlock()
                     : this.parseBlockStatement();
-                const getter: ClassMethodMember = {
+                const getter: ClassMethodMember = new ClassMethodMember({
                     kind: "ClassMethodMember",
                     name: propertyName,
                     parameters: [],
                     body: getterBody,
                     accessorKind: "get"
-                };
+                });
                 if (typeAnnotation) {
                     getter.returnType = typeAnnotation;
                 }
@@ -4371,7 +4374,7 @@ export class Parser {
                     }
                     const parameterName = this.buildIdentifierFromToken(parameterToken);
                     setterParameter = this.attachNodeBounds(
-                        { kind: "FunctionParameter", name: parameterName } as FunctionParameter,
+                        new FunctionParameter({ kind: "FunctionParameter", name: parameterName }) as FunctionParameter,
                         parameterToken,
                         this.getLastReadToken() ?? parameterToken
                     );
@@ -4380,12 +4383,12 @@ export class Parser {
                     }
                 } else {
                     const newValueIdentifier = this.attachNodeBounds(
-                        { kind: "Identifier", name: "newValue" } as Identifier,
+                        new Identifier({ kind: "Identifier", name: "newValue" }) as Identifier,
                         accessorKeyword,
                         accessorKeyword
                     );
                     setterParameter = this.attachNodeBounds(
-                        { kind: "FunctionParameter", name: newValueIdentifier } as FunctionParameter,
+                        new FunctionParameter({ kind: "FunctionParameter", name: newValueIdentifier }) as FunctionParameter,
                         accessorKeyword,
                         accessorKeyword
                     );
@@ -4395,13 +4398,13 @@ export class Parser {
                 }
 
                 const setterBody = this.parseBlockStatement();
-                const setter: ClassMethodMember = {
+                const setter: ClassMethodMember = new ClassMethodMember({
                     kind: "ClassMethodMember",
                     name: propertyName,
                     parameters: [setterParameter],
                     body: setterBody,
                     accessorKind: "set"
-                };
+                });
                 this.attachNonEnumerableToken(setter, "accessorToken", accessorKeyword);
                 accessors.push(this.attachNodeBounds(setter, accessorKeyword, this.getLastReadToken() ?? accessorKeyword));
             }
@@ -4437,12 +4440,12 @@ export class Parser {
         const leadingTypeParameters = this.parseTypeParameterList();
         const extensionHead = this.tryParseExtensionPropertyHead();
         if (extensionHead) {
-            const statement: VarStatement = {
+            const statement: VarStatement = new VarStatement({
                 kind: "VarStatement",
                 declarationKind: declarationKeyword.value as VariableDeclarationKind,
                 receiverType: extensionHead.receiverType,
                 name: extensionHead.name
-            };
+            });
             const receiverTypeArguments: Identifier[] | undefined = extensionHead.receiverTypeArguments;
             if (receiverTypeArguments && receiverTypeArguments.length > 0) {
                 statement.receiverTypeArguments = receiverTypeArguments;
@@ -4499,11 +4502,11 @@ export class Parser {
 
         const firstDeclaration = declarations[0] as VarDeclarator;
 
-        const statement: VarStatement = {
+        const statement: VarStatement = new VarStatement({
             kind: "VarStatement",
             declarationKind: declarationKeyword.value as VariableDeclarationKind,
             name: firstDeclaration.name
-        };
+        });
         if (firstDeclaration.typeAnnotation) {
             statement.typeAnnotation = firstDeclaration.typeAnnotation;
         }
@@ -4541,10 +4544,10 @@ export class Parser {
             delegate = this.parseAssignment();
         }
 
-        const declarator: VarDeclarator = {
+        const declarator: VarDeclarator = new VarDeclarator({
             kind: "VarDeclarator",
             name
-        };
+        });
         if (typeAnnotation) {
             declarator.typeAnnotation = typeAnnotation;
         }
@@ -4596,7 +4599,7 @@ export class Parser {
             }
             this.tokens.skip();
             propertyName = this.attachNodeBounds(
-                { kind: "StringLiteral", value: propertyLiteralToken.value } as StringLiteral,
+                new StringLiteral({ kind: "StringLiteral", value: propertyLiteralToken.value }) as StringLiteral,
                 propertyLiteralToken,
                 propertyLiteralToken
             );
@@ -4627,7 +4630,7 @@ export class Parser {
             this.tokens.skip();
             initializer = this.parseAssignment();
         }
-        const element: BindingElement = { kind: "BindingElement", name };
+        const element: BindingElement = new BindingElement({ kind: "BindingElement", name });
         if (propertyName) element.propertyName = propertyName;
         if (typeAnnotation) element.typeAnnotation = typeAnnotation;
         if (shorthand) element.shorthand = true;
@@ -4646,7 +4649,7 @@ export class Parser {
         }
         const close = this.tokens.read();
         if (!(close?.type === "symbol" && close.value === "}")) this.fail("Expected '}' after object binding pattern", this.tokenAt(close));
-        return this.attachNodeBounds({ kind: "ObjectBindingPattern", elements }, open, close);
+        return this.attachNodeBounds(new ObjectBindingPattern({ kind: "ObjectBindingPattern", elements }), open, close);
     }
 
     private parseArrayBindingPattern(): ArrayBindingPattern {
@@ -4655,7 +4658,7 @@ export class Parser {
         while (this.tokens.hasMore && !(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]")) {
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",") {
                 const comma = this.tokens.read();
-                elements.push(this.attachNodeBounds({ kind: "BindingHole" }, comma, comma));
+                elements.push(this.attachNodeBounds(new BindingHole({ kind: "BindingHole" }), comma, comma));
                 continue;
             }
             elements.push(this.parseBindingElement(false));
@@ -4664,7 +4667,7 @@ export class Parser {
         }
         const close = this.tokens.read();
         if (!(close?.type === "symbol" && close.value === "]")) this.fail("Expected ']' after array binding pattern", this.tokenAt(close));
-        return this.attachNodeBounds({ kind: "ArrayBindingPattern", elements }, open, close);
+        return this.attachNodeBounds(new ArrayBindingPattern({ kind: "ArrayBindingPattern", elements }), open, close);
     }
 
 
@@ -4728,7 +4731,7 @@ export class Parser {
             }
             const namespaceExport = this.buildIdentifierFromToken(nameToken);
             return this.attachNodeBounds(
-                { kind: "ExportStatement", namespaceExport } as ExportStatement,
+                new ExportStatement({ kind: "ExportStatement", namespaceExport }) as ExportStatement,
                 exportKeyword,
                 namespaceExport.lastToken ?? asKeyword ?? exportKeyword
             );
@@ -4752,9 +4755,9 @@ export class Parser {
                 declaration = this.parseClassStatement();
             } else {
                 const expression = this.parseExpressionOrThrow();
-                declaration = this.attachNodeBounds({ kind: "ExprStatement", expression } as ExprStatement, expression.firstToken, expression.lastToken);
+                declaration = this.attachNodeBounds(new ExprStatement({ kind: "ExprStatement", expression }) as ExprStatement, expression.firstToken, expression.lastToken);
             }
-            return this.attachNodeBounds({ kind: "ExportStatement", declaration, default: true } as ExportStatement, exportKeyword, declaration.lastToken ?? this.getLastReadToken() ?? exportKeyword);
+            return this.attachNodeBounds(new ExportStatement({ kind: "ExportStatement", declaration, default: true }) as ExportStatement, exportKeyword, declaration.lastToken ?? this.getLastReadToken() ?? exportKeyword);
         }
 
         const next = this.tokens.peek();
@@ -4777,8 +4780,8 @@ export class Parser {
             if (sourceToken?.type !== "string") {
                 this.fail("Expected string literal module path in export statement", this.tokenAt(sourceToken));
             }
-            const from = this.attachNodeBounds({ kind: "StringLiteral", value: sourceToken.value } as StringLiteral, sourceToken, sourceToken);
-            const statement: ExportStatement = { kind: "ExportStatement", exportAll: true, from };
+            const from = this.attachNodeBounds(new StringLiteral({ kind: "StringLiteral", value: sourceToken.value }) as StringLiteral, sourceToken, sourceToken);
+            const statement: ExportStatement = new ExportStatement({ kind: "ExportStatement", exportAll: true, from });
             if (namespaceExport) {
                 statement.namespaceExport = namespaceExport;
             }
@@ -4797,9 +4800,9 @@ export class Parser {
                 if (sourceToken?.type !== "string") {
                     this.fail("Expected string literal module path in export statement", this.tokenAt(sourceToken));
                 }
-                from = this.attachNodeBounds({ kind: "StringLiteral", value: sourceToken.value } as StringLiteral, sourceToken, sourceToken);
+                from = this.attachNodeBounds(new StringLiteral({ kind: "StringLiteral", value: sourceToken.value }) as StringLiteral, sourceToken, sourceToken);
             }
-            const statement: ExportStatement = { kind: "ExportStatement", specifiers };
+            const statement: ExportStatement = new ExportStatement({ kind: "ExportStatement", specifiers });
             if (from) {
                 statement.from = from;
             }
@@ -4841,7 +4844,7 @@ export class Parser {
             this.fail("Expected declaration or export list after 'export'", this.tokenAt(next));
         }
 
-        const statement: ExportStatement = { kind: "ExportStatement", declaration };
+        const statement: ExportStatement = new ExportStatement({ kind: "ExportStatement", declaration });
         if (typeOnly) {
             statement.typeOnly = true;
         }
@@ -4882,7 +4885,7 @@ export class Parser {
                 }
                 exported = this.buildIdentifierFromToken(exportedToken);
             }
-            const specifier: ExportSpecifier = { kind: "ExportSpecifier", exported };
+            const specifier: ExportSpecifier = new ExportSpecifier({ kind: "ExportSpecifier", exported });
             if (exported !== local) {
                 specifier.local = local;
             }
@@ -4922,19 +4925,19 @@ export class Parser {
                 this.fail("Expected imported bindings after 'import type'", this.tokenAt(firstImportToken));
             }
             const sourceToken = this.tokens.read()!;
-            const statement: ImportStatement = {
+            const statement: ImportStatement = new ImportStatement({
                 kind: "ImportStatement",
                 specifiers: [],
                 from: this.attachNodeBounds(
-                    {
+                    new StringLiteral({
                         kind: "StringLiteral",
                         value: sourceToken.value
-                    } as StringLiteral,
+                    }),
                     sourceToken,
                     sourceToken
                 ),
                 sideEffectOnly: true
-            };
+            });
             return this.attachNodeBounds(statement, importKeyword, sourceToken);
         }
 
@@ -4982,18 +4985,18 @@ export class Parser {
             this.fail("Expected string literal module path in import statement", this.tokenAt(sourceToken));
         }
 
-        const statement: ImportStatement = {
+        const statement: ImportStatement = new ImportStatement({
             kind: "ImportStatement",
             specifiers,
             from: this.attachNodeBounds(
-                {
+                new StringLiteral({
                     kind: "StringLiteral",
                     value: sourceToken.value
-                } as StringLiteral,
+                }),
                 sourceToken,
                 sourceToken
             )
-        };
+        });
         if (defaultImport) {
             statement.defaultImport = defaultImport;
         }
@@ -5050,10 +5053,10 @@ export class Parser {
                 }
                 local = this.buildIdentifierFromToken(localToken);
             }
-            const specifier: ImportSpecifier = {
+            const specifier: ImportSpecifier = new ImportSpecifier({
                 kind: "ImportSpecifier",
                 imported
-            };
+            });
             if (local) {
                 specifier.local = local;
             }
@@ -5118,11 +5121,11 @@ export class Parser {
             }
             if (token?.type === "symbol" && token.value === "}") {
                 this.tokens.skip();
-                const statement: EnumStatement = {
+                const statement: EnumStatement = new EnumStatement({
                     kind: "EnumStatement",
                     name: this.buildIdentifierFromToken(enumNameToken),
                     members
-                };
+                });
                 if (declared) {
                     statement.declared = true;
                 }
@@ -5146,10 +5149,10 @@ export class Parser {
                 this.tokens.skip();
                 initializer = this.parseAssignment();
             }
-            const member: EnumMember = {
+            const member: EnumMember = new EnumMember({
                 kind: "EnumMember",
                 name: this.buildIdentifierFromToken(nameToken)
-            };
+            });
             if (initializer) {
                 member.initializer = initializer;
             }
@@ -5198,11 +5201,11 @@ export class Parser {
         }
 
         const targetType = this.parseTypeAnnotationNode();
-        const statement: TypeAliasStatement = {
+        const statement: TypeAliasStatement = new TypeAliasStatement({
             kind: "TypeAliasStatement",
             name: this.buildIdentifierFromToken(nameToken),
             targetType
-        };
+        });
         if (declared) {
             statement.declared = true;
         }
@@ -5308,7 +5311,7 @@ export class Parser {
         } else {
             missingBody = true;
             body = this.attachNodeBounds(
-                { kind: "BlockStatement", body: [] } as BlockStatement,
+                new BlockStatement({ kind: "BlockStatement", body: [] }) as BlockStatement,
                 nameToken,
                 this.getLastReadToken() ?? nameToken
             );
@@ -5318,13 +5321,13 @@ export class Parser {
             }
         }
 
-        const statement: FunctionStatement = {
+        const statement: FunctionStatement = new FunctionStatement({
             kind: "FunctionStatement",
             declarationKind: declarationKeyword.value as FunctionDeclarationKind,
             name: this.buildIdentifierFromToken(nameToken),
             parameters,
             body
-        };
+        });
         if (receiverType) {
             statement.receiverType = receiverType;
         }
@@ -5365,18 +5368,18 @@ export class Parser {
 
         const expression = this.parseAssignment();
         const returnStatement = this.attachNodeBounds(
-            {
+            new ReturnStatement({
                 kind: "ReturnStatement",
                 expression
-            } as ReturnStatement,
+            }) as ReturnStatement,
             expression.firstToken ?? arrowToken,
             expression.lastToken ?? this.getLastReadToken() ?? arrowToken
         );
         const block = this.attachNodeBounds(
-            {
+            new BlockStatement({
                 kind: "BlockStatement",
                 body: [returnStatement]
-            } as BlockStatement,
+            }) as BlockStatement,
             arrowToken,
             expression.lastToken ?? this.getLastReadToken() ?? arrowToken
         );
@@ -5514,7 +5517,7 @@ export class Parser {
             }
         } else if (namespaceNameToken?.type === "string") {
             externalModuleName = this.attachNodeBounds(
-                { kind: "StringLiteral", value: namespaceNameToken.value } as StringLiteral,
+                new StringLiteral({ kind: "StringLiteral", value: namespaceNameToken.value }) as StringLiteral,
                 namespaceNameToken,
                 namespaceNameToken
             );
@@ -5529,14 +5532,14 @@ export class Parser {
             this.tokens.skip();
         }
 
-        const statement: NamespaceStatement = {
+        const statement: NamespaceStatement = new NamespaceStatement({
             kind: "NamespaceStatement",
             ...(declared ? { declared: true } : {}),
             declarationKind: namespaceKeyword.value,
             ...(names.length > 0 ? { names } : {}),
             ...(externalModuleName ? { externalModuleName } : {}),
             body
-        };
+        });
         const firstToken = declareKeyword ?? namespaceKeyword;
         return this.attachNodeBounds(statement, firstToken, this.getLastReadToken() ?? firstToken);
     }
@@ -5554,13 +5557,13 @@ export class Parser {
             this.tokens.skip();
         }
 
-        const statement: NamespaceStatement = {
+        const statement: NamespaceStatement = new NamespaceStatement({
             kind: "NamespaceStatement",
             declared: true,
             globalAugmentation: true,
             declarationKind: "namespace",
             body
-        };
+        });
         return this.attachNodeBounds(statement, declareKeyword ?? globalKeyword, this.getLastReadToken() ?? globalKeyword);
     }
 
@@ -5598,7 +5601,7 @@ export class Parser {
         if (parsedBlock?.kind === "BlockStatement") {
             return parsedBlock;
         }
-        return this.attachNodeBounds({ kind: "BlockStatement", body: [] } as BlockStatement, openBrace, closeBrace);
+        return this.attachNodeBounds(new BlockStatement({ kind: "BlockStatement", body: [] }) as BlockStatement, openBrace, closeBrace);
     }
 
     private markAmbientDeclarations(statements: Statement[]): void {
@@ -5620,10 +5623,10 @@ export class Parser {
     private parseAnnotationParameters(): FunctionParameter[] {
         const parameters = this.parseClassPrimaryConstructorParameters();
         return parameters.map((parameter) => {
-            const functionParameter: FunctionParameter = {
+            const functionParameter: FunctionParameter = new FunctionParameter({
                 kind: "FunctionParameter",
                 name: parameter.name
-            };
+            });
             if (parameter.declarationKind === "val" || parameter.declarationKind === "const") {
                 functionParameter.accessModifier = "public";
                 functionParameter.readonly = true;
@@ -5657,7 +5660,7 @@ export class Parser {
         }
 
         return this.attachNodeBounds(
-            { kind: "ExprStatement", expression } as ExprStatement,
+            new ExprStatement({ kind: "ExprStatement", expression }) as ExprStatement,
             exportKeyword,
             this.getLastReadToken() ?? exportKeyword
         );
@@ -5729,10 +5732,10 @@ export class Parser {
                 parameterDefaultValue = this.parseAssignment();
             }
 
-            const parameter: FunctionParameter = {
+            const parameter: FunctionParameter = new FunctionParameter({
                 kind: "FunctionParameter",
                 name: parameterName
-            };
+            });
             if (parameterAccessModifier) {
                 parameter.accessModifier = parameterAccessModifier;
             }
@@ -5843,6 +5846,7 @@ export class Parser {
         let readonlyToken: Token | undefined;
         let isStaticMember = false;
         let isAbstractMember = false;
+        let isDeclaredMember = false;
         let isAsyncMember = false;
         let isSyncMember = false;
 
@@ -5869,6 +5873,8 @@ export class Parser {
                 isStaticMember = true;
             } else if (modifierToken.value === "abstract") {
                 isAbstractMember = true;
+            } else if (modifierToken.value === "declare") {
+                isDeclaredMember = true;
             } else if (modifierToken.value === "async") {
                 isAsyncMember = true;
             } else if (modifierToken.value === "sync") {
@@ -5942,7 +5948,15 @@ export class Parser {
 
         let overloadedOperator: OverloadableOperator | undefined;
         let resolvedMemberNameToken = effectiveMemberNameToken;
-        if (!computedMemberKey && effectiveMemberNameToken?.value === "operator") {
+        if (
+            !computedMemberKey &&
+            effectiveMemberNameToken?.value === "operator" &&
+            this.tokens.peek()?.value !== ":" &&
+            this.tokens.peek()?.value !== "?" &&
+            this.tokens.peek()?.value !== "!" &&
+            this.tokens.peek()?.value !== "=" &&
+            this.tokens.peek()?.value !== ";"
+        ) {
             const parsedOperator = this.parseOperatorOverload();
             if (!parsedOperator) {
                 this.fail("Expected overloadable operator after 'operator'", this.tokenAt(this.tokens.peek()));
@@ -6000,17 +6014,17 @@ export class Parser {
                 (this.tokens.peek()?.value !== "{" && this.tokens.peek()?.value !== "=>")
             ) {
                 const signatureOnlyBody = this.attachNodeBounds(
-                    { kind: "BlockStatement", body: [] } as BlockStatement,
+                    new BlockStatement({ kind: "BlockStatement", body: [] }) as BlockStatement,
                     memberNameToken,
                     this.getLastReadToken() ?? memberNameToken
                 );
 
-                const signatureOnlyMethod: ClassMethodMember = {
+                const signatureOnlyMethod: ClassMethodMember = new ClassMethodMember({
                     kind: "ClassMethodMember",
                     name: resolvedMemberName,
                     parameters,
                     body: signatureOnlyBody
-                };
+                });
                 if (computedMemberKey) {
                     signatureOnlyMethod.computed = true;
                     signatureOnlyMethod.computedKey = computedMemberKey;
@@ -6062,14 +6076,14 @@ export class Parser {
                 return [this.attachNodeBounds(signatureOnlyMethod, memberStartToken, this.getLastReadToken() ?? memberNameToken)];
             }
 
-            const methodMember: ClassMethodMember = {
+            const methodMember: ClassMethodMember = new ClassMethodMember({
                 kind: "ClassMethodMember",
                 name: resolvedMemberName,
                 parameters,
                 body: this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>"
                     ? this.parseExpressionBodyAsBlock()
                     : this.parseBlockStatement()
-            };
+            });
             if (computedMemberKey) {
                 methodMember.computed = true;
                 methodMember.computedKey = computedMemberKey;
@@ -6129,13 +6143,13 @@ export class Parser {
         }
 
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>") {
-            const getterMember: ClassMethodMember = {
+            const getterMember: ClassMethodMember = new ClassMethodMember({
                 kind: "ClassMethodMember",
                 name: resolvedMemberName,
                 parameters: [],
                 body: this.parseExpressionBodyAsBlock(),
                 accessorKind: "get"
-            };
+            });
             this.applyClassMemberModifiers(getterMember, {
                 override: isOverrideMember,
                 accessModifier,
@@ -6178,13 +6192,13 @@ export class Parser {
                     const getterBody = this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>"
                         ? this.parseExpressionBodyAsBlock()
                         : this.parseBlockStatement();
-                    const getterMember: ClassMethodMember = {
+                    const getterMember: ClassMethodMember = new ClassMethodMember({
                         kind: "ClassMethodMember",
                         name: resolvedMemberName,
                         parameters: [],
                         body: getterBody,
                         accessorKind: "get"
-                    };
+                    });
                     if (typeAnnotation) {
                         getterMember.returnType = typeAnnotation;
                     }
@@ -6213,7 +6227,7 @@ export class Parser {
                         }
                         const paramName = this.buildIdentifierFromToken(paramNameToken);
                         setterParam = this.attachNodeBounds(
-                            { kind: "FunctionParameter", name: paramName } as FunctionParameter,
+                            new FunctionParameter({ kind: "FunctionParameter", name: paramName }) as FunctionParameter,
                             paramNameToken, this.getLastReadToken() ?? paramNameToken
                         );
                         if (paramType) {
@@ -6221,11 +6235,11 @@ export class Parser {
                         }
                     } else {
                         const newValueIdent = this.attachNodeBounds(
-                            { kind: "Identifier", name: "newValue" } as Identifier,
+                            new Identifier({ kind: "Identifier", name: "newValue" }) as Identifier,
                             subKeyword, subKeyword
                         );
                         setterParam = this.attachNodeBounds(
-                            { kind: "FunctionParameter", name: newValueIdent } as FunctionParameter,
+                            new FunctionParameter({ kind: "FunctionParameter", name: newValueIdent }) as FunctionParameter,
                             subKeyword, subKeyword
                         );
                         if (typeAnnotation) {
@@ -6233,13 +6247,13 @@ export class Parser {
                         }
                     }
                     const setterBody = this.parseBlockStatement();
-                    const setterMember: ClassMethodMember = {
+                    const setterMember: ClassMethodMember = new ClassMethodMember({
                         kind: "ClassMethodMember",
                         name: resolvedMemberName,
                         parameters: [setterParam],
                         body: setterBody,
                         accessorKind: "set"
-                    };
+                    });
                     this.applyClassMemberModifiers(setterMember, {
                         override: isOverrideMember, accessModifier,
                         readonly: isReadonlyMember, static: isStaticMember, abstract: isAbstractMember
@@ -6269,10 +6283,10 @@ export class Parser {
             initializer = this.parseAssignment();
         }
 
-        const fieldMember: ClassFieldMember = {
+        const fieldMember: ClassFieldMember = new ClassFieldMember({
             kind: "ClassFieldMember",
             name: resolvedMemberName
-        };
+        });
         this.applyClassMemberModifiers(fieldMember, {
             override: isOverrideMember,
             accessModifier,
@@ -6280,6 +6294,9 @@ export class Parser {
             static: isStaticMember,
             abstract: isAbstractMember
         });
+        if (isDeclaredMember) {
+            fieldMember.declared = true;
+        }
         if (readonlyToken) {
             this.attachNonEnumerableToken(fieldMember, "readonlyToken", readonlyToken);
         }
@@ -6391,11 +6408,11 @@ export class Parser {
                 parameterDefaultValue = this.parseAssignment();
             }
 
-            const parameter: ClassPrimaryConstructorParameter = {
+            const parameter: ClassPrimaryConstructorParameter = new ClassPrimaryConstructorParameter({
                 kind: "ClassPrimaryConstructorParameter",
                 declarationKind,
                 name: this.buildIdentifierFromToken(parameterNameToken)
-            };
+            });
             if (parameterTypeAnnotation) {
                 parameter.typeAnnotation = parameterTypeAnnotation;
             }
@@ -6460,11 +6477,11 @@ export class Parser {
         }
 
         const buildInterfaceStatement = (members: InterfaceMember[]): InterfaceStatement => {
-            const statement: InterfaceStatement = {
+            const statement: InterfaceStatement = new InterfaceStatement({
                 kind: "InterfaceStatement",
                 name: this.buildIdentifierFromToken(interfaceNameToken),
                 members
-            };
+            });
             if (declared) {
                 statement.declared = true;
             }
@@ -6520,15 +6537,15 @@ export class Parser {
                 }
 
                 const memberName = this.attachNodeBounds(
-                    { kind: "Identifier", name: "call" } as Identifier,
+                    new Identifier({ kind: "Identifier", name: "call" }) as Identifier,
                     openParen,
                     openParen
                 );
-                const member: InterfaceMethodMember = {
+                const member: InterfaceMethodMember = new InterfaceMethodMember({
                     kind: "InterfaceMethodMember",
                     name: memberName,
                     parameters
-                };
+                });
                 if (anonymousCallTypeParameters.length > 0) {
                     member.typeParameters = anonymousCallTypeParameters;
                 }
@@ -6657,13 +6674,13 @@ export class Parser {
                     returnType = this.parseReturnTypeAnnotationNode();
                 }
 
-                const member: InterfaceMethodMember = {
+                const member: InterfaceMethodMember = new InterfaceMethodMember({
                     kind: "InterfaceMethodMember",
                     name: computedMemberKey
                         ? this.buildComputedMemberIdentifier(computedMemberKey, computedMemberKey.firstToken, computedMemberCloseBracket!)
-                        : this.attachNodeBounds({ kind: "Identifier", name: memberName } as Identifier, memberNameToken, memberNameToken),
+                        : this.attachNodeBounds(new Identifier({ kind: "Identifier", name: memberName }), memberNameToken, memberNameToken),
                     parameters
-                };
+                });
                 if (computedMemberKey) {
                     member.computed = true;
                     member.computedKey = computedMemberKey;
@@ -6702,15 +6719,15 @@ export class Parser {
             }
             this.tokens.skip();
             const propertyType = this.parseTypeAnnotationNode();
-            const propertyMember: InterfacePropertyMember = {
+            const propertyMember: InterfacePropertyMember = new InterfacePropertyMember({
                 kind: "InterfacePropertyMember",
                 name: this.attachNodeBounds(
-                    { kind: "Identifier", name: memberName } as Identifier,
+                    new Identifier({ kind: "Identifier", name: memberName }),
                     interfaceIndexSignatureType?.firstToken ?? memberNameToken,
                     interfaceIndexSignatureType?.lastToken ?? memberNameToken
                 ),
                 typeAnnotation: propertyType
-            };
+            });
             if (propertyDeclarationKind) {
                 propertyMember.declarationKind = propertyDeclarationKind;
             }
@@ -6827,10 +6844,10 @@ export class Parser {
 
             if (token?.type === "symbol" && token.value === "}") {
                 this.tokens.skip();
-                return this.attachNodeBounds({
+                return this.attachNodeBounds(new BlockStatement({
                     kind: "BlockStatement",
                     body
-                } as BlockStatement, openBrace, this.getLastReadToken() ?? openBrace);
+                }) as BlockStatement, openBrace, this.getLastReadToken() ?? openBrace);
             }
 
             const statementStartOffset = this.tokens.offset;
@@ -6878,11 +6895,11 @@ export class Parser {
         }
 
         const body = this.parseStatementOrThrow();
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new WhileStatement({
             kind: "WhileStatement",
             condition,
             body
-        } as WhileStatement, whileKeyword, this.getLastReadToken() ?? whileKeyword);
+        }) as WhileStatement, whileKeyword, this.getLastReadToken() ?? whileKeyword);
     }
 
     private parseWithStatement(): WithStatement {
@@ -6904,11 +6921,11 @@ export class Parser {
         }
 
         const body = this.parseStatementOrThrow();
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new WithStatement({
             kind: "WithStatement",
             object,
             body
-        } as WithStatement, withKeyword, this.getLastReadToken() ?? withKeyword);
+        }) as WithStatement, withKeyword, this.getLastReadToken() ?? withKeyword);
     }
 
     private parseDoWhileStatement(): DoWhileStatement {
@@ -6936,11 +6953,11 @@ export class Parser {
             this.fail("Expected ')' after do-while condition", this.tokenAt(closeParen));
         }
 
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new DoWhileStatement({
             kind: "DoWhileStatement",
             body,
             condition
-        } as DoWhileStatement, doKeyword, this.getLastReadToken() ?? doKeyword);
+        }) as DoWhileStatement, doKeyword, this.getLastReadToken() ?? doKeyword);
     }
 
     private parseForStatement(): ForStatement {
@@ -7019,14 +7036,14 @@ export class Parser {
             }
 
             const body = this.parseStatementOrThrow();
-            return this.attachNodeBounds({
+            return this.attachNodeBounds(new ForStatement({
                 kind: "ForStatement",
                 ...(awaitModifier ? { await: true } : {}),
                 iterationKind: maybeIterationKeyword.value as "in" | "of",
                 iterator: initializer,
                 iterable,
                 body
-            } as ForStatement, forKeyword, this.getLastReadToken() ?? forKeyword);
+            }) as ForStatement, forKeyword, this.getLastReadToken() ?? forKeyword);
         }
 
         const firstSemicolon = this.tokens.read();
@@ -7055,11 +7072,11 @@ export class Parser {
         }
 
         const body = this.parseStatementOrThrow();
-        const statement: ForStatement = {
+        const statement: ForStatement = new ForStatement({
             kind: "ForStatement",
             ...(awaitModifier ? { await: true } : {}),
             body
-        };
+        });
         if (initializer) {
             statement.initializer = initializer;
         }
@@ -7106,11 +7123,11 @@ export class Parser {
             elseBranch = this.parseStatementOrThrow();
         }
 
-        const statement: IfStatement = {
+        const statement: IfStatement = new IfStatement({
             kind: "IfStatement",
             condition,
             thenBranch
-        };
+        });
         if (elseBranch) {
             statement.elseBranch = elseBranch;
         }
@@ -7151,11 +7168,11 @@ export class Parser {
 
             if (token?.type === "symbol" && token.value === "}") {
                 this.tokens.skip();
-                return this.attachNodeBounds({
+                return this.attachNodeBounds(new SwitchStatement({
                     kind: "SwitchStatement",
                     discriminant,
                     cases
-                } as SwitchStatement, switchKeyword, this.getLastReadToken() ?? switchKeyword);
+                }) as SwitchStatement, switchKeyword, this.getLastReadToken() ?? switchKeyword);
             }
 
             if (token?.type === "symbol" && token.value === ";") {
@@ -7171,11 +7188,11 @@ export class Parser {
                     this.fail("Expected ':' after switch case expression", this.tokenAt(colon));
                 }
 
-                currentCase = this.attachNodeBounds({
+                currentCase = this.attachNodeBounds(new SwitchCase({
                     kind: "SwitchCase",
                     test,
                     consequent: []
-                } as SwitchCase, caseKeyword, this.getLastReadToken() ?? caseKeyword);
+                }) as SwitchCase, caseKeyword, this.getLastReadToken() ?? caseKeyword);
                 cases.push(currentCase);
                 continue;
             }
@@ -7187,10 +7204,10 @@ export class Parser {
                     this.fail("Expected ':' after switch default", this.tokenAt(colon));
                 }
 
-                currentCase = this.attachNodeBounds({
+                currentCase = this.attachNodeBounds(new SwitchCase({
                     kind: "SwitchCase",
                     consequent: []
-                } as SwitchCase, defaultKeyword, this.getLastReadToken() ?? defaultKeyword);
+                }) as SwitchCase, defaultKeyword, this.getLastReadToken() ?? defaultKeyword);
                 cases.push(currentCase);
                 continue;
             }
@@ -7237,11 +7254,11 @@ export class Parser {
         }
 
         const body = this.parseStatementOrThrow();
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new LabeledStatement({
             kind: "LabeledStatement",
             label: this.buildIdentifierFromToken(labelToken),
             body
-        } as LabeledStatement, labelToken, this.getLastReadToken() ?? labelToken);
+        }) as LabeledStatement, labelToken, this.getLastReadToken() ?? labelToken);
     }
 
     private parseReturnStatement(): ReturnStatement {
@@ -7252,22 +7269,22 @@ export class Parser {
 
         const next = this.tokens.peek();
         if (!next) {
-            return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
+            return this.attachNodeBounds(new ReturnStatement({ kind: "ReturnStatement" }) as ReturnStatement, returnKeyword, returnKeyword);
         }
         if (isEofToken(next)) {
-            return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
+            return this.attachNodeBounds(new ReturnStatement({ kind: "ReturnStatement" }) as ReturnStatement, returnKeyword, returnKeyword);
         }
         if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
-            return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
+            return this.attachNodeBounds(new ReturnStatement({ kind: "ReturnStatement" }) as ReturnStatement, returnKeyword, returnKeyword);
         }
         if (hasLineBreakBetween(returnKeyword, next)) {
-            return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
+            return this.attachNodeBounds(new ReturnStatement({ kind: "ReturnStatement" }) as ReturnStatement, returnKeyword, returnKeyword);
         }
 
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new ReturnStatement({
             kind: "ReturnStatement",
             expression: this.parseExpressionOrThrow()
-        } as ReturnStatement, returnKeyword, this.getLastReadToken() ?? returnKeyword);
+        }) as ReturnStatement, returnKeyword, this.getLastReadToken() ?? returnKeyword);
     }
 
     private parseContinueStatement(): ContinueStatement {
@@ -7278,12 +7295,12 @@ export class Parser {
         const next = this.tokens.peek();
         if (next?.type === "identifier" && !hasLineBreakBetween(continueKeyword, next)) {
             const labelToken = this.tokens.read()!;
-            return this.attachNodeBounds({
+            return this.attachNodeBounds(new ContinueStatement({
                 kind: "ContinueStatement",
                 label: this.buildIdentifierFromToken(labelToken)
-            } as ContinueStatement, continueKeyword, labelToken);
+            }) as ContinueStatement, continueKeyword, labelToken);
         }
-        return this.attachNodeBounds({ kind: "ContinueStatement" } as ContinueStatement, continueKeyword, continueKeyword);
+        return this.attachNodeBounds(new ContinueStatement({ kind: "ContinueStatement" }) as ContinueStatement, continueKeyword, continueKeyword);
     }
 
     private parseBreakStatement(): BreakStatement {
@@ -7294,12 +7311,12 @@ export class Parser {
         const next = this.tokens.peek();
         if (next?.type === "identifier" && !hasLineBreakBetween(breakKeyword, next)) {
             const labelToken = this.tokens.read()!;
-            return this.attachNodeBounds({
+            return this.attachNodeBounds(new BreakStatement({
                 kind: "BreakStatement",
                 label: this.buildIdentifierFromToken(labelToken)
-            } as BreakStatement, breakKeyword, labelToken);
+            }) as BreakStatement, breakKeyword, labelToken);
         }
-        return this.attachNodeBounds({ kind: "BreakStatement" } as BreakStatement, breakKeyword, breakKeyword);
+        return this.attachNodeBounds(new BreakStatement({ kind: "BreakStatement" }) as BreakStatement, breakKeyword, breakKeyword);
     }
 
     private parseThrowStatement(): ThrowStatement {
@@ -7317,10 +7334,10 @@ export class Parser {
         }
 
         const expression = this.parseExpressionOrThrow();
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new ThrowStatement({
             kind: "ThrowStatement",
             expression
-        } as ThrowStatement, throwKeyword, this.getLastReadToken() ?? throwKeyword);
+        }) as ThrowStatement, throwKeyword, this.getLastReadToken() ?? throwKeyword);
     }
 
     private parseDeferStatement(): DeferStatement {
@@ -7338,10 +7355,10 @@ export class Parser {
         }
 
         const expression = this.parseExpressionOrThrow();
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new DeferStatement({
             kind: "DeferStatement",
             expression
-        } as DeferStatement, deferKeyword, this.getLastReadToken() ?? deferKeyword);
+        }) as DeferStatement, deferKeyword, this.getLastReadToken() ?? deferKeyword);
     }
 
 
@@ -7350,9 +7367,9 @@ export class Parser {
         if (debuggerKeyword?.type !== "identifier" || debuggerKeyword.value !== "debugger") {
             this.fail("Expected 'debugger' statement", this.tokenAt(debuggerKeyword));
         }
-        return this.attachNodeBounds({
+        return this.attachNodeBounds(new DebuggerStatement({
             kind: "DebuggerStatement"
-        } as DebuggerStatement, debuggerKeyword, debuggerKeyword);
+        }) as DebuggerStatement, debuggerKeyword, debuggerKeyword);
     }
 
     private parseTryStatement(): TryStatement {
@@ -7382,10 +7399,10 @@ export class Parser {
             }
 
             const catchBody = this.parseBlockStatement();
-            catchClause = {
+            catchClause = new CatchClause({
                 kind: "CatchClause",
                 body: catchBody
-            } as CatchClause;
+            }) as CatchClause;
             if (parameter) {
                 catchClause.parameter = parameter;
             }
@@ -7402,10 +7419,10 @@ export class Parser {
             this.fail("Expected 'catch' or 'finally' after try block", this.tokenAt());
         }
 
-        const statement: TryStatement = {
+        const statement: TryStatement = new TryStatement({
             kind: "TryStatement",
             tryBlock
-        };
+        });
         if (catchClause) {
             statement.catchClause = catchClause;
         }

@@ -1,5 +1,6 @@
-import type {
+import {
   BlockStatement,
+  BinaryExpression,
   CatchClause,
   ClassMethodMember,
   ClassStatement,
@@ -100,32 +101,32 @@ function lowerForStatement(statement: ForStatement, options: LoweringOptions): F
 
     if (iteratorName) {
       const range = statement.iterable as RangeExpression;
-      const loweredInitializer: VarStatement = {
+      const loweredInitializer: VarStatement = new VarStatement({
         kind: "VarStatement",
         declarationKind: "let",
-        name: { kind: "Identifier", name: iteratorName },
+        name: new Identifier({ kind: "Identifier", name: iteratorName }),
         initializer: cloneExpression(range.start)
-      };
-      const loweredCondition: Expr = {
+      });
+      const loweredCondition: Expr = new BinaryExpression({
         kind: "BinaryExpression",
         operator: range.exclusive ? "<" : "<=",
-        left: { kind: "Identifier", name: iteratorName },
+        left: new Identifier({ kind: "Identifier", name: iteratorName }),
         right: cloneExpression(range.end)
-      } as Expr;
-      const loweredUpdate: UpdateExpression = {
+      }) as Expr;
+      const loweredUpdate: UpdateExpression = new UpdateExpression({
         kind: "UpdateExpression",
         operator: "++",
-        argument: { kind: "Identifier", name: iteratorName } as Expr,
+        argument: new Identifier({ kind: "Identifier", name: iteratorName }),
         prefix: false
-      };
+      });
 
-      return copyNodeBounds({
+      return copyNodeBounds(new ForStatement({
         kind: "ForStatement",
         initializer: loweredInitializer,
         condition: loweredCondition,
         update: loweredUpdate as unknown as Expr,
         body: lowerStatement(statement.body, options)
-      }, statement);
+      }), statement);
     }
   }
 
@@ -152,23 +153,23 @@ function lowerBlockStatement(statement: BlockStatement, options: LoweringOptions
     const child = statement.body[index]!;
     if (child.kind === "DeferStatement") {
       const deferred = child as DeferStatement;
-      const tryBlock = copyNodeBounds({
+      const tryBlock = copyNodeBounds(new BlockStatement({
         kind: "BlockStatement",
         body: [...loweredBody]
-      } as BlockStatement, statement);
-      const finallyStatement = copyNodeBounds({
+      }) as BlockStatement, statement);
+      const finallyStatement = copyNodeBounds(new ExprStatement({
         kind: "ExprStatement",
         expression: cloneExpression(deferred.expression)
-      } as ExprStatement, deferred);
-      const finallyBlock = copyNodeBounds({
+      }) as ExprStatement, deferred);
+      const finallyBlock = copyNodeBounds(new BlockStatement({
         kind: "BlockStatement",
         body: [finallyStatement]
-      } as BlockStatement, deferred);
-      const wrapped = copyNodeBounds({
+      }) as BlockStatement, deferred);
+      const wrapped = copyNodeBounds(new TryStatement({
         kind: "TryStatement",
         tryBlock,
         finallyBlock
-      } as TryStatement, deferred);
+      }) as TryStatement, deferred);
       loweredBody.splice(0, loweredBody.length, wrapped);
       continue;
     }

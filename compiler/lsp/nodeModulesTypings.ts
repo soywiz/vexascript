@@ -1,4 +1,4 @@
-import type {
+import {
   BlockStatement,
   ClassStatement,
   EnumStatement,
@@ -107,7 +107,7 @@ function asExportedTypingsEntry(entry: NodeModuleDeclarationEntry): NodeModuleDe
   return entry.statement.kind === "ExportStatement"
     ? entry
     : {
-        statement: { kind: "ExportStatement", declaration: entry.statement } as ExportStatement,
+        statement: new ExportStatement({ kind: "ExportStatement", declaration: entry.statement }) as ExportStatement,
         typingsPath: entry.typingsPath
       };
 }
@@ -126,17 +126,17 @@ function asAliasedExportedTypingsEntry(
   if (exportedName === localName) {
     return asExportedTypingsEntry(entry);
   }
-  const specifier: ExportSpecifier = {
+  const specifier: ExportSpecifier = new ExportSpecifier({
     kind: "ExportSpecifier",
-    local: { kind: "Identifier", name: localName } as Identifier,
-    exported: { kind: "Identifier", name: exportedName } as Identifier
-  };
+    local: new Identifier({ kind: "Identifier", name: localName }),
+    exported: new Identifier({ kind: "Identifier", name: exportedName })
+  });
   return {
-    statement: {
+    statement: new ExportStatement({
       kind: "ExportStatement",
       declaration: reexportedDeclaration(entry),
       specifiers: [specifier]
-    } as ExportStatement,
+    }) as ExportStatement,
     typingsPath: entry.typingsPath
   };
 }
@@ -149,24 +149,24 @@ function asNamespaceReexportedTypingsEntry(
   if (!firstEntry) {
     return null;
   }
-  const namespaceName: Identifier = {
+  const namespaceName: Identifier = new Identifier({
     kind: "Identifier",
     name: namespaceExport.name
-  };
-  const namespaceDeclaration: NamespaceStatement = {
+  });
+  const namespaceDeclaration: NamespaceStatement = new NamespaceStatement({
     kind: "NamespaceStatement",
     declarationKind: "namespace",
     names: [namespaceName],
-    body: {
+    body: new BlockStatement({
       kind: "BlockStatement",
       body: entries.map((entry) => asExportedTypingsEntry(entry).statement)
-    } as BlockStatement
-  };
+    })
+  });
   return {
-    statement: {
+    statement: new ExportStatement({
       kind: "ExportStatement",
       declaration: namespaceDeclaration
-    } as ExportStatement,
+    }) as ExportStatement,
     typingsPath: firstEntry.typingsPath
   };
 }

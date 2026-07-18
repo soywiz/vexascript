@@ -1,4 +1,4 @@
-import type {
+import {
   ArrayLiteral,
   ArrayBindingPattern,
   AsExpression,
@@ -55,6 +55,7 @@ import type {
   TypeAliasStatement,
   TypeParameter,
   UnaryExpression,
+  UndefinedLiteral,
   UpdateExpression,
   VarStatement,
   WhileStatement,
@@ -1546,9 +1547,9 @@ function orderedCallArguments(
     if (!ordered[index] && parameter.defaultValue) {
       ordered[index] = parameter.defaultValue;
     } else if (!ordered[index] && callableParameterIsOptional(parameter)) {
-      ordered[index] = { kind: "UndefinedLiteral" } as Expr;
+      ordered[index] = new UndefinedLiteral({ kind: "UndefinedLiteral" }) as Expr;
     } else if (!ordered[index] && "rest" in parameter && parameter.rest) {
-      ordered[index] = { kind: "ArrayLiteral", elements: [], __vexaEmptyRest: true } as unknown as Expr;
+      ordered[index] = new ArrayLiteral({ kind: "ArrayLiteral", elements: [], __vexaEmptyRest: true }) as unknown as Expr;
     }
   }
   if (ordered.some((argument) => argument === undefined)) {
@@ -4320,7 +4321,7 @@ function emitStatementPreamble(statement: Statement, indent: string): string[] {
 function emitBody(statement: Statement, indent: string): string {
   return statement.kind === "BlockStatement"
     ? emitBlock(statement as BlockStatement, indent)
-    : emitBlock({ kind: "BlockStatement", body: [statement] } as BlockStatement, indent);
+    : emitBlock(new BlockStatement({ kind: "BlockStatement", body: [statement] }) as BlockStatement, indent);
 }
 
 function emitLoopBody(statement: Statement, indent: string, label?: string): string {

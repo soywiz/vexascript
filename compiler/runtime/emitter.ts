@@ -1,4 +1,4 @@
-import type {
+import {
   ArrowFunctionExpression,
   ArrayLiteral,
   AsExpression,
@@ -879,7 +879,7 @@ function collectVariableDelegates(program: Program, expressionTypes?: ReadonlyMa
     const statement = node as VarStatement;
     const declarations = statement.declarations && statement.declarations.length > 0
       ? statement.declarations
-      : [{ kind: "VarDeclarator", name: statement.name, delegate: statement.delegate } as VarDeclarator];
+      : [new VarDeclarator({ kind: "VarDeclarator", name: statement.name, delegate: statement.delegate }) as VarDeclarator];
     for (const declaration of declarations) {
       if (!declaration.delegate || declaration.name.kind !== "Identifier") {
         continue;
@@ -1058,7 +1058,7 @@ function emitOptionalAssignmentTarget(assignment: AssignmentExpression): string 
   const receiverText = emitExpression(target.object, PREC_ASSIGNMENT, "left");
   const normalizedTarget: MemberExpression = {
     ...target,
-    object: { kind: "Identifier", name: tempName ?? nextGeneratedSymbol("$$temp") } as Expr,
+    object: new Identifier({ kind: "Identifier", name: tempName ?? nextGeneratedSymbol("$$temp") }) as Expr,
     optional: false,
     nonNullAsserted: false
   };
@@ -1167,7 +1167,7 @@ function emitChainOperation(operation: Expr, receiver: Expr, replacement: Identi
 
 function emitChainExpression(chain: ChainExpression): string {
   const tempName = nextGeneratedSymbol("$$chain");
-  const tempIdentifier = { kind: "Identifier", name: tempName } as Identifier;
+  const tempIdentifier = new Identifier({ kind: "Identifier", name: tempName }) as Identifier;
   const receiverText = emitExpression(chain.receiver, PREC_ASSIGNMENT, "right");
   const previousState = activeState;
   const receiverType = activeState.expressionTypes?.get(chain.receiver as unknown as Node);
@@ -1989,7 +1989,9 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
 }
 
 function emitClassLike(classLike: ClassStatement | ClassExpression, resolvedName?: string): string {
-  const members = [...classLike.members];
+  const members = classLike.members.filter(member =>
+    member.kind !== "ClassFieldMember" || member.declared !== true
+  );
   const syntheticConstructor = emitClassPrimaryConstructor(classLike.primaryConstructorParameters, members);
   const memberLines = [
     ...(syntheticConstructor ? [syntheticConstructor] : []),
@@ -3186,15 +3188,15 @@ export function emitProgramStatementPairs(
     if (temps.length === 0) {
       return emittedStatements;
     }
-    const declarationStatement: VarStatement = {
+    const declarationStatement: VarStatement = new VarStatement({
       kind: "VarStatement",
       declarationKind: "let",
-      name: { kind: "Identifier", name: temps[0] ?? "$$temp_0" },
-      declarations: temps.map((name) => ({
+      name: new Identifier({ kind: "Identifier", name: temps[0] ?? "$$temp_0" }),
+      declarations: temps.map((name) => new VarDeclarator({
         kind: "VarDeclarator",
-        name: { kind: "Identifier", name }
+        name: new Identifier({ kind: "Identifier", name })
       }))
-    };
+    });
     return [
       {
         statement: declarationStatement,

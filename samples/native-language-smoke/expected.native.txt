@@ -33,7 +33,7 @@ collections 1 undefined true 1 true true 1 6
 collection spread 4 5 6|7
 nested collections 12 undefined
 deferred dynamic array first:one|second:two|
-deferred dynamic map left:2|right:3|
+deferred dynamic map left:2|right:3| 3
 json {"name":"Ada","values":[1,2],"active":true} Ada 5
 json unicode A😀
 weak collections stored true true true true

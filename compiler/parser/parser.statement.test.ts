@@ -1381,6 +1381,38 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses type-only declare class fields", () => {
+        expect(parseStatement(
+            tokenizeReader("class Identifier { declare kind: \"Identifier\" }"),
+            { language: "typescript" }
+        )).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Identifier" },
+            members: [
+                {
+                    kind: "ClassFieldMember",
+                    declared: true,
+                    name: { kind: "Identifier", name: "kind" },
+                    typeAnnotation: { kind: "Identifier", name: '\"Identifier\"' }
+                }
+            ]
+        });
+    });
+
+    it("keeps operator usable as a TypeScript class field name", () => {
+        expect(parseStatement(
+            tokenizeReader("class Operation { operator: string }"),
+            { language: "typescript" }
+        )).toMatchObject({
+            kind: "ClassStatement",
+            members: [{
+                kind: "ClassFieldMember",
+                name: { kind: "Identifier", name: "operator" },
+                typeAnnotation: { kind: "Identifier", name: "string" }
+            }]
+        });
+    });
+
     it("parses private class fields and methods that reference them", () => {
         expect(
             parseStatement(

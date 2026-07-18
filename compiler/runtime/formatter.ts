@@ -2107,6 +2107,7 @@ class AstFormatter {
     this.applyIndent();
     if (member.kind === "ClassFieldMember") {
       const m = member as ClassFieldMember;
+      if (m.declared) { this.tok("declare"); this.sp(); }
       if (m.accessModifier) { this.tok(m.accessModifier); this.sp(); }
       if (m.static) { this.tok("static"); this.sp(); }
       if (m.abstract) { this.tok("abstract"); this.sp(); }

@@ -10,7 +10,7 @@ import {
   substituteTypeNameText
 } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
-import type {
+import {
   AsExpression,
   AssignmentExpression,
   BinaryExpression,
@@ -385,7 +385,7 @@ function findClassStatementInStatements(statements: readonly Statement[] | undef
   if (!statements) {
     return null;
   }
-  const syntheticProgram = { kind: "Program", body: [...statements] } as Program;
+  const syntheticProgram = new Program({ kind: "Program", body: [...statements] }) as Program;
   return findClassStatementInProgram(syntheticProgram, className);
 }
 
@@ -438,7 +438,7 @@ function findMergedInterfaceStatementInStatements(
   if (!statements) {
     return null;
   }
-  const syntheticProgram = { kind: "Program", body: [...statements] } as Program;
+  const syntheticProgram = new Program({ kind: "Program", body: [...statements] }) as Program;
   return findMergedInterfaceStatementInProgram(syntheticProgram, interfaceName);
 }
 
@@ -556,7 +556,7 @@ async function resolveNodeModuleImportedInterfaceStatement(
     if (!typings || !typingsPath) {
       continue;
     }
-    const syntheticProgram: Program = { kind: "Program", body: typings.declarations };
+    const syntheticProgram: Program = new Program({ kind: "Program", body: typings.declarations });
     const declaration = interfaceName.includes(".")
       ? findMergedQualifiedInterfaceStatementInProgram(syntheticProgram, interfaceName)
       : findMergedInterfaceStatementInProgram(syntheticProgram, interfaceName);

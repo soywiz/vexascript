@@ -1,4 +1,4 @@
-import type {
+import {
   ClassStatement,
   ExportStatement,
   FunctionStatement,
@@ -173,12 +173,12 @@ function readDocumentationInfoFromNodeFirstToken(node: { firstToken?: Identifier
   if (!firstToken) {
     return undefined;
   }
-  return readDocumentationInfoFromIdentifier({
+  return readDocumentationInfoFromIdentifier(new Identifier({
     kind: "Identifier",
     name: "",
     firstToken,
     lastToken: node.firstToken
-  } as Identifier);
+  }) as Identifier);
 }
 
 function readDocumentationInfoFromStatement(
@@ -311,11 +311,11 @@ function readDocumentationInfoFromStatementsByName(
   name: string
 ): DocumentationInfo | undefined {
   return readDocumentationInfoFromProgramDeclaration(
-    { kind: "Program", body: [...statements] },
-    {
+    new Program({ kind: "Program", body: [...statements] }),
+    new Identifier({
       kind: "Identifier",
       name
-    } as Identifier
+    }) as Identifier
   );
 }
 

@@ -1,4 +1,4 @@
-import type {
+import {
   ArrowFunctionExpression,
   AnnotationApplication,
   AnnotationStatement,
@@ -3707,11 +3707,11 @@ export class TypeChecker {
     if (!token) {
       return binary;
     }
-    return {
+    return new BinaryExpression({
       kind: "BinaryExpression",
       firstToken: token,
       lastToken: token
-    } as Node;
+    }) as Node;
   }
 
   private createMethodSymbol(method: ClassMethodMember): AnalysisSymbol {
@@ -8472,11 +8472,11 @@ export class TypeChecker {
       return null;
     }
 
-    const objectType = this.resolveMappedUtilityAliasTarget({
+    const objectType = this.resolveMappedUtilityAliasTarget(new TypeAliasStatement({
       kind: "TypeAliasStatement",
-      name: { kind: "Identifier", name: "<mapped>" },
-      targetType: { kind: "Identifier", name: objectTypeName }
-    } as TypeAliasStatement, substitutions);
+      name: new Identifier({ kind: "Identifier", name: "<mapped>" }),
+      targetType: new Identifier({ kind: "Identifier", name: objectTypeName })
+    }) as TypeAliasStatement, substitutions);
     if (!objectType) {
       return null;
     }

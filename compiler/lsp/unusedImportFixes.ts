@@ -1,4 +1,4 @@
-import type {
+import {
   Identifier,
   ImportSpecifier,
   ImportStatement,
@@ -122,7 +122,7 @@ export function createUnusedImportCodeActions(params: {
     }
 
     const { statement, binding } = resolved;
-    const updatedStatement: ImportStatement = {
+    const updatedStatement: ImportStatement = new ImportStatement({
       kind: "ImportStatement",
       specifiers: statement.specifiers.filter((specifier) => bindingName(specifier) !== binding.name),
       from: statement.from,
@@ -134,7 +134,7 @@ export function createUnusedImportCodeActions(params: {
       ...(statement.namespaceImport && statement.namespaceImport.name !== binding.name
         ? { namespaceImport: statement.namespaceImport }
         : {})
-    };
+    });
 
     const statementRange = nodeRange(statement);
     if (!statementRange) {

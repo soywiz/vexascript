@@ -2175,7 +2175,24 @@ inline MapObject<K, V>* mapFromIterable(
 
 template <typename K, typename V>
 inline MapObject<K, V>* mapFromIterable(Runtime& runtime, const Value& source) {
-  return mapFromDynamicEntries<K, V>(runtime, arrayPointer(source));
+  auto* result = runtime.make<MapObject<K, V>>();
+  std::size_t index = 0;
+  for (const auto& entryValue : dynamicIterationRange(runtime, source)) {
+    if (!entryValue.isDynamicObject() || !entryValue.dynamicObject()->dynamicIsArray()) {
+      throw std::runtime_error(
+          "VexaScript Map entry at index " + std::to_string(index) +
+          " is not an array: " + toString(entryValue));
+    }
+    auto* entry = entryValue.dynamicObject();
+    if (entry->dynamicArraySize() < 2) {
+      throw std::runtime_error("VexaScript Map entry must contain a key and value");
+    }
+    result->set(
+        convertValue<K>(runtime, entry->dynamicArrayGet(runtime, 0)),
+        convertValue<V>(runtime, entry->dynamicArrayGet(runtime, 1)));
+    ++index;
+  }
+  return result;
 }
 
 template <typename T, typename Input>

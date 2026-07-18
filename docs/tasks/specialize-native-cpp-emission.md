@@ -31,6 +31,10 @@ field access and direct calls where the analyzer has proved them safe.
   canonical dynamic operation when proof is incomplete.
 * [ ] Compare optimized and forced-dynamic executions of the same smoke program.
 * [ ] Track compile-time and generated-code-size costs as well as runtime speed.
+* [ ] Continue the object specialization work in
+  `native-structural-interfaces-and-strict-mode.md`: infer implicit structural
+  interface implementations, retain typed attachments as the compatibility
+  tier, and ultimately compile the compiler without dynamic member dispatch.
 
 ## Acceptance Criteria
 

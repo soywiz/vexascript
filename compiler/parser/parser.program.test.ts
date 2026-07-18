@@ -1,8 +1,27 @@
 import { describe, expect, it } from "../test/expect";
+import { Node } from "../ast/ast";
+import { walkAst } from "../ast/traversal";
 import { parseProgram } from "./parser";
 import { tokenizeReader } from "./tokenizer";
 
 describe("parseProgram", () => {
+    it("constructs every parsed AST value as a nominal node", () => {
+        const program = parseProgram(tokenizeReader(`
+            @JsName("run")
+            fun demo(items: int[]) {
+                for (val item in items) {
+                    if (item > 1) console.log({ item, doubled: item * 2 })
+                }
+            }
+            class Box(val value: int) { fun get() => value }
+            demo([1, 2, 3])
+        `));
+
+        walkAst(program, node => {
+            expect(node instanceof Node, `Expected ${node.kind} to inherit from Node`).toBe(true);
+        });
+    });
+
     it("parses multiple let statements separated by semicolons", () => {
         expect(parseProgram(tokenizeReader("let a = 1; let b = a + 2;"))).toEqual({
             kind: "Program",
@@ -522,4 +541,3 @@ describe("parseProgram", () => {
         });
     });
 });
-

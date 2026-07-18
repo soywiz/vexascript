@@ -86,6 +86,7 @@ export function isClassMemberModifier(value: string): boolean {
     value === "readonly" ||
     value === "static" ||
     value === "abstract" ||
+    value === "declare" ||
     value === "async" ||
     value === "sync"
   );
