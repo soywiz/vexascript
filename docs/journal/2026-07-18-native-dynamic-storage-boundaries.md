@@ -217,3 +217,23 @@ The single native language smoke covers astral UTF-16 length and both surrogate
 dynamic reads and writes, and the existing language-wide edge cases. Source
 locations have focused CLI coverage for both their default absence and their
 explicit opt-in path.
+
+The first self-host run after the UTF-16 migration exposed a second-order bug:
+the parser stored source text as UTF-16, but `substring`, `slice`, `charAt`,
+`indexOf`, and related runtime helpers converted to UTF-8 and then treated
+UTF-16 offsets as byte offsets. The embedded declarations contain non-ASCII
+documentation, so token slices became progressively displaced after those
+characters. A focused native parser program reproduced 23 delimiter errors in
+49.87 seconds while the source length still matched Node exactly. Moving the
+positional string operations to UTF-16 code units removed every parse error.
+The smoke now covers substring, slice, index lookup, positioned inclusion, and
+`charAt` around a surrogate pair so the same boundary cannot regress silently.
+
+The generated declaration constants also used an array containing every source
+line followed by `join("\n")`. This made the native compiler allocate and join
+thousands of strings on every cold runtime declaration load. The canonical
+sources are now generated as two exact template-string blobs by
+`scripts/generateEmbeddedRuntimeSources.ts`; a test checks byte-for-byte source
+equality and rejects the former array representation. With the UTF-16 operation
+fix and blob representation together, the same unoptimized native parser
+reproduction fell from 49.87 seconds to 4.51 seconds.

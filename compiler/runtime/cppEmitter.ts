@@ -4129,7 +4129,7 @@ function emitExpression(expression: Expr): string {
           const receiver = `vexa::rawPointer(${emitExpression(member.object)})`;
           const key = member.computed
             ? `vexa::propertyKey(${emitExpression(member.property)})`
-            : cppString((member.property as Identifier).name);
+            : cppUtf16String((member.property as Identifier).name);
           if (assignment.operator === "=") {
             return `vexa::dynamicSet(${activeRuntimeName}, ${receiver}, ${key}, ${emitConvertedValue(assignment.right, "vexa::Value")})`;
           }
@@ -4467,7 +4467,7 @@ function emitExpression(expression: Expr): string {
       if (nativeObjectName && activeClassStatements.has(nativeObjectName) && !isClassStoredPropertyMember(member)) {
         const key = member.computed
           ? `vexa::propertyKey(${emitExpression(member.property)})`
-          : cppString((member.property as Identifier).name);
+          : cppUtf16String((member.property as Identifier).name);
         return `vexa::dynamicGet(${activeRuntimeName}, vexa::rawPointer(${emitExpression(member.object)}), ${key})`;
       }
       if (!member.computed && (member.optional || isOptionalChainExpression(member.object))) {

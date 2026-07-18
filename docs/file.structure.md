@@ -50,7 +50,8 @@ This section is the fast onboarding map for agents and contributors.
   - Analysis tests: `compiler/analysis/Analysis.test.ts`, `compiler/analysis/Analysis.generics.test.ts`, and `compiler/analysis/Analysis.enums-and-calls.test.ts`
 - Embedded runtime declarations:
   - Shared runtime-declaration host contract that lets Node/browser adapters provide bundled declaration sources without hard-wiring shared compiler code to `fs/path/url`: `compiler/runtime/declarationHost.ts`
-  - Generated embedded ECMAScript and VexaScript runtime declaration source constants, derived from `compiler/runtime/es2025.d.ts` and `compiler/runtime/vexascript.d.vx`, so core synchronous getters can parse lazily without async I/O or top-level await: `compiler/runtime/embeddedRuntimeSources.ts`
+  - Generated embedded ECMAScript and VexaScript runtime declaration source constants, stored as one template string per source so native startup does not allocate and join thousands of line fragments: `compiler/runtime/embeddedRuntimeSources.ts`
+  - Async Node-only generator for those exact embedded declaration strings: `scripts/generateEmbeddedRuntimeSources.ts`
   - Node runtime-declaration host that reads optional bundled declaration assets such as `compiler/runtime/dom.d.ts` from disk for the CLI/LSP/test environment without static `node:*` imports (via `process.getBuiltinModule`): `compiler/runtime/nodeDeclarationHost.ts`
   - Shared ECMAScript and VexaScript runtime declaration parsing/cache logic plus the Node bootstrap wrapper used by compiler consumers to set source paths: `compiler/runtime/ecmascriptDeclarations.shared.ts`, `compiler/runtime/vexascriptDeclarations.shared.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
   - Shared DOM runtime declaration parsing/cache logic plus the Node bootstrap wrapper used when a project requests `compilerOptions.lib` with `"dom"`: `compiler/runtime/domDeclarations.shared.ts`, `compiler/runtime/domDeclarations.ts`

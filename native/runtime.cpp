@@ -75,7 +75,7 @@ inline std::u16string utf8ToUtf16(std::string_view input) {
       const auto second = static_cast<unsigned char>(input[index + 1]);
       const auto third = static_cast<unsigned char>(input[index + 2]);
       if ((second & 0xc0) == 0x80 && (third & 0xc0) == 0x80 &&
-          !(first == 0xe0 && second < 0xa0) && !(first == 0xed && second >= 0xa0)) {
+          !(first == 0xe0 && second < 0xa0)) {
         codePoint = ((first & 0x0f) << 12) | ((second & 0x3f) << 6) | (third & 0x3f);
         length = 3;
       }
@@ -5144,7 +5144,9 @@ inline std::string trimEnd(std::string value) {
 inline std::string trimEnd(const Value& value) { return trimEnd(toString(value)); }
 
 inline bool stringIncludes(const std::string& value, const std::string& search, double position = 0) {
-  return value.find(search, normalizedSliceIndex(position, value.size())) != std::string::npos;
+  const auto valueCodeUnits = utf8ToUtf16(value);
+  const auto searchCodeUnits = utf8ToUtf16(search);
+  return valueCodeUnits.find(searchCodeUnits, normalizedSliceIndex(position, valueCodeUnits.size())) != std::u16string::npos;
 }
 inline bool stringIncludes(const std::string& value, const Value& search, double position = 0) {
   return stringIncludes(value, toString(search), position);
@@ -5158,26 +5160,28 @@ inline bool stringIncludes(const Value& value, const Value& search, double posit
 
 template <typename ValueLike, typename SearchLike>
 double stringIndexOf(const ValueLike& valueLike, const SearchLike& searchLike, double position = 0) {
-  const std::string value = toString(valueLike);
-  const std::string search = toString(searchLike);
+  const std::u16string value = utf8ToUtf16(toString(valueLike));
+  const std::u16string search = utf8ToUtf16(toString(searchLike));
   const auto found = value.find(search, normalizedSliceIndex(position, value.size()));
-  return found == std::string::npos ? -1.0 : static_cast<double>(found);
+  return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
 }
 
 template <typename ValueLike, typename SearchLike>
 double stringLastIndexOf(const ValueLike& valueLike, const SearchLike& searchLike,
                          double position = std::numeric_limits<double>::infinity()) {
-  const std::string value = toString(valueLike);
-  const std::string search = toString(searchLike);
+  const std::u16string value = utf8ToUtf16(toString(valueLike));
+  const std::u16string search = utf8ToUtf16(toString(searchLike));
   const std::size_t start = std::isfinite(position)
       ? std::min(value.size(), static_cast<std::size_t>(std::max(0.0, std::floor(position))))
       : value.size();
   const auto found = value.rfind(search, start);
-  return found == std::string::npos ? -1.0 : static_cast<double>(found);
+  return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
 }
 
 inline bool startsWith(const std::string& value, const std::string& search, double position = 0) {
-  return value.compare(normalizedSliceIndex(position, value.size()), search.size(), search) == 0;
+  const auto valueCodeUnits = utf8ToUtf16(value);
+  const auto searchCodeUnits = utf8ToUtf16(search);
+  return valueCodeUnits.compare(normalizedSliceIndex(position, valueCodeUnits.size()), searchCodeUnits.size(), searchCodeUnits) == 0;
 }
 inline bool startsWith(const Value& value, const Value& search, double position = 0) {
   return startsWith(toString(value), toString(search), position);
@@ -5190,7 +5194,10 @@ inline bool startsWith(const Value& value, const std::string& search, double pos
 }
 
 inline bool endsWith(const std::string& value, const std::string& search) {
-  return search.size() <= value.size() && value.compare(value.size() - search.size(), search.size(), search) == 0;
+  const auto valueCodeUnits = utf8ToUtf16(value);
+  const auto searchCodeUnits = utf8ToUtf16(search);
+  return searchCodeUnits.size() <= valueCodeUnits.size() &&
+    valueCodeUnits.compare(valueCodeUnits.size() - searchCodeUnits.size(), searchCodeUnits.size(), searchCodeUnits) == 0;
 }
 inline bool endsWith(const Value& value, const Value& search) {
   return endsWith(toString(value), toString(search));
@@ -5203,19 +5210,27 @@ inline bool endsWith(const Value& value, const std::string& search) {
 }
 
 inline std::string charAt(const std::string& value, double index = 0) {
+  const auto codeUnits = utf8ToUtf16(value);
   const auto position = static_cast<std::int64_t>(index);
-  return position >= 0 && static_cast<std::size_t>(position) < value.size()
-      ? value.substr(static_cast<std::size_t>(position), 1)
+  return position >= 0 && static_cast<std::size_t>(position) < codeUnits.size()
+      ? utf16ToUtf8(codeUnits.substr(static_cast<std::size_t>(position), 1))
       : "";
 }
-inline std::string charAt(const Value& value, double index = 0) { return charAt(toString(value), index); }
+inline std::string charAt(const Value& value, double index = 0) {
+  if (!value.isString()) return charAt(toString(value), index);
+  const auto position = static_cast<std::int64_t>(index);
+  return position >= 0 && static_cast<std::size_t>(position) < value.utf16().size()
+    ? utf16ToUtf8(value.utf16().substr(static_cast<std::size_t>(position), 1))
+    : "";
+}
 
 inline double charCodeAt(const std::string& value, double index = 0) {
+  const auto codeUnits = utf8ToUtf16(value);
   const auto position = static_cast<std::int64_t>(std::trunc(index));
-  if (position < 0 || static_cast<std::size_t>(position) >= value.size()) {
+  if (position < 0 || static_cast<std::size_t>(position) >= codeUnits.size()) {
     return std::numeric_limits<double>::quiet_NaN();
   }
-  return static_cast<unsigned char>(value[static_cast<std::size_t>(position)]);
+  return static_cast<std::uint16_t>(codeUnits[static_cast<std::size_t>(position)]);
 }
 
 inline double charCodeAt(const Value& value, double index = 0) {
@@ -5261,22 +5276,31 @@ inline std::string stringRepeat(const Value& value, double count) {
 }
 
 inline std::string substring(const std::string& value, double start, double end = std::numeric_limits<double>::infinity()) {
-  std::size_t first = normalizedSliceIndex(std::max(0.0, start), value.size());
-  std::size_t last = std::isinf(end) ? value.size() : normalizedSliceIndex(std::max(0.0, end), value.size());
+  const auto codeUnits = utf8ToUtf16(value);
+  std::size_t first = normalizedSliceIndex(std::max(0.0, start), codeUnits.size());
+  std::size_t last = std::isinf(end) ? codeUnits.size() : normalizedSliceIndex(std::max(0.0, end), codeUnits.size());
   if (first > last) std::swap(first, last);
-  return value.substr(first, last - first);
+  return utf16ToUtf8(codeUnits.substr(first, last - first));
 }
 inline std::string substring(const Value& value, double start, double end = std::numeric_limits<double>::infinity()) {
-  return substring(toString(value), start, end);
+  if (!value.isString()) return substring(toString(value), start, end);
+  std::size_t first = normalizedSliceIndex(std::max(0.0, start), value.utf16().size());
+  std::size_t last = std::isinf(end) ? value.utf16().size() : normalizedSliceIndex(std::max(0.0, end), value.utf16().size());
+  if (first > last) std::swap(first, last);
+  return utf16ToUtf8(value.utf16().substr(first, last - first));
 }
 
 inline std::string stringSlice(const std::string& value, double start, double end = std::numeric_limits<double>::infinity()) {
-  const std::size_t first = normalizedSliceIndex(start, value.size());
-  const std::size_t last = std::isinf(end) ? value.size() : normalizedSliceIndex(end, value.size());
-  return last <= first ? "" : value.substr(first, last - first);
+  const auto codeUnits = utf8ToUtf16(value);
+  const std::size_t first = normalizedSliceIndex(start, codeUnits.size());
+  const std::size_t last = std::isinf(end) ? codeUnits.size() : normalizedSliceIndex(end, codeUnits.size());
+  return last <= first ? "" : utf16ToUtf8(codeUnits.substr(first, last - first));
 }
 inline std::string stringSlice(const Value& value, double start, double end = std::numeric_limits<double>::infinity()) {
-  return stringSlice(toString(value), start, end);
+  if (!value.isString()) return stringSlice(toString(value), start, end);
+  const std::size_t first = normalizedSliceIndex(start, value.utf16().size());
+  const std::size_t last = std::isinf(end) ? value.utf16().size() : normalizedSliceIndex(end, value.utf16().size());
+  return last <= first ? "" : utf16ToUtf8(value.utf16().substr(first, last - first));
 }
 
 inline ArrayObject<std::string>* split(Runtime& runtime, const std::string& value, const std::string& separator) {
