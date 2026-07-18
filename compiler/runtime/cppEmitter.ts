@@ -624,11 +624,13 @@ function currentClassPropertyCppType(propertyName: string): string | null {
   const currentClass = activeClassStatements.get(activeCurrentClassName);
   const field = currentClass?.members.find((candidate): candidate is ClassFieldMember =>
     candidate.kind === NodeKind.ClassFieldMember && candidate.name.name === propertyName);
-  const fieldType = field?.typeAnnotation
-    ? cppTypeForDeclaredName(field.typeAnnotation.name)
-    : field?.initializer
-      ? emittedCppTypeForExpression(field.initializer)
-      : null;
+  const fieldType = field?.optional
+    ? "vexa::Value"
+    : field?.typeAnnotation
+      ? cppTypeForDeclaredName(field.typeAnnotation.name)
+      : field?.initializer
+        ? emittedCppTypeForExpression(field.initializer)
+        : null;
   if (fieldType) {
     activeClassPropertyCppTypes.set(cacheKey, fieldType);
     return fieldType;
@@ -675,6 +677,7 @@ function computeCppTypeForExpression(expression: Expr): string {
   }
   if (expression.kind === NodeKind.MemberExpression) {
     const member = expression as MemberExpression;
+    if (classFieldForMember(member)?.optional) return "vexa::Value";
     if (!member.computed && member.property.kind === NodeKind.Identifier &&
       member.object.kind === NodeKind.Identifier && (member.object as Identifier).name === "this") {
       const propertyType = currentClassPropertyCppType((member.property as Identifier).name);
@@ -1256,6 +1259,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
   }
   if (expression.kind === NodeKind.MemberExpression) {
     const member = expression as MemberExpression;
+    if (classFieldForMember(member)?.optional) return "vexa::Value";
     if (member.computed && member.optional && isManagedArrayExpression(member.object)) {
       const arrayType = managedArrayCppTypeForExpression(member.object);
       const elementType = arrayType ? managedArrayElementType(arrayType) : null;
@@ -1610,6 +1614,12 @@ function classNameForExpression(expression: Expr): string | null {
     if (declaredObjectName) return declaredObjectName;
     if (isNativeObjectTypeName(name)) return null;
   }
+  if (expression.kind === NodeKind.MemberExpression) {
+    const field = classFieldForMember(expression as MemberExpression);
+    const fieldTypeName = field?.typeAnnotation?.name;
+    const fieldClassName = fieldTypeName ? canonicalNativeObjectName(fieldTypeName) : null;
+    if (fieldClassName) return fieldClassName;
+  }
   const declaredTypeName = declaredTypeNameForExpression(expression);
   const declaredObjectName = declaredTypeName ? canonicalNativeObjectName(declaredTypeName) : null;
   if (declaredObjectName) return declaredObjectName;
@@ -1694,6 +1704,32 @@ function declaredTypeNameForExpression(expression: Expr): string | null {
   }
   const property = interfacePropertyForName(statement, (member.property as Identifier).name);
   return property ? substituteTypeName(property.typeAnnotation.name, bindings) : null;
+}
+
+function classFieldForMember(member: MemberExpression): ClassFieldMember | null {
+  if (member.computed || member.property.kind !== NodeKind.Identifier) return null;
+  const className = classNameForExpression(member.object);
+  const statement = className ? activeClassStatements.get(className) : undefined;
+  if (!statement) return null;
+  const propertyName = (member.property as Identifier).name;
+  return statement.members.find((candidate): candidate is ClassFieldMember =>
+    candidate.kind === NodeKind.ClassFieldMember && candidate.name.name === propertyName) ?? null;
+}
+
+function isClassStoredPropertyMember(member: MemberExpression): boolean {
+  if (member.computed || member.property.kind !== NodeKind.Identifier) return false;
+  const className = classNameForExpression(member.object);
+  const statement = className ? activeClassStatements.get(className) : undefined;
+  if (!statement) return false;
+  const propertyName = (member.property as Identifier).name;
+  if (statement.members.some((candidate) =>
+    candidate.kind === NodeKind.ClassFieldMember && candidate.name.name === propertyName)) return true;
+  if (statement.primaryConstructorParameters?.some((parameter) => parameter.name.name === propertyName)) return true;
+  const constructor = classConstructorMethod(statement);
+  return constructor?.parameters.some((parameter) =>
+    parameter.name.kind === NodeKind.Identifier &&
+    (parameter.name as Identifier).name === propertyName &&
+    (parameter.accessModifier !== undefined || parameter.isReadonly === true)) ?? false;
 }
 
 function declaredCallResultType(call: CallExpression): string | null {
@@ -3934,6 +3970,14 @@ function emitExpression(expression: Expr): string {
       if (member.computed && binaryKind === "uint8") {
         return `static_cast<double>(${emitExpression(member.object)}->get(static_cast<std::size_t>(${emitExpression(member.property)})))`;
       }
+      if (isDynamicValueExpression(member.object) && isClassStoredPropertyMember(member)) {
+        const receiverClassName = classNameForExpression(member.object)!;
+        const receiverType = cppTypeForDeclaredName(receiverClassName);
+        if (receiverType?.endsWith("*")) {
+          const receiver = `vexa::convertValue<${receiverType}>(${activeRuntimeName}, ${emitExpression(member.object)})`;
+          return `${receiver}->${cppName((member.property as Identifier).name)}`;
+        }
+      }
       if (isDynamicValueExpression(member.object)) {
         const key = member.computed
           ? `vexa::propertyKey(${emitExpression(member.property)})`
@@ -5192,18 +5236,24 @@ interface ClassFieldTypeInfo {
 function classFieldType(field: ClassFieldMember, statement: ClassStatement): ClassFieldTypeInfo {
   if (
     field.abstract ||
-    field.computed ||
-    field.optional
+    field.computed
   ) {
     const flags = [
       field.abstract ? "abstract" : null,
       field.computed ? "computed" : null,
-      field.optional ? "optional" : null,
     ].filter((flag): flag is string => Boolean(flag));
     throw new CppEmitError(
       `C++ emission cannot lower ${flags.join("/")} field '${field.name.name}' in class '${statement.name.name}' yet`,
       statement
     );
+  }
+  if (field.optional) {
+    return {
+      valueType: "vexa::Value",
+      storageType: "vexa::Value",
+      traced: false,
+      genericTraced: false,
+    };
   }
   const declaredType = field.typeAnnotation?.name;
   const inferredType = field.initializer ? emittedCppTypeForExpression(field.initializer) : null;
@@ -5248,7 +5298,9 @@ function emitClassFieldInitializer(
   activeThisExpression = staticField ? cppName(statement.name.name) : "this";
   activeExpectedExpressionCppType = expectedCppType;
   try {
-    return emitExpression(expression);
+    return expectedCppType === "vexa::Value"
+      ? emitConvertedValue(expression, expectedCppType)
+      : emitExpression(expression);
   } finally {
     activeRuntimeName = previousRuntimeName;
     activeCurrentClassName = previousClassName;
@@ -5889,6 +5941,7 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   for (const rawMember of statement.members) {
     if (rawMember.kind !== NodeKind.ClassFieldMember) continue;
     const field = rawMember as ClassFieldMember;
+    if (field.declared) continue;
     const fieldType = classFieldType(field, statement);
     const typedField: TypedClassField = {
       field,

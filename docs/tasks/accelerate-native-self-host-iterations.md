@@ -62,6 +62,10 @@ development loop.
   optimized roundtrip profile.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
+* [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
+  AST fields use dynamic storage with declared-type recovery, and type-only
+  `declare` field narrowings do not create duplicate native storage. Native C++
+  compilation, execution, and roundtrips remain pending.
 
 ## Acceptance Criteria
 

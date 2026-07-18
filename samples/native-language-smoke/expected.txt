@@ -9,6 +9,8 @@ extension property 3 3 4
 dynamic array [ 1, 2, 3 ] [ 1, 2, 3 ] [ 1, 2, 3 ]
 dynamic object 9 9 9 Counter { value: 9, label: 'dynamic', leaf: Leaf { value: 0 } }
 dynamic function 7 10 11
+optional fields empty true true
+optional fields set ready 18
 optional dynamic call called
 dynamic semantics true false true false false function
 dynamic arithmetic 7 20 2.5 4 100 2 40 -10

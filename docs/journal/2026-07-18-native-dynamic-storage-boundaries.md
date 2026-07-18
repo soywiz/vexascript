@@ -108,3 +108,28 @@ The JavaScript self-host test completes three byte-stable compiler roundtrips
 with the nominal numeric AST. Native module execution covers namespace-member
 rewriting, which now replaces the member node instead of changing its class in
 place. Lowering coverage rejects prototype-losing structural copies.
+
+## Optional Native Fields and Type-Only Redeclarations
+
+The first full-compiler C++ emission attempt after the nominal AST migration
+failed on `Node.firstToken?: Token`. Optional native fields cannot use the
+underlying static C++ type because `undefined` is observably distinct from
+null, zero, false, and an empty string. They now use `vexa::Value` storage.
+Assignments convert into that representation, while a subsequent access such
+as `node.firstToken.range` converts the stored value back to its declared
+native class before accessing a statically known field. This keeps optional
+object references alive and preserves the language's undefined semantics.
+
+The next failure was a `declare kind: NodeKind.IntLiteral` discriminator
+narrowing on a derived AST class. A declared class field is type-only and must
+not allocate or initialize a second C++ field; the real `kind` storage already
+lives in `Node`. Native class emission now excludes declared fields instead of
+trying to map enum-member literal annotations as storage types.
+
+The native language smoke covers absent and populated optional string and
+managed-object fields, including an access through the populated object. After
+these changes, the complete 44-module compiler emits a C++ translation unit
+successfully. The profiled run took about 20.4 seconds: 0.35 seconds loading and
+parsing, 3.44 seconds module-isolation analysis, 7.15 seconds merged analysis,
+and 9.47 seconds C++ emission. Native C++ compilation and execution remain the
+next milestone.

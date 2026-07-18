@@ -56,6 +56,11 @@ class NumberBox(var value: int) {
 
 class Bag(val values: int[])
 
+class OptionalNativeFields {
+  var label?: string = undefined
+  var leaf?: Leaf = undefined
+}
+
 class ConstructorBase {
   constructor(public baseValue: int) {}
 }
@@ -258,6 +263,11 @@ val dynamicFunctions = {
   add(value: int): int { return value + 5 }
 }
 console.log("dynamic function", dynamicFunction(4), dynamicFunctions.apply(5), dynamicFunctions.add(6))
+val optionalNativeFields = OptionalNativeFields()
+console.log("optional fields empty", optionalNativeFields.label === undefined, optionalNativeFields.leaf === undefined)
+optionalNativeFields.label = "ready"
+optionalNativeFields.leaf = Leaf(18)
+console.log("optional fields set", optionalNativeFields.label, optionalNativeFields.leaf.value)
 val optionalDynamicFunctions: any = { callback: undefined }
 optionalDynamicFunctions.callback?.()
 optionalDynamicFunctions.callback = () => console.log("optional dynamic call", "called")
