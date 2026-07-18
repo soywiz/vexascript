@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   FunctionParameter,
   FunctionStatement,
@@ -44,12 +45,12 @@ function extensionPropertySetterRuntimeExportName(receiverType: string, property
 
 function implicitRuntimeExportNames(statement: Statement): string[] {
   switch (statement.kind) {
-    case "VarStatement": {
+    case NodeKind.VarStatement: {
       const variable = statement as VarStatement;
       if (variable.declared) {
         return [];
       }
-      if (variable.receiverType && variable.name.kind === "Identifier") {
+      if (variable.receiverType && variable.name.kind === NodeKind.Identifier) {
         const names = [extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name)];
         if (variable.accessors?.some((accessor) => accessor.accessorKind === "set")) {
           names.push(extensionPropertySetterRuntimeExportName(variable.receiverType.name, variable.name.name));
@@ -67,7 +68,7 @@ function implicitRuntimeExportNames(statement: Statement): string[] {
       }
       return [...names];
     }
-    case "FunctionStatement": {
+    case NodeKind.FunctionStatement: {
       const fn = statement as FunctionStatement;
       if (fn.declared || fn.missingBody) {
         return [];
@@ -78,13 +79,13 @@ function implicitRuntimeExportNames(statement: Statement): string[] {
       }
       return [fn.name.name];
     }
-    case "ClassStatement":
-    case "EnumStatement":
-    case "NamespaceStatement": {
+    case NodeKind.ClassStatement:
+    case NodeKind.EnumStatement:
+    case NodeKind.NamespaceStatement: {
       if ((statement as { declared?: boolean }).declared) {
         return [];
       }
-      if (statement.kind === "NamespaceStatement") {
+      if (statement.kind === NodeKind.NamespaceStatement) {
         const names = (statement as { names?: Identifier[] }).names;
         return names && names.length > 0 ? [names[0]!.name] : [];
       }
@@ -102,7 +103,7 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
 
   const overloadCounts = new Map<string, number>();
   for (const statement of ast.body) {
-    if (statement.kind === "FunctionStatement" && !(statement as FunctionStatement).declared) {
+    if (statement.kind === NodeKind.FunctionStatement && !(statement as FunctionStatement).declared) {
       const fn = statement as FunctionStatement;
       overloadCounts.set(fn.name.name, (overloadCounts.get(fn.name.name) ?? 0) + 1);
     }
@@ -112,15 +113,15 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
   const commonJsLines = new Set<string>();
 
   for (const statement of ast.body) {
-    if (statement.kind === "ExportStatement") {
+    if (statement.kind === NodeKind.ExportStatement) {
       continue;
     }
-    if (statement.kind === "VarStatement") {
+    if (statement.kind === NodeKind.VarStatement) {
       const variable = statement as VarStatement;
       if (variable.declared) {
         continue;
       }
-      if (variable.receiverType && variable.name.kind === "Identifier") {
+      if (variable.receiverType && variable.name.kind === NodeKind.Identifier) {
         const runtimeName = extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name);
         esmSpecifiers.add(runtimeName);
         commonJsLines.add(`exports.${runtimeName} = ${runtimeName};`);
@@ -135,7 +136,7 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
         ? variable.declarations
         : [{ name: variable.name, delegate: variable.delegate }];
       for (const declaration of declarations) {
-        if (declaration.name.kind !== "Identifier" || declaration.delegate) {
+        if (declaration.name.kind !== NodeKind.Identifier || declaration.delegate) {
           continue;
         }
         const sourceName = declaration.name.name;
@@ -145,7 +146,7 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
       }
       continue;
     }
-    if (statement.kind === "FunctionStatement") {
+    if (statement.kind === NodeKind.FunctionStatement) {
       const fn = statement as FunctionStatement;
       if (fn.declared || fn.missingBody) {
         continue;
@@ -166,7 +167,7 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
       commonJsLines.add(`exports.${exportName} = ${runtimeName};`);
       continue;
     }
-    if (statement.kind === "ClassStatement" || statement.kind === "EnumStatement") {
+    if (statement.kind === NodeKind.ClassStatement || statement.kind === NodeKind.EnumStatement) {
       if ((statement as { declared?: boolean }).declared) {
         continue;
       }
@@ -179,7 +180,7 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
       commonJsLines.add(`exports.${sourceName} = ${runtimeName};`);
       continue;
     }
-    if (statement.kind === "NamespaceStatement") {
+    if (statement.kind === NodeKind.NamespaceStatement) {
       if ((statement as { declared?: boolean }).declared) {
         continue;
       }

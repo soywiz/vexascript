@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { ClassFieldMember, ClassMethodMember, Program } from "compiler/ast/ast";
 import type { CodeAction, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
@@ -14,7 +15,7 @@ interface MemberKeywordFix {
 
 function findClassMemberKeywordFix(ast: Program, position: Position): MemberKeywordFix | null {
   return findBestMatchAtPosition(ast, position, (node) => {
-    if (node.kind !== "ClassFieldMember" && node.kind !== "ClassMethodMember") {
+    if (node.kind !== NodeKind.ClassFieldMember && node.kind !== NodeKind.ClassMethodMember) {
       return null;
     }
 
@@ -27,7 +28,7 @@ function findClassMemberKeywordFix(ast: Program, position: Position): MemberKeyw
     return {
       range,
       build: () => {
-        if (member.kind === "ClassMethodMember") {
+        if (member.kind === NodeKind.ClassMethodMember) {
           return buildMethodKeywordFix(member);
         }
         return buildFieldKeywordFix(member);
@@ -79,7 +80,7 @@ function buildFieldKeywordFix(member: ClassFieldMember): MemberKeywordFix | null
     return null;
   }
 
-  if (member.readonly === true && member.readonlyToken) {
+  if (member.isReadonly === true && member.readonlyToken) {
     const readonlyRange = tokenRange(member.readonlyToken);
     if (!readonlyRange) {
       return null;

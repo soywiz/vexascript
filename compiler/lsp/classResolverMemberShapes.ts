@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
 import type {
   ClassStatement,
@@ -56,7 +57,7 @@ export function resolveClassOwnMember(
     if (member.name.name !== memberName) {
       continue;
     }
-    if (member.kind === "ClassFieldMember") {
+    if (member.kind === NodeKind.ClassFieldMember) {
       const inferredTypeName = !member.typeAnnotation && member.initializer && context?.analysis
         ? typeNameFromAnalysisType(context.analysis.getExpressionTypes().get(member.initializer))
         : null;
@@ -73,7 +74,7 @@ export function resolveClassOwnMember(
 
     if (member.accessorKind === "get") {
       const getterStatement = member.body.body[0];
-      const getterExpression = getterStatement?.kind === "ReturnStatement"
+      const getterExpression = getterStatement?.kind === NodeKind.ReturnStatement
         ? (getterStatement as ReturnStatement).expression
         : null;
       const inferredTypeName = !member.returnType && getterExpression && context?.analysis
@@ -143,7 +144,7 @@ export function classOwnMemberKind(
     if (member.name.name !== memberName) {
       continue;
     }
-    return member.kind === "ClassFieldMember" || member.accessorKind ? "field" : "method";
+    return member.kind === NodeKind.ClassFieldMember || member.accessorKind ? "field" : "method";
   }
   return null;
 }
@@ -167,7 +168,7 @@ export function resolveInterfaceOwnSignatures(
       continue;
     }
 
-    if (member.kind === "InterfacePropertyMember") {
+    if (member.kind === NodeKind.InterfacePropertyMember) {
       const documentation = readDocumentationInfoFromNamedNode(member);
       const resolved: ResolvedClassMember = {
         className: interfaceStatement.name.name,

@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type {
   ClassMethodMember,
@@ -27,14 +28,14 @@ interface ReturnTypeTarget {
  */
 function findReturnTypeTargetAtPosition(ast: Program, position: Position): ReturnTypeTarget | null {
   return findBestMatchAtPosition(ast, position, (candidate) => {
-    if (candidate.kind !== "FunctionStatement" && candidate.kind !== "ClassMethodMember") {
+    if (candidate.kind !== NodeKind.FunctionStatement && candidate.kind !== NodeKind.ClassMethodMember) {
       return null;
     }
     const node = candidate as FunctionLikeNode;
     if (node.returnType) {
       return null;
     }
-    if (node.kind === "ClassMethodMember" && node.accessorKind === "set") {
+    if (node.kind === NodeKind.ClassMethodMember && node.accessorKind === "set") {
       return null;
     }
     if (!node.parametersCloseParen) {

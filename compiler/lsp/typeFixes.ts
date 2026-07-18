@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { findBestMatch } from "./nodeSearch";
@@ -26,7 +27,7 @@ import type { FunctionParameter } from "compiler/ast/ast";
 
 function findAssignmentForDiagnosticRange(ast: Program, diagnosticRange: Range): AssignmentExpression | null {
   return findBestMatch(ast, (node) => {
-    if (node.kind !== "AssignmentExpression") {
+    if (node.kind !== NodeKind.AssignmentExpression) {
       return null;
     }
 
@@ -78,7 +79,7 @@ function buildMemberTypeEdit(
   }
 
   for (const member of classStatement.members) {
-    if (member.name.name !== memberName || member.kind !== "ClassFieldMember") {
+    if (member.name.name !== memberName || member.kind !== NodeKind.ClassFieldMember) {
       continue;
     }
     if (member.typeAnnotation) {
@@ -114,9 +115,9 @@ function findMissingTypeParameter(ast: Program, diagnosticRange: Range): Functio
     ast,
     diagnosticRange,
     (node): node is FunctionParameter =>
-      node.kind === "FunctionParameter" &&
+      node.kind === NodeKind.FunctionParameter &&
       (node as FunctionParameter).thisParameter !== true &&
-      (node as FunctionParameter).name.kind === "Identifier" &&
+      (node as FunctionParameter).name.kind === NodeKind.Identifier &&
       !(node as FunctionParameter).typeAnnotation
   );
 }
@@ -186,11 +187,11 @@ export async function createTypeFixCodeActions(params: {
     const sourceType = mismatch.sourceType;
 
     const assignment = findAssignmentForDiagnosticRange(params.ast, diagnostic.range);
-    if (!assignment || assignment.left.kind !== "MemberExpression") {
+    if (!assignment || assignment.left.kind !== NodeKind.MemberExpression) {
       continue;
     }
     const leftMember = assignment.left as MemberExpression;
-    if (leftMember.computed || leftMember.property.kind !== "Identifier") {
+    if (leftMember.computed || leftMember.property.kind !== NodeKind.Identifier) {
       continue;
     }
 

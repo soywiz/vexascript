@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { builtinModules } from "node:module";
 import type { Program, Statement, VarStatement, FunctionStatement, ClassStatement, EnumStatement, ExportStatement } from "../compiler/ast/ast";
 import { parseSource } from "../compiler/pipeline/parse";
@@ -564,18 +565,18 @@ function collectStaticDynamicImportOccurrences(source: string): StaticDynamicImp
 }
 
 function collectExportedDeclarationNames(statement: Statement): string[] {
-  if (statement.kind === "VarStatement") {
+  if (statement.kind === NodeKind.VarStatement) {
     const variable = statement as VarStatement;
     const declarations = variable.declarations ?? [{ name: variable.name }];
     const names: string[] = [];
     for (const declaration of declarations) {
-      if (declaration.name.kind === "Identifier") {
+      if (declaration.name.kind === NodeKind.Identifier) {
         names.push(declaration.name.name);
       }
     }
     return names;
   }
-  if (statement.kind === "FunctionStatement" || statement.kind === "ClassStatement" || statement.kind === "EnumStatement") {
+  if (statement.kind === NodeKind.FunctionStatement || statement.kind === NodeKind.ClassStatement || statement.kind === NodeKind.EnumStatement) {
     return [(statement as FunctionStatement | ClassStatement | EnumStatement).name.name];
   }
   return [];
@@ -584,14 +585,14 @@ function collectExportedDeclarationNames(statement: Statement): string[] {
 function collectExplicitExportNames(program: Program): string[] {
   const exportNames = new Set<string>();
   for (const statement of program.body) {
-    if (statement.kind !== "ExportStatement") {
+    if (statement.kind !== NodeKind.ExportStatement) {
       continue;
     }
     const exportStatement = statement as ExportStatement;
     if (exportStatement.typeOnly) {
       continue;
     }
-    if (exportStatement.default) {
+    if (exportStatement.isDefault) {
       exportNames.add("default");
     }
     if (exportStatement.namespaceExport) {

@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { CallExpression, MemberExpression, Node, Program, UnaryExpression } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
@@ -46,13 +47,13 @@ function nodeRange(node: Node): AutoAwaitDecoration["range"] | null {
 
 function autoAwaitAnchorToken(node: Node) {
   if (
-    node.kind === "CallExpression" &&
-    (node as CallExpression).callee.kind === "MemberExpression"
+    node.kind === NodeKind.CallExpression &&
+    (node as CallExpression).callee.kind === NodeKind.MemberExpression
   ) {
     const member = (node as CallExpression).callee as MemberExpression;
     return member.property.firstToken ?? node.firstToken!;
   }
-  if (node.kind === "MemberExpression") {
+  if (node.kind === NodeKind.MemberExpression) {
     const member = node as MemberExpression;
     return member.property.firstToken ?? node.firstToken!;
   }
@@ -107,7 +108,7 @@ export function createAutoAwaitDecorations(
   }
 
   walkAst(ast, (node) => {
-    if (node.kind === "UnaryExpression" && (node as UnaryExpression).operator === "await") {
+    if (node.kind === NodeKind.UnaryExpression && (node as UnaryExpression).operator === "await") {
       consider(node, EXPLICIT_AWAIT_MESSAGE);
     }
   });

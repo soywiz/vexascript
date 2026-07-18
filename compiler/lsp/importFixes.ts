@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   ExportStatement,
   FunctionStatement,
@@ -98,7 +99,7 @@ function ambientExportFilePath(
 }
 
 function directAmbientDeclaration(statement: Statement): Statement {
-  return statement.kind === "ExportStatement"
+  return statement.kind === NodeKind.ExportStatement
     ? (statement as ExportStatement).declaration ?? statement
     : statement;
 }
@@ -128,17 +129,17 @@ function collectDirectAmbientExports(
 ): void {
   for (const statement of declarations) {
     const declaration = directAmbientDeclaration(statement);
-    if (declaration.kind === "ClassStatement") {
+    if (declaration.kind === NodeKind.ClassStatement) {
       pushAmbientSymbolExport(exports, seen, moduleName, filePath, (declaration as ClassStatement).name.name, "class");
-    } else if (declaration.kind === "InterfaceStatement") {
+    } else if (declaration.kind === NodeKind.InterfaceStatement) {
       pushAmbientSymbolExport(exports, seen, moduleName, filePath, (declaration as InterfaceStatement).name.name, "interface");
-    } else if (declaration.kind === "TypeAliasStatement") {
+    } else if (declaration.kind === NodeKind.TypeAliasStatement) {
       pushAmbientSymbolExport(exports, seen, moduleName, filePath, (declaration as TypeAliasStatement).name.name, "type");
-    } else if (declaration.kind === "FunctionStatement") {
+    } else if (declaration.kind === NodeKind.FunctionStatement) {
       pushAmbientSymbolExport(exports, seen, moduleName, filePath, (declaration as FunctionStatement).name.name, "function");
-    } else if (declaration.kind === "VarStatement") {
+    } else if (declaration.kind === NodeKind.VarStatement) {
       const variable = declaration as VarStatement;
-      if (variable.name.kind === "Identifier") {
+      if (variable.name.kind === NodeKind.Identifier) {
         pushAmbientSymbolExport(exports, seen, moduleName, filePath, variable.name.name, "variable");
       }
     }
@@ -148,7 +149,7 @@ function collectDirectAmbientExports(
 function findAmbientInterface(declarations: readonly Statement[], interfaceName: string): InterfaceStatement | null {
   for (const statement of declarations) {
     const declaration = directAmbientDeclaration(statement);
-    if (declaration.kind === "InterfaceStatement" && (declaration as InterfaceStatement).name.name === interfaceName) {
+    if (declaration.kind === NodeKind.InterfaceStatement && (declaration as InterfaceStatement).name.name === interfaceName) {
       return declaration as InterfaceStatement;
     }
   }
@@ -174,11 +175,11 @@ function collectExportEqualsAmbientExports(
 
   for (const statement of declarations) {
     const declaration = directAmbientDeclaration(statement);
-    if (declaration.kind !== "VarStatement") {
+    if (declaration.kind !== NodeKind.VarStatement) {
       continue;
     }
     const variable = declaration as VarStatement;
-    if (variable.name.kind !== "Identifier" || variable.name.name !== exportEqualsName || !variable.typeAnnotation?.name) {
+    if (variable.name.kind !== NodeKind.Identifier || variable.name.name !== exportEqualsName || !variable.typeAnnotation?.name) {
       continue;
     }
     const typeName = variable.typeAnnotation.name;
@@ -200,7 +201,7 @@ function collectExportEqualsAmbientExports(
         moduleName,
         filePath,
         member.name.name,
-        member.kind === "InterfaceMethodMember" ? "function" : "variable"
+        member.kind === NodeKind.InterfaceMethodMember ? "function" : "variable"
       );
     }
   }
@@ -315,7 +316,7 @@ function extractOperatorImports(diagnostics: Diagnostic[]): OperatorImportReques
 
 export function hasImportedSymbol(ast: Program, symbolName: string): boolean {
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -353,7 +354,7 @@ async function collectNodeModuleExportsFromExistingImports(
 ): Promise<SymbolExport[]> {
   const imports = new Set<string>();
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     const importPath = (statement as ImportStatement).from.value;
@@ -374,22 +375,22 @@ async function collectNodeModuleExportsFromExistingImports(
       if (!declaration) {
         continue;
       }
-      const typeOnly = statement.kind === "ExportStatement" && (statement as ExportStatement).typeOnly === true;
+      const typeOnly = statement.kind === NodeKind.ExportStatement && (statement as ExportStatement).typeOnly === true;
       let name: string | null = null;
       let kind: ProjectTopLevelDeclarationKind | null = null;
-      if (declaration.kind === "ClassStatement") {
+      if (declaration.kind === NodeKind.ClassStatement) {
         name = (declaration as ClassStatement).name.name;
         kind = "class";
-      } else if (declaration.kind === "InterfaceStatement") {
+      } else if (declaration.kind === NodeKind.InterfaceStatement) {
         name = (declaration as InterfaceStatement).name.name;
         kind = "interface";
-      } else if (declaration.kind === "TypeAliasStatement") {
+      } else if (declaration.kind === NodeKind.TypeAliasStatement) {
         name = (declaration as TypeAliasStatement).name.name;
         kind = "type";
-      } else if (declaration.kind === "FunctionStatement") {
+      } else if (declaration.kind === NodeKind.FunctionStatement) {
         name = (declaration as FunctionStatement).name.name;
         kind = "function";
-      } else if (declaration.kind === "VarStatement" && (declaration as VarStatement).name.kind === "Identifier") {
+      } else if (declaration.kind === NodeKind.VarStatement && (declaration as VarStatement).name.kind === NodeKind.Identifier) {
         name = ((declaration as VarStatement).name as { name: string }).name;
         kind = "variable";
       }
@@ -417,7 +418,7 @@ async function collectNodeModuleExportsFromExistingImports(
 function findExistingImportsFromPath(ast: Program, importPath: string): ImportStatement[] {
   const matches: ImportStatement[] = [];
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") break;
+    if (statement.kind !== NodeKind.ImportStatement) break;
     const importStmt = statement as ImportStatement;
     if (importStmt.from.value === importPath) {
       matches.push(importStmt);
@@ -429,7 +430,7 @@ function findExistingImportsFromPath(ast: Program, importPath: string): ImportSt
 function importedModulePaths(ast: Program): Set<string> {
   const paths = new Set<string>();
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     paths.add((statement as ImportStatement).from.value);
@@ -440,7 +441,7 @@ function importedModulePaths(ast: Program): Set<string> {
 export function importInsertionRange(ast: Program): Range {
   let lastImport: Statement | null = null;
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       break;
     }
     lastImport = statement;

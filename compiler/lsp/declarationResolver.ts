@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   AnnotationStatement,
   ClassStatement,
@@ -53,21 +54,21 @@ export interface ResolveTopLevelDeclarationOptions<T extends Statement> extends 
 }
 
 export function isClassStatement(statement: Statement): statement is ClassStatement {
-  return statement.kind === "ClassStatement";
+  return statement.kind === NodeKind.ClassStatement;
 }
 
 export function isInterfaceStatement(statement: Statement): statement is InterfaceStatement {
-  return statement.kind === "InterfaceStatement";
+  return statement.kind === NodeKind.InterfaceStatement;
 }
 
 export function topLevelDeclarationNames(statement: Statement): string[] {
-  if (statement.kind === "VarStatement") {
+  if (statement.kind === NodeKind.VarStatement) {
     const varStatement = statement as VarStatement;
     if (varStatement.receiverType) {
       return bindingIdentifiers(varStatement.name).map((identifier) => identifier.name);
     }
   }
-  if (statement.kind === "FunctionStatement") {
+  if (statement.kind === NodeKind.FunctionStatement) {
     const functionStatement = statement as FunctionStatement;
     if (functionStatement.receiverType) {
       return [functionStatement.name.name];
@@ -79,14 +80,14 @@ export function topLevelDeclarationNames(statement: Statement): string[] {
   }
 
   switch (declaration.kind) {
-    case "ClassStatement":
-    case "AnnotationStatement":
-    case "InterfaceStatement":
-    case "EnumStatement":
-    case "TypeAliasStatement":
-    case "FunctionStatement":
+    case NodeKind.ClassStatement:
+    case NodeKind.AnnotationStatement:
+    case NodeKind.InterfaceStatement:
+    case NodeKind.EnumStatement:
+    case NodeKind.TypeAliasStatement:
+    case NodeKind.FunctionStatement:
       return [(declaration as NamedTopLevelDeclaration).name.name];
-    case "VarStatement": {
+    case NodeKind.VarStatement: {
       const variableStatement = declaration as VarStatement;
       return [
         ...bindingIdentifiers(variableStatement.name),
@@ -103,14 +104,14 @@ function directTopLevelDeclarationNames(statement: Statement): string[] {
     return [];
   }
   switch (statement.kind) {
-    case "ClassStatement":
-    case "AnnotationStatement":
-    case "InterfaceStatement":
-    case "EnumStatement":
-    case "TypeAliasStatement":
-    case "FunctionStatement":
+    case NodeKind.ClassStatement:
+    case NodeKind.AnnotationStatement:
+    case NodeKind.InterfaceStatement:
+    case NodeKind.EnumStatement:
+    case NodeKind.TypeAliasStatement:
+    case NodeKind.FunctionStatement:
       return [(statement as NamedTopLevelDeclaration).name.name];
-    case "VarStatement": {
+    case NodeKind.VarStatement: {
       const variableStatement = statement as VarStatement;
       return [
         ...bindingIdentifiers(variableStatement.name),
@@ -136,13 +137,13 @@ export function findTopLevelDeclarationInProgram<T extends Statement>(
   predicate: TopLevelDeclarationPredicate<T>
 ): T | null {
   for (const statement of ast.body) {
-    const directExtensionProperty = statement.kind === "VarStatement"
+    const directExtensionProperty = statement.kind === NodeKind.VarStatement
       ? statement as VarStatement
       : null;
     if (directExtensionProperty?.receiverType && predicate(directExtensionProperty) && topLevelDeclarationNames(directExtensionProperty).includes(name)) {
       return directExtensionProperty;
     }
-    const directMatch = statement.kind === "FunctionStatement"
+    const directMatch = statement.kind === NodeKind.FunctionStatement
       ? statement as FunctionStatement
       : null;
     if (directMatch?.receiverType && predicate(directMatch) && topLevelDeclarationNames(directMatch).includes(name)) {
@@ -244,7 +245,7 @@ export async function resolveTopLevelDeclarationAcrossFiles<T extends Statement>
 
   if (options.currentFilePath) {
     for (const statement of options.ast.body) {
-      if (statement.kind !== "ImportStatement") {
+      if (statement.kind !== NodeKind.ImportStatement) {
         continue;
       }
       const importStatement = statement as ImportStatement;

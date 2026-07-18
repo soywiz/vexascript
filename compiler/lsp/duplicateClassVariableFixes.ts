@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { ClassFieldMember, Program } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
@@ -17,7 +18,7 @@ function rangesEqual(left: Range, right: Range): boolean {
 function classFieldAtDiagnostic(ast: Program, diagnostic: Diagnostic): ClassFieldMember | null {
   let found: ClassFieldMember | null = null;
   walkAst(ast, (node) => {
-    if (node.kind !== "ClassFieldMember") {
+    if (node.kind !== NodeKind.ClassFieldMember) {
       return true;
     }
     const field = node as ClassFieldMember;

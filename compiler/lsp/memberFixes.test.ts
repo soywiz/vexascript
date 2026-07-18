@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, join, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import { walkAst } from "compiler/ast/traversal";
 import type { Identifier, MemberExpression } from "compiler/ast/ast";
@@ -27,9 +28,9 @@ function missingMemberDiagnosticAtProperty(
     walkAst(session.ast, (node) => {
       if (
         !property &&
-        node.kind === "MemberExpression" &&
+        node.kind === NodeKind.MemberExpression &&
         !(node as MemberExpression).computed &&
-        (node as MemberExpression).property.kind === "Identifier" &&
+        (node as MemberExpression).property.kind === NodeKind.Identifier &&
         ((node as MemberExpression).property as Identifier).name === memberName
       ) {
         property = (node as MemberExpression).property as Identifier;

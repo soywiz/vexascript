@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import type {
   ExportStatement,
@@ -29,11 +30,11 @@ export function findEnclosingReceiverTypeName(
 ): string | null {
   for (const statement of ast.body) {
     let candidate: (FunctionStatement | VarStatement) | null = null;
-    if (statement.kind === "FunctionStatement" || statement.kind === "VarStatement") {
+    if (statement.kind === NodeKind.FunctionStatement || statement.kind === NodeKind.VarStatement) {
       candidate = statement as FunctionStatement | VarStatement;
-    } else if (statement.kind === "ExportStatement") {
+    } else if (statement.kind === NodeKind.ExportStatement) {
       const decl = (statement as ExportStatement).declaration;
-      if (decl && (decl.kind === "FunctionStatement" || decl.kind === "VarStatement")) {
+      if (decl && (decl.kind === NodeKind.FunctionStatement || decl.kind === NodeKind.VarStatement)) {
         candidate = decl as FunctionStatement | VarStatement;
       }
     }
@@ -95,7 +96,7 @@ export async function resolveImplicitReceiverMemberDefinition(
     cache: createClassResolverCache()
   };
 
-  const interfaceMemberDeclaration = classResolution.declaration.kind === "InterfaceStatement"
+  const interfaceMemberDeclaration = classResolution.declaration.kind === NodeKind.InterfaceStatement
     ? await resolveInterfaceMemberDeclaration(
       { interfaceStatement: classResolution.declaration, filePath: classResolution.filePath },
       memberName,
@@ -112,7 +113,7 @@ export async function resolveImplicitReceiverMemberDefinition(
 
   const range = classMemberDeclarationRangeByName(memberOwner, memberName)
     ?? (
-      memberOwner.kind === "InterfaceStatement"
+      memberOwner.kind === NodeKind.InterfaceStatement
         ? await fallbackInterfaceMemberRangeInFile(context, memberFilePath, memberOwner.name.name, memberName)
         : null
     );

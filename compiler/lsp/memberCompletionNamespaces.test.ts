@@ -1,14 +1,15 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { buildNamespaceMemberCompletionItems, findNamespaceByPath } from "./memberCompletionNamespaces";
 import type { NamespaceStatement, Program } from "compiler/ast/ast";
 
 function makeNamespaceStatement(name: string, body: any[]): NamespaceStatement {
   return {
-    kind: "NamespaceStatement",
+    kind: NodeKind.NamespaceStatement,
     declarationKind: "namespace",
-    names: [{ kind: "Identifier", name }],
+    names: [{ kind: NodeKind.Identifier, name }],
     body: {
-      kind: "Program",
+      kind: NodeKind.Program,
       body
     }
   } as unknown as NamespaceStatement;
@@ -17,11 +18,11 @@ function makeNamespaceStatement(name: string, body: any[]): NamespaceStatement {
 describe("memberCompletionNamespaces", () => {
   it("finds nested namespaces by path", () => {
     const ast = {
-      kind: "Program",
+      kind: NodeKind.Program,
       body: [
         makeNamespaceStatement("pkg", [
           {
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             declaration: makeNamespaceStatement("tools", [])
           }
         ])
@@ -35,28 +36,28 @@ describe("memberCompletionNamespaces", () => {
   it("builds namespace member completions for exported declarations", () => {
     const namespaceStatement = makeNamespaceStatement("pkg", [
       {
-        kind: "ExportStatement",
+        kind: NodeKind.ExportStatement,
         declaration: {
-          kind: "VarStatement",
-          name: { kind: "Identifier", name: "value" }
+          kind: NodeKind.VarStatement,
+          name: { kind: NodeKind.Identifier, name: "value" }
         }
       },
       {
-        kind: "ExportStatement",
+        kind: NodeKind.ExportStatement,
         declaration: {
-          kind: "FunctionStatement",
-          name: { kind: "Identifier", name: "helper" }
+          kind: NodeKind.FunctionStatement,
+          name: { kind: NodeKind.Identifier, name: "helper" }
         }
       },
       {
-        kind: "ExportStatement",
+        kind: NodeKind.ExportStatement,
         declaration: {
-          kind: "ClassStatement",
-          name: { kind: "Identifier", name: "Box" }
+          kind: NodeKind.ClassStatement,
+          name: { kind: NodeKind.Identifier, name: "Box" }
         }
       },
       {
-        kind: "ExportStatement",
+        kind: NodeKind.ExportStatement,
         declaration: makeNamespaceStatement("tools", [])
       }
     ] as any[]);

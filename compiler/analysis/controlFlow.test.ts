@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Statement } from "compiler/ast/ast";
@@ -10,7 +11,7 @@ import {
   statementPreventsSwitchFallthrough,
 } from "./controlFlow";
 
-function stmt(kind: string, extra?: object): Statement {
+function stmt(kind: NodeKind, extra?: object): Statement {
   return { kind, ...extra } as unknown as Statement;
 }
 
@@ -34,239 +35,239 @@ describe("isAsyncLike", () => {
 
 describe("statementAllowsLabeledContinue", () => {
   it("returns true for WhileStatement", () => {
-    assert.equal(statementAllowsLabeledContinue(stmt("WhileStatement")), true);
+    assert.equal(statementAllowsLabeledContinue(stmt(NodeKind.WhileStatement)), true);
   });
 
   it("returns true for DoWhileStatement", () => {
-    assert.equal(statementAllowsLabeledContinue(stmt("DoWhileStatement")), true);
+    assert.equal(statementAllowsLabeledContinue(stmt(NodeKind.DoWhileStatement)), true);
   });
 
   it("returns true for ForStatement", () => {
-    assert.equal(statementAllowsLabeledContinue(stmt("ForStatement")), true);
+    assert.equal(statementAllowsLabeledContinue(stmt(NodeKind.ForStatement)), true);
   });
 
   it("returns false for non-loop statements", () => {
-    assert.equal(statementAllowsLabeledContinue(stmt("IfStatement")), false);
-    assert.equal(statementAllowsLabeledContinue(stmt("ReturnStatement")), false);
-    assert.equal(statementAllowsLabeledContinue(stmt("BlockStatement", { body: [] })), false);
+    assert.equal(statementAllowsLabeledContinue(stmt(NodeKind.IfStatement)), false);
+    assert.equal(statementAllowsLabeledContinue(stmt(NodeKind.ReturnStatement)), false);
+    assert.equal(statementAllowsLabeledContinue(stmt(NodeKind.BlockStatement, { body: [] })), false);
   });
 
   it("returns true for LabeledStatement wrapping a loop", () => {
-    const labeled = stmt("LabeledStatement", { body: stmt("WhileStatement") });
+    const labeled = stmt(NodeKind.LabeledStatement, { body: stmt(NodeKind.WhileStatement) });
     assert.equal(statementAllowsLabeledContinue(labeled), true);
   });
 
   it("returns false for LabeledStatement wrapping a non-loop", () => {
-    const labeled = stmt("LabeledStatement", { body: stmt("IfStatement") });
+    const labeled = stmt(NodeKind.LabeledStatement, { body: stmt(NodeKind.IfStatement) });
     assert.equal(statementAllowsLabeledContinue(labeled), false);
   });
 });
 
 describe("statementPreventsSwitchFallthrough", () => {
   it("returns true for BreakStatement", () => {
-    assert.equal(statementPreventsSwitchFallthrough(stmt("BreakStatement")), true);
+    assert.equal(statementPreventsSwitchFallthrough(stmt(NodeKind.BreakStatement)), true);
   });
 
   it("returns true for ContinueStatement", () => {
-    assert.equal(statementPreventsSwitchFallthrough(stmt("ContinueStatement")), true);
+    assert.equal(statementPreventsSwitchFallthrough(stmt(NodeKind.ContinueStatement)), true);
   });
 
   it("returns true for ReturnStatement", () => {
-    assert.equal(statementPreventsSwitchFallthrough(stmt("ReturnStatement")), true);
+    assert.equal(statementPreventsSwitchFallthrough(stmt(NodeKind.ReturnStatement)), true);
   });
 
   it("returns true for ThrowStatement", () => {
-    assert.equal(statementPreventsSwitchFallthrough(stmt("ThrowStatement")), true);
+    assert.equal(statementPreventsSwitchFallthrough(stmt(NodeKind.ThrowStatement)), true);
   });
 
   it("returns false for ExpressionStatement", () => {
-    assert.equal(statementPreventsSwitchFallthrough(stmt("ExpressionStatement")), false);
+    assert.equal(statementPreventsSwitchFallthrough(stmt(NodeKind.ExprStatement)), false);
   });
 
   it("returns true for BlockStatement containing a break", () => {
-    const block = stmt("BlockStatement", { body: [stmt("BreakStatement")] });
+    const block = stmt(NodeKind.BlockStatement, { body: [stmt(NodeKind.BreakStatement)] });
     assert.equal(statementPreventsSwitchFallthrough(block), true);
   });
 
   it("returns false for empty BlockStatement", () => {
-    const block = stmt("BlockStatement", { body: [] });
+    const block = stmt(NodeKind.BlockStatement, { body: [] });
     assert.equal(statementPreventsSwitchFallthrough(block), false);
   });
 
   it("returns true for IfStatement with both branches that prevent fallthrough", () => {
-    const ifStmt = stmt("IfStatement", {
-      thenBranch: stmt("ReturnStatement"),
-      elseBranch: stmt("BreakStatement"),
+    const ifStmt = stmt(NodeKind.IfStatement, {
+      thenBranch: stmt(NodeKind.ReturnStatement),
+      elseBranch: stmt(NodeKind.BreakStatement),
     });
     assert.equal(statementPreventsSwitchFallthrough(ifStmt), true);
   });
 
   it("returns false for IfStatement without else branch", () => {
-    const ifStmt = stmt("IfStatement", {
-      thenBranch: stmt("ReturnStatement"),
+    const ifStmt = stmt(NodeKind.IfStatement, {
+      thenBranch: stmt(NodeKind.ReturnStatement),
       elseBranch: undefined,
     });
     assert.equal(statementPreventsSwitchFallthrough(ifStmt), false);
   });
 
   it("returns false for IfStatement where only one branch prevents fallthrough", () => {
-    const ifStmt = stmt("IfStatement", {
-      thenBranch: stmt("ReturnStatement"),
-      elseBranch: stmt("ExpressionStatement"),
+    const ifStmt = stmt(NodeKind.IfStatement, {
+      thenBranch: stmt(NodeKind.ReturnStatement),
+      elseBranch: stmt(NodeKind.ExprStatement),
     });
     assert.equal(statementPreventsSwitchFallthrough(ifStmt), false);
   });
 
   it("returns true for TryStatement where finally prevents fallthrough", () => {
-    const tryStmt = stmt("TryStatement", {
-      tryBlock: stmt("ExpressionStatement"),
+    const tryStmt = stmt(NodeKind.TryStatement, {
+      tryBlock: stmt(NodeKind.ExprStatement),
       catchClause: undefined,
-      finallyBlock: stmt("ReturnStatement"),
+      finallyBlock: stmt(NodeKind.ReturnStatement),
     });
     assert.equal(statementPreventsSwitchFallthrough(tryStmt), true);
   });
 
   it("returns true for TryStatement where try and catch both prevent fallthrough", () => {
-    const tryStmt = stmt("TryStatement", {
-      tryBlock: stmt("ReturnStatement"),
-      catchClause: { body: stmt("ThrowStatement") },
+    const tryStmt = stmt(NodeKind.TryStatement, {
+      tryBlock: stmt(NodeKind.ReturnStatement),
+      catchClause: { body: stmt(NodeKind.ThrowStatement) },
       finallyBlock: undefined,
     });
     assert.equal(statementPreventsSwitchFallthrough(tryStmt), true);
   });
 
   it("returns false for TryStatement where catch does not prevent fallthrough", () => {
-    const tryStmt = stmt("TryStatement", {
-      tryBlock: stmt("ReturnStatement"),
-      catchClause: { body: stmt("ExpressionStatement") },
+    const tryStmt = stmt(NodeKind.TryStatement, {
+      tryBlock: stmt(NodeKind.ReturnStatement),
+      catchClause: { body: stmt(NodeKind.ExprStatement) },
       finallyBlock: undefined,
     });
     assert.equal(statementPreventsSwitchFallthrough(tryStmt), false);
   });
 
   it("delegates through WithStatement", () => {
-    const withStmt = stmt("WithStatement", { body: stmt("ReturnStatement") });
+    const withStmt = stmt(NodeKind.WithStatement, { body: stmt(NodeKind.ReturnStatement) });
     assert.equal(statementPreventsSwitchFallthrough(withStmt), true);
   });
 
   it("delegates through LabeledStatement", () => {
-    const labeled = stmt("LabeledStatement", { body: stmt("BreakStatement") });
+    const labeled = stmt(NodeKind.LabeledStatement, { body: stmt(NodeKind.BreakStatement) });
     assert.equal(statementPreventsSwitchFallthrough(labeled), true);
   });
 });
 
 describe("statementAlwaysExits", () => {
   it("returns true for ReturnStatement", () => {
-    assert.equal(statementAlwaysExits(stmt("ReturnStatement")), true);
+    assert.equal(statementAlwaysExits(stmt(NodeKind.ReturnStatement)), true);
   });
 
   it("returns true for ThrowStatement", () => {
-    assert.equal(statementAlwaysExits(stmt("ThrowStatement")), true);
+    assert.equal(statementAlwaysExits(stmt(NodeKind.ThrowStatement)), true);
   });
 
   it("returns false for ExpressionStatement", () => {
-    assert.equal(statementAlwaysExits(stmt("ExpressionStatement")), false);
+    assert.equal(statementAlwaysExits(stmt(NodeKind.ExprStatement)), false);
   });
 
   it("returns false for DeferStatement", () => {
-    assert.equal(statementAlwaysExits(stmt("DeferStatement")), false);
+    assert.equal(statementAlwaysExits(stmt(NodeKind.DeferStatement)), false);
   });
 
   it("returns true for BlockStatement containing a return", () => {
-    const block = stmt("BlockStatement", { body: [stmt("ReturnStatement")] });
+    const block = stmt(NodeKind.BlockStatement, { body: [stmt(NodeKind.ReturnStatement)] });
     assert.equal(statementAlwaysExits(block), true);
   });
 
   it("returns false for empty BlockStatement", () => {
-    const block = stmt("BlockStatement", { body: [] });
+    const block = stmt(NodeKind.BlockStatement, { body: [] });
     assert.equal(statementAlwaysExits(block), false);
   });
 
   it("returns true for IfStatement where both branches always exit", () => {
-    const ifStmt = stmt("IfStatement", {
-      thenBranch: stmt("ReturnStatement"),
-      elseBranch: stmt("ThrowStatement"),
+    const ifStmt = stmt(NodeKind.IfStatement, {
+      thenBranch: stmt(NodeKind.ReturnStatement),
+      elseBranch: stmt(NodeKind.ThrowStatement),
     });
     assert.equal(statementAlwaysExits(ifStmt), true);
   });
 
   it("returns false for IfStatement without else branch", () => {
-    const ifStmt = stmt("IfStatement", {
-      thenBranch: stmt("ReturnStatement"),
+    const ifStmt = stmt(NodeKind.IfStatement, {
+      thenBranch: stmt(NodeKind.ReturnStatement),
       elseBranch: undefined,
     });
     assert.equal(statementAlwaysExits(ifStmt), false);
   });
 
   it("returns false for IfStatement where only then branch exits", () => {
-    const ifStmt = stmt("IfStatement", {
-      thenBranch: stmt("ReturnStatement"),
-      elseBranch: stmt("ExpressionStatement"),
+    const ifStmt = stmt(NodeKind.IfStatement, {
+      thenBranch: stmt(NodeKind.ReturnStatement),
+      elseBranch: stmt(NodeKind.ExprStatement),
     });
     assert.equal(statementAlwaysExits(ifStmt), false);
   });
 
   it("returns true for DoWhileStatement whose body always exits", () => {
-    const doWhile = stmt("DoWhileStatement", { body: stmt("ReturnStatement") });
+    const doWhile = stmt(NodeKind.DoWhileStatement, { body: stmt(NodeKind.ReturnStatement) });
     assert.equal(statementAlwaysExits(doWhile), true);
   });
 
   it("returns false for DoWhileStatement whose body does not exit", () => {
-    const doWhile = stmt("DoWhileStatement", { body: stmt("ExpressionStatement") });
+    const doWhile = stmt(NodeKind.DoWhileStatement, { body: stmt(NodeKind.ExprStatement) });
     assert.equal(statementAlwaysExits(doWhile), false);
   });
 
   it("returns false for SwitchStatement with no default case", () => {
-    const switchStmt = stmt("SwitchStatement", {
-      cases: [{ test: stmt("ExpressionStatement"), consequent: [stmt("ReturnStatement")] }],
+    const switchStmt = stmt(NodeKind.SwitchStatement, {
+      cases: [{ test: stmt(NodeKind.ExprStatement), consequent: [stmt(NodeKind.ReturnStatement)] }],
     });
     assert.equal(statementAlwaysExits(switchStmt), false);
   });
 
   it("returns true for SwitchStatement with default case where all paths exit", () => {
-    const switchStmt = stmt("SwitchStatement", {
+    const switchStmt = stmt(NodeKind.SwitchStatement, {
       cases: [
-        { test: stmt("ExpressionStatement"), consequent: [stmt("ReturnStatement")] },
-        { test: undefined, consequent: [stmt("ThrowStatement")] },
+        { test: stmt(NodeKind.ExprStatement), consequent: [stmt(NodeKind.ReturnStatement)] },
+        { test: undefined, consequent: [stmt(NodeKind.ThrowStatement)] },
       ],
     });
     assert.equal(statementAlwaysExits(switchStmt), true);
   });
 
   it("returns true for TryStatement where finally always exits", () => {
-    const tryStmt = stmt("TryStatement", {
-      tryBlock: stmt("ExpressionStatement"),
+    const tryStmt = stmt(NodeKind.TryStatement, {
+      tryBlock: stmt(NodeKind.ExprStatement),
       catchClause: undefined,
-      finallyBlock: stmt("ReturnStatement"),
+      finallyBlock: stmt(NodeKind.ReturnStatement),
     });
     assert.equal(statementAlwaysExits(tryStmt), true);
   });
 
   it("returns true for TryStatement where try and catch both exit", () => {
-    const tryStmt = stmt("TryStatement", {
-      tryBlock: stmt("ReturnStatement"),
-      catchClause: { body: stmt("ThrowStatement") },
+    const tryStmt = stmt(NodeKind.TryStatement, {
+      tryBlock: stmt(NodeKind.ReturnStatement),
+      catchClause: { body: stmt(NodeKind.ThrowStatement) },
       finallyBlock: undefined,
     });
     assert.equal(statementAlwaysExits(tryStmt), true);
   });
 
   it("returns false for TryStatement where catch does not exit", () => {
-    const tryStmt = stmt("TryStatement", {
-      tryBlock: stmt("ReturnStatement"),
-      catchClause: { body: stmt("ExpressionStatement") },
+    const tryStmt = stmt(NodeKind.TryStatement, {
+      tryBlock: stmt(NodeKind.ReturnStatement),
+      catchClause: { body: stmt(NodeKind.ExprStatement) },
       finallyBlock: undefined,
     });
     assert.equal(statementAlwaysExits(tryStmt), false);
   });
 
   it("delegates through WithStatement", () => {
-    const withStmt = stmt("WithStatement", { body: stmt("ReturnStatement") });
+    const withStmt = stmt(NodeKind.WithStatement, { body: stmt(NodeKind.ReturnStatement) });
     assert.equal(statementAlwaysExits(withStmt), true);
   });
 
   it("delegates through LabeledStatement", () => {
-    const labeled = stmt("LabeledStatement", { body: stmt("ReturnStatement") });
+    const labeled = stmt(NodeKind.LabeledStatement, { body: stmt(NodeKind.ReturnStatement) });
     assert.equal(statementAlwaysExits(labeled), true);
   });
 });
@@ -278,28 +279,28 @@ describe("statementListAlwaysExits", () => {
 
   it("returns true when an earlier statement always exits", () => {
     assert.equal(
-      statementListAlwaysExits([stmt("ReturnStatement"), stmt("ExpressionStatement")]),
+      statementListAlwaysExits([stmt(NodeKind.ReturnStatement), stmt(NodeKind.ExprStatement)]),
       true
     );
   });
 
   it("returns false when no statement exits", () => {
     assert.equal(
-      statementListAlwaysExits([stmt("ExpressionStatement"), stmt("ExpressionStatement")]),
+      statementListAlwaysExits([stmt(NodeKind.ExprStatement), stmt(NodeKind.ExprStatement)]),
       false
     );
   });
 
   it("stops scanning after BreakStatement", () => {
     assert.equal(
-      statementListAlwaysExits([stmt("BreakStatement"), stmt("ReturnStatement")]),
+      statementListAlwaysExits([stmt(NodeKind.BreakStatement), stmt(NodeKind.ReturnStatement)]),
       false
     );
   });
 
   it("stops scanning after ContinueStatement", () => {
     assert.equal(
-      statementListAlwaysExits([stmt("ContinueStatement"), stmt("ReturnStatement")]),
+      statementListAlwaysExits([stmt(NodeKind.ContinueStatement), stmt(NodeKind.ReturnStatement)]),
       false
     );
   });
@@ -312,14 +313,14 @@ describe("statementListPreventsSwitchFallthrough", () => {
 
   it("returns true when any statement in the list prevents fallthrough", () => {
     assert.equal(
-      statementListPreventsSwitchFallthrough([stmt("ExpressionStatement"), stmt("ReturnStatement")]),
+      statementListPreventsSwitchFallthrough([stmt(NodeKind.ExprStatement), stmt(NodeKind.ReturnStatement)]),
       true
     );
   });
 
   it("returns false when no statement prevents fallthrough", () => {
     assert.equal(
-      statementListPreventsSwitchFallthrough([stmt("ExpressionStatement"), stmt("ExpressionStatement")]),
+      statementListPreventsSwitchFallthrough([stmt(NodeKind.ExprStatement), stmt(NodeKind.ExprStatement)]),
       false
     );
   });

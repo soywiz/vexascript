@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { Program, ClassMethodMember, ClassStatement } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { splitTopLevelTypeText } from "compiler/analysis/typeNames";
@@ -296,7 +297,7 @@ function createMissingMethodText(classStatement: ClassStatement, methodHead: str
 
 function findOwnMethod(classStatement: ClassStatement, memberName: string): ClassMethodMember | null {
   for (const member of classStatement.members) {
-    if (member.kind !== "ClassMethodMember") {
+    if (member.kind !== NodeKind.ClassMethodMember) {
       continue;
     }
     if (member.name.name === memberName) {

@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { BinaryExpression, Identifier } from "compiler/ast/ast";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
@@ -23,11 +24,11 @@ function positionOf(source: string, search: string): Position {
 }
 
 function isBinaryExpression(node: import("compiler/ast/ast").Node): node is BinaryExpression {
-  return node.kind === "BinaryExpression";
+  return node.kind === NodeKind.BinaryExpression;
 }
 
 function isIdentifier(node: import("compiler/ast/ast").Node): node is Identifier {
-  return node.kind === "Identifier";
+  return node.kind === NodeKind.Identifier;
 }
 
 describe("nodeSearch", () => {
@@ -46,7 +47,7 @@ describe("nodeSearch", () => {
 
     const match = findNodeAtPosition(ast, positionOf(source, "name"), isBinaryExpression, "largest");
 
-    expect(match?.kind).toBe("BinaryExpression");
+    expect(match?.kind).toBe(NodeKind.BinaryExpression);
     expect(match ? source.slice(match.firstToken!.range.start.offset, match.lastToken!.range.end.offset) : null)
       .toBe("prefix + name + suffix");
   });
@@ -59,7 +60,7 @@ describe("nodeSearch", () => {
 
     const match = nameRange ? findNodeContainingRange(ast, nameRange, isBinaryExpression) : null;
 
-    expect(match?.kind).toBe("BinaryExpression");
+    expect(match?.kind).toBe(NodeKind.BinaryExpression);
     expect(match ? source.slice(match.firstToken!.range.start.offset, match.lastToken!.range.end.offset) : null)
       .toBe("prefix + name");
   });
@@ -84,7 +85,7 @@ describe("nodeSearch", () => {
     const built: string[] = [];
 
     const match = findBestMatchAtPosition(ast, positionOf(source, "alpha"), (node) => {
-      if (node.kind === "CallExpression") {
+      if (node.kind === NodeKind.CallExpression) {
         const range = nodeRange(node);
         return range ? { range, build: () => "call" } : null;
       }
@@ -114,11 +115,11 @@ describe("nodeSearch", () => {
     const ast = parse(source);
 
     const match = findBestMatchAtPosition(ast, positionOf(source, "alpha"), (node) => {
-      if (node.kind !== "CallExpression") {
+      if (node.kind !== NodeKind.CallExpression) {
         return null;
       }
       const call = node as import("compiler/ast/ast").CallExpression;
-      return call.arguments.flatMap((argument, index) => {
+      return call.args.flatMap((argument, index) => {
         const range = nodeRange(argument);
         return range ? [{ range, size: index, build: () => index }] : [];
       });

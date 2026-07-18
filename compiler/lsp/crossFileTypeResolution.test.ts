@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
@@ -49,7 +50,7 @@ describe("cross-file type resolution member lookups", () => {
     expect(session.ast).toBeTruthy();
 
     const names = collectMemberExpressions(session.ast!)
-      .filter((member) => member.property.kind === "Identifier")
+      .filter((member) => member.property.kind === NodeKind.Identifier)
       .map((member) => (member.property as Identifier).name)
       .sort();
     expect(names).toEqual(["length", "x", "y"]);

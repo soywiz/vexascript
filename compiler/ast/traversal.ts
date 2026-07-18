@@ -1,3 +1,4 @@
+import { isNodeKind, NodeKind } from "compiler/ast/ast";
 import type { ExportStatement, Node, Statement } from "./ast";
 
 /**
@@ -8,7 +9,7 @@ import type { ExportStatement, Node, Statement } from "./ast";
  * inline declaration.
  */
 export function unwrapExportedDeclaration(statement: Statement): Statement | undefined {
-  return statement.kind === "ExportStatement"
+  return statement.kind === NodeKind.ExportStatement
     ? (statement as ExportStatement).declaration
     : statement;
 }
@@ -17,7 +18,7 @@ function isNode(value: unknown): value is Node {
   return (
     typeof value === "object" &&
     value !== null &&
-    typeof (value as { kind?: unknown }).kind === "string"
+    isNodeKind((value as { kind?: unknown }).kind)
   );
 }
 

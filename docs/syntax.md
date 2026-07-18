@@ -1073,7 +1073,7 @@ direct, compound, prefix, and postfix writes through a virtual setter.
 
 ### Enums
 
-VexaScript supports TypeScript-style `enum` and `const enum` declarations with numeric auto-increment members, numeric initializers, and string initializers. Enum declarations create a named semantic type, enum member access is checked as a known member, and non-ambient enums emit JavaScript runtime enum objects. Ambient `declare enum` declarations participate in analysis but are omitted from emitted JavaScript.
+VexaScript supports TypeScript-style `enum` and `const enum` declarations, including exported `export const enum` forms, with numeric auto-increment members, numeric initializers, and string initializers. Enum declarations create a named semantic type, enum member access is checked as a known member, and non-ambient enums emit JavaScript runtime enum objects. Ambient `declare enum` declarations participate in analysis but are omitted from emitted JavaScript.
 
 Examples:
 

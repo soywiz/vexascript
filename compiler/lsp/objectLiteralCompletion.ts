@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   CompletionItem
 } from "vscode-languageserver/node.js";
@@ -108,7 +109,7 @@ function nodeModulePackageNameForFilePath(filePath: string): string | null {
 }
 
 function isTypeAliasStatement(statement: Statement | undefined | null): statement is TypeAliasStatement {
-  return (statement as { kind?: string }).kind === "TypeAliasStatement";
+  return statement?.kind === NodeKind.TypeAliasStatement;
 }
 
 function formatResolvedFunctionSignature(signature: ResolvedFunctionSignature): string {
@@ -119,13 +120,13 @@ function staticObjectPropertyName(property: ObjectProperty): string | null {
   if (property.computed) {
     return null;
   }
-  if (property.key.kind === "Identifier") {
+  if (property.key.kind === NodeKind.Identifier) {
     return (property.key as Identifier).name;
   }
-  if (property.key.kind === "StringLiteral") {
+  if (property.key.kind === NodeKind.StringLiteral) {
     return (property.key as StringLiteral).value;
   }
-  if (property.key.kind === "IntLiteral" || property.key.kind === "FloatLiteral") {
+  if (property.key.kind === NodeKind.IntLiteral || property.key.kind === NodeKind.FloatLiteral) {
     return String((property.key as IntLiteral | FloatLiteral).value);
   }
   return null;
@@ -145,7 +146,7 @@ function findObjectLiteralCompletionContext(
   const usedPropertyNames = new Set<string>();
   let activePropertyName: string | null = null;
   for (const property of objectLiteral.properties) {
-    if (property.kind !== "ObjectProperty") {
+    if (property.kind !== NodeKind.ObjectProperty) {
       continue;
     }
     const objectProperty = property as ObjectProperty;
@@ -196,7 +197,7 @@ function findInnermostObjectLiteralCompletionContext(
   let best: ObjectLiteral | null = null;
   let bestSize = Number.POSITIVE_INFINITY;
   walkAst(ast, (node) => {
-    if (node.kind === "ObjectLiteral") {
+    if (node.kind === NodeKind.ObjectLiteral) {
       const objectLiteral = node as ObjectLiteral;
       const range = nodeRange(objectLiteral);
       if (range && containsPosition(range, position)) {
@@ -227,7 +228,7 @@ function findContextualObjectLiteralPropertyDefinitionContext(
 
   const position = { line, character };
   for (const property of completionContext.objectLiteral.properties) {
-    if (property.kind !== "ObjectProperty") {
+    if (property.kind !== NodeKind.ObjectProperty) {
       continue;
     }
     const objectProperty = property as ObjectProperty;
@@ -305,7 +306,7 @@ function findContextualObjectLiteralPropertyValueContext(
   };
 
   for (const property of completionContext.objectLiteral.properties) {
-    if (property.kind !== "ObjectProperty") {
+    if (property.kind !== NodeKind.ObjectProperty) {
       continue;
     }
     const objectProperty = property as ObjectProperty;
@@ -638,7 +639,7 @@ async function enumValueCandidatesFromTypeText(
     ast,
     name: baseTypeName(typeName),
     currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
-    predicate: (statement): statement is EnumStatement => statement.kind === "EnumStatement",
+    predicate: (statement): statement is EnumStatement => statement.kind === NodeKind.EnumStatement,
     includeRuntime: true,
     sourceRoots: options.sourceRoots ?? [],
     ...(options.vfs ? { vfs: options.vfs } : {}),
@@ -751,7 +752,7 @@ async function resolveTypeAliasTargetTypeText(
     ast: resolutionAst,
     name: parsedType.baseName,
     currentFilePath,
-    predicate: (statement): statement is TypeAliasStatement => statement.kind === "TypeAliasStatement",
+    predicate: (statement): statement is TypeAliasStatement => statement.kind === NodeKind.TypeAliasStatement,
     includeRuntime: true,
     ...(options.sourceRoots ? { sourceRoots: options.sourceRoots } : {}),
     ...(options.vfs ? { vfs: options.vfs } : {}),
@@ -854,7 +855,7 @@ async function resolveImportedNodeModuleObjectLiteralPropertyDefinition(
   }
 
   for (const statement of context.session.ast.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -890,7 +891,7 @@ async function resolveImportedNodeModuleStructuralObjectLiteralPropertyDefinitio
   }
 
   for (const statement of context.session.ast.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -1045,7 +1046,7 @@ async function resolveDeclaredObjectLiteralPropertyDefinitionFromTypeName(
     );
     if (memberDeclaration) {
       const range = classMemberDeclarationRangeByName(memberDeclaration.declaration, propertyName)
-        ?? (memberDeclaration.declaration.kind === "InterfaceStatement"
+        ?? (memberDeclaration.declaration.kind === NodeKind.InterfaceStatement
           ? await fallbackInterfaceMemberRangeInFile(
             context,
             memberDeclaration.filePath,
@@ -1184,7 +1185,7 @@ export async function resolveContextualObjectLiteralPropertyHover(
   }
 
   const property = propertyContext.completionContext.objectLiteral.properties.find((candidate) =>
-    candidate.kind === "ObjectProperty"
+    candidate.kind === NodeKind.ObjectProperty
     && staticObjectPropertyName(candidate as ObjectProperty) === propertyContext.propertyName
   ) as ObjectProperty | undefined;
   const keyRange = property ? nodeRange(property.key) : null;

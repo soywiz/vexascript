@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
@@ -9,19 +10,19 @@ describe("lowerProgram", () => {
     const lowered = lowerProgram(program);
     const statement = lowered.body[0];
 
-    expect(statement?.kind).toBe("ForStatement");
+    expect(statement?.kind).toBe(NodeKind.ForStatement);
     expect((statement as any).iterationKind).toBeUndefined();
     expect((statement as any).initializer).toMatchObject({
-      kind: "VarStatement",
+      kind: NodeKind.VarStatement,
       declarationKind: "let",
-      name: { kind: "Identifier", name: "a" }
+      name: { kind: NodeKind.Identifier, name: "a" }
     });
     expect((statement as any).condition).toMatchObject({
-      kind: "BinaryExpression",
+      kind: NodeKind.BinaryExpression,
       operator: "<="
     });
     expect((statement as any).update).toMatchObject({
-      kind: "UpdateExpression",
+      kind: NodeKind.UpdateExpression,
       operator: "++",
       prefix: false
     });

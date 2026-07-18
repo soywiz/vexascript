@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { parseTypeNameShape } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
@@ -20,7 +21,7 @@ export function inferExtensionReturnTypeName(
   statement: Statement,
   analysis: Analysis | null
 ): string | null {
-  if (statement.kind === "VarStatement") {
+  if (statement.kind === NodeKind.VarStatement) {
     const variable = statement as VarStatement;
     if (variable.typeAnnotation?.name) {
       return variable.typeAnnotation.name;
@@ -33,21 +34,21 @@ export function inferExtensionReturnTypeName(
       }
     }
     const initializer = variable.initializer;
-    if (initializer?.kind === "CallExpression") {
+    if (initializer?.kind === NodeKind.CallExpression) {
       const call = initializer as CallExpression;
-      if (call.callee.kind === "Identifier") {
+      if (call.callee.kind === NodeKind.Identifier) {
         return (call.callee as Identifier).name;
       }
     }
-    if (initializer?.kind === "NewExpression") {
+    if (initializer?.kind === NodeKind.NewExpression) {
       const newExpression = initializer as NewExpression;
-      if (newExpression.callee.kind === "Identifier") {
+      if (newExpression.callee.kind === NodeKind.Identifier) {
         return (newExpression.callee as Identifier).name;
       }
     }
     return null;
   }
-  if (statement.kind === "FunctionStatement") {
+  if (statement.kind === NodeKind.FunctionStatement) {
     return (statement as FunctionStatement).returnType?.name ?? null;
   }
   return null;

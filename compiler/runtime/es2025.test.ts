@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, join, readFile } from "../test/expect";
 import { ensureVexaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 
@@ -27,7 +28,7 @@ describe("bundled es2025 runtime declarations", () => {
   it("keeps VexaScript-specific annotation declarations in the dedicated runtime file", async () => {
     const program = await ensureVexaScriptRuntimeProgram();
     const names = program.body
-      .filter((statement) => statement.kind === "AnnotationStatement")
+      .filter((statement) => statement.kind === NodeKind.AnnotationStatement)
       .map((statement) => (statement as unknown as { name: { name: string } }).name.name);
 
     expect(names).toContain("JsName");

@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, join, mkdir, mkdtemp, tmpdir, writeFile } from "../test/expect";
 import {
   clearNodeModuleTypingsCache,
@@ -76,8 +77,8 @@ describe("node_modules typings resolution", () => {
 
     const first = await getNodeModuleTypings(importerPath, "pkg");
     expect(first?.declarations.some((statement) =>
-      statement.kind === "ExportStatement"
-      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "FunctionStatement"
+      statement.kind === NodeKind.ExportStatement
+      && (statement as { declaration?: { kind?: NodeKind; name?: { name?: string } } }).declaration?.kind === NodeKind.FunctionStatement
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "oldVersion"
     )).toBe(true);
 
@@ -86,8 +87,8 @@ describe("node_modules typings resolution", () => {
 
     const second = await getNodeModuleTypings(importerPath, "pkg");
     expect(second?.declarations.some((statement) =>
-      statement.kind === "ExportStatement"
-      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "FunctionStatement"
+      statement.kind === NodeKind.ExportStatement
+      && (statement as { declaration?: { kind?: NodeKind; name?: { name?: string } } }).declaration?.kind === NodeKind.FunctionStatement
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "newVersion"
     )).toBe(true);
   });
@@ -109,12 +110,12 @@ describe("node_modules typings resolution", () => {
     const typings = await getNodeModuleTypingsForImportNames(join(root, "main.vx"), "pkg", new Set(["Needed"]));
 
     expect(typings?.declarations.some((statement) =>
-      statement.kind === "ExportStatement"
-      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "InterfaceStatement"
+      statement.kind === NodeKind.ExportStatement
+      && (statement as { declaration?: { kind?: NodeKind; name?: { name?: string } } }).declaration?.kind === NodeKind.InterfaceStatement
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "Needed"
     )).toBe(true);
     expect(typings?.declarations.some((statement) =>
-      statement.kind === "ExportStatement"
+      statement.kind === NodeKind.ExportStatement
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "Unused"
     )).toBe(false);
   });
@@ -304,10 +305,10 @@ describe("node_modules typings resolution", () => {
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(collected.externalDeclarations.some((statement) => {
-      const declaration = statement.kind === "ExportStatement"
+      const declaration = statement.kind === NodeKind.ExportStatement
         ? (statement as { declaration?: Statement }).declaration ?? statement
         : statement;
-      return declaration.kind === "ClassStatement"
+      return declaration.kind === NodeKind.ClassStatement
         && (declaration as { name?: { name?: string } }).name?.name === "Observable";
     })).toBe(true);
     expect(typeToString(collected.importedSymbols.get("of")!.type!)).toBe("<T>(value: T) => Observable<T>");
@@ -373,10 +374,10 @@ describe("node_modules typings resolution", () => {
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(collected.externalDeclarations.some((statement) => {
-      const declaration = statement.kind === "ExportStatement"
+      const declaration = statement.kind === NodeKind.ExportStatement
         ? (statement as { declaration?: Statement }).declaration ?? statement
         : statement;
-      return declaration.kind === "ClassStatement"
+      return declaration.kind === NodeKind.ClassStatement
         && (declaration as { name?: { name?: string } }).name?.name === "Observable";
     })).toBe(true);
     expect(typeToString(collected.importedSymbols.get("of")!.type!)).toBe(
@@ -615,10 +616,10 @@ describe("node_modules typings resolution", () => {
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
     expect(collected.externalDeclarations.some((statement) => {
-      const declaration = statement.kind === "ExportStatement"
+      const declaration = statement.kind === NodeKind.ExportStatement
         ? (statement as { declaration?: Statement }).declaration ?? statement
         : statement;
-      return declaration.kind === "TypeAliasStatement"
+      return declaration.kind === NodeKind.TypeAliasStatement
         && (declaration as { name?: { name?: string } }).name?.name === "ValueFromArray";
     })).toBe(true);
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
@@ -1751,8 +1752,8 @@ describe("node_modules typings resolution", () => {
     const typings = await getNodeModuleTypings(join(root, "main.vx"), "preact");
 
     expect(typings?.declarations.some((statement) =>
-      statement.kind === "ExportStatement"
-      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "InterfaceStatement"
+      statement.kind === NodeKind.ExportStatement
+      && (statement as { declaration?: { kind?: NodeKind; name?: { name?: string } } }).declaration?.kind === NodeKind.InterfaceStatement
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "InputHTMLAttributes"
     )).toBe(true);
   });
@@ -1829,8 +1830,8 @@ describe("node_modules typings resolution", () => {
     const typings = await getNodeModuleTypings(join(root, "main.vx"), "pixi.js");
 
     expect(typings?.declarations.some((statement) =>
-      statement.kind === "ExportStatement"
-      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "ClassStatement"
+      statement.kind === NodeKind.ExportStatement
+      && (statement as { declaration?: { kind?: NodeKind; name?: { name?: string } } }).declaration?.kind === NodeKind.ClassStatement
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "TextStyle"
     )).toBe(true);
   });
@@ -1861,8 +1862,8 @@ describe("node_modules typings resolution", () => {
     const typings = await getNodeModuleTypings(join(root, "main.vx"), "pkg");
 
     expect(typings?.declarations.some((statement) =>
-      statement.kind === "ExportStatement"
-      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "ClassStatement"
+      statement.kind === NodeKind.ExportStatement
+      && (statement as { declaration?: { kind?: NodeKind; name?: { name?: string } } }).declaration?.kind === NodeKind.ClassStatement
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "QueryClient"
     )).toBe(true);
   });
@@ -2060,7 +2061,7 @@ describe("node_modules typings resolution", () => {
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(collected.externalDeclarations.some((statement) => statement.kind === "ImportStatement")).toBe(true);
+    expect(collected.externalDeclarations.some((statement) => statement.kind === NodeKind.ImportStatement)).toBe(true);
     expect(richSession.analysis?.getIssues().map((issue) => issue.message) ?? []).toEqual([]);
   });
 
@@ -2163,11 +2164,11 @@ describe("node_modules typings resolution", () => {
 
     expect(
       collected.externalDeclarations.some((statement) => {
-        const declaration = statement.kind === "ExportStatement"
+        const declaration = statement.kind === NodeKind.ExportStatement
           ? (statement as { declaration?: Statement }).declaration
           : statement;
-        return declaration?.kind === "VarStatement"
-          && (declaration as VarStatement).name.kind === "Identifier"
+        return declaration?.kind === NodeKind.VarStatement
+          && (declaration as VarStatement).name.kind === NodeKind.Identifier
           && ((declaration as VarStatement).name as Identifier).name === "SharedSystems";
       })
     ).toBe(true);

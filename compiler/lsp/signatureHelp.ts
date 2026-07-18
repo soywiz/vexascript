@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType, type FunctionType, typeToString } from "compiler/analysis/types";
 import type {
@@ -144,16 +145,16 @@ function invocationContextForNode(
 function findInvocationContext(program: Program, line: number, character: number): InvocationContext | null {
   const position: Position = { line, character };
   return findBestMatch(program, (node) => {
-    if (node.kind !== "CallExpression" && node.kind !== "NewExpression") {
+    if (node.kind !== NodeKind.CallExpression && node.kind !== NodeKind.NewExpression) {
       return null;
     }
     const callLike = node as CallExpression | NewExpression;
     const context = invocationContextForNode(
       position,
       callLike.callee,
-      callLike.arguments ?? [],
+      callLike.args ?? [],
       node,
-      node.kind === "NewExpression"
+      node.kind === NodeKind.NewExpression
     );
     return context ? { size: rangeSize(context.range), value: context } : null;
   });
@@ -170,7 +171,7 @@ function findAnnotationInvocationContext(program: Program, line: number, charact
     const candidate: AnnotationInvocationContext = {
       annotation,
       range,
-      activeParameter: argumentIndexAtPosition(annotation.arguments, position)
+      activeParameter: argumentIndexAtPosition(annotation.args, position)
     };
     if (!best || rangeSize(candidate.range) <= rangeSize(best.range)) {
       best = candidate;
@@ -232,7 +233,7 @@ function ambientFunctionSignatureInfo(
     .filter((parameter) => parameter.thisParameter !== true)
     .map((parameter) => ({
       label: formatParameterLabel({
-        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+        name: parameter.name.kind === NodeKind.Identifier ? parameter.name.name : "arg",
         typeName: parameter.typeAnnotation?.name ?? "unknown",
         optional: parameter.optional === true || parameter.defaultValue !== undefined,
         rest: parameter.rest === true
@@ -259,7 +260,7 @@ function collectAmbientFunctionOverloads(
   // from the export wrapper's first token.
   return collectAmbientFunctionStatements(statements, memberName).map((fn) => {
     const ownerStatement = statements.find((s) => {
-      const candidate = s.kind === "ExportStatement"
+      const candidate = s.kind === NodeKind.ExportStatement
         ? (s as ExportStatement).declaration ?? s
         : s;
       return candidate === fn;
@@ -273,7 +274,7 @@ function ambientDefaultImportMemberSignatures(
   callee: MemberExpression,
   options: ClassResolverOptions
 ): SignatureInformation[] {
-  if (callee.object.kind !== "Identifier" || callee.property.kind !== "Identifier") {
+  if (callee.object.kind !== NodeKind.Identifier || callee.property.kind !== NodeKind.Identifier) {
     return [];
   }
   const ambientModuleDeclarations = options.ambientModuleDeclarations;
@@ -321,7 +322,7 @@ async function nodeModuleDefaultImportMemberSignatures(
   callee: MemberExpression,
   options: ClassResolverOptions
 ): Promise<SignatureInformation[]> {
-  if (callee.object.kind !== "Identifier" || callee.property.kind !== "Identifier") {
+  if (callee.object.kind !== NodeKind.Identifier || callee.property.kind !== NodeKind.Identifier) {
     return [];
   }
   const currentFilePath = options.uri ? uriToFilePath(options.uri) : null;
@@ -332,7 +333,7 @@ async function nodeModuleDefaultImportMemberSignatures(
   const receiverName = (callee.object as Identifier).name;
   const memberName = (callee.property as Identifier).name;
   const importStatement = program.body.find((statement) =>
-    statement.kind === "ImportStatement"
+    statement.kind === NodeKind.ImportStatement
     && (statement as ImportStatement).defaultImport?.name === receiverName
   ) as ImportStatement | undefined;
   if (!importStatement) {
@@ -474,9 +475,9 @@ async function buildSignaturesFromSymbol(
   // it preserves the original type alias names from ambient declarations
   // (e.g. `PathLike | FileHandle` rather than the expanded `string | Buffer | URL`).
   // When no display string is available, fall through to structured resolution.
-  if (context.callee.kind === "Identifier" && symbolMatch?.symbol.valueType) {
+  if (context.callee.kind === NodeKind.Identifier && symbolMatch?.symbol.valueType) {
     const documentation =
-      symbolMatch.symbol.node.kind === "Identifier"
+      symbolMatch.symbol.node.kind === NodeKind.Identifier
         ? readDocumentationForSymbol(program, symbolMatch.symbol.node as Identifier, {
             ambientModuleDeclarations: options.ambientModuleDeclarations
           })
@@ -491,7 +492,7 @@ async function buildSignaturesFromSymbol(
     }
   }
 
-  if (context.callee.kind === "MemberExpression") {
+  if (context.callee.kind === NodeKind.MemberExpression) {
     const nodeModuleSignatures = await nodeModuleDefaultImportMemberSignatures(
       program,
       context.callee as MemberExpression,
@@ -506,9 +507,9 @@ async function buildSignaturesFromSymbol(
   // type checker resolves the extension), so prefer the extension's signature —
   // taken from the analysis-inferred member type — before the class-member
   // resolution below. Keeps signature help consistent with the other surfaces.
-  if (context.callee.kind === "MemberExpression" && options.uri) {
+  if (context.callee.kind === NodeKind.MemberExpression && options.uri) {
     const member = context.callee as MemberExpression;
-    if (!member.computed && member.property.kind === "Identifier") {
+    if (!member.computed && member.property.kind === NodeKind.Identifier) {
       const objectType = analysis.getExpressionTypes().get(member.object);
       if (objectType) {
         const memberName = (member.property as Identifier).name;
@@ -542,7 +543,7 @@ async function buildSignaturesFromSymbol(
   }
 
   // Ambient default-import member signatures (e.g. `util.format`).
-  if (context.callee.kind === "MemberExpression") {
+  if (context.callee.kind === NodeKind.MemberExpression) {
     const ambientSignatures = ambientDefaultImportMemberSignatures(
       program,
       context.callee as MemberExpression,
@@ -554,9 +555,9 @@ async function buildSignaturesFromSymbol(
   }
 
   if (!symbolMatch) {
-    if (context.callee.kind === "MemberExpression") {
+    if (context.callee.kind === NodeKind.MemberExpression) {
       const member = context.callee as MemberExpression;
-      if (!member.computed && member.property.kind === "Identifier") {
+      if (!member.computed && member.property.kind === NodeKind.Identifier) {
         const memberName = (member.property as Identifier).name;
         const memberType = analysis.getExpressionTypes().get(context.callee);
         const signatures = signatureInfosFromAnalysisType(memberName, memberType);
@@ -575,7 +576,7 @@ async function buildSignaturesFromSymbol(
   }
 
   const documentation =
-    symbolMatch.symbol.node.kind === "Identifier"
+    symbolMatch.symbol.node.kind === NodeKind.Identifier
       ? readDocumentationForSymbol(program, symbolMatch.symbol.node as Identifier, {
           ambientModuleDeclarations: options.ambientModuleDeclarations
         })
@@ -599,9 +600,9 @@ async function buildSignaturesFromSymbol(
     return displaySignatures;
   }
 
-  if (context.callee.kind === "MemberExpression") {
+  if (context.callee.kind === NodeKind.MemberExpression) {
     const member = context.callee as MemberExpression;
-    if (!member.computed && member.property.kind === "Identifier") {
+    if (!member.computed && member.property.kind === NodeKind.Identifier) {
       const memberName = (member.property as Identifier).name;
       const memberType = analysis.getExpressionTypes().get(context.callee);
       const signatures = signatureInfosFromAnalysisType(memberName, memberType);
@@ -641,7 +642,7 @@ function findAnnotationDeclaration(program: Program, name: string): AnnotationSt
 
 function annotationParameterLabel(parameter: AnnotationStatement["parameters"][number]): string {
   const name = bindingNameText(parameter.name);
-  const prefix = parameter.accessModifier === "public" && parameter.readonly === true
+  const prefix = parameter.accessModifier === "public" && parameter.isReadonly === true
     ? "val "
     : parameter.accessModifier === "public"
       ? "var "

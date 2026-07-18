@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type { Identifier, NewExpression, Program, VarDeclarator, VarStatement } from "compiler/ast/ast";
@@ -17,7 +18,7 @@ export function typeNameFromAnalysisType(type: AnalysisType | undefined): string
 }
 
 export function explicitTypeNameFromNewExpression(newExpression: NewExpression): string | null {
-  if (newExpression.callee.kind !== "Identifier") {
+  if (newExpression.callee.kind !== NodeKind.Identifier) {
     return null;
   }
   const baseName = (newExpression.callee as Identifier).name;
@@ -41,7 +42,7 @@ export function declaredInitializerTypeName(
 ): string | null {
   let resolvedTypeName: string | null = null;
   walkAst(ast, (node) => {
-    if (resolvedTypeName !== null || node.kind !== "VarStatement") {
+    if (resolvedTypeName !== null || node.kind !== NodeKind.VarStatement) {
       return;
     }
     const varStatement = node as VarStatement;
@@ -49,16 +50,16 @@ export function declaredInitializerTypeName(
       ? varStatement.declarations
       : [varStatement];
     for (const candidate of candidates) {
-      const bindingName = candidate.kind === "VarDeclarator"
+      const bindingName = candidate.kind === NodeKind.VarDeclarator
         ? (candidate as VarDeclarator).name
         : (candidate as VarStatement).name;
-      const initializer = candidate.kind === "VarDeclarator"
+      const initializer = candidate.kind === NodeKind.VarDeclarator
         ? (candidate as VarDeclarator).initializer
         : (candidate as VarStatement).initializer;
       if (!bindingIdentifiers(bindingName).some((identifier) => identifier === declarationNode)) {
         continue;
       }
-      resolvedTypeName = initializer?.kind === "NewExpression"
+      resolvedTypeName = initializer?.kind === NodeKind.NewExpression
         ? explicitTypeNameFromNewExpression(initializer as NewExpression)
         : null;
       break;

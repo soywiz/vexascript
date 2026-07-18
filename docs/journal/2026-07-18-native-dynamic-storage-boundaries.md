@@ -36,17 +36,27 @@ properties remain difficult to map to efficient C++ storage.
 ## Full Nominal AST Direction
 
 The durable migration converts every concrete AST variant into a real class
-with declared fields, a constructor, and a shared metadata base. Parser and
-compiler transformation sites construct those classes directly; source-bound
-attachment never changes an object's prototype. Concrete classes retain a
-literal `kind` declaration so existing discriminated-union switches continue to
-narrow while native code can later use class identity and `instanceof`.
+with declared fields, typed positional parameter properties, and a shared
+metadata base. Parser and compiler transformation sites construct those classes
+directly; source-bound attachment never changes an object's prototype. Every
+constructor body is deliberately trivial: it only delegates to `super`, and
+discriminators are never supplied by callers.
 
-Optional fields require special care. Native class declarations are useful for
-static layout, but JavaScript own-property presence is observable. Optional AST
-fields are therefore type-only declarations in JavaScript and constructors add
-them only when the initializer contains them. This preserved JSX's distinction
-between an absent intrinsic-tag `reference` and a component reference.
+The discriminator is a numeric `const enum NodeKind`, so a concrete constructor
+uses `super(NodeKind.ReturnStatement)` and a class narrows `kind` to its enum
+member. This preserves discriminated-union narrowing while emitting integer
+comparisons. A controlled three-roundtrip JavaScript self-host benchmark used
+otherwise identical numeric and string `const enum` variants. The numeric
+variant reduced median time from 5.484 seconds to 5.363 seconds, approximately
+2.2 percent. The numeric form remains the canonical representation.
+
+Optional constructor parameter properties are real own properties initialized
+to `undefined`; source metadata fields (`firstToken`, `lastToken`, and
+`__vexaNativeSourcePath`) are also initialized on the shared `Node` base. This
+gives native lowering a stable declared shape instead of relying on properties
+being attached later. Reserved JavaScript property names were replaced by
+explicit AST names such as `args`, `isDefault`, `isReadonly`, `isStatic`,
+`isConst`, and `isAwait`, allowing the constructors to remain parameter-only.
 
 The follow-up optimization and Oilpan work remains recorded in
 `docs/tasks/accelerate-native-self-host-iterations.md`.
@@ -56,5 +66,8 @@ The follow-up optimization and Oilpan work remains recorded in
 The single native language smoke now executes both absent and present optional
 dynamic callbacks, iterates a dynamically stored map, and copies a map retrieved
 through dynamic storage. Its output is checked for both JavaScript and native
-execution. Parser coverage also walks a mixed program and verifies that every
-reachable AST node inherits from `Node`.
+execution. Parser coverage also walks a mixed program, verifies that every
+reachable AST node inherits from `Node`, checks numeric discriminators, and
+checks that shared metadata properties exist immediately after construction.
+The JavaScript self-host test completes three byte-stable compiler roundtrips
+with the nominal numeric AST.

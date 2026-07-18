@@ -39,13 +39,18 @@ development loop.
 * [ ] Avoid regenerating or recompiling unchanged modules and runtime sources.
 * [ ] Evaluate compiler-source simplifications that reduce generated C++ size or
   template pressure without distorting the compiler architecture.
-* [ ] Evaluate a complete nominal AST migration: concrete AST node classes with
-  typed constructors, a shared metadata base, native `instanceof`, and Oilpan
-  inheritance/allocation designed for derived nodes. Do not use a partial
+* [x] Introduce the JavaScript/TypeScript side of a complete nominal AST
+  migration: concrete AST node classes with typed positional constructors, a
+  shared metadata base, numeric `const enum` discriminators, and native
+  `instanceof`. Constructors contain only their `super(NodeKind.X)` delegation;
+  callers never pass a discriminator or an initializer bag. A controlled
+  three-roundtrip self-host comparison measured a 5.363-second median for the
+  numeric enum versus 5.484 seconds for the equivalent string enum. Do not use a partial
   `Object.setPrototypeOf` migration: the 2026-07-18 experiment increased parse
   time from about 266 ms to 407 ms and pre-emission time from about 9.1 seconds
   to 10.1 seconds, while interfaces extending the base class could not be
-  represented by the current C++ interface model.
+  represented by the current C++ interface model. Oilpan inheritance, layout,
+  and allocation designed for derived nodes remain pending.
 * [ ] Provide fast debug and syntax-validation profiles plus a separate final
   optimized roundtrip profile.
 * [ ] Make strict native object mode the final self-host target so compiler

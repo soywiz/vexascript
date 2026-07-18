@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { Identifier } from "compiler/ast/ast";
 import type { Location } from "vscode-languageserver/node.js";
 import { resolve } from "compiler/utils/path";
@@ -58,7 +59,7 @@ export async function resolveMemberReferencesAcrossFiles(
 
     const expressionTypes = session.analysis.getExpressionTypes();
     for (const member of collectMemberExpressions(session.ast)) {
-      if (member.computed || member.property.kind !== "Identifier") {
+      if (member.computed || member.property.kind !== NodeKind.Identifier) {
         continue;
       }
       const memberName = (member.property as Identifier).name;

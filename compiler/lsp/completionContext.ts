@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   ClassMethodMember,
   ClassStatement,
@@ -111,7 +112,7 @@ function isDeclarationNamePosition(ast: Program, line: number, character: number
     declarationNameRangeContainsPosition(identifier, line, character);
 
   for (const statement of ast.body) {
-    if (statement.kind === "FunctionStatement") {
+    if (statement.kind === NodeKind.FunctionStatement) {
       const fn = statement as FunctionStatement;
       if (matchesBinding(fn.name)) {
         return true;
@@ -126,7 +127,7 @@ function isDeclarationNamePosition(ast: Program, line: number, character: number
       continue;
     }
 
-    if (statement.kind === "VarStatement") {
+    if (statement.kind === NodeKind.VarStatement) {
       const variable = statement as VarStatement;
       const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
       if (bindings.some(matchesBinding)) {
@@ -135,7 +136,7 @@ function isDeclarationNamePosition(ast: Program, line: number, character: number
       continue;
     }
 
-    if (statement.kind === "ClassStatement") {
+    if (statement.kind === NodeKind.ClassStatement) {
       const classStatement = statement as ClassStatement;
       if (matchesBinding(classStatement.name)) {
         return true;
@@ -151,7 +152,7 @@ function isDeclarationNamePosition(ast: Program, line: number, character: number
         if (matchesBinding(member.name)) {
           return true;
         }
-        if (member.kind === "ClassMethodMember") {
+        if (member.kind === NodeKind.ClassMethodMember) {
           const method = member as ClassMethodMember;
           for (const parameter of method.parameters) {
             for (const binding of bindingIdentifiers(parameter.name)) {
@@ -165,7 +166,7 @@ function isDeclarationNamePosition(ast: Program, line: number, character: number
       continue;
     }
 
-    if (statement.kind === "InterfaceStatement") {
+    if (statement.kind === NodeKind.InterfaceStatement) {
       const interfaceStatement = statement as InterfaceStatement;
       if (matchesBinding(interfaceStatement.name)) {
         return true;
@@ -174,7 +175,7 @@ function isDeclarationNamePosition(ast: Program, line: number, character: number
         if (matchesBinding(member.name)) {
           return true;
         }
-        if (member.kind === "InterfaceMethodMember") {
+        if (member.kind === NodeKind.InterfaceMethodMember) {
           const method = member as InterfaceMethodMember;
           for (const parameter of method.parameters) {
             for (const binding of bindingIdentifiers(parameter.name)) {
@@ -188,7 +189,7 @@ function isDeclarationNamePosition(ast: Program, line: number, character: number
       continue;
     }
 
-    if (statement.kind === "NamespaceStatement") {
+    if (statement.kind === NodeKind.NamespaceStatement) {
       const namespaceStatement = statement as NamespaceStatement;
       if ((namespaceStatement.names ?? []).some((name) => matchesBinding(name))) {
         return true;

@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   BinaryExpression,
   Expr,
@@ -28,7 +29,7 @@ function sourceText(text: string, node: Expr): string | null {
 }
 
 function flattenConcatenation(expression: Expr): Expr[] | null {
-  if (expression.kind !== "BinaryExpression") {
+  if (expression.kind !== NodeKind.BinaryExpression) {
     return null;
   }
   const binary = expression as BinaryExpression;
@@ -52,7 +53,7 @@ function buildTemplateLiteral(text: string, expression: BinaryExpression): strin
   let result = "`";
 
   for (const segment of segments) {
-    if (segment.kind === "StringLiteral") {
+    if (segment.kind === NodeKind.StringLiteral) {
       hasStringLiteral = true;
       result += escapeTemplateText((segment as StringLiteral).value);
       continue;
@@ -75,7 +76,7 @@ function buildTemplateLiteral(text: string, expression: BinaryExpression): strin
 }
 
 function isTemplateConvertibleConcatenation(node: import("compiler/ast/ast").Node): node is BinaryExpression {
-  if (node.kind !== "BinaryExpression") {
+  if (node.kind !== NodeKind.BinaryExpression) {
     return false;
   }
   const expression = node as BinaryExpression;
@@ -86,8 +87,8 @@ function isTemplateConvertibleConcatenation(node: import("compiler/ast/ast").Nod
   if (!segments || segments.length < 2) {
     return false;
   }
-  const hasStringLiteral = segments.some((segment) => segment.kind === "StringLiteral");
-  const hasInterpolation = segments.some((segment) => segment.kind !== "StringLiteral");
+  const hasStringLiteral = segments.some((segment) => segment.kind === NodeKind.StringLiteral);
+  const hasInterpolation = segments.some((segment) => segment.kind !== NodeKind.StringLiteral);
   return hasStringLiteral && hasInterpolation;
 }
 

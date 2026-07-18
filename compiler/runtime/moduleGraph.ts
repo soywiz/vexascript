@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   FunctionStatement,
   Identifier,
@@ -50,10 +51,10 @@ export type { GlobalSymbolSourceOptions, ModuleGraphOptions } from "./moduleGrap
  */
 
 const TYPE_DECLARATION_KINDS = new Set<Statement["kind"]>([
-  "ClassStatement",
-  "InterfaceStatement",
-  "EnumStatement",
-  "TypeAliasStatement"
+  NodeKind.ClassStatement,
+  NodeKind.InterfaceStatement,
+  NodeKind.EnumStatement,
+  NodeKind.TypeAliasStatement
 ]);
 
 function isInlineAssetModulePath(filePath: string): boolean {
@@ -75,13 +76,13 @@ async function resolveInlineAssetModulePath(
 }
 
 function declarationName(statement: Statement): string | null {
-  if (statement.kind === "VarStatement") {
+  if (statement.kind === NodeKind.VarStatement) {
     const varStatement = statement as VarStatement;
     if (varStatement.receiverType) {
       return bindingIdentifiers(varStatement.name)[0]?.name ?? null;
     }
   }
-  if (statement.kind === "FunctionStatement") {
+  if (statement.kind === NodeKind.FunctionStatement) {
     const functionStatement = statement as FunctionStatement;
     if (functionStatement.receiverType && functionStatement.operator) {
       return functionStatement.name.name;
@@ -91,20 +92,20 @@ function declarationName(statement: Statement): string | null {
   if (!candidate) {
     return null;
   }
-  if (candidate.kind === "VarStatement") {
+  if (candidate.kind === NodeKind.VarStatement) {
     const varStatement = candidate as VarStatement;
     if (varStatement.receiverType) {
       return bindingIdentifiers(varStatement.name)[0]?.name ?? null;
     }
   }
-  if (candidate.kind === "FunctionStatement") {
+  if (candidate.kind === NodeKind.FunctionStatement) {
     const functionStatement = candidate as FunctionStatement;
     if (functionStatement.receiverType && functionStatement.operator) {
       return functionStatement.name.name;
     }
   }
-  const named = candidate as { name?: { kind?: string; name?: string } };
-  if (named.name && named.name.kind === "Identifier") {
+  const named = candidate as { name?: Identifier };
+  if (named.name && named.name.kind === NodeKind.Identifier) {
     return (named.name as Identifier).name;
   }
   return null;
@@ -224,7 +225,7 @@ async function localAssetImportSpecifiers(
 ): Promise<{ statement: ImportStatement; targetPath: string }[]> {
   const imports: { statement: ImportStatement; targetPath: string }[] = [];
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     const importStatement = statement as ImportStatement;

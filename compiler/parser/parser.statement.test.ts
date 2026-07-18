@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { Parser, parseExpression, parseFile, parseStatement } from "./parser";
@@ -6,102 +7,102 @@ import type { ClassStatement } from "compiler/ast/ast";
 
 describe("parseStatement", () => {
     it("parses debugger and empty statements", () => {
-        expect(parseStatement(tokenizeReader("debugger"))).toEqual({ kind: "DebuggerStatement" });
-        expect(parseStatement(tokenizeReader(";"))).toEqual({ kind: "EmptyStatement" });
+        expect(parseStatement(tokenizeReader("debugger"))).toEqual({ kind: NodeKind.DebuggerStatement });
+        expect(parseStatement(tokenizeReader(";"))).toEqual({ kind: NodeKind.EmptyStatement });
         expect(parseStatement(tokenizeReader("while (ready);"))).toEqual({
-            kind: "WhileStatement",
-            condition: { kind: "Identifier", name: "ready" },
-            body: { kind: "EmptyStatement" }
+            kind: NodeKind.WhileStatement,
+            condition: { kind: NodeKind.Identifier, name: "ready" },
+            body: { kind: NodeKind.EmptyStatement }
         });
     });
 
     it("parses a let statement", () => {
         expect(parseStatement(tokenizeReader("let myvar = 1 + 2"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "let",
-            name: { kind: "Identifier", name: "myvar" },
+            name: { kind: NodeKind.Identifier, name: "myvar" },
             initializer: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: "+",
-                left: { kind: "IntLiteral", value: 1 },
-                right: { kind: "IntLiteral", value: 2 }
+                left: { kind: NodeKind.IntLiteral, value: 1 },
+                right: { kind: NodeKind.IntLiteral, value: 2 }
             }
         });
     });
 
     it("parses a let statement with optional type and initializer", () => {
         expect(parseStatement(tokenizeReader("let name: Type = value"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "let",
-            name: { kind: "Identifier", name: "name" },
-            typeAnnotation: { kind: "Identifier", name: "Type" },
-            initializer: { kind: "Identifier", name: "value" }
+            name: { kind: NodeKind.Identifier, name: "name" },
+            typeAnnotation: { kind: NodeKind.Identifier, name: "Type" },
+            initializer: { kind: NodeKind.Identifier, name: "value" }
         });
     });
 
     it("parses a let statement with optional type and no initializer", () => {
         expect(parseStatement(tokenizeReader("let name: Type"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "let",
-            name: { kind: "Identifier", name: "name" },
-            typeAnnotation: { kind: "Identifier", name: "Type" }
+            name: { kind: NodeKind.Identifier, name: "name" },
+            typeAnnotation: { kind: NodeKind.Identifier, name: "Type" }
         });
     });
 
     it("parses a let statement with no type and no initializer", () => {
         expect(parseStatement(tokenizeReader("let name"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "let",
-            name: { kind: "Identifier", name: "name" }
+            name: { kind: NodeKind.Identifier, name: "name" }
         });
     });
 
     it("parses var/val/const declarations and stores declaration kind", () => {
         expect(parseStatement(tokenizeReader("var x = 1"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "var",
-            name: { kind: "Identifier", name: "x" },
-            initializer: { kind: "IntLiteral", value: 1 }
+            name: { kind: NodeKind.Identifier, name: "x" },
+            initializer: { kind: NodeKind.IntLiteral, value: 1 }
         });
         expect(parseStatement(tokenizeReader("val y: Num"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "val",
-            name: { kind: "Identifier", name: "y" },
-            typeAnnotation: { kind: "Identifier", name: "Num" }
+            name: { kind: NodeKind.Identifier, name: "y" },
+            typeAnnotation: { kind: NodeKind.Identifier, name: "Num" }
         });
         expect(parseStatement(tokenizeReader("const z"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "const",
-            name: { kind: "Identifier", name: "z" }
+            name: { kind: NodeKind.Identifier, name: "z" }
         });
     });
 
     it("parses multiple variable declarations separated by commas", () => {
         expect(parseStatement(tokenizeReader("val a = 10 * 2, lol = true"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "val",
-            name: { kind: "Identifier", name: "a" },
+            name: { kind: NodeKind.Identifier, name: "a" },
             initializer: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: "*",
-                left: { kind: "IntLiteral", value: 10 },
-                right: { kind: "IntLiteral", value: 2 }
+                left: { kind: NodeKind.IntLiteral, value: 10 },
+                right: { kind: NodeKind.IntLiteral, value: 2 }
             },
             declarations: [
                 {
-                    kind: "VarDeclarator",
-                    name: { kind: "Identifier", name: "a" },
+                    kind: NodeKind.VarDeclarator,
+                    name: { kind: NodeKind.Identifier, name: "a" },
                     initializer: {
-                        kind: "BinaryExpression",
+                        kind: NodeKind.BinaryExpression,
                         operator: "*",
-                        left: { kind: "IntLiteral", value: 10 },
-                        right: { kind: "IntLiteral", value: 2 }
+                        left: { kind: NodeKind.IntLiteral, value: 10 },
+                        right: { kind: NodeKind.IntLiteral, value: 2 }
                     }
                 },
                 {
-                    kind: "VarDeclarator",
-                    name: { kind: "Identifier", name: "lol" },
-                    initializer: { kind: "BooleanLiteral", value: true }
+                    kind: NodeKind.VarDeclarator,
+                    name: { kind: NodeKind.Identifier, name: "lol" },
+                    initializer: { kind: NodeKind.BooleanLiteral, value: true }
                 }
             ]
         });
@@ -109,35 +110,35 @@ describe("parseStatement", () => {
 
     it("parses a block statement with nested statements", () => {
         expect(parseStatement(tokenizeReader("{ let a = 1; { let b = a + 2 }\nlet c = 3 }"))).toEqual({
-            kind: "BlockStatement",
+            kind: NodeKind.BlockStatement,
             body: [
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "a" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "a" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 },
                 {
-                    kind: "BlockStatement",
+                    kind: NodeKind.BlockStatement,
                     body: [
                         {
-                            kind: "VarStatement",
+                            kind: NodeKind.VarStatement,
                             declarationKind: "let",
-                            name: { kind: "Identifier", name: "b" },
+                            name: { kind: NodeKind.Identifier, name: "b" },
                             initializer: {
-                                kind: "BinaryExpression",
+                                kind: NodeKind.BinaryExpression,
                                 operator: "+",
-                                left: { kind: "Identifier", name: "a" },
-                                right: { kind: "IntLiteral", value: 2 }
+                                left: { kind: NodeKind.Identifier, name: "a" },
+                                right: { kind: NodeKind.IntLiteral, value: 2 }
                             }
                         }
                     ]
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "c" },
-                    initializer: { kind: "IntLiteral", value: 3 }
+                    name: { kind: NodeKind.Identifier, name: "c" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 3 }
                 }
             ]
         });
@@ -145,260 +146,260 @@ describe("parseStatement", () => {
 
     it("parses a while statement with single-statement body", () => {
         expect(parseStatement(tokenizeReader("while (a + 1) let b = 2"))).toEqual({
-            kind: "WhileStatement",
+            kind: NodeKind.WhileStatement,
             condition: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: "+",
-                left: { kind: "Identifier", name: "a" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "a" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             },
             body: {
-                kind: "VarStatement",
+                kind: NodeKind.VarStatement,
                 declarationKind: "let",
-                name: { kind: "Identifier", name: "b" },
-                initializer: { kind: "IntLiteral", value: 2 }
+                name: { kind: NodeKind.Identifier, name: "b" },
+                initializer: { kind: NodeKind.IntLiteral, value: 2 }
             }
         });
     });
 
     it("parses a do-while statement with single-statement body", () => {
         expect(parseStatement(tokenizeReader("do let x = 1 while (x + 1)"))).toEqual({
-            kind: "DoWhileStatement",
+            kind: NodeKind.DoWhileStatement,
             body: {
-                kind: "VarStatement",
+                kind: NodeKind.VarStatement,
                 declarationKind: "let",
-                name: { kind: "Identifier", name: "x" },
-                initializer: { kind: "IntLiteral", value: 1 }
+                name: { kind: NodeKind.Identifier, name: "x" },
+                initializer: { kind: NodeKind.IntLiteral, value: 1 }
             },
             condition: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: "+",
-                left: { kind: "Identifier", name: "x" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "x" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             }
         });
     });
 
     it("parses an if statement with single-statement branch", () => {
         expect(parseStatement(tokenizeReader("if (a < 1) let b = 2"))).toEqual({
-            kind: "IfStatement",
+            kind: NodeKind.IfStatement,
             condition: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: "<",
-                left: { kind: "Identifier", name: "a" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "a" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             },
             thenBranch: {
-                kind: "VarStatement",
+                kind: NodeKind.VarStatement,
                 declarationKind: "let",
-                name: { kind: "Identifier", name: "b" },
-                initializer: { kind: "IntLiteral", value: 2 }
+                name: { kind: NodeKind.Identifier, name: "b" },
+                initializer: { kind: NodeKind.IntLiteral, value: 2 }
             }
         });
     });
 
     it("parses an if-else statement", () => {
         expect(parseStatement(tokenizeReader("if (a) return b else return c"))).toEqual({
-            kind: "IfStatement",
-            condition: { kind: "Identifier", name: "a" },
+            kind: NodeKind.IfStatement,
+            condition: { kind: NodeKind.Identifier, name: "a" },
             thenBranch: {
-                kind: "ReturnStatement",
-                expression: { kind: "Identifier", name: "b" }
+                kind: NodeKind.ReturnStatement,
+                expression: { kind: NodeKind.Identifier, name: "b" }
             },
             elseBranch: {
-                kind: "ReturnStatement",
-                expression: { kind: "Identifier", name: "c" }
+                kind: NodeKind.ReturnStatement,
+                expression: { kind: NodeKind.Identifier, name: "c" }
             }
         });
     });
 
     it("parses a for statement with declaration initializer", () => {
         expect(parseStatement(tokenizeReader("for (let i = 0; i < 10; i += 1) let value = i"))).toEqual({
-            kind: "ForStatement",
+            kind: NodeKind.ForStatement,
             initializer: {
-                kind: "VarStatement",
+                kind: NodeKind.VarStatement,
                 declarationKind: "let",
-                name: { kind: "Identifier", name: "i" },
-                initializer: { kind: "IntLiteral", value: 0 }
+                name: { kind: NodeKind.Identifier, name: "i" },
+                initializer: { kind: NodeKind.IntLiteral, value: 0 }
             },
             condition: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: "<",
-                left: { kind: "Identifier", name: "i" },
-                right: { kind: "IntLiteral", value: 10 }
+                left: { kind: NodeKind.Identifier, name: "i" },
+                right: { kind: NodeKind.IntLiteral, value: 10 }
             },
             update: {
-                kind: "AssignmentExpression",
+                kind: NodeKind.AssignmentExpression,
                 operator: "+=",
-                left: { kind: "Identifier", name: "i" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "i" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             },
             body: {
-                kind: "VarStatement",
+                kind: NodeKind.VarStatement,
                 declarationKind: "let",
-                name: { kind: "Identifier", name: "value" },
-                initializer: { kind: "Identifier", name: "i" }
+                name: { kind: NodeKind.Identifier, name: "value" },
+                initializer: { kind: NodeKind.Identifier, name: "i" }
             }
         });
     });
 
     it("parses for statement clauses as optional", () => {
         expect(parseStatement(tokenizeReader("for (;; ) break"))).toEqual({
-            kind: "ForStatement",
+            kind: NodeKind.ForStatement,
             body: {
-                kind: "BreakStatement"
+                kind: NodeKind.BreakStatement
             }
         });
     });
 
     it("supports val declaration in for initializer in vexa mode", () => {
         expect(parseStatement(tokenizeReader("for (val i = 0; i < 1; i += 1) break"), { language: "vexa" })).toEqual({
-            kind: "ForStatement",
+            kind: NodeKind.ForStatement,
             initializer: {
-                kind: "VarStatement",
+                kind: NodeKind.VarStatement,
                 declarationKind: "val",
-                name: { kind: "Identifier", name: "i" },
-                initializer: { kind: "IntLiteral", value: 0 }
+                name: { kind: NodeKind.Identifier, name: "i" },
+                initializer: { kind: NodeKind.IntLiteral, value: 0 }
             },
             condition: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: "<",
-                left: { kind: "Identifier", name: "i" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "i" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             },
             update: {
-                kind: "AssignmentExpression",
+                kind: NodeKind.AssignmentExpression,
                 operator: "+=",
-                left: { kind: "Identifier", name: "i" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "i" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             },
             body: {
-                kind: "BreakStatement"
+                kind: NodeKind.BreakStatement
             }
         });
     });
 
     it("treats 'val' as identifier in for initializer in typescript mode", () => {
         expect(parseStatement(tokenizeReader("for (val = 0; val < 1; val += 1) break"), { language: "typescript" })).toEqual({
-            kind: "ForStatement",
+            kind: NodeKind.ForStatement,
             initializer: {
-                kind: "AssignmentExpression",
+                kind: NodeKind.AssignmentExpression,
                 operator: "=",
-                left: { kind: "Identifier", name: "val" },
-                right: { kind: "IntLiteral", value: 0 }
+                left: { kind: NodeKind.Identifier, name: "val" },
+                right: { kind: NodeKind.IntLiteral, value: 0 }
             },
             condition: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: "<",
-                left: { kind: "Identifier", name: "val" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "val" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             },
             update: {
-                kind: "AssignmentExpression",
+                kind: NodeKind.AssignmentExpression,
                 operator: "+=",
-                left: { kind: "Identifier", name: "val" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "val" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             },
             body: {
-                kind: "BreakStatement"
+                kind: NodeKind.BreakStatement
             }
         });
     });
 
     it("parses TypeScript for-of with declaration iterator", () => {
         expect(parseStatement(tokenizeReader("for (const value of iterable) break"), { language: "typescript" })).toEqual({
-            kind: "ForStatement",
+            kind: NodeKind.ForStatement,
             iterationKind: "of",
             iterator: {
-                kind: "VarStatement",
+                kind: NodeKind.VarStatement,
                 declarationKind: "const",
-                name: { kind: "Identifier", name: "value" }
+                name: { kind: NodeKind.Identifier, name: "value" }
             },
-            iterable: { kind: "Identifier", name: "iterable" },
+            iterable: { kind: NodeKind.Identifier, name: "iterable" },
             body: {
-                kind: "BreakStatement"
+                kind: NodeKind.BreakStatement
             }
         });
     });
 
     it("parses TypeScript for-in with declaration iterator", () => {
         expect(parseStatement(tokenizeReader("for (let value in iterable) break"), { language: "typescript" })).toEqual({
-            kind: "ForStatement",
+            kind: NodeKind.ForStatement,
             iterationKind: "in",
             iterator: {
-                kind: "VarStatement",
+                kind: NodeKind.VarStatement,
                 declarationKind: "let",
-                name: { kind: "Identifier", name: "value" }
+                name: { kind: NodeKind.Identifier, name: "value" }
             },
-            iterable: { kind: "Identifier", name: "iterable" },
+            iterable: { kind: NodeKind.Identifier, name: "iterable" },
             body: {
-                kind: "BreakStatement"
+                kind: NodeKind.BreakStatement
             }
         });
     });
 
     it("parses TypeScript for-in without a declaration keyword", () => {
         expect(parseStatement(tokenizeReader("for (value in iterable) break"), { language: "typescript" })).toEqual({
-            kind: "ForStatement",
+            kind: NodeKind.ForStatement,
             iterationKind: "in",
-            iterator: { kind: "Identifier", name: "value" },
-            iterable: { kind: "Identifier", name: "iterable" },
+            iterator: { kind: NodeKind.Identifier, name: "value" },
+            iterable: { kind: NodeKind.Identifier, name: "iterable" },
             body: {
-                kind: "BreakStatement"
+                kind: NodeKind.BreakStatement
             }
         });
     });
 
     it("parses VexaScript for-in without declaration keyword", () => {
         expect(parseStatement(tokenizeReader("for (value in iterable) break"), { language: "vexa" })).toEqual({
-            kind: "ForStatement",
+            kind: NodeKind.ForStatement,
             iterationKind: "in",
-            iterator: { kind: "Identifier", name: "value" },
-            iterable: { kind: "Identifier", name: "iterable" },
+            iterator: { kind: NodeKind.Identifier, name: "value" },
+            iterable: { kind: NodeKind.Identifier, name: "iterable" },
             body: {
-                kind: "BreakStatement"
+                kind: NodeKind.BreakStatement
             }
         });
     });
 
     it("parses VexaScript for-of without declaration keyword", () => {
         expect(parseStatement(tokenizeReader("for (value of 0 ... 10) break"), { language: "vexa" })).toEqual({
-            kind: "ForStatement",
+            kind: NodeKind.ForStatement,
             iterationKind: "of",
-            iterator: { kind: "Identifier", name: "value" },
+            iterator: { kind: NodeKind.Identifier, name: "value" },
             iterable: {
-                kind: "RangeExpression",
-                start: { kind: "IntLiteral", value: 0 },
-                end: { kind: "IntLiteral", value: 10 },
+                kind: NodeKind.RangeExpression,
+                start: { kind: NodeKind.IntLiteral, value: 0 },
+                end: { kind: NodeKind.IntLiteral, value: 10 },
                 exclusive: false
             },
             body: {
-                kind: "BreakStatement"
+                kind: NodeKind.BreakStatement
             }
         });
     });
 
     it("parses a switch statement with case and default", () => {
         expect(parseStatement(tokenizeReader("switch (value) { case 1: return 1; default: return 0 }"))).toEqual({
-            kind: "SwitchStatement",
-            discriminant: { kind: "Identifier", name: "value" },
+            kind: NodeKind.SwitchStatement,
+            discriminant: { kind: NodeKind.Identifier, name: "value" },
             cases: [
                 {
-                    kind: "SwitchCase",
-                    test: { kind: "IntLiteral", value: 1 },
+                    kind: NodeKind.SwitchCase,
+                    test: { kind: NodeKind.IntLiteral, value: 1 },
                     consequent: [
                         {
-                            kind: "ReturnStatement",
-                            expression: { kind: "IntLiteral", value: 1 }
+                            kind: NodeKind.ReturnStatement,
+                            expression: { kind: NodeKind.IntLiteral, value: 1 }
                         }
                     ]
                 },
                 {
-                    kind: "SwitchCase",
+                    kind: NodeKind.SwitchCase,
                     consequent: [
                         {
-                            kind: "ReturnStatement",
-                            expression: { kind: "IntLiteral", value: 0 }
+                            kind: NodeKind.ReturnStatement,
+                            expression: { kind: NodeKind.IntLiteral, value: 0 }
                         }
                     ]
                 }
@@ -408,14 +409,14 @@ describe("parseStatement", () => {
 
     it("parses switch default-only in typescript mode", () => {
         expect(parseStatement(tokenizeReader("switch (value) { default: break }"), { language: "typescript" })).toEqual({
-            kind: "SwitchStatement",
-            discriminant: { kind: "Identifier", name: "value" },
+            kind: NodeKind.SwitchStatement,
+            discriminant: { kind: NodeKind.Identifier, name: "value" },
             cases: [
                 {
-                    kind: "SwitchCase",
+                    kind: NodeKind.SwitchCase,
                     consequent: [
                         {
-                            kind: "BreakStatement"
+                            kind: NodeKind.BreakStatement
                         }
                     ]
                 }
@@ -425,20 +426,20 @@ describe("parseStatement", () => {
 
     it("parses an expression statement", () => {
         expect(parseStatement(tokenizeReader("a + 1"))).toEqual({
-            kind: "ExprStatement",
+            kind: NodeKind.ExprStatement,
             expression: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: "+",
-                left: { kind: "Identifier", name: "a" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "a" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             }
         });
         expect(parseStatement(tokenizeReader("a++"))).toEqual({
-            kind: "ExprStatement",
+            kind: NodeKind.ExprStatement,
             expression: {
-                kind: "UpdateExpression",
+                kind: NodeKind.UpdateExpression,
                 operator: "++",
-                argument: { kind: "Identifier", name: "a" },
+                argument: { kind: NodeKind.Identifier, name: "a" },
                 prefix: false
             }
         });
@@ -446,35 +447,35 @@ describe("parseStatement", () => {
 
     it("parses a function statement with optional parameter and return types (fun)", () => {
         expect(parseStatement(tokenizeReader("fun demo(a, b, c: optType): optType { return a + b }"))).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "fun",
-            name: { kind: "Identifier", name: "demo" },
+            name: { kind: NodeKind.Identifier, name: "demo" },
             parameters: [
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "a" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "a" }
                 },
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "b" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "b" }
                 },
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "c" },
-                    typeAnnotation: { kind: "Identifier", name: "optType" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "c" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "optType" }
                 }
             ],
-            returnType: { kind: "Identifier", name: "optType" },
+            returnType: { kind: NodeKind.Identifier, name: "optType" },
             body: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ReturnStatement",
+                        kind: NodeKind.ReturnStatement,
                         expression: {
-                            kind: "BinaryExpression",
+                            kind: NodeKind.BinaryExpression,
                             operator: "+",
-                            left: { kind: "Identifier", name: "a" },
-                            right: { kind: "Identifier", name: "b" }
+                            left: { kind: NodeKind.Identifier, name: "a" },
+                            right: { kind: NodeKind.Identifier, name: "b" }
                         }
                     }
                 ]
@@ -484,105 +485,105 @@ describe("parseStatement", () => {
 
     it("parses an extension operator function statement", () => {
         expect(parseStatement(tokenizeReader("fun Point.operator+(other: Point): Point { return other }"))).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "fun",
-            receiverType: { kind: "Identifier", name: "Point" },
-            name: { kind: "Identifier", name: "operator+" },
+            receiverType: { kind: NodeKind.Identifier, name: "Point" },
+            name: { kind: NodeKind.Identifier, name: "operator+" },
             operator: "+",
             parameters: [
-                { kind: "FunctionParameter", name: { kind: "Identifier", name: "other" }, typeAnnotation: { kind: "Identifier", name: "Point" } }
+                { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "other" }, typeAnnotation: { kind: NodeKind.Identifier, name: "Point" } }
             ],
-            returnType: { kind: "Identifier", name: "Point" },
-            body: { kind: "BlockStatement", body: [{ kind: "ReturnStatement", expression: { kind: "Identifier", name: "other" } }] }
+            returnType: { kind: NodeKind.Identifier, name: "Point" },
+            body: { kind: NodeKind.BlockStatement, body: [{ kind: NodeKind.ReturnStatement, expression: { kind: NodeKind.Identifier, name: "other" } }] }
         });
     });
 
     it("parses extension index operator function statements", () => {
         expect(parseStatement(tokenizeReader("fun Bag.operator[](index: int): string { return \"item\" }"))).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "fun",
-            receiverType: { kind: "Identifier", name: "Bag" },
-            name: { kind: "Identifier", name: "operator[]" },
+            receiverType: { kind: NodeKind.Identifier, name: "Bag" },
+            name: { kind: NodeKind.Identifier, name: "operator[]" },
             operator: "[]",
             parameters: [
-                { kind: "FunctionParameter", name: { kind: "Identifier", name: "index" }, typeAnnotation: { kind: "Identifier", name: "int" } }
+                { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "index" }, typeAnnotation: { kind: NodeKind.Identifier, name: "int" } }
             ],
-            returnType: { kind: "Identifier", name: "string" }
+            returnType: { kind: NodeKind.Identifier, name: "string" }
         });
         expect(parseStatement(tokenizeReader("fun Bag.operator[]=(value: string, index: int): void { }"))).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "fun",
-            receiverType: { kind: "Identifier", name: "Bag" },
-            name: { kind: "Identifier", name: "operator[]=" },
+            receiverType: { kind: NodeKind.Identifier, name: "Bag" },
+            name: { kind: NodeKind.Identifier, name: "operator[]=" },
             operator: "[]=",
             parameters: [
-                { kind: "FunctionParameter", name: { kind: "Identifier", name: "value" }, typeAnnotation: { kind: "Identifier", name: "string" } },
-                { kind: "FunctionParameter", name: { kind: "Identifier", name: "index" }, typeAnnotation: { kind: "Identifier", name: "int" } }
+                { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "value" }, typeAnnotation: { kind: NodeKind.Identifier, name: "string" } },
+                { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "index" }, typeAnnotation: { kind: NodeKind.Identifier, name: "int" } }
             ],
-            returnType: { kind: "Identifier", name: "void" }
+            returnType: { kind: NodeKind.Identifier, name: "void" }
         });
     });
 
     it("parses a generic extension method on a generic receiver", () => {
         expect(parseStatement(tokenizeReader("fun <T> Array<T>.demo(): int { return length }"))).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "fun",
-            name: { kind: "Identifier", name: "demo" },
-            receiverType: { kind: "Identifier", name: "Array" },
-            receiverTypeArguments: [{ kind: "Identifier", name: "T" }],
+            name: { kind: NodeKind.Identifier, name: "demo" },
+            receiverType: { kind: NodeKind.Identifier, name: "Array" },
+            receiverTypeArguments: [{ kind: NodeKind.Identifier, name: "T" }],
             typeParameters: [
-                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }
             ],
             parameters: [],
-            returnType: { kind: "Identifier", name: "int" },
+            returnType: { kind: NodeKind.Identifier, name: "int" },
             body: {
-                kind: "BlockStatement",
-                body: [{ kind: "ReturnStatement", expression: { kind: "Identifier", name: "length" } }]
+                kind: NodeKind.BlockStatement,
+                body: [{ kind: NodeKind.ReturnStatement, expression: { kind: NodeKind.Identifier, name: "length" } }]
             }
         });
     });
 
     it("parses a generic extension property on a generic receiver", () => {
         expect(parseStatement(tokenizeReader("val <T> Array<T>.doubledLength => length * 2"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "val",
-            receiverType: { kind: "Identifier", name: "Array" },
-            receiverTypeArguments: [{ kind: "Identifier", name: "T" }],
+            receiverType: { kind: NodeKind.Identifier, name: "Array" },
+            receiverTypeArguments: [{ kind: NodeKind.Identifier, name: "T" }],
             typeParameters: [
-                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }
             ],
-            name: { kind: "Identifier", name: "doubledLength" },
+            name: { kind: NodeKind.Identifier, name: "doubledLength" },
             initializer: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: "*",
-                left: { kind: "Identifier", name: "length" },
-                right: { kind: "IntLiteral", value: 2 }
+                left: { kind: NodeKind.Identifier, name: "length" },
+                right: { kind: NodeKind.IntLiteral, value: 2 }
             }
         });
     });
 
     it("parses a generic function statement", () => {
         expect(parseStatement(tokenizeReader("fun identity<T>(value: T): T { return value }"))).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "fun",
-            name: { kind: "Identifier", name: "identity" },
+            name: { kind: NodeKind.Identifier, name: "identity" },
             typeParameters: [
-                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }
             ],
             parameters: [
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "value" },
-                    typeAnnotation: { kind: "Identifier", name: "T" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "value" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "T" }
                 }
             ],
-            returnType: { kind: "Identifier", name: "T" },
+            returnType: { kind: NodeKind.Identifier, name: "T" },
             body: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ReturnStatement",
-                        expression: { kind: "Identifier", name: "value" }
+                        kind: NodeKind.ReturnStatement,
+                        expression: { kind: NodeKind.Identifier, name: "value" }
                     }
                 ]
             }
@@ -591,31 +592,31 @@ describe("parseStatement", () => {
 
     it("parses a function statement using function keyword", () => {
         expect(parseStatement(tokenizeReader("function demo(a, b, c: optType): optType { return c }"))).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "function",
-            name: { kind: "Identifier", name: "demo" },
+            name: { kind: NodeKind.Identifier, name: "demo" },
             parameters: [
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "a" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "a" }
                 },
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "b" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "b" }
                 },
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "c" },
-                    typeAnnotation: { kind: "Identifier", name: "optType" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "c" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "optType" }
                 }
             ],
-            returnType: { kind: "Identifier", name: "optType" },
+            returnType: { kind: NodeKind.Identifier, name: "optType" },
             body: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ReturnStatement",
-                        expression: { kind: "Identifier", name: "c" }
+                        kind: NodeKind.ReturnStatement,
+                        expression: { kind: NodeKind.Identifier, name: "c" }
                     }
                 ]
             }
@@ -624,36 +625,36 @@ describe("parseStatement", () => {
 
     it("parses function parameters with optional marker and default value", () => {
         expect(parseStatement(tokenizeReader("fun test(a, v, c?, d: Int = demo) { return d }"))).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "fun",
-            name: { kind: "Identifier", name: "test" },
+            name: { kind: NodeKind.Identifier, name: "test" },
             parameters: [
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "a" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "a" }
                 },
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "v" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "v" }
                 },
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "c" },
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "c" },
                     optional: true
                 },
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "d" },
-                    typeAnnotation: { kind: "Identifier", name: "Int" },
-                    defaultValue: { kind: "Identifier", name: "demo" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "d" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "Int" },
+                    defaultValue: { kind: NodeKind.Identifier, name: "demo" }
                 }
             ],
             body: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ReturnStatement",
-                        expression: { kind: "Identifier", name: "d" }
+                        kind: NodeKind.ReturnStatement,
+                        expression: { kind: NodeKind.Identifier, name: "d" }
                     }
                 ]
             }
@@ -662,27 +663,27 @@ describe("parseStatement", () => {
 
     it("parses function shorthand bodies with =>", () => {
         expect(parseStatement(tokenizeReader("fun demo(value: int): int => value + 1"))).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "fun",
-            name: { kind: "Identifier", name: "demo" },
+            name: { kind: NodeKind.Identifier, name: "demo" },
             parameters: [
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "value" },
-                    typeAnnotation: { kind: "Identifier", name: "int" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "value" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "int" }
                 }
             ],
-            returnType: { kind: "Identifier", name: "int" },
+            returnType: { kind: NodeKind.Identifier, name: "int" },
             body: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ReturnStatement",
+                        kind: NodeKind.ReturnStatement,
                         expression: {
-                            kind: "BinaryExpression",
+                            kind: NodeKind.BinaryExpression,
                             operator: "+",
-                            left: { kind: "Identifier", name: "value" },
-                            right: { kind: "IntLiteral", value: 1 }
+                            left: { kind: NodeKind.Identifier, name: "value" },
+                            right: { kind: NodeKind.IntLiteral, value: 1 }
                         }
                     }
                 ]
@@ -692,55 +693,55 @@ describe("parseStatement", () => {
 
     it("parses return/throw/continue/break statements", () => {
         expect(parseStatement(tokenizeReader("return value"))).toEqual({
-            kind: "ReturnStatement",
-            expression: { kind: "Identifier", name: "value" }
+            kind: NodeKind.ReturnStatement,
+            expression: { kind: NodeKind.Identifier, name: "value" }
         });
         expect(parseStatement(tokenizeReader("return"))).toEqual({
-            kind: "ReturnStatement"
+            kind: NodeKind.ReturnStatement
         });
         expect(parseStatement(tokenizeReader("throw value"))).toEqual({
-            kind: "ThrowStatement",
-            expression: { kind: "Identifier", name: "value" }
+            kind: NodeKind.ThrowStatement,
+            expression: { kind: NodeKind.Identifier, name: "value" }
         });
         expect(parseStatement(tokenizeReader("continue"))).toEqual({
-            kind: "ContinueStatement"
+            kind: NodeKind.ContinueStatement
         });
         expect(parseStatement(tokenizeReader("break"))).toEqual({
-            kind: "BreakStatement"
+            kind: NodeKind.BreakStatement
         });
     });
 
     it("parses try/catch/finally statements", () => {
         expect(parseStatement(tokenizeReader("try { return a } catch (e) { throw e } finally { return b }"))).toEqual({
-            kind: "TryStatement",
+            kind: NodeKind.TryStatement,
             tryBlock: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ReturnStatement",
-                        expression: { kind: "Identifier", name: "a" }
+                        kind: NodeKind.ReturnStatement,
+                        expression: { kind: NodeKind.Identifier, name: "a" }
                     }
                 ]
             },
             catchClause: {
-                kind: "CatchClause",
-                parameter: { kind: "Identifier", name: "e" },
+                kind: NodeKind.CatchClause,
+                parameter: { kind: NodeKind.Identifier, name: "e" },
                 body: {
-                    kind: "BlockStatement",
+                    kind: NodeKind.BlockStatement,
                     body: [
                         {
-                            kind: "ThrowStatement",
-                            expression: { kind: "Identifier", name: "e" }
+                            kind: NodeKind.ThrowStatement,
+                            expression: { kind: NodeKind.Identifier, name: "e" }
                         }
                     ]
                 }
             },
             finallyBlock: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ReturnStatement",
-                        expression: { kind: "Identifier", name: "b" }
+                        kind: NodeKind.ReturnStatement,
+                        expression: { kind: NodeKind.Identifier, name: "b" }
                     }
                 ]
             }
@@ -749,46 +750,46 @@ describe("parseStatement", () => {
 
     it("parses try/finally and catch without parameter", () => {
         expect(parseStatement(tokenizeReader("try { return 1 } finally { return 2 }"))).toEqual({
-            kind: "TryStatement",
+            kind: NodeKind.TryStatement,
             tryBlock: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ReturnStatement",
-                        expression: { kind: "IntLiteral", value: 1 }
+                        kind: NodeKind.ReturnStatement,
+                        expression: { kind: NodeKind.IntLiteral, value: 1 }
                     }
                 ]
             },
             finallyBlock: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ReturnStatement",
-                        expression: { kind: "IntLiteral", value: 2 }
+                        kind: NodeKind.ReturnStatement,
+                        expression: { kind: NodeKind.IntLiteral, value: 2 }
                     }
                 ]
             }
         });
 
         expect(parseStatement(tokenizeReader("try { return 1 } catch { return 2 }"))).toEqual({
-            kind: "TryStatement",
+            kind: NodeKind.TryStatement,
             tryBlock: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ReturnStatement",
-                        expression: { kind: "IntLiteral", value: 1 }
+                        kind: NodeKind.ReturnStatement,
+                        expression: { kind: NodeKind.IntLiteral, value: 1 }
                     }
                 ]
             },
             catchClause: {
-                kind: "CatchClause",
+                kind: NodeKind.CatchClause,
                 body: {
-                    kind: "BlockStatement",
+                    kind: NodeKind.BlockStatement,
                     body: [
                         {
-                            kind: "ReturnStatement",
-                            expression: { kind: "IntLiteral", value: 2 }
+                            kind: NodeKind.ReturnStatement,
+                            expression: { kind: NodeKind.IntLiteral, value: 2 }
                         }
                     ]
                 }
@@ -798,16 +799,16 @@ describe("parseStatement", () => {
 
     it("parses defer statements", () => {
         expect(parseStatement(tokenizeReader("defer file.close()"))).toEqual({
-            kind: "DeferStatement",
+            kind: NodeKind.DeferStatement,
             expression: {
-                kind: "CallExpression",
+                kind: NodeKind.CallExpression,
                 callee: {
-                    kind: "MemberExpression",
-                    object: { kind: "Identifier", name: "file" },
+                    kind: NodeKind.MemberExpression,
+                    object: { kind: NodeKind.Identifier, name: "file" },
                     computed: false,
-                    property: { kind: "Identifier", name: "close" },
+                    property: { kind: NodeKind.Identifier, name: "close" },
                 },
-                arguments: []
+                args: []
             }
         });
     });
@@ -818,25 +819,25 @@ describe("parseStatement", () => {
                 tokenizeReader("class Demo {\na = 10\n\nconstructor() {\n}\n\ndemo() {\n}\n}")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Demo" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Demo" },
             members: [
                 {
-                    kind: "ClassFieldMember",
-                    name: { kind: "Identifier", name: "a" },
-                    initializer: { kind: "IntLiteral", value: 10 }
+                    kind: NodeKind.ClassFieldMember,
+                    name: { kind: NodeKind.Identifier, name: "a" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 10 }
                 },
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "constructor" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "constructor" },
                     parameters: [],
-                    body: { kind: "BlockStatement", body: [] }
+                    body: { kind: NodeKind.BlockStatement, body: [] }
                 },
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "demo" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "demo" },
                     parameters: [],
-                    body: { kind: "BlockStatement", body: [] }
+                    body: { kind: NodeKind.BlockStatement, body: [] }
                 }
             ]
         });
@@ -849,32 +850,32 @@ describe("parseStatement", () => {
                 { language: "typescript" }
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Stream" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Stream" },
             members: [
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     async: true,
                     generator: true,
                     computed: true,
                     computedKey: {
-                        kind: "MemberExpression",
-                        object: { kind: "Identifier", name: "Symbol" },
-                        property: { kind: "Identifier", name: "asyncIterator" },
+                        kind: NodeKind.MemberExpression,
+                        object: { kind: NodeKind.Identifier, name: "Symbol" },
+                        property: { kind: NodeKind.Identifier, name: "asyncIterator" },
                         computed: false
                     },
-                    name: { kind: "Identifier", name: "[Symbol.asyncIterator]" },
+                    name: { kind: NodeKind.Identifier, name: "[Symbol.asyncIterator]" },
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "AsyncGenerator<int>" },
+                    returnType: { kind: NodeKind.Identifier, name: "AsyncGenerator<int>" },
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "ExprStatement",
+                                kind: NodeKind.ExprStatement,
                                 expression: {
-                                    kind: "UnaryExpression",
+                                    kind: NodeKind.UnaryExpression,
                                     operator: "yield",
-                                    argument: { kind: "IntLiteral", value: 1 }
+                                    argument: { kind: NodeKind.IntLiteral, value: 1 }
                                 }
                             }
                         ]
@@ -886,20 +887,20 @@ describe("parseStatement", () => {
 
     it("parses optional type suffixes on class method return types before bodies", () => {
         expect(parseStatement(tokenizeReader("class ViewNode {\nfun findNodeByName(name: string): ViewNode? { return undefined }\n}"))).toMatchObject({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "ViewNode" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "ViewNode" },
             members: [
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "findNodeByName" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "findNodeByName" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "name" },
-                            typeAnnotation: { kind: "Identifier", name: "string" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "name" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
                         }
                     ],
-                    returnType: { kind: "Identifier", name: "ViewNode?" }
+                    returnType: { kind: NodeKind.Identifier, name: "ViewNode?" }
                 }
             ]
         });
@@ -911,45 +912,45 @@ describe("parseStatement", () => {
                 tokenizeReader("class Demo {\nval id: string\nvar count = 0\nasync fun save(): void { }\nfun operator+(other: Demo): Demo { }\n}")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Demo" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Demo" },
             members: [
                 {
-                    kind: "ClassFieldMember",
+                    kind: NodeKind.ClassFieldMember,
                     declarationKind: "val",
-                    readonly: true,
-                    name: { kind: "Identifier", name: "id" },
-                    typeAnnotation: { kind: "Identifier", name: "string" }
+                    isReadonly: true,
+                    name: { kind: NodeKind.Identifier, name: "id" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
                 },
                 {
-                    kind: "ClassFieldMember",
+                    kind: NodeKind.ClassFieldMember,
                     declarationKind: "var",
-                    name: { kind: "Identifier", name: "count" },
-                    initializer: { kind: "IntLiteral", value: 0 }
+                    name: { kind: NodeKind.Identifier, name: "count" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 0 }
                 },
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     declarationKind: "fun",
                     async: true,
-                    name: { kind: "Identifier", name: "save" },
+                    name: { kind: NodeKind.Identifier, name: "save" },
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "void" },
-                    body: { kind: "BlockStatement", body: [] }
+                    returnType: { kind: NodeKind.Identifier, name: "void" },
+                    body: { kind: NodeKind.BlockStatement, body: [] }
                 },
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     declarationKind: "fun",
-                    name: { kind: "Identifier", name: "operator+" },
+                    name: { kind: NodeKind.Identifier, name: "operator+" },
                     operator: "+",
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "other" },
-                            typeAnnotation: { kind: "Identifier", name: "Demo" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "other" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "Demo" }
                         }
                     ],
-                    returnType: { kind: "Identifier", name: "Demo" },
-                    body: { kind: "BlockStatement", body: [] }
+                    returnType: { kind: NodeKind.Identifier, name: "Demo" },
+                    body: { kind: NodeKind.BlockStatement, body: [] }
                 }
             ]
         });
@@ -961,49 +962,49 @@ describe("parseStatement", () => {
                 tokenizeReader("class Point { operator*(other: Point): Point => Point(x * other.x, y * other.y) }")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Point" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Point" },
             members: [
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "operator*" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "operator*" },
                     operator: "*",
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "other" },
-                            typeAnnotation: { kind: "Identifier", name: "Point" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "other" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "Point" }
                         }
                     ],
-                    returnType: { kind: "Identifier", name: "Point" },
+                    returnType: { kind: NodeKind.Identifier, name: "Point" },
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "ReturnStatement",
+                                kind: NodeKind.ReturnStatement,
                                 expression: {
-                                    kind: "CallExpression",
-                                    callee: { kind: "Identifier", name: "Point" },
-                                    arguments: [
+                                    kind: NodeKind.CallExpression,
+                                    callee: { kind: NodeKind.Identifier, name: "Point" },
+                                    args: [
                                         {
-                                            kind: "BinaryExpression",
+                                            kind: NodeKind.BinaryExpression,
                                             operator: "*",
-                                            left: { kind: "Identifier", name: "x" },
+                                            left: { kind: NodeKind.Identifier, name: "x" },
                                             right: {
-                                                kind: "MemberExpression",
-                                                object: { kind: "Identifier", name: "other" },
-                                                property: { kind: "Identifier", name: "x" },
+                                                kind: NodeKind.MemberExpression,
+                                                object: { kind: NodeKind.Identifier, name: "other" },
+                                                property: { kind: NodeKind.Identifier, name: "x" },
                                                 computed: false
                                             }
                                         },
                                         {
-                                            kind: "BinaryExpression",
+                                            kind: NodeKind.BinaryExpression,
                                             operator: "*",
-                                            left: { kind: "Identifier", name: "y" },
+                                            left: { kind: NodeKind.Identifier, name: "y" },
                                             right: {
-                                                kind: "MemberExpression",
-                                                object: { kind: "Identifier", name: "other" },
-                                                property: { kind: "Identifier", name: "y" },
+                                                kind: NodeKind.MemberExpression,
+                                                object: { kind: NodeKind.Identifier, name: "other" },
+                                                property: { kind: NodeKind.Identifier, name: "y" },
                                                 computed: false
                                             }
                                         }
@@ -1023,29 +1024,29 @@ describe("parseStatement", () => {
                 tokenizeReader("class Bag {\noperator[](x: int, y: int): string => \"item\"\noperator[]=(value: string, x: int, y: int): void { }\n}")
             )
         ).toMatchObject({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Bag" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Bag" },
             members: [
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "operator[]" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "operator[]" },
                     operator: "[]",
                     parameters: [
-                        { kind: "FunctionParameter", name: { kind: "Identifier", name: "x" }, typeAnnotation: { kind: "Identifier", name: "int" } },
-                        { kind: "FunctionParameter", name: { kind: "Identifier", name: "y" }, typeAnnotation: { kind: "Identifier", name: "int" } }
+                        { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "x" }, typeAnnotation: { kind: NodeKind.Identifier, name: "int" } },
+                        { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "y" }, typeAnnotation: { kind: NodeKind.Identifier, name: "int" } }
                     ],
-                    returnType: { kind: "Identifier", name: "string" }
+                    returnType: { kind: NodeKind.Identifier, name: "string" }
                 },
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "operator[]=" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "operator[]=" },
                     operator: "[]=",
                     parameters: [
-                        { kind: "FunctionParameter", name: { kind: "Identifier", name: "value" }, typeAnnotation: { kind: "Identifier", name: "string" } },
-                        { kind: "FunctionParameter", name: { kind: "Identifier", name: "x" }, typeAnnotation: { kind: "Identifier", name: "int" } },
-                        { kind: "FunctionParameter", name: { kind: "Identifier", name: "y" }, typeAnnotation: { kind: "Identifier", name: "int" } }
+                        { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "value" }, typeAnnotation: { kind: NodeKind.Identifier, name: "string" } },
+                        { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "x" }, typeAnnotation: { kind: NodeKind.Identifier, name: "int" } },
+                        { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "y" }, typeAnnotation: { kind: NodeKind.Identifier, name: "int" } }
                     ],
-                    returnType: { kind: "Identifier", name: "void" }
+                    returnType: { kind: NodeKind.Identifier, name: "void" }
                 }
             ]
         });
@@ -1057,24 +1058,24 @@ describe("parseStatement", () => {
                 tokenizeReader("class Box {\nget value(): string { return this.raw }\nset value(next: string) { this.raw = next }\n}")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Box" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Box" },
             members: [
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessorKind: "get",
-                    name: { kind: "Identifier", name: "value" },
+                    name: { kind: NodeKind.Identifier, name: "value" },
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "string" },
+                    returnType: { kind: NodeKind.Identifier, name: "string" },
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "ReturnStatement",
+                                kind: NodeKind.ReturnStatement,
                                 expression: {
-                                    kind: "MemberExpression",
-                                    object: { kind: "Identifier", name: "this" },
-                                    property: { kind: "Identifier", name: "raw" },
+                                    kind: NodeKind.MemberExpression,
+                                    object: { kind: NodeKind.Identifier, name: "this" },
+                                    property: { kind: NodeKind.Identifier, name: "raw" },
                                     computed: false
                                 }
                             }
@@ -1082,31 +1083,31 @@ describe("parseStatement", () => {
                     }
                 },
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessorKind: "set",
-                    name: { kind: "Identifier", name: "value" },
+                    name: { kind: NodeKind.Identifier, name: "value" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "next" },
-                            typeAnnotation: { kind: "Identifier", name: "string" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "next" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
                         }
                     ],
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "ExprStatement",
+                                kind: NodeKind.ExprStatement,
                                 expression: {
-                                    kind: "AssignmentExpression",
+                                    kind: NodeKind.AssignmentExpression,
                                     operator: "=",
                                     left: {
-                                        kind: "MemberExpression",
-                                        object: { kind: "Identifier", name: "this" },
-                                        property: { kind: "Identifier", name: "raw" },
+                                        kind: NodeKind.MemberExpression,
+                                        object: { kind: NodeKind.Identifier, name: "this" },
+                                        property: { kind: NodeKind.Identifier, name: "raw" },
                                         computed: false
                                     },
-                                    right: { kind: "Identifier", name: "next" }
+                                    right: { kind: NodeKind.Identifier, name: "next" }
                                 }
                             }
                         ]
@@ -1122,33 +1123,33 @@ describe("parseStatement", () => {
                 tokenizeReader("class Rect {\narea: number => this.width * this.height\n}")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Rect" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Rect" },
             members: [
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessorKind: "get",
-                    name: { kind: "Identifier", name: "area" },
+                    name: { kind: NodeKind.Identifier, name: "area" },
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "number" },
+                    returnType: { kind: NodeKind.Identifier, name: "number" },
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "ReturnStatement",
+                                kind: NodeKind.ReturnStatement,
                                 expression: {
-                                    kind: "BinaryExpression",
+                                    kind: NodeKind.BinaryExpression,
                                     operator: "*",
                                     left: {
-                                        kind: "MemberExpression",
-                                        object: { kind: "Identifier", name: "this" },
-                                        property: { kind: "Identifier", name: "width" },
+                                        kind: NodeKind.MemberExpression,
+                                        object: { kind: NodeKind.Identifier, name: "this" },
+                                        property: { kind: NodeKind.Identifier, name: "width" },
                                         computed: false
                                     },
                                     right: {
-                                        kind: "MemberExpression",
-                                        object: { kind: "Identifier", name: "this" },
-                                        property: { kind: "Identifier", name: "height" },
+                                        kind: NodeKind.MemberExpression,
+                                        object: { kind: NodeKind.Identifier, name: "this" },
+                                        property: { kind: NodeKind.Identifier, name: "height" },
                                         computed: false
                                     }
                                 }
@@ -1166,25 +1167,25 @@ describe("parseStatement", () => {
                 tokenizeReader("class Point {\n  var x: int {\n    set { _x = newValue }\n    get { return _x }\n  }\n}")
             )
         ).toMatchObject({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Point" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Point" },
             members: [
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessorKind: "get",
-                    name: { kind: "Identifier", name: "x" },
+                    name: { kind: NodeKind.Identifier, name: "x" },
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "int" }
+                    returnType: { kind: NodeKind.Identifier, name: "int" }
                 },
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessorKind: "set",
-                    name: { kind: "Identifier", name: "x" },
+                    name: { kind: NodeKind.Identifier, name: "x" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "newValue" },
-                            typeAnnotation: { kind: "Identifier", name: "int" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "newValue" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "int" }
                         }
                     ]
                 }
@@ -1198,18 +1199,18 @@ describe("parseStatement", () => {
                 tokenizeReader("class Point {\n  var x: int {\n    set(value) { _x = value }\n    get { return _x }\n  }\n}")
             )
         ).toMatchObject({
-            kind: "ClassStatement",
+            kind: NodeKind.ClassStatement,
             members: [
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessorKind: "get",
-                    name: { kind: "Identifier", name: "x" }
+                    name: { kind: NodeKind.Identifier, name: "x" }
                 },
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessorKind: "set",
-                    name: { kind: "Identifier", name: "x" },
-                    parameters: [{ kind: "FunctionParameter", name: { kind: "Identifier", name: "value" } }]
+                    name: { kind: NodeKind.Identifier, name: "x" },
+                    parameters: [{ kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "value" } }]
                 }
             ]
         });
@@ -1221,22 +1222,22 @@ describe("parseStatement", () => {
                 tokenizeReader("class Point {\n  var x: int {\n    set(value: int) { _x = value }\n    get => _x\n  }\n}")
             )
         ).toMatchObject({
-            kind: "ClassStatement",
+            kind: NodeKind.ClassStatement,
             members: [
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessorKind: "get",
-                    name: { kind: "Identifier", name: "x" }
+                    name: { kind: NodeKind.Identifier, name: "x" }
                 },
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessorKind: "set",
-                    name: { kind: "Identifier", name: "x" },
+                    name: { kind: NodeKind.Identifier, name: "x" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "value" },
-                            typeAnnotation: { kind: "Identifier", name: "int" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "value" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "int" }
                         }
                     ]
                 }
@@ -1250,10 +1251,10 @@ describe("parseStatement", () => {
                 tokenizeReader("class Point {\n  var x: int {\n    get { return _x }\n    set { _x = newValue }\n  }\n}")
             )
         ).toMatchObject({
-            kind: "ClassStatement",
+            kind: NodeKind.ClassStatement,
             members: [
-                { kind: "ClassMethodMember", accessorKind: "get", name: { kind: "Identifier", name: "x" } },
-                { kind: "ClassMethodMember", accessorKind: "set", name: { kind: "Identifier", name: "x" } }
+                { kind: NodeKind.ClassMethodMember, accessorKind: "get", name: { kind: NodeKind.Identifier, name: "x" } },
+                { kind: NodeKind.ClassMethodMember, accessorKind: "set", name: { kind: NodeKind.Identifier, name: "x" } }
             ]
         });
     });
@@ -1262,20 +1263,20 @@ describe("parseStatement", () => {
         expect(
             parseStatement(tokenizeReader("class MyDemo(val shape: Shape) : Shape by { shape } {}"))
         ).toMatchObject({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "MyDemo" },
-            extendsType: { kind: "Identifier", name: "Shape" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "MyDemo" },
+            extendsType: { kind: NodeKind.Identifier, name: "Shape" },
             classDelegates: [
                 {
-                    kind: "ClassDelegate",
-                    typeAnnotation: { kind: "Identifier", name: "Shape" },
+                    kind: NodeKind.ClassDelegate,
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "Shape" },
                     expression: {
-                        kind: "ObjectLiteral",
+                        kind: NodeKind.ObjectLiteral,
                         properties: [
                             {
-                                kind: "ObjectProperty",
-                                key: { kind: "Identifier", name: "shape" },
-                                value: { kind: "Identifier", name: "shape" },
+                                kind: NodeKind.ObjectProperty,
+                                key: { kind: NodeKind.Identifier, name: "shape" },
+                                value: { kind: NodeKind.Identifier, name: "shape" },
                                 shorthand: true
                             }
                         ]
@@ -1292,34 +1293,34 @@ describe("parseStatement", () => {
                 tokenizeReader("class Rectangle implements Shape {\narea: number => this.width * this.height\n}")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Rectangle" },
-            implementsTypes: [{ kind: "Identifier", name: "Shape" }],
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Rectangle" },
+            implementsTypes: [{ kind: NodeKind.Identifier, name: "Shape" }],
             members: [
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessorKind: "get",
-                    name: { kind: "Identifier", name: "area" },
+                    name: { kind: NodeKind.Identifier, name: "area" },
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "number" },
+                    returnType: { kind: NodeKind.Identifier, name: "number" },
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "ReturnStatement",
+                                kind: NodeKind.ReturnStatement,
                                 expression: {
-                                    kind: "BinaryExpression",
+                                    kind: NodeKind.BinaryExpression,
                                     operator: "*",
                                     left: {
-                                        kind: "MemberExpression",
-                                        object: { kind: "Identifier", name: "this" },
-                                        property: { kind: "Identifier", name: "width" },
+                                        kind: NodeKind.MemberExpression,
+                                        object: { kind: NodeKind.Identifier, name: "this" },
+                                        property: { kind: NodeKind.Identifier, name: "width" },
                                         computed: false
                                     },
                                     right: {
-                                        kind: "MemberExpression",
-                                        object: { kind: "Identifier", name: "this" },
-                                        property: { kind: "Identifier", name: "height" },
+                                        kind: NodeKind.MemberExpression,
+                                        object: { kind: NodeKind.Identifier, name: "this" },
+                                        property: { kind: NodeKind.Identifier, name: "height" },
                                         computed: false
                                     }
                                 }
@@ -1337,29 +1338,29 @@ describe("parseStatement", () => {
                 tokenizeReader("class Child extends Base {\noverride value: string\noverride getValue(a: int): string { }\n}")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Child" },
-            extendsType: { kind: "Identifier", name: "Base" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Child" },
+            extendsType: { kind: NodeKind.Identifier, name: "Base" },
             members: [
                 {
-                    kind: "ClassFieldMember",
+                    kind: NodeKind.ClassFieldMember,
                     override: true,
-                    name: { kind: "Identifier", name: "value" },
-                    typeAnnotation: { kind: "Identifier", name: "string" }
+                    name: { kind: NodeKind.Identifier, name: "value" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
                 },
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     override: true,
-                    name: { kind: "Identifier", name: "getValue" },
+                    name: { kind: NodeKind.Identifier, name: "getValue" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "a" },
-                            typeAnnotation: { kind: "Identifier", name: "int" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "a" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "int" }
                         }
                     ],
-                    returnType: { kind: "Identifier", name: "string" },
-                    body: { kind: "BlockStatement", body: [] }
+                    returnType: { kind: NodeKind.Identifier, name: "string" },
+                    body: { kind: NodeKind.BlockStatement, body: [] }
                 }
             ]
         });
@@ -1368,14 +1369,14 @@ describe("parseStatement", () => {
 
     it("parses definite assignment assertions on class fields", () => {
         expect(parseStatement(tokenizeReader("class User { id!: string }"))).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "User" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "User" },
             members: [
                 {
-                    kind: "ClassFieldMember",
-                    name: { kind: "Identifier", name: "id" },
+                    kind: NodeKind.ClassFieldMember,
+                    name: { kind: NodeKind.Identifier, name: "id" },
                     definiteAssignment: true,
-                    typeAnnotation: { kind: "Identifier", name: "string" }
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
                 }
             ]
         });
@@ -1386,14 +1387,14 @@ describe("parseStatement", () => {
             tokenizeReader("class Identifier { declare kind: \"Identifier\" }"),
             { language: "typescript" }
         )).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Identifier" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Identifier" },
             members: [
                 {
-                    kind: "ClassFieldMember",
+                    kind: NodeKind.ClassFieldMember,
                     declared: true,
-                    name: { kind: "Identifier", name: "kind" },
-                    typeAnnotation: { kind: "Identifier", name: '\"Identifier\"' }
+                    name: { kind: NodeKind.Identifier, name: "kind" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: '\"Identifier\"' }
                 }
             ]
         });
@@ -1404,11 +1405,11 @@ describe("parseStatement", () => {
             tokenizeReader("class Operation { operator: string }"),
             { language: "typescript" }
         )).toMatchObject({
-            kind: "ClassStatement",
+            kind: NodeKind.ClassStatement,
             members: [{
-                kind: "ClassFieldMember",
-                name: { kind: "Identifier", name: "operator" },
-                typeAnnotation: { kind: "Identifier", name: "string" }
+                kind: NodeKind.ClassFieldMember,
+                name: { kind: NodeKind.Identifier, name: "operator" },
+                typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
             }]
         });
     });
@@ -1420,28 +1421,28 @@ describe("parseStatement", () => {
                 { language: "typescript" }
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Counter" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Counter" },
             members: [
                 {
-                    kind: "ClassFieldMember",
-                    name: { kind: "Identifier", name: "#value" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    kind: NodeKind.ClassFieldMember,
+                    name: { kind: NodeKind.Identifier, name: "#value" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 },
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "read" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "read" },
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "int" },
+                    returnType: { kind: NodeKind.Identifier, name: "int" },
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "ReturnStatement",
+                                kind: NodeKind.ReturnStatement,
                                 expression: {
-                                    kind: "MemberExpression",
-                                    object: { kind: "Identifier", name: "this" },
-                                    property: { kind: "Identifier", name: "#value" },
+                                    kind: NodeKind.MemberExpression,
+                                    object: { kind: NodeKind.Identifier, name: "this" },
+                                    property: { kind: NodeKind.Identifier, name: "#value" },
                                     computed: false
                                 }
                             }
@@ -1459,34 +1460,34 @@ describe("parseStatement", () => {
                 tokenizeReader("abstract class Demo {\npublic readonly id?: string\nprivate static count: int = 0\nprotected abstract run(): void\n}")
             )
         ).toEqual({
-            kind: "ClassStatement",
+            kind: NodeKind.ClassStatement,
             abstract: true,
-            name: { kind: "Identifier", name: "Demo" },
+            name: { kind: NodeKind.Identifier, name: "Demo" },
             members: [
                 {
-                    kind: "ClassFieldMember",
+                    kind: NodeKind.ClassFieldMember,
                     accessModifier: "public",
-                    readonly: true,
+                    isReadonly: true,
                     optional: true,
-                    name: { kind: "Identifier", name: "id" },
-                    typeAnnotation: { kind: "Identifier", name: "string" }
+                    name: { kind: NodeKind.Identifier, name: "id" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
                 },
                 {
-                    kind: "ClassFieldMember",
+                    kind: NodeKind.ClassFieldMember,
                     accessModifier: "private",
-                    static: true,
-                    name: { kind: "Identifier", name: "count" },
-                    typeAnnotation: { kind: "Identifier", name: "int" },
-                    initializer: { kind: "IntLiteral", value: 0 }
+                    isStatic: true,
+                    name: { kind: NodeKind.Identifier, name: "count" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "int" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 0 }
                 },
                 {
-                    kind: "ClassMethodMember",
+                    kind: NodeKind.ClassMethodMember,
                     accessModifier: "protected",
                     abstract: true,
-                    name: { kind: "Identifier", name: "run" },
+                    name: { kind: NodeKind.Identifier, name: "run" },
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "void" },
-                    body: { kind: "BlockStatement", body: [] }
+                    returnType: { kind: NodeKind.Identifier, name: "void" },
+                    body: { kind: NodeKind.BlockStatement, body: [] }
                 }
             ]
         });
@@ -1498,35 +1499,35 @@ describe("parseStatement", () => {
                 tokenizeReader("class User { constructor(public readonly id: string, private age = 0, protected nickname?: string) {} }")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "User" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "User" },
             members: [
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "constructor" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "constructor" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
+                            kind: NodeKind.FunctionParameter,
                             accessModifier: "public",
-                            readonly: true,
-                            name: { kind: "Identifier", name: "id" },
-                            typeAnnotation: { kind: "Identifier", name: "string" }
+                            isReadonly: true,
+                            name: { kind: NodeKind.Identifier, name: "id" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
                         },
                         {
-                            kind: "FunctionParameter",
+                            kind: NodeKind.FunctionParameter,
                             accessModifier: "private",
-                            name: { kind: "Identifier", name: "age" },
-                            defaultValue: { kind: "IntLiteral", value: 0 }
+                            name: { kind: NodeKind.Identifier, name: "age" },
+                            defaultValue: { kind: NodeKind.IntLiteral, value: 0 }
                         },
                         {
-                            kind: "FunctionParameter",
+                            kind: NodeKind.FunctionParameter,
                             accessModifier: "protected",
                             optional: true,
-                            name: { kind: "Identifier", name: "nickname" },
-                            typeAnnotation: { kind: "Identifier", name: "string" }
+                            name: { kind: NodeKind.Identifier, name: "nickname" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
                         }
                     ],
-                    body: { kind: "BlockStatement", body: [] }
+                    body: { kind: NodeKind.BlockStatement, body: [] }
                 }
             ]
         });
@@ -1553,16 +1554,16 @@ describe("parseStatement", () => {
                 tokenizeReader("class Demo {\n  say(): number\n}")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Demo" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Demo" },
             members: [
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "say" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "say" },
                     missingBody: true,
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "number" },
-                    body: { kind: "BlockStatement", body: [] }
+                    returnType: { kind: NodeKind.Identifier, name: "number" },
+                    body: { kind: NodeKind.BlockStatement, body: [] }
                 }
             ]
         });
@@ -1583,13 +1584,13 @@ describe("parseStatement", () => {
 
         const field = statement.members[0]!;
         const method = statement.members[1]!;
-        expect(field.kind).toBe("ClassFieldMember");
+        expect(field.kind).toBe(NodeKind.ClassFieldMember);
         expect(field.annotations?.map((annotation) => annotation.name.name)).toEqual(["Range"]);
-        expect(field.annotations?.[0]?.arguments).toHaveLength(2);
+        expect(field.annotations?.[0]?.args).toHaveLength(2);
 
-        expect(method.kind).toBe("ClassMethodMember");
+        expect(method.kind).toBe(NodeKind.ClassMethodMember);
         expect(method.annotations?.map((annotation) => annotation.name.name)).toEqual(["Deprecated"]);
-        expect(method.annotations?.[0]?.arguments).toEqual([]);
+        expect(method.annotations?.[0]?.args).toEqual([]);
     });
 
     it("stacks multiple annotations on a single class member", () => {
@@ -1621,36 +1622,36 @@ describe("parseStatement", () => {
                 { language: "typescript" }
             )
         ).toEqual({
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             declaration: {
-                kind: "ClassStatement",
+                kind: NodeKind.ClassStatement,
                 abstract: true,
-                name: { kind: "Identifier", name: "Component" },
+                name: { kind: NodeKind.Identifier, name: "Component" },
                 typeParameters: [
-                    { kind: "TypeParameter", name: { kind: "Identifier", name: "P" } },
-                    { kind: "TypeParameter", name: { kind: "Identifier", name: "S" } }
+                    { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "P" } },
+                    { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "S" } }
                 ],
                 members: [
                     {
-                        kind: "ClassMethodMember",
-                        name: { kind: "Identifier", name: "getDerivedStateFromProps" },
-                        static: true,
+                        kind: NodeKind.ClassMethodMember,
+                        name: { kind: NodeKind.Identifier, name: "getDerivedStateFromProps" },
+                        isStatic: true,
                         optional: true,
                         missingBody: true,
                         parameters: [
                             {
-                                kind: "FunctionParameter",
-                                name: { kind: "Identifier", name: "props" },
-                                typeAnnotation: { kind: "Identifier", name: "Readonly<P>" }
+                                kind: NodeKind.FunctionParameter,
+                                name: { kind: NodeKind.Identifier, name: "props" },
+                                typeAnnotation: { kind: NodeKind.Identifier, name: "Readonly<P>" }
                             },
                             {
-                                kind: "FunctionParameter",
-                                name: { kind: "Identifier", name: "state" },
-                                typeAnnotation: { kind: "Identifier", name: "Readonly<S>" }
+                                kind: NodeKind.FunctionParameter,
+                                name: { kind: NodeKind.Identifier, name: "state" },
+                                typeAnnotation: { kind: NodeKind.Identifier, name: "Readonly<S>" }
                             }
                         ],
-                        returnType: { kind: "Identifier", name: "Partial<S> | null" },
-                        body: { kind: "BlockStatement", body: [] }
+                        returnType: { kind: NodeKind.Identifier, name: "Partial<S> | null" },
+                        body: { kind: NodeKind.BlockStatement, body: [] }
                     }
                 ]
             }
@@ -1659,20 +1660,20 @@ describe("parseStatement", () => {
 
     it("parses class statement with primary constructor parameters", () => {
         expect(parseStatement(tokenizeReader("class Point(val x: number, val y: number) {\n}"))).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Point" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Point" },
             primaryConstructorParameters: [
                 {
-                    kind: "ClassPrimaryConstructorParameter",
+                    kind: NodeKind.ClassPrimaryConstructorParameter,
                     declarationKind: "val",
-                    name: { kind: "Identifier", name: "x" },
-                    typeAnnotation: { kind: "Identifier", name: "number" }
+                    name: { kind: NodeKind.Identifier, name: "x" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 },
                 {
-                    kind: "ClassPrimaryConstructorParameter",
+                    kind: NodeKind.ClassPrimaryConstructorParameter,
                     declarationKind: "val",
-                    name: { kind: "Identifier", name: "y" },
-                    typeAnnotation: { kind: "Identifier", name: "number" }
+                    name: { kind: NodeKind.Identifier, name: "y" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 }
             ],
             members: []
@@ -1687,7 +1688,7 @@ describe("parseStatement", () => {
               var scale: Vector3 = Vector3(1, 1, 1),
             )
         `))).toMatchObject({
-            kind: "ClassStatement",
+            kind: NodeKind.ClassStatement,
             name: { name: "ViewNode" },
             primaryConstructorParameters: [
                 {
@@ -1695,8 +1696,8 @@ describe("parseStatement", () => {
                     name: { name: "position" },
                     typeAnnotation: { name: "Vector3" },
                     defaultValue: {
-                        kind: "CallExpression",
-                        callee: { kind: "Identifier", name: "Vector3" }
+                        kind: NodeKind.CallExpression,
+                        callee: { kind: NodeKind.Identifier, name: "Vector3" }
                     }
                 },
                 {
@@ -1704,8 +1705,8 @@ describe("parseStatement", () => {
                     name: { name: "rotation2" },
                     typeAnnotation: { name: "Vector3" },
                     defaultValue: {
-                        kind: "CallExpression",
-                        callee: { kind: "Identifier", name: "Vector3" }
+                        kind: NodeKind.CallExpression,
+                        callee: { kind: NodeKind.Identifier, name: "Vector3" }
                     }
                 },
                 {
@@ -1713,8 +1714,8 @@ describe("parseStatement", () => {
                     name: { name: "scale" },
                     typeAnnotation: { name: "Vector3" },
                     defaultValue: {
-                        kind: "CallExpression",
-                        callee: { kind: "Identifier", name: "Vector3" }
+                        kind: NodeKind.CallExpression,
+                        callee: { kind: NodeKind.Identifier, name: "Vector3" }
                     }
                 }
             ],
@@ -1728,17 +1729,17 @@ describe("parseStatement", () => {
         ).parseFile();
 
         expect(ast.body[0]).toMatchObject({
-            kind: "ClassStatement",
+            kind: NodeKind.ClassStatement,
             typeParameters: [
                 {
-                    kind: "TypeParameter",
-                    name: { kind: "Identifier", name: "T" },
-                    constraint: { kind: "Identifier", name: "Entity" }
+                    kind: NodeKind.TypeParameter,
+                    name: { kind: NodeKind.Identifier, name: "T" },
+                    constraint: { kind: NodeKind.Identifier, name: "Entity" }
                 },
                 {
-                    kind: "TypeParameter",
-                    name: { kind: "Identifier", name: "K" },
-                    constraint: { kind: "Identifier", name: "string" }
+                    kind: NodeKind.TypeParameter,
+                    name: { kind: NodeKind.Identifier, name: "K" },
+                    constraint: { kind: NodeKind.Identifier, name: "string" }
                 }
             ]
         });
@@ -1750,16 +1751,16 @@ describe("parseStatement", () => {
                 tokenizeReader("class Map<K, V> extends BaseMap<K, V> implements Iterable<K>, Serializable {}")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Map" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Map" },
             typeParameters: [
-                { kind: "TypeParameter", name: { kind: "Identifier", name: "K" } },
-                { kind: "TypeParameter", name: { kind: "Identifier", name: "V" } }
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "K" } },
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "V" } }
             ],
-            extendsType: { kind: "Identifier", name: "BaseMap<K, V>" },
+            extendsType: { kind: NodeKind.Identifier, name: "BaseMap<K, V>" },
             implementsTypes: [
-                { kind: "Identifier", name: "Iterable<K>" },
-                { kind: "Identifier", name: "Serializable" }
+                { kind: NodeKind.Identifier, name: "Iterable<K>" },
+                { kind: NodeKind.Identifier, name: "Serializable" }
             ],
             members: []
         });
@@ -1771,14 +1772,14 @@ describe("parseStatement", () => {
                 tokenizeReader("class Demo extends A extends B implements I implements J, K {}")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Demo" },
-            extendsType: { kind: "Identifier", name: "A" },
-            implementsTypes: [{ kind: "Identifier", name: "I" }],
-            extraExtendsTypes: [{ kind: "Identifier", name: "B" }],
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Demo" },
+            extendsType: { kind: NodeKind.Identifier, name: "A" },
+            implementsTypes: [{ kind: NodeKind.Identifier, name: "I" }],
+            extraExtendsTypes: [{ kind: NodeKind.Identifier, name: "B" }],
             extraImplementsTypes: [
-                { kind: "Identifier", name: "J" },
-                { kind: "Identifier", name: "K" }
+                { kind: NodeKind.Identifier, name: "J" },
+                { kind: NodeKind.Identifier, name: "K" }
             ],
             members: []
         });
@@ -1791,12 +1792,12 @@ describe("parseStatement", () => {
                 { language: "vexa" }
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Circle" },
-            extendsType: { kind: "Identifier", name: "BaseShape" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Circle" },
+            extendsType: { kind: NodeKind.Identifier, name: "BaseShape" },
             implementsTypes: [
-                { kind: "Identifier", name: "Shape" },
-                { kind: "Identifier", name: "Comparable<Circle>" }
+                { kind: NodeKind.Identifier, name: "Shape" },
+                { kind: NodeKind.Identifier, name: "Comparable<Circle>" }
             ],
             members: []
         });
@@ -1809,9 +1810,9 @@ describe("parseStatement", () => {
                 { language: "vexa" }
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Foo" },
-            extendsType: { kind: "Identifier", name: "Bar" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Foo" },
+            extendsType: { kind: NodeKind.Identifier, name: "Bar" },
             members: []
         });
     });
@@ -1822,27 +1823,27 @@ describe("parseStatement", () => {
                 tokenizeReader("class Array<T> { map<R>(mapper: (item: T) => T): Array<R> {} }")
             )
         ).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Array" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Array" },
             typeParameters: [
-                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }
             ],
             members: [
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "map" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "map" },
                     typeParameters: [
-                        { kind: "TypeParameter", name: { kind: "Identifier", name: "R" } }
+                        { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "R" } }
                     ],
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "mapper" },
-                            typeAnnotation: { kind: "Identifier", name: "(item:T) => T" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "mapper" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "(item:T) => T" }
                         }
                     ],
-                    returnType: { kind: "Identifier", name: "Array<R>" },
-                    body: { kind: "BlockStatement", body: [] }
+                    returnType: { kind: NodeKind.Identifier, name: "Array<R>" },
+                    body: { kind: NodeKind.BlockStatement, body: [] }
                 }
             ]
         });
@@ -1850,174 +1851,174 @@ describe("parseStatement", () => {
 
     it("parses nested generic type annotations without treating closing angles as shifts", () => {
         expect(parseStatement(tokenizeReader("let points: Array<Map<string, Point>>"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "Array<Map<string, Point>>" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "Array<Map<string, Point>>" }
         });
 
         expect(parseStatement(tokenizeReader("let matrix: Array<Array<Map<string, Point>>>"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "Array<Array<Map<string, Point>>>" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "Array<Array<Map<string, Point>>>" }
         });
 
         expect(parseStatement(tokenizeReader("function collect<T extends Array<Map<string, Point>>>(items: T): Array<Array<Map<string, Point>>> { return items }"))).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             typeParameters: [
                 {
-                    kind: "TypeParameter",
-                    name: { kind: "Identifier", name: "T" },
-                    constraint: { kind: "Identifier", name: "Array<Map<string, Point>>" }
+                    kind: NodeKind.TypeParameter,
+                    name: { kind: NodeKind.Identifier, name: "T" },
+                    constraint: { kind: NodeKind.Identifier, name: "Array<Map<string, Point>>" }
                 }
             ],
             parameters: [
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "items" },
-                    typeAnnotation: { kind: "Identifier", name: "T" }
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "items" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "T" }
                 }
             ],
-            returnType: { kind: "Identifier", name: "Array<Array<Map<string, Point>>>" }
+            returnType: { kind: NodeKind.Identifier, name: "Array<Array<Map<string, Point>>>" }
         });
 
         expect(parseExpression(tokenizeReader("factory<Array<Map<string, Point>>>(points)"))).toEqual({
-            kind: "CallExpression",
-            callee: { kind: "Identifier", name: "factory" },
-            arguments: [{ kind: "Identifier", name: "points" }],
-            typeArguments: [{ kind: "Identifier", name: "Array<Map<string, Point>>" }]
+            kind: NodeKind.CallExpression,
+            callee: { kind: NodeKind.Identifier, name: "factory" },
+            args: [{ kind: NodeKind.Identifier, name: "points" }],
+            typeArguments: [{ kind: NodeKind.Identifier, name: "Array<Map<string, Point>>" }]
         });
 
         expect(parseExpression(tokenizeReader("a >> b >>> c"))).toEqual({
-            kind: "BinaryExpression",
+            kind: NodeKind.BinaryExpression,
             operator: ">>>",
             left: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: ">>",
-                left: { kind: "Identifier", name: "a" },
-                right: { kind: "Identifier", name: "b" }
+                left: { kind: NodeKind.Identifier, name: "a" },
+                right: { kind: NodeKind.Identifier, name: "b" }
             },
-            right: { kind: "Identifier", name: "c" }
+            right: { kind: NodeKind.Identifier, name: "c" }
         });
 
         expect(parseExpression(tokenizeReader("a < b >> c"))).toEqual({
-            kind: "BinaryExpression",
+            kind: NodeKind.BinaryExpression,
             operator: "<",
-            left: { kind: "Identifier", name: "a" },
+            left: { kind: NodeKind.Identifier, name: "a" },
             right: {
-                kind: "BinaryExpression",
+                kind: NodeKind.BinaryExpression,
                 operator: ">>",
-                left: { kind: "Identifier", name: "b" },
-                right: { kind: "Identifier", name: "c" }
+                left: { kind: NodeKind.Identifier, name: "b" },
+                right: { kind: NodeKind.Identifier, name: "c" }
             }
         });
     });
 
     it("parses union, intersection, literal, and tuple type annotations", () => {
         expect(parseStatement(tokenizeReader("let value: string | number | null"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "string | number | null" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "string | number | null" }
         });
         expect(parseStatement(tokenizeReader("let maybe: any?"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "any?" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "any?" }
         });
         expect(parseStatement(tokenizeReader("let callback: (() => void)?"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "(() => void)?" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "(() => void)?" }
         });
         expect(parseStatement(tokenizeReader("let value: A & B"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "A & B" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "A & B" }
         });
         expect(parseStatement(tokenizeReader("let status: \"ok\" | false"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: '"ok" | false' }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: '"ok" | false' }
         });
         expect(parseStatement(tokenizeReader("let pair: [string, int]"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "[string, int]" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "[string, int]" }
         });
         expect(parseStatement(tokenizeReader("let frames: [int, number, Animation][]"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "[int, number, Animation][]" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "[int, number, Animation][]" }
         });
         expect(parseStatement(tokenizeReader("let path: [EventTarget?]"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "[EventTarget?]" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "[EventTarget?]" }
         });
         expect(parseStatement(tokenizeReader("let point: { x: int; y?: string }"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "{ x: int, y?: string }" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "{ x: int, y?: string }" }
         });
     });
 
     it("parses template-literal and import-member generic type annotations", () => {
         expect(parseStatement(tokenizeReader("type UUID = `${string}-${string}-${string}-${string}-${string}`", { jsx: false }), { language: "typescript" })).toMatchObject({
-            kind: "TypeAliasStatement",
-            targetType: { kind: "Identifier", name: "`${string}-${string}-${string}-${string}-${string}`" }
+            kind: NodeKind.TypeAliasStatement,
+            targetType: { kind: NodeKind.Identifier, name: "`${string}-${string}-${string}-${string}-${string}`" }
         });
         expect(parseStatement(tokenizeReader("type Stream<R = any> = typeof globalThis extends { onmessage: any } ? {} : import(\"stream/web\").ReadableStream<R>", { jsx: false }), { language: "typescript" })).toMatchObject({
-            kind: "TypeAliasStatement",
-            targetType: { kind: "Identifier", name: 'typeof globalThis extends { onmessage: any } ? {  } : import("stream/web").ReadableStream<R>' }
+            kind: NodeKind.TypeAliasStatement,
+            targetType: { kind: NodeKind.Identifier, name: 'typeof globalThis extends { onmessage: any } ? {  } : import("stream/web").ReadableStream<R>' }
         });
     });
 
     it("parses mapped, conditional, and infer type annotations", () => {
         expect(parseStatement(tokenizeReader("type Optional<T> = { [K in keyof T]?: T[K] }"))).toMatchObject({
-            kind: "TypeAliasStatement",
-            targetType: { kind: "Identifier", name: "{ [K in keyof T]?: T[K] }" }
+            kind: NodeKind.TypeAliasStatement,
+            targetType: { kind: NodeKind.Identifier, name: "{ [K in keyof T]?: T[K] }" }
         });
         expect(parseStatement(tokenizeReader("type Concrete<T> = { -readonly [K in keyof T as K]-?: T[K] }"))).toMatchObject({
-            kind: "TypeAliasStatement",
-            targetType: { kind: "Identifier", name: "{ -readonly [K in keyof T as K]-?: T[K] }" }
+            kind: NodeKind.TypeAliasStatement,
+            targetType: { kind: NodeKind.Identifier, name: "{ -readonly [K in keyof T as K]-?: T[K] }" }
         });
         expect(parseStatement(tokenizeReader("type Element<T> = T extends (infer U)[] ? U : T"))).toMatchObject({
-            kind: "TypeAliasStatement",
-            targetType: { kind: "Identifier", name: "T extends (infer U)[] ? U : T" }
+            kind: NodeKind.TypeAliasStatement,
+            targetType: { kind: NodeKind.Identifier, name: "T extends (infer U)[] ? U : T" }
         });
         expect(parseStatement(tokenizeReader("type Constrained<T> = T extends infer U extends string ? U : never"))).toMatchObject({
-            kind: "TypeAliasStatement",
-            targetType: { kind: "Identifier", name: "T extends infer U extends string ? U : never" }
+            kind: NodeKind.TypeAliasStatement,
+            targetType: { kind: NodeKind.Identifier, name: "T extends infer U extends string ? U : never" }
         });
         expect(parseStatement(tokenizeReader("type Recursive<T> = T extends string ? true : T extends number ? false : never"))).toMatchObject({
-            kind: "TypeAliasStatement",
-            targetType: { kind: "Identifier", name: "T extends string ? true : T extends number ? false : never" }
+            kind: NodeKind.TypeAliasStatement,
+            targetType: { kind: NodeKind.Identifier, name: "T extends string ? true : T extends number ? false : never" }
         });
         expect(parseStatement(tokenizeReader('type ArrayOutputType<T, C> = C extends "one" ? [T["_output"], ...T["_output"][]] : T["_output"][]'))).toMatchObject({
-            kind: "TypeAliasStatement",
-            targetType: { kind: "Identifier", name: 'C extends "one" ? [T["_output"], ...T["_output"][]] : T["_output"][]' }
+            kind: NodeKind.TypeAliasStatement,
+            targetType: { kind: NodeKind.Identifier, name: 'C extends "one" ? [T["_output"], ...T["_output"][]] : T["_output"][]' }
         });
     });
 
     it("parses keyof, typeof type queries, and indexed access type annotations", () => {
         expect(parseStatement(tokenizeReader("let key: keyof Person"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "keyof Person" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "keyof Person" }
         });
         expect(parseStatement(tokenizeReader("let copy: typeof person.name"))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "typeof person.name" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "typeof person.name" }
         });
         expect(parseStatement(tokenizeReader('let formatter: typeof import("node:util").format'), { language: "typescript" })).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: 'typeof import("node:util").format' }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: 'typeof import("node:util").format' }
         });
         expect(parseStatement(tokenizeReader('let name: Person["name"]'))).toMatchObject({
-            kind: "VarStatement",
-            typeAnnotation: { kind: "Identifier", name: "Person[\"name\"]" }
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "Person[\"name\"]" }
         });
         expect(parseStatement(tokenizeReader("type Values<T> = T[keyof T]"))).toMatchObject({
-            kind: "TypeAliasStatement",
-            targetType: { kind: "Identifier", name: "T[keyof T]" }
+            kind: NodeKind.TypeAliasStatement,
+            targetType: { kind: NodeKind.Identifier, name: "T[keyof T]" }
         });
     });
 
     it("parses generic type aliases", () => {
         expect(parseStatement(tokenizeReader("type Boxed<T> = Box<T>[]"))).toEqual({
-            kind: "TypeAliasStatement",
-            name: { kind: "Identifier", name: "Boxed" },
+            kind: NodeKind.TypeAliasStatement,
+            name: { kind: NodeKind.Identifier, name: "Boxed" },
             typeParameters: [
-                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }
             ],
-            targetType: { kind: "Identifier", name: "Box<T>[]" }
+            targetType: { kind: NodeKind.Identifier, name: "Box<T>[]" }
         });
     });
 
@@ -2029,33 +2030,33 @@ describe("parseStatement", () => {
                 )
             )
         ).toEqual({
-            kind: "InterfaceStatement",
-            name: { kind: "Identifier", name: "Dictionary" },
+            kind: NodeKind.InterfaceStatement,
+            name: { kind: NodeKind.Identifier, name: "Dictionary" },
             typeParameters: [
-                { kind: "TypeParameter", name: { kind: "Identifier", name: "K" } },
-                { kind: "TypeParameter", name: { kind: "Identifier", name: "V" } }
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "K" } },
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "V" } }
             ],
             extendsTypes: [
-                { kind: "Identifier", name: "Iterable<K>" },
-                { kind: "Identifier", name: "Serializable" }
+                { kind: NodeKind.Identifier, name: "Iterable<K>" },
+                { kind: NodeKind.Identifier, name: "Serializable" }
             ],
             members: [
                 {
-                    kind: "InterfaceMethodMember",
-                    name: { kind: "Identifier", name: "get" },
+                    kind: NodeKind.InterfaceMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "get" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "key" },
-                            typeAnnotation: { kind: "Identifier", name: "K" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "key" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "K" }
                         }
                     ],
-                    returnType: { kind: "Identifier", name: "V" }
+                    returnType: { kind: NodeKind.Identifier, name: "V" }
                 },
                 {
-                    kind: "InterfacePropertyMember",
-                    name: { kind: "Identifier", name: "keys" },
-                    typeAnnotation: { kind: "Identifier", name: "K[]" }
+                    kind: NodeKind.InterfacePropertyMember,
+                    name: { kind: NodeKind.Identifier, name: "keys" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "K[]" }
                 }
             ]
         });
@@ -2063,17 +2064,17 @@ describe("parseStatement", () => {
 
     it("parses interface statements without braces in vexa mode", () => {
         expect(parseStatement(tokenizeReader("interface MyInterface"))).toEqual({
-            kind: "InterfaceStatement",
-            name: { kind: "Identifier", name: "MyInterface" },
+            kind: NodeKind.InterfaceStatement,
+            name: { kind: NodeKind.Identifier, name: "MyInterface" },
             members: []
         });
 
         expect(parseStatement(tokenizeReader("interface MyInterface extends Readable, Writable"))).toEqual({
-            kind: "InterfaceStatement",
-            name: { kind: "Identifier", name: "MyInterface" },
+            kind: NodeKind.InterfaceStatement,
+            name: { kind: NodeKind.Identifier, name: "MyInterface" },
             extendsTypes: [
-                { kind: "Identifier", name: "Readable" },
-                { kind: "Identifier", name: "Writable" }
+                { kind: NodeKind.Identifier, name: "Readable" },
+                { kind: NodeKind.Identifier, name: "Writable" }
             ],
             members: []
         });
@@ -2089,20 +2090,20 @@ describe("parseStatement", () => {
 
     it("parses class statement with kotlin-like primary constructor parameters without val/var", () => {
         expect(parseStatement(tokenizeReader("class Point(x: number, y: number) {\n}"))).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Point" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Point" },
             primaryConstructorParameters: [
                 {
-                    kind: "ClassPrimaryConstructorParameter",
+                    kind: NodeKind.ClassPrimaryConstructorParameter,
                     declarationKind: "val",
-                    name: { kind: "Identifier", name: "x" },
-                    typeAnnotation: { kind: "Identifier", name: "number" }
+                    name: { kind: NodeKind.Identifier, name: "x" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 },
                 {
-                    kind: "ClassPrimaryConstructorParameter",
+                    kind: NodeKind.ClassPrimaryConstructorParameter,
                     declarationKind: "val",
-                    name: { kind: "Identifier", name: "y" },
-                    typeAnnotation: { kind: "Identifier", name: "number" }
+                    name: { kind: NodeKind.Identifier, name: "y" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 }
             ],
             members: []
@@ -2116,18 +2117,18 @@ describe("parseStatement", () => {
                 { language: "typescript" }
             )
         ).toEqual({
-            kind: "InterfaceStatement",
-            name: { kind: "Identifier", name: "ParsedArgs" },
+            kind: NodeKind.InterfaceStatement,
+            name: { kind: NodeKind.Identifier, name: "ParsedArgs" },
             members: [
                 {
-                    kind: "InterfacePropertyMember",
-                    name: { kind: "Identifier", name: "[string]" },
-                    typeAnnotation: { kind: "Identifier", name: "any" }
+                    kind: NodeKind.InterfacePropertyMember,
+                    name: { kind: NodeKind.Identifier, name: "[string]" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "any" }
                 },
                 {
-                    kind: "InterfacePropertyMember",
-                    name: { kind: "Identifier", name: "_" },
-                    typeAnnotation: { kind: "Identifier", name: "string[]" }
+                    kind: NodeKind.InterfacePropertyMember,
+                    name: { kind: NodeKind.Identifier, name: "_" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "string[]" }
                 }
             ]
         });
@@ -2135,46 +2136,46 @@ describe("parseStatement", () => {
 
     it("parses class statement without braces in vexa mode", () => {
         expect(parseStatement(tokenizeReader("class Point"))).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Point" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Point" },
             members: []
         });
 
         expect(parseStatement(tokenizeReader("class Point(val x: number, val y: number)"))).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Point" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Point" },
             primaryConstructorParameters: [
                 {
-                    kind: "ClassPrimaryConstructorParameter",
+                    kind: NodeKind.ClassPrimaryConstructorParameter,
                     declarationKind: "val",
-                    name: { kind: "Identifier", name: "x" },
-                    typeAnnotation: { kind: "Identifier", name: "number" }
+                    name: { kind: NodeKind.Identifier, name: "x" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 },
                 {
-                    kind: "ClassPrimaryConstructorParameter",
+                    kind: NodeKind.ClassPrimaryConstructorParameter,
                     declarationKind: "val",
-                    name: { kind: "Identifier", name: "y" },
-                    typeAnnotation: { kind: "Identifier", name: "number" }
+                    name: { kind: NodeKind.Identifier, name: "y" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 }
             ],
             members: []
         });
 
         expect(parseStatement(tokenizeReader("class Point(x: number, y: number)"))).toEqual({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Point" },
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Point" },
             primaryConstructorParameters: [
                 {
-                    kind: "ClassPrimaryConstructorParameter",
+                    kind: NodeKind.ClassPrimaryConstructorParameter,
                     declarationKind: "val",
-                    name: { kind: "Identifier", name: "x" },
-                    typeAnnotation: { kind: "Identifier", name: "number" }
+                    name: { kind: NodeKind.Identifier, name: "x" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 },
                 {
-                    kind: "ClassPrimaryConstructorParameter",
+                    kind: NodeKind.ClassPrimaryConstructorParameter,
                     declarationKind: "val",
-                    name: { kind: "Identifier", name: "y" },
-                    typeAnnotation: { kind: "Identifier", name: "number" }
+                    name: { kind: NodeKind.Identifier, name: "y" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 }
             ],
             members: []
@@ -2191,24 +2192,24 @@ describe("parseStatement", () => {
 
     it("treats 'val' as identifier in typescript parser mode", () => {
         expect(parseStatement(tokenizeReader("val = 1"), { language: "typescript" })).toEqual({
-            kind: "ExprStatement",
+            kind: NodeKind.ExprStatement,
             expression: {
-                kind: "AssignmentExpression",
+                kind: NodeKind.AssignmentExpression,
                 operator: "=",
-                left: { kind: "Identifier", name: "val" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "val" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             }
         });
     });
 
     it("treats 'fun' as identifier in typescript parser mode", () => {
         expect(parseStatement(tokenizeReader("fun = 1"), { language: "typescript" })).toEqual({
-            kind: "ExprStatement",
+            kind: NodeKind.ExprStatement,
             expression: {
-                kind: "AssignmentExpression",
+                kind: NodeKind.AssignmentExpression,
                 operator: "=",
-                left: { kind: "Identifier", name: "fun" },
-                right: { kind: "IntLiteral", value: 1 }
+                left: { kind: NodeKind.Identifier, name: "fun" },
+                right: { kind: NodeKind.IntLiteral, value: 1 }
             }
         });
     });
@@ -2220,27 +2221,27 @@ describe("parseStatement", () => {
                 { language: "typescript" }
             )
         ).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "function",
             declared: true,
-            name: { kind: "Identifier", name: "moment" },
+            name: { kind: NodeKind.Identifier, name: "moment" },
             parameters: [
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "inp" },
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "inp" },
                     optional: true,
-                    typeAnnotation: { kind: "Identifier", name: "moment.MomentInput" }
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "moment.MomentInput" }
                 },
                 {
-                    kind: "FunctionParameter",
-                    name: { kind: "Identifier", name: "strict" },
+                    kind: NodeKind.FunctionParameter,
+                    name: { kind: NodeKind.Identifier, name: "strict" },
                     optional: true,
-                    typeAnnotation: { kind: "Identifier", name: "boolean" }
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "boolean" }
                 }
             ],
-            returnType: { kind: "Identifier", name: "moment.Moment" },
+            returnType: { kind: NodeKind.Identifier, name: "moment.Moment" },
             missingBody: true,
-            body: { kind: "BlockStatement", body: [] }
+            body: { kind: NodeKind.BlockStatement, body: [] }
         });
     });
 
@@ -2253,13 +2254,13 @@ describe("parseStatement", () => {
         `.trimEnd()), { language: "typescript" });
 
         expect(program.body).toMatchObject([
-            { kind: "TypeAliasStatement", declared: true, name: { name: "Id" }, targetType: { name: "string" } },
-            { kind: "ClassStatement", declared: true, abstract: true, name: { name: "Service" } },
-            { kind: "ExportStatement", declaration: { kind: "VarStatement", declared: true, name: { name: "service" } } },
+            { kind: NodeKind.TypeAliasStatement, declared: true, name: { name: "Id" }, targetType: { name: "string" } },
+            { kind: NodeKind.ClassStatement, declared: true, abstract: true, name: { name: "Service" } },
+            { kind: NodeKind.ExportStatement, declaration: { kind: NodeKind.VarStatement, declared: true, name: { name: "service" } } },
             {
-                kind: "ExportStatement",
+                kind: NodeKind.ExportStatement,
                 declaration: {
-                    kind: "FunctionStatement",
+                    kind: NodeKind.FunctionStatement,
                     declared: true,
                     name: { name: "create" },
                     parameters: [{ name: { name: "id" }, typeAnnotation: { name: "Id" } }],
@@ -2273,15 +2274,15 @@ describe("parseStatement", () => {
         expect(
             parseStatement(tokenizeReader('declare module "pixi.js" { export = PIXI; }'), { language: "typescript" })
         ).toEqual({
-            kind: "NamespaceStatement",
+            kind: NodeKind.NamespaceStatement,
             declared: true,
             declarationKind: "module",
-            externalModuleName: { kind: "StringLiteral", value: "pixi.js" },
+            externalModuleName: { kind: NodeKind.StringLiteral, value: "pixi.js" },
             body: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [{
-                    kind: "ExprStatement",
-                    expression: { kind: "Identifier", name: "PIXI" }
+                    kind: NodeKind.ExprStatement,
+                    expression: { kind: NodeKind.Identifier, name: "PIXI" }
                 }]
             }
         });
@@ -2289,10 +2290,10 @@ describe("parseStatement", () => {
 
     it("parses runtime namespace declarations", () => {
         expect(parseStatement(tokenizeReader("namespace Tools { export const version = 1 }"))).toMatchObject({
-            kind: "NamespaceStatement",
+            kind: NodeKind.NamespaceStatement,
             declarationKind: "namespace",
-            names: [{ kind: "Identifier", name: "Tools" }],
-            body: { body: [{ kind: "ExportStatement", declaration: { kind: "VarStatement" } }] }
+            names: [{ kind: NodeKind.Identifier, name: "Tools" }],
+            body: { body: [{ kind: NodeKind.ExportStatement, declaration: { kind: NodeKind.VarStatement } }] }
         });
     });
 
@@ -2300,33 +2301,33 @@ describe("parseStatement", () => {
         expect(
             parseStatement(tokenizeReader("declare namespace Company.Tools {\nexport interface Config { name: string }\nexport const version: string;\n}"), { language: "typescript" })
         ).toEqual({
-            kind: "NamespaceStatement",
+            kind: NodeKind.NamespaceStatement,
             declared: true,
             declarationKind: "namespace",
             names: [
-                { kind: "Identifier", name: "Company" },
-                { kind: "Identifier", name: "Tools" }
+                { kind: NodeKind.Identifier, name: "Company" },
+                { kind: NodeKind.Identifier, name: "Tools" }
             ],
             body: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "ExportStatement",
+                        kind: NodeKind.ExportStatement,
                         declaration: {
-                            kind: "InterfaceStatement",
+                            kind: NodeKind.InterfaceStatement,
                             declared: true,
-                            name: { kind: "Identifier", name: "Config" },
-                            members: [{ kind: "InterfacePropertyMember", name: { kind: "Identifier", name: "name" }, typeAnnotation: { kind: "Identifier", name: "string" } }]
+                            name: { kind: NodeKind.Identifier, name: "Config" },
+                            members: [{ kind: NodeKind.InterfacePropertyMember, name: { kind: NodeKind.Identifier, name: "name" }, typeAnnotation: { kind: NodeKind.Identifier, name: "string" } }]
                         }
                     },
                     {
-                        kind: "ExportStatement",
+                        kind: NodeKind.ExportStatement,
                         declaration: {
-                            kind: "VarStatement",
+                            kind: NodeKind.VarStatement,
                             declarationKind: "const",
                             declared: true,
-                            name: { kind: "Identifier", name: "version" },
-                            typeAnnotation: { kind: "Identifier", name: "string" }
+                            name: { kind: NodeKind.Identifier, name: "version" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
                         }
                     }
                 ]
@@ -2338,26 +2339,26 @@ describe("parseStatement", () => {
         expect(
             parseStatement(tokenizeReader("declare global {\ninterface Iterator<T> {}\ndeclare var Iterator: IteratorConstructor\n}"), { language: "typescript" })
         ).toEqual({
-            kind: "NamespaceStatement",
+            kind: NodeKind.NamespaceStatement,
             declared: true,
             globalAugmentation: true,
             declarationKind: "namespace",
             body: {
-                kind: "BlockStatement",
+                kind: NodeKind.BlockStatement,
                 body: [
                     {
-                        kind: "InterfaceStatement",
+                        kind: NodeKind.InterfaceStatement,
                         declared: true,
-                        name: { kind: "Identifier", name: "Iterator" },
-                        typeParameters: [{ kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }],
+                        name: { kind: NodeKind.Identifier, name: "Iterator" },
+                        typeParameters: [{ kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }],
                         members: []
                     },
                     {
-                        kind: "VarStatement",
+                        kind: NodeKind.VarStatement,
                         declared: true,
                         declarationKind: "var",
-                        name: { kind: "Identifier", name: "Iterator" },
-                        typeAnnotation: { kind: "Identifier", name: "IteratorConstructor" }
+                        name: { kind: NodeKind.Identifier, name: "Iterator" },
+                        typeAnnotation: { kind: NodeKind.Identifier, name: "IteratorConstructor" }
                     }
                 ]
             }
@@ -2377,17 +2378,17 @@ describe("parseStatement", () => {
                 { language: "typescript" }
             )
         ).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "function",
             declared: true,
-            name: { kind: "Identifier", name: "identity" },
+            name: { kind: NodeKind.Identifier, name: "identity" },
             typeParameters: [
-                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }
             ],
-            parameters: [{ kind: "FunctionParameter", name: { kind: "Identifier", name: "value" }, typeAnnotation: { kind: "Identifier", name: "T" } }],
-            returnType: { kind: "Identifier", name: "T" },
+            parameters: [{ kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "value" }, typeAnnotation: { kind: NodeKind.Identifier, name: "T" } }],
+            returnType: { kind: NodeKind.Identifier, name: "T" },
             missingBody: true,
-            body: { kind: "BlockStatement", body: [] }
+            body: { kind: NodeKind.BlockStatement, body: [] }
         });
     });
 
@@ -2398,17 +2399,17 @@ describe("parseStatement", () => {
                 { language: "vexa" }
             )
         ).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "function",
             declared: true,
-            name: { kind: "Identifier", name: "moment" },
+            name: { kind: NodeKind.Identifier, name: "moment" },
             parameters: [
-                { kind: "FunctionParameter", name: { kind: "Identifier", name: "inp" }, optional: true, typeAnnotation: { kind: "Identifier", name: "moment.MomentInput" } },
-                { kind: "FunctionParameter", name: { kind: "Identifier", name: "strict" }, optional: true, typeAnnotation: { kind: "Identifier", name: "boolean" } }
+                { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "inp" }, optional: true, typeAnnotation: { kind: NodeKind.Identifier, name: "moment.MomentInput" } },
+                { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "strict" }, optional: true, typeAnnotation: { kind: NodeKind.Identifier, name: "boolean" } }
             ],
-            returnType: { kind: "Identifier", name: "moment.Moment" },
+            returnType: { kind: NodeKind.Identifier, name: "moment.Moment" },
             missingBody: true,
-            body: { kind: "BlockStatement", body: [] }
+            body: { kind: NodeKind.BlockStatement, body: [] }
         });
     });
 
@@ -2419,17 +2420,17 @@ describe("parseStatement", () => {
                 { language: "vexa" }
             )
         ).toEqual({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             declarationKind: "fun",
             declared: true,
-            name: { kind: "Identifier", name: "moment" },
+            name: { kind: NodeKind.Identifier, name: "moment" },
             parameters: [
-                { kind: "FunctionParameter", name: { kind: "Identifier", name: "inp" }, optional: true, typeAnnotation: { kind: "Identifier", name: "moment.MomentInput" } },
-                { kind: "FunctionParameter", name: { kind: "Identifier", name: "strict" }, optional: true, typeAnnotation: { kind: "Identifier", name: "boolean" } }
+                { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "inp" }, optional: true, typeAnnotation: { kind: NodeKind.Identifier, name: "moment.MomentInput" } },
+                { kind: NodeKind.FunctionParameter, name: { kind: NodeKind.Identifier, name: "strict" }, optional: true, typeAnnotation: { kind: NodeKind.Identifier, name: "boolean" } }
             ],
-            returnType: { kind: "Identifier", name: "moment.Moment" },
+            returnType: { kind: NodeKind.Identifier, name: "moment.Moment" },
             missingBody: true,
-            body: { kind: "BlockStatement", body: [] }
+            body: { kind: NodeKind.BlockStatement, body: [] }
         });
     });
 
@@ -2440,21 +2441,21 @@ describe("parseStatement", () => {
                 { language: "vexa" }
             )
         ).toEqual({
-            kind: "ClassStatement",
+            kind: NodeKind.ClassStatement,
             declared: true,
-            name: { kind: "Identifier", name: "Console" },
+            name: { kind: NodeKind.Identifier, name: "Console" },
             members: [
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "log" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "log" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "a" },
-                            typeAnnotation: { kind: "Identifier", name: "number" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "a" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                         }
                     ],
-                    body: { kind: "BlockStatement", body: [] }
+                    body: { kind: NodeKind.BlockStatement, body: [] }
                 }
             ]
         });
@@ -2468,28 +2469,28 @@ describe("parseStatement", () => {
                 )
             )
         ).toEqual({
-            kind: "InterfaceStatement",
+            kind: NodeKind.InterfaceStatement,
             declared: true,
-            name: { kind: "Identifier", name: "Repo" },
-            typeParameters: [{ kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }],
-            extendsTypes: [{ kind: "Identifier", name: "Iterable<T>" }],
+            name: { kind: NodeKind.Identifier, name: "Repo" },
+            typeParameters: [{ kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }],
+            extendsTypes: [{ kind: NodeKind.Identifier, name: "Iterable<T>" }],
             members: [
                 {
-                    kind: "InterfaceMethodMember",
-                    name: { kind: "Identifier", name: "find" },
+                    kind: NodeKind.InterfaceMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "find" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "id" },
-                            typeAnnotation: { kind: "Identifier", name: "int" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "id" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "int" }
                         }
                     ],
-                    returnType: { kind: "Identifier", name: "T" }
+                    returnType: { kind: NodeKind.Identifier, name: "T" }
                 },
                 {
-                    kind: "InterfacePropertyMember",
-                    name: { kind: "Identifier", name: "items" },
-                    typeAnnotation: { kind: "Identifier", name: "T[]" }
+                    kind: NodeKind.InterfacePropertyMember,
+                    name: { kind: NodeKind.Identifier, name: "items" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "T[]" }
                 }
             ]
         });
@@ -2502,22 +2503,22 @@ describe("parseStatement", () => {
                 { language: "typescript" }
             )
         ).toEqual({
-            kind: "InterfaceStatement",
-            name: { kind: "Identifier", name: "Stream" },
-            typeParameters: [{ kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }],
+            kind: NodeKind.InterfaceStatement,
+            name: { kind: NodeKind.Identifier, name: "Stream" },
+            typeParameters: [{ kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }],
             members: [
                 {
-                    kind: "InterfaceMethodMember",
+                    kind: NodeKind.InterfaceMethodMember,
                     computed: true,
                     computedKey: {
-                        kind: "MemberExpression",
-                        object: { kind: "Identifier", name: "Symbol" },
-                        property: { kind: "Identifier", name: "asyncIterator" },
+                        kind: NodeKind.MemberExpression,
+                        object: { kind: NodeKind.Identifier, name: "Symbol" },
+                        property: { kind: NodeKind.Identifier, name: "asyncIterator" },
                         computed: false
                     },
-                    name: { kind: "Identifier", name: "[Symbol.asyncIterator]" },
+                    name: { kind: NodeKind.Identifier, name: "[Symbol.asyncIterator]" },
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "AsyncIterator<T>" }
+                    returnType: { kind: NodeKind.Identifier, name: "AsyncIterator<T>" }
                 }
             ]
         });
@@ -2529,27 +2530,27 @@ describe("parseStatement", () => {
                 tokenizeReader("interface Repo {\nval size: int\nfun get(id: string): string\n}")
             )
         ).toEqual({
-            kind: "InterfaceStatement",
-            name: { kind: "Identifier", name: "Repo" },
+            kind: NodeKind.InterfaceStatement,
+            name: { kind: NodeKind.Identifier, name: "Repo" },
             members: [
                 {
-                    kind: "InterfacePropertyMember",
+                    kind: NodeKind.InterfacePropertyMember,
                     declarationKind: "val",
-                    name: { kind: "Identifier", name: "size" },
-                    typeAnnotation: { kind: "Identifier", name: "int" }
+                    name: { kind: NodeKind.Identifier, name: "size" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "int" }
                 },
                 {
-                    kind: "InterfaceMethodMember",
+                    kind: NodeKind.InterfaceMethodMember,
                     declarationKind: "fun",
-                    name: { kind: "Identifier", name: "get" },
+                    name: { kind: NodeKind.Identifier, name: "get" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "id" },
-                            typeAnnotation: { kind: "Identifier", name: "string" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "id" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "string" }
                         }
                     ],
-                    returnType: { kind: "Identifier", name: "string" }
+                    returnType: { kind: NodeKind.Identifier, name: "string" }
                 }
             ]
         });
@@ -2557,67 +2558,67 @@ describe("parseStatement", () => {
 
     it("parses 'declare var/let/const/val' declarations", () => {
         expect(parseStatement(tokenizeReader("declare var console: Console"), { language: "vexa" })).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declared: true,
             declarationKind: "var",
-            name: { kind: "Identifier", name: "console" },
-            typeAnnotation: { kind: "Identifier", name: "Console" }
+            name: { kind: NodeKind.Identifier, name: "console" },
+            typeAnnotation: { kind: NodeKind.Identifier, name: "Console" }
         });
 
         expect(parseStatement(tokenizeReader("declare let value = 1"), { language: "vexa" })).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declared: true,
             declarationKind: "let",
-            name: { kind: "Identifier", name: "value" },
-            initializer: { kind: "IntLiteral", value: 1 }
+            name: { kind: NodeKind.Identifier, name: "value" },
+            initializer: { kind: NodeKind.IntLiteral, value: 1 }
         });
 
         expect(parseStatement(tokenizeReader("declare const ready: boolean"), { language: "typescript" })).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declared: true,
             declarationKind: "const",
-            name: { kind: "Identifier", name: "ready" },
-            typeAnnotation: { kind: "Identifier", name: "boolean" }
+            name: { kind: NodeKind.Identifier, name: "ready" },
+            typeAnnotation: { kind: NodeKind.Identifier, name: "boolean" }
         });
 
         expect(parseStatement(tokenizeReader("declare val total: number"), { language: "vexa" })).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declared: true,
             declarationKind: "val",
-            name: { kind: "Identifier", name: "total" },
-            typeAnnotation: { kind: "Identifier", name: "number" }
+            name: { kind: NodeKind.Identifier, name: "total" },
+            typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
         });
     });
 
 
     it("parses extension properties", () => {
         expect(parseStatement(tokenizeReader("val number.milliseconds => Duration(this)"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "val",
-            receiverType: { kind: "Identifier", name: "number" },
-            name: { kind: "Identifier", name: "milliseconds" },
+            receiverType: { kind: NodeKind.Identifier, name: "number" },
+            name: { kind: NodeKind.Identifier, name: "milliseconds" },
             initializer: {
-                kind: "CallExpression",
-                callee: { kind: "Identifier", name: "Duration" },
-                arguments: [{ kind: "Identifier", name: "this" }]
+                kind: NodeKind.CallExpression,
+                callee: { kind: NodeKind.Identifier, name: "Duration" },
+                args: [{ kind: NodeKind.Identifier, name: "this" }]
             }
         });
 
         expect(parseStatement(tokenizeReader("val number.seconds: TimeSpan => TimeSpan(this * 1000)"))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "val",
-            receiverType: { kind: "Identifier", name: "number" },
-            name: { kind: "Identifier", name: "seconds" },
-            typeAnnotation: { kind: "Identifier", name: "TimeSpan" },
+            receiverType: { kind: NodeKind.Identifier, name: "number" },
+            name: { kind: NodeKind.Identifier, name: "seconds" },
+            typeAnnotation: { kind: NodeKind.Identifier, name: "TimeSpan" },
             initializer: {
-                kind: "CallExpression",
-                callee: { kind: "Identifier", name: "TimeSpan" },
-                arguments: [
+                kind: NodeKind.CallExpression,
+                callee: { kind: NodeKind.Identifier, name: "TimeSpan" },
+                args: [
                     {
-                        kind: "BinaryExpression",
+                        kind: NodeKind.BinaryExpression,
                         operator: "*",
-                        left: { kind: "Identifier", name: "this" },
-                        right: { kind: "IntLiteral", value: 1000 }
+                        left: { kind: NodeKind.Identifier, name: "this" },
+                        right: { kind: NodeKind.IntLiteral, value: 1000 }
                     }
                 ]
             }
@@ -2629,75 +2630,75 @@ describe("parseStatement", () => {
                 set { x = newValue.x; y = newValue.y }
             }
         `.trim()))).toEqual({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "var",
-            receiverType: { kind: "Identifier", name: "View" },
-            name: { kind: "Identifier", name: "point" },
-            typeAnnotation: { kind: "Identifier", name: "Vec2" },
+            receiverType: { kind: NodeKind.Identifier, name: "View" },
+            name: { kind: NodeKind.Identifier, name: "point" },
+            typeAnnotation: { kind: NodeKind.Identifier, name: "Vec2" },
             accessors: [
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "point" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "point" },
                     accessorKind: "get",
                     parameters: [],
-                    returnType: { kind: "Identifier", name: "Vec2" },
+                    returnType: { kind: NodeKind.Identifier, name: "Vec2" },
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [{
-                            kind: "ReturnStatement",
+                            kind: NodeKind.ReturnStatement,
                             expression: {
-                                kind: "CallExpression",
-                                callee: { kind: "Identifier", name: "Vec2" },
-                                arguments: [
-                                    { kind: "Identifier", name: "x" },
-                                    { kind: "Identifier", name: "y" }
+                                kind: NodeKind.CallExpression,
+                                callee: { kind: NodeKind.Identifier, name: "Vec2" },
+                                args: [
+                                    { kind: NodeKind.Identifier, name: "x" },
+                                    { kind: NodeKind.Identifier, name: "y" }
                                 ]
                             }
                         }]
                     }
                 },
                 {
-                    kind: "ClassMethodMember",
-                    name: { kind: "Identifier", name: "point" },
+                    kind: NodeKind.ClassMethodMember,
+                    name: { kind: NodeKind.Identifier, name: "point" },
                     accessorKind: "set",
                     parameters: [{
-                        kind: "FunctionParameter",
-                        name: { kind: "Identifier", name: "newValue" },
-                        typeAnnotation: { kind: "Identifier", name: "Vec2" }
+                        kind: NodeKind.FunctionParameter,
+                        name: { kind: NodeKind.Identifier, name: "newValue" },
+                        typeAnnotation: { kind: NodeKind.Identifier, name: "Vec2" }
                     }],
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "ExprStatement",
+                                kind: NodeKind.ExprStatement,
                                 expression: {
-                                    kind: "AssignmentExpression",
+                                    kind: NodeKind.AssignmentExpression,
                                     operator: "=",
                                     left: {
-                                        kind: "Identifier",
+                                        kind: NodeKind.Identifier,
                                         name: "x"
                                     },
                                     right: {
-                                        kind: "MemberExpression",
-                                        object: { kind: "Identifier", name: "newValue" },
-                                        property: { kind: "Identifier", name: "x" },
+                                        kind: NodeKind.MemberExpression,
+                                        object: { kind: NodeKind.Identifier, name: "newValue" },
+                                        property: { kind: NodeKind.Identifier, name: "x" },
                                         computed: false
                                     }
                                 }
                             },
                             {
-                                kind: "ExprStatement",
+                                kind: NodeKind.ExprStatement,
                                 expression: {
-                                    kind: "AssignmentExpression",
+                                    kind: NodeKind.AssignmentExpression,
                                     operator: "=",
                                     left: {
-                                        kind: "Identifier",
+                                        kind: NodeKind.Identifier,
                                         name: "y"
                                     },
                                     right: {
-                                        kind: "MemberExpression",
-                                        object: { kind: "Identifier", name: "newValue" },
-                                        property: { kind: "Identifier", name: "y" },
+                                        kind: NodeKind.MemberExpression,
+                                        object: { kind: NodeKind.Identifier, name: "newValue" },
+                                        property: { kind: NodeKind.Identifier, name: "y" },
                                         computed: false
                                     }
                                 }
@@ -2712,98 +2713,98 @@ describe("parseStatement", () => {
 
     it("parses export declarations and export lists", () => {
         expect(parseStatement(tokenizeReader("export const value: number = 1"))).toEqual({
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             declaration: {
-                kind: "VarStatement",
+                kind: NodeKind.VarStatement,
                 declarationKind: "const",
-                name: { kind: "Identifier", name: "value" },
-                typeAnnotation: { kind: "Identifier", name: "number" },
-                initializer: { kind: "IntLiteral", value: 1 }
+                name: { kind: NodeKind.Identifier, name: "value" },
+                typeAnnotation: { kind: NodeKind.Identifier, name: "number" },
+                initializer: { kind: NodeKind.IntLiteral, value: 1 }
             }
         });
 
         expect(parseStatement(tokenizeReader("export { value as renamed, other } from \"./mod\""))).toEqual({
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             specifiers: [
                 {
-                    kind: "ExportSpecifier",
-                    local: { kind: "Identifier", name: "value" },
-                    exported: { kind: "Identifier", name: "renamed" }
+                    kind: NodeKind.ExportSpecifier,
+                    local: { kind: NodeKind.Identifier, name: "value" },
+                    exported: { kind: NodeKind.Identifier, name: "renamed" }
                 },
                 {
-                    kind: "ExportSpecifier",
-                    exported: { kind: "Identifier", name: "other" }
+                    kind: NodeKind.ExportSpecifier,
+                    exported: { kind: NodeKind.Identifier, name: "other" }
                 }
             ],
-            from: { kind: "StringLiteral", value: "./mod" }
+            from: { kind: NodeKind.StringLiteral, value: "./mod" }
         });
 
         expect(parseStatement(tokenizeReader("export * from \"./all\""))).toEqual({
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             exportAll: true,
-            from: { kind: "StringLiteral", value: "./all" }
+            from: { kind: NodeKind.StringLiteral, value: "./all" }
         });
 
         expect(parseStatement(tokenizeReader("export * as widgets from \"./all\""))).toEqual({
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             exportAll: true,
-            namespaceExport: { kind: "Identifier", name: "widgets" },
-            from: { kind: "StringLiteral", value: "./all" }
+            namespaceExport: { kind: NodeKind.Identifier, name: "widgets" },
+            from: { kind: NodeKind.StringLiteral, value: "./all" }
         });
 
         expect(parseStatement(tokenizeReader("export as namespace MyLib"))).toEqual({
-            kind: "ExportStatement",
-            namespaceExport: { kind: "Identifier", name: "MyLib" }
+            kind: NodeKind.ExportStatement,
+            namespaceExport: { kind: NodeKind.Identifier, name: "MyLib" }
         });
 
         expect(parseStatement(tokenizeReader("export async fun load(): Promise<int> { return Promise.resolve(1) }"))).toMatchObject({
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             declaration: {
-                kind: "FunctionStatement",
+                kind: NodeKind.FunctionStatement,
                 async: true,
-                name: { kind: "Identifier", name: "load" }
+                name: { kind: NodeKind.Identifier, name: "load" }
             }
         });
 
         expect(parseStatement(tokenizeReader("export sync fun loadSync(): int { return 1 }"))).toMatchObject({
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             declaration: {
-                kind: "FunctionStatement",
+                kind: NodeKind.FunctionStatement,
                 sync: true,
-                name: { kind: "Identifier", name: "loadSync" }
+                name: { kind: NodeKind.Identifier, name: "loadSync" }
             }
         });
     });
 
     it("parses default and type-only exports", () => {
         expect(parseStatement(tokenizeReader("export default value"))).toEqual({
-            kind: "ExportStatement",
-            default: true,
+            kind: NodeKind.ExportStatement,
+            isDefault: true,
             declaration: {
-                kind: "ExprStatement",
-                expression: { kind: "Identifier", name: "value" }
+                kind: NodeKind.ExprStatement,
+                expression: { kind: NodeKind.Identifier, name: "value" }
             }
         });
 
         expect(parseStatement(tokenizeReader("export type Name = string"))).toEqual({
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             declaration: {
-                kind: "TypeAliasStatement",
-                name: { kind: "Identifier", name: "Name" },
-                targetType: { kind: "Identifier", name: "string" }
+                kind: NodeKind.TypeAliasStatement,
+                name: { kind: NodeKind.Identifier, name: "Name" },
+                targetType: { kind: NodeKind.Identifier, name: "string" }
             }
         });
 
         expect(parseStatement(tokenizeReader("export type { Name } from \"./types\""))).toEqual({
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             typeOnly: true,
             specifiers: [
                 {
-                    kind: "ExportSpecifier",
-                    exported: { kind: "Identifier", name: "Name" }
+                    kind: NodeKind.ExportSpecifier,
+                    exported: { kind: NodeKind.Identifier, name: "Name" }
                 }
             ],
-            from: { kind: "StringLiteral", value: "./types" }
+            from: { kind: NodeKind.StringLiteral, value: "./types" }
         });
     });
 
@@ -2815,158 +2816,158 @@ describe("parseStatement", () => {
 
         expect(program.body).toHaveLength(2);
         expect(program.body[0]).toMatchObject({
-            kind: "FunctionStatement",
-            name: { kind: "Identifier", name: "first" }
+            kind: NodeKind.FunctionStatement,
+            name: { kind: NodeKind.Identifier, name: "first" }
         });
         expect(program.body[1]).toMatchObject({
-            kind: "FunctionStatement",
-            name: { kind: "Identifier", name: "second" }
+            kind: NodeKind.FunctionStatement,
+            name: { kind: NodeKind.Identifier, name: "second" }
         });
     });
 
     it("parses TypeScript function names that use '$' identifiers", () => {
         expect(parseStatement(tokenizeReader("function $() {}"), { language: "typescript" })).toMatchObject({
-            kind: "FunctionStatement",
-            name: { kind: "Identifier", name: "$" }
+            kind: NodeKind.FunctionStatement,
+            name: { kind: NodeKind.Identifier, name: "$" }
         });
     });
 
     it("parses named import statements", () => {
         expect(parseStatement(tokenizeReader("import { Point, Demo } from \"./a\""))).toEqual({
-            kind: "ImportStatement",
+            kind: NodeKind.ImportStatement,
             specifiers: [
                 {
-                    kind: "ImportSpecifier",
-                    imported: { kind: "Identifier", name: "Point" }
+                    kind: NodeKind.ImportSpecifier,
+                    imported: { kind: NodeKind.Identifier, name: "Point" }
                 },
                 {
-                    kind: "ImportSpecifier",
-                    imported: { kind: "Identifier", name: "Demo" }
+                    kind: NodeKind.ImportSpecifier,
+                    imported: { kind: NodeKind.Identifier, name: "Demo" }
                 }
             ],
-            from: { kind: "StringLiteral", value: "./a" }
+            from: { kind: NodeKind.StringLiteral, value: "./a" }
         });
     });
 
     it("parses index operator overloads in named import specifiers", () => {
         expect(parseStatement(tokenizeReader("import { operator[], operator[]= } from \"./grid\""))).toMatchObject({
-            kind: "ImportStatement",
+            kind: NodeKind.ImportStatement,
             specifiers: [
-                { kind: "ImportSpecifier", imported: { kind: "Identifier", name: "operator[]" } },
-                { kind: "ImportSpecifier", imported: { kind: "Identifier", name: "operator[]=" } }
+                { kind: NodeKind.ImportSpecifier, imported: { kind: NodeKind.Identifier, name: "operator[]" } },
+                { kind: NodeKind.ImportSpecifier, imported: { kind: NodeKind.Identifier, name: "operator[]=" } }
             ],
-            from: { kind: "StringLiteral", value: "./grid" }
+            from: { kind: NodeKind.StringLiteral, value: "./grid" }
         });
     });
 
     it("parses inline type-only import and export specifiers", () => {
         expect(parseStatement(tokenizeReader("import { type AnalysisType, typeToString } from \"./types\""))).toEqual({
-            kind: "ImportStatement",
+            kind: NodeKind.ImportStatement,
             specifiers: [
                 {
-                    kind: "ImportSpecifier",
-                    imported: { kind: "Identifier", name: "AnalysisType" },
+                    kind: NodeKind.ImportSpecifier,
+                    imported: { kind: NodeKind.Identifier, name: "AnalysisType" },
                     typeOnly: true
                 },
                 {
-                    kind: "ImportSpecifier",
-                    imported: { kind: "Identifier", name: "typeToString" }
+                    kind: NodeKind.ImportSpecifier,
+                    imported: { kind: NodeKind.Identifier, name: "typeToString" }
                 }
             ],
-            from: { kind: "StringLiteral", value: "./types" }
+            from: { kind: NodeKind.StringLiteral, value: "./types" }
         });
 
         expect(parseStatement(tokenizeReader("export { type AnalysisType, typeToString } from \"./types\""))).toEqual({
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             specifiers: [
                 {
-                    kind: "ExportSpecifier",
-                    exported: { kind: "Identifier", name: "AnalysisType" },
+                    kind: NodeKind.ExportSpecifier,
+                    exported: { kind: NodeKind.Identifier, name: "AnalysisType" },
                     typeOnly: true
                 },
                 {
-                    kind: "ExportSpecifier",
-                    exported: { kind: "Identifier", name: "typeToString" }
+                    kind: NodeKind.ExportSpecifier,
+                    exported: { kind: NodeKind.Identifier, name: "typeToString" }
                 }
             ],
-            from: { kind: "StringLiteral", value: "./types" }
+            from: { kind: NodeKind.StringLiteral, value: "./types" }
         });
     });
 
     it("parses operator overloads in named import specifiers", () => {
         expect(parseStatement(tokenizeReader("import { Point, operator+ } from \"./other\""))).toEqual({
-            kind: "ImportStatement",
+            kind: NodeKind.ImportStatement,
             specifiers: [
                 {
-                    kind: "ImportSpecifier",
-                    imported: { kind: "Identifier", name: "Point" }
+                    kind: NodeKind.ImportSpecifier,
+                    imported: { kind: NodeKind.Identifier, name: "Point" }
                 },
                 {
-                    kind: "ImportSpecifier",
-                    imported: { kind: "Identifier", name: "operator+" }
+                    kind: NodeKind.ImportSpecifier,
+                    imported: { kind: NodeKind.Identifier, name: "operator+" }
                 }
             ],
-            from: { kind: "StringLiteral", value: "./other" }
+            from: { kind: NodeKind.StringLiteral, value: "./other" }
         });
 
         expect(parseStatement(tokenizeReader("import { operator- } from \"./other\""))).toEqual({
-            kind: "ImportStatement",
+            kind: NodeKind.ImportStatement,
             specifiers: [
                 {
-                    kind: "ImportSpecifier",
-                    imported: { kind: "Identifier", name: "operator-" }
+                    kind: NodeKind.ImportSpecifier,
+                    imported: { kind: NodeKind.Identifier, name: "operator-" }
                 }
             ],
-            from: { kind: "StringLiteral", value: "./other" }
+            from: { kind: NodeKind.StringLiteral, value: "./other" }
         });
     });
 
     it("parses default, namespace, side-effect, type-only, and aliased import forms", () => {
         expect(parseStatement(tokenizeReader("import React from \"react\""))).toEqual({
-            kind: "ImportStatement",
+            kind: NodeKind.ImportStatement,
             specifiers: [],
-            defaultImport: { kind: "Identifier", name: "React" },
-            from: { kind: "StringLiteral", value: "react" }
+            defaultImport: { kind: NodeKind.Identifier, name: "React" },
+            from: { kind: NodeKind.StringLiteral, value: "react" }
         });
 
         expect(parseStatement(tokenizeReader("import * as fs from \"fs\""))).toEqual({
-            kind: "ImportStatement",
+            kind: NodeKind.ImportStatement,
             specifiers: [],
-            namespaceImport: { kind: "Identifier", name: "fs" },
-            from: { kind: "StringLiteral", value: "fs" }
+            namespaceImport: { kind: NodeKind.Identifier, name: "fs" },
+            from: { kind: NodeKind.StringLiteral, value: "fs" }
         });
 
         expect(parseStatement(tokenizeReader("import \"./setup\""))).toEqual({
-            kind: "ImportStatement",
+            kind: NodeKind.ImportStatement,
             specifiers: [],
             sideEffectOnly: true,
-            from: { kind: "StringLiteral", value: "./setup" }
+            from: { kind: NodeKind.StringLiteral, value: "./setup" }
         });
 
         expect(parseStatement(tokenizeReader("import type { Point as LocalPoint } from \"./a\""))).toEqual({
-            kind: "ImportStatement",
+            kind: NodeKind.ImportStatement,
             specifiers: [
                 {
-                    kind: "ImportSpecifier",
-                    imported: { kind: "Identifier", name: "Point" },
-                    local: { kind: "Identifier", name: "LocalPoint" }
+                    kind: NodeKind.ImportSpecifier,
+                    imported: { kind: NodeKind.Identifier, name: "Point" },
+                    local: { kind: NodeKind.Identifier, name: "LocalPoint" }
                 }
             ],
             typeOnly: true,
-            from: { kind: "StringLiteral", value: "./a" }
+            from: { kind: NodeKind.StringLiteral, value: "./a" }
         });
 
         expect(parseStatement(tokenizeReader("import React, { useState as useLocalState } from \"react\""))).toEqual({
-            kind: "ImportStatement",
+            kind: NodeKind.ImportStatement,
             specifiers: [
                 {
-                    kind: "ImportSpecifier",
-                    imported: { kind: "Identifier", name: "useState" },
-                    local: { kind: "Identifier", name: "useLocalState" }
+                    kind: NodeKind.ImportSpecifier,
+                    imported: { kind: NodeKind.Identifier, name: "useState" },
+                    local: { kind: NodeKind.Identifier, name: "useLocalState" }
                 }
             ],
-            defaultImport: { kind: "Identifier", name: "React" },
-            from: { kind: "StringLiteral", value: "react" }
+            defaultImport: { kind: NodeKind.Identifier, name: "React" },
+            from: { kind: NodeKind.StringLiteral, value: "react" }
         });
     });
 });

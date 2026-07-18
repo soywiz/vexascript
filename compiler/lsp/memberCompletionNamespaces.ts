@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { ClassStatement, ExportStatement, FunctionStatement, ImportStatement, NamespaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
@@ -11,18 +12,18 @@ export async function findNodeModuleNamespaceForTypeName(
   options: CompletionRequestOptions
 ): Promise<NamespaceStatement | null> {
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") continue;
+    if (statement.kind !== NodeKind.ImportStatement) continue;
     const importStatement = statement as ImportStatement;
     if (importStatement.from.value.startsWith(".")) continue;
     const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value, { vfs: options.vfs });
     if (!typings || typings.defaultExportName !== typeName) continue;
     for (const decl of typings.declarations) {
       const candidate =
-        decl.kind === "ExportStatement"
+        decl.kind === NodeKind.ExportStatement
           ? (decl as { declaration?: Statement }).declaration ?? decl
           : decl;
       if (
-        candidate.kind === "NamespaceStatement" &&
+        candidate.kind === NodeKind.NamespaceStatement &&
         (candidate as NamespaceStatement).names?.[0]?.name === typeName
       ) {
         return candidate as NamespaceStatement;
@@ -38,8 +39,8 @@ export function findNamespaceByPath(ast: Program, path: string[]): NamespaceStat
   for (const segment of path) {
     found = null;
     for (const statement of statements) {
-      const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
-      if (candidate?.kind === "NamespaceStatement" && (candidate as NamespaceStatement).names?.[0]?.name === segment) {
+      const candidate = statement.kind === NodeKind.ExportStatement ? (statement as ExportStatement).declaration : statement;
+      if (candidate?.kind === NodeKind.NamespaceStatement && (candidate as NamespaceStatement).names?.[0]?.name === segment) {
         found = candidate as NamespaceStatement;
         break;
       }
@@ -59,18 +60,18 @@ export function buildNamespaceMemberCompletionItems(namespaceStatement: Namespac
     items.push({ label, kind, detail });
   };
   for (const statement of namespaceStatement.body.body) {
-    if (statement.kind !== "ExportStatement") continue;
+    if (statement.kind !== NodeKind.ExportStatement) continue;
     const exported = statement as ExportStatement;
     const declaration = exported.declaration;
-    if (declaration?.kind === "VarStatement") {
+    if (declaration?.kind === NodeKind.VarStatement) {
       const variable = declaration as VarStatement;
       const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
       for (const binding of bindings) push(binding.name, CompletionItemKind.Variable, "Namespace variable");
-    } else if (declaration?.kind === "FunctionStatement") {
+    } else if (declaration?.kind === NodeKind.FunctionStatement) {
       push((declaration as FunctionStatement).name.name, CompletionItemKind.Function, "Namespace function");
-    } else if (declaration?.kind === "ClassStatement") {
+    } else if (declaration?.kind === NodeKind.ClassStatement) {
       push((declaration as ClassStatement).name.name, CompletionItemKind.Class, "Namespace class");
-    } else if (declaration?.kind === "NamespaceStatement") {
+    } else if (declaration?.kind === NodeKind.NamespaceStatement) {
       const name = (declaration as NamespaceStatement).names?.[0]?.name;
       if (name) push(name, CompletionItemKind.Module, "Namespace");
     }

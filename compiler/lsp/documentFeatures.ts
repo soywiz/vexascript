@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import {
   type CallHierarchyIncomingCall,
   type CallHierarchyItem,
@@ -47,14 +48,14 @@ const FoldingRangeKind = {
 } as const;
 
 const foldableNodeKinds = new Set([
-  "ArrayLiteral",
-  "BlockStatement",
-  "ClassStatement",
-  "InterfaceStatement",
-  "JsxElement",
-  "JsxFragment",
-  "ObjectLiteral",
-  "SwitchStatement"
+  NodeKind.ArrayLiteral,
+  NodeKind.BlockStatement,
+  NodeKind.ClassStatement,
+  NodeKind.InterfaceStatement,
+  NodeKind.JsxElement,
+  NodeKind.JsxFragment,
+  NodeKind.ObjectLiteral,
+  NodeKind.SwitchStatement
 ]);
 
 function position(line: number, character: number): Position {
@@ -132,12 +133,12 @@ export function createSelectionRanges(ast: Program, positions: Position[]): Sele
 
 function declarationName(node: Node): { name: string; range: Range; kind: number } | null {
   const candidate = node as Node & { name?: Node & { name?: string } };
-  if (!candidate.name || candidate.name.kind !== "Identifier" || !candidate.name.name) return null;
+  if (!candidate.name || candidate.name.kind !== NodeKind.Identifier || !candidate.name.name) return null;
   const range = nodeRange(candidate.name);
   if (!range) return null;
-  const kind = node.kind === "ClassStatement" ? SymbolKind.Class :
-    node.kind === "InterfaceStatement" ? SymbolKind.Interface :
-    node.kind === "FunctionStatement" ? SymbolKind.Function : SymbolKind.Variable;
+  const kind = node.kind === NodeKind.ClassStatement ? SymbolKind.Class :
+    node.kind === NodeKind.InterfaceStatement ? SymbolKind.Interface :
+    node.kind === NodeKind.FunctionStatement ? SymbolKind.Function : SymbolKind.Variable;
   return { name: candidate.name.name, range, kind };
 }
 
@@ -175,7 +176,7 @@ export function createOnTypeFormattingEdits(text: string, point: Position, chara
 function hierarchyDeclarations(ast: Program, uri: string): CallHierarchyItem[] {
   const items: CallHierarchyItem[] = [];
   walkAst(ast, (node) => {
-    if (node.kind !== "FunctionStatement" && node.kind !== "ClassMethodMember") return;
+    if (node.kind !== NodeKind.FunctionStatement && node.kind !== NodeKind.ClassMethodMember) return;
     const declaration = declarationName(node);
     const range = nodeRange(node);
     if (!declaration || !range) return;
@@ -192,10 +193,10 @@ export function prepareCallHierarchy(ast: Program, uri: string, point: Position)
 function callsInNode(node: Node): Array<{ name: string; range: Range }> {
   const calls: Array<{ name: string; range: Range }> = [];
   walkAst(node, (candidate) => {
-    if (candidate.kind !== "CallExpression") return;
+    if (candidate.kind !== NodeKind.CallExpression) return;
     const callee = (candidate as Node & { callee?: Node & { name?: string } }).callee;
     const range = callee ? nodeRange(callee) : null;
-    if (callee?.kind === "Identifier" && callee.name && range) calls.push({ name: callee.name, range });
+    if (callee?.kind === NodeKind.Identifier && callee.name && range) calls.push({ name: callee.name, range });
   });
   return calls;
 }

@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import {
   Identifier,
   ImportSpecifier,
@@ -53,7 +54,7 @@ function importStatementAtRange(ast: Program, diagnostic: Diagnostic): {
   binding: Identifier;
 } | null {
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -122,19 +123,14 @@ export function createUnusedImportCodeActions(params: {
     }
 
     const { statement, binding } = resolved;
-    const updatedStatement: ImportStatement = new ImportStatement({
-      kind: "ImportStatement",
-      specifiers: statement.specifiers.filter((specifier) => bindingName(specifier) !== binding.name),
-      from: statement.from,
-      ...(statement.typeOnly ? { typeOnly: true } : {}),
-      ...(statement.sideEffectOnly ? { sideEffectOnly: true } : {}),
-      ...(statement.defaultImport && statement.defaultImport.name !== binding.name
-        ? { defaultImport: statement.defaultImport }
-        : {}),
-      ...(statement.namespaceImport && statement.namespaceImport.name !== binding.name
-        ? { namespaceImport: statement.namespaceImport }
-        : {})
-    });
+    const updatedStatement: ImportStatement = new ImportStatement(
+      statement.specifiers.filter((specifier) => bindingName(specifier) !== binding.name),
+      statement.from,
+      statement.defaultImport?.name !== binding.name ? statement.defaultImport : undefined,
+      statement.namespaceImport?.name !== binding.name ? statement.namespaceImport : undefined,
+      statement.typeOnly === true ? true : undefined,
+      statement.sideEffectOnly === true ? true : undefined
+    );
 
     const statementRange = nodeRange(statement);
     if (!statementRange) {

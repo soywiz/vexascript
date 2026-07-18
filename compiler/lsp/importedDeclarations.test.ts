@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import { createAnalysisSession } from "./analysisSession";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
@@ -10,7 +11,7 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
   // Parse `declare module "<name>" { ... }` and return the body statements
   const result = parseSource(src, { language: "typescript" });
   const ns = result.ast?.body?.find(
-    (s) => s.kind === "NamespaceStatement" && (s as { externalModuleName?: { value: string } }).externalModuleName?.value === moduleName
+    (s) => s.kind === NodeKind.NamespaceStatement && (s as { externalModuleName?: { value: string } }).externalModuleName?.value === moduleName
   ) as { body?: { body?: Statement[] } } | undefined;
   return ns?.body?.body ?? [];
 }
@@ -542,7 +543,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     const origin = imported.importedSymbols.get("Greeter")?.declarationOrigin;
     expect(origin).not.toBeNull();
     expect(origin?.filePath).toBe(producerFile);
-    expect((origin?.statement as { kind?: string })?.kind).toBe("ClassStatement");
+    expect(origin?.statement.kind).toBe(NodeKind.ClassStatement);
   });
 
   it("tracks declaration origins for aliased node_modules exports in the shared collection result", async () => {

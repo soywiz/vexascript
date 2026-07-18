@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   Hover,
   Location,
@@ -165,7 +166,7 @@ function annotationReferenceAt(
 function annotationHoverValue(annotation: AnnotationStatement): string {
   const parameters = annotation.parameters.map((parameter) => {
     const prefix =
-      parameter.accessModifier === "public" && parameter.readonly === true
+      parameter.accessModifier === "public" && parameter.isReadonly === true
         ? "val "
         : parameter.accessModifier === "public"
           ? "var "
@@ -212,7 +213,7 @@ function parameterIdentifierFromCursor(
   }
 
   const symbolAt = analysis.getSymbolAt(line, character);
-  if (!program || !symbolAt || symbolAt.symbol.kind !== "parameter" || symbolAt.symbol.node.kind !== "Identifier") {
+  if (!program || !symbolAt || symbolAt.symbol.kind !== "parameter" || symbolAt.symbol.node.kind !== NodeKind.Identifier) {
     return null;
   }
   return symbolAt.symbol.node as Identifier;
@@ -368,7 +369,7 @@ export function createHover(
   const hoverTypeText = target.hover.contents;
   const symbolNode = target.symbolAt?.symbol.node;
   const documentation =
-    program && symbolNode?.kind === "Identifier"
+    program && symbolNode?.kind === NodeKind.Identifier
       ? readDocumentationForSymbol(program, symbolNode as Identifier, options)
       : undefined;
   const hoverValue = documentation ? `${hoverTypeText}\n\n${documentation}` : hoverTypeText;

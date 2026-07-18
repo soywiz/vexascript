@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import {
   BlockStatement,
   BinaryExpression,
@@ -80,7 +81,7 @@ function lowerForStatement(statement: ForStatement, options: LoweringOptions): F
       ...(statement.initializer
         ? {
             initializer:
-              statement.initializer.kind === "VarStatement"
+              statement.initializer.kind === NodeKind.VarStatement
                 ? cloneVarStatement(statement.initializer as VarStatement)
                 : cloneExpression(statement.initializer as Expr)
           }
@@ -91,42 +92,21 @@ function lowerForStatement(statement: ForStatement, options: LoweringOptions): F
     }, statement);
   }
 
-  if (options.lowerRangeForLoops !== false && statement.iterationKind === "of" && statement.iterable.kind === "RangeExpression") {
+  if (options.lowerRangeForLoops !== false && statement.iterationKind === "of" && statement.iterable.kind === NodeKind.RangeExpression) {
     const iteratorName =
-      statement.iterator.kind === "Identifier"
+      statement.iterator.kind === NodeKind.Identifier
         ? (statement.iterator as Identifier).name
-        : statement.iterator.kind === "VarStatement"
+        : statement.iterator.kind === NodeKind.VarStatement
           ? (bindingIdentifiers((statement.iterator as VarStatement).declarations?.[0]?.name ?? (statement.iterator as VarStatement).name)[0]?.name)
           : null;
 
     if (iteratorName) {
       const range = statement.iterable as RangeExpression;
-      const loweredInitializer: VarStatement = new VarStatement({
-        kind: "VarStatement",
-        declarationKind: "let",
-        name: new Identifier({ kind: "Identifier", name: iteratorName }),
-        initializer: cloneExpression(range.start)
-      });
-      const loweredCondition: Expr = new BinaryExpression({
-        kind: "BinaryExpression",
-        operator: range.exclusive ? "<" : "<=",
-        left: new Identifier({ kind: "Identifier", name: iteratorName }),
-        right: cloneExpression(range.end)
-      }) as Expr;
-      const loweredUpdate: UpdateExpression = new UpdateExpression({
-        kind: "UpdateExpression",
-        operator: "++",
-        argument: new Identifier({ kind: "Identifier", name: iteratorName }),
-        prefix: false
-      });
+      const loweredInitializer: VarStatement = new VarStatement("let", new Identifier(iteratorName), undefined, undefined, undefined, undefined, undefined, undefined, cloneExpression(range.start));
+      const loweredCondition: Expr = new BinaryExpression(range.exclusive ? "<" : "<=", new Identifier(iteratorName), cloneExpression(range.end));
+      const loweredUpdate: UpdateExpression = new UpdateExpression("++", new Identifier(iteratorName), false);
 
-      return copyNodeBounds(new ForStatement({
-        kind: "ForStatement",
-        initializer: loweredInitializer,
-        condition: loweredCondition,
-        update: loweredUpdate as unknown as Expr,
-        body: lowerStatement(statement.body, options)
-      }), statement);
+      return copyNodeBounds(new ForStatement(lowerStatement(statement.body, options), undefined, undefined, undefined, undefined, loweredInitializer, loweredCondition, loweredUpdate as unknown as Expr), statement);
     }
   }
 
@@ -135,9 +115,9 @@ function lowerForStatement(statement: ForStatement, options: LoweringOptions): F
     ...(statement.iterator
       ? {
           iterator:
-            statement.iterator.kind === "VarStatement"
+            statement.iterator.kind === NodeKind.VarStatement
               ? cloneVarStatement(statement.iterator as VarStatement)
-              : statement.iterator.kind === "Identifier"
+              : statement.iterator.kind === NodeKind.Identifier
                 ? { ...statement.iterator }
                 : cloneExpression(statement.iterator as Expr)
         }
@@ -151,25 +131,12 @@ function lowerBlockStatement(statement: BlockStatement, options: LoweringOptions
   const loweredBody: Statement[] = [];
   for (let index = statement.body.length - 1; index >= 0; index -= 1) {
     const child = statement.body[index]!;
-    if (child.kind === "DeferStatement") {
+    if (child.kind === NodeKind.DeferStatement) {
       const deferred = child as DeferStatement;
-      const tryBlock = copyNodeBounds(new BlockStatement({
-        kind: "BlockStatement",
-        body: [...loweredBody]
-      }) as BlockStatement, statement);
-      const finallyStatement = copyNodeBounds(new ExprStatement({
-        kind: "ExprStatement",
-        expression: cloneExpression(deferred.expression)
-      }) as ExprStatement, deferred);
-      const finallyBlock = copyNodeBounds(new BlockStatement({
-        kind: "BlockStatement",
-        body: [finallyStatement]
-      }) as BlockStatement, deferred);
-      const wrapped = copyNodeBounds(new TryStatement({
-        kind: "TryStatement",
-        tryBlock,
-        finallyBlock
-      }) as TryStatement, deferred);
+      const tryBlock = copyNodeBounds(new BlockStatement([...loweredBody]), statement);
+      const finallyStatement = copyNodeBounds(new ExprStatement(cloneExpression(deferred.expression)), deferred);
+      const finallyBlock = copyNodeBounds(new BlockStatement([finallyStatement]), deferred);
+      const wrapped = copyNodeBounds(new TryStatement(tryBlock, undefined, finallyBlock), deferred);
       loweredBody.splice(0, loweredBody.length, wrapped);
       continue;
     }
@@ -183,30 +150,30 @@ function lowerBlockStatement(statement: BlockStatement, options: LoweringOptions
 
 function lowerStatement(statement: Statement, options: LoweringOptions): Statement {
   switch (statement.kind) {
-    case "ExportStatement": {
+    case NodeKind.ExportStatement: {
       const s = statement as ExportStatement;
       return copyNodeBounds({
         ...s,
         ...(s.declaration ? { declaration: lowerStatement(s.declaration, options) } : {})
       }, statement);
     }
-    case "ForStatement":
+    case NodeKind.ForStatement:
       return lowerForStatement(statement as ForStatement, options);
-    case "BlockStatement":
+    case NodeKind.BlockStatement:
       return lowerBlockStatement(statement as BlockStatement, options);
-    case "FunctionStatement": {
+    case NodeKind.FunctionStatement: {
       const s = statement as FunctionStatement;
       return copyNodeBounds({
         ...s,
         body: lowerBlockStatement(s.body, options)
       }, statement);
     }
-    case "ClassStatement": {
+    case NodeKind.ClassStatement: {
       const s = statement as ClassStatement;
       return copyNodeBounds({
         ...s,
         members: s.members.map((member) => {
-          if (member.kind !== "ClassMethodMember") {
+          if (member.kind !== NodeKind.ClassMethodMember) {
             return { ...member };
           }
           const method = member as ClassMethodMember;
@@ -217,7 +184,7 @@ function lowerStatement(statement: Statement, options: LoweringOptions): Stateme
         })
       }, statement);
     }
-    case "IfStatement": {
+    case NodeKind.IfStatement: {
       const s = statement as IfStatement;
       return copyNodeBounds({
         ...s,
@@ -225,15 +192,15 @@ function lowerStatement(statement: Statement, options: LoweringOptions): Stateme
         ...(s.elseBranch ? { elseBranch: lowerStatement(s.elseBranch, options) } : {})
       }, statement);
     }
-    case "WhileStatement": {
+    case NodeKind.WhileStatement: {
       const s = statement as WhileStatement;
       return copyNodeBounds({ ...s, body: lowerStatement(s.body, options) }, statement);
     }
-    case "DoWhileStatement": {
+    case NodeKind.DoWhileStatement: {
       const s = statement as DoWhileStatement;
       return copyNodeBounds({ ...s, body: lowerStatement(s.body, options) }, statement);
     }
-    case "SwitchStatement": {
+    case NodeKind.SwitchStatement: {
       const s = statement as SwitchStatement;
       return copyNodeBounds({
         ...s,
@@ -243,7 +210,7 @@ function lowerStatement(statement: Statement, options: LoweringOptions): Stateme
         }))
       }, statement);
     }
-    case "TryStatement": {
+    case NodeKind.TryStatement: {
       const s = statement as TryStatement;
       return copyNodeBounds({
         ...s,
@@ -259,7 +226,7 @@ function lowerStatement(statement: Statement, options: LoweringOptions): Stateme
         ...(s.finallyBlock ? { finallyBlock: lowerBlockStatement(s.finallyBlock, options) } : {})
       }, statement);
     }
-    case "VarStatement":
+    case NodeKind.VarStatement:
       return cloneVarStatement(statement as VarStatement) as unknown as Statement;
     default:
       return copyNodeBounds({ ...statement }, statement);

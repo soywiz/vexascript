@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, pathToFileURL } from "../test/expect";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
@@ -11,11 +12,11 @@ import { buildMemberCompletionItemsForType } from "./memberCompletion";
 
 function makeNamespaceStatement(name: string, body: any[]): NamespaceStatement {
   return {
-    kind: "NamespaceStatement",
+    kind: NodeKind.NamespaceStatement,
     declarationKind: "namespace",
-    names: [{ kind: "Identifier", name }],
+    names: [{ kind: NodeKind.Identifier, name }],
     body: {
-      kind: "Program",
+      kind: NodeKind.Program,
       body
     }
   } as unknown as NamespaceStatement;
@@ -52,17 +53,17 @@ describe("memberCompletionTargetPaths", () => {
   it("builds namespace member completions for parsed object paths", async () => {
     const session = createAnalysisSession("");
     const ast = {
-      kind: "Program",
+      kind: NodeKind.Program,
       body: [
         makeNamespaceStatement("pkg", [
           {
-            kind: "ExportStatement",
+            kind: NodeKind.ExportStatement,
             declaration: makeNamespaceStatement("tools", [
               {
-                kind: "ExportStatement",
+                kind: NodeKind.ExportStatement,
                 declaration: {
-                  kind: "FunctionStatement",
-                  name: { kind: "Identifier", name: "helper" }
+                  kind: NodeKind.FunctionStatement,
+                  name: { kind: NodeKind.Identifier, name: "helper" }
                 }
               }
             ])

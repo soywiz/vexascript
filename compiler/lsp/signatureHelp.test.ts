@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
@@ -11,7 +12,7 @@ import type { Statement } from "compiler/ast/ast";
 function parseAmbientModule(src: string, moduleName: string): Statement[] {
   const result = parseSource(src, { language: "typescript" });
   const ns = result.ast?.body?.find(
-    (statement) => statement.kind === "NamespaceStatement"
+    (statement) => statement.kind === NodeKind.NamespaceStatement
       && (statement as { externalModuleName?: { value: string } }).externalModuleName?.value === moduleName
   ) as { body?: { body?: Statement[] } } | undefined;
   return ns?.body?.body ?? [];

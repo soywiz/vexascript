@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import type { FunctionStatement, InterfaceMethodMember, InterfaceStatement, Statement } from "compiler/ast/ast";
 import { parseSource } from "compiler/pipeline/parse";
@@ -12,7 +13,7 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
   const result = parseSource(src, { language: "typescript" });
   const ns = result.ast?.body?.find(
     (statement) =>
-      statement.kind === "NamespaceStatement"
+      statement.kind === NodeKind.NamespaceStatement
       && (statement as { externalModuleName?: { value: string } }).externalModuleName?.value === moduleName
   ) as { body?: { body?: Statement[] } } | undefined;
   return ns?.body?.body ?? [];
@@ -26,7 +27,7 @@ describe("ambientDisplay", () => {
       }`,
       "pkg"
     );
-    const fn = declarations.find((statement) => statement.kind === "ExportStatement") as
+    const fn = declarations.find((statement) => statement.kind === NodeKind.ExportStatement) as
       { declaration?: FunctionStatement };
 
     expect(renderAmbientFunctionDisplayFromStatement(fn.declaration!)).toBe(
@@ -44,7 +45,7 @@ describe("ambientDisplay", () => {
       }`,
       "pkg"
     );
-    const iface = declarations.find((statement) => statement.kind === "ExportStatement") as
+    const iface = declarations.find((statement) => statement.kind === NodeKind.ExportStatement) as
       { declaration?: InterfaceStatement };
     const members = iface.declaration!.members;
 

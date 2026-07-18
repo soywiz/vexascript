@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
 
 /**
@@ -332,7 +333,7 @@ async function resolveTypeIdentifierHover(context: ResolveContext): Promise<Hove
       return {
         contents: {
           kind: "plaintext",
-          value: `${typeDefinition.declaration.kind === "ClassStatement" ? "class" : "interface"} ${typeIdentifier.name}`
+          value: `${typeDefinition.declaration.kind === NodeKind.ClassStatement ? "class" : "interface"} ${typeIdentifier.name}`
         },
         range
       };
@@ -385,7 +386,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     context.line,
     context.character
   );
-  if (!memberExpression || memberExpression.property.kind !== "Identifier") {
+  if (!memberExpression || memberExpression.property.kind !== NodeKind.Identifier) {
     return null;
   }
 
@@ -404,7 +405,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     return ambientModuleObjectDefinition;
   }
   const nodeModulesModuleObjectDefinition =
-    memberExpression.object.kind === "Identifier"
+    memberExpression.object.kind === NodeKind.Identifier
       ? await resolveNodeModulesModuleObjectMemberDefinition(
         context,
         (memberExpression.object as Identifier).name,
@@ -415,7 +416,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     return nodeModulesModuleObjectDefinition;
   }
   const receiverSymbol =
-    memberExpression.object.kind === "Identifier"
+    memberExpression.object.kind === NodeKind.Identifier
       ? context.session.analysis.getSymbolAt(
         memberExpression.object.firstToken?.range.start.line ?? context.line,
         memberExpression.object.firstToken?.range.start.column ?? context.character

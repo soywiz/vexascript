@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { ExportStatement, ExprStatement, ImportStatement, Statement } from "compiler/ast/ast";
 
 export interface CommonJsRuntimeExportBinding {
@@ -80,7 +81,7 @@ export function emitCommonJsExportStatement(exportStatement: ExportStatement, co
   if (!exportStatement.declaration) {
     return "";
   }
-  if (exportStatement.default && exportStatement.declaration.kind === "ExprStatement") {
+  if (exportStatement.isDefault && exportStatement.declaration.kind === NodeKind.ExprStatement) {
     return `exports.default = ${context.emitExpression((exportStatement.declaration as ExprStatement).expression)};\nexports.__esModule = true;`;
   }
   const emitted = context.emitStatement(exportStatement.declaration);
@@ -88,7 +89,7 @@ export function emitCommonJsExportStatement(exportStatement: ExportStatement, co
     return "";
   }
   const runtimeBindings = context.commonJsRuntimeExportBindings(exportStatement.declaration);
-  if (exportStatement.default) {
+  if (exportStatement.isDefault) {
     const defaultTarget = runtimeBindings[0]?.valueExpression;
     return defaultTarget ? `${emitted}\nexports.default = ${defaultTarget};\nexports.__esModule = true;` : emitted;
   }

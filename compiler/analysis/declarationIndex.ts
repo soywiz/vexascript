@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   AnnotationStatement,
   ClassStatement,
@@ -27,7 +28,7 @@ export interface DeclarationIndex {
 const declarationIndexCache = new WeakMap<object, DeclarationIndex>();
 
 function unwrapExportedDeclaration(statement: Statement): Statement | undefined {
-  return statement.kind === "ExportStatement"
+  return statement.kind === NodeKind.ExportStatement
     ? (statement as ExportStatement).declaration
     : statement;
 }
@@ -56,7 +57,7 @@ export function declarationIndexForStatements(statements: readonly Statement[]):
     while (pendingItems.length > 0) {
       const statement = pendingItems.pop()!;
       const candidate: Statement | undefined = unwrapExportedDeclaration(statement);
-      if (candidate?.kind !== "NamespaceStatement") {
+      if (candidate?.kind !== NodeKind.NamespaceStatement) {
         continue;
       }
       const namespaceStatement = candidate as NamespaceStatement;
@@ -73,40 +74,40 @@ export function declarationIndexForStatements(statements: readonly Statement[]):
       }
 
       switch (candidate.kind) {
-        case "AnnotationStatement":
+        case NodeKind.AnnotationStatement:
           index.annotations.push(candidate as AnnotationStatement);
           index.globalDeclarations.push(candidate);
           break;
-        case "ClassStatement":
+        case NodeKind.ClassStatement:
           index.classes.push(candidate as ClassStatement);
           index.globalDeclarations.push(candidate);
           break;
-        case "EnumStatement":
+        case NodeKind.EnumStatement:
           index.enums.push(candidate as EnumStatement);
           index.globalDeclarations.push(candidate);
           break;
-        case "FunctionStatement":
+        case NodeKind.FunctionStatement:
           index.functions.push(candidate as FunctionStatement);
           index.globalDeclarations.push(candidate);
           break;
-        case "ImportStatement":
+        case NodeKind.ImportStatement:
           index.globalDeclarations.push(candidate);
           break;
-        case "InterfaceStatement":
+        case NodeKind.InterfaceStatement:
           index.interfaces.push(candidate as InterfaceStatement);
           index.globalDeclarations.push(candidate);
           break;
-        case "NamespaceStatement": {
+        case NodeKind.NamespaceStatement: {
           const namespaceStatement = candidate as NamespaceStatement;
           index.namespaces.push(namespaceStatement);
           index.globalDeclarations.push(namespaceStatement);
           break;
         }
-        case "TypeAliasStatement":
+        case NodeKind.TypeAliasStatement:
           index.typeAliases.push(candidate as TypeAliasStatement);
           index.globalDeclarations.push(candidate);
           break;
-        case "VarStatement":
+        case NodeKind.VarStatement:
           index.vars.push(candidate as VarStatement);
           index.globalDeclarations.push(candidate);
           break;

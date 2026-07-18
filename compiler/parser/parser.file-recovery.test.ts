@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { Parser, getProgramRecoveryMarkers, parseExpression, parseFile } from "./parser";
@@ -6,7 +7,7 @@ import { tokenizeReader } from "./tokenizer";
 describe("parseFile", () => {
     it("parses an empty file", () => {
         expect(parseFile(tokenizeReader(""))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: []
         });
     });
@@ -28,13 +29,13 @@ describe("Parser (with recovery)", () => {
         const ast = parser.parseFile();
 
         expect(ast).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "ok" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "ok" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 }
             ]
         });
@@ -54,24 +55,24 @@ describe("Parser (with recovery)", () => {
         const ast = parser.parseFile();
 
         expect(ast).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "BlockStatement",
+                    kind: NodeKind.BlockStatement,
                     body: [
                         {
-                            kind: "VarStatement",
+                            kind: NodeKind.VarStatement,
                             declarationKind: "let",
-                            name: { kind: "Identifier", name: "ignored" },
-                            initializer: { kind: "IntLiteral", value: 1 }
+                            name: { kind: NodeKind.Identifier, name: "ignored" },
+                            initializer: { kind: NodeKind.IntLiteral, value: 1 }
                         }
                     ]
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "ok" },
-                    initializer: { kind: "IntLiteral", value: 2 }
+                    name: { kind: NodeKind.Identifier, name: "ok" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 2 }
                 }
             ]
         });
@@ -88,19 +89,19 @@ describe("Parser (with recovery)", () => {
         const ast = parser.parseFile();
 
         expect(ast).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "ok" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "ok" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "done" },
-                    initializer: { kind: "IntLiteral", value: 2 }
+                    name: { kind: NodeKind.Identifier, name: "done" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 2 }
                 }
             ]
         });
@@ -112,16 +113,16 @@ describe("Parser (with recovery)", () => {
         const ast = parser.parseFile();
 
         expect(ast).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "BlockStatement",
+                    kind: NodeKind.BlockStatement,
                     body: [
                         {
-                            kind: "VarStatement",
+                            kind: NodeKind.VarStatement,
                             declarationKind: "let",
-                            name: { kind: "Identifier", name: "b" },
-                            initializer: { kind: "IntLiteral", value: 2 }
+                            name: { kind: NodeKind.Identifier, name: "b" },
+                            initializer: { kind: NodeKind.IntLiteral, value: 2 }
                         }
                     ]
                 }
@@ -135,36 +136,36 @@ describe("Parser (with recovery)", () => {
         const ast = parser.parseFile();
 
         expect(ast).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "SwitchStatement",
-                    discriminant: { kind: "Identifier", name: "x" },
+                    kind: NodeKind.SwitchStatement,
+                    discriminant: { kind: NodeKind.Identifier, name: "x" },
                     cases: [
                         {
-                            kind: "SwitchCase",
-                            test: { kind: "IntLiteral", value: 1 },
+                            kind: NodeKind.SwitchCase,
+                            test: { kind: NodeKind.IntLiteral, value: 1 },
                             consequent: []
                         },
                         {
-                            kind: "SwitchCase",
-                            test: { kind: "IntLiteral", value: 2 },
+                            kind: NodeKind.SwitchCase,
+                            test: { kind: NodeKind.IntLiteral, value: 2 },
                             consequent: [
                                 {
-                                    kind: "VarStatement",
+                                    kind: NodeKind.VarStatement,
                                     declarationKind: "let",
-                                    name: { kind: "Identifier", name: "b" },
-                                    initializer: { kind: "IntLiteral", value: 2 }
+                                    name: { kind: NodeKind.Identifier, name: "b" },
+                                    initializer: { kind: NodeKind.IntLiteral, value: 2 }
                                 },
-                                { kind: "BreakStatement" }
+                                { kind: NodeKind.BreakStatement }
                             ]
                         },
                         {
-                            kind: "SwitchCase",
+                            kind: NodeKind.SwitchCase,
                             consequent: [
                                 {
-                                    kind: "ReturnStatement",
-                                    expression: { kind: "IntLiteral", value: 0 }
+                                    kind: NodeKind.ReturnStatement,
+                                    expression: { kind: NodeKind.IntLiteral, value: 0 }
                                 }
                             ]
                         }
@@ -192,42 +193,42 @@ describe("Parser (with recovery)", () => {
 
         expect(ast.body).toHaveLength(2);
         expect(ast.body[0]).toMatchObject({
-            kind: "SwitchStatement",
+            kind: NodeKind.SwitchStatement,
             cases: [
                 {
-                    kind: "SwitchCase",
-                    test: { kind: "IntLiteral", value: 1 },
+                    kind: NodeKind.SwitchCase,
+                    test: { kind: NodeKind.IntLiteral, value: 1 },
                     consequent: [
                         {
-                            kind: "IfStatement",
-                            condition: { kind: "Identifier", name: "ok" },
-                            thenBranch: { kind: "BlockStatement", body: [] }
+                            kind: NodeKind.IfStatement,
+                            condition: { kind: NodeKind.Identifier, name: "ok" },
+                            thenBranch: { kind: NodeKind.BlockStatement, body: [] }
                         },
                         {
-                            kind: "VarStatement",
+                            kind: NodeKind.VarStatement,
                             declarationKind: "let",
-                            name: { kind: "Identifier", name: "keep" },
-                            initializer: { kind: "IntLiteral", value: 1 }
+                            name: { kind: NodeKind.Identifier, name: "keep" },
+                            initializer: { kind: NodeKind.IntLiteral, value: 1 }
                         },
-                        { kind: "BreakStatement" }
+                        { kind: NodeKind.BreakStatement }
                     ]
                 },
                 {
-                    kind: "SwitchCase",
+                    kind: NodeKind.SwitchCase,
                     consequent: [
                         {
-                            kind: "VarStatement",
+                            kind: NodeKind.VarStatement,
                             declarationKind: "let",
-                            name: { kind: "Identifier", name: "fallback" }
+                            name: { kind: NodeKind.Identifier, name: "fallback" }
                         }
                     ]
                 }
             ]
         });
         expect(ast.body[1]).toMatchObject({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "let",
-            name: { kind: "Identifier", name: "after" }
+            name: { kind: NodeKind.Identifier, name: "after" }
         });
         expect(parser.errors.length).toBeGreaterThan(0);
     });
@@ -245,21 +246,21 @@ describe("Parser (with recovery)", () => {
 
         expect(ast.body).toHaveLength(2);
         const block = ast.body[0];
-        expect(block?.kind).toBe("BlockStatement");
-        if (!block || block.kind !== "BlockStatement") {
+        expect(block?.kind).toBe(NodeKind.BlockStatement);
+        if (!block || block.kind !== NodeKind.BlockStatement) {
             throw new Error("Expected first statement to be a block");
         }
         const blockBody = (block as unknown as { body: Array<any> }).body;
         expect(
             blockBody.some((statement: any) =>
-                statement.kind === "VarStatement" &&
+                statement.kind === NodeKind.VarStatement &&
                 statement.name.name === "ok"
             )
         ).toBe(true);
         expect(ast.body[1]).toMatchObject({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "let",
-            name: { kind: "Identifier", name: "after" }
+            name: { kind: NodeKind.Identifier, name: "after" }
         });
         expect(parser.errors.length).toBeGreaterThan(0);
     });
@@ -276,11 +277,11 @@ describe("Parser (with recovery)", () => {
         const ast = parser.parseFile();
 
         expect(ast.body).toHaveLength(2);
-        expect(ast.body[0]?.kind).toBe("BlockStatement");
+        expect(ast.body[0]?.kind).toBe(NodeKind.BlockStatement);
         expect(ast.body[1]).toMatchObject({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "let",
-            name: { kind: "Identifier", name: "done" }
+            name: { kind: NodeKind.Identifier, name: "done" }
         });
         expect(parser.errors.length).toBeGreaterThan(0);
     });
@@ -297,21 +298,21 @@ describe("Parser (with recovery)", () => {
         const ast = parser.parseFile();
 
         expect(ast).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "ExprStatement",
+                    kind: NodeKind.ExprStatement,
                     expression: {
-                        kind: "Identifier",
+                        kind: NodeKind.Identifier,
                         name: "asdsa"
                     }
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declared: true,
                     declarationKind: "var",
-                    name: { kind: "Identifier", name: "console" },
-                    typeAnnotation: { kind: "Identifier", name: "Console" }
+                    name: { kind: NodeKind.Identifier, name: "console" },
+                    typeAnnotation: { kind: NodeKind.Identifier, name: "Console" }
                 }
             ]
         });
@@ -333,26 +334,26 @@ describe("Parser (with recovery)", () => {
 
         expect(ast.body).toHaveLength(2);
         expect(ast.body[0]).toMatchObject({
-            kind: "FunctionStatement",
-            name: { kind: "Identifier", name: "demo" },
+            kind: NodeKind.FunctionStatement,
+            name: { kind: NodeKind.Identifier, name: "demo" },
             body: {
                 body: [
                     {
-                        kind: "VarStatement",
+                        kind: NodeKind.VarStatement,
                         declarationKind: "const",
-                        name: { kind: "Identifier", name: "result" },
-                        typeAnnotation: { kind: "Identifier", name: "Point" }
+                        name: { kind: NodeKind.Identifier, name: "result" },
+                        typeAnnotation: { kind: NodeKind.Identifier, name: "Point" }
                     },
                     {
-                        kind: "ReturnStatement",
-                        expression: { kind: "Identifier", name: "result" }
+                        kind: NodeKind.ReturnStatement,
+                        expression: { kind: NodeKind.Identifier, name: "result" }
                     }
                 ]
             }
         });
         expect(ast.body[1]).toMatchObject({
-            kind: "ClassStatement",
-            name: { kind: "Identifier", name: "Point" }
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Point" }
         });
         expect(parser.errors.map((issue) => issue.message)).toContain("Expected identifier after '.'");
     });
@@ -369,22 +370,22 @@ describe("Parser (with recovery)", () => {
         const ast = parser.parseFile();
 
         expect(ast).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "BlockStatement",
+                    kind: NodeKind.BlockStatement,
                     body: [
                         {
-                            kind: "VarStatement",
+                            kind: NodeKind.VarStatement,
                             declarationKind: "let",
-                            name: { kind: "Identifier", name: "a" },
-                            initializer: { kind: "IntLiteral", value: 1 }
+                            name: { kind: NodeKind.Identifier, name: "a" },
+                            initializer: { kind: NodeKind.IntLiteral, value: 1 }
                         },
                         {
-                            kind: "VarStatement",
+                            kind: NodeKind.VarStatement,
                             declarationKind: "let",
-                            name: { kind: "Identifier", name: "c" },
-                            initializer: { kind: "IntLiteral", value: 3 }
+                            name: { kind: NodeKind.Identifier, name: "c" },
+                            initializer: { kind: NodeKind.IntLiteral, value: 3 }
                         }
                     ]
                 }
@@ -410,29 +411,43 @@ describe("Parser (with recovery)", () => {
 describe("parse enum declarations", () => {
     it("builds AST nodes for enum and const enum declarations", () => {
         expect(parseFile(tokenizeReader("enum Direction { Up, Down = 4, Left, Right = \"right\" }"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [{
-                kind: "EnumStatement",
-                name: { kind: "Identifier", name: "Direction" },
+                kind: NodeKind.EnumStatement,
+                name: { kind: NodeKind.Identifier, name: "Direction" },
                 members: [
-                    { kind: "EnumMember", name: { kind: "Identifier", name: "Up" } },
-                    { kind: "EnumMember", name: { kind: "Identifier", name: "Down" }, initializer: { kind: "IntLiteral", value: 4 } },
-                    { kind: "EnumMember", name: { kind: "Identifier", name: "Left" } },
-                    { kind: "EnumMember", name: { kind: "Identifier", name: "Right" }, initializer: { kind: "StringLiteral", value: "right" } }
+                    { kind: NodeKind.EnumMember, name: { kind: NodeKind.Identifier, name: "Up" } },
+                    { kind: NodeKind.EnumMember, name: { kind: NodeKind.Identifier, name: "Down" }, initializer: { kind: NodeKind.IntLiteral, value: 4 } },
+                    { kind: NodeKind.EnumMember, name: { kind: NodeKind.Identifier, name: "Left" } },
+                    { kind: NodeKind.EnumMember, name: { kind: NodeKind.Identifier, name: "Right" }, initializer: { kind: NodeKind.StringLiteral, value: "right" } }
                 ]
             }]
         });
 
         expect(parseFile(tokenizeReader("const enum Status { Ready = 1, Done }"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [{
-                kind: "EnumStatement",
-                const: true,
-                name: { kind: "Identifier", name: "Status" },
+                kind: NodeKind.EnumStatement,
+                isConst: true,
+                name: { kind: NodeKind.Identifier, name: "Status" },
                 members: [
-                    { kind: "EnumMember", name: { kind: "Identifier", name: "Ready" }, initializer: { kind: "IntLiteral", value: 1 } },
-                    { kind: "EnumMember", name: { kind: "Identifier", name: "Done" } }
+                    { kind: NodeKind.EnumMember, name: { kind: NodeKind.Identifier, name: "Ready" }, initializer: { kind: NodeKind.IntLiteral, value: 1 } },
+                    { kind: NodeKind.EnumMember, name: { kind: NodeKind.Identifier, name: "Done" } }
                 ]
+            }]
+        });
+    });
+
+    it("parses exported const enum declarations before const variables", () => {
+        expect(parseFile(tokenizeReader("export const enum Status { Ready, Done }"), { language: "typescript" })).toMatchObject({
+            kind: NodeKind.Program,
+            body: [{
+                kind: NodeKind.ExportStatement,
+                declaration: {
+                    kind: NodeKind.EnumStatement,
+                    isConst: true,
+                    name: { kind: NodeKind.Identifier, name: "Status" }
+                }
             }]
         });
     });
@@ -443,30 +458,30 @@ class Store { async save(this: Store) { return await persist(this) }; *values() 
 `));
 
         expect(program.body[0]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             async: true,
             name: { name: "load" },
             parameters: [
-                { kind: "FunctionParameter", thisParameter: true, name: { name: "this" }, typeAnnotation: { name: "Loader" } },
-                { kind: "FunctionParameter", name: { name: "id" }, typeAnnotation: { name: "string" } }
+                { kind: NodeKind.FunctionParameter, thisParameter: true, name: { name: "this" }, typeAnnotation: { name: "Loader" } },
+                { kind: NodeKind.FunctionParameter, name: { name: "id" }, typeAnnotation: { name: "string" } }
             ]
         });
         expect(program.body[1]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             generator: true,
             name: { name: "ids" },
             body: {
                 body: [
-                    { kind: "ExprStatement", expression: { kind: "UnaryExpression", operator: "yield" } },
-                    { kind: "ExprStatement", expression: { kind: "UnaryExpression", operator: "yield*" } }
+                    { kind: NodeKind.ExprStatement, expression: { kind: NodeKind.UnaryExpression, operator: "yield" } },
+                    { kind: NodeKind.ExprStatement, expression: { kind: NodeKind.UnaryExpression, operator: "yield*" } }
                 ]
             }
         });
         expect(program.body[2]).toMatchObject({
-            kind: "ClassStatement",
+            kind: NodeKind.ClassStatement,
             members: [
-                { kind: "ClassMethodMember", async: true, name: { name: "save" } },
-                { kind: "ClassMethodMember", generator: true, name: { name: "values" } }
+                { kind: NodeKind.ClassMethodMember, async: true, name: { name: "save" } },
+                { kind: NodeKind.ClassMethodMember, generator: true, name: { name: "values" } }
             ]
         });
     });
@@ -480,35 +495,35 @@ let expr = sync function(): int { return 5 }
 `));
 
         expect(program.body[0]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             sync: true,
             name: { name: "load" }
         });
         expect(program.body[1]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             sync: true,
             name: { name: "fetchValue" }
         });
         expect(program.body[2]).toMatchObject({
-            kind: "ClassStatement",
-            members: [{ kind: "ClassMethodMember", sync: true, name: { name: "save" } }]
+            kind: NodeKind.ClassStatement,
+            members: [{ kind: NodeKind.ClassMethodMember, sync: true, name: { name: "save" } }]
         });
         expect(program.body[3]).toMatchObject({
-            kind: "VarStatement",
-            initializer: { kind: "ArrowFunctionExpression", sync: true }
+            kind: NodeKind.VarStatement,
+            initializer: { kind: NodeKind.ArrowFunctionExpression, sync: true }
         });
         expect(program.body[4]).toMatchObject({
-            kind: "VarStatement",
-            initializer: { kind: "FunctionExpression", sync: true }
+            kind: NodeKind.VarStatement,
+            initializer: { kind: NodeKind.FunctionExpression, sync: true }
         });
     });
 
     it("parses the contextual `go` operator while keeping `go` usable as an identifier", () => {
         const goOperator = parseExpression(tokenizeReader("go fetchValue()"));
         expect(goOperator).toMatchObject({
-            kind: "UnaryExpression",
+            kind: NodeKind.UnaryExpression,
             operator: "go",
-            argument: { kind: "CallExpression", callee: { name: "fetchValue" } }
+            argument: { kind: NodeKind.CallExpression, callee: { name: "fetchValue" } }
         });
 
         const program = parseFile(tokenizeReader(`let go = 5
@@ -516,48 +531,48 @@ let total = go + 1
 let result = go
 go = 7
 `));
-        expect(program.body[0]).toMatchObject({ kind: "VarStatement", initializer: { kind: "IntLiteral", value: 5 } });
+        expect(program.body[0]).toMatchObject({ kind: NodeKind.VarStatement, initializer: { kind: NodeKind.IntLiteral, value: 5 } });
         expect(program.body[1]).toMatchObject({
-            kind: "VarStatement",
-            initializer: { kind: "BinaryExpression", operator: "+", left: { kind: "Identifier", name: "go" } }
+            kind: NodeKind.VarStatement,
+            initializer: { kind: NodeKind.BinaryExpression, operator: "+", left: { kind: NodeKind.Identifier, name: "go" } }
         });
         expect(program.body[2]).toMatchObject({
-            kind: "VarStatement",
-            initializer: { kind: "Identifier", name: "go" }
+            kind: NodeKind.VarStatement,
+            initializer: { kind: NodeKind.Identifier, name: "go" }
         });
         expect(program.body[3]).toMatchObject({
-            kind: "ExprStatement",
-            expression: { kind: "AssignmentExpression", left: { kind: "Identifier", name: "go" } }
+            kind: NodeKind.ExprStatement,
+            expression: { kind: NodeKind.AssignmentExpression, left: { kind: NodeKind.Identifier, name: "go" } }
         });
 
         const goCall = parseExpression(tokenizeReader("go()"));
-        expect(goCall).toMatchObject({ kind: "CallExpression", callee: { kind: "Identifier", name: "go" } });
+        expect(goCall).toMatchObject({ kind: NodeKind.CallExpression, callee: { kind: NodeKind.Identifier, name: "go" } });
     });
 
     it("parses object and array binding patterns in variable declarations", () => {
         const program = parseFile(tokenizeReader("let { id, name :: displayName, nested :: { value = 1 }, ...rest } = source\nconst [first, , third = 3, ...tail] = values"));
 
         expect(program.body[0]).toMatchObject({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             name: {
-                kind: "ObjectBindingPattern",
+                kind: NodeKind.ObjectBindingPattern,
                 elements: [
-                    { kind: "BindingElement", name: { kind: "Identifier", name: "id" }, shorthand: true },
-                    { kind: "BindingElement", propertyName: { name: "name" }, name: { name: "displayName" } },
-                    { kind: "BindingElement", propertyName: { name: "nested" }, name: { kind: "ObjectBindingPattern" } },
-                    { kind: "BindingElement", rest: true, name: { name: "rest" } }
+                    { kind: NodeKind.BindingElement, name: { kind: NodeKind.Identifier, name: "id" }, shorthand: true },
+                    { kind: NodeKind.BindingElement, propertyName: { name: "name" }, name: { name: "displayName" } },
+                    { kind: NodeKind.BindingElement, propertyName: { name: "nested" }, name: { kind: NodeKind.ObjectBindingPattern } },
+                    { kind: NodeKind.BindingElement, rest: true, name: { name: "rest" } }
                 ]
             }
         });
         expect(program.body[1]).toMatchObject({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             name: {
-                kind: "ArrayBindingPattern",
+                kind: NodeKind.ArrayBindingPattern,
                 elements: [
-                    { kind: "BindingElement", name: { name: "first" } },
-                    { kind: "BindingHole" },
-                    { kind: "BindingElement", name: { name: "third" }, initializer: { kind: "IntLiteral", value: 3 } },
-                    { kind: "BindingElement", rest: true, name: { name: "tail" } }
+                    { kind: NodeKind.BindingElement, name: { name: "first" } },
+                    { kind: NodeKind.BindingHole },
+                    { kind: NodeKind.BindingElement, name: { name: "third" }, initializer: { kind: NodeKind.IntLiteral, value: 3 } },
+                    { kind: NodeKind.BindingElement, rest: true, name: { name: "tail" } }
                 ]
             }
         });
@@ -566,16 +581,16 @@ go = 7
 
     it("parses brace lambdas inside call argument lists while preserving object literals", () => {
         expect(parseExpression(tokenizeReader("apply({ value -> value + 1 })"))).toMatchObject({
-            kind: "CallExpression",
-            arguments: [{ kind: "ArrowFunctionExpression", parameters: [{ name: { name: "value" } }] }]
+            kind: NodeKind.CallExpression,
+            args: [{ kind: NodeKind.ArrowFunctionExpression, parameters: [{ name: { name: "value" } }] }]
         });
         expect(parseExpression(tokenizeReader("apply({ it })"))).toMatchObject({
-            kind: "CallExpression",
-            arguments: [{ kind: "ArrowFunctionExpression", contextualObjectLiteral: { kind: "ObjectLiteral" } }]
+            kind: NodeKind.CallExpression,
+            args: [{ kind: NodeKind.ArrowFunctionExpression, contextualObjectLiteral: { kind: NodeKind.ObjectLiteral } }]
         });
         expect(parseExpression(tokenizeReader("apply({ value: 1 })"))).toMatchObject({
-            kind: "CallExpression",
-            arguments: [{ kind: "ObjectLiteral" }]
+            kind: NodeKind.CallExpression,
+            args: [{ kind: NodeKind.ObjectLiteral }]
         });
     });
 
@@ -586,13 +601,13 @@ describe("destructured parameters", () => {
         const program = parseFile(tokenizeReader("function Page({ name : string, title :: displayTitle : string }, [count : int]) { return displayTitle }"));
 
         expect(program.body[0]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             parameters: [
-                { name: { kind: "ObjectBindingPattern", elements: [
+                { name: { kind: NodeKind.ObjectBindingPattern, elements: [
                     { name: { name: "name" }, shorthand: true, typeAnnotation: { name: "string" } },
                     { propertyName: { name: "title" }, name: { name: "displayTitle" }, typeAnnotation: { name: "string" } }
                 ] } },
-                { name: { kind: "ArrayBindingPattern", elements: [
+                { name: { kind: NodeKind.ArrayBindingPattern, elements: [
                     { name: { name: "count" }, typeAnnotation: { name: "int" } }
                 ] } }
             ]
@@ -603,10 +618,10 @@ describe("destructured parameters", () => {
         const program = parseFile(tokenizeReader("function Page({ name: displayName }: { name: string }) { return displayName }"), { language: "typescript" });
 
         expect(program.body[0]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             parameters: [
                 {
-                    name: { kind: "ObjectBindingPattern", elements: [
+                    name: { kind: NodeKind.ObjectBindingPattern, elements: [
                         { propertyName: { name: "name" }, name: { name: "displayName" } }
                     ] },
                     typeAnnotation: { name: "{ name: string }" }
@@ -618,16 +633,16 @@ describe("destructured parameters", () => {
     it("parses object, array, nested, default, and rest binding patterns", () => {
         const program = parseFile(tokenizeReader("function unpack({ id, nested :: { value = 1 }, ...meta }, [first, , ...tail] = values) { return value }"));
         expect(program.body[0]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             parameters: [
-                { name: { kind: "ObjectBindingPattern", elements: [
+                { name: { kind: NodeKind.ObjectBindingPattern, elements: [
                     { name: { name: "id" }, shorthand: true },
-                    { propertyName: { name: "nested" }, name: { kind: "ObjectBindingPattern" } },
+                    { propertyName: { name: "nested" }, name: { kind: NodeKind.ObjectBindingPattern } },
                     { rest: true, name: { name: "meta" } }
                 ] } },
-                { name: { kind: "ArrayBindingPattern", elements: [
-                    { name: { name: "first" } }, { kind: "BindingHole" }, { rest: true, name: { name: "tail" } }
-                ] }, defaultValue: { kind: "Identifier", name: "values" } }
+                { name: { kind: NodeKind.ArrayBindingPattern, elements: [
+                    { name: { name: "first" } }, { kind: NodeKind.BindingHole }, { rest: true, name: { name: "tail" } }
+                ] }, defaultValue: { kind: NodeKind.Identifier, name: "values" } }
             ]
         });
     });
@@ -639,17 +654,17 @@ describe("destructured parameters", () => {
         );
 
         expect(program.body[0]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             parameters: [
                 {
                     name: {
-                        kind: "ObjectBindingPattern",
+                        kind: NodeKind.ObjectBindingPattern,
                         elements: [
                             {
-                                kind: "BindingElement",
-                                propertyName: { kind: "StringLiteral", value: "aria-current" },
-                                name: { kind: "Identifier", name: "ariaCurrentProp" },
-                                initializer: { kind: "StringLiteral", value: "page" }
+                                kind: NodeKind.BindingElement,
+                                propertyName: { kind: NodeKind.StringLiteral, value: "aria-current" },
+                                name: { kind: NodeKind.Identifier, name: "ariaCurrentProp" },
+                                initializer: { kind: NodeKind.StringLiteral, value: "page" }
                             }
                         ]
                     }
@@ -664,7 +679,7 @@ describe("JavaScript implementation annotations", () => {
         const program = parseFile(tokenizeReader('@JsInline("if (!cond) throw new Error(message)")\nfun assert(cond: boolean, message: string = "assert failed")'));
 
         expect(program.body[0]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             name: { name: "assert" },
             missingBody: true,
             jsInline: "if (!cond) throw new Error(message)"
@@ -678,21 +693,21 @@ describe("JavaScript implementation annotations", () => {
     it("parses @JsName on functions, classes and variables", () => {
         const fn = parseFile(tokenizeReader('@JsName("clamp01")\nfunction clampUnit(value: number): number { return value }'));
         expect(fn.body[0]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             name: { name: "clampUnit" },
             jsName: "clamp01"
         });
 
         const cls = parseFile(tokenizeReader('@JsName("rgba")\nclass Color(val r: int)'));
         expect(cls.body[0]).toMatchObject({
-            kind: "ClassStatement",
+            kind: NodeKind.ClassStatement,
             name: { name: "Color" },
             jsName: "rgba"
         });
 
         const variable = parseFile(tokenizeReader('@JsName("PI_JS")\nval pi = 3.14'));
         expect(variable.body[0]).toMatchObject({
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             jsName: "PI_JS"
         });
     });
@@ -700,7 +715,7 @@ describe("JavaScript implementation annotations", () => {
     it("stacks @JsName and @JsInline on the same function", () => {
         const program = parseFile(tokenizeReader('@JsName("assertJs")\n@JsInline("if (!cond) throw new Error()")\nfun assert(cond: boolean)'));
         expect(program.body[0]).toMatchObject({
-            kind: "FunctionStatement",
+            kind: NodeKind.FunctionStatement,
             name: { name: "assert" },
             jsName: "assertJs",
             jsInline: "if (!cond) throw new Error()"
@@ -714,51 +729,51 @@ describe("JavaScript implementation annotations", () => {
 
         it("parses an element with attributes, text and expression children", () => {
             expect(jsxExpression('<div class="x">hi {name}</div>')).toMatchObject({
-                kind: "JsxElement",
+                kind: NodeKind.JsxElement,
                 tagName: "div",
                 selfClosing: false,
                 attributes: [
-                    { kind: "JsxAttribute", name: "class", value: { kind: "StringLiteral", value: "x" } }
+                    { kind: NodeKind.JsxAttribute, name: "class", value: { kind: NodeKind.StringLiteral, value: "x" } }
                 ],
                 children: [
-                    { kind: "JsxText", value: "hi " },
-                    { kind: "JsxExpressionContainer", expression: { kind: "Identifier", name: "name" } }
+                    { kind: NodeKind.JsxText, value: "hi " },
+                    { kind: NodeKind.JsxExpressionContainer, expression: { kind: NodeKind.Identifier, name: "name" } }
                 ]
             });
         });
 
         it("parses self-closing elements and boolean attributes", () => {
             expect(jsxExpression("<input disabled />")).toMatchObject({
-                kind: "JsxElement",
+                kind: NodeKind.JsxElement,
                 tagName: "input",
                 selfClosing: true,
-                attributes: [{ kind: "JsxAttribute", name: "disabled", value: undefined }],
+                attributes: [{ kind: NodeKind.JsxAttribute, name: "disabled", value: undefined }],
                 children: []
             });
         });
 
         it("treats component and dotted tags as references but not intrinsic tags", () => {
             expect(jsxExpression("<Foo.Bar/>")).toMatchObject({
-                kind: "JsxElement",
+                kind: NodeKind.JsxElement,
                 tagName: "Foo.Bar",
                 reference: {
-                    kind: "MemberExpression",
-                    object: { kind: "Identifier", name: "Foo" },
-                    property: { kind: "Identifier", name: "Bar" }
+                    kind: NodeKind.MemberExpression,
+                    object: { kind: NodeKind.Identifier, name: "Foo" },
+                    property: { kind: NodeKind.Identifier, name: "Bar" }
                 }
             });
-            expect(jsxExpression("<div/>")).not.toHaveProperty("reference");
+            expect(jsxExpression("<div/>")).toHaveProperty("reference", undefined);
         });
 
         it("parses spread attributes and fragments", () => {
             expect(jsxExpression("<><span {...props}/></>")).toMatchObject({
-                kind: "JsxFragment",
+                kind: NodeKind.JsxFragment,
                 children: [
                     {
-                        kind: "JsxElement",
+                        kind: NodeKind.JsxElement,
                         tagName: "span",
                         attributes: [
-                            { kind: "JsxSpreadAttribute", expression: { kind: "Identifier", name: "props" } }
+                            { kind: NodeKind.JsxSpreadAttribute, expression: { kind: NodeKind.Identifier, name: "props" } }
                         ]
                     }
                 ]
@@ -788,18 +803,18 @@ describe("JavaScript implementation annotations", () => {
 
         it("parses double-brace JSX attribute values as zero-argument lambdas when object literals do not parse", () => {
             expect(jsxExpression("<button onClick={{ count-- }} />")).toMatchObject({
-                kind: "JsxElement",
+                kind: NodeKind.JsxElement,
                 tagName: "button",
                 attributes: [
                     {
-                        kind: "JsxAttribute",
+                        kind: NodeKind.JsxAttribute,
                         name: "onClick",
                         value: {
-                            kind: "JsxExpressionContainer",
+                            kind: NodeKind.JsxExpressionContainer,
                             expression: {
-                                kind: "ArrowFunctionExpression",
+                                kind: NodeKind.ArrowFunctionExpression,
                                 parameters: [],
-                                body: { kind: "UpdateExpression" }
+                                body: { kind: NodeKind.UpdateExpression }
                             }
                         }
                     }
@@ -845,8 +860,8 @@ describe("JavaScript implementation annotations", () => {
             const ast = parser.parseFile();
             expect(parser.errors.length).toBeGreaterThan(0);
             expect(ast.body[ast.body.length - 1]).toMatchObject({
-                kind: "VarStatement",
-                name: { kind: "Identifier", name: "ok" }
+                kind: NodeKind.VarStatement,
+                name: { kind: NodeKind.Identifier, name: "ok" }
             });
         });
 
@@ -858,8 +873,8 @@ describe("JavaScript implementation annotations", () => {
             const ast = parser.parseFile();
             expect(parser.errors.length).toBeGreaterThan(0);
             expect(ast.body[ast.body.length - 1]).toMatchObject({
-                kind: "VarStatement",
-                name: { kind: "Identifier", name: "ok" }
+                kind: NodeKind.VarStatement,
+                name: { kind: NodeKind.Identifier, name: "ok" }
             });
         });
 
@@ -871,14 +886,14 @@ describe("JavaScript implementation annotations", () => {
             const ast = parser.parseFile();
             expect(parser.errors.length).toBeGreaterThan(0);
             expect(ast.body[ast.body.length - 1]).toMatchObject({
-                kind: "VarStatement",
-                name: { kind: "Identifier", name: "ok" }
+                kind: NodeKind.VarStatement,
+                name: { kind: NodeKind.Identifier, name: "ok" }
             });
         });
 
         it("does not enable JSX casts in TypeScript mode by default", () => {
             expect(parseExpression(tokenizeReader("<string>value", { jsx: false }), { language: "typescript" })).toMatchObject({
-                kind: "AsExpression"
+                kind: NodeKind.AsExpression
             });
         });
     });

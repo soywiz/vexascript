@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { CompletionItemKind } from "./completionModel";
 import {
@@ -30,16 +31,16 @@ describe("memberCompletionObjectMembers", () => {
 
   it("substitutes generic type parameters into aliased object members", () => {
     const typeAlias = {
-      kind: "TypeAliasStatement",
-      name: { kind: "Identifier", name: "Box" },
+      kind: NodeKind.TypeAliasStatement,
+      name: { kind: NodeKind.Identifier, name: "Box" },
       typeParameters: [
         {
-          kind: "TypeParameter",
-          name: { kind: "Identifier", name: "T" }
+          kind: NodeKind.TypeParameter,
+          name: { kind: NodeKind.Identifier, name: "T" }
         }
       ],
       targetType: {
-        kind: "Identifier",
+        kind: NodeKind.Identifier,
         name: "{ value: T; map(transform: string) => T }"
       }
     } as TypeAliasStatement;

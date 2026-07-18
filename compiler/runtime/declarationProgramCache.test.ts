@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "compiler/test/expect";
 import type { Node, Program } from "compiler/ast/ast";
 import {
@@ -7,8 +8,8 @@ import {
 } from "./declarationProgramCache";
 
 function fakeProgram(): Program {
-  const literal: Node = { kind: "IntLiteral" };
-  return { kind: "Program", body: [literal] } as unknown as Program;
+  const literal: Node = { kind: NodeKind.IntLiteral };
+  return { kind: NodeKind.Program, body: [literal] } as unknown as Program;
 }
 
 describe("DeclarationProgramCache", () => {
@@ -43,7 +44,7 @@ describe("DeclarationProgramCache", () => {
     const loaded = await cache.ensure();
 
     expect(loads).toBe(2);
-    expect(loaded.program.kind).toBe("Program");
+    expect(loaded.program.kind).toBe(NodeKind.Program);
   });
 
   it("answers node membership only after the program is loaded", async () => {
@@ -61,7 +62,7 @@ describe("DeclarationProgramCache", () => {
 
     expect(cache.get()?.program).toBe(program);
     expect(cache.hasNode(programNode)).toBe(true);
-    expect(cache.hasNode({ kind: "Identifier" })).toBe(false);
+    expect(cache.hasNode({ kind: NodeKind.Identifier })).toBe(false);
   });
 });
 
@@ -69,7 +70,7 @@ describe("parseDeclarationProgram", () => {
   it("parses valid TypeScript declaration sources", () => {
     const program = parseDeclarationProgram("declare const answer: number;", "Test declarations");
 
-    expect(program.kind).toBe("Program");
+    expect(program.kind).toBe(NodeKind.Program);
     expect(program.body.length).toBeGreaterThan(0);
   });
 

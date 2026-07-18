@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { bindingElements, bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type {
   ArrayLiteral,
@@ -320,7 +321,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   const visitVarDeclarator = (declaration: VarDeclarator): void => {
     for (const identifier of bindingIdentifiers(declaration.name)) markIdentifier(kinds, identifier, "variable");
     for (const element of bindingElements(declaration.name)) {
-      if (element.propertyName?.kind === "Identifier") {
+      if (element.propertyName?.kind === NodeKind.Identifier) {
         markIdentifier(kinds, element.propertyName, "property");
       }
       if (element.initializer) visitExpression(element.initializer);
@@ -334,7 +335,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   const visitParameter = (parameter: FunctionParameter): void => {
     for (const identifier of bindingIdentifiers(parameter.name)) markIdentifier(kinds, identifier, "parameter");
     for (const element of bindingElements(parameter.name)) {
-      if (element.propertyName?.kind === "Identifier") {
+      if (element.propertyName?.kind === NodeKind.Identifier) {
         markIdentifier(kinds, element.propertyName, "property");
       }
       if (element.initializer) visitExpression(element.initializer);
@@ -347,7 +348,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
 
   const visitClassMember = (member: ClassFieldMember | ClassMethodMember): void => {
     visitAnnotations(member.annotations);
-    if (member.kind === "ClassFieldMember") {
+    if (member.kind === NodeKind.ClassFieldMember) {
       markIdentifier(kinds, member.name, "property");
       markTypeAnnotation(kinds, member.typeAnnotation);
       if (member.initializer) {
@@ -358,8 +359,8 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
 
     markIdentifier(kinds, member.name, "method");
     for (const parameter of member.parameters) {
-      if (member.name.name === "constructor" && (parameter.accessModifier !== undefined || parameter.readonly === true)) {
-        if (parameter.name.kind === "Identifier") markIdentifier(kinds, parameter.name, "property");
+      if (member.name.name === "constructor" && (parameter.accessModifier !== undefined || parameter.isReadonly === true)) {
+        if (parameter.name.kind === NodeKind.Identifier) markIdentifier(kinds, parameter.name, "property");
         markTypeAnnotation(kinds, parameter.typeAnnotation);
         if (parameter.defaultValue) {
           visitExpression(parameter.defaultValue);
@@ -388,7 +389,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   const visitStatement = (statement: Statement): void => {
     visitAnnotations(statement.annotations);
     switch (statement.kind) {
-      case "ExportStatement": {
+      case NodeKind.ExportStatement: {
         const exportStatement = statement as ExportStatement;
         if (exportStatement.namespaceExport) {
           markIdentifier(kinds, exportStatement.namespaceExport, "namespace");
@@ -404,7 +405,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
         return;
       }
-      case "ImportStatement": {
+      case NodeKind.ImportStatement: {
         const importStatement = statement as ImportStatement;
         if (importStatement.defaultImport) {
           markIdentifier(kinds, importStatement.defaultImport, "variable");
@@ -425,7 +426,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
         return;
       }
-      case "NamespaceStatement": {
+      case NodeKind.NamespaceStatement: {
         const namespaceStatement = statement as NamespaceStatement;
         for (const name of namespaceStatement.names ?? []) {
           markIdentifier(kinds, name, "namespace");
@@ -433,7 +434,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         visitBlock(namespaceStatement.body);
         return;
       }
-      case "VarStatement": {
+      case NodeKind.VarStatement: {
         const variableStatement = statement as VarStatement;
         if (variableStatement.declarations && variableStatement.declarations.length > 0) {
           for (const declaration of variableStatement.declarations) {
@@ -442,7 +443,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         } else {
           for (const identifier of bindingIdentifiers(variableStatement.name)) markIdentifier(kinds, identifier, "variable");
           for (const element of bindingElements(variableStatement.name)) {
-            if (element.propertyName?.kind === "Identifier") {
+            if (element.propertyName?.kind === NodeKind.Identifier) {
               markIdentifier(kinds, element.propertyName, "property");
             }
             if (element.initializer) visitExpression(element.initializer);
@@ -454,7 +455,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
         return;
       }
-      case "FunctionStatement": {
+      case NodeKind.FunctionStatement: {
         const functionStatement = statement as FunctionStatement;
         markIdentifier(kinds, functionStatement.name, "function");
         for (const parameter of functionStatement.parameters) {
@@ -464,11 +465,11 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         visitBlock(functionStatement.body);
         return;
       }
-      case "ClassStatement": {
+      case NodeKind.ClassStatement: {
         const classStatement = statement as ClassStatement;
         markIdentifier(kinds, classStatement.name, "class");
         for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-          if (parameter.name.kind === "Identifier") markIdentifier(kinds, parameter.name, "property");
+          if (parameter.name.kind === NodeKind.Identifier) markIdentifier(kinds, parameter.name, "property");
           markTypeAnnotation(kinds, parameter.typeAnnotation);
           if (parameter.defaultValue) {
             visitExpression(parameter.defaultValue);
@@ -479,7 +480,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
         return;
       }
-      case "EnumStatement": {
+      case NodeKind.EnumStatement: {
         const enumStatement = statement as EnumStatement;
         markIdentifier(kinds, enumStatement.name, "class");
         for (const member of enumStatement.members) {
@@ -490,7 +491,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
         return;
       }
-      case "AnnotationStatement": {
+      case NodeKind.AnnotationStatement: {
         const annotationStatement = statement as AnnotationStatement;
         markIdentifier(kinds, annotationStatement.name, "annotation");
         for (const parameter of annotationStatement.parameters) {
@@ -498,42 +499,42 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
         return;
       }
-      case "ExprStatement":
+      case NodeKind.ExprStatement:
         visitExpression((statement as ExprStatement).expression);
         return;
-      case "BlockStatement":
+      case NodeKind.BlockStatement:
         visitBlock(statement as BlockStatement);
         return;
-      case "WhileStatement": {
+      case NodeKind.WhileStatement: {
         const whileStatement = statement as WhileStatement;
         visitExpression(whileStatement.condition);
         visitStatement(whileStatement.body);
         return;
       }
-      case "WithStatement": {
+      case NodeKind.WithStatement: {
         const withStatement = statement as WithStatement;
         visitExpression(withStatement.object);
         visitStatement(withStatement.body);
         return;
       }
-      case "LabeledStatement": {
+      case NodeKind.LabeledStatement: {
         const labeled = statement as LabeledStatement;
         markIdentifier(kinds, labeled.label, "variable");
         visitStatement(labeled.body);
         return;
       }
-      case "DoWhileStatement": {
+      case NodeKind.DoWhileStatement: {
         const doWhileStatement = statement as DoWhileStatement;
         visitStatement(doWhileStatement.body);
         visitExpression(doWhileStatement.condition);
         return;
       }
-      case "ForStatement": {
+      case NodeKind.ForStatement: {
         const forStatement = statement as ForStatement;
         if (forStatement.iterationKind && forStatement.iterator && forStatement.iterable) {
-          if (forStatement.iterator.kind === "VarStatement") {
+          if (forStatement.iterator.kind === NodeKind.VarStatement) {
             visitStatement(forStatement.iterator as VarStatement);
-          } else if (forStatement.iterator.kind === "Identifier") {
+          } else if (forStatement.iterator.kind === NodeKind.Identifier) {
             markIdentifier(kinds, forStatement.iterator as Identifier, "variable");
           } else {
             visitExpression(forStatement.iterator as Expr);
@@ -544,7 +545,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
 
         if (forStatement.initializer) {
-          if (forStatement.initializer.kind === "VarStatement") {
+          if (forStatement.initializer.kind === NodeKind.VarStatement) {
             visitStatement(forStatement.initializer as VarStatement);
           } else {
             visitExpression(forStatement.initializer as Expr);
@@ -559,7 +560,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         visitStatement(forStatement.body);
         return;
       }
-      case "IfStatement": {
+      case NodeKind.IfStatement: {
         const ifStatement = statement as IfStatement;
         visitExpression(ifStatement.condition);
         visitStatement(ifStatement.thenBranch);
@@ -568,7 +569,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
         return;
       }
-      case "SwitchStatement": {
+      case NodeKind.SwitchStatement: {
         const switchStatement = statement as SwitchStatement;
         visitExpression(switchStatement.discriminant);
         for (const switchCase of switchStatement.cases) {
@@ -581,20 +582,20 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
         return;
       }
-      case "ReturnStatement": {
+      case NodeKind.ReturnStatement: {
         const returnStatement = statement as ReturnStatement;
         if (returnStatement.expression) {
           visitExpression(returnStatement.expression);
         }
         return;
       }
-      case "ThrowStatement":
+      case NodeKind.ThrowStatement:
         visitExpression((statement as ThrowStatement).expression);
         return;
-      case "DeferStatement":
+      case NodeKind.DeferStatement:
         visitExpression((statement as import("compiler/ast/ast").DeferStatement).expression);
         return;
-      case "TryStatement": {
+      case NodeKind.TryStatement: {
         const tryStatement = statement as TryStatement;
         visitBlock(tryStatement.tryBlock);
         if (tryStatement.catchClause) {
@@ -612,7 +613,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
 
   const visitAnnotationApplication = (annotation: AnnotationApplication): void => {
     markIdentifier(kinds, annotation.name, "annotation");
-    for (const argument of annotation.arguments) {
+    for (const argument of annotation.args) {
       visitExpression(argument);
     }
   };
@@ -624,12 +625,12 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   };
 
   const visitObjectProperty = (property: ObjectProperty): void => {
-    if (!property.computed && property.key.kind === "Identifier") {
+    if (!property.computed && property.key.kind === NodeKind.Identifier) {
       markIdentifier(kinds, property.key as Identifier, property.method ? "method" : "property");
     } else {
       visitExpression(property.key);
     }
-    if (property.method && property.value.kind === "FunctionExpression") {
+    if (property.method && property.value.kind === NodeKind.FunctionExpression) {
       const fn = property.value as FunctionExpression;
       for (const parameter of fn.parameters) {
         visitParameter(parameter);
@@ -642,17 +643,17 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   };
 
   const visitCallCallee = (callee: Expr, identifierType: TokenTypeName): void => {
-    if (callee.kind === "Identifier") {
+    if (callee.kind === NodeKind.Identifier) {
       const identifier = callee as Identifier;
       markIdentifier(kinds, identifier, isPascalCaseIdentifier(identifier) ? "class" : identifierType);
       return;
     }
-    if (callee.kind === "MemberExpression") {
+    if (callee.kind === NodeKind.MemberExpression) {
       const member = callee as MemberExpression;
       visitExpression(member.object);
       if (member.computed) {
         visitExpression(member.property);
-      } else if (member.property.kind === "Identifier") {
+      } else if (member.property.kind === NodeKind.Identifier) {
         markIdentifier(kinds, member.property as Identifier, "method");
       } else {
         visitExpression(member.property);
@@ -664,46 +665,46 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
 
   const visitExpression = (expression: Expr): void => {
     switch (expression.kind) {
-      case "Identifier":
-      case "IntLiteral":
-      case "FloatLiteral":
-      case "BigIntLiteral":
-      case "LongLiteral":
-      case "StringLiteral":
+      case NodeKind.Identifier:
+      case NodeKind.IntLiteral:
+      case NodeKind.FloatLiteral:
+      case NodeKind.BigIntLiteral:
+      case NodeKind.LongLiteral:
+      case NodeKind.StringLiteral:
         return;
-      case "CommaExpression":
+      case NodeKind.CommaExpression:
         for (const child of (expression as CommaExpression).expressions) {
           visitExpression(child);
         }
         return;
-      case "AsExpression": {
+      case NodeKind.AsExpression: {
         const assertion = expression as AsExpression;
         visitExpression(assertion.expression);
         markTypeAnnotation(kinds, assertion.typeAnnotation);
         return;
       }
-      case "SatisfiesExpression": {
+      case NodeKind.SatisfiesExpression: {
         const satisfies = expression as SatisfiesExpression;
         visitExpression(satisfies.expression);
         markTypeAnnotation(kinds, satisfies.typeAnnotation);
         return;
       }
-      case "NonNullExpression":
+      case NodeKind.NonNullExpression:
         visitExpression((expression as NonNullExpression).expression);
         return;
-      case "BinaryExpression": {
+      case NodeKind.BinaryExpression: {
         const binary = expression as BinaryExpression;
         visitExpression(binary.left);
         visitExpression(binary.right);
         return;
       }
-      case "RangeExpression": {
+      case NodeKind.RangeExpression: {
         const range = expression as RangeExpression;
         visitExpression(range.start);
         visitExpression(range.end);
         return;
       }
-      case "ChainExpression": {
+      case NodeKind.ChainExpression: {
         const chain = expression as ChainExpression;
         visitExpression(chain.receiver);
         for (const operation of chain.operations) {
@@ -711,68 +712,68 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
         return;
       }
-      case "AssignmentExpression": {
+      case NodeKind.AssignmentExpression: {
         const assignment = expression as AssignmentExpression;
         visitExpression(assignment.left);
         visitExpression(assignment.right);
         return;
       }
-      case "ConditionalExpression": {
+      case NodeKind.ConditionalExpression: {
         const conditional = expression as ConditionalExpression;
         visitExpression(conditional.test);
         visitExpression(conditional.consequent);
         visitExpression(conditional.alternate);
         return;
       }
-      case "MemberExpression": {
+      case NodeKind.MemberExpression: {
         const member = expression as MemberExpression;
         visitExpression(member.object);
         if (member.computed) {
           visitExpression(member.property);
-        } else if (member.property.kind === "Identifier") {
+        } else if (member.property.kind === NodeKind.Identifier) {
           markIdentifier(kinds, member.property as Identifier, "property");
         } else {
           visitExpression(member.property);
         }
         return;
       }
-      case "CallExpression": {
+      case NodeKind.CallExpression: {
         const call = expression as CallExpression;
         visitCallCallee(call.callee, "function");
-        for (const argument of call.arguments) {
+        for (const argument of call.args) {
           visitExpression(argument);
         }
         return;
       }
-      case "NewExpression": {
+      case NodeKind.NewExpression: {
         const newExpression = expression as NewExpression;
         visitCallCallee(newExpression.callee, "class");
-        for (const argument of newExpression.arguments ?? []) {
+        for (const argument of newExpression.args ?? []) {
           visitExpression(argument);
         }
         return;
       }
-      case "UnaryExpression":
+      case NodeKind.UnaryExpression:
         visitExpression((expression as UnaryExpression).argument);
         return;
-      case "UpdateExpression":
+      case NodeKind.UpdateExpression:
         visitExpression((expression as UpdateExpression).argument);
         return;
-      case "ArrayLiteral":
+      case NodeKind.ArrayLiteral:
         for (const element of (expression as ArrayLiteral).elements) {
           visitExpression(element);
         }
         return;
-      case "ObjectLiteral":
+      case NodeKind.ObjectLiteral:
         for (const property of (expression as ObjectLiteral).properties) {
-          if (property.kind === "ObjectSpreadProperty") {
+          if (property.kind === NodeKind.ObjectSpreadProperty) {
             visitExpression(property.argument);
           } else {
             visitObjectProperty(property);
           }
         }
         return;
-      case "FunctionExpression": {
+      case NodeKind.FunctionExpression: {
         const fn = expression as FunctionExpression;
         if (fn.name) {
           markIdentifier(kinds, fn.name, "function");
@@ -784,12 +785,12 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         visitBlock(fn.body);
         return;
       }
-      case "ArrowFunctionExpression": {
+      case NodeKind.ArrowFunctionExpression: {
         const arrow = expression as ArrowFunctionExpression;
         for (const parameter of arrow.parameters) {
           visitParameter(parameter);
         }
-        if (arrow.body.kind === "BlockStatement") {
+        if (arrow.body.kind === NodeKind.BlockStatement) {
           visitBlock(arrow.body as BlockStatement);
         } else {
           visitExpression(arrow.body as Expr);

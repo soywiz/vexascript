@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   ExportStatement,
   Identifier,
@@ -26,10 +27,10 @@ export interface NativeModuleGraphResult extends TranspileResult {
 
 function nativeModuleStatements(program: Program): Statement[] {
   return program.body.flatMap((statement) => {
-    if (statement.kind === "ImportStatement") return [];
-    if (statement.kind === "ExportStatement") {
+    if (statement.kind === NodeKind.ImportStatement) return [];
+    if (statement.kind === NodeKind.ExportStatement) {
       const exported = statement as ExportStatement;
-      if (exported.default && exported.declaration?.kind === "ExprStatement") return [];
+      if (exported.isDefault && exported.declaration?.kind === NodeKind.ExprStatement) return [];
     }
     const declaration = unwrapExportedDeclaration(statement);
     return declaration ? [declaration] : [];
@@ -67,11 +68,11 @@ function markNativeSourcePath(node: Node, path: string): void {
 function declarationIdentifiers(statement: Statement): Identifier[] {
   const declaration = unwrapExportedDeclaration(statement);
   if (!declaration) return [];
-  if (declaration.kind === "VarStatement") {
+  if (declaration.kind === NodeKind.VarStatement) {
     return bindingIdentifiers((declaration as VarStatement).name);
   }
   const name = (declaration as { name?: Identifier }).name;
-  return name?.kind === "Identifier" ? [name] : [];
+  return name?.kind === NodeKind.Identifier ? [name] : [];
 }
 
 function nativeSymbolName(moduleIndex: number, sourceName: string): string {
@@ -87,9 +88,9 @@ function rewriteNamespaceMembers(
   resolvedSymbols: ReadonlyMap<Node, Node>,
   namespaceExports: ReadonlyMap<Node, ReadonlyMap<string, string>>
 ): void {
-  if (node.kind === "MemberExpression") {
+  if (node.kind === NodeKind.MemberExpression) {
     const member = node as MemberExpression;
-    if (!member.computed && member.object.kind === "Identifier" && member.property.kind === "Identifier") {
+    if (!member.computed && member.object.kind === NodeKind.Identifier && member.property.kind === NodeKind.Identifier) {
       const symbolNode = resolvedSymbols.get(member.object as Node);
       const targetExports: ReadonlyMap<string, string> | undefined = symbolNode
         ? namespaceExports.get(symbolNode)
@@ -97,7 +98,7 @@ function rewriteNamespaceMembers(
       const targetName = targetExports?.get((member.property as Identifier).name);
       if (targetName) {
         const identifier = node as Identifier;
-        identifier.kind = "Identifier";
+        identifier.kind = NodeKind.Identifier;
         identifier.name = targetName;
         return;
       }
@@ -117,7 +118,7 @@ function rewriteTypeNames(node: Node, names: ReadonlyMap<string, string>): void 
     const value = record[key];
     const identifiers = Array.isArray(value) ? value : value ? [value] : [];
     for (const candidate of identifiers) {
-      if (typeof candidate === "object" && candidate !== null && (candidate as Node).kind === "Identifier") {
+      if (typeof candidate === "object" && candidate !== null && (candidate as Node).kind === NodeKind.Identifier) {
         const identifier = candidate as Identifier;
         identifier.name = typeNameWithRenamedBase(identifier.name, names);
       }
@@ -132,7 +133,7 @@ function moduleInfo(program: Program, path: string, moduleIndex: number): Native
   for (const statement of program.body) {
     for (const identifier of declarationIdentifiers(statement)) {
       const declaration = unwrapExportedDeclaration(statement);
-      if ((declaration?.kind === "FunctionStatement" || declaration?.kind === "VarStatement") &&
+      if ((declaration?.kind === NodeKind.FunctionStatement || declaration?.kind === NodeKind.VarStatement) &&
         (declaration as { receiverType?: Identifier }).receiverType) {
         // Extension members are imported by their source-level member name, but
         // native calls are selected from the analyzer's declaration resolution
@@ -147,14 +148,14 @@ function moduleInfo(program: Program, path: string, moduleIndex: number): Native
   }
   const exports = new Map([...localSymbols, ...extensionSymbols]);
   for (const statement of program.body) {
-    if (statement.kind !== "ExportStatement") continue;
+    if (statement.kind !== NodeKind.ExportStatement) continue;
     const exported = statement as ExportStatement;
     const declarationNames = declarationIdentifiers(statement);
-    if (exported.default && declarationNames[0]) {
+    if (exported.isDefault && declarationNames[0]) {
       exports.set("default", localSymbols.get(declarationNames[0].name)!);
-    } else if (exported.default && exported.declaration?.kind === "ExprStatement") {
+    } else if (exported.isDefault && exported.declaration?.kind === NodeKind.ExprStatement) {
       const expression = (exported.declaration as { expression?: Node }).expression;
-      if (expression?.kind === "Identifier") {
+      if (expression?.kind === NodeKind.Identifier) {
         const target = localSymbols.get((expression as Identifier).name);
         if (target) exports.set("default", target);
       }
@@ -233,7 +234,7 @@ export async function compileNativeModuleGraph(
     importsByPath.set(filePath, imports);
     const reexports: NativeReexportDependency[] = [];
     for (const statement of parsed.ast.body) {
-      if (statement.kind !== "ExportStatement" || !(statement as ExportStatement).from) continue;
+      if (statement.kind !== NodeKind.ExportStatement || !(statement as ExportStatement).from) continue;
       const exported = statement as ExportStatement;
       const targetPath = await resolveImportTargetFilePath(filePath, exported.from!.value, {
         vfs: activeVfs,
@@ -251,7 +252,7 @@ export async function compileNativeModuleGraph(
     reexportsByPath.set(filePath, reexports);
     const resolvedImportStatements = new Set(imports.map((entry) => entry.statement));
     for (const statement of parsed.ast.body) {
-      if (statement.kind !== "ImportStatement" || resolvedImportStatements.has(statement as ImportStatement)) {
+      if (statement.kind !== NodeKind.ImportStatement || resolvedImportStatements.has(statement as ImportStatement)) {
         continue;
       }
       const specifier = (statement as ImportStatement).from.value;
@@ -353,7 +354,7 @@ export async function compileNativeModuleGraph(
         const renamed = info.localSymbols.get(identifier.name);
         if (renamed) symbolNames.set(identifier as Node, renamed);
       }
-      if (statement.kind !== "ImportStatement") continue;
+      if (statement.kind !== NodeKind.ImportStatement) continue;
       const imported = statement as ImportStatement;
       const targetPath = info.importTargets.get(imported);
       const target = targetPath ? moduleInfos.get(targetPath) : undefined;
@@ -387,7 +388,7 @@ export async function compileNativeModuleGraph(
     rewriteNamespaceMembers(info.program, resolvedSymbols, namespaceExports);
     for (const [identifierNode, symbolNode] of resolvedSymbols) {
       const renamed = symbolNames.get(symbolNode);
-      if (renamed && identifierNode.kind === "Identifier") {
+      if (renamed && identifierNode.kind === NodeKind.Identifier) {
         (identifierNode as Identifier).name = typeNameWithRenamedBase(
           (identifierNode as Identifier).name,
           typeNames
@@ -395,7 +396,7 @@ export async function compileNativeModuleGraph(
       }
     }
     for (const [symbolNode, renamed] of symbolNames) {
-      if (symbolNode.kind === "Identifier") (symbolNode as Identifier).name = renamed;
+      if (symbolNode.kind === NodeKind.Identifier) (symbolNode as Identifier).name = renamed;
     }
     rewriteTypeNames(info.program, typeNames);
   }

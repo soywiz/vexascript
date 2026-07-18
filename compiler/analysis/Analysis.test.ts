@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { Parser, parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
@@ -1451,7 +1452,7 @@ let bad = "Ada" satisfies number
     );
 
     expect(missingReturnIssues).toHaveLength(2);
-    expect(missingReturnIssues.map((issue) => issue.node.kind)).toEqual(["Identifier", "Identifier"]);
+    expect(missingReturnIssues.map((issue) => issue.node.kind)).toEqual([NodeKind.Identifier, NodeKind.Identifier]);
     expect(missingReturnIssues.map((issue) => (issue.node as { name?: string }).name)).toEqual([
       "incomplete",
       "choose"
@@ -1487,10 +1488,10 @@ let bad = "Ada" satisfies number
       "Type 'string' is not assignable to return type 'int'"
     ]);
     expect(issues.map((issue) => issue.node.kind)).toEqual([
-      "ReturnStatement",
-      "ReturnStatement",
-      "ReturnStatement",
-      "ReturnStatement"
+      NodeKind.ReturnStatement,
+      NodeKind.ReturnStatement,
+      NodeKind.ReturnStatement,
+      NodeKind.ReturnStatement
     ]);
   });
 
@@ -1504,7 +1505,7 @@ let bad = "Ada" satisfies number
 
     expect(parser.errors).toEqual([]);
     expect(analysis.getIssues().map((issue) => issue.message)).toContain("Expected an expression");
-    expect(analysis.getIssues().map((issue) => issue.node.kind)).toContain("MissingExpression");
+    expect(analysis.getIssues().map((issue) => issue.node.kind)).toContain(NodeKind.MissingExpression);
   });
 
   it("accepts awaited and non-awaited return values in async functions with Promise return types", () => {
@@ -1531,7 +1532,7 @@ let bad = "Ada" satisfies number
       "Type 'string' is not assignable to return type 'Promise<int>'"
     ]);
     expect(issues.map((issue) => issue.node.kind)).toEqual([
-      "ReturnStatement"
+      NodeKind.ReturnStatement
     ]);
   });
 
@@ -1561,8 +1562,8 @@ let bad = "Ada" satisfies number
       "Nested type mismatch: expression 'await ... )' is 'int' but expected 'string'"
     ]);
     expect(issues.map((issue) => issue.node.kind)).toEqual([
-      "Identifier",
-      "UnaryExpression"
+      NodeKind.Identifier,
+      NodeKind.UnaryExpression
     ]);
   });
 
@@ -1812,9 +1813,9 @@ let bad = "Ada" satisfies number
       "Type 'string' is not assignable to return type 'int'"
     ]);
     expect(issues.map((issue) => issue.node.kind)).toEqual([
-      "ArrowFunctionExpression",
-      "ReturnStatement",
-      "StringLiteral"
+      NodeKind.ArrowFunctionExpression,
+      NodeKind.ReturnStatement,
+      NodeKind.StringLiteral
     ]);
   });
 
@@ -2705,7 +2706,7 @@ let bad = "Ada" satisfies number
       issue.message === "Type 'int' is not assignable to type 'string'"
     );
     expect(mismatch).toBeDefined();
-    expect(mismatch?.node.kind).toBe("Identifier");
+    expect(mismatch?.node.kind).toBe(NodeKind.Identifier);
     expect((mismatch?.node as { name?: string }).name).toBe("aa");
     expect(mismatch?.node.firstToken?.value).toBe("aa");
   });

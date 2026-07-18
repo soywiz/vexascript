@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   ClassStatement,
   ExportStatement,
@@ -74,7 +75,7 @@ function symbolKindForTopLevel(kind: ProjectTopLevelDeclarationKind): SymbolInfo
 }
 
 function topLevelSymbolStatement(statement: Statement): Statement {
-  if (statement.kind === "ExportStatement") {
+  if (statement.kind === NodeKind.ExportStatement) {
     return (statement as ExportStatement).declaration ?? statement;
   }
   return statement;
@@ -85,7 +86,7 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
 
   for (const originalStatement of program.body) {
     const statement = topLevelSymbolStatement(originalStatement);
-    if (statement.kind === "ClassStatement") {
+    if (statement.kind === NodeKind.ClassStatement) {
       const classStatement = statement as ClassStatement;
       const classRange = nodeRange(statement);
       const nameRange = nodeRange(classStatement.name);
@@ -95,7 +96,7 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
 
       const children: DocumentSymbol[] = [];
       for (const member of classStatement.members) {
-        if (member.kind === "ClassFieldMember") {
+        if (member.kind === NodeKind.ClassFieldMember) {
           const memberRange = nodeRange(member);
           const memberNameRange = nodeRange(member.name);
           if (!memberRange || !memberNameRange) {
@@ -136,7 +137,7 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
       continue;
     }
 
-    if (statement.kind === "InterfaceStatement") {
+    if (statement.kind === NodeKind.InterfaceStatement) {
       const interfaceStatement = statement as InterfaceStatement;
       const interfaceRange = nodeRange(statement);
       const nameRange = nodeRange(interfaceStatement.name);
@@ -152,7 +153,7 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
       continue;
     }
 
-    if (statement.kind === "TypeAliasStatement") {
+    if (statement.kind === NodeKind.TypeAliasStatement) {
       const typeAliasStatement = statement as TypeAliasStatement;
       const typeRange = nodeRange(statement);
       const nameRange = nodeRange(typeAliasStatement.name);
@@ -168,7 +169,7 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
       continue;
     }
 
-    if (statement.kind === "FunctionStatement") {
+    if (statement.kind === NodeKind.FunctionStatement) {
       const functionStatement = statement as FunctionStatement;
       const functionRange = nodeRange(statement);
       const functionNameRange = nodeRange(functionStatement.name);
@@ -184,7 +185,7 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
       continue;
     }
 
-    if (statement.kind === "VarStatement") {
+    if (statement.kind === NodeKind.VarStatement) {
       const variableStatement = statement as VarStatement;
       if (variableStatement.declarations && variableStatement.declarations.length > 0) {
         for (const declaration of variableStatement.declarations) {
@@ -245,11 +246,11 @@ function collectTopLevelSymbolInformation(
 
   for (const originalStatement of program.body) {
     const statement = topLevelSymbolStatement(originalStatement);
-    if (statement.kind === "ClassStatement") {
+    if (statement.kind === NodeKind.ClassStatement) {
       const classStatement = statement as ClassStatement;
       push(classStatement.name.name, "class", classStatement.name);
       for (const member of classStatement.members) {
-        if (member.kind === "ClassFieldMember") {
+        if (member.kind === NodeKind.ClassFieldMember) {
           push(member.name.name, "variable", member.name, classStatement.name.name);
         } else {
           push(member.name.name, member.accessorKind ? "variable" : "function", member.name, classStatement.name.name);
@@ -258,25 +259,25 @@ function collectTopLevelSymbolInformation(
       continue;
     }
 
-    if (statement.kind === "InterfaceStatement") {
+    if (statement.kind === NodeKind.InterfaceStatement) {
       const interfaceStatement = statement as InterfaceStatement;
       push(interfaceStatement.name.name, "interface", interfaceStatement.name);
       continue;
     }
 
-    if (statement.kind === "TypeAliasStatement") {
+    if (statement.kind === NodeKind.TypeAliasStatement) {
       const typeAliasStatement = statement as TypeAliasStatement;
       push(typeAliasStatement.name.name, "type", typeAliasStatement.name);
       continue;
     }
 
-    if (statement.kind === "FunctionStatement") {
+    if (statement.kind === NodeKind.FunctionStatement) {
       const functionStatement = statement as FunctionStatement;
       push(functionStatement.name.name, "function", functionStatement.name);
       continue;
     }
 
-    if (statement.kind === "VarStatement") {
+    if (statement.kind === NodeKind.VarStatement) {
       const variableStatement = statement as VarStatement;
       if (variableStatement.declarations && variableStatement.declarations.length > 0) {
         for (const declaration of variableStatement.declarations) {

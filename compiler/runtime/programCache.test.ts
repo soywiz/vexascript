@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { cacheProgram } from "./programCache";
 import type { Program } from "compiler/ast/ast";
@@ -34,12 +35,12 @@ describe("runtime program cache", () => {
     try {
       const sourceFilePath = "/runtime/runtime.d.ts";
       const program: Program = {
-        kind: "Program",
+        kind: NodeKind.Program,
         body: [
           {
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "const",
-            name: { kind: "Identifier", name: "answer" },
+            name: { kind: NodeKind.Identifier, name: "answer" },
             declarations: []
           } as unknown as Program["body"][number]
         ]
@@ -129,7 +130,7 @@ describe("runtime program cache", () => {
     try {
       const sourceFilePath = "/runtime/node-vfs.d.ts";
       const program: Program = {
-        kind: "Program",
+        kind: NodeKind.Program,
         body: []
       };
       let generateCount = 0;
@@ -143,9 +144,9 @@ describe("runtime program cache", () => {
         return {
           ...program,
           body: [{
-            kind: "VarStatement",
+            kind: NodeKind.VarStatement,
             declarationKind: "const",
-            name: { kind: "Identifier", name: "later" },
+            name: { kind: NodeKind.Identifier, name: "later" },
             declarations: []
           } as unknown as Program["body"][number]]
         };

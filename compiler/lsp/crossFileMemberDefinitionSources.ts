@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { parseTypeNameShape } from "compiler/analysis/typeNames";
 import type { AnalysisType } from "compiler/analysis/types";
 import type { ClassStatement, FunctionStatement, ImportStatement, InterfaceStatement, Statement, VarStatement } from "compiler/ast/ast";
@@ -21,7 +22,7 @@ export async function resolveNodeModulesMemberDefinition(
   if (!currentFilePath || !context.session.ast) return null;
 
   for (const stmt of context.session.ast.body) {
-    if (stmt.kind !== "ImportStatement") continue;
+    if (stmt.kind !== NodeKind.ImportStatement) continue;
     const importStmt = stmt as ImportStatement;
     const from = importStmt.from.value;
     if (from.startsWith(".") || from.startsWith("/")) continue;
@@ -140,7 +141,7 @@ async function collectExtensionReceiverTypeNames(
       session.ast,
       typeName,
       (statement): statement is ClassStatement | InterfaceStatement =>
-        statement.kind === "ClassStatement" || statement.kind === "InterfaceStatement"
+        statement.kind === NodeKind.ClassStatement || statement.kind === NodeKind.InterfaceStatement
     );
     if (!declaration) {
       return null;
@@ -167,7 +168,7 @@ async function collectExtensionReceiverTypeNames(
       continue;
     }
 
-    if (resolved.declaration.kind === "ClassStatement") {
+    if (resolved.declaration.kind === NodeKind.ClassStatement) {
       const classStatement = resolved.declaration as ClassStatement;
       enqueue(classStatement.extendsType?.name, resolved.filePath);
       for (const implementedType of classStatement.implementsTypes ?? []) {
@@ -202,10 +203,10 @@ async function resolveExtensionMemberDeclarationByReceiverNames(
       name: memberName,
       currentFilePath,
       predicate: (statement): statement is VarStatement | FunctionStatement => {
-        if (statement.kind === "FunctionStatement" && (statement as FunctionStatement).operator) {
+        if (statement.kind === NodeKind.FunctionStatement && (statement as FunctionStatement).operator) {
           return false;
         }
-        if (statement.kind !== "VarStatement" && statement.kind !== "FunctionStatement") {
+        if (statement.kind !== NodeKind.VarStatement && statement.kind !== NodeKind.FunctionStatement) {
           return false;
         }
         return normalizeReceiverTypeName((statement as VarStatement | FunctionStatement).receiverType?.name) === receiverTypeName;
@@ -256,20 +257,20 @@ function extensionMemberInScope(
     ...(context.session.ast?.body ?? [])
   ];
   for (const statement of inScopeStatements) {
-    if (statement.kind !== "VarStatement" && statement.kind !== "FunctionStatement") {
+    if (statement.kind !== NodeKind.VarStatement && statement.kind !== NodeKind.FunctionStatement) {
       continue;
     }
     const declaration = statement as VarStatement | FunctionStatement;
     if (!declaration.receiverType) {
       continue;
     }
-    if (statement.kind === "FunctionStatement" && (declaration as FunctionStatement).operator) {
+    if (statement.kind === NodeKind.FunctionStatement && (declaration as FunctionStatement).operator) {
       continue;
     }
     if (!receiverNames.has(normalizeReceiverTypeName(declaration.receiverType.name) ?? "")) {
       continue;
     }
-    const bindingName = statement.kind === "VarStatement"
+    const bindingName = statement.kind === NodeKind.VarStatement
       ? bindingIdentifiers((declaration as VarStatement).name)[0]?.name
       : (declaration as FunctionStatement).name?.name;
     if (bindingName === memberName) {
@@ -313,10 +314,10 @@ export async function resolveImportedExtensionMemberDeclarationAcrossFiles(
     name: memberName,
     currentFilePath,
     predicate: (statement): statement is VarStatement | FunctionStatement => {
-      if (statement.kind === "FunctionStatement" && (statement as FunctionStatement).operator) {
+      if (statement.kind === NodeKind.FunctionStatement && (statement as FunctionStatement).operator) {
         return false;
       }
-      if (statement.kind !== "VarStatement" && statement.kind !== "FunctionStatement") {
+      if (statement.kind !== NodeKind.VarStatement && statement.kind !== NodeKind.FunctionStatement) {
         return false;
       }
       return (statement as VarStatement | FunctionStatement).receiverType !== undefined;

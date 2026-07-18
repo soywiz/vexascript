@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
@@ -1826,8 +1827,8 @@ describe("Analysis", () => {
       .find((candidate) => candidate.message.includes("Property 'say' is missing"));
 
     expect(issue).toBeDefined();
-    expect(issue?.node.kind).toBe("Identifier");
-    expect((issue?.node as { kind: string; name?: string }).name).toBe("Map");
+    expect(issue?.node.kind).toBe(NodeKind.Identifier);
+    expect((issue?.node as { kind: NodeKind; name?: string }).name).toBe("Map");
   });
 
   it("attaches incompatible implements contract errors to member name node", () => {
@@ -1848,8 +1849,8 @@ describe("Analysis", () => {
       .find((candidate) => candidate.message.includes("incorrectly implements interface"));
 
     expect(issue).toBeDefined();
-    expect(issue?.node.kind).toBe("Identifier");
-    expect((issue?.node as { kind: string; name?: string }).name).toBe("say");
+    expect(issue?.node.kind).toBe(NodeKind.Identifier);
+    expect((issue?.node as { kind: NodeKind; name?: string }).name).toBe("say");
   });
   it("checks rest parameters, spread arguments, and optional access types", () => {
     const source = dedent`

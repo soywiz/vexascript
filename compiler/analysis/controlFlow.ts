@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 /**
  * Pure control-flow predicates over AST statement nodes. These helpers have
  * no dependency on checker state and can be used by any analysis pass.
@@ -19,13 +20,13 @@ export function isAsyncLike(asyncValue?: boolean, syncValue?: boolean): boolean 
 
 export function statementAllowsLabeledContinue(statement: Statement): boolean {
   if (
-    statement.kind === "WhileStatement" ||
-    statement.kind === "DoWhileStatement" ||
-    statement.kind === "ForStatement"
+    statement.kind === NodeKind.WhileStatement ||
+    statement.kind === NodeKind.DoWhileStatement ||
+    statement.kind === NodeKind.ForStatement
   ) {
     return true;
   }
-  if (statement.kind === "LabeledStatement") {
+  if (statement.kind === NodeKind.LabeledStatement) {
     return statementAllowsLabeledContinue((statement as LabeledStatement).body);
   }
   return false;
@@ -42,14 +43,14 @@ export function statementListPreventsSwitchFallthrough(statements: Statement[]):
 
 export function statementPreventsSwitchFallthrough(statement: Statement): boolean {
   switch (statement.kind) {
-    case "BreakStatement":
-    case "ContinueStatement":
-    case "ReturnStatement":
-    case "ThrowStatement":
+    case NodeKind.BreakStatement:
+    case NodeKind.ContinueStatement:
+    case NodeKind.ReturnStatement:
+    case NodeKind.ThrowStatement:
       return true;
-    case "BlockStatement":
+    case NodeKind.BlockStatement:
       return statementListPreventsSwitchFallthrough((statement as BlockStatement).body);
-    case "IfStatement": {
+    case NodeKind.IfStatement: {
       const conditional = statement as IfStatement;
       return (
         conditional.elseBranch !== undefined &&
@@ -57,7 +58,7 @@ export function statementPreventsSwitchFallthrough(statement: Statement): boolea
         statementPreventsSwitchFallthrough(conditional.elseBranch)
       );
     }
-    case "TryStatement": {
+    case NodeKind.TryStatement: {
       const tryStatement = statement as TryStatement;
       if (tryStatement.finallyBlock && statementPreventsSwitchFallthrough(tryStatement.finallyBlock)) {
         return true;
@@ -68,9 +69,9 @@ export function statementPreventsSwitchFallthrough(statement: Statement): boolea
           statementPreventsSwitchFallthrough(tryStatement.catchClause.body))
       );
     }
-    case "WithStatement":
+    case NodeKind.WithStatement:
       return statementPreventsSwitchFallthrough((statement as WithStatement).body);
-    case "LabeledStatement":
+    case NodeKind.LabeledStatement:
       return statementPreventsSwitchFallthrough((statement as LabeledStatement).body);
     default:
       return false;
@@ -82,7 +83,7 @@ export function statementListAlwaysExits(statements: Statement[]): boolean {
     if (statementAlwaysExits(statement)) {
       return true;
     }
-    if (statement.kind === "BreakStatement" || statement.kind === "ContinueStatement") {
+    if (statement.kind === NodeKind.BreakStatement || statement.kind === NodeKind.ContinueStatement) {
       return false;
     }
   }
@@ -91,12 +92,12 @@ export function statementListAlwaysExits(statements: Statement[]): boolean {
 
 export function statementAlwaysExits(statement: Statement): boolean {
   switch (statement.kind) {
-    case "ReturnStatement":
-    case "ThrowStatement":
+    case NodeKind.ReturnStatement:
+    case NodeKind.ThrowStatement:
       return true;
-    case "BlockStatement":
+    case NodeKind.BlockStatement:
       return statementListAlwaysExits((statement as BlockStatement).body);
-    case "IfStatement": {
+    case NodeKind.IfStatement: {
       const conditional = statement as IfStatement;
       return (
         conditional.elseBranch !== undefined &&
@@ -104,9 +105,9 @@ export function statementAlwaysExits(statement: Statement): boolean {
         statementAlwaysExits(conditional.elseBranch)
       );
     }
-    case "DoWhileStatement":
+    case NodeKind.DoWhileStatement:
       return statementAlwaysExits((statement as DoWhileStatement).body);
-    case "SwitchStatement": {
+    case NodeKind.SwitchStatement: {
       const switchStatement = statement as SwitchStatement;
       let hasDefault = false;
       for (const switchCase of switchStatement.cases) {
@@ -128,7 +129,7 @@ export function statementAlwaysExits(statement: Statement): boolean {
       }
       return true;
     }
-    case "TryStatement": {
+    case NodeKind.TryStatement: {
       const tryStatement = statement as TryStatement;
       if (tryStatement.finallyBlock && statementAlwaysExits(tryStatement.finallyBlock)) {
         return true;
@@ -138,11 +139,11 @@ export function statementAlwaysExits(statement: Statement): boolean {
         (tryStatement.catchClause === undefined || statementAlwaysExits(tryStatement.catchClause.body))
       );
     }
-    case "DeferStatement":
+    case NodeKind.DeferStatement:
       return false;
-    case "WithStatement":
+    case NodeKind.WithStatement:
       return statementAlwaysExits((statement as WithStatement).body);
-    case "LabeledStatement":
+    case NodeKind.LabeledStatement:
       return statementAlwaysExits((statement as LabeledStatement).body);
     default:
       return false;

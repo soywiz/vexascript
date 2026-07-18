@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { resolveInterfaceMember, resolveInterfaceMemberNames, resolveInterfaceStatementAcrossFiles } from "./classResolver";
 import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import { CompletionItemKind, type CompletionRequestOptions, type InterfaceCompletionMember } from "./completionModel";
@@ -78,7 +79,7 @@ export async function buildNonClassMemberCompletionItems(
     ast,
     name: baseTypeName(resolvedClassName),
     currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
-    predicate: (statement): statement is EnumStatement => statement.kind === "EnumStatement",
+    predicate: (statement): statement is EnumStatement => statement.kind === NodeKind.EnumStatement,
     includeRuntime: true,
     sourceRoots: resolverOptions.sourceRoots ?? [],
     ...(resolverOptions.vfs ? { vfs: resolverOptions.vfs } : {}),
@@ -111,7 +112,7 @@ export async function buildNonClassMemberCompletionItems(
     ast,
     name: baseTypeName(resolvedClassName),
     currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
-    predicate: (statement): statement is TypeAliasStatement => statement.kind === "TypeAliasStatement",
+    predicate: (statement): statement is TypeAliasStatement => statement.kind === NodeKind.TypeAliasStatement,
     includeRuntime: true,
     sourceRoots: resolverOptions.sourceRoots ?? [],
     ...(resolverOptions.vfs ? { vfs: resolverOptions.vfs } : {}),

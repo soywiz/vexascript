@@ -1,7 +1,9 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   AssignmentExpression,
   Expr,
   ExprStatement,
+  Node,
   Program,
   UpdateExpression
 } from "compiler/ast/ast";
@@ -26,12 +28,12 @@ function positionToOffset(text: string, position: Position): number {
   return Math.min(text.length, lineStart + position.character);
 }
 
-function isExprStatement(node: { kind: string }): node is ExprStatement {
-  return node.kind === "ExprStatement";
+function isExprStatement(node: Node): node is ExprStatement {
+  return node.kind === NodeKind.ExprStatement;
 }
 
 function isAssignmentLikeExpression(expression: Expr): expression is AssignmentExpression | UpdateExpression {
-  return expression.kind === "AssignmentExpression" || expression.kind === "UpdateExpression";
+  return expression.kind === NodeKind.AssignmentExpression || expression.kind === NodeKind.UpdateExpression;
 }
 
 export function createAssignVariableCodeActions(params: {

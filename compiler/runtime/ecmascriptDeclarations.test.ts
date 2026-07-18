@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, join, readFile } from "../test/expect";
 import {
   getEcmaScriptRuntimeDeclarationFilePath,
@@ -36,7 +37,7 @@ describe("TypeScript runtime declarations", () => {
     const program = getVexaScriptRuntimeProgram();
 
     expect(getVexaScriptRuntimeDeclarationFilePath().endsWith("vexascript.d.vx")).toBe(true);
-    expect(program.body.some((statement) => statement.kind === "AnnotationStatement")).toBe(true);
+    expect(program.body.some((statement) => statement.kind === NodeKind.AnnotationStatement)).toBe(true);
     expect(isVexaScriptRuntimeNode(program.body[0]!)).toBe(true);
   });
 

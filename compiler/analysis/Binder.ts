@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   BlockStatement,
   AnnotationStatement,
@@ -108,7 +109,7 @@ function isReadonlyVariable(kind: VariableDeclarationKind): boolean {
 }
 
 function scopeHasGlobalPredeclaration(scope: Scope): boolean {
-  return scope.node.kind === "Program" || scope.node.kind === "NamespaceStatement";
+  return scope.node.kind === NodeKind.Program || scope.node.kind === NodeKind.NamespaceStatement;
 }
 
 export class Binder {
@@ -273,7 +274,7 @@ export class Binder {
     }
 
     for (const statement of declarationIndexForStatements(statements).globalDeclarations) {
-      if (statement.kind === "ExportStatement") {
+      if (statement.kind === NodeKind.ExportStatement) {
         const exportStatement = statement as ExportStatement;
         if (exportStatement.declaration) {
           this.bindGlobalDeclarations([exportStatement.declaration], scope, declaredOffsetOverride);
@@ -281,7 +282,7 @@ export class Binder {
         continue;
       }
 
-        if (statement.kind === "ImportStatement") {
+        if (statement.kind === NodeKind.ImportStatement) {
           const importStatement = statement as ImportStatement;
           if (importStatement.defaultImport) {
           const resolvedType = this.importedSymbolType(importStatement.defaultImport.name);
@@ -320,7 +321,7 @@ export class Binder {
         continue;
       }
 
-      if (statement.kind === "NamespaceStatement") {
+      if (statement.kind === NodeKind.NamespaceStatement) {
         const namespaceStatement = statement as NamespaceStatement;
         if (namespaceStatement.globalAugmentation) {
           this.bindGlobalDeclarations(namespaceStatement.body.body, scope, declaredOffsetOverride);
@@ -334,7 +335,7 @@ export class Binder {
         continue;
       }
 
-      if (statement.kind === "VarStatement") {
+      if (statement.kind === NodeKind.VarStatement) {
         const variableStatement = statement as VarStatement;
         if (variableStatement.receiverType) {
           continue;
@@ -351,7 +352,7 @@ export class Binder {
         continue;
       }
 
-      if (statement.kind === "FunctionStatement") {
+      if (statement.kind === NodeKind.FunctionStatement) {
         const functionStatement = statement as FunctionStatement;
         if (functionStatement.receiverType) {
           continue;
@@ -378,7 +379,7 @@ export class Binder {
         continue;
       }
 
-      if (statement.kind === "ClassStatement") {
+      if (statement.kind === NodeKind.ClassStatement) {
         const classStatement = statement as ClassStatement;
         const symbolType = namedType(classStatement.name.name);
         this.declare(scope, {
@@ -391,7 +392,7 @@ export class Binder {
         continue;
       }
 
-      if (statement.kind === "EnumStatement") {
+      if (statement.kind === NodeKind.EnumStatement) {
         const enumStatement = statement as EnumStatement;
         const symbolType = namedType(enumStatement.name.name);
         this.declare(scope, {
@@ -404,7 +405,7 @@ export class Binder {
         continue;
       }
 
-      if (statement.kind === "InterfaceStatement") {
+      if (statement.kind === NodeKind.InterfaceStatement) {
         const interfaceStatement = statement as InterfaceStatement;
         // An interface only contributes to the type space. When a value symbol
         // already exists for the same name (for example `declare var Date:
@@ -428,7 +429,7 @@ export class Binder {
         continue;
       }
 
-      if (statement.kind === "TypeAliasStatement") {
+      if (statement.kind === NodeKind.TypeAliasStatement) {
         const typeAliasStatement = statement as TypeAliasStatement;
         const symbolType = this.typeFromAnnotationLoose(typeAliasStatement.targetType) ?? namedType(typeAliasStatement.name.name);
         this.declare(scope, {
@@ -441,7 +442,7 @@ export class Binder {
         continue;
       }
 
-      if (statement.kind === "AnnotationStatement") {
+      if (statement.kind === NodeKind.AnnotationStatement) {
         const annotationStatement = statement as AnnotationStatement;
         this.declare(scope, {
           name: annotationStatement.name.name,
@@ -468,7 +469,7 @@ export class Binder {
     );
 
     for (const statement of statements) {
-      if (statement.kind !== "ExportStatement") {
+      if (statement.kind !== NodeKind.ExportStatement) {
         continue;
       }
       const exportStatement = statement as ExportStatement;
@@ -494,7 +495,7 @@ export class Binder {
     const properties: Record<string, AnalysisType> = {};
 
     for (const statement of statements) {
-      if (statement.kind !== "ExportStatement") {
+      if (statement.kind !== NodeKind.ExportStatement) {
         continue;
       }
       const exportStatement = statement as ExportStatement;
@@ -503,7 +504,7 @@ export class Binder {
       }
 
       const declaration = exportStatement.declaration;
-      if (declaration.kind === "FunctionStatement") {
+      if (declaration.kind === NodeKind.FunctionStatement) {
         const functionStatement = declaration as FunctionStatement;
         const fnIsAsyncLike = functionStatement.async === true || functionStatement.sync === true;
         const fnIsGenerator = functionStatement.generator === true;
@@ -520,7 +521,7 @@ export class Binder {
         continue;
       }
 
-      if (declaration.kind === "VarStatement") {
+      if (declaration.kind === NodeKind.VarStatement) {
         const variableStatement = declaration as VarStatement;
         if (variableStatement.declarations && variableStatement.declarations.length > 0) {
           for (const variableDeclaration of variableStatement.declarations) {
@@ -538,27 +539,27 @@ export class Binder {
         continue;
       }
 
-      if (declaration.kind === "ClassStatement") {
+      if (declaration.kind === NodeKind.ClassStatement) {
         properties[(declaration as ClassStatement).name.name] = namedType((declaration as ClassStatement).name.name);
         continue;
       }
 
-      if (declaration.kind === "InterfaceStatement") {
+      if (declaration.kind === NodeKind.InterfaceStatement) {
         properties[(declaration as InterfaceStatement).name.name] = namedType((declaration as InterfaceStatement).name.name);
         continue;
       }
 
-      if (declaration.kind === "TypeAliasStatement") {
+      if (declaration.kind === NodeKind.TypeAliasStatement) {
         properties[(declaration as TypeAliasStatement).name.name] = namedType((declaration as TypeAliasStatement).name.name);
         continue;
       }
 
-      if (declaration.kind === "EnumStatement") {
+      if (declaration.kind === NodeKind.EnumStatement) {
         properties[(declaration as EnumStatement).name.name] = namedType((declaration as EnumStatement).name.name);
         continue;
       }
 
-      if (declaration.kind === "NamespaceStatement") {
+      if (declaration.kind === NodeKind.NamespaceStatement) {
         const firstName: Identifier | undefined = (declaration as NamespaceStatement).names?.[0];
         const namespaceName = firstName?.name;
         if (namespaceName) {
@@ -578,28 +579,28 @@ export class Binder {
 
   private bindStatement(statement: Statement, scope: Scope): void {
     switch (statement.kind) {
-      case "ExportStatement": {
+      case NodeKind.ExportStatement: {
         const exportStatement = statement as ExportStatement;
         if (exportStatement.declaration) {
           this.bindStatement(exportStatement.declaration, scope);
         }
         return;
       }
-      case "ImportStatement":
+      case NodeKind.ImportStatement:
         return;
-      case "VarStatement":
+      case NodeKind.VarStatement:
         this.bindVarStatement(statement as VarStatement, scope);
         return;
-      case "FunctionStatement":
+      case NodeKind.FunctionStatement:
         this.bindFunctionStatement(statement as FunctionStatement, scope, true);
         return;
-      case "ClassStatement":
+      case NodeKind.ClassStatement:
         this.bindClassStatement(statement as ClassStatement, scope);
         return;
-      case "EnumStatement":
+      case NodeKind.EnumStatement:
         this.bindEnumStatement(statement as EnumStatement, scope);
         return;
-      case "NamespaceStatement": {
+      case NodeKind.NamespaceStatement: {
         const namespaceStatement = statement as NamespaceStatement;
         if (namespaceStatement.globalAugmentation) {
           this.bindGlobalDeclarations(namespaceStatement.body.body, scope);
@@ -611,47 +612,47 @@ export class Binder {
         this.bindStatements(namespaceStatement.body.body, namespaceScope);
         return;
       }
-      case "InterfaceStatement":
-      case "TypeAliasStatement":
-      case "AnnotationStatement":
+      case NodeKind.InterfaceStatement:
+      case NodeKind.TypeAliasStatement:
+      case NodeKind.AnnotationStatement:
         return;
-      case "BlockStatement": {
+      case NodeKind.BlockStatement: {
         const blockScope = this.createScope(scope, statement);
         this.bindStatements((statement as BlockStatement).body, blockScope);
         return;
       }
-      case "WhileStatement": {
+      case NodeKind.WhileStatement: {
         const loopScope = this.createScope(scope, statement);
         this.bindStatement((statement as WhileStatement).body, loopScope);
         return;
       }
-      case "DoWhileStatement": {
+      case NodeKind.DoWhileStatement: {
         const loopScope = this.createScope(scope, statement);
         this.bindStatement((statement as DoWhileStatement).body, loopScope);
         return;
       }
-      case "ForStatement":
+      case NodeKind.ForStatement:
         this.bindForStatement(statement as ForStatement, scope);
         return;
-      case "IfStatement":
+      case NodeKind.IfStatement:
         this.bindIfStatement(statement as IfStatement, scope);
         return;
-      case "SwitchStatement":
+      case NodeKind.SwitchStatement:
         this.bindSwitchStatement(statement as SwitchStatement, scope);
         return;
-      case "WithStatement": {
+      case NodeKind.WithStatement: {
         const withScope = this.createScope(scope, statement);
         this.bindStatement((statement as WithStatement).body, withScope);
         return;
       }
-      case "LabeledStatement":
+      case NodeKind.LabeledStatement:
         this.bindStatement((statement as LabeledStatement).body, scope);
         return;
-      case "TryStatement":
+      case NodeKind.TryStatement:
         this.bindTryStatement(statement as TryStatement, scope);
         return;
-      case "DeferStatement":
-      case "ThrowStatement":
+      case NodeKind.DeferStatement:
+      case NodeKind.ThrowStatement:
         return;
       default:
         return;
@@ -781,7 +782,7 @@ export class Binder {
     this.reportDuplicateClassVariables(statement);
     this.declareClassMembers(classScope, statement);
     for (const member of statement.members) {
-      if (member.kind === "ClassMethodMember") {
+      if (member.kind === NodeKind.ClassMethodMember) {
         const method = member as ClassMethodMember;
         if (method.accessorKind === "get" || method.getterShorthand === true) {
           const propertyType = this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE;
@@ -856,7 +857,7 @@ export class Binder {
   private reportDuplicateClassVariables(statement: ClassStatement): void {
     const fieldsByName = new Map<string, Identifier[]>();
     for (const member of statement.members) {
-      if (member.kind !== "ClassFieldMember") {
+      if (member.kind !== NodeKind.ClassFieldMember) {
         continue;
       }
       const field = member as ClassFieldMember;
@@ -1011,9 +1012,9 @@ export class Binder {
     if (!extensions) return;
     for (const candidate of extensions) {
       const ext = candidate as Statement;
-      if (ext.kind === "VarStatement") {
+      if (ext.kind === NodeKind.VarStatement) {
         const property = ext as VarStatement;
-        const name = property.name.kind === "Identifier" ? (property.name as Identifier).name : null;
+        const name = property.name.kind === NodeKind.Identifier ? (property.name as Identifier).name : null;
         if (!name) continue;
         const propertyType = this.typeFromAnnotationLoose(property.typeAnnotation) ?? UNKNOWN_TYPE;
         this.declare(scope, {
@@ -1079,7 +1080,7 @@ export class Binder {
       }
     }
     for (const member of statement.members) {
-      if (member.kind === "InterfacePropertyMember") {
+      if (member.kind === NodeKind.InterfacePropertyMember) {
         const property = member as InterfacePropertyMember;
         const propertyType = this.typeFromAnnotationLoose(property.typeAnnotation) ?? UNKNOWN_TYPE;
         this.declare(scope, {
@@ -1190,18 +1191,18 @@ export class Binder {
       }
     }
     for (const candidate of statement.members) {
-      if (candidate.kind !== "ClassMethodMember") continue;
+      if (candidate.kind !== NodeKind.ClassMethodMember) continue;
       const constructor = candidate as ClassMethodMember;
       if (constructor.name.name !== "constructor") continue;
       for (const parameterCandidate of constructor.parameters) {
         const parameter = parameterCandidate as FunctionParameter;
-        if (parameter.accessModifier === undefined && parameter.readonly !== true) continue;
+        if (parameter.accessModifier === undefined && parameter.isReadonly !== true) continue;
         const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
         this.declare(scope, {
           name: bindingNameText(parameter.name),
           kind: "variable",
           node: parameter.name,
-          isReadonly: parameter.readonly === true,
+          isReadonly: parameter.isReadonly === true,
           implicitReceiver: true,
           type: parameterType,
           valueType: typeToString(parameterType)
@@ -1210,16 +1211,16 @@ export class Binder {
     }
     const className = statement.name.name;
     for (const member of statement.members) {
-      if (member.kind === "ClassFieldMember") {
+      if (member.kind === NodeKind.ClassFieldMember) {
         const field = member as ClassFieldMember;
         const fieldType = this.typeFromAnnotationLoose(field.typeAnnotation) ?? UNKNOWN_TYPE;
         this.declare(scope, {
           name: field.name.name,
           kind: "variable",
           node: field.name,
-          isReadonly: field.readonly === true,
+          isReadonly: field.isReadonly === true,
           implicitReceiver: true,
-          ...(field.static === true ? { implicitReceiverClassName: className } : {}),
+          ...(field.isStatic === true ? { implicitReceiverClassName: className } : {}),
           type: fieldType,
           valueType: typeToString(fieldType)
         });
@@ -1236,7 +1237,7 @@ export class Binder {
           kind: "variable",
           node: method.name,
           implicitReceiver: true,
-          ...(method.static === true ? { implicitReceiverClassName: className } : {}),
+          ...(method.isStatic === true ? { implicitReceiverClassName: className } : {}),
           type: propertyType,
           valueType: typeToString(propertyType)
         });
@@ -1253,7 +1254,7 @@ export class Binder {
             kind: "variable",
             node: method.name,
             implicitReceiver: true,
-            ...(method.static === true ? { implicitReceiverClassName: className } : {}),
+            ...(method.isStatic === true ? { implicitReceiverClassName: className } : {}),
             type: propertyType,
             valueType: typeToString(propertyType)
           });
@@ -1278,7 +1279,7 @@ export class Binder {
         kind: "method",
         node: method.name,
         implicitReceiver: true,
-        ...(method.static === true ? { implicitReceiverClassName: className } : {}),
+        ...(method.isStatic === true ? { implicitReceiverClassName: className } : {}),
         type: methodType,
         valueType: typeToString(methodType)
       });
@@ -1312,10 +1313,10 @@ export class Binder {
     const loopScope = this.createScope(scope, statement);
 
     if (statement.iterationKind && statement.iterator && statement.iterable) {
-      if (statement.iterator.kind === "VarStatement") {
+      if (statement.iterator.kind === NodeKind.VarStatement) {
         this.bindVarStatement(statement.iterator as VarStatement, loopScope);
-      } else if (statement.iterator.kind === "Identifier") {
-        const iteratorIdentifier = statement.iterator as Node & { kind: "Identifier"; name: string };
+      } else if (statement.iterator.kind === NodeKind.Identifier) {
+        const iteratorIdentifier = statement.iterator as Node & { kind: NodeKind.Identifier; name: string };
         this.declare(loopScope, {
           name: iteratorIdentifier.name,
           kind: "variable",
@@ -1328,7 +1329,7 @@ export class Binder {
       return;
     }
 
-    if (statement.initializer && statement.initializer.kind === "VarStatement") {
+    if (statement.initializer && statement.initializer.kind === NodeKind.VarStatement) {
       this.bindVarStatement(statement.initializer as VarStatement, loopScope);
     }
     this.bindStatement(statement.body, loopScope);
@@ -1397,12 +1398,12 @@ export class Binder {
     if (!typeAnnotation) {
       return undefined;
     }
-    if (typeAnnotation.kind === "ArrayTypeAnnotation") {
+    if (typeAnnotation.kind === NodeKind.ArrayTypeAnnotation) {
       return arrayType(this.typeFromAnnotationLoose(typeAnnotation.elementType) ?? UNKNOWN_TYPE);
     }
 
     const typeName =
-      typeAnnotation.kind === "TypeReference" ? typeAnnotation.name.name : typeAnnotation.name;
+      typeAnnotation.kind === NodeKind.TypeReference ? typeAnnotation.name.name : typeAnnotation.name;
 
     const functionAnnotation = this.functionTypeFromAnnotationText(typeName);
     if (functionAnnotation) {
@@ -1436,12 +1437,12 @@ export class Binder {
     if (!typeAnnotation) {
       return undefined;
     }
-    if (typeAnnotation.kind === "ArrayTypeAnnotation") {
+    if (typeAnnotation.kind === NodeKind.ArrayTypeAnnotation) {
       return arrayType(
         this.typeFromAnnotationLooseWithContext(typeAnnotation.elementType, contextualThisTypeName) ?? UNKNOWN_TYPE
       );
     }
-    const typeName = typeAnnotation.kind === "TypeReference" ? typeAnnotation.name.name : typeAnnotation.kind === "Identifier" ? typeAnnotation.name : undefined;
+    const typeName = typeAnnotation.kind === NodeKind.TypeReference ? typeAnnotation.name.name : typeAnnotation.kind === NodeKind.Identifier ? typeAnnotation.name : undefined;
     if (
       contextualThisTypeName &&
       typeName === "this"

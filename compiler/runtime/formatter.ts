@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { parseSource } from "../pipeline/parse";
 import type {
   AnnotationApplication, ArrayBindingPattern, ArrayLiteral,
@@ -1559,8 +1560,8 @@ class AstFormatter {
 
   private topLevelKind(s: Statement): "fnOrClass" | "other" {
     switch (s.kind) {
-      case "FunctionStatement": case "ClassStatement":
-      case "InterfaceStatement": case "EnumStatement":
+      case NodeKind.FunctionStatement: case NodeKind.ClassStatement:
+      case NodeKind.InterfaceStatement: case NodeKind.EnumStatement:
         return "fnOrClass";
       default:
         return "other";
@@ -1573,9 +1574,9 @@ class AstFormatter {
 
     while (i < stmts.length) {
       // Group consecutive imports
-      if (stmts[i]!.kind === "ImportStatement") {
+      if (stmts[i]!.kind === NodeKind.ImportStatement) {
         const group: ImportStatement[] = [];
-        while (i < stmts.length && stmts[i]!.kind === "ImportStatement") {
+        while (i < stmts.length && stmts[i]!.kind === NodeKind.ImportStatement) {
           group.push(stmts[i]! as ImportStatement);
           i++;
         }
@@ -1682,7 +1683,7 @@ class AstFormatter {
   }
 
   private emitBody(stmt: Statement): void {
-    if (stmt.kind === "BlockStatement") {
+    if (stmt.kind === NodeKind.BlockStatement) {
       this.sp();
       this.emitBlock(stmt as BlockStatement);
     } else {
@@ -1703,30 +1704,30 @@ class AstFormatter {
     this.emitComments(ftok(stmt as Node));
 
     switch (stmt.kind) {
-      case "ImportStatement": this.emitImportStmt(stmt as ImportStatement); break;
-      case "ExportStatement": this.emitExportStmt(stmt as ExportStatement); break;
-      case "VarStatement": this.emitVarStmt(stmt as VarStatement); break;
-      case "FunctionStatement": this.emitFunctionStmt(stmt as FunctionStatement); break;
-      case "ClassStatement": this.emitClassStmt(stmt as ClassStatement); break;
-      case "InterfaceStatement": this.emitInterfaceStmt(stmt as InterfaceStatement); break;
-      case "TypeAliasStatement": this.emitTypeAliasStmt(stmt as TypeAliasStatement); break;
-      case "NamespaceStatement": this.emitNamespaceStmt(stmt as NamespaceStatement); break;
-      case "EnumStatement": this.emitEnumStmt(stmt as EnumStatement); break;
-      case "BlockStatement": this.emitBlock(stmt as BlockStatement); break;
-      case "IfStatement": this.emitIfStmt(stmt as IfStatement); break;
-      case "ForStatement": this.emitForStmt(stmt as ForStatement); break;
-      case "WhileStatement": this.emitWhileStmt(stmt as WhileStatement); break;
-      case "DoWhileStatement": this.emitDoWhileStmt(stmt as DoWhileStatement); break;
-      case "SwitchStatement": this.emitSwitchStmt(stmt as SwitchStatement); break;
-      case "TryStatement": this.emitTryStmt(stmt as TryStatement); break;
-      case "ReturnStatement": {
+      case NodeKind.ImportStatement: this.emitImportStmt(stmt as ImportStatement); break;
+      case NodeKind.ExportStatement: this.emitExportStmt(stmt as ExportStatement); break;
+      case NodeKind.VarStatement: this.emitVarStmt(stmt as VarStatement); break;
+      case NodeKind.FunctionStatement: this.emitFunctionStmt(stmt as FunctionStatement); break;
+      case NodeKind.ClassStatement: this.emitClassStmt(stmt as ClassStatement); break;
+      case NodeKind.InterfaceStatement: this.emitInterfaceStmt(stmt as InterfaceStatement); break;
+      case NodeKind.TypeAliasStatement: this.emitTypeAliasStmt(stmt as TypeAliasStatement); break;
+      case NodeKind.NamespaceStatement: this.emitNamespaceStmt(stmt as NamespaceStatement); break;
+      case NodeKind.EnumStatement: this.emitEnumStmt(stmt as EnumStatement); break;
+      case NodeKind.BlockStatement: this.emitBlock(stmt as BlockStatement); break;
+      case NodeKind.IfStatement: this.emitIfStmt(stmt as IfStatement); break;
+      case NodeKind.ForStatement: this.emitForStmt(stmt as ForStatement); break;
+      case NodeKind.WhileStatement: this.emitWhileStmt(stmt as WhileStatement); break;
+      case NodeKind.DoWhileStatement: this.emitDoWhileStmt(stmt as DoWhileStatement); break;
+      case NodeKind.SwitchStatement: this.emitSwitchStmt(stmt as SwitchStatement); break;
+      case NodeKind.TryStatement: this.emitTryStmt(stmt as TryStatement); break;
+      case NodeKind.ReturnStatement: {
         const s = stmt as ReturnStatement;
         this.tok("return");
         if (s.expression) { this.sp(); this.emitExpr(s.expression); }
         this.emitTrailSemi(stmt);
         break;
       }
-      case "ThrowStatement": {
+      case NodeKind.ThrowStatement: {
         const s = stmt as ThrowStatement;
         this.tok("throw");
         this.sp();
@@ -1734,21 +1735,21 @@ class AstFormatter {
         this.emitTrailSemi(stmt);
         break;
       }
-      case "BreakStatement": {
+      case NodeKind.BreakStatement: {
         const s = stmt as BreakStatement;
         this.tok("break");
         if (s.label) { this.sp(); this.tok(s.label.name); }
         this.emitTrailSemi(stmt);
         break;
       }
-      case "ContinueStatement": {
+      case NodeKind.ContinueStatement: {
         const s = stmt as ContinueStatement;
         this.tok("continue");
         if (s.label) { this.sp(); this.tok(s.label.name); }
         this.emitTrailSemi(stmt);
         break;
       }
-      case "DeferStatement": {
+      case NodeKind.DeferStatement: {
         const s = stmt as DeferStatement;
         this.tok("defer");
         this.sp();
@@ -1756,13 +1757,13 @@ class AstFormatter {
         this.emitTrailSemi(stmt);
         break;
       }
-      case "ExprStatement": {
+      case NodeKind.ExprStatement: {
         const s = stmt as ExprStatement;
         this.emitExpr(s.expression);
         this.emitTrailSemi(stmt);
         break;
       }
-      case "LabeledStatement": {
+      case NodeKind.LabeledStatement: {
         const s = stmt as LabeledStatement;
         this.tok(s.label.name);
         this.tok(":");
@@ -1770,7 +1771,7 @@ class AstFormatter {
         this.emitBody(s.body);
         break;
       }
-      case "WithStatement": {
+      case NodeKind.WithStatement: {
         const s = stmt as WithStatement;
         this.tok("with");
         this.sp();
@@ -1780,9 +1781,9 @@ class AstFormatter {
         this.emitBody(s.body);
         break;
       }
-      case "EmptyStatement": this.tok(";"); break;
-      case "DebuggerStatement": this.tok("debugger"); this.emitTrailSemi(stmt); break;
-      case "AnnotationStatement": this.emitAnnotationDecl(stmt as unknown as {
+      case NodeKind.EmptyStatement: this.tok(";"); break;
+      case NodeKind.DebuggerStatement: this.tok("debugger"); this.emitTrailSemi(stmt); break;
+      case NodeKind.AnnotationStatement: this.emitAnnotationDecl(stmt as unknown as {
         declared?: boolean; name: Identifier; parameters: FunctionParameter[];
       }); break;
       default: break;
@@ -1802,7 +1803,7 @@ class AstFormatter {
   private emitExportStmt(stmt: ExportStatement): void {
     this.tok("export");
     if (stmt.typeOnly) { this.sp(); this.write("type"); }
-    if (stmt.default) {
+    if (stmt.isDefault) {
       this.sp(); this.write("default");
       if (stmt.declaration) { this.sp(); this.emitStmt(stmt.declaration); }
       else if (stmt.specifiers) {
@@ -1940,7 +1941,7 @@ class AstFormatter {
       this.write("=>");
       this.sp();
       const ret = stmt.body.body[0];
-      if (ret?.kind === "ReturnStatement") this.emitExpr((ret as ReturnStatement).expression!);
+      if (ret?.kind === NodeKind.ReturnStatement) this.emitExpr((ret as ReturnStatement).expression!);
     } else {
       this.emitBlock(stmt.body);
     }
@@ -2044,7 +2045,7 @@ class AstFormatter {
       const member = members[i]!;
       this.emitComments(ftok(member as Node));
 
-      if (member.kind === "ClassMethodMember" && member.accessorKind) {
+      if (member.kind === NodeKind.ClassMethodMember && member.accessorKind) {
         // Check for compound accessor block
         const at = accessorTok(member);
         const kw = at ? this.compoundAccessorKw(at.range.start.offset) : undefined;
@@ -2054,7 +2055,7 @@ class AstFormatter {
           const compoundMembers: ClassMethodMember[] = [];
           while (i < members.length) {
             const m = members[i]!;
-            if (m.kind === "ClassMethodMember" && m.accessorKind && m.name.name === name) {
+            if (m.kind === NodeKind.ClassMethodMember && m.accessorKind && m.name.name === name) {
               compoundMembers.push(m as ClassMethodMember);
               i++;
             } else break;
@@ -2086,7 +2087,7 @@ class AstFormatter {
         this.write("=>");
         this.sp();
         const ret = m.body.body[0];
-        if (ret?.kind === "ReturnStatement") this.emitExpr((ret as ReturnStatement).expression!);
+        if (ret?.kind === NodeKind.ReturnStatement) this.emitExpr((ret as ReturnStatement).expression!);
         this.nl();
       } else {
         this.emitBlock(m.body);
@@ -2105,13 +2106,13 @@ class AstFormatter {
       }
     }
     this.applyIndent();
-    if (member.kind === "ClassFieldMember") {
+    if (member.kind === NodeKind.ClassFieldMember) {
       const m = member as ClassFieldMember;
       if (m.declared) { this.tok("declare"); this.sp(); }
       if (m.accessModifier) { this.tok(m.accessModifier); this.sp(); }
-      if (m.static) { this.tok("static"); this.sp(); }
+      if (m.isStatic) { this.tok("static"); this.sp(); }
       if (m.abstract) { this.tok("abstract"); this.sp(); }
-      if (m.readonly && m.declarationKind !== "val" && m.declarationKind !== "const") {
+      if (m.isReadonly && m.declarationKind !== "val" && m.declarationKind !== "const") {
         this.tok("readonly"); this.sp();
       }
       if (m.declarationKind) { this.tok(m.declarationKind); this.sp(); }
@@ -2129,12 +2130,12 @@ class AstFormatter {
     } else {
       const m = member as ClassMethodMember;
       if (m.accessModifier) { this.tok(m.accessModifier); this.sp(); }
-      if (m.static) { this.tok("static"); this.sp(); }
+      if (m.isStatic) { this.tok("static"); this.sp(); }
       if (m.abstract) { this.tok("abstract"); this.sp(); }
       if (m.async) { this.tok("async"); this.sp(); }
       if (m.sync) { this.tok("sync"); this.sp(); }
       if (m.declarationKind) { this.tok(m.declarationKind); this.sp(); }
-      if (m.readonly && !m.declarationKind) { this.tok("readonly"); this.sp(); }
+      if (m.isReadonly && !m.declarationKind) { this.tok("readonly"); this.sp(); }
       const at = accessorTok(m);
       if (m.accessorKind && at) {
         this.tok(m.accessorKind);
@@ -2167,7 +2168,7 @@ class AstFormatter {
         this.write("=>");
         this.sp();
         const ret = m.body.body[0];
-        if (ret?.kind === "ReturnStatement") this.emitExpr((ret as ReturnStatement).expression!);
+        if (ret?.kind === NodeKind.ReturnStatement) this.emitExpr((ret as ReturnStatement).expression!);
       } else {
         this.emitBlock(m.body);
       }
@@ -2193,7 +2194,7 @@ class AstFormatter {
     this.indentLvl++;
     for (const m of stmt.members) {
       this.emitComments(ftok(m as Node));
-      if (m.kind === "InterfacePropertyMember") {
+      if (m.kind === NodeKind.InterfacePropertyMember) {
         if (m.declarationKind) { this.tok(m.declarationKind); this.sp(); }
         this.write(m.name.name);
         if (m.optional) this.write("?");
@@ -2252,7 +2253,7 @@ class AstFormatter {
 
   private emitEnumStmt(stmt: EnumStatement): void {
     if (stmt.declared) { this.tok("declare"); this.sp(); }
-    if (stmt.const) { this.tok("const"); this.sp(); }
+    if (stmt.isConst) { this.tok("const"); this.sp(); }
     this.tok("enum"); this.sp(); this.write(stmt.name.name);
     this.sp(); this.tok("{");
     this.nl();
@@ -2274,14 +2275,14 @@ class AstFormatter {
   private emitIfStmt(stmt: IfStatement): void {
     this.tok("if"); this.sp();
     this.tok("("); this.emitExpr(stmt.condition); this.tok(")");
-    if (stmt.thenBranch.kind === "BlockStatement") {
+    if (stmt.thenBranch.kind === NodeKind.BlockStatement) {
       this.sp();
       this.emitBlock(stmt.thenBranch as BlockStatement);
       if (stmt.elseBranch) {
         this.write(" else ");
-        if (stmt.elseBranch.kind === "BlockStatement") {
+        if (stmt.elseBranch.kind === NodeKind.BlockStatement) {
           this.emitBlock(stmt.elseBranch as BlockStatement);
-        } else if (stmt.elseBranch.kind === "IfStatement") {
+        } else if (stmt.elseBranch.kind === NodeKind.IfStatement) {
           this.emitIfStmt(stmt.elseBranch as IfStatement);
         } else {
           this.emitStmt(stmt.elseBranch);
@@ -2299,11 +2300,11 @@ class AstFormatter {
 
   private emitForStmt(stmt: ForStatement): void {
     this.tok("for");
-    if (stmt.await) { this.sp(); this.write("await"); }
+    if (stmt.isAwait) { this.sp(); this.write("await"); }
     this.sp(); this.tok("(");
     if (stmt.iterationKind) {
       if (stmt.iterator) {
-        if ((stmt.iterator as Node).kind === "VarStatement") {
+        if ((stmt.iterator as Node).kind === NodeKind.VarStatement) {
           this.emitVarStmtNoSemi(stmt.iterator as VarStatement);
         } else {
           this.emitExpr(stmt.iterator as Expr);
@@ -2313,7 +2314,7 @@ class AstFormatter {
       if (stmt.iterable) this.emitExpr(stmt.iterable);
     } else {
       if (stmt.initializer) {
-        if ((stmt.initializer as Node).kind === "VarStatement") {
+        if ((stmt.initializer as Node).kind === NodeKind.VarStatement) {
           this.emitVarStmtNoSemi(stmt.initializer as VarStatement);
         } else {
           this.emitExpr(stmt.initializer as Expr);
@@ -2405,9 +2406,9 @@ class AstFormatter {
 
   private emitAnnotationApp(ann: AnnotationApplication): void {
     this.tok(`@${ann.name.name}`);
-    if (ann.arguments.length > 0) {
+    if (ann.args.length > 0) {
       this.write("(");
-      this.emitArgList(ann.arguments);
+      this.emitArgList(ann.args);
       this.write(")");
     }
   }
@@ -2421,8 +2422,8 @@ class AstFormatter {
   // ── type annotations ───────────────────────────────────────────────
 
   private emitTypeAnno(node: Node): void {
-    const kind = (node as { kind?: string }).kind;
-    if (kind === "TypeReference") {
+    const kind = node.kind;
+    if (kind === NodeKind.TypeReference) {
       const tr = node as unknown as TypeReference;
       this.write(tr.name.name);
       if (tr.typeArguments?.length) {
@@ -2433,7 +2434,7 @@ class AstFormatter {
         });
         this.write(">");
       }
-    } else if (kind === "ArrayTypeAnnotation") {
+    } else if (kind === NodeKind.ArrayTypeAnnotation) {
       const at = node as unknown as ArrayTypeAnnotation;
       this.emitTypeAnno(at.elementType as unknown as Node);
       this.write("[]");
@@ -2468,7 +2469,7 @@ class AstFormatter {
   private emitFunctionParam(p: FunctionParameter): void {
     if (p.thisParameter) { this.write("this"); return; }
     if (p.accessModifier) { this.write(p.accessModifier); this.sp(); }
-    if (p.readonly) { this.write("readonly"); this.sp(); }
+    if (p.isReadonly) { this.write("readonly"); this.sp(); }
     if (p.rest) this.write("...");
     this.emitBindingName(p.name);
     if (p.optional) this.write("?");
@@ -2480,7 +2481,7 @@ class AstFormatter {
 
   private emitBindingName(name: BindingName): void {
     const kind = (name as Node).kind;
-    if (kind === "ObjectBindingPattern") {
+    if (kind === NodeKind.ObjectBindingPattern) {
       const obp = name as ObjectBindingPattern;
       this.write("{ ");
       obp.elements.forEach((el, i) => {
@@ -2488,12 +2489,12 @@ class AstFormatter {
         this.emitBindingElement(el as BindingElement);
       });
       this.write(" }");
-    } else if (kind === "ArrayBindingPattern") {
+    } else if (kind === NodeKind.ArrayBindingPattern) {
       const abp = name as ArrayBindingPattern;
       this.write("[");
       abp.elements.forEach((el, i) => {
         if (i > 0) { this.write(","); this.sp(); }
-        if ((el as Node).kind === "BindingHole") {
+        if ((el as Node).kind === NodeKind.BindingHole) {
           // emit nothing for hole
         } else {
           this.emitBindingElement(el as BindingElement);
@@ -2508,7 +2509,7 @@ class AstFormatter {
   private emitBindingElement(el: BindingElement): void {
     if (el.rest) this.write("...");
     if (el.propertyName && !el.shorthand) {
-      this.write(el.propertyName.kind === "Identifier" ? el.propertyName.name : JSON.stringify(el.propertyName.value));
+      this.write(el.propertyName.kind === NodeKind.Identifier ? el.propertyName.name : JSON.stringify(el.propertyName.value));
       this.write(":");
       this.sp();
     }
@@ -2545,71 +2546,71 @@ class AstFormatter {
   private emitExprSwitch(expr: Expr): void {
     const kind = (expr as Node).kind;
     switch (kind) {
-      case "IntLiteral": case "FloatLiteral":
+      case NodeKind.IntLiteral: case NodeKind.FloatLiteral:
         this.write(ftok(expr as Node)?.value ?? String((expr as IntLiteral).value));
         break;
-      case "BigIntLiteral":
+      case NodeKind.BigIntLiteral:
         this.write(ftok(expr as Node)?.value ?? `${(expr as BigIntLiteral).value}n`);
         break;
-      case "LongLiteral":
+      case NodeKind.LongLiteral:
         this.write(ftok(expr as Node)?.value ?? `${(expr as LongLiteral).value}L`);
         break;
-      case "BooleanLiteral":
+      case NodeKind.BooleanLiteral:
         this.write(String((expr as BooleanLiteral).value));
         break;
-      case "NullLiteral": this.write("null"); break;
-      case "UndefinedLiteral": this.write("undefined"); break;
-      case "StringLiteral":
+      case NodeKind.NullLiteral: this.write("null"); break;
+      case NodeKind.UndefinedLiteral: this.write("undefined"); break;
+      case NodeKind.StringLiteral:
         this.write(this.strSrc(expr as StringLiteral));
         break;
-      case "RegExpLiteral": {
+      case NodeKind.RegExpLiteral: {
         const re = expr as RegExpLiteral;
         const rft = ftok(re as Node);
         const rlt = ltok(re as Node);
         this.write(rft && rlt ? this.srcSlice(rft, rlt) : `/${re.pattern}/${re.flags}`);
         break;
       }
-      case "Identifier":
+      case NodeKind.Identifier:
         this.write((expr as Identifier).name);
         break;
-      case "MissingExpression": break;
-      case "ArrayHole": break;
-      case "BinaryExpression": this.emitBinaryExpr(expr as BinaryExpression); break;
-      case "ChainExpression": this.emitChainExpr(expr as ChainExpression); break;
-      case "AssignmentExpression": this.emitAssignExpr(expr as AssignmentExpression); break;
-      case "RangeExpression": this.emitRangeExpr(expr as RangeExpression); break;
-      case "UnaryExpression": this.emitUnaryExpr(expr as UnaryExpression); break;
-      case "UpdateExpression": this.emitUpdateExpr(expr as UpdateExpression); break;
-      case "CallExpression": this.emitCallExpr(expr as CallExpression); break;
-      case "MemberExpression": this.emitMemberExpr(expr as MemberExpression); break;
-      case "NewExpression": this.emitNewExpr(expr as NewExpression); break;
-      case "ConditionalExpression": this.emitCondExpr(expr as ConditionalExpression); break;
-      case "ArrowFunctionExpression": this.emitArrowFnExpr(expr as ArrowFunctionExpression); break;
-      case "FunctionExpression": this.emitFunctionExpr(expr as FunctionExpression); break;
-      case "ClassExpression": this.emitClassExpr(expr as ClassExpression); break;
-      case "ArrayLiteral": this.emitArrayLiteral(expr as ArrayLiteral); break;
-      case "ObjectLiteral": this.emitObjectLiteral(expr as ObjectLiteral); break;
-      case "SpreadExpression": {
+      case NodeKind.MissingExpression: break;
+      case NodeKind.ArrayHole: break;
+      case NodeKind.BinaryExpression: this.emitBinaryExpr(expr as BinaryExpression); break;
+      case NodeKind.ChainExpression: this.emitChainExpr(expr as ChainExpression); break;
+      case NodeKind.AssignmentExpression: this.emitAssignExpr(expr as AssignmentExpression); break;
+      case NodeKind.RangeExpression: this.emitRangeExpr(expr as RangeExpression); break;
+      case NodeKind.UnaryExpression: this.emitUnaryExpr(expr as UnaryExpression); break;
+      case NodeKind.UpdateExpression: this.emitUpdateExpr(expr as UpdateExpression); break;
+      case NodeKind.CallExpression: this.emitCallExpr(expr as CallExpression); break;
+      case NodeKind.MemberExpression: this.emitMemberExpr(expr as MemberExpression); break;
+      case NodeKind.NewExpression: this.emitNewExpr(expr as NewExpression); break;
+      case NodeKind.ConditionalExpression: this.emitCondExpr(expr as ConditionalExpression); break;
+      case NodeKind.ArrowFunctionExpression: this.emitArrowFnExpr(expr as ArrowFunctionExpression); break;
+      case NodeKind.FunctionExpression: this.emitFunctionExpr(expr as FunctionExpression); break;
+      case NodeKind.ClassExpression: this.emitClassExpr(expr as ClassExpression); break;
+      case NodeKind.ArrayLiteral: this.emitArrayLiteral(expr as ArrayLiteral); break;
+      case NodeKind.ObjectLiteral: this.emitObjectLiteral(expr as ObjectLiteral); break;
+      case NodeKind.SpreadExpression: {
         const s = expr as SpreadExpression;
         this.write("..."); this.emitExpr(s.argument);
         break;
       }
-      case "AsExpression": {
+      case NodeKind.AsExpression: {
         const a = expr as AsExpression;
         this.emitExpr(a.expression); this.sp(); this.write("as"); this.sp(); this.write(a.typeAnnotation.name);
         break;
       }
-      case "SatisfiesExpression": {
+      case NodeKind.SatisfiesExpression: {
         const s = expr as SatisfiesExpression;
         this.emitExpr(s.expression); this.sp(); this.write("satisfies"); this.sp(); this.write(s.typeAnnotation.name);
         break;
       }
-      case "NonNullExpression": {
+      case NodeKind.NonNullExpression: {
         const n = expr as NonNullExpression;
         this.emitExpr(n.expression); this.write("!");
         break;
       }
-      case "CommaExpression": {
+      case NodeKind.CommaExpression: {
         const c = expr as CommaExpression;
         c.expressions.forEach((e, i) => {
           if (i > 0) { this.write(","); this.sp(); }
@@ -2617,19 +2618,19 @@ class AstFormatter {
         });
         break;
       }
-      case "NamedArgument": {
+      case NodeKind.NamedArgument: {
         const na = expr as NamedArgument;
         this.write(na.name.name); this.write(":"); this.sp(); this.emitExpr(na.value);
         break;
       }
-      case "JsxElement": {
+      case NodeKind.JsxElement: {
         const jx = expr as JsxElement;
         const jft = ftok(jx as Node);
         const jlt = ltok(jx as Node);
         if (jft && jlt) this.write(this.srcSlice(jft, jlt));
         break;
       }
-      case "JsxFragment": {
+      case NodeKind.JsxFragment: {
         const jf = expr as JsxFragment;
         const jft = ftok(jf as Node);
         const jlt = ltok(jf as Node);
@@ -2671,22 +2672,22 @@ class AstFormatter {
   }
 
   private emitChainOperation(operation: Expr): void {
-    if ((operation as Node).kind === "AssignmentExpression") {
+    if ((operation as Node).kind === NodeKind.AssignmentExpression) {
       const assignment = operation as AssignmentExpression;
       this.emitChainOperation(assignment.left);
       this.sp(); this.write(assignment.operator); this.sp();
       this.emitExpr(assignment.right);
       return;
     }
-    if ((operation as Node).kind === "CallExpression") {
+    if ((operation as Node).kind === NodeKind.CallExpression) {
       const call = operation as CallExpression;
       this.emitChainOperation(call.callee);
-      this.write("("); this.emitArgList(call.arguments); this.write(")");
+      this.write("("); this.emitArgList(call.args); this.write(")");
       return;
     }
-    if ((operation as Node).kind === "MemberExpression") {
+    if ((operation as Node).kind === NodeKind.MemberExpression) {
       const member = operation as MemberExpression;
-      if (!member.computed && member.property.kind === "Identifier") {
+      if (!member.computed && member.property.kind === NodeKind.Identifier) {
         this.emitExpr(member.property);
         return;
       }
@@ -2718,14 +2719,14 @@ class AstFormatter {
   }
 
   private emitCallExpr(expr: CallExpression): void {
-    const lastArg = expr.arguments[expr.arguments.length - 1];
+    const lastArg = expr.args[expr.args.length - 1];
     const isBraceLambda = lastArg &&
-      (lastArg as Node).kind === "ArrowFunctionExpression" &&
+      (lastArg as Node).kind === NodeKind.ArrowFunctionExpression &&
       ftok(lastArg as Node)?.value === "{";
 
     if (isBraceLambda) {
       const lambda = lastArg as ArrowFunctionExpression;
-      const otherArgs = expr.arguments.slice(0, -1);
+      const otherArgs = expr.args.slice(0, -1);
       this.emitExpr(expr.callee);
       if (otherArgs.length > 0) {
         if (expr.typeArguments?.length) this.emitCallTypeArgs(expr.typeArguments as unknown as Node[]);
@@ -2736,7 +2737,7 @@ class AstFormatter {
     } else {
       this.emitExpr(expr.callee);
       if (expr.typeArguments?.length) this.emitCallTypeArgs(expr.typeArguments as unknown as Node[]);
-      this.write("("); this.emitArgList(expr.arguments); this.write(")");
+      this.write("("); this.emitArgList(expr.args); this.write(")");
     }
   }
 
@@ -2771,7 +2772,7 @@ class AstFormatter {
       this.write(" ->");
       this.nl();
       this.indentLvl++;
-      if ((lambda.body as Node).kind === "BlockStatement") {
+      if ((lambda.body as Node).kind === NodeKind.BlockStatement) {
         this.emitBlockBody((lambda.body as BlockStatement).body);
       } else {
         this.emitComments(ftok(lambda.body as Node));
@@ -2783,7 +2784,7 @@ class AstFormatter {
     } else {
       this.nl();
       this.indentLvl++;
-      if ((lambda.body as Node).kind === "BlockStatement") {
+      if ((lambda.body as Node).kind === NodeKind.BlockStatement) {
         this.emitBlockBody((lambda.body as BlockStatement).body);
       } else {
         this.emitComments(ftok(lambda.body as Node));
@@ -2821,9 +2822,9 @@ class AstFormatter {
       });
       this.write(">");
     }
-    if (expr.arguments !== undefined) {
-      const args = expr.arguments;
-      if (args.length === 1 && (args[0] as Node).kind === "ArrowFunctionExpression"
+    if (expr.args !== undefined) {
+      const args = expr.args;
+      if (args.length === 1 && (args[0] as Node).kind === NodeKind.ArrowFunctionExpression
         && ftok(args[0] as Node)?.value === "{") {
         this.sp();
         this.emitExpr(args[0] as Expr);
@@ -2858,7 +2859,7 @@ class AstFormatter {
     if (expr.returnType) { this.write(":"); this.sp(); this.emitTypeAnno(expr.returnType as Node); }
     this.sp(); this.write("=>");
     this.sp();
-    if ((expr.body as Node).kind === "BlockStatement") {
+    if ((expr.body as Node).kind === NodeKind.BlockStatement) {
       this.emitBlock(expr.body as BlockStatement);
     } else {
       this.emitExpr(expr.body as Expr);
@@ -2881,7 +2882,7 @@ class AstFormatter {
     this.write("[");
     expr.elements.forEach((el, i) => {
       if (i > 0) { this.write(","); this.sp(); }
-      if ((el as Node).kind !== "ArrayHole") this.emitExpr(el as Expr);
+      if ((el as Node).kind !== NodeKind.ArrayHole) this.emitExpr(el as Expr);
     });
     this.write("]");
   }
@@ -2892,7 +2893,7 @@ class AstFormatter {
       this.write(" ");
       expr.properties.forEach((p, i) => {
         if (i > 0) { this.write(","); this.sp(); }
-        if ((p as Node).kind === "ObjectSpreadProperty") {
+        if ((p as Node).kind === NodeKind.ObjectSpreadProperty) {
           this.write("..."); this.emitExpr((p as ObjectSpreadProperty).argument);
         } else {
           const op = p as ObjectProperty;

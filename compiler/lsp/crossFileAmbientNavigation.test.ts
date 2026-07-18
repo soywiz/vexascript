@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { parseSource } from "compiler/pipeline/parse";
@@ -15,7 +16,7 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
   const result = parseSource(src, { language: "typescript" });
   const namespace = result.ast?.body.find(
     (statement) =>
-      statement.kind === "NamespaceStatement" &&
+      statement.kind === NodeKind.NamespaceStatement &&
       (statement as { externalModuleName?: { value: string } }).externalModuleName?.value === moduleName
   ) as { body?: { body?: Statement[] } } | undefined;
   return namespace?.body?.body ?? [];

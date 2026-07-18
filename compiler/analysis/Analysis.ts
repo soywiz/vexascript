@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { BinaryExpression, Identifier, ImportStatement, MemberExpression, Node, Program, Statement } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
 import { Binder } from "./Binder";
@@ -172,18 +173,18 @@ export class Analysis {
     }
     const memberPropertyNames = new Set<string>();
     walkAst(this.program, (node) => {
-      if (node.kind !== "MemberExpression") {
+      if (node.kind !== NodeKind.MemberExpression) {
         return;
       }
       const member = node as MemberExpression;
-      if (!member.computed && member.property.kind === "Identifier") {
+      if (!member.computed && member.property.kind === NodeKind.Identifier) {
         memberPropertyNames.add((member.property as Identifier).name);
       }
     });
 
     const unused: Identifier[] = [];
     for (const statement of this.program.body) {
-      if (statement.kind !== "ImportStatement") {
+      if (statement.kind !== NodeKind.ImportStatement) {
         continue;
       }
       const importStatement = statement as ImportStatement;
@@ -313,7 +314,7 @@ export class Analysis {
       if (symbol.declaredOffset < 0) {
         continue;
       }
-      if (symbol.node.kind !== "Identifier") {
+      if (symbol.node.kind !== NodeKind.Identifier) {
         continue;
       }
       const range = this.nodeToRange(symbol.node);
@@ -525,9 +526,9 @@ export class Analysis {
   }
 
   private operatorRange(expression: Node): AnalysisRange | null {
-    const token = expression.kind === "BinaryExpression"
+    const token = expression.kind === NodeKind.BinaryExpression
       ? (expression as BinaryExpression).operatorToken
-      : expression.kind === "UnaryExpression"
+      : expression.kind === NodeKind.UnaryExpression
         ? expression.firstToken
         : undefined;
     if (!token) {
@@ -584,7 +585,7 @@ export class Analysis {
     };
   }
 
-  private jsxAttributeNameRange(attribute: Node & { kind: "JsxAttribute"; name: string }): AnalysisRange | null {
+  private jsxAttributeNameRange(attribute: Node & { kind: NodeKind.JsxAttribute; name: string }): AnalysisRange | null {
     const token = attribute.firstToken;
     if (!token) {
       return null;

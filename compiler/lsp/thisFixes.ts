@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/model";
 import type { Identifier, MemberExpression, Program } from "compiler/ast/ast";
@@ -30,7 +31,7 @@ function findImplicitReceiverIdentifierAtPosition(
   position: Position
 ): ImplicitReceiverTarget | null {
   return findBestMatchAtPosition(ast, position, (node) => {
-    if (node.kind !== "Identifier") {
+    if (node.kind !== NodeKind.Identifier) {
       return null;
     }
 
@@ -57,16 +58,16 @@ function findThisMemberAtPosition(
   position: Position
 ): ThisMemberTarget | null {
   return findBestMatchAtPosition(ast, position, (node) => {
-    if (node.kind !== "MemberExpression") {
+    if (node.kind !== NodeKind.MemberExpression) {
       return null;
     }
 
     const member = node as MemberExpression;
     if (
       member.computed ||
-      member.object.kind !== "Identifier" ||
+      member.object.kind !== NodeKind.Identifier ||
       (member.object as Identifier).name !== "this" ||
-      member.property.kind !== "Identifier"
+      member.property.kind !== NodeKind.Identifier
     ) {
       return null;
     }

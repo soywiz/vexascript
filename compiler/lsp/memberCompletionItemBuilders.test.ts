@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import type { ClassStatement, EnumStatement } from "compiler/ast/ast";
@@ -21,7 +22,7 @@ describe("memberCompletionItemBuilders", () => {
       }
     `);
     const classStatement = session.ast?.body[0];
-    if (!classStatement || classStatement.kind !== "ClassStatement") {
+    if (!classStatement || classStatement.kind !== NodeKind.ClassStatement) {
       throw new Error("Expected class statement");
     }
     const pointClass = classStatement as ClassStatement;
@@ -76,7 +77,7 @@ describe("memberCompletionItemBuilders", () => {
       }
     `);
     const enumStatement = session.ast?.body[0];
-    if (!enumStatement || enumStatement.kind !== "EnumStatement") {
+    if (!enumStatement || enumStatement.kind !== NodeKind.EnumStatement) {
       throw new Error("Expected enum statement");
     }
     const demoEnum = enumStatement as EnumStatement;

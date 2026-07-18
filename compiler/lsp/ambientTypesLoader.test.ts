@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, join, mkdir, mkdtemp, tmpdir, writeFile } from "../test/expect";
 import { clearAmbientTypesCache, loadAmbientTypesForProject } from "./ambientTypesLoader";
 
@@ -116,7 +117,7 @@ describe("loadAmbientTypesForProject", () => {
 
     expect(
       result.globalDeclarations.some(
-        (statement) => statement.kind === "TypeAliasStatement" && (statement as { name?: { name?: string } }).name?.name === "BufferEncoding"
+        (statement) => statement.kind === NodeKind.TypeAliasStatement && (statement as { name?: { name?: string } }).name?.name === "BufferEncoding"
       )
     ).toBe(true);
   });
@@ -176,8 +177,8 @@ describe("loadAmbientTypesForProject", () => {
 
     const first = await loadAmbientTypesForProject(join(root, "main.vx"), ["mylib"]);
     expect(first.moduleDeclarations.get("mylib")?.some((statement) =>
-      statement.kind === "ExportStatement"
-      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "FunctionStatement"
+      statement.kind === NodeKind.ExportStatement
+      && (statement as { declaration?: { kind?: NodeKind; name?: { name?: string } } }).declaration?.kind === NodeKind.FunctionStatement
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "oldVersion"
     )).toBe(true);
 
@@ -190,8 +191,8 @@ describe("loadAmbientTypesForProject", () => {
 
     const second = await loadAmbientTypesForProject(join(root, "main.vx"), ["mylib"]);
     expect(second.moduleDeclarations.get("mylib")?.some((statement) =>
-      statement.kind === "ExportStatement"
-      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "FunctionStatement"
+      statement.kind === NodeKind.ExportStatement
+      && (statement as { declaration?: { kind?: NodeKind; name?: { name?: string } } }).declaration?.kind === NodeKind.FunctionStatement
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "newVersion"
     )).toBe(true);
   });

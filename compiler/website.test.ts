@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, readFile, resolve } from "./test/expect";
 import { cacheProgram } from "./runtime/programCache";
 import { fileExists } from "./utils/fs";
@@ -180,7 +181,7 @@ describe("website project", () => {
       const sourceFilePath = "/runtime/dom.d.ts";
       const mtimeMs = 1234;
       const cacheSalt = "dom-runtime-v1";
-      const program = { kind: "Program", statements: [] } as never;
+      const program = { kind: NodeKind.Program, statements: [] } as never;
 
       let generateCount = 0;
       const first = await cacheProgram(sourceFilePath, `${cacheSalt}:${mtimeMs}`, async () => {
@@ -189,7 +190,7 @@ describe("website project", () => {
       });
       const second = await cacheProgram(sourceFilePath, `${cacheSalt}:${mtimeMs}`, async () => {
         generateCount += 1;
-        return { kind: "Program", body: [] } as never;
+        return { kind: NodeKind.Program, body: [] } as never;
       });
 
       expect(storageState.has(`vexa.runtime.program-cache.v2.${sourceFilePath}`)).toBe(true);

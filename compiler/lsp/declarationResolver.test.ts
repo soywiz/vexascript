@@ -1,10 +1,11 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { ClassStatement } from "compiler/ast/ast";
 import { compileSource } from "compiler/pipeline/compile";
 import { describe, expect, it, join, mkdir, mkdtemp, resolve, tmpdir, writeFile } from "compiler/test/expect";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 
 function isClassStatement(statement: unknown): statement is ClassStatement {
-  return (statement as { kind?: unknown }).kind === "ClassStatement";
+  return (statement as { kind?: unknown }).kind === NodeKind.ClassStatement;
 }
 
 describe("resolveTopLevelDeclarationAcrossFiles", () => {
@@ -25,7 +26,7 @@ describe("resolveTopLevelDeclarationAcrossFiles", () => {
     });
 
     expect(resolved?.filePath).toBe(importedFilePath);
-    expect(resolved?.declaration.kind).toBe("ClassStatement");
+    expect(resolved?.declaration.kind).toBe(NodeKind.ClassStatement);
     expect(resolved?.declaration.name.name).toBe("Point");
   });
 
@@ -58,7 +59,7 @@ describe("resolveTopLevelDeclarationAcrossFiles", () => {
     });
 
     expect(resolved?.filePath.endsWith("/node_modules/pixi.js/index.d.ts")).toBe(true);
-    expect(resolved?.declaration.kind).toBe("ClassStatement");
+    expect(resolved?.declaration.kind).toBe(NodeKind.ClassStatement);
     expect(resolved?.declaration.name.name).toBe("Graphics");
   });
 });

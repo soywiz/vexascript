@@ -1,10 +1,26 @@
 import { describe, expect, it } from "../test/expect";
-import { Node } from "../ast/ast";
+import { Identifier, IntLiteral, Node, NodeKind, nodeKindName, ObjectProperty, ReturnStatement } from "../ast/ast";
 import { walkAst } from "../ast/traversal";
 import { parseProgram } from "./parser";
 import { tokenizeReader } from "./tokenizer";
 
 describe("parseProgram", () => {
+    it("uses typed positional node constructors with class-owned discriminators", () => {
+        const key = new Identifier("answer");
+        const value = new IntLiteral(42);
+        const property = new ObjectProperty(key, value);
+
+        expect(property.kind).toBe(NodeKind.ObjectProperty);
+        expect(typeof property.kind).toBe("number");
+        expect(property.key).toBe(key);
+        expect(property.value).toBe(value);
+        const returned = new ReturnStatement();
+        expect(returned.kind).toBe(NodeKind.ReturnStatement);
+        expect(returned).toHaveProperty("firstToken", undefined);
+        expect(returned).toHaveProperty("lastToken", undefined);
+        expect(returned).toHaveProperty("__vexaNativeSourcePath", undefined);
+    });
+
     it("constructs every parsed AST value as a nominal node", () => {
         const program = parseProgram(tokenizeReader(`
             @JsName("run")
@@ -18,29 +34,29 @@ describe("parseProgram", () => {
         `));
 
         walkAst(program, node => {
-            expect(node instanceof Node, `Expected ${node.kind} to inherit from Node`).toBe(true);
+            expect(node instanceof Node, `Expected ${nodeKindName(node.kind)} to inherit from Node`).toBe(true);
         });
     });
 
     it("parses multiple let statements separated by semicolons", () => {
         expect(parseProgram(tokenizeReader("let a = 1; let b = a + 2;"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "a" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "a" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "b" },
+                    name: { kind: NodeKind.Identifier, name: "b" },
                     initializer: {
-                        kind: "BinaryExpression",
+                        kind: NodeKind.BinaryExpression,
                         operator: "+",
-                        left: { kind: "Identifier", name: "a" },
-                        right: { kind: "IntLiteral", value: 2 }
+                        left: { kind: NodeKind.Identifier, name: "a" },
+                        right: { kind: NodeKind.IntLiteral, value: 2 }
                     }
                 }
             ]
@@ -49,32 +65,32 @@ describe("parseProgram", () => {
 
     it("parses block statements at top level", () => {
         expect(parseProgram(tokenizeReader("let a = 1; { let b = 2; let c = b + 1 };"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "a" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "a" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 },
                 {
-                    kind: "BlockStatement",
+                    kind: NodeKind.BlockStatement,
                     body: [
                         {
-                            kind: "VarStatement",
+                            kind: NodeKind.VarStatement,
                             declarationKind: "let",
-                            name: { kind: "Identifier", name: "b" },
-                            initializer: { kind: "IntLiteral", value: 2 }
+                            name: { kind: NodeKind.Identifier, name: "b" },
+                            initializer: { kind: NodeKind.IntLiteral, value: 2 }
                         },
                         {
-                            kind: "VarStatement",
+                            kind: NodeKind.VarStatement,
                             declarationKind: "let",
-                            name: { kind: "Identifier", name: "c" },
+                            name: { kind: NodeKind.Identifier, name: "c" },
                             initializer: {
-                                kind: "BinaryExpression",
+                                kind: NodeKind.BinaryExpression,
                                 operator: "+",
-                                left: { kind: "Identifier", name: "b" },
-                                right: { kind: "IntLiteral", value: 1 }
+                                left: { kind: NodeKind.Identifier, name: "b" },
+                                right: { kind: NodeKind.IntLiteral, value: 1 }
                             }
                         }
                     ]
@@ -85,39 +101,39 @@ describe("parseProgram", () => {
 
     it("parses while statements with block bodies", () => {
         expect(parseProgram(tokenizeReader("while (1) { let a = 2; let b = a + 3 }; let c = 4;"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "WhileStatement",
-                    condition: { kind: "IntLiteral", value: 1 },
+                    kind: NodeKind.WhileStatement,
+                    condition: { kind: NodeKind.IntLiteral, value: 1 },
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "VarStatement",
+                                kind: NodeKind.VarStatement,
                                 declarationKind: "let",
-                                name: { kind: "Identifier", name: "a" },
-                                initializer: { kind: "IntLiteral", value: 2 }
+                                name: { kind: NodeKind.Identifier, name: "a" },
+                                initializer: { kind: NodeKind.IntLiteral, value: 2 }
                             },
                             {
-                                kind: "VarStatement",
+                                kind: NodeKind.VarStatement,
                                 declarationKind: "let",
-                                name: { kind: "Identifier", name: "b" },
+                                name: { kind: NodeKind.Identifier, name: "b" },
                                 initializer: {
-                                    kind: "BinaryExpression",
+                                    kind: NodeKind.BinaryExpression,
                                     operator: "+",
-                                    left: { kind: "Identifier", name: "a" },
-                                    right: { kind: "IntLiteral", value: 3 }
+                                    left: { kind: NodeKind.Identifier, name: "a" },
+                                    right: { kind: NodeKind.IntLiteral, value: 3 }
                                 }
                             }
                         ]
                     }
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "c" },
-                    initializer: { kind: "IntLiteral", value: 4 }
+                    name: { kind: NodeKind.Identifier, name: "c" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 4 }
                 }
             ]
         });
@@ -125,39 +141,39 @@ describe("parseProgram", () => {
 
     it("parses do-while statements with block bodies", () => {
         expect(parseProgram(tokenizeReader("do { let i = 0; let j = i + 1 } while (j); let done = 1;"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "DoWhileStatement",
+                    kind: NodeKind.DoWhileStatement,
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "VarStatement",
+                                kind: NodeKind.VarStatement,
                                 declarationKind: "let",
-                                name: { kind: "Identifier", name: "i" },
-                                initializer: { kind: "IntLiteral", value: 0 }
+                                name: { kind: NodeKind.Identifier, name: "i" },
+                                initializer: { kind: NodeKind.IntLiteral, value: 0 }
                             },
                             {
-                                kind: "VarStatement",
+                                kind: NodeKind.VarStatement,
                                 declarationKind: "let",
-                                name: { kind: "Identifier", name: "j" },
+                                name: { kind: NodeKind.Identifier, name: "j" },
                                 initializer: {
-                                    kind: "BinaryExpression",
+                                    kind: NodeKind.BinaryExpression,
                                     operator: "+",
-                                    left: { kind: "Identifier", name: "i" },
-                                    right: { kind: "IntLiteral", value: 1 }
+                                    left: { kind: NodeKind.Identifier, name: "i" },
+                                    right: { kind: NodeKind.IntLiteral, value: 1 }
                                 }
                             }
                         ]
                     },
-                    condition: { kind: "Identifier", name: "j" }
+                    condition: { kind: NodeKind.Identifier, name: "j" }
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "done" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "done" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 }
             ]
         });
@@ -165,39 +181,39 @@ describe("parseProgram", () => {
 
     it("parses if-else statements with block bodies", () => {
         expect(parseProgram(tokenizeReader("if (ok) { let a = 1 } else { let b = 2 }; let done = 1;"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "IfStatement",
-                    condition: { kind: "Identifier", name: "ok" },
+                    kind: NodeKind.IfStatement,
+                    condition: { kind: NodeKind.Identifier, name: "ok" },
                     thenBranch: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "VarStatement",
+                                kind: NodeKind.VarStatement,
                                 declarationKind: "let",
-                                name: { kind: "Identifier", name: "a" },
-                                initializer: { kind: "IntLiteral", value: 1 }
+                                name: { kind: NodeKind.Identifier, name: "a" },
+                                initializer: { kind: NodeKind.IntLiteral, value: 1 }
                             }
                         ]
                     },
                     elseBranch: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "VarStatement",
+                                kind: NodeKind.VarStatement,
                                 declarationKind: "let",
-                                name: { kind: "Identifier", name: "b" },
-                                initializer: { kind: "IntLiteral", value: 2 }
+                                name: { kind: NodeKind.Identifier, name: "b" },
+                                initializer: { kind: NodeKind.IntLiteral, value: 2 }
                             }
                         ]
                     }
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "done" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "done" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 }
             ]
         });
@@ -205,50 +221,50 @@ describe("parseProgram", () => {
 
     it("parses switch statements with multiple cases and fallthrough", () => {
         expect(parseProgram(tokenizeReader("switch (x) { case 1: case 2: let y = x; break; default: let z = 0 }; let done = 1;"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "SwitchStatement",
-                    discriminant: { kind: "Identifier", name: "x" },
+                    kind: NodeKind.SwitchStatement,
+                    discriminant: { kind: NodeKind.Identifier, name: "x" },
                     cases: [
                         {
-                            kind: "SwitchCase",
-                            test: { kind: "IntLiteral", value: 1 },
+                            kind: NodeKind.SwitchCase,
+                            test: { kind: NodeKind.IntLiteral, value: 1 },
                             consequent: []
                         },
                         {
-                            kind: "SwitchCase",
-                            test: { kind: "IntLiteral", value: 2 },
+                            kind: NodeKind.SwitchCase,
+                            test: { kind: NodeKind.IntLiteral, value: 2 },
                             consequent: [
                                 {
-                                    kind: "VarStatement",
+                                    kind: NodeKind.VarStatement,
                                     declarationKind: "let",
-                                    name: { kind: "Identifier", name: "y" },
-                                    initializer: { kind: "Identifier", name: "x" }
+                                    name: { kind: NodeKind.Identifier, name: "y" },
+                                    initializer: { kind: NodeKind.Identifier, name: "x" }
                                 },
                                 {
-                                    kind: "BreakStatement"
+                                    kind: NodeKind.BreakStatement
                                 }
                             ]
                         },
                         {
-                            kind: "SwitchCase",
+                            kind: NodeKind.SwitchCase,
                             consequent: [
                                 {
-                                    kind: "VarStatement",
+                                    kind: NodeKind.VarStatement,
                                     declarationKind: "let",
-                                    name: { kind: "Identifier", name: "z" },
-                                    initializer: { kind: "IntLiteral", value: 0 }
+                                    name: { kind: NodeKind.Identifier, name: "z" },
+                                    initializer: { kind: NodeKind.IntLiteral, value: 0 }
                                 }
                             ]
                         }
                     ]
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "done" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "done" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 }
             ]
         });
@@ -256,84 +272,84 @@ describe("parseProgram", () => {
 
     it("parses with statements, statement labels, and labeled break/continue", () => {
         expect(parseProgram(tokenizeReader("outer: while (ok) { with (scope) { break outer }; continue outer }; done"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "LabeledStatement",
-                    label: { kind: "Identifier", name: "outer" },
+                    kind: NodeKind.LabeledStatement,
+                    label: { kind: NodeKind.Identifier, name: "outer" },
                     body: {
-                        kind: "WhileStatement",
-                        condition: { kind: "Identifier", name: "ok" },
+                        kind: NodeKind.WhileStatement,
+                        condition: { kind: NodeKind.Identifier, name: "ok" },
                         body: {
-                            kind: "BlockStatement",
+                            kind: NodeKind.BlockStatement,
                             body: [
                                 {
-                                    kind: "WithStatement",
-                                    object: { kind: "Identifier", name: "scope" },
+                                    kind: NodeKind.WithStatement,
+                                    object: { kind: NodeKind.Identifier, name: "scope" },
                                     body: {
-                                        kind: "BlockStatement",
+                                        kind: NodeKind.BlockStatement,
                                         body: [
                                             {
-                                                kind: "BreakStatement",
-                                                label: { kind: "Identifier", name: "outer" }
+                                                kind: NodeKind.BreakStatement,
+                                                label: { kind: NodeKind.Identifier, name: "outer" }
                                             }
                                         ]
                                     }
                                 },
                                 {
-                                    kind: "ContinueStatement",
-                                    label: { kind: "Identifier", name: "outer" }
+                                    kind: NodeKind.ContinueStatement,
+                                    label: { kind: NodeKind.Identifier, name: "outer" }
                                 }
                             ]
                         }
                     }
                 },
-                { kind: "ExprStatement", expression: { kind: "Identifier", name: "done" } }
+                { kind: NodeKind.ExprStatement, expression: { kind: NodeKind.Identifier, name: "done" } }
             ]
         });
     });
 
     it("parses for statements with block bodies", () => {
         expect(parseProgram(tokenizeReader("for (let i = 0; i < 2; i += 1) { let x = i }; let done = 1;"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "ForStatement",
+                    kind: NodeKind.ForStatement,
                     initializer: {
-                        kind: "VarStatement",
+                        kind: NodeKind.VarStatement,
                         declarationKind: "let",
-                        name: { kind: "Identifier", name: "i" },
-                        initializer: { kind: "IntLiteral", value: 0 }
+                        name: { kind: NodeKind.Identifier, name: "i" },
+                        initializer: { kind: NodeKind.IntLiteral, value: 0 }
                     },
                     condition: {
-                        kind: "BinaryExpression",
+                        kind: NodeKind.BinaryExpression,
                         operator: "<",
-                        left: { kind: "Identifier", name: "i" },
-                        right: { kind: "IntLiteral", value: 2 }
+                        left: { kind: NodeKind.Identifier, name: "i" },
+                        right: { kind: NodeKind.IntLiteral, value: 2 }
                     },
                     update: {
-                        kind: "AssignmentExpression",
+                        kind: NodeKind.AssignmentExpression,
                         operator: "+=",
-                        left: { kind: "Identifier", name: "i" },
-                        right: { kind: "IntLiteral", value: 1 }
+                        left: { kind: NodeKind.Identifier, name: "i" },
+                        right: { kind: NodeKind.IntLiteral, value: 1 }
                     },
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
                             {
-                                kind: "VarStatement",
+                                kind: NodeKind.VarStatement,
                                 declarationKind: "let",
-                                name: { kind: "Identifier", name: "x" },
-                                initializer: { kind: "Identifier", name: "i" }
+                                name: { kind: NodeKind.Identifier, name: "x" },
+                                initializer: { kind: NodeKind.Identifier, name: "i" }
                             }
                         ]
                     }
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "done" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "done" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 }
             ]
         });
@@ -341,30 +357,30 @@ describe("parseProgram", () => {
 
     it("parses statements separated by newlines", () => {
         expect(parseProgram(tokenizeReader("let a = 1\na += 2\na + 3"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "a" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "a" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 },
                 {
-                    kind: "ExprStatement",
+                    kind: NodeKind.ExprStatement,
                     expression: {
-                        kind: "AssignmentExpression",
+                        kind: NodeKind.AssignmentExpression,
                         operator: "+=",
-                        left: { kind: "Identifier", name: "a" },
-                        right: { kind: "IntLiteral", value: 2 }
+                        left: { kind: NodeKind.Identifier, name: "a" },
+                        right: { kind: NodeKind.IntLiteral, value: 2 }
                     }
                 },
                 {
-                    kind: "ExprStatement",
+                    kind: NodeKind.ExprStatement,
                     expression: {
-                        kind: "BinaryExpression",
+                        kind: NodeKind.BinaryExpression,
                         operator: "+",
-                        left: { kind: "Identifier", name: "a" },
-                        right: { kind: "IntLiteral", value: 3 }
+                        left: { kind: NodeKind.Identifier, name: "a" },
+                        right: { kind: NodeKind.IntLiteral, value: 3 }
                     }
                 }
             ]
@@ -377,38 +393,38 @@ describe("parseProgram", () => {
                 tokenizeReader("var res = map.b\n\n[1,2,3,4].map(10)")
             )
         ).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "var",
-                    name: { kind: "Identifier", name: "res" },
+                    name: { kind: NodeKind.Identifier, name: "res" },
                     initializer: {
-                        kind: "MemberExpression",
-                        object: { kind: "Identifier", name: "map" },
-                        property: { kind: "Identifier", name: "b" },
+                        kind: NodeKind.MemberExpression,
+                        object: { kind: NodeKind.Identifier, name: "map" },
+                        property: { kind: NodeKind.Identifier, name: "b" },
                         computed: false
                     }
                 },
                 {
-                    kind: "ExprStatement",
+                    kind: NodeKind.ExprStatement,
                     expression: {
-                        kind: "CallExpression",
+                        kind: NodeKind.CallExpression,
                         callee: {
-                            kind: "MemberExpression",
+                            kind: NodeKind.MemberExpression,
                             object: {
-                                kind: "ArrayLiteral",
+                                kind: NodeKind.ArrayLiteral,
                                 elements: [
-                                    { kind: "IntLiteral", value: 1 },
-                                    { kind: "IntLiteral", value: 2 },
-                                    { kind: "IntLiteral", value: 3 },
-                                    { kind: "IntLiteral", value: 4 }
+                                    { kind: NodeKind.IntLiteral, value: 1 },
+                                    { kind: NodeKind.IntLiteral, value: 2 },
+                                    { kind: NodeKind.IntLiteral, value: 3 },
+                                    { kind: NodeKind.IntLiteral, value: 4 }
                                 ]
                             },
-                            property: { kind: "Identifier", name: "map" },
+                            property: { kind: NodeKind.Identifier, name: "map" },
                             computed: false
                         },
-                        arguments: [{ kind: "IntLiteral", value: 10 }]
+                        args: [{ kind: NodeKind.IntLiteral, value: 10 }]
                     }
                 }
             ]
@@ -421,34 +437,34 @@ describe("parseProgram", () => {
                 tokenizeReader("fun demo(a, b, c: optType): optType {\nreturn\ncontinue\nbreak\n}\n")
             )
         ).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "FunctionStatement",
+                    kind: NodeKind.FunctionStatement,
                     declarationKind: "fun",
-                    name: { kind: "Identifier", name: "demo" },
+                    name: { kind: NodeKind.Identifier, name: "demo" },
                     parameters: [
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "a" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "a" }
                         },
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "b" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "b" }
                         },
                         {
-                            kind: "FunctionParameter",
-                            name: { kind: "Identifier", name: "c" },
-                            typeAnnotation: { kind: "Identifier", name: "optType" }
+                            kind: NodeKind.FunctionParameter,
+                            name: { kind: NodeKind.Identifier, name: "c" },
+                            typeAnnotation: { kind: NodeKind.Identifier, name: "optType" }
                         }
                     ],
-                    returnType: { kind: "Identifier", name: "optType" },
+                    returnType: { kind: NodeKind.Identifier, name: "optType" },
                     body: {
-                        kind: "BlockStatement",
+                        kind: NodeKind.BlockStatement,
                         body: [
-                            { kind: "ReturnStatement" },
-                            { kind: "ContinueStatement" },
-                            { kind: "BreakStatement" }
+                            { kind: NodeKind.ReturnStatement },
+                            { kind: NodeKind.ContinueStatement },
+                            { kind: NodeKind.BreakStatement }
                         ]
                     }
                 }
@@ -462,36 +478,36 @@ describe("parseProgram", () => {
                 tokenizeReader("class Demo {\na = 10\nconstructor() {}\ndemo() {}\n}\nlet after = 1")
             )
         ).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "ClassStatement",
-                    name: { kind: "Identifier", name: "Demo" },
+                    kind: NodeKind.ClassStatement,
+                    name: { kind: NodeKind.Identifier, name: "Demo" },
                     members: [
                         {
-                            kind: "ClassFieldMember",
-                            name: { kind: "Identifier", name: "a" },
-                            initializer: { kind: "IntLiteral", value: 10 }
+                            kind: NodeKind.ClassFieldMember,
+                            name: { kind: NodeKind.Identifier, name: "a" },
+                            initializer: { kind: NodeKind.IntLiteral, value: 10 }
                         },
                         {
-                            kind: "ClassMethodMember",
-                            name: { kind: "Identifier", name: "constructor" },
+                            kind: NodeKind.ClassMethodMember,
+                            name: { kind: NodeKind.Identifier, name: "constructor" },
                             parameters: [],
-                            body: { kind: "BlockStatement", body: [] }
+                            body: { kind: NodeKind.BlockStatement, body: [] }
                         },
                         {
-                            kind: "ClassMethodMember",
-                            name: { kind: "Identifier", name: "demo" },
+                            kind: NodeKind.ClassMethodMember,
+                            name: { kind: NodeKind.Identifier, name: "demo" },
                             parameters: [],
-                            body: { kind: "BlockStatement", body: [] }
+                            body: { kind: NodeKind.BlockStatement, body: [] }
                         }
                     ]
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "after" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "after" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 }
             ]
         });
@@ -499,18 +515,18 @@ describe("parseProgram", () => {
 
     it("parses class declarations without braces mixed with other statements", () => {
         expect(parseProgram(tokenizeReader("class Point\nlet after = 1"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "ClassStatement",
-                    name: { kind: "Identifier", name: "Point" },
+                    kind: NodeKind.ClassStatement,
+                    name: { kind: NodeKind.Identifier, name: "Point" },
                     members: []
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "after" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "after" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 }
             ]
         });
@@ -518,23 +534,23 @@ describe("parseProgram", () => {
 
     it("parses programs with single-line and block comments", () => {
         expect(parseProgram(tokenizeReader("let a = 1 // comment\n/* block */\nlet b = a + 2"))).toEqual({
-            kind: "Program",
+            kind: NodeKind.Program,
             body: [
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "a" },
-                    initializer: { kind: "IntLiteral", value: 1 }
+                    name: { kind: NodeKind.Identifier, name: "a" },
+                    initializer: { kind: NodeKind.IntLiteral, value: 1 }
                 },
                 {
-                    kind: "VarStatement",
+                    kind: NodeKind.VarStatement,
                     declarationKind: "let",
-                    name: { kind: "Identifier", name: "b" },
+                    name: { kind: NodeKind.Identifier, name: "b" },
                     initializer: {
-                        kind: "BinaryExpression",
+                        kind: NodeKind.BinaryExpression,
                         operator: "+",
-                        left: { kind: "Identifier", name: "a" },
-                        right: { kind: "IntLiteral", value: 2 }
+                        left: { kind: NodeKind.Identifier, name: "a" },
+                        right: { kind: NodeKind.IntLiteral, value: 2 }
                     }
                 }
             ]

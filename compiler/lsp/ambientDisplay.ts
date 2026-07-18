@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   FunctionStatement,
   InterfaceMember,
@@ -22,7 +23,7 @@ function ambientDisplayParameters(
   return parameters
     .filter((parameter) => parameter.thisParameter !== true)
     .map((parameter) => ({
-      name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+      name: parameter.name.kind === NodeKind.Identifier ? parameter.name.name : "arg",
       typeName: renderAmbientTypeAnnotationText(parameter.typeAnnotation?.name),
       optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
       rest: parameter.rest === true
@@ -53,7 +54,7 @@ export function renderAmbientFunctionDisplayFromInterfaceMember(member: Interfac
 }
 
 export function renderAmbientInterfaceMemberDisplay(member: InterfaceMember): string {
-  if (member.kind === "InterfaceMethodMember") {
+  if (member.kind === NodeKind.InterfaceMethodMember) {
     return renderAmbientFunctionDisplayFromInterfaceMember(member as InterfaceMethodMember);
   }
   return renderAmbientTypeAnnotationText(member.typeAnnotation?.name);

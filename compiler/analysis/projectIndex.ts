@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { Analysis } from "./Analysis";
 import type {
   ClassStatement,
@@ -126,10 +127,10 @@ export function collectTopLevelDeclarationsFromAst(ast: Program | null): Project
   const declarations: ProjectTopLevelDeclaration[] = [];
 
   for (const originalStatement of ast.body) {
-    const statement: Statement = originalStatement.kind === "ExportStatement" && (originalStatement as ExportStatement).declaration
+    const statement: Statement = originalStatement.kind === NodeKind.ExportStatement && (originalStatement as ExportStatement).declaration
       ? (originalStatement as ExportStatement).declaration!
       : originalStatement;
-    if (statement.kind === "ClassStatement") {
+    if (statement.kind === NodeKind.ClassStatement) {
       const classStatement = statement as ClassStatement;
       const range = nodeRange(classStatement.name);
       if (range) {
@@ -142,7 +143,7 @@ export function collectTopLevelDeclarationsFromAst(ast: Program | null): Project
       continue;
     }
 
-    if (statement.kind === "InterfaceStatement") {
+    if (statement.kind === NodeKind.InterfaceStatement) {
       const interfaceStatement = statement as InterfaceStatement;
       const range = nodeRange(interfaceStatement.name);
       if (range) {
@@ -155,7 +156,7 @@ export function collectTopLevelDeclarationsFromAst(ast: Program | null): Project
       continue;
     }
 
-    if (statement.kind === "TypeAliasStatement") {
+    if (statement.kind === NodeKind.TypeAliasStatement) {
       const typeAliasStatement = statement as TypeAliasStatement;
       const range = nodeRange(typeAliasStatement.name);
       if (range) {
@@ -168,7 +169,7 @@ export function collectTopLevelDeclarationsFromAst(ast: Program | null): Project
       continue;
     }
 
-    if (statement.kind === "FunctionStatement") {
+    if (statement.kind === NodeKind.FunctionStatement) {
       const functionStatement = statement as FunctionStatement;
       const range = nodeRange(functionStatement.name);
       if (range) {
@@ -182,7 +183,7 @@ export function collectTopLevelDeclarationsFromAst(ast: Program | null): Project
       continue;
     }
 
-    if (statement.kind === "VarStatement") {
+    if (statement.kind === NodeKind.VarStatement) {
       const variableStatement = statement as VarStatement;
       if (variableStatement.declarations && variableStatement.declarations.length > 0) {
         for (const declaration of variableStatement.declarations) {
@@ -212,11 +213,11 @@ async function indexFileData(
   const imports: ProjectImportBinding[] = [];
 
   for (const originalStatement of ast.body) {
-    const statement: Statement = originalStatement.kind === "ExportStatement" && (originalStatement as ExportStatement).declaration
+    const statement: Statement = originalStatement.kind === NodeKind.ExportStatement && (originalStatement as ExportStatement).declaration
       ? (originalStatement as ExportStatement).declaration!
       : originalStatement;
 
-    if (statement.kind === "ImportStatement") {
+    if (statement.kind === NodeKind.ImportStatement) {
       const importStatement = statement as ImportStatement;
       const targetFilePath = await resolveImportTargetFilePath(filePath, importStatement.from.value, { vfs, importMappings });
       if (!targetFilePath) {

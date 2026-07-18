@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { ImportStatement, Program } from "compiler/ast/ast";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import type { ParserOptions } from "compiler/parser/parser";
@@ -53,7 +54,7 @@ export async function localImportSpecifiers(
 ): Promise<LocalImportDependency[]> {
   const imports: LocalImportDependency[] = [];
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") continue;
+    if (statement.kind !== NodeKind.ImportStatement) continue;
     const importStatement = statement as ImportStatement;
     const targetPath = await resolveLocalModulePath(
       importerFilePath,

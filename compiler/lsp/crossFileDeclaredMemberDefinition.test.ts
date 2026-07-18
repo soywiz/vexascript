@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import type { Identifier } from "compiler/ast/ast";
@@ -21,7 +22,7 @@ async function resolveDeclaredMemberDefinitionFromSource(args: {
   });
   const session = createAnalysisSession(args.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
   const memberExpression = findMemberExpressionAtPosition(session.ast!, args.line, args.character);
-  expect(memberExpression?.property.kind).toBe("Identifier");
+  expect(memberExpression?.property.kind).toBe(NodeKind.Identifier);
 
   const objectType = session.analysis!.getExpressionTypes().get(memberExpression!.object);
   expect(objectType).toBeTruthy();

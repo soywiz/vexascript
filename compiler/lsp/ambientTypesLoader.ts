@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   ArrowFunctionExpression,
   BlockStatement,
@@ -83,7 +84,7 @@ async function parseAndCollect(
   }
 
   for (const stmt of ast.body) {
-    if (stmt.kind === "NamespaceStatement") {
+    if (stmt.kind === NodeKind.NamespaceStatement) {
       const ns = stmt as NamespaceStatement;
       if (ns.externalModuleName) {
         const name = ns.externalModuleName.value;
@@ -147,27 +148,27 @@ async function parseAndCollect(
 }
 
 function extractGlobalBlockStatements(statement: Statement): Statement[] | null {
-  if (statement.kind !== "ExprStatement") {
+  if (statement.kind !== NodeKind.ExprStatement) {
     return null;
   }
   const expression = (statement as ExprStatement).expression;
-  if (expression?.kind !== "CallExpression") {
+  if (expression?.kind !== NodeKind.CallExpression) {
     return null;
   }
   const call = expression as CallExpression;
-  if (call.callee.kind !== "Identifier") {
+  if (call.callee.kind !== NodeKind.Identifier) {
     return null;
   }
   const callee = call.callee as unknown as { name: string };
   if (callee.name !== "global") {
     return null;
   }
-  const body = call.arguments[0];
-  if (body?.kind !== "ArrowFunctionExpression") {
+  const body = call.args[0];
+  if (body?.kind !== NodeKind.ArrowFunctionExpression) {
     return null;
   }
   const block = (body as ArrowFunctionExpression).body;
-  if (block.kind !== "BlockStatement") {
+  if (block.kind !== NodeKind.BlockStatement) {
     return null;
   }
   return [...(block as BlockStatement).body];

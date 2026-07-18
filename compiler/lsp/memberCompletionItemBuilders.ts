@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { classPropertyParameters, resolveClassMember, resolveClassMemberNames } from "./classResolver";
 import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import { Analysis } from "compiler/analysis/Analysis";
@@ -11,11 +12,11 @@ export function operatorSymbolFromMemberName(name: string): string | null {
 }
 
 export function memberSortGroup(memberName: string, classStatement: ClassStatement, membersByName: Map<string, ClassMember>): string {
-  if (classPropertyParameters(classStatement).some((parameter) => parameter.name.kind === "Identifier" && parameter.name.name === memberName)) {
+  if (classPropertyParameters(classStatement).some((parameter) => parameter.name.kind === NodeKind.Identifier && parameter.name.name === memberName)) {
     return "0";
   }
   const member = membersByName.get(memberName);
-  if (member?.kind === "ClassFieldMember") {
+  if (member?.kind === NodeKind.ClassFieldMember) {
     return "1";
   }
   return "2";

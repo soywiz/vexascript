@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   BlockStatement,
   ClassMethodMember,
@@ -18,11 +19,11 @@ interface FunctionLikeTarget {
 }
 
 function isGetterShorthand(node: FunctionStatement | ClassMethodMember): node is ClassMethodMember {
-  return node.kind === "ClassMethodMember" && node.accessorKind === "get" && node.getterShorthand === true;
+  return node.kind === NodeKind.ClassMethodMember && node.accessorKind === "get" && node.getterShorthand === true;
 }
 
 function isRegularGetterAccessor(node: FunctionStatement | ClassMethodMember): node is ClassMethodMember {
-  return node.kind === "ClassMethodMember" &&
+  return node.kind === NodeKind.ClassMethodMember &&
     node.accessorKind === "get" &&
     node.parameters.length === 0 &&
     node.getterShorthand !== true;
@@ -30,7 +31,7 @@ function isRegularGetterAccessor(node: FunctionStatement | ClassMethodMember): n
 
 function findFunctionLikeAtPosition(ast: Program, position: Position): FunctionLikeTarget | null {
   return findBestMatchAtPosition(ast, position, (candidate) => {
-    if (candidate.kind !== "FunctionStatement" && candidate.kind !== "ClassMethodMember") {
+    if (candidate.kind !== NodeKind.FunctionStatement && candidate.kind !== NodeKind.ClassMethodMember) {
       return null;
     }
     const node = candidate as FunctionStatement | ClassMethodMember;
@@ -40,7 +41,7 @@ function findFunctionLikeAtPosition(ast: Program, position: Position): FunctionL
     }
 
     const onlyStatement = body.body[0];
-    if (!onlyStatement || onlyStatement.kind !== "ReturnStatement") {
+    if (!onlyStatement || onlyStatement.kind !== NodeKind.ReturnStatement) {
       return null;
     }
 

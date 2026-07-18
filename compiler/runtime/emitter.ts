@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import {
   ArrowFunctionExpression,
   ArrayLiteral,
@@ -329,33 +330,33 @@ function binaryPrecedence(operator: BinaryExpression["operator"]): number {
 
 function expressionPrecedence(expression: Expr): number {
   switch (expression.kind) {
-    case "CommaExpression":
+    case NodeKind.CommaExpression:
       return PREC_COMMA;
-    case "ChainExpression":
+    case NodeKind.ChainExpression:
       return PREC_ASSIGNMENT;
-    case "AssignmentExpression":
+    case NodeKind.AssignmentExpression:
       return PREC_ASSIGNMENT;
-    case "AsExpression":
-    case "SatisfiesExpression":
+    case NodeKind.AsExpression:
+    case NodeKind.SatisfiesExpression:
       return PREC_RELATIONAL;
-    case "NonNullExpression":
+    case NodeKind.NonNullExpression:
       return PREC_UPDATE;
-    case "ConditionalExpression":
+    case NodeKind.ConditionalExpression:
       return PREC_CONDITIONAL;
-    case "BinaryExpression":
+    case NodeKind.BinaryExpression:
       return binaryPrecedence((expression as BinaryExpression).operator);
-    case "UnaryExpression":
+    case NodeKind.UnaryExpression:
       return PREC_UNARY;
-    case "UpdateExpression":
+    case NodeKind.UpdateExpression:
       return (expression as UpdateExpression).prefix ? PREC_UNARY : PREC_UPDATE;
-    case "MemberExpression":
-    case "PropertyReferenceExpression":
-    case "CallExpression":
-    case "NewExpression":
-    case "RangeExpression":
+    case NodeKind.MemberExpression:
+    case NodeKind.PropertyReferenceExpression:
+    case NodeKind.CallExpression:
+    case NodeKind.NewExpression:
+    case NodeKind.RangeExpression:
       return PREC_MEMBER;
-    case "ArrowFunctionExpression":
-    case "FunctionExpression":
+    case NodeKind.ArrowFunctionExpression:
+    case NodeKind.FunctionExpression:
       return PREC_ASSIGNMENT;
     default:
       return PREC_PRIMARY;
@@ -368,13 +369,13 @@ function maybeWrap(text: string, shouldWrap: boolean): string {
 
 function conciseArrowBodyStartsWithObjectLiteral(expression: Expr): boolean {
   switch (expression.kind) {
-    case "ObjectLiteral":
+    case NodeKind.ObjectLiteral:
       return true;
-    case "AsExpression":
+    case NodeKind.AsExpression:
       return conciseArrowBodyStartsWithObjectLiteral((expression as AsExpression).expression);
-    case "SatisfiesExpression":
+    case NodeKind.SatisfiesExpression:
       return conciseArrowBodyStartsWithObjectLiteral((expression as SatisfiesExpression).expression);
-    case "NonNullExpression":
+    case NodeKind.NonNullExpression:
       return conciseArrowBodyStartsWithObjectLiteral((expression as NonNullExpression).expression);
     default:
       return false;
@@ -483,7 +484,7 @@ function isOverloadMatch(overload: RuntimeOverloadInfo, argumentTypes: Array<str
 }
 
 function resolveOverloadedFunctionCall(call: CallExpression): string | null {
-  if (call.callee.kind !== "Identifier") {
+  if (call.callee.kind !== NodeKind.Identifier) {
     return null;
   }
   const name = (call.callee as Identifier).name;
@@ -491,9 +492,9 @@ function resolveOverloadedFunctionCall(call: CallExpression): string | null {
   if (!overloads || overloads.length <= 1) {
     return null;
   }
-  const argumentTypes = call.arguments.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
+  const argumentTypes = call.args.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
   const match = overloads.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, argumentTypes))
-    ?? overloads.find((candidate) => candidate.hasBody && candidate.parameterTypes.length === call.arguments.length);
+    ?? overloads.find((candidate) => candidate.hasBody && candidate.parameterTypes.length === call.args.length);
   return match?.emittedName ?? null;
 }
 
@@ -502,7 +503,7 @@ function escapeRegExp(text: string): string {
 }
 
 function emitJavaScriptImplementationCall(call: CallExpression): string | null {
-  if (call.optional === true || call.callee.kind !== "Identifier") {
+  if (call.optional === true || call.callee.kind !== NodeKind.Identifier) {
     return null;
   }
   const implementation = activeState.javaScriptImplementations.get((call.callee as Identifier).name);
@@ -514,10 +515,10 @@ function emitJavaScriptImplementationCall(call: CallExpression): string | null {
   const parameters = implementation.parameters.filter((parameter) => parameter.thisParameter !== true);
   for (let index = 0; index < parameters.length; index += 1) {
     const parameter = parameters[index]!;
-    if (parameter.name.kind !== "Identifier") {
+    if (parameter.name.kind !== NodeKind.Identifier) {
       continue;
     }
-    const argument = call.arguments[index] ?? parameter.defaultValue;
+    const argument = call.args[index] ?? parameter.defaultValue;
     const replacement = argument ? `(${emitListElement(argument)})` : "undefined";
     emitted = emitted.replace(new RegExp(`\\b${escapeRegExp(parameter.name.name)}\\b`, "g"), replacement);
   }
@@ -636,11 +637,11 @@ function extensionReceiverTypeName(type: AnalysisType | undefined): string | nul
 }
 
 function resolveExtensionMethodCall(call: CallExpression): string | null {
-  if (call.optional === true || call.callee.kind !== "MemberExpression") {
+  if (call.optional === true || call.callee.kind !== NodeKind.MemberExpression) {
     return null;
   }
   const member = call.callee as MemberExpression;
-  if (member.computed || member.optional || member.property.kind !== "Identifier") {
+  if (member.computed || member.optional || member.property.kind !== NodeKind.Identifier) {
     return null;
   }
   const receiverType = extensionReceiverTypeName(activeState.expressionTypes?.get(member.object));
@@ -650,10 +651,10 @@ function resolveExtensionMethodCall(call: CallExpression): string | null {
   const methodName = (member.property as Identifier).name;
   const methods = activeState.extensionMethods.get(receiverType)?.filter((candidate) => candidate.name === methodName);
   if (!methods || methods.length === 0) {
-    const argumentTypes = call.arguments.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
+    const argumentTypes = call.args.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
     return resolveImportedExtensionMethodName(methodName, argumentTypes);
   }
-  const argumentTypes = call.arguments.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
+  const argumentTypes = call.args.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
   let available: RuntimeExtensionMethodInfo | null = null;
   for (const candidate of methods) {
     if (!runtimeExtensionMethodHasBody(candidate)) continue;
@@ -753,7 +754,7 @@ function isOperatorImportName(name: string): boolean {
 }
 
 function parameterBindingName(name: BindingName | undefined): string | null {
-  return name?.kind === "Identifier" ? (name as Identifier).name : null;
+  return name?.kind === NodeKind.Identifier ? (name as Identifier).name : null;
 }
 
 function functionParameterNames(parameters: FunctionParameter[]): string[] {
@@ -840,11 +841,11 @@ function variableDelegateBackingName(name: string): string {
 
 function namedTypeHasValueMember(typeName: string, program: Program): boolean {
   for (const statement of program.body) {
-    const decl = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
-    if (!decl || decl.kind !== "ClassStatement") continue;
+    const decl = statement.kind === NodeKind.ExportStatement ? (statement as ExportStatement).declaration : statement;
+    if (!decl || decl.kind !== NodeKind.ClassStatement) continue;
     const cls = decl as ClassStatement;
     if (cls.name.name !== typeName) continue;
-    return cls.members.some((m) => m.kind === "ClassMethodMember" && m.accessorKind === "get" && m.name.name === "value");
+    return cls.members.some((m) => m.kind === NodeKind.ClassMethodMember && m.accessorKind === "get" && m.name.name === "value");
   }
   return false;
 }
@@ -875,13 +876,13 @@ function variableDelegateKind(type: AnalysisType | undefined, program: Program):
 function collectVariableDelegates(program: Program, expressionTypes?: ReadonlyMap<Node, AnalysisType>): Map<string, RuntimeVariableDelegateInfo> {
   const delegates = new Map<string, RuntimeVariableDelegateInfo>();
   walkAst(program, (node) => {
-    if (node.kind !== "VarStatement") return;
+    if (node.kind !== NodeKind.VarStatement) return;
     const statement = node as VarStatement;
     const declarations = statement.declarations && statement.declarations.length > 0
       ? statement.declarations
-      : [new VarDeclarator({ kind: "VarDeclarator", name: statement.name, delegate: statement.delegate }) as VarDeclarator];
+      : [new VarDeclarator(statement.name, undefined, undefined, statement.delegate)];
     for (const declaration of declarations) {
-      if (!declaration.delegate || declaration.name.kind !== "Identifier") {
+      if (!declaration.delegate || declaration.name.kind !== NodeKind.Identifier) {
         continue;
       }
       const sourceName = declaration.name.name;
@@ -929,7 +930,7 @@ function emitPropertyReferenceExpression(propertyReference: PropertyReferenceExp
 }
 
 function variableDelegateForTarget(target: Expr): RuntimeVariableDelegateInfo | null {
-  if (target.kind !== "Identifier") {
+  if (target.kind !== NodeKind.Identifier) {
     return null;
   }
   return activeState.variableDelegates.get((target as Identifier).name) ?? null;
@@ -952,11 +953,11 @@ function emitVariableDelegateAssignment(assignment: AssignmentExpression): strin
 }
 
 function emitExtensionPropertyAssignment(assignment: AssignmentExpression): string | null {
-  if (assignment.operator !== "=" || assignment.left.kind !== "MemberExpression") {
+  if (assignment.operator !== "=" || assignment.left.kind !== NodeKind.MemberExpression) {
     return null;
   }
   const member = assignment.left as MemberExpression;
-  if (member.computed || member.property.kind !== "Identifier") {
+  if (member.computed || member.property.kind !== NodeKind.Identifier) {
     return null;
   }
   const propertyName = (member.property as Identifier).name;
@@ -970,13 +971,13 @@ function emitExtensionPropertyAssignment(assignment: AssignmentExpression): stri
 }
 
 function computedMemberIndexArguments(member: MemberExpression): Expr[] {
-  return member.property.kind === "CommaExpression"
+  return member.property.kind === NodeKind.CommaExpression
     ? (member.property as CommaExpression).expressions
     : [member.property];
 }
 
 function emitIndexOperatorAssignment(assignment: AssignmentExpression): string | null {
-  if (assignment.operator !== "=" || assignment.left.kind !== "MemberExpression") {
+  if (assignment.operator !== "=" || assignment.left.kind !== NodeKind.MemberExpression) {
     return null;
   }
   const member = assignment.left as MemberExpression;
@@ -1015,12 +1016,12 @@ function emitOverloadedCompoundAssignment(assignment: AssignmentExpression): str
 }
 
 function isConstructableCallee(expression: Expr): boolean {
-  if (expression.kind === "Identifier") {
+  if (expression.kind === NodeKind.Identifier) {
     const name = (expression as Identifier).name;
     return activeState.classNames.has(name) || activeState.constructableOnlyNames.has(name);
   }
 
-  if (expression.kind !== "MemberExpression") {
+  if (expression.kind !== NodeKind.MemberExpression) {
     return false;
   }
 
@@ -1028,8 +1029,8 @@ function isConstructableCallee(expression: Expr): boolean {
   if (
     member.computed ||
     member.optional === true ||
-    member.object.kind !== "Identifier" ||
-    member.property.kind !== "Identifier"
+    member.object.kind !== NodeKind.Identifier ||
+    member.property.kind !== NodeKind.Identifier
   ) {
     return false;
   }
@@ -1041,7 +1042,7 @@ function isConstructableCallee(expression: Expr): boolean {
 }
 
 function hasOptionalAssignmentTarget(expression: Expr): boolean {
-  if (expression.kind !== "MemberExpression") {
+  if (expression.kind !== NodeKind.MemberExpression) {
     return false;
   }
   const member = expression as MemberExpression;
@@ -1049,7 +1050,7 @@ function hasOptionalAssignmentTarget(expression: Expr): boolean {
 }
 
 function emitOptionalAssignmentTarget(assignment: AssignmentExpression): string | null {
-  if (assignment.left.kind !== "MemberExpression" || !hasOptionalAssignmentTarget(assignment.left)) {
+  if (assignment.left.kind !== NodeKind.MemberExpression || !hasOptionalAssignmentTarget(assignment.left)) {
     return null;
   }
 
@@ -1058,7 +1059,7 @@ function emitOptionalAssignmentTarget(assignment: AssignmentExpression): string 
   const receiverText = emitExpression(target.object, PREC_ASSIGNMENT, "left");
   const normalizedTarget: MemberExpression = {
     ...target,
-    object: new Identifier({ kind: "Identifier", name: tempName ?? nextGeneratedSymbol("$$temp") }) as Expr,
+    object: new Identifier(tempName ?? nextGeneratedSymbol("$$temp")),
     optional: false,
     nonNullAsserted: false
   };
@@ -1101,14 +1102,14 @@ function wrapLongExpressionIfNeeded(expression: Expr, text: string): string {
 }
 
 function emitListElement(expression: Expr): string {
-  if (expression.kind === "ArrayHole") {
+  if (expression.kind === NodeKind.ArrayHole) {
     return "";
   }
-  if (expression.kind === "NamedArgument") {
+  if (expression.kind === NodeKind.NamedArgument) {
     return emitListElement((expression as NamedArgument).value);
   }
   const text = emitExpression(expression);
-  return expression.kind === "CommaExpression" ? `(${text})` : text;
+  return expression.kind === NodeKind.CommaExpression ? `(${text})` : text;
 }
 
 function replaceChainReceiver(expression: Expr, receiver: Expr, replacement: Identifier): Expr {
@@ -1116,7 +1117,7 @@ function replaceChainReceiver(expression: Expr, receiver: Expr, replacement: Ide
     return replacement as Expr;
   }
   switch (expression.kind) {
-    case "MemberExpression": {
+    case NodeKind.MemberExpression: {
       const member = expression as MemberExpression;
       return {
         ...member,
@@ -1124,15 +1125,15 @@ function replaceChainReceiver(expression: Expr, receiver: Expr, replacement: Ide
         property: replaceChainReceiver(member.property, receiver, replacement)
       } as MemberExpression;
     }
-    case "CallExpression": {
+    case NodeKind.CallExpression: {
       const call = expression as CallExpression;
       return {
         ...call,
         callee: replaceChainReceiver(call.callee, receiver, replacement),
-        arguments: call.arguments.map((argument) => replaceChainReceiver(argument, receiver, replacement))
+        args: call.args.map((argument) => replaceChainReceiver(argument, receiver, replacement))
       } as CallExpression;
     }
-    case "AssignmentExpression": {
+    case NodeKind.AssignmentExpression: {
       const assignment = expression as AssignmentExpression;
       return {
         ...assignment,
@@ -1146,16 +1147,16 @@ function replaceChainReceiver(expression: Expr, receiver: Expr, replacement: Ide
 }
 
 function emitChainOperation(operation: Expr, receiver: Expr, replacement: Identifier): string {
-  if (operation.kind === "CallExpression") {
+  if (operation.kind === NodeKind.CallExpression) {
     const call = operation as CallExpression;
-    if (call.callee.kind === "MemberExpression") {
+    if (call.callee.kind === NodeKind.MemberExpression) {
       const member = call.callee as MemberExpression;
       if (member.object === receiver) {
         const extensionMethodName = resolveExtensionMethodCall(call);
         if (extensionMethodName) {
           const callArguments = [
             emitExpression(replacement as Expr, PREC_MEMBER, "left"),
-            ...emitCallArgumentTexts(call.callee, call.arguments)
+            ...emitCallArgumentTexts(call.callee, call.args)
           ];
           return `${extensionMethodName}(${callArguments.join(", ")})`;
         }
@@ -1167,7 +1168,7 @@ function emitChainOperation(operation: Expr, receiver: Expr, replacement: Identi
 
 function emitChainExpression(chain: ChainExpression): string {
   const tempName = nextGeneratedSymbol("$$chain");
-  const tempIdentifier = new Identifier({ kind: "Identifier", name: tempName }) as Identifier;
+  const tempIdentifier = new Identifier(tempName);
   const receiverText = emitExpression(chain.receiver, PREC_ASSIGNMENT, "right");
   const previousState = activeState;
   const receiverType = activeState.expressionTypes?.get(chain.receiver as unknown as Node);
@@ -1213,7 +1214,7 @@ function emitJsxAttributes(attributes: JsxAttributeLike[]): string {
     return "null";
   }
   const pieces = attributes.map((attribute) => {
-    if (attribute.kind === "JsxSpreadAttribute") {
+    if (attribute.kind === NodeKind.JsxSpreadAttribute) {
       return `...${emitExpression((attribute as JsxSpreadAttribute).expression)}`;
     }
     const jsxAttribute = attribute as JsxAttribute;
@@ -1221,7 +1222,7 @@ function emitJsxAttributes(attributes: JsxAttributeLike[]): string {
     if (!jsxAttribute.value) {
       return `${key}: true`;
     }
-    if (jsxAttribute.value.kind === "StringLiteral") {
+    if (jsxAttribute.value.kind === NodeKind.StringLiteral) {
       return `${key}: ${JSON.stringify((jsxAttribute.value as StringLiteral).value)}`;
     }
     return `${key}: ${emitExpression((jsxAttribute.value as JsxExpressionContainer).expression)}`;
@@ -1232,13 +1233,13 @@ function emitJsxAttributes(attributes: JsxAttributeLike[]): string {
 function emitJsxChildren(children: JsxChild[]): string {
   const parts: string[] = [];
   for (const child of children) {
-    if (child.kind === "JsxText") {
+    if (child.kind === NodeKind.JsxText) {
       parts.push(JSON.stringify((child as JsxText).value));
-    } else if (child.kind === "JsxExpressionContainer") {
+    } else if (child.kind === NodeKind.JsxExpressionContainer) {
       parts.push(emitExpression((child as JsxExpressionContainer).expression));
-    } else if (child.kind === "JsxElement") {
+    } else if (child.kind === NodeKind.JsxElement) {
       parts.push(emitJsxElement(child as JsxElement));
-    } else if (child.kind === "JsxFragment") {
+    } else if (child.kind === NodeKind.JsxFragment) {
       parts.push(emitJsxFragment(child as JsxFragment));
     }
   }
@@ -1252,7 +1253,7 @@ function emitJsxChildren(children: JsxChild[]): string {
  * holding a function value) is resolved from its analyzed function type.
  */
 function resolveCalleeParameterNames(callee: Expr): string[] | null {
-  if (callee.kind === "Identifier") {
+  if (callee.kind === NodeKind.Identifier) {
     const fromDeclarations = activeState.parameterNames.get((callee as Identifier).name);
     if (fromDeclarations) {
       return fromDeclarations;
@@ -1276,7 +1277,7 @@ function resolveCalleeParameterNames(callee: Expr): string[] | null {
  * cannot be resolved, named argument values are emitted in written order.
  */
 function emitCallArgumentTexts(callee: Expr, args: Expr[]): string[] {
-  if (!args.some((argument) => argument.kind === "NamedArgument")) {
+  if (!args.some((argument) => argument.kind === NodeKind.NamedArgument)) {
     return args.map((argument) => emitListElement(argument));
   }
   const parameterNames = resolveCalleeParameterNames(callee);
@@ -1287,7 +1288,7 @@ function emitCallArgumentTexts(callee: Expr, args: Expr[]): string[] {
   const extra: string[] = [];
   let positionalIndex = 0;
   for (const argument of args) {
-    if (argument.kind === "NamedArgument") {
+    if (argument.kind === NodeKind.NamedArgument) {
       const named = argument as NamedArgument;
       const parameterIndex = parameterNames.indexOf(named.name.name);
       const text = emitListElement(named.value);
@@ -1324,10 +1325,10 @@ function emitObjectPropertyKey(property: ObjectProperty): string {
   if (property.computed) {
     return `[${emitExpression(property.key)}]`;
   }
-  if (property.key.kind === "Identifier") {
+  if (property.key.kind === NodeKind.Identifier) {
     return (property.key as Identifier).name;
   }
-  if (property.key.kind === "StringLiteral") {
+  if (property.key.kind === NodeKind.StringLiteral) {
     return JSON.stringify((property.key as StringLiteral).value);
   }
   return emitExpression(property.key);
@@ -1338,47 +1339,47 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
 
   const emitSelf = (): string => {
     switch (expression.kind) {
-      case "IntLiteral":
+      case NodeKind.IntLiteral:
         return String((expression as IntLiteral).value);
-      case "FloatLiteral":
+      case NodeKind.FloatLiteral:
         return String((expression as FloatLiteral).value);
-      case "BigIntLiteral":
+      case NodeKind.BigIntLiteral:
         return `${(expression as BigIntLiteral).value}n`;
-      case "LongLiteral":
+      case NodeKind.LongLiteral:
         return `${(expression as LongLiteral).value}n`;
-      case "StringLiteral":
+      case NodeKind.StringLiteral:
         return JSON.stringify((expression as StringLiteral).value);
-      case "RegExpLiteral": {
+      case NodeKind.RegExpLiteral: {
         const regexp = expression as RegExpLiteral;
         return `/${regexp.pattern}/${regexp.flags}`;
       }
-      case "BooleanLiteral":
+      case NodeKind.BooleanLiteral:
         return (expression as BooleanLiteral).value ? "true" : "false";
-      case "NullLiteral":
+      case NodeKind.NullLiteral:
         return "null";
-      case "UndefinedLiteral":
+      case NodeKind.UndefinedLiteral:
         return "undefined";
-      case "MissingExpression":
+      case NodeKind.MissingExpression:
         return "undefined";
-      case "Identifier":
+      case NodeKind.Identifier:
         return emitIdentifier(expression as Identifier);
-      case "PropertyReferenceExpression":
+      case NodeKind.PropertyReferenceExpression:
         return emitPropertyReferenceExpression(expression as PropertyReferenceExpression);
-      case "CommaExpression": {
+      case NodeKind.CommaExpression: {
         const comma = expression as CommaExpression;
         return comma.expressions.map((child) => emitExpression(child, PREC_ASSIGNMENT)).join(", ");
       }
-      case "BinaryExpression": {
+      case NodeKind.BinaryExpression: {
         const binary = expression as BinaryExpression;
         const precedence = binaryPrecedence(binary.operator);
         const assoc: Assoc = binary.operator === "**" ? "right" : "left";
 
         const leftChildNeedsWrap =
-          binary.left.kind === "BinaryExpression" &&
+          binary.left.kind === NodeKind.BinaryExpression &&
           binaryPrecedence((binary.left as BinaryExpression).operator) === precedence &&
           assoc === "right";
         const rightChildNeedsWrap =
-          binary.right.kind === "BinaryExpression" &&
+          binary.right.kind === NodeKind.BinaryExpression &&
           binaryPrecedence((binary.right as BinaryExpression).operator) === precedence &&
           assoc === "left";
 
@@ -1409,14 +1410,14 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const binaryText = `${leftText} ${emittedOperator} ${rightText}`;
         return wrapLongExpressionIfNeeded(expression, binaryText);
       }
-      case "RangeExpression": {
+      case NodeKind.RangeExpression: {
         const range = expression as RangeExpression;
         const cmp = range.exclusive ? "<" : "<=";
         return `(function*(s, e) { for (let n = s; n ${cmp} e; n++) yield n })(${emitExpression(range.start)}, ${emitExpression(range.end)})`;
       }
-      case "ChainExpression":
+      case NodeKind.ChainExpression:
         return emitChainExpression(expression as ChainExpression);
-      case "AssignmentExpression": {
+      case NodeKind.AssignmentExpression: {
         const assignment = expression as AssignmentExpression;
         const delegateAssignment = emitVariableDelegateAssignment(assignment);
         if (delegateAssignment) {
@@ -1442,23 +1443,23 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const rightText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
         return `${leftText} ${assignment.operator} ${rightText}`;
       }
-      case "AsExpression":
+      case NodeKind.AsExpression:
         return emitExpression((expression as AsExpression).expression, parentPrecedence, side);
-      case "SatisfiesExpression":
+      case NodeKind.SatisfiesExpression:
         return emitExpression((expression as SatisfiesExpression).expression, parentPrecedence, side);
-      case "NonNullExpression":
+      case NodeKind.NonNullExpression:
         return emitExpression((expression as NonNullExpression).expression, parentPrecedence, side);
-      case "ConditionalExpression": {
+      case NodeKind.ConditionalExpression: {
         const conditional = expression as ConditionalExpression;
         const test = emitExpression(conditional.test, PREC_CONDITIONAL, "left");
         const consequent = emitExpression(conditional.consequent, PREC_ASSIGNMENT, "right");
         const alternate = emitExpression(conditional.alternate, PREC_ASSIGNMENT, "right");
         return `${test} ? ${consequent} : ${alternate}`;
       }
-      case "MemberExpression": {
+      case NodeKind.MemberExpression: {
         const member = expression as MemberExpression;
         const objectText = emitExpression(member.object, PREC_MEMBER, "left");
-        if (!member.computed && member.property.kind === "Identifier") {
+        if (!member.computed && member.property.kind === NodeKind.Identifier) {
           const propertyName = (member.property as Identifier).name;
           const receiverType = activeState.extensionProperties.get(propertyName);
           if (receiverType && receiverTypeMatches(receiverType, activeState.expressionTypes?.get(member.object as unknown as Node), { allowUntyped: true })) {
@@ -1491,7 +1492,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const access = member.optional ? "?." : ".";
         return `${objectText}${access}${emitExpression(member.property, PREC_MEMBER, "right")}`;
       }
-      case "CallExpression": {
+      case NodeKind.CallExpression: {
         const call = expression as CallExpression;
         const javaScriptImplementation = emitJavaScriptImplementationCall(call);
         if (javaScriptImplementation) {
@@ -1501,12 +1502,12 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (extensionMethodName) {
           const member = call.callee as MemberExpression;
           const receiverText = emitExpression(member.object, PREC_MEMBER, "left");
-          const callArguments = [receiverText, ...emitCallArgumentTexts(call.callee, call.arguments)];
+          const callArguments = [receiverText, ...emitCallArgumentTexts(call.callee, call.args)];
           return `${extensionMethodName}(${callArguments.join(", ")})`;
         }
         if (
           !call.optional &&
-          call.callee.kind === "Identifier" &&
+          call.callee.kind === NodeKind.Identifier &&
           activeExtensionReceiverTypeName &&
           activeState.implicitReceiverExtensionIdentifiers.has(call.callee as Node)
         ) {
@@ -1514,7 +1515,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           const receiverMethods = activeState.extensionMethods.get(activeExtensionReceiverTypeName);
           const candidates = receiverMethods?.filter((m) => m.name === methodName);
           if (candidates && candidates.length > 0) {
-            const argumentTypes = call.arguments.map((arg) =>
+            const argumentTypes = call.args.map((arg) =>
               typeMangleName(activeState.expressionTypes?.get(arg as unknown as Node))
             );
             let available: RuntimeExtensionMethodInfo | null = null;
@@ -1529,14 +1530,14 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
             const resolvedName = available ? runtimeExtensionMethodName(available) : undefined;
             if (resolvedName) {
               const thisReceiver = activeExtensionThis ? "$this" : "this";
-              const callArguments = [thisReceiver, ...emitCallArgumentTexts(call.callee, call.arguments)];
+              const callArguments = [thisReceiver, ...emitCallArgumentTexts(call.callee, call.args)];
               return `${resolvedName}(${callArguments.join(", ")})`;
             }
           }
         }
         const overloadedName = resolveOverloadedFunctionCall(call);
         const calleeText = overloadedName ?? emitExpression(call.callee, PREC_MEMBER, "left");
-        const argumentsText = emitCallArgumentTexts(call.callee, call.arguments).join(", ");
+        const argumentsText = emitCallArgumentTexts(call.callee, call.args).join(", ");
         const isClassCall =
           call.optional !== true &&
           isConstructableCallee(call.callee);
@@ -1544,15 +1545,15 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           ? `new ${calleeText}(${argumentsText})`
           : `${calleeText}${call.optional ? "?." : ""}(${argumentsText})`;
       }
-      case "NewExpression": {
+      case NodeKind.NewExpression: {
         const newExpression = expression as NewExpression;
         const calleeText = emitExpression(newExpression.callee, PREC_MEMBER, "left");
-        if (newExpression.arguments) {
-          return `new ${calleeText}(${emitCallArgumentTexts(newExpression.callee, newExpression.arguments).join(", ")})`;
+        if (newExpression.args) {
+          return `new ${calleeText}(${emitCallArgumentTexts(newExpression.callee, newExpression.args).join(", ")})`;
         }
         return `new ${calleeText}`;
       }
-      case "UnaryExpression": {
+      case NodeKind.UnaryExpression: {
         const unary = expression as UnaryExpression;
         if (unary.operator === "go") {
           // `go expr` is a compile-time marker that opts out of sync auto-await; emit the inner
@@ -1576,7 +1577,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const unaryText = `${unaryOperator}${emitExpression(unary.argument, PREC_UNARY, "right")}`;
         return wrapLongExpressionIfNeeded(expression, unaryText);
       }
-      case "UpdateExpression": {
+      case NodeKind.UpdateExpression: {
         const update = expression as UpdateExpression;
         const delegateUpdate = emitVariableDelegateUpdate(update);
         if (delegateUpdate) {
@@ -1587,27 +1588,27 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         }
         return `${emitExpression(update.argument, PREC_UPDATE, "left")}${update.operator}`;
       }
-      case "SpreadExpression":
+      case NodeKind.SpreadExpression:
         return `...${emitExpression((expression as SpreadExpression).argument, PREC_UNARY, "right")}`;
-      case "NamedArgument":
+      case NodeKind.NamedArgument:
         // Reached only when a named argument is emitted outside a call's
         // argument list; emit its value so the output stays valid.
         return emitExpression((expression as NamedArgument).value, parentPrecedence, side);
-      case "ArrayLiteral":
+      case NodeKind.ArrayLiteral:
         return `[${(expression as ArrayLiteral).elements.map((element) => emitListElement(element)).join(", ")}]`;
-      case "ObjectLiteral": {
+      case NodeKind.ObjectLiteral: {
         const objectLiteral = expression as ObjectLiteral;
         return `{${objectLiteral.properties
           .map((property) => {
-            if (property.kind === "ObjectSpreadProperty") {
+            if (property.kind === NodeKind.ObjectSpreadProperty) {
               return `...${emitExpression((property as ObjectSpreadProperty).argument)}`;
             }
             const objectProperty = property as ObjectProperty;
-            if (objectProperty.shorthand && objectProperty.key.kind === "Identifier") {
+            if (objectProperty.shorthand && objectProperty.key.kind === NodeKind.Identifier) {
               return (objectProperty.key as Identifier).name;
             }
             const key = emitObjectPropertyKey(objectProperty);
-            if (objectProperty.method && objectProperty.value.kind === "FunctionExpression") {
+            if (objectProperty.method && objectProperty.value.kind === NodeKind.FunctionExpression) {
               const fn = objectProperty.value as FunctionExpression;
               return withVariableDelegateShadows(
                 functionParameterBindingNames(fn.parameters),
@@ -1618,14 +1619,14 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           })
           .join(", ")}}`;
       }
-      case "ArrowFunctionExpression": {
+      case NodeKind.ArrowFunctionExpression: {
         const arrow = expression as ArrowFunctionExpression;
         if (arrow.contextualObjectLiteral && activeState.expressionTypes?.get(expression as unknown as Node)?.kind !== "function") {
           return emitExpression(arrow.contextualObjectLiteral, parentPrecedence, side);
         }
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
         return withVariableDelegateShadows(functionParameterBindingNames(arrow.parameters), () => {
-          if (arrow.body.kind === "BlockStatement") {
+          if (arrow.body.kind === NodeKind.BlockStatement) {
             return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => ${emitScopedBlock(arrow.body as BlockStatement)}`;
           }
           const bodyExpression = arrow.body as Expr;
@@ -1641,7 +1642,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => ${bodyText}`;
         });
       }
-      case "FunctionExpression": {
+      case NodeKind.FunctionExpression: {
         const fn = expression as FunctionExpression;
         const name = fn.name ? ` ${fn.name.name}` : "";
         return withVariableDelegateShadows(
@@ -1649,11 +1650,11 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           () => `${asyncEmitPrefix(fn.async, fn.sync)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
         );
       }
-      case "ClassExpression":
+      case NodeKind.ClassExpression:
         return emitClassLike(expression as ClassExpression);
-      case "JsxElement":
+      case NodeKind.JsxElement:
         return emitJsxElement(expression as JsxElement);
-      case "JsxFragment":
+      case NodeKind.JsxFragment:
         return emitJsxFragment(expression as JsxFragment);
       default:
         return "undefined";
@@ -1674,7 +1675,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
     return `(${self})`;
   }
 
-  if (effectivePrecedence === parentPrecedence && expression.kind === "AssignmentExpression" && side === "left") {
+  if (effectivePrecedence === parentPrecedence && expression.kind === NodeKind.AssignmentExpression && side === "left") {
     return `(${self})`;
   }
 
@@ -1683,7 +1684,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
 
 function emitEnumComputedMemberExpression(member: MemberExpression, objectText: string): string | null {
   const directEnumName =
-    member.object.kind === "Identifier"
+    member.object.kind === NodeKind.Identifier
       ? (member.object as Identifier).name
       : null;
   const objectType = activeState.expressionTypes?.get(member.object as unknown as Node);
@@ -1726,24 +1727,24 @@ function emitBindingElement(element: BindingElement, objectPattern: boolean): st
   const rest = element.rest ? "..." : "";
   const name = emitBindingName(element.name);
   const property = objectPattern && element.propertyName
-    ? `${element.propertyName.kind === "Identifier" ? element.propertyName.name : JSON.stringify(element.propertyName.value)}: `
+    ? `${element.propertyName.kind === NodeKind.Identifier ? element.propertyName.name : JSON.stringify(element.propertyName.value)}: `
     : "";
   const initializer = element.initializer ? ` = ${emitListElement(element.initializer)}` : "";
   return `${rest}${property}${name}${initializer}`;
 }
 
 function emitBindingName(binding: BindingName): string {
-  if (binding.kind === "Identifier") return resolveJsName(binding.name);
-  if (binding.kind === "ObjectBindingPattern") {
+  if (binding.kind === NodeKind.Identifier) return resolveJsName(binding.name);
+  if (binding.kind === NodeKind.ObjectBindingPattern) {
     return `{ ${binding.elements.map((element) => emitBindingElement(element, true)).join(", ")} }`;
   }
-  const elements = binding.elements.map((element) => element.kind === "BindingHole" ? "" : emitBindingElement(element, false)).join(", ");
-  const trailingHole = binding.elements.at(-1)?.kind === "BindingHole" ? "," : "";
+  const elements = binding.elements.map((element) => element.kind === NodeKind.BindingHole ? "" : emitBindingElement(element, false)).join(", ");
+  const trailingHole = binding.elements.at(-1)?.kind === NodeKind.BindingHole ? "," : "";
   return `[${elements}${trailingHole}]`;
 }
 
 function emitVarDeclarator(declarator: VarDeclarator): string {
-  if (declarator.delegate && declarator.name.kind === "Identifier") {
+  if (declarator.delegate && declarator.name.kind === NodeKind.Identifier) {
     return `${variableDelegateBackingName(declarator.name.name)} = ${emitListElement(declarator.delegate)}`;
   }
   if (declarator.initializer) {
@@ -1772,7 +1773,7 @@ function emitVarStatement(statement: VarStatement): string {
       return `${kind} ${emitVarDeclarator(declaration)};`;
     }).join("\n");
   }
-  if (statement.delegate && statement.name.kind === "Identifier") {
+  if (statement.delegate && statement.name.kind === NodeKind.Identifier) {
     return `const ${variableDelegateBackingName(statement.name.name)} = ${emitListElement(statement.delegate)};`;
   }
   return `${normalizeVarKind(statement.declarationKind)} ${emitVarStatementBody(statement)};`;
@@ -1788,11 +1789,11 @@ ${statement.body.map((child) => emitStatement(child)).join("\n")}
 }
 
 function shouldWrapExpressionStatement(expression: Expr): boolean {
-  if (expression.kind !== "AssignmentExpression") {
+  if (expression.kind !== NodeKind.AssignmentExpression) {
     return false;
   }
   const left = (expression as AssignmentExpression).left;
-  return left.kind === "ObjectLiteral" || left.kind === "ArrayLiteral";
+  return left.kind === NodeKind.ObjectLiteral || left.kind === NodeKind.ArrayLiteral;
 }
 
 function emitScopedBlock(statement: BlockStatement): string {
@@ -1817,12 +1818,12 @@ function emitForIteratorHeader(iterator: ForStatement["iterator"]): string {
     return "";
   }
 
-  if (iterator.kind === "VarStatement") {
+  if (iterator.kind === NodeKind.VarStatement) {
     const varStatement = iterator as VarStatement;
     return `${normalizeVarKind(varStatement.declarationKind)} ${emitVarStatementBody(varStatement)}`;
   }
 
-  if (iterator.kind === "Identifier") {
+  if (iterator.kind === NodeKind.Identifier) {
     return (iterator as Identifier).name;
   }
 
@@ -1835,16 +1836,16 @@ function classInstanceMemberNames(statement: ClassStatement, members: Array<Clas
     names.add(parameter.name.name);
   }
   for (const member of members) {
-    if (member.kind !== "ClassMethodMember" || member.name.name !== "constructor") continue;
+    if (member.kind !== NodeKind.ClassMethodMember || member.name.name !== "constructor") continue;
     const constructor = member as ClassMethodMember;
     for (const parameter of constructor.parameters) {
-      if (parameter.name.kind === "Identifier" && (parameter.accessModifier !== undefined || parameter.readonly === true)) {
+      if (parameter.name.kind === NodeKind.Identifier && (parameter.accessModifier !== undefined || parameter.isReadonly === true)) {
         names.add(parameter.name.name);
       }
     }
   }
   for (const member of members) {
-    if (member.name.name !== "constructor" && member.static !== true) {
+    if (member.name.name !== "constructor" && member.isStatic !== true) {
       names.add(member.name.name);
     }
   }
@@ -1852,19 +1853,19 @@ function classInstanceMemberNames(statement: ClassStatement, members: Array<Clas
 }
 
 function emitClassDelegateTarget(expression: Expr, instanceMemberNames: Set<string>): string {
-  if (expression.kind === "ObjectLiteral") {
+  if (expression.kind === NodeKind.ObjectLiteral) {
     const objectLiteral = expression as ObjectLiteral;
     if (objectLiteral.properties.length === 1) {
       const property = objectLiteral.properties[0]!;
-      if (property.kind === "ObjectProperty" && (property as ObjectProperty).shorthand === true) {
+      if (property.kind === NodeKind.ObjectProperty && (property as ObjectProperty).shorthand === true) {
         return emitClassDelegateTarget((property as ObjectProperty).value, instanceMemberNames);
       }
     }
   }
-  if (expression.kind === "Identifier" && instanceMemberNames.has((expression as Identifier).name)) {
+  if (expression.kind === NodeKind.Identifier && instanceMemberNames.has((expression as Identifier).name)) {
     return `this.${(expression as Identifier).name}`;
   }
-  if (expression.kind === "ArrowFunctionExpression" || expression.kind === "FunctionExpression") {
+  if (expression.kind === NodeKind.ArrowFunctionExpression || expression.kind === NodeKind.FunctionExpression) {
     return `(${emitExpression(expression, PREC_MEMBER, "left")})()`;
   }
   return emitExpression(expression, PREC_MEMBER, "left");
@@ -1878,7 +1879,7 @@ function emitClassDelegateMembers(statement: ClassStatement, members: Array<Clas
     for (const rawInterfaceMember of activeState.interfaceMembers.get(classDelegate.typeAnnotation.name) ?? []) {
       const interfaceMember = rawInterfaceMember as InterfaceMember;
       const target = emitClassDelegateTarget(classDelegate.expression, instanceMemberNames);
-      if (interfaceMember.kind === "InterfacePropertyMember") {
+      if (interfaceMember.kind === NodeKind.InterfacePropertyMember) {
         const property = interfaceMember as InterfacePropertyMember;
         if (existingNames.has(property.name.name)) continue;
         existingNames.add(property.name.name);
@@ -1907,7 +1908,7 @@ function emitClassPrimaryConstructor(
   }
 
   const hasExplicitConstructor = members.some(
-    (member) => member.kind === "ClassMethodMember" && member.name.name === "constructor"
+    (member) => member.kind === NodeKind.ClassMethodMember && member.name.name === "constructor"
   );
   if (hasExplicitConstructor) {
     return null;
@@ -1929,7 +1930,7 @@ function emitClassPrimaryConstructor(
 }
 
 function isParameterProperty(parameter: FunctionParameter): boolean {
-  return parameter.accessModifier !== undefined || parameter.readonly === true;
+  return parameter.accessModifier !== undefined || parameter.isReadonly === true;
 }
 
 function emitConstructorBlock(method: ClassMethodMember): string {
@@ -1942,9 +1943,9 @@ function emitConstructorBlock(method: ClassMethodMember): string {
   const emittedStatements = scope.result;
   const temps = scope.temps;
   const firstStatement = method.body.body[0];
-  const insertAt = firstStatement?.kind === "ExprStatement" &&
-    (firstStatement as ExprStatement).expression.kind === "CallExpression" &&
-    ((firstStatement as ExprStatement).expression as CallExpression).callee.kind === "Identifier" &&
+  const insertAt = firstStatement?.kind === NodeKind.ExprStatement &&
+    (firstStatement as ExprStatement).expression.kind === NodeKind.CallExpression &&
+    ((firstStatement as ExprStatement).expression as CallExpression).callee.kind === NodeKind.Identifier &&
     (((firstStatement as ExprStatement).expression as CallExpression).callee as Identifier).name === "super"
       ? 1
       : 0;
@@ -1961,8 +1962,8 @@ ${emittedStatements.join("\n")}
 }
 
 function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
-  const staticPrefix = member.static === true ? "static " : "";
-  if (member.kind === "ClassFieldMember") {
+  const staticPrefix = member.isStatic === true ? "static " : "";
+  if (member.kind === NodeKind.ClassFieldMember) {
     const field = member as ClassFieldMember;
     const fieldName = field.computed === true
       ? `[${emitExpression(field.computedKey!)}]`
@@ -1990,7 +1991,7 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
 
 function emitClassLike(classLike: ClassStatement | ClassExpression, resolvedName?: string): string {
   const members = classLike.members.filter(member =>
-    member.kind !== "ClassFieldMember" || member.declared !== true
+    member.kind !== NodeKind.ClassFieldMember || member.declared !== true
   );
   const syntheticConstructor = emitClassPrimaryConstructor(classLike.primaryConstructorParameters, members);
   const memberLines = [
@@ -2019,7 +2020,7 @@ function isAsyncFor(statement: ForStatement): boolean {
 function emitForStatement(statement: ForStatement): string {
   if (statement.iterationKind && statement.iterator && statement.iterable) {
     const awaitPrefix = isAsyncFor(statement) ? "await " : "";
-    if (statement.iterator.kind === "Identifier") {
+    if (statement.iterator.kind === NodeKind.Identifier) {
       const iteratorName = (statement.iterator as Identifier).name;
       if (statement.iterationKind === "in" && activeState.sourceLanguage !== "vexa") {
         return `for ${awaitPrefix}(${iteratorName} in ${emitExpression(statement.iterable)}) ${emitStatement(statement.body)}`;
@@ -2031,7 +2032,7 @@ function emitForStatement(statement: ForStatement): string {
   }
 
   const initializer = statement.initializer
-    ? statement.initializer.kind === "VarStatement"
+    ? statement.initializer.kind === NodeKind.VarStatement
       ? `${normalizeVarKind((statement.initializer as VarStatement).declarationKind)} ${emitVarStatementBody(statement.initializer as VarStatement)}`
       : emitExpression(statement.initializer as Expr)
     : "";
@@ -2055,12 +2056,12 @@ function emitEnumStatement(statement: EnumStatement): string {
     const memberName = member.name.name;
     if (member.initializer) {
       const initializer = emitEnumInitializerExpression(member.initializer, name, emittedMemberNames);
-      if (member.initializer.kind === "StringLiteral") {
+      if (member.initializer.kind === NodeKind.StringLiteral) {
         lines.push(`  ${name}[${JSON.stringify(memberName)}] = ${initializer};`);
       } else {
         lines.push(`  ${name}[${name}[${JSON.stringify(memberName)}] = ${initializer}] = ${JSON.stringify(memberName)};`);
       }
-      if (member.initializer.kind === "IntLiteral") {
+      if (member.initializer.kind === NodeKind.IntLiteral) {
         nextNumericValue = (member.initializer as IntLiteral).value + 1;
       } else {
         nextNumericValue = 0;
@@ -2078,26 +2079,26 @@ function emitEnumStatement(statement: EnumStatement): string {
 
 function emitEnumInitializerExpression(expression: Expr, enumName: string, memberNames: ReadonlySet<string>): string {
   switch (expression.kind) {
-    case "Identifier": {
+    case NodeKind.Identifier: {
       const identifier = expression as Identifier;
       return memberNames.has(identifier.name) ? `${enumName}.${identifier.name}` : emitExpression(expression);
     }
-    case "BinaryExpression": {
+    case NodeKind.BinaryExpression: {
       const binary = expression as BinaryExpression;
       return `${emitEnumInitializerExpression(binary.left, enumName, memberNames)} ${binary.operator} ${emitEnumInitializerExpression(binary.right, enumName, memberNames)}`;
     }
-    case "UnaryExpression": {
+    case NodeKind.UnaryExpression: {
       const unary = expression as UnaryExpression;
       const spacing = /^[A-Za-z]/.test(unary.operator) ? " " : "";
       return `${unary.operator}${spacing}${emitEnumInitializerExpression(unary.argument, enumName, memberNames)}`;
     }
-    case "MemberExpression": {
+    case NodeKind.MemberExpression: {
       const member = expression as MemberExpression;
       const objectText = emitEnumInitializerExpression(member.object, enumName, memberNames);
       if (member.computed) {
         return `${objectText}[${emitEnumInitializerExpression(member.property, enumName, memberNames)}]`;
       }
-      if (member.property.kind === "Identifier") {
+      if (member.property.kind === NodeKind.Identifier) {
         return `${objectText}.${(member.property as Identifier).name}`;
       }
       return `${objectText}.${emitEnumInitializerExpression(member.property, enumName, memberNames)}`;
@@ -2108,17 +2109,17 @@ function emitEnumInitializerExpression(expression: Expr, enumName: string, membe
 }
 
 function exportedDeclarationNames(statement: Statement): string[] {
-  if (statement.kind === "VarStatement") {
+  if (statement.kind === NodeKind.VarStatement) {
     const variable = statement as VarStatement;
     if (variable.declarations && variable.declarations.length > 0) {
       return variable.declarations.flatMap((declaration) => bindingIdentifiers(declaration.name).map((identifier) => identifier.name));
     }
     return bindingIdentifiers(variable.name).map((identifier) => identifier.name);
   }
-  if (statement.kind === "FunctionStatement" || statement.kind === "ClassStatement" || statement.kind === "EnumStatement") {
+  if (statement.kind === NodeKind.FunctionStatement || statement.kind === NodeKind.ClassStatement || statement.kind === NodeKind.EnumStatement) {
     return [(statement as FunctionStatement | ClassStatement | EnumStatement).name.name];
   }
-  if (statement.kind === "NamespaceStatement") {
+  if (statement.kind === NodeKind.NamespaceStatement) {
     const firstName = (statement as NamespaceStatement).names?.[0];
     return firstName ? [firstName.name] : [];
   }
@@ -2198,9 +2199,9 @@ function commonJsEmitterContext() {
 }
 
 function commonJsRuntimeExportBindings(statement: Statement): CommonJsRuntimeExportBinding[] {
-  if (statement.kind === "VarStatement") {
+  if (statement.kind === NodeKind.VarStatement) {
     const variable = statement as VarStatement;
-    if (variable.receiverType && variable.name.kind === "Identifier") {
+    if (variable.receiverType && variable.name.kind === NodeKind.Identifier) {
       const runtimeName = extensionPropertyRuntimeName(variable.receiverType.name, variable.name.name);
       const bindings = [{ exportedName: runtimeName, valueExpression: runtimeName }];
       if (variable.accessors?.some((accessor) => accessor.accessorKind === "set")) {
@@ -2209,7 +2210,7 @@ function commonJsRuntimeExportBindings(statement: Statement): CommonJsRuntimeExp
       }
       return bindings;
     }
-    const declarations: Array<{ name: BindingName; delegate?: Expr }> = [];
+    const declarations: Array<{ name: BindingName; delegate?: Expr | undefined }> = [];
     if (variable.declarations && variable.declarations.length > 0) {
       for (const declaration of variable.declarations) declarations.push(declaration);
     } else {
@@ -2217,7 +2218,7 @@ function commonJsRuntimeExportBindings(statement: Statement): CommonJsRuntimeExp
     }
     const declarationBindings: CommonJsRuntimeExportBinding[] = [];
     for (const declaration of declarations) {
-      if (declaration.name.kind !== "Identifier" || declaration.delegate) {
+      if (declaration.name.kind !== NodeKind.Identifier || declaration.delegate) {
         continue;
       }
       const name = resolveJsName(declaration.name.name);
@@ -2225,7 +2226,7 @@ function commonJsRuntimeExportBindings(statement: Statement): CommonJsRuntimeExp
     }
     return declarationBindings;
   }
-  if (statement.kind === "FunctionStatement") {
+  if (statement.kind === NodeKind.FunctionStatement) {
     const fn = statement as FunctionStatement;
     if (fn.receiverType) {
       const baseName = fn.operator ? operatorBaseRuntimeName(fn.operator) : fn.name.name;
@@ -2237,11 +2238,11 @@ function commonJsRuntimeExportBindings(statement: Statement): CommonJsRuntimeExp
       ?? (overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name);
     return [{ exportedName: runtimeName, valueExpression: runtimeName }];
   }
-  if (statement.kind === "ClassStatement" || statement.kind === "EnumStatement") {
+  if (statement.kind === NodeKind.ClassStatement || statement.kind === NodeKind.EnumStatement) {
     const name = resolveJsName((statement as ClassStatement | EnumStatement).name.name);
     return [{ exportedName: name, valueExpression: name }];
   }
-  if (statement.kind === "NamespaceStatement") {
+  if (statement.kind === NodeKind.NamespaceStatement) {
     const rootName = (statement as NamespaceStatement).names?.[0]?.name;
     return rootName ? [{ exportedName: rootName, valueExpression: rootName }] : [];
   }
@@ -2267,7 +2268,7 @@ function emitNamespaceStatement(statement: NamespaceStatement): string {
   }
   lines.push(`(function (${alias}) {`);
   for (const child of statement.body.body) {
-    if (child.kind !== "ExportStatement") {
+    if (child.kind !== NodeKind.ExportStatement) {
       const emitted = emitStatement(child);
       if (emitted) lines.push(indentEmitted(emitted));
       continue;
@@ -2293,7 +2294,7 @@ function emitNamespaceStatement(statement: NamespaceStatement): string {
 
 export function emitStatement(statement: Statement): string {
   switch (statement.kind) {
-    case "ExportStatement": {
+    case NodeKind.ExportStatement: {
       const exportStatement = statement as ExportStatement;
       if (activeState.moduleFormat === "commonjs") {
         return emitCommonJsExportStatement(exportStatement, commonJsEmitterContext());
@@ -2326,16 +2327,16 @@ export function emitStatement(statement: Statement): string {
       if (!exportStatement.declaration) {
         return "";
       }
-      if (exportStatement.default && exportStatement.declaration.kind === "ExprStatement") {
+      if (exportStatement.isDefault && exportStatement.declaration.kind === NodeKind.ExprStatement) {
         return `export default ${emitExpression((exportStatement.declaration as ExprStatement).expression)};`;
       }
       const emitted = emitStatement(exportStatement.declaration);
       if (!emitted) {
         return "";
       }
-      return exportStatement.default ? `export default ${emitted}` : `export ${emitted}`;
+      return exportStatement.isDefault ? `export default ${emitted}` : `export ${emitted}`;
     }
-    case "ImportStatement": {
+    case NodeKind.ImportStatement: {
       const importStatement = statement as ImportStatement;
       if (activeState.moduleFormat === "commonjs") {
         return emitCommonJsImportStatement(importStatement, commonJsEmitterContext());
@@ -2394,7 +2395,7 @@ export function emitStatement(statement: Statement): string {
       }
       return `import ${clauses.join(", ")} from ${source};`;
     }
-    case "VarStatement": {
+    case NodeKind.VarStatement: {
       const property = statement as VarStatement;
       if (property.receiverType) {
         const previousExtensionThis = activeExtensionThis;
@@ -2430,9 +2431,9 @@ export function emitStatement(statement: Statement): string {
       }
       return emitVarStatement(property);
     }
-    case "EnumStatement":
+    case NodeKind.EnumStatement:
       return emitEnumStatement(statement as EnumStatement);
-    case "FunctionStatement": {
+    case NodeKind.FunctionStatement: {
       const fn = statement as FunctionStatement;
       if (fn.declared || fn.missingBody) {
         return "";
@@ -2467,55 +2468,55 @@ export function emitStatement(statement: Statement): string {
         () => `${asyncEmitPrefix(fn.async, fn.sync)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
       );
     }
-    case "ClassStatement": {
+    case NodeKind.ClassStatement: {
       const classStatement = statement as ClassStatement;
       if (classStatement.declared) {
         return "";
       }
       return emitClassLike(classStatement, resolveJsName(classStatement.name.name));
     }
-    case "NamespaceStatement":
+    case NodeKind.NamespaceStatement:
       return emitNamespaceStatement(statement as NamespaceStatement);
-    case "InterfaceStatement":
-    case "TypeAliasStatement":
+    case NodeKind.InterfaceStatement:
+    case NodeKind.TypeAliasStatement:
       return "";
-    case "ExprStatement": {
+    case NodeKind.ExprStatement: {
       const expression = (statement as ExprStatement).expression;
       const emitted = emitExpression(expression);
       return shouldWrapExpressionStatement(expression) ? `(${emitted});` : `${emitted};`;
     }
-    case "EmptyStatement":
+    case NodeKind.EmptyStatement:
       return ";";
-    case "DebuggerStatement":
+    case NodeKind.DebuggerStatement:
       return "debugger;";
-    case "BlockStatement":
+    case NodeKind.BlockStatement:
       return emitBlock(statement as BlockStatement);
-    case "WhileStatement": {
+    case NodeKind.WhileStatement: {
       const whileStatement = statement as WhileStatement;
       return `while (${emitExpression(whileStatement.condition)}) ${emitStatement(whileStatement.body)}`;
     }
-    case "WithStatement": {
+    case NodeKind.WithStatement: {
       const withStatement = statement as WithStatement;
       return `with (${emitExpression(withStatement.object)}) ${emitStatement(withStatement.body)}`;
     }
-    case "LabeledStatement": {
+    case NodeKind.LabeledStatement: {
       const labeled = statement as LabeledStatement;
       return `${labeled.label.name}: ${emitStatement(labeled.body)}`;
     }
-    case "DoWhileStatement": {
+    case NodeKind.DoWhileStatement: {
       const doWhileStatement = statement as DoWhileStatement;
       return `do ${emitStatement(doWhileStatement.body)} while (${emitExpression(doWhileStatement.condition)});`;
     }
-    case "ForStatement":
+    case NodeKind.ForStatement:
       return emitForStatement(statement as ForStatement);
-    case "IfStatement": {
+    case NodeKind.IfStatement: {
       const ifStatement = statement as IfStatement;
       if (ifStatement.elseBranch) {
         return `if (${emitExpression(ifStatement.condition)}) ${emitStatement(ifStatement.thenBranch)} else ${emitStatement(ifStatement.elseBranch)}`;
       }
       return `if (${emitExpression(ifStatement.condition)}) ${emitStatement(ifStatement.thenBranch)}`;
     }
-    case "SwitchStatement": {
+    case NodeKind.SwitchStatement: {
       const switchStatement = statement as SwitchStatement;
       const cases = switchStatement.cases
         .map((switchCase) => {
@@ -2528,18 +2529,18 @@ export function emitStatement(statement: Statement): string {
         .join("\n");
       return `switch (${emitExpression(switchStatement.discriminant)}) {${cases.length > 0 ? `\n${cases}\n` : ""}}`;
     }
-    case "ReturnStatement": {
+    case NodeKind.ReturnStatement: {
       const returnStatement = statement as ReturnStatement;
       if (returnStatement.expression) {
         return `return ${emitExpression(returnStatement.expression)};`;
       }
       return "return;";
     }
-    case "ThrowStatement": {
+    case NodeKind.ThrowStatement: {
       const throwStatement = statement as ThrowStatement;
       return `throw ${emitExpression(throwStatement.expression)};`;
     }
-    case "TryStatement": {
+    case NodeKind.TryStatement: {
       const tryStatement = statement as TryStatement;
       const tryPart = `try ${emitBlock(tryStatement.tryBlock)}`;
       const catchPart = tryStatement.catchClause
@@ -2552,11 +2553,11 @@ export function emitStatement(statement: Statement): string {
         : "";
       return `${tryPart}${catchPart}${finallyPart}`;
     }
-    case "ContinueStatement": {
+    case NodeKind.ContinueStatement: {
       const label: Identifier | undefined = (statement as import("compiler/ast/ast").ContinueStatement).label;
       return label ? `continue ${label.name};` : "continue;";
     }
-    case "BreakStatement": {
+    case NodeKind.BreakStatement: {
       const label: Identifier | undefined = (statement as import("compiler/ast/ast").BreakStatement).label;
       return label ? `break ${label.name};` : "break;";
     }
@@ -2713,22 +2714,22 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
     const jsName = candidate.jsName ?? statement.jsName;
     if (jsName !== undefined) {
       if (
-        candidate.kind === "FunctionStatement" ||
-        candidate.kind === "ClassStatement" ||
-        candidate.kind === "EnumStatement" ||
-        candidate.kind === "InterfaceStatement"
+        candidate.kind === NodeKind.FunctionStatement ||
+        candidate.kind === NodeKind.ClassStatement ||
+        candidate.kind === NodeKind.EnumStatement ||
+        candidate.kind === NodeKind.InterfaceStatement
       ) {
         const named = candidate as unknown as { name: Identifier };
         jsNames.set(named.name.name, jsName);
-      } else if (candidate.kind === "VarStatement") {
+      } else if (candidate.kind === NodeKind.VarStatement) {
         const variable = candidate as VarStatement;
-        if (variable.name.kind === "Identifier") {
+        if (variable.name.kind === NodeKind.Identifier) {
           jsNames.set((variable.name as Identifier).name, jsName);
         }
       }
     }
 
-    if (candidate.kind === "FunctionStatement") {
+    if (candidate.kind === NodeKind.FunctionStatement) {
       const fn = candidate as FunctionStatement;
       if (fn.jsInline !== undefined) {
         javaScriptImplementations.set(fn.name.name, { template: fn.jsInline, parameters: fn.parameters });
@@ -2769,7 +2770,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
       continue;
     }
 
-    if (candidate.kind === "ClassStatement") {
+    if (candidate.kind === NodeKind.ClassStatement) {
       const classStatement = candidate as ClassStatement;
       classNames.add(classStatement.name.name);
       if (!parameterNames.has(classStatement.name.name)) {
@@ -2781,7 +2782,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
         } else {
           const constructor = classStatement.members.find(
             (member): member is ClassMethodMember =>
-              member.kind === "ClassMethodMember" && member.name.name === "constructor"
+              member.kind === NodeKind.ClassMethodMember && member.name.name === "constructor"
           );
           if (constructor) {
             parameterNames.set(classStatement.name.name, functionParameterNames(constructor.parameters));
@@ -2789,7 +2790,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
         }
       }
       for (const member of classStatement.members) {
-        if (member.kind !== "ClassMethodMember" || !member.operator) {
+        if (member.kind !== NodeKind.ClassMethodMember || !member.operator) {
           continue;
         }
         const operatorMember = member as ClassMethodMember;
@@ -2806,13 +2807,13 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
       continue;
     }
 
-    if (candidate.kind === "InterfaceStatement") {
+    if (candidate.kind === NodeKind.InterfaceStatement) {
       const interfaceStatement = candidate as InterfaceStatement;
       interfaceNames.add(interfaceStatement.name.name);
       interfaceMembers.set(interfaceStatement.name.name, interfaceStatement.members);
       const names = interfaceMethodNames.get(interfaceStatement.name.name) ?? new Set<string>();
       for (const member of interfaceStatement.members) {
-        if (member.kind === "InterfaceMethodMember") {
+        if (member.kind === NodeKind.InterfaceMethodMember) {
           names.add(member.name.name);
         }
       }
@@ -2820,7 +2821,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
       continue;
     }
 
-    if (candidate.kind === "EnumStatement") {
+    if (candidate.kind === NodeKind.EnumStatement) {
       const enumStatement = candidate as EnumStatement;
       const rawValues: Array<string | number> = [];
       let nextNumericValue = 0;
@@ -2830,12 +2831,12 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
           nextNumericValue += 1;
           continue;
         }
-        if (member.initializer.kind === "IntLiteral") {
+        if (member.initializer.kind === NodeKind.IntLiteral) {
           rawValues.push((member.initializer as IntLiteral).value);
           nextNumericValue = (member.initializer as IntLiteral).value + 1;
           continue;
         }
-        if (member.initializer.kind === "StringLiteral") {
+        if (member.initializer.kind === NodeKind.StringLiteral) {
           rawValues.push((member.initializer as StringLiteral).value);
         }
       }
@@ -2846,15 +2847,15 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
       continue;
     }
 
-    if (candidate.kind === "VarStatement") {
+    if (candidate.kind === NodeKind.VarStatement) {
       const variable = candidate as VarStatement;
-      if (variable.receiverType && variable.name.kind === "Identifier") {
+      if (variable.receiverType && variable.name.kind === NodeKind.Identifier) {
         extensionProperties.set((variable.name as Identifier).name, variable.receiverType.name);
         if (variable.accessors?.some((accessor) => accessor.accessorKind === "set")) {
           extensionPropertySetters.set((variable.name as Identifier).name, variable.receiverType.name);
         }
       }
-      if (variable.name.kind === "Identifier") {
+      if (variable.name.kind === NodeKind.Identifier) {
         const typeName = variable.typeAnnotation?.name;
         if (typeName) {
           constructableCandidates.push({ variableName: variable.name.name, typeName });
@@ -2911,12 +2912,12 @@ function collectEmitProgramRuntimeContext(
   const importedOverloadAliases: Array<{ importedName: string; localName: string }> = [];
 
   for (const statement of contextProgram.body) {
-    if (statement.kind === "ImportStatement") {
+    if (statement.kind === NodeKind.ImportStatement) {
       const importStatement = statement as ImportStatement;
-      if (importStatement.defaultImport?.kind === "Identifier") {
+      if (importStatement.defaultImport?.kind === NodeKind.Identifier) {
         moduleObjectNames.add(importStatement.defaultImport.name);
       }
-      if (importStatement.namespaceImport?.kind === "Identifier") {
+      if (importStatement.namespaceImport?.kind === NodeKind.Identifier) {
         moduleObjectNames.add(importStatement.namespaceImport.name);
       }
       for (const specifier of importStatement.specifiers) {
@@ -3027,9 +3028,9 @@ function collectEmitProgramRuntimeContext(
 
   if (importedNames.size > 0) {
     walkAst(contextProgram, (node) => {
-      if (node.kind === "MemberExpression") {
+      if (node.kind === NodeKind.MemberExpression) {
         const member = node as MemberExpression;
-        if (!member.computed && member.property.kind === "Identifier") {
+        if (!member.computed && member.property.kind === NodeKind.Identifier) {
           const name = (member.property as Identifier).name;
           if (
             !extensionProperties.has(name) &&
@@ -3046,13 +3047,13 @@ function collectEmitProgramRuntimeContext(
             }
           }
         }
-      } else if (node.kind === "AssignmentExpression") {
+      } else if (node.kind === NodeKind.AssignmentExpression) {
         const assignment = node as AssignmentExpression;
-        if (assignment.operator !== "=" || assignment.left.kind !== "MemberExpression") {
+        if (assignment.operator !== "=" || assignment.left.kind !== NodeKind.MemberExpression) {
           return;
         }
         const member = assignment.left as MemberExpression;
-        if (!member.computed && member.property.kind === "Identifier") {
+        if (!member.computed && member.property.kind === NodeKind.Identifier) {
           const name = (member.property as Identifier).name;
           if (!extensionPropertySetters.has(name) && importedNames.has(name)) {
             const objectType = expressionTypes?.get(member.object);
@@ -3188,15 +3189,7 @@ export function emitProgramStatementPairs(
     if (temps.length === 0) {
       return emittedStatements;
     }
-    const declarationStatement: VarStatement = new VarStatement({
-      kind: "VarStatement",
-      declarationKind: "let",
-      name: new Identifier({ kind: "Identifier", name: temps[0] ?? "$$temp_0" }),
-      declarations: temps.map((name) => new VarDeclarator({
-        kind: "VarDeclarator",
-        name: new Identifier({ kind: "Identifier", name })
-      }))
-    });
+    const declarationStatement: VarStatement = new VarStatement("let", new Identifier(temps[0] ?? "$$temp_0"), undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, temps.map((name) => new VarDeclarator(new Identifier(name))));
     return [
       {
         statement: declarationStatement,

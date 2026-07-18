@@ -1,3 +1,4 @@
+import { NodeKind, nodeKindName } from "compiler/ast/ast";
 import type { AnalysisType, FunctionType } from "./types";
 import { typeToString } from "./types";
 import type { Expr } from "compiler/ast/ast";
@@ -33,13 +34,13 @@ export function boxedInterfaceNameForBuiltin(name: string): string | null {
  * visible in the surrounding message).
  */
 export function expressionSnippet(expression: Expr): string | null {
-  if (expression.kind === "Identifier") {
+  if (expression.kind === NodeKind.Identifier) {
     return null;
   }
   const first = expression.firstToken?.value;
   const last = expression.lastToken?.value;
   if (!first && !last) {
-    return expression.kind;
+    return nodeKindName(expression.kind);
   }
   if (first && last && first !== last) {
     return `${first} ... ${last}`;
@@ -47,7 +48,7 @@ export function expressionSnippet(expression: Expr): string | null {
   if (first) {
     return first;
   }
-  return last ?? expression.kind;
+  return last ?? nodeKindName(expression.kind);
 }
 
 export function typeToDiagnosticLabel(type: AnalysisType): string {

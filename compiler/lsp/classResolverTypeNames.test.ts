@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
@@ -47,7 +48,7 @@ describe("classResolverTypeNames", () => {
     const ast = parseFile(tokenizeReader(source));
     let identifier: Identifier | null = null;
     walkAst(ast, (node) => {
-      if (identifier || node.kind !== "Identifier") {
+      if (identifier || node.kind !== NodeKind.Identifier) {
         return;
       }
       const range = nodeRange(node);

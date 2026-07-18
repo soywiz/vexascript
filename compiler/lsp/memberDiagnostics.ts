@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { arrayType, builtinType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
 import type { EnumStatement, Identifier } from "compiler/ast/ast";
@@ -60,7 +61,7 @@ export async function collectCrossFileMemberDiagnostics(
   const currentFilePath = uriToFilePath(uri);
 
   for (const member of collectMemberExpressions(session.ast)) {
-    if (member.computed || member.property.kind !== "Identifier") {
+    if (member.computed || member.property.kind !== NodeKind.Identifier) {
       continue;
     }
     const objectTypeName = await resolveCrossFileExpressionTypeName(
@@ -77,7 +78,7 @@ export async function collectCrossFileMemberDiagnostics(
     const localEnum = findTopLevelDeclarationInProgram(
       session.ast,
       baseTypeName(resolvedObjectTypeName),
-      (statement): statement is EnumStatement => statement.kind === "EnumStatement"
+      (statement): statement is EnumStatement => statement.kind === NodeKind.EnumStatement
     );
     if (localEnum) {
       continue;

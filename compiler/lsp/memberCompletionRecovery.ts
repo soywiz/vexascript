@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { compileSource } from "compiler/pipeline/compile";
 import type { InterfaceStatement, Statement } from "compiler/ast/ast";
@@ -22,7 +23,7 @@ export function collectAmbientInterfaceCompletionMembers(
   const items: InterfaceCompletionMember[] = [];
   for (const statement of ambientDeclarations) {
     const declaration = unwrapExportedDeclaration(statement) ?? statement;
-    if (declaration.kind !== "InterfaceStatement") {
+    if (declaration.kind !== NodeKind.InterfaceStatement) {
       continue;
     }
     const interfaceStatement = declaration as InterfaceStatement;
@@ -30,13 +31,13 @@ export function collectAmbientInterfaceCompletionMembers(
       continue;
     }
     for (const member of interfaceStatement.members) {
-      if (member.kind === "InterfacePropertyMember") {
+      if (member.kind === NodeKind.InterfacePropertyMember) {
         items.push({
           name: member.name.name,
           detail: `Interface property: ${member.typeAnnotation?.name ?? "unknown"}`,
           kind: CompletionItemKind.Field
         });
-      } else if (member.kind === "InterfaceMethodMember") {
+      } else if (member.kind === NodeKind.InterfaceMethodMember) {
         items.push({
           name: member.name.name,
           detail: `Interface method: ${member.returnType?.name ?? "unknown"}`,

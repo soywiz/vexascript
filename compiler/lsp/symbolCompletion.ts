@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type { CompletionItem } from "vscode-languageserver/node.js";
 import type { Identifier, Program } from "compiler/ast/ast";
 import type { Analysis, AnalysisSymbol } from "compiler/analysis/Analysis";
@@ -142,7 +143,7 @@ export function buildVisibleSymbolCompletionItems({
     const symbol = entry.symbol;
     seenLabels.add(symbol.name);
     const documentation =
-      symbol.node.kind === "Identifier"
+      symbol.node.kind === NodeKind.Identifier
         ? readDocumentationForSymbol(ast, symbol.node as Identifier, {
             ambientModuleDeclarations: options.ambientModuleDeclarations
           })

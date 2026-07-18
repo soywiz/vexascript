@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { buildExtensionAutoImportSuggestions } from "./importFixes";
 import { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
@@ -123,13 +124,13 @@ export async function collectAvailableExtensionMembers(
     statementAnalysis: Analysis | null,
     visibleImportedNames?: ReadonlySet<string>
   ): Promise<void> => {
-    const candidate = statement.kind === "ExportStatement"
+    const candidate = statement.kind === NodeKind.ExportStatement
       ? (statement as ExportStatement).declaration
       : statement;
     if (!candidate) {
       return;
     }
-    if (candidate.kind === "VarStatement") {
+    if (candidate.kind === NodeKind.VarStatement) {
       const variable = candidate as VarStatement;
       const receiverType = variable.receiverType?.name;
       if (!receiverType || !(await extensionReceiverMatchesResolvedType(ast, receiverType, objectTypeName, options, resolverCache))) {
@@ -152,7 +153,7 @@ export async function collectAvailableExtensionMembers(
       }
       return;
     }
-    if (candidate.kind === "FunctionStatement") {
+    if (candidate.kind === NodeKind.FunctionStatement) {
       const fn = candidate as FunctionStatement;
       const receiverType = fn.receiverType?.name;
       if (
@@ -180,7 +181,7 @@ export async function collectAvailableExtensionMembers(
 
   for (const statement of ast.body) {
     await maybePushStatement(statement, analysis);
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -194,7 +195,7 @@ export async function collectAvailableExtensionMembers(
   }
 
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     const importStatement = statement as ImportStatement;

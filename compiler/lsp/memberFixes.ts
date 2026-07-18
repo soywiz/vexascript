@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { walkAst } from "compiler/ast/traversal";
 import type {
@@ -130,11 +131,11 @@ function inferMissingMemberTypeFromDiagnostic(
   };
 
   walkAst(ast, (node) => {
-    if (node.kind === "AssignmentExpression") {
+    if (node.kind === NodeKind.AssignmentExpression) {
       const assignment = node as AssignmentExpression;
       if (
-        assignment.left.kind === "MemberExpression" &&
-        (assignment.left as MemberExpression).property.kind === "Identifier"
+        assignment.left.kind === NodeKind.MemberExpression &&
+        (assignment.left as MemberExpression).property.kind === NodeKind.Identifier
       ) {
         const leftMember = assignment.left as MemberExpression;
         const property = leftMember.property as Identifier;
@@ -145,16 +146,16 @@ function inferMissingMemberTypeFromDiagnostic(
       return;
     }
 
-    if (node.kind === "CallExpression") {
+    if (node.kind === NodeKind.CallExpression) {
       const call = node as CallExpression;
       if (
-        call.callee.kind === "MemberExpression" &&
-        (call.callee as MemberExpression).property.kind === "Identifier"
+        call.callee.kind === NodeKind.MemberExpression &&
+        (call.callee as MemberExpression).property.kind === NodeKind.Identifier
       ) {
         const calleeMember = call.callee as MemberExpression;
         const property = calleeMember.property as Identifier;
         if (matchingProperty(property)) {
-          const parameters = call.arguments.map((argument, index) => {
+          const parameters = call.args.map((argument, index) => {
             const argType = normalizeInferredType(expressionTypes.get(argument)) ?? "unknown";
             return `arg${index + 1}: ${argType}`;
           });

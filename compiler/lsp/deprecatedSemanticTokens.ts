@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import type { Identifier, MemberExpression, Program } from "compiler/ast/ast";
@@ -20,7 +21,7 @@ export interface DeprecatedMemberRange {
 }
 
 function memberPropertyPosition(member: MemberExpression): { line: number; character: number } | null {
-  if (member.computed || member.property.kind !== "Identifier" || !member.property.firstToken) {
+  if (member.computed || member.property.kind !== NodeKind.Identifier || !member.property.firstToken) {
     return null;
   }
   return {
@@ -33,7 +34,7 @@ function deprecatedMemberCacheKey(
   context: Omit<ResolveContext, "line" | "character">,
   member: MemberExpression
 ): string | null {
-  if (member.computed || member.property.kind !== "Identifier" || !context.session.analysis) {
+  if (member.computed || member.property.kind !== NodeKind.Identifier || !context.session.analysis) {
     return null;
   }
   const property = member.property as Identifier;
@@ -54,7 +55,7 @@ async function hasDeprecatedResolvedDocumentation(
     cache: ReturnType<typeof createClassResolverCache>;
   }
 ): Promise<boolean> {
-  if (member.computed || member.property.kind !== "Identifier" || !context.session.analysis || !context.session.ast) {
+  if (member.computed || member.property.kind !== NodeKind.Identifier || !context.session.analysis || !context.session.ast) {
     return false;
   }
 
@@ -148,9 +149,9 @@ export async function collectDeprecatedMemberRanges(
   const deprecatedMembers: DeprecatedMemberRange[] = [];
   const members: MemberExpression[] = [];
   walkAst(ast, (node) => {
-    if (node.kind === "MemberExpression") {
+    if (node.kind === NodeKind.MemberExpression) {
       const member = node as MemberExpression;
-      if (!member.computed && member.property.kind === "Identifier" && member.property.firstToken) {
+      if (!member.computed && member.property.kind === NodeKind.Identifier && member.property.firstToken) {
         members.push(member);
       }
     }

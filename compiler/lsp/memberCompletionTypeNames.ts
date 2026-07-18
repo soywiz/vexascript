@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName, parseTypeNameShape, splitTopLevelTypeText, stripEnclosingTypeParens } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import type { AnalysisType } from "compiler/analysis/types";
@@ -53,7 +54,7 @@ export function normalizeRecoveredReceiverType(
     }
     return narrowed.map((member) => normalizeRecoveredReceiverType(member, node, expressionTypes)).join(" | ");
   }
-  if (type.kind === "named" && node.kind === "CallExpression") {
+  if (type.kind === "named" && node.kind === NodeKind.CallExpression) {
     const calleeType = expressionTypes.get((node as CallExpression).callee);
     const constraint = constraintForRecoveredTypeParameter(calleeType, type.name);
     if (constraint) {
@@ -177,7 +178,7 @@ export function receiverTypeNameBeforePosition(
 
 function memberAccessReceiverNodeAtPosition(node: Expr, line: number, character: number): Expr | null {
   switch (node.kind) {
-    case "MemberExpression": {
+    case NodeKind.MemberExpression: {
       const member = node as MemberExpression;
       const propertyRange = nodeRange(member.property);
       if (member.computed || !propertyRange || !positionIsWithinRange(line, character, propertyRange)) {
@@ -185,21 +186,21 @@ function memberAccessReceiverNodeAtPosition(node: Expr, line: number, character:
       }
       return member.object as Expr;
     }
-    case "CallExpression": {
+    case NodeKind.CallExpression: {
       const call = node as CallExpression;
-      if (call.callee.kind !== "MemberExpression") {
+      if (call.callee.kind !== NodeKind.MemberExpression) {
         return null;
       }
       return memberAccessReceiverNodeAtPosition(call.callee as Expr, line, character);
     }
-    case "AssignmentExpression": {
+    case NodeKind.AssignmentExpression: {
       const assignment = node as AssignmentExpression;
-      if (assignment.left.kind !== "MemberExpression") {
+      if (assignment.left.kind !== NodeKind.MemberExpression) {
         return null;
       }
       return memberAccessReceiverNodeAtPosition(assignment.left as Expr, line, character);
     }
-    case "ChainExpression": {
+    case NodeKind.ChainExpression: {
       const chain = node as ChainExpression;
       const operationContainsCursor = chain.operations.some((operation) => {
         const range = nodeRange(operation);
@@ -246,13 +247,13 @@ export function recoveredReceiverTypeName(
   let recovered: { node: Expr; type: AnalysisType; size: number } | undefined;
 
   walkAst(ast, (node) => {
-    if (node.kind !== "MemberExpression") {
+    if (node.kind !== NodeKind.MemberExpression) {
       return;
     }
     const member = node as MemberExpression;
     if (
       member.computed ||
-      member.property.kind !== "Identifier" ||
+      member.property.kind !== NodeKind.Identifier ||
       !(member.property as Identifier).name.includes(COMPLETION_RECOVERY_MEMBER)
     ) {
       return;

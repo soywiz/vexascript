@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   ArrowFunctionExpression,
   CallExpression,
@@ -19,12 +20,12 @@ interface RangedToken {
 }
 
 type TrailingLambdaCall = (CallExpression | NewExpression) & {
-  arguments: Node[];
+  args: Node[];
   lastToken: RangedToken;
 };
 
 function isBraceLambda(node: Node | undefined): node is ArrowFunctionExpression {
-  if (!node || node.kind !== "ArrowFunctionExpression") {
+  if (!node || node.kind !== NodeKind.ArrowFunctionExpression) {
     return false;
   }
   const firstToken = (node as { firstToken?: RangedToken }).firstToken;
@@ -40,10 +41,10 @@ function isBraceLambda(node: Node | undefined): node is ArrowFunctionExpression 
  * after the lambda) rather than on the lambda's closing `}`.
  */
 function isTrailingLambdaCandidate(node: Node): node is TrailingLambdaCall {
-  if (node.kind !== "CallExpression" && node.kind !== "NewExpression") {
+  if (node.kind !== NodeKind.CallExpression && node.kind !== NodeKind.NewExpression) {
     return false;
   }
-  const args = (node as CallExpression | NewExpression).arguments;
+  const args = (node as CallExpression | NewExpression).args;
   if (!args || args.length === 0) {
     return false;
   }
@@ -85,7 +86,7 @@ export function createTrailingLambdaCodeActions(params: {
     return [];
   }
 
-  const args = node.arguments;
+  const args = node.args;
   const lambda = args[args.length - 1] as ArrowFunctionExpression & { firstToken?: RangedToken; lastToken?: RangedToken };
   const lambdaFirstToken = lambda.firstToken;
   const lambdaLastToken = lambda.lastToken;

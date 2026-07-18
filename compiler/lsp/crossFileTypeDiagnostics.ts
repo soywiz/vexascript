@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import type {
   AssignmentExpression,
   CallExpression,
@@ -116,17 +117,17 @@ function diagnosticForNode(
 }
 
 function callDiagnosticNode(call: CallExpression) {
-  return call.callee.kind === "MemberExpression" ? (call.callee as MemberExpression).property : call;
+  return call.callee.kind === NodeKind.MemberExpression ? (call.callee as MemberExpression).property : call;
 }
 
 function constructorDiagnosticNode(node: CallExpression | NewExpression) {
-  return node.callee.kind === "MemberExpression" ? (node.callee as MemberExpression).property : node.callee;
+  return node.callee.kind === NodeKind.MemberExpression ? (node.callee as MemberExpression).property : node.callee;
 }
 
 function collectCallExpressions(program: Program): CallExpression[] {
   const calls: CallExpression[] = [];
   walkAst(program, (node) => {
-    if (node.kind === "CallExpression") {
+    if (node.kind === NodeKind.CallExpression) {
       calls.push(node as CallExpression);
     }
   });
@@ -136,7 +137,7 @@ function collectCallExpressions(program: Program): CallExpression[] {
 function collectAssignmentExpressions(program: Program): AssignmentExpression[] {
   const assignments: AssignmentExpression[] = [];
   walkAst(program, (node) => {
-    if (node.kind === "AssignmentExpression") {
+    if (node.kind === NodeKind.AssignmentExpression) {
       assignments.push(node as AssignmentExpression);
     }
   });
@@ -144,7 +145,7 @@ function collectAssignmentExpressions(program: Program): AssignmentExpression[] 
 }
 
 function collectImportStatements(program: Program): ImportStatement[] {
-  return program.body.filter((statement): statement is ImportStatement => statement.kind === "ImportStatement");
+  return program.body.filter((statement): statement is ImportStatement => statement.kind === NodeKind.ImportStatement);
 }
 
 export async function collectCrossFileTypeDiagnostics(
@@ -373,7 +374,7 @@ export async function collectCrossFileTypeDiagnostics(
   for (const call of collectCallExpressions(session.ast)) {
     const constructorSignature = await resolveConstructorSignatureCached(call.callee, call);
     if (constructorSignature) {
-      const providedCount = call.arguments.length;
+      const providedCount = call.args.length;
       const requiredCount = constructorSignature.parameters.filter((parameter) => !parameter.optional).length;
       const totalCount = constructorSignature.parameters.length;
 
@@ -396,7 +397,7 @@ export async function collectCrossFileTypeDiagnostics(
         for (let index = totalCount; index < providedCount; index += 1) {
           pushDiagnostic(
             diagnosticForNode(
-              call.arguments[index] ?? constructorDiagnosticNode(call),
+              call.args[index] ?? constructorDiagnosticNode(call),
               `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
               VEXA_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
             )
@@ -405,11 +406,11 @@ export async function collectCrossFileTypeDiagnostics(
       }
     }
 
-    if (call.callee.kind !== "MemberExpression") {
+    if (call.callee.kind !== NodeKind.MemberExpression) {
       continue;
     }
     const callee = call.callee as MemberExpression;
-    if (callee.computed || callee.property.kind !== "Identifier") {
+    if (callee.computed || callee.property.kind !== NodeKind.Identifier) {
       continue;
     }
 
@@ -459,7 +460,7 @@ export async function collectCrossFileTypeDiagnostics(
     }
 
     const signature = member.signature;
-    const providedCount = call.arguments.length;
+    const providedCount = call.args.length;
     const lastParameter = signature.parameters[signature.parameters.length - 1];
     const restParameter = lastParameter?.rest ? lastParameter : undefined;
     const fixedParameters = restParameter ? signature.parameters.slice(0, -1) : signature.parameters;
@@ -485,7 +486,7 @@ export async function collectCrossFileTypeDiagnostics(
       for (let index = totalCount; index < providedCount; index += 1) {
         pushDiagnostic(
           diagnosticForNode(
-            call.arguments[index] ?? call,
+            call.args[index] ?? call,
             `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
             VEXA_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
           )
@@ -496,7 +497,7 @@ export async function collectCrossFileTypeDiagnostics(
     const comparableCount = restParameter ? providedCount : Math.min(providedCount, totalCount);
     for (let index = 0; index < comparableCount; index += 1) {
       const parameter = fixedParameters[index] ?? restParameter;
-      const argument = call.arguments[index];
+      const argument = call.args[index];
       if (!parameter || !argument) {
         continue;
       }
@@ -523,7 +524,7 @@ export async function collectCrossFileTypeDiagnostics(
       continue;
     }
 
-    const providedCount = node.arguments?.length ?? 0;
+    const providedCount = node.args?.length ?? 0;
     const requiredCount = constructorSignature.parameters.filter((parameter) => !parameter.optional).length;
     const totalCount = constructorSignature.parameters.length;
 
@@ -546,7 +547,7 @@ export async function collectCrossFileTypeDiagnostics(
       for (let index = totalCount; index < providedCount; index += 1) {
         pushDiagnostic(
           diagnosticForNode(
-            node.arguments?.[index] ?? constructorDiagnosticNode(node),
+            node.args?.[index] ?? constructorDiagnosticNode(node),
             `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
             VEXA_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
           )
@@ -556,11 +557,11 @@ export async function collectCrossFileTypeDiagnostics(
   }
 
   for (const assignment of collectAssignmentExpressions(session.ast)) {
-    if (assignment.left.kind !== "MemberExpression") {
+    if (assignment.left.kind !== NodeKind.MemberExpression) {
       continue;
     }
     const leftMember = assignment.left as MemberExpression;
-    if (leftMember.computed || leftMember.property.kind !== "Identifier") {
+    if (leftMember.computed || leftMember.property.kind !== NodeKind.Identifier) {
       continue;
     }
 
@@ -626,7 +627,7 @@ export async function collectCrossFileTypeDiagnostics(
 function walkCallLikeNewExpressions(program: Program): NewExpression[] {
   const nodes: NewExpression[] = [];
   walkAst(program, (node) => {
-    if (node.kind === "NewExpression") {
+    if (node.kind === NodeKind.NewExpression) {
       nodes.push(node as NewExpression);
     }
   });

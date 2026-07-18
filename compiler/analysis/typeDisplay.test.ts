@@ -1,9 +1,10 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { boxedInterfaceNameForBuiltin, expressionSnippet, isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
 import { builtinType, functionType, literalType, namedType } from "./types";
 import type { Expr } from "compiler/ast/ast";
 
-function expr(kind: string, extra?: object): Expr {
+function expr(kind: NodeKind, extra?: object): Expr {
   return { kind, ...extra } as unknown as Expr;
 }
 
@@ -40,23 +41,23 @@ describe("boxedInterfaceNameForBuiltin", () => {
 
 describe("expressionSnippet", () => {
   it("returns null for identifiers", () => {
-    expect(expressionSnippet(expr("Identifier"))).toBeNull();
+    expect(expressionSnippet(expr(NodeKind.Identifier))).toBeNull();
   });
 
   it("returns kind when no token values are present", () => {
-    expect(expressionSnippet(expr("BinaryExpression"))).toBe("BinaryExpression");
+    expect(expressionSnippet(expr(NodeKind.BinaryExpression))).toBe("BinaryExpression");
   });
 
   it("returns first token when only first is present", () => {
-    expect(expressionSnippet(expr("CallExpression", { firstToken: { value: "foo" } }))).toBe("foo");
+    expect(expressionSnippet(expr(NodeKind.CallExpression, { firstToken: { value: "foo" } }))).toBe("foo");
   });
 
   it("returns a range when first and last differ", () => {
-    expect(expressionSnippet(expr("CallExpression", { firstToken: { value: "foo" }, lastToken: { value: ")" } }))).toBe("foo ... )");
+    expect(expressionSnippet(expr(NodeKind.CallExpression, { firstToken: { value: "foo" }, lastToken: { value: ")" } }))).toBe("foo ... )");
   });
 
   it("returns first when first equals last", () => {
-    expect(expressionSnippet(expr("Literal", { firstToken: { value: "42" }, lastToken: { value: "42" } }))).toBe("42");
+    expect(expressionSnippet(expr(NodeKind.IntLiteral, { firstToken: { value: "42" }, lastToken: { value: "42" } }))).toBe("42");
   });
 });
 

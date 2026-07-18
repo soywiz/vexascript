@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 import { describe, expect, it, pathToFileURL } from "../test/expect";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { parseFile } from "compiler/parser/parser";
@@ -22,7 +23,7 @@ describe("override modifier quick fix", () => {
 
     const demo = ast.body.find(
       (statement): statement is ClassStatement =>
-        statement.kind === "ClassStatement" && (statement as ClassStatement).name.name === "Demo"
+        statement.kind === NodeKind.ClassStatement && (statement as ClassStatement).name.name === "Demo"
     )!;
     const member = demo.members.find((candidate) => candidate.name.name === "lol2")!;
     const nameToken = member.name.firstToken!;

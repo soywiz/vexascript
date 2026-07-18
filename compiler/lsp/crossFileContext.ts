@@ -1,3 +1,4 @@
+import { NodeKind } from "compiler/ast/ast";
 /**
  * Shared cross-file navigation context: resolve-context/session contracts,
  * import-target resolution, canonical top-level symbol resolution, and the
@@ -151,7 +152,7 @@ export function* importStatementBindings(importStatement: ImportStatement): Gene
 /** Yields every import binding across a list of statements (direct imports only). */
 export function* importBindings(statements: readonly Statement[]): Generator<ImportBinding> {
   for (const statement of statements) {
-    if (statement.kind === "ImportStatement") {
+    if (statement.kind === NodeKind.ImportStatement) {
       yield* importStatementBindings(statement as ImportStatement);
     }
   }
@@ -216,7 +217,7 @@ export function findTopLevelDeclarationByName(ast: Program, name: string): State
 }
 
 export function declarationRangeForName(statement: Statement, name: string) {
-  if (statement.kind === "VarStatement") {
+  if (statement.kind === NodeKind.VarStatement) {
     const variableStatement = statement as VarStatement;
     if (variableStatement.declarations && variableStatement.declarations.length > 0) {
       for (const declaration of variableStatement.declarations) {
@@ -226,16 +227,16 @@ export function declarationRangeForName(statement: Statement, name: string) {
     }
     return nodeRange(bindingIdentifiers(variableStatement.name).find((item) => item.name === name) ?? variableStatement.name);
   }
-  if (statement.kind === "ClassStatement") {
+  if (statement.kind === NodeKind.ClassStatement) {
     return nodeRange((statement as ClassStatement).name);
   }
-  if (statement.kind === "AnnotationStatement") {
+  if (statement.kind === NodeKind.AnnotationStatement) {
     return nodeRange((statement as AnnotationStatement).name);
   }
-  if (statement.kind === "InterfaceStatement") {
+  if (statement.kind === NodeKind.InterfaceStatement) {
     return nodeRange((statement as InterfaceStatement).name);
   }
-  if (statement.kind === "FunctionStatement") {
+  if (statement.kind === NodeKind.FunctionStatement) {
     return nodeRange((statement as FunctionStatement).name);
   }
   return nodeRange(statement);
@@ -382,7 +383,7 @@ export function declarationDeclaresNode(declaration: Statement, symbolNode: unkn
   if (named.name === symbolNode) {
     return true;
   }
-  if (declaration.kind === "VarStatement") {
+  if (declaration.kind === NodeKind.VarStatement) {
     const variableStatement = declaration as VarStatement;
     const names = [
       ...bindingIdentifiers(variableStatement.name),
@@ -412,7 +413,7 @@ export async function resolveExternalDeclarationLocation(
     return null;
   }
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     const targetFilePath = await resolveImportTargetInContext(currentFilePath, (statement as ImportStatement).from.value, context);
@@ -598,7 +599,7 @@ export async function findMatchingImportSpecifierPositions(
 ): Promise<Array<{ line: number; character: number }>> {
   const positions: Array<{ line: number; character: number }> = [];
   for (const statement of importerAst.body) {
-    if (statement.kind !== "ImportStatement") {
+    if (statement.kind !== NodeKind.ImportStatement) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -637,7 +638,7 @@ export function findImportStringLiteralAtPosition(
   character: number
 ): ImportStatement | null {
   for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") continue;
+    if (statement.kind !== NodeKind.ImportStatement) continue;
     const importStatement = statement as ImportStatement;
     const fromRange = nodeRange(importStatement.from);
     if (fromRange && containsPosition(fromRange, { line, character })) {
@@ -655,11 +656,11 @@ export function findImportStringLiteralAtPosition(
  */
 export function detectAmbientExportEqualsName(declarations: readonly Statement[]): string | null {
   for (const statement of declarations) {
-    if (statement.kind !== "ExprStatement") {
+    if (statement.kind !== NodeKind.ExprStatement) {
       continue;
     }
     const expression = (statement as ExprStatement).expression;
-    if (expression?.kind === "Identifier") {
+    if (expression?.kind === NodeKind.Identifier) {
       return (expression as Identifier).name;
     }
   }
@@ -677,10 +678,10 @@ export function findAmbientNamespaceBody(
 ): Statement[] | null {
   for (const statement of declarations) {
     const candidate =
-      statement.kind === "ExportStatement"
+      statement.kind === NodeKind.ExportStatement
         ? (statement as ExportStatement).declaration ?? statement
         : statement;
-    if (candidate.kind !== "NamespaceStatement") {
+    if (candidate.kind !== NodeKind.NamespaceStatement) {
       continue;
     }
     const namespaceStatement = candidate as NamespaceStatement;
@@ -714,10 +715,10 @@ export function findAmbientNamespaceMemberRange(
 
   for (const statement of namespaceBody) {
     const candidate =
-      statement.kind === "ExportStatement"
+      statement.kind === NodeKind.ExportStatement
         ? (statement as ExportStatement).declaration ?? statement
         : statement;
-    if (candidate.kind !== "InterfaceStatement") {
+    if (candidate.kind !== NodeKind.InterfaceStatement) {
       continue;
     }
     const interfaceStatement = candidate as InterfaceStatement;
@@ -741,10 +742,10 @@ export function findAmbientNamespaceLocation(
 
   for (const statement of ambientDeclarations) {
     const candidate =
-      statement.kind === "ExportStatement"
+      statement.kind === NodeKind.ExportStatement
         ? (statement as ExportStatement).declaration ?? statement
         : statement;
-    if (candidate.kind !== "NamespaceStatement") {
+    if (candidate.kind !== NodeKind.NamespaceStatement) {
       continue;
     }
     const namespaceStatement = candidate as NamespaceStatement;
@@ -827,15 +828,15 @@ export function findAmbientNamedExportRange(
     // 3. Variable typed as an interface — find the member in that interface.
     for (const statement of declarations) {
       const candidate =
-        statement.kind === "ExportStatement"
+        statement.kind === NodeKind.ExportStatement
           ? (statement as ExportStatement).declaration ?? statement
           : statement;
-      if (candidate.kind !== "VarStatement") {
+      if (candidate.kind !== NodeKind.VarStatement) {
         continue;
       }
       const variableStatement = candidate as VarStatement;
       const variableName =
-        variableStatement.name.kind === "Identifier" ? variableStatement.name.name : null;
+        variableStatement.name.kind === NodeKind.Identifier ? variableStatement.name.name : null;
       const typeName = variableStatement.typeAnnotation?.name;
       if (variableName !== exportEqualsName || !typeName) {
         continue;
@@ -851,10 +852,10 @@ export function findAmbientNamedExportRange(
       }
       for (const decl of searchDeclarations) {
         const declCandidate =
-          decl.kind === "ExportStatement"
+          decl.kind === NodeKind.ExportStatement
             ? (decl as ExportStatement).declaration ?? decl
             : decl;
-        if (declCandidate.kind !== "InterfaceStatement") {
+        if (declCandidate.kind !== NodeKind.InterfaceStatement) {
           continue;
         }
         const interfaceStatement = declCandidate as InterfaceStatement;
@@ -878,27 +879,27 @@ export function findAmbientNamedExportRange(
   // This handles cases where the declarations were not pre-flattened by
   // ambientTypesLoader (which extracts global block content into globalDeclarations).
   for (const statement of declarations) {
-    if (statement.kind !== "ExprStatement") {
+    if (statement.kind !== NodeKind.ExprStatement) {
       continue;
     }
     const expression = (statement as ExprStatement).expression;
-    if (expression?.kind !== "CallExpression") {
+    if (expression?.kind !== NodeKind.CallExpression) {
       continue;
     }
     const call = expression as CallExpression;
-    if (call.callee.kind !== "Identifier") {
+    if (call.callee.kind !== NodeKind.Identifier) {
       continue;
     }
     const calleeIdentifier = call.callee as unknown as { name: string };
     if (calleeIdentifier.name !== "global") {
       continue;
     }
-    const arg = call.arguments[0];
-    if (arg?.kind !== "ArrowFunctionExpression") {
+    const arg = call.args[0];
+    if (arg?.kind !== NodeKind.ArrowFunctionExpression) {
       continue;
     }
     const block = (arg as ArrowFunctionExpression).body;
-    if (block.kind !== "BlockStatement") {
+    if (block.kind !== NodeKind.BlockStatement) {
       continue;
     }
     const globalBodyStatements = (block as BlockStatement).body;
@@ -931,10 +932,10 @@ export function collectAmbientFunctionStatements(
   const matches: FunctionStatement[] = [];
   for (const statement of statements) {
     const candidate =
-      statement.kind === "ExportStatement"
+      statement.kind === NodeKind.ExportStatement
         ? (statement as ExportStatement).declaration ?? statement
         : statement;
-    if (candidate.kind !== "FunctionStatement") {
+    if (candidate.kind !== NodeKind.FunctionStatement) {
       continue;
     }
     const fn = candidate as FunctionStatement;
