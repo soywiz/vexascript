@@ -258,6 +258,10 @@ val dynamicFunctions = {
   add(value: int): int { return value + 5 }
 }
 console.log("dynamic function", dynamicFunction(4), dynamicFunctions.apply(5), dynamicFunctions.add(6))
+val optionalDynamicFunctions: any = { callback: undefined }
+optionalDynamicFunctions.callback?.()
+optionalDynamicFunctions.callback = () => console.log("optional dynamic call", "called")
+optionalDynamicFunctions.callback?.()
 val dynamicZero: any = 0
 val dynamicZeroText: any = "0"
 val dynamicNull: any = null
@@ -385,6 +389,10 @@ for (member of dynamicMembers ?? []) {
   dynamicMemberText += `${member.kind}:${dynamicName.name}|`
 }
 console.log("deferred dynamic array", dynamicMemberText)
+val dynamicPairs: any = new Map<string, int>([["left", 2], ["right", 3]])
+var dynamicPairText = ""
+for (val [key, value] of dynamicPairs) dynamicPairText += `${key}:${value}|`
+console.log("deferred dynamic map", dynamicPairText)
 
 val nativeJson = JSON.stringify({ name: "Ada", values: [1, 2], active: true })
 val parsedNativeJson: any = JSON.parse(nativeJson)

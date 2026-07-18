@@ -3201,7 +3201,8 @@ function emitCall(call: CallExpression): string {
       ? `vexa::dynamicGetOptional(${activeRuntimeName}, ${emitExpression(member.object)}, ${key})`
       : `vexa::dynamicGet(${activeRuntimeName}, ${emitExpression(member.object)}, ${key})`;
     const dynamicArguments = call.arguments.map(emitDynamicCallArgument);
-    return `vexa::call(${activeRuntimeName}, ${dynamicCallee}, {${dynamicArguments.join(", ")}})`;
+    const callHelper = call.optional || calleeMember.optional ? "callOptional" : "call";
+    return `vexa::${callHelper}(${activeRuntimeName}, ${dynamicCallee}, {${dynamicArguments.join(", ")}})`;
   }
 
   if (member) {
@@ -3331,7 +3332,7 @@ function emitCall(call: CallExpression): string {
     const dynamicCallee = resolvedCallableProperty?.receiver
       ? `vexa::dynamicGet(${activeRuntimeName}, vexa::convertValue<vexa::Value>(${activeRuntimeName}, ${emitExpression(resolvedCallableProperty.receiver)}), ${emitNativePropertyKey(resolvedCallableProperty)})`
       : emitExpression(call.callee);
-    return `vexa::call(${activeRuntimeName}, ${dynamicCallee}, {${dynamicArguments.join(", ")}})`;
+    return `vexa::${call.optional ? "callOptional" : "call"}(${activeRuntimeName}, ${dynamicCallee}, {${dynamicArguments.join(", ")}})`;
   }
   return `${emitExpression(call.callee)}(${argumentsText()})`;
 }
@@ -3508,8 +3509,7 @@ function emitBinary(expression: BinaryExpression): string {
       ? "!="
       : expression.operator;
   if (
-    new Set(["<", ">", "<=", ">=", "==", "!="]).has(operator) &&
-    dynamicOperands
+    new Set(["<", ">", "<=", ">=", "==", "!="]).has(operator)
   ) {
     const left = emitConvertedValue(expression.left, "vexa::Value");
     const right = emitConvertedValue(expression.right, "vexa::Value");
@@ -4394,7 +4394,7 @@ function emitFor(statement: ForStatement, indent: string, label?: string): strin
         : collection === "set"
           ? `*vexa::setValues(${activeRuntimeName}, ${nativeCollectionReceiver})`
           : deferredNativeArray
-            ? `vexa::dynamicArrayRange(${activeRuntimeName}, ${iterable})`
+            ? `vexa::dynamicIterationRange(${activeRuntimeName}, ${iterable})`
             : isManagedArrayExpression(statement.iterable)
               ? `*vexa::arrayPointer(${iterable})`
             : iterable;

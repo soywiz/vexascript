@@ -133,6 +133,9 @@ class DynamicValueObject : public cppgc::GarbageCollectedMixin {
   virtual bool dynamicIsArray() const { return false; }
   virtual std::size_t dynamicArraySize() const { return 0; }
   virtual Value dynamicArrayGet(Runtime&, std::size_t);
+  virtual bool dynamicIsIterable() const;
+  virtual std::size_t dynamicIterableSize() const;
+  virtual Value dynamicIterableGet(Runtime&, std::size_t);
 };
 
 class Value final {
@@ -387,6 +390,20 @@ inline bool DynamicValueObject::dynamicDelete(const std::string&) { return false
 inline Value DynamicValueObject::dynamicArrayGet(Runtime&, std::size_t) {
   throw std::runtime_error("Dynamic native object is not an array");
 }
+
+inline bool DynamicValueObject::dynamicIsIterable() const {
+  return dynamicIsArray();
+}
+
+inline std::size_t DynamicValueObject::dynamicIterableSize() const {
+  return dynamicArraySize();
+}
+
+inline Value DynamicValueObject::dynamicIterableGet(Runtime& runtime, std::size_t index) {
+  return dynamicArrayGet(runtime, index);
+}
+
+Value makeDynamicMapEntry(Runtime& runtime, Value key, Value value);
 
 inline Value StoredValue::load() const {
   if (std::holds_alternative<Undefined>(storage_)) return Value::undefined();
@@ -761,6 +778,15 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
     return type == nativeTypeToken<MapObject<K, V>>() ? this : nullptr;
   }
   std::string dynamicToString() const override { return "[object Map]"; }
+  bool dynamicIsIterable() const override { return true; }
+  std::size_t dynamicIterableSize() const override { return entries_.size(); }
+  Value dynamicIterableGet(Runtime& runtime, std::size_t index) override {
+    if (index >= entries_.size()) return Value::undefined();
+    return makeDynamicMapEntry(
+        runtime,
+        convertValue<Value>(runtime, entries_[index].key.load()),
+        convertValue<Value>(runtime, entries_[index].value.load()));
+  }
 
   void Trace(cppgc::Visitor* visitor) const override {
     for (const auto& entry : entries_) {
@@ -822,6 +848,12 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
     return type == nativeTypeToken<SetObject<T>>() ? this : nullptr;
   }
   std::string dynamicToString() const override { return "[object Set]"; }
+  bool dynamicIsIterable() const override { return true; }
+  std::size_t dynamicIterableSize() const override { return values_.size(); }
+  Value dynamicIterableGet(Runtime& runtime, std::size_t index) override {
+    if (index >= values_.size()) return Value::undefined();
+    return convertValue<Value>(runtime, values_[index].load());
+  }
 
   void Trace(cppgc::Visitor* visitor) const override {
     for (const auto& value : values_) value.Trace(visitor);
@@ -1323,6 +1355,40 @@ inline DynamicArrayRange dynamicArrayRange(Runtime& runtime, const Value& value)
   return DynamicArrayRange(runtime, value.dynamicObject());
 }
 
+class DynamicIterationRange final {
+ public:
+  DynamicIterationRange(Runtime& runtime, DynamicValueObject* iterable)
+      : runtime_(&runtime), iterable_(iterable) {}
+
+  class Iterator final {
+   public:
+    Iterator(Runtime& runtime, DynamicValueObject* iterable, std::size_t index)
+        : runtime_(&runtime), iterable_(iterable), index_(index) {}
+    Value operator*() const { return iterable_->dynamicIterableGet(*runtime_, index_); }
+    Iterator& operator++() { ++index_; return *this; }
+    bool operator!=(const Iterator& other) const { return index_ != other.index_; }
+
+   private:
+    Runtime* runtime_;
+    DynamicValueObject* iterable_;
+    std::size_t index_;
+  };
+
+  Iterator begin() const { return Iterator(*runtime_, iterable_.Get(), 0); }
+  Iterator end() const { return Iterator(*runtime_, iterable_.Get(), iterable_->dynamicIterableSize()); }
+
+ private:
+  Runtime* runtime_;
+  cppgc::Persistent<DynamicValueObject> iterable_;
+};
+
+inline DynamicIterationRange dynamicIterationRange(Runtime& runtime, const Value& value) {
+  if (!value.isDynamicObject() || !value.dynamicObject()->dynamicIsIterable()) {
+    throw std::runtime_error("Value is not iterable");
+  }
+  return DynamicIterationRange(runtime, value.dynamicObject());
+}
+
 template <typename T>
 inline bool arrayIsArray(const ArrayObject<T>*) {
   return true;
@@ -1723,6 +1789,13 @@ class Runtime final {
   std::unordered_map<TimerId, TimerState> timers_;
   std::priority_queue<ScheduledTimer, std::vector<ScheduledTimer>, EarlierTimer> scheduledTimers_;
 };
+
+inline Value makeDynamicMapEntry(Runtime& runtime, Value key, Value value) {
+  auto* pair = runtime.array<Value>();
+  pair->append(std::move(key));
+  pair->append(std::move(value));
+  return Value(pair);
+}
 
 #if defined(VEXA_NATIVE_DEBUG) || defined(VEXA_NATIVE_GC_STRESS)
 #define VEXA_NATIVE_SOURCE(runtime, file, line, column) \
@@ -2359,6 +2432,11 @@ inline Value call(Runtime& runtime, const Value& callable, std::vector<Value> ar
     throw std::runtime_error("VexaScript value is not callable");
   }
   return callable.dynamicObject()->dynamicCall(runtime, arguments);
+}
+
+inline Value callOptional(Runtime& runtime, const Value& callable, std::vector<Value> arguments) {
+  if (callable.isNull() || callable.isUndefined()) return Value::undefined();
+  return call(runtime, callable, std::move(arguments));
 }
 
 template <typename Result>

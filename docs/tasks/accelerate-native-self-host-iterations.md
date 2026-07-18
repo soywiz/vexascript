@@ -39,6 +39,13 @@ development loop.
 * [ ] Avoid regenerating or recompiling unchanged modules and runtime sources.
 * [ ] Evaluate compiler-source simplifications that reduce generated C++ size or
   template pressure without distorting the compiler architecture.
+* [ ] Evaluate a complete nominal AST migration: concrete AST node classes with
+  typed constructors, a shared metadata base, native `instanceof`, and Oilpan
+  inheritance/allocation designed for derived nodes. Do not use a partial
+  `Object.setPrototypeOf` migration: the 2026-07-18 experiment increased parse
+  time from about 266 ms to 407 ms and pre-emission time from about 9.1 seconds
+  to 10.1 seconds, while interfaces extending the base class could not be
+  represented by the current C++ interface model.
 * [ ] Provide fast debug and syntax-validation profiles plus a separate final
   optimized roundtrip profile.
 
@@ -51,6 +58,8 @@ development loop.
   baseline without changing the generated program's behavior.
 * [ ] An unchanged rerun reuses stable work and is materially faster than a cold
   roundtrip.
+* [ ] Any nominal AST migration outperforms the structural AST under both Node
+  and native execution and does not add a structural compatibility path.
 * [ ] Progressive fixtures and the full compiler use the same native pipeline.
 * [ ] At least two complete native compiler roundtrips remain output-equivalent.
 
