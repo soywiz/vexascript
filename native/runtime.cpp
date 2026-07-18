@@ -87,6 +87,7 @@ class Runtime;
 class DynamicValueObject;
 class EnumerableObject;
 class Value;
+std::runtime_error errorAtCurrentSource(std::string);
 template <typename T>
 class ArrayObject;
 std::string toString(const Value&);
@@ -110,6 +111,7 @@ template <typename T>
 struct PromiseResult;
 template <typename T>
 std::string toString(const Task<T>&);
+RecordObject* makeDynamicPropertyRecord(Runtime&);
 
 template <typename T>
 inline const void* nativeTypeToken() {
@@ -128,6 +130,7 @@ class DynamicValueObject : public cppgc::GarbageCollectedMixin {
   }
   virtual Value dynamicGet(Runtime&, const std::string&);
   virtual Value dynamicSet(Runtime&, const std::string&, const Value&);
+  virtual std::vector<std::string> dynamicKeys() const;
   virtual bool dynamicDelete(const std::string&);
   virtual Value dynamicCall(Runtime&, const std::vector<Value>&);
   virtual bool dynamicIsArray() const { return false; }
@@ -136,6 +139,13 @@ class DynamicValueObject : public cppgc::GarbageCollectedMixin {
   virtual bool dynamicIsIterable() const;
   virtual std::size_t dynamicIterableSize() const;
   virtual Value dynamicIterableGet(Runtime&, std::size_t);
+  void dynamicDefineProperty(Runtime&, const std::string&, const Value&, bool enumerable);
+  std::vector<std::string> dynamicEnumerableKeys(std::vector<std::string>) const;
+  void Trace(cppgc::Visitor*) const;
+
+ private:
+  cppgc::Member<RecordObject> dynamic_properties_;
+  std::unordered_set<std::string> non_enumerable_properties_;
 };
 
 class Value final {
@@ -333,6 +343,24 @@ inline std::vector<std::string> objectKeys(EnumerableObject* object) {
   return object ? object->enumerableKeys() : std::vector<std::string>{};
 }
 
+inline std::vector<std::string> objectKeys(DynamicValueObject* object) {
+  return object
+    ? object->dynamicEnumerableKeys(object->dynamicKeys())
+    : std::vector<std::string>{};
+}
+
+inline std::vector<std::string> objectKeys(const Value& value) {
+  if (value.isRecord()) return value.record()->keys();
+  if (value.isDynamicObject()) return objectKeys(value.dynamicObject());
+  return {};
+}
+
+template <typename T>
+  requires std::is_base_of_v<DynamicValueObject, T>
+inline std::vector<std::string> objectKeys(T* object) {
+  return objectKeys(static_cast<DynamicValueObject*>(object));
+}
+
 inline Value enumerableGet(Runtime&, RecordObject* object, const std::string& key) {
   return object ? object->get(key) : Value::undefined();
 }
@@ -373,19 +401,64 @@ inline bool operator==(Other&& other, const cppgc::Persistent<T>& value) {
   return value == std::forward<Other>(other);
 }
 
+template <typename T, typename Other>
+  requires std::is_same_v<std::remove_cvref_t<Other>, Value>
+inline bool operator==(const cppgc::Member<T>& value, Other&& other) {
+  if (other.isUndefined() || other.isNull()) return value.Get() == nullptr;
+  if (!other.isDynamicObject()) return false;
+  return other.dynamicObject()->dynamicCast(nativeTypeToken<T>()) == value.Get();
+}
+
+template <typename Other, typename T>
+  requires std::is_same_v<std::remove_cvref_t<Other>, Value>
+inline bool operator==(Other&& other, const cppgc::Member<T>& value) {
+  return value == std::forward<Other>(other);
+}
+
 inline Value DynamicValueObject::dynamicCall(Runtime&, const std::vector<Value>&) {
   throw std::runtime_error("VexaScript dynamic value is not callable");
 }
 
-inline Value DynamicValueObject::dynamicGet(Runtime&, const std::string&) {
-  throw std::runtime_error("Dynamic native object properties require a declared interface or cast");
+inline Value DynamicValueObject::dynamicGet(Runtime&, const std::string& key) {
+  return dynamic_properties_ ? dynamic_properties_->get(key) : Value::undefined();
 }
 
-inline Value DynamicValueObject::dynamicSet(Runtime&, const std::string&, const Value&) {
-  throw std::runtime_error("Dynamic native object properties require a declared interface or cast");
+inline Value DynamicValueObject::dynamicSet(Runtime& runtime, const std::string& key, const Value& value) {
+  if (!dynamic_properties_) dynamic_properties_ = makeDynamicPropertyRecord(runtime);
+  dynamic_properties_->set(key, value);
+  return value;
 }
 
-inline bool DynamicValueObject::dynamicDelete(const std::string&) { return false; }
+inline std::vector<std::string> DynamicValueObject::dynamicKeys() const {
+  return dynamic_properties_ ? dynamic_properties_->keys() : std::vector<std::string>{};
+}
+
+inline void DynamicValueObject::dynamicDefineProperty(
+    Runtime& runtime,
+    const std::string& key,
+    const Value& value,
+    bool enumerable) {
+  dynamicSet(runtime, key, value);
+  if (enumerable) non_enumerable_properties_.erase(key);
+  else non_enumerable_properties_.insert(key);
+}
+
+inline std::vector<std::string> DynamicValueObject::dynamicEnumerableKeys(
+    std::vector<std::string> keys) const {
+  std::erase_if(keys, [&](const std::string& key) {
+    return non_enumerable_properties_.contains(key);
+  });
+  return keys;
+}
+
+inline bool DynamicValueObject::dynamicDelete(const std::string& key) {
+  non_enumerable_properties_.erase(key);
+  return dynamic_properties_ && dynamic_properties_->erase(key);
+}
+
+inline void DynamicValueObject::Trace(cppgc::Visitor* visitor) const {
+  visitor->Trace(dynamic_properties_);
+}
 
 inline Value DynamicValueObject::dynamicArrayGet(Runtime&, std::size_t) {
   throw std::runtime_error("Dynamic native object is not an array");
@@ -1313,11 +1386,34 @@ inline ArrayObject<T>* arrayPointer(const cppgc::Persistent<ArrayObject<T>>& arr
   return array.Get();
 }
 
+template <typename T>
+inline double arrayLength(const ArrayObject<T>* array) {
+  if (!array) throw errorAtCurrentSource("Cannot read the length of null");
+  return static_cast<double>(array->size());
+}
+
+template <typename T>
+inline double arrayLength(const cppgc::Member<ArrayObject<T>>& array) {
+  return arrayLength(array.Get());
+}
+
+template <typename T>
+inline double arrayLength(const cppgc::Persistent<ArrayObject<T>>& array) {
+  return arrayLength(array.Get());
+}
+
+inline double arrayLength(const Value& value) {
+  if (!value.isDynamicObject() || !value.dynamicObject()->dynamicIsArray()) {
+    throw errorAtCurrentSource("Value is not an array");
+  }
+  return static_cast<double>(value.dynamicObject()->dynamicArraySize());
+}
+
 inline ArrayObject<Value>* arrayPointer(const Value& value) {
-  if (!value.isDynamicObject()) throw std::runtime_error("Value is not an array");
+  if (!value.isDynamicObject()) throw errorAtCurrentSource("Value is not an array");
   auto* array = static_cast<ArrayObject<Value>*>(
       value.dynamicObject()->dynamicCast(nativeTypeToken<ArrayObject<Value>>()));
-  if (!array) throw std::runtime_error("Value is not a dynamically typed array");
+  if (!array) throw errorAtCurrentSource("Value is not a dynamically typed array");
   return array;
 }
 
@@ -1384,9 +1480,14 @@ class DynamicIterationRange final {
 
 inline DynamicIterationRange dynamicIterationRange(Runtime& runtime, const Value& value) {
   if (!value.isDynamicObject() || !value.dynamicObject()->dynamicIsIterable()) {
-    throw std::runtime_error("Value is not iterable");
+    throw errorAtCurrentSource("Value is not iterable");
   }
   return DynamicIterationRange(runtime, value.dynamicObject());
+}
+
+template <typename T>
+inline DynamicIterationRange dynamicIterationRange(Runtime& runtime, const cppgc::Member<T>& value) {
+  return dynamicIterationRange(runtime, Value(value.Get()));
 }
 
 template <typename T>
@@ -1445,13 +1546,21 @@ template <typename T>
 inline void defineProperty(Runtime& runtime, T&& object, std::string key, const Value& value, bool enumerable) {
   using Input = std::remove_cvref_t<T>;
   if constexpr (std::is_same_v<Input, Value>) {
-    if (!object.isRecord()) throw std::runtime_error("Native Object.defineProperty requires a record");
-    if (enumerable) object.record()->set(std::move(key), value);
-    else object.record()->setHidden(std::move(key), value);
+    if (object.isRecord()) {
+      if (enumerable) object.record()->set(std::move(key), value);
+      else object.record()->setHidden(std::move(key), value);
+    } else if (object.isDynamicObject()) {
+      object.dynamicObject()->dynamicDefineProperty(runtime, key, value, enumerable);
+    } else {
+      throw std::runtime_error("Native Object.defineProperty requires an object");
+    }
   } else {
     auto* pointer = rawPointer(std::forward<T>(object));
     using Object = std::remove_pointer_t<decltype(pointer)>;
-    if constexpr (std::is_base_of_v<EnumerableObject, Object>) {
+    if constexpr (std::is_base_of_v<DynamicValueObject, Object>) {
+      if (!pointer) throw std::runtime_error("Cannot define a property on null");
+      pointer->dynamicDefineProperty(runtime, key, value, enumerable);
+    } else if constexpr (std::is_base_of_v<EnumerableObject, Object>) {
       if (!pointer) throw std::runtime_error("Cannot define a property on null");
       pointer->defineProperty(runtime, key, value, enumerable);
     } else if constexpr (std::is_same_v<Object, RecordObject>) {
@@ -1790,6 +1899,14 @@ class Runtime final {
   std::priority_queue<ScheduledTimer, std::vector<ScheduledTimer>, EarlierTimer> scheduledTimers_;
 };
 
+inline RecordObject* makeDynamicPropertyRecord(Runtime& runtime) {
+  return runtime.record();
+}
+
+inline std::runtime_error errorAtCurrentSource(std::string message) {
+  return Runtime::current().errorAtCurrentSource(std::move(message));
+}
+
 inline Value makeDynamicMapEntry(Runtime& runtime, Value key, Value value) {
   auto* pair = runtime.array<Value>();
   pair->append(std::move(key));
@@ -1829,6 +1946,8 @@ Result convertValue(Runtime& runtime, Input&& input) {
   using Source = std::remove_cvref_t<Input>;
   if constexpr (std::is_same_v<Source, StoredValue>) {
     return convertValue<Result>(runtime, input.load());
+  } else if constexpr (std::is_same_v<Result, Value> && std::is_same_v<Source, std::nullptr_t>) {
+    return Value::null();
   } else if constexpr (std::is_same_v<Result, Source>) {
     return std::forward<Input>(input);
   } else if constexpr (requires(Source value) { value.Get(); }) {
@@ -1862,6 +1981,12 @@ Result convertValue(Runtime& runtime, Input&& input) {
     if (!input) return nullptr;
     if constexpr (std::is_convertible_v<Source, Result>) {
       return static_cast<Result>(input);
+    } else if constexpr (
+        std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Source>> &&
+        std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Result>>) {
+      void* converted = input->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
+      if (!converted) throw runtime.errorAtCurrentSource("VexaScript object has an incompatible native pointer type");
+      return static_cast<Result>(converted);
     } else if constexpr (
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>> &&
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Result>>) {
@@ -1929,7 +2054,7 @@ Result convertValue(Runtime& runtime, Input&& input) {
       throw std::runtime_error("VexaScript value cannot be converted to bigint");
     } else if constexpr (std::is_same_v<Result, std::string>) {
       if (input.isString()) return input.string();
-      throw std::runtime_error("VexaScript value is not a string");
+      throw runtime.errorAtCurrentSource("VexaScript value is not a string");
     } else if constexpr (std::is_arithmetic_v<Result>) {
       if (input.isNumber()) return static_cast<Result>(input.number());
       if (input.isBoolean()) return static_cast<Result>(input.boolean());
@@ -2021,6 +2146,8 @@ T& nullishAssign(T& target, Callback&& fallback) {
     if (target.isNull() || target.isUndefined()) target = std::forward<Callback>(fallback)();
   } else if constexpr (std::is_pointer_v<T>) {
     if (!target) target = std::forward<Callback>(fallback)();
+  } else if constexpr (requires(T& persistent) { persistent.Get(); }) {
+    if (!target.Get()) target = std::forward<Callback>(fallback)();
   }
   return target;
 }
@@ -2356,6 +2483,11 @@ bool isInstance(Source* value) {
   }
 }
 
+template <typename Target, typename Source>
+bool isInstance(const cppgc::Member<Source>& value) {
+  return isInstance<Target>(value.Get());
+}
+
 template <typename Result, typename... Arguments>
 class FunctionObject final
     : public cppgc::GarbageCollected<FunctionObject<Result, Arguments...>>,
@@ -2515,6 +2647,24 @@ inline RecordObject* recordSpread(RecordObject* target, EnumerableObject* source
   return target;
 }
 
+inline RecordObject* recordSpread(RecordObject* target, DynamicValueObject* source) {
+  if (!source) return target;
+  auto& runtime = Runtime::current();
+  for (const auto& key : objectKeys(source)) target->set(key, source->dynamicGet(runtime, key));
+  return target;
+}
+
+template <typename T>
+  requires std::is_base_of_v<DynamicValueObject, T>
+inline RecordObject* recordSpread(RecordObject* target, T* source) {
+  return recordSpread(target, static_cast<DynamicValueObject*>(source));
+}
+
+template <typename T>
+inline RecordObject* recordSpread(RecordObject* target, const cppgc::Member<T>& source) {
+  return recordSpread(target, source.Get());
+}
+
 inline RecordObject* recordSpread(RecordObject* target, const Value& source) {
   if (source.isNull() || source.isUndefined()) return target;
   if (source.isRecord()) return recordSpread(target, source.record());
@@ -2571,9 +2721,21 @@ inline bool recordDelete(RecordObject* record, const std::string& key) {
   return record && record->erase(key);
 }
 
+inline Value dynamicObjectGet(Runtime& runtime, DynamicValueObject* target, const std::string& key) {
+  if (!target) throw std::runtime_error("Cannot read a property of null");
+  Value value = target->dynamicGet(runtime, key);
+  if (!value.isUndefined()) return value;
+  if (key == "message") {
+    if (void* error = target->dynamicCast(nativeTypeToken<Error>())) {
+      return runtime.string(static_cast<Error*>(error)->messageText());
+    }
+  }
+  return value;
+}
+
 inline Value dynamicGet(Runtime& runtime, const Value& target, const std::string& key) {
   if (target.isRecord()) return target.record()->get(key);
-  if (target.isDynamicObject()) return target.dynamicObject()->dynamicGet(runtime, key);
+  if (target.isDynamicObject()) return dynamicObjectGet(runtime, target.dynamicObject(), key);
   if (target.isString()) {
     if (key == "message") return target;
     if (key == "length") return Value(static_cast<double>(target.string().size()));
@@ -2599,12 +2761,22 @@ inline Value dynamicGet(Runtime&, RecordObject* target, const std::string& key) 
 template <typename T>
   requires std::is_base_of_v<DynamicValueObject, T>
 inline Value dynamicGet(Runtime& runtime, T* target, const std::string& key) {
-  if (!target) throw std::runtime_error("Cannot read a property of null");
-  return target->dynamicGet(runtime, key);
+  return dynamicObjectGet(runtime, target, key);
+}
+
+template <typename T>
+inline Value dynamicGet(Runtime& runtime, const cppgc::Member<T>& target, const std::string& key) {
+  return dynamicGet(runtime, target.Get(), key);
 }
 
 inline Value dynamicGetOptional(Runtime& runtime, const Value& target, const std::string& key) {
   return target.isNull() || target.isUndefined() ? Value::undefined() : dynamicGet(runtime, target, key);
+}
+
+template <typename T>
+  requires std::is_base_of_v<DynamicValueObject, T>
+inline Value dynamicGetOptional(Runtime& runtime, T* target, const std::string& key) {
+  return target ? dynamicGet(runtime, target, key) : Value::undefined();
 }
 
 inline Value dynamicSet(Runtime& runtime, const Value& target, const std::string& key, const Value& value) {
@@ -2644,10 +2816,36 @@ inline ArrayObject<std::string>* recordKeys(Runtime& runtime, RecordObject* reco
   return result;
 }
 
+inline ArrayObject<std::string>* recordKeys(Runtime& runtime, DynamicValueObject* object) {
+  auto* result = runtime.array<std::string>();
+  if (object) for (const auto& key : objectKeys(object)) result->append(key);
+  return result;
+}
+
+template <typename T>
+  requires std::is_base_of_v<DynamicValueObject, T>
+inline ArrayObject<std::string>* recordKeys(Runtime& runtime, T* object) {
+  return recordKeys(runtime, static_cast<DynamicValueObject*>(object));
+}
+
 inline ArrayObject<Value>* recordValues(Runtime& runtime, RecordObject* record) {
   auto* result = runtime.array<Value>();
   if (record) for (const auto& value : record->values()) result->append(value);
   return result;
+}
+
+inline ArrayObject<Value>* recordValues(Runtime& runtime, DynamicValueObject* object) {
+  auto* result = runtime.array<Value>();
+  if (object) {
+    for (const auto& key : objectKeys(object)) result->append(object->dynamicGet(runtime, key));
+  }
+  return result;
+}
+
+template <typename T>
+  requires std::is_base_of_v<DynamicValueObject, T>
+inline ArrayObject<Value>* recordValues(Runtime& runtime, T* object) {
+  return recordValues(runtime, static_cast<DynamicValueObject*>(object));
 }
 
 inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, RecordObject* record) {
@@ -2659,9 +2857,25 @@ inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, RecordO
   return result;
 }
 
+inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, DynamicValueObject* object) {
+  auto* result = runtime.array<ArrayObject<Value>*>();
+  if (!object) return result;
+  for (const auto& key : objectKeys(object)) {
+    result->append(runtime.array<Value>({runtime.string(key), object->dynamicGet(runtime, key)}));
+  }
+  return result;
+}
+
+template <typename T>
+  requires std::is_base_of_v<DynamicValueObject, T>
+inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, T* object) {
+  return recordEntries(runtime, static_cast<DynamicValueObject*>(object));
+}
+
 inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, const Value& value) {
-  if (!value.isRecord()) return runtime.array<ArrayObject<Value>*>();
-  return recordEntries(runtime, value.record());
+  if (value.isRecord()) return recordEntries(runtime, value.record());
+  if (value.isDynamicObject()) return recordEntries(runtime, value.dynamicObject());
+  return runtime.array<ArrayObject<Value>*>();
 }
 
 template <typename Entry>
@@ -2685,11 +2899,15 @@ inline RecordObject* recordFromEntries(Runtime& runtime, const Value& entries) {
 }
 
 inline ArrayObject<std::string>* recordKeys(Runtime& runtime, const Value& value) {
-  return value.isRecord() ? recordKeys(runtime, value.record()) : runtime.array<std::string>();
+  if (value.isRecord()) return recordKeys(runtime, value.record());
+  if (value.isDynamicObject()) return recordKeys(runtime, value.dynamicObject());
+  return runtime.array<std::string>();
 }
 
 inline ArrayObject<Value>* recordValues(Runtime& runtime, const Value& value) {
-  return value.isRecord() ? recordValues(runtime, value.record()) : runtime.array<Value>();
+  if (value.isRecord()) return recordValues(runtime, value.record());
+  if (value.isDynamicObject()) return recordValues(runtime, value.dynamicObject());
+  return runtime.array<Value>();
 }
 
 inline bool numberIsInteger(const Value& value) {
@@ -3197,8 +3415,8 @@ class Process final {
   std::string cwd() const { return std::filesystem::current_path().string(); }
   [[noreturn]] void exit(double code = 0) const { std::exit(static_cast<int>(code)); }
 
-  ArrayObject<std::string>* argv;
-  RecordObject* env;
+  cppgc::Persistent<ArrayObject<std::string>> argv;
+  cppgc::Persistent<RecordObject> env;
   double exitCode = 0;
 };
 
@@ -5180,7 +5398,12 @@ inline Value unsignedShiftRight(const Value& left, const Value& right) {
 
 template <typename Target, typename Callback>
 inline Target& assignWith(Target& target, Callback&& callback) {
-  target = std::forward<Callback>(callback)(target);
+  auto result = std::forward<Callback>(callback)(target);
+  if constexpr (std::is_arithmetic_v<Target> && std::is_same_v<std::remove_cvref_t<decltype(result)>, Value>) {
+    target = static_cast<Target>(Number(result));
+  } else {
+    target = std::move(result);
+  }
   return target;
 }
 
@@ -5277,8 +5500,10 @@ struct Math final {
   static double tan(double value) { return std::tan(value); }
   static double trunc(double value) { return std::trunc(value); }
   static double pow(double base, double exponent) { return std::pow(base, exponent); }
-  static double min(double left, double right) { return std::min(left, right); }
-  static double max(double left, double right) { return std::max(left, right); }
+  template <typename Left, typename Right>
+  static double min(const Left& left, const Right& right) { return std::min(Number(left), Number(right)); }
+  template <typename Left, typename Right>
+  static double max(const Left& left, const Right& right) { return std::max(Number(left), Number(right)); }
   static double hypot(double left, double right) { return std::hypot(left, right); }
   static double random() {
     return static_cast<double>(std::rand()) / static_cast<double>(RAND_MAX);

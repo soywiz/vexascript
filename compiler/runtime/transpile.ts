@@ -15,8 +15,7 @@ import {
 } from "./emitter";
 import { lowerProgram } from "./lowering";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
-import type { Program, Statement } from "compiler/ast/ast";
-import type { Node } from "compiler/ast/ast";
+import type { Node, Program, Statement } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
 import type { SourceRange } from "compiler/parser/tokenizer";
 import {
@@ -434,11 +433,12 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
       };
     } catch (error) {
       let message: string;
-      let statement: Statement | undefined;
+      let statement: Node | undefined;
       message = String(error);
       if (error instanceof CppEmitError) statement = (error as CppEmitError).statement;
+      const range: SourceRange | undefined = statement?.firstToken?.range;
       const fatalDiagnostics: TranspileDiagnostic[] = [
-        makeDiagnostic(message, statement?.firstToken?.range, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)
+        makeDiagnostic(message, range, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)
       ];
       return {
         code: "",

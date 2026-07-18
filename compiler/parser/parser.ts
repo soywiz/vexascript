@@ -5273,7 +5273,7 @@ export class Parser {
 
         // Parse a detached token slice so unsupported declaration-file members can be
         // recovered without moving the surrounding file parser out of the namespace.
-        const bodyTokens = this.tokens.items.slice(bodyStartOffset, this.tokens.offset);
+        const bodyTokens: Token[] = this.tokens.items.slice(bodyStartOffset, this.tokens.offset);
         const nestedParser = new Parser(new ListReader(bodyTokens), { language: this.language });
         const parsed = nestedParser.parseStatement();
         const parsedBlock: BlockStatement | undefined = parsed as BlockStatement | undefined;

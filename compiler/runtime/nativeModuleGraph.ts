@@ -401,14 +401,20 @@ export async function compileNativeModuleGraph(
     for (const [identifierNode, symbolNode] of resolvedSymbols) {
       const renamed = symbolNames.get(symbolNode);
       if (renamed && identifierNode.kind === NodeKind.Identifier) {
-        (identifierNode as Identifier).name = typeNameWithRenamedBase(
-          (identifierNode as Identifier).name,
+        const identifier = identifierNode as Identifier;
+        identifier.__vexaNativeOriginalName ??= identifier.name;
+        identifier.name = typeNameWithRenamedBase(
+          identifier.name,
           typeNames
         );
       }
     }
     for (const [symbolNode, renamed] of symbolNames) {
-      if (symbolNode.kind === NodeKind.Identifier) (symbolNode as Identifier).name = renamed;
+      if (symbolNode.kind === NodeKind.Identifier) {
+        const identifier = symbolNode as Identifier;
+        identifier.__vexaNativeOriginalName ??= identifier.name;
+        identifier.name = renamed;
+      }
     }
     rewriteTypeNames(info.program, typeNames);
   }

@@ -64,8 +64,12 @@ development loop.
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
   AST fields use dynamic storage with declared-type recovery, and type-only
-  `declare` field narrowings do not create duplicate native storage. Native C++
-  compilation, execution, and roundtrips remain pending.
+  `declare` field narrowings do not create duplicate native storage.
+* [x] Compile that translation unit into a native debug executable and use it to
+  compile a minimal VexaScript program into C++; compile and run the result with
+  the expected output. The first successful native compiler run took 36.25
+  seconds in an unoptimized `-O0` debug build on 2026-07-18. Release builds,
+  profiling, caching, and complete compiler roundtrips remain pending.
 
 ## Acceptance Criteria
 
@@ -85,8 +89,8 @@ development loop.
 
 * [ ] Run progressive self-host fixtures before the full compiler roundtrip.
 * [ ] Run two complete native compiler roundtrips.
-* [ ] Run `pnpm test`.
-* [ ] Run `pnpm cli vexa testFixtures/sample.vx`.
+* [x] Run `pnpm test` (2278 tests passed on 2026-07-18).
+* [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 
 ## Related Files
 

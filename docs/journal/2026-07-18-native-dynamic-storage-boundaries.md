@@ -133,3 +133,39 @@ successfully. The profiled run took about 20.4 seconds: 0.35 seconds loading and
 parsing, 3.44 seconds module-isolation analysis, 7.15 seconds merged analysis,
 and 9.47 seconds C++ emission. Native C++ compilation and execution remain the
 next milestone.
+
+## First End-To-End Native Compiler Execution
+
+The first successful native self-host execution compiled a minimal source into
+C++, after which the ordinary native build pipeline linked and ran it with the
+expected `hello from native compiler` output. The unoptimized native compiler
+took 36.25 seconds to compile the minimal program. This establishes functional
+execution; it is not a release-performance result.
+
+The failures encountered on the path were reusable boundary problems rather
+than compiler-specific exceptions:
+
+* Optional chaining must propagate through the complete member chain. Emitting
+  only the first nullable access made `range?.start.line` dereference a null
+  `start`. Primitive results now retain `undefined` through `vexa::Value`.
+* A captured managed pointer is stored in a `cppgc::Persistent`, so `??=` must
+  recognize persistent handles as nullable storage. Pointer-only handling left
+  captured arrays null.
+* Contextual collection types must reach `new Set(...)` and related
+  constructors. Converting a fully constructed `Set<Value>` into `Set<Node*>`
+  is both inefficient and nominally invalid; construction now uses the expected
+  element type directly.
+* `Map.keys()`, `values()`, and `entries()` produce native arrays even when their
+  declaration-level iterator type is abstract. Their emitted C++ result types
+  must reflect the concrete runtime representation so `for-of` does not route
+  them through dynamic iteration.
+* Native module symbol isolation must preserve the source property name of an
+  object-binding shorthand while renaming its local binding. Interfaces also
+  need one enumerable view backed by their declared property getters.
+* Node process state must root `argv` and `env`. Values needed after an `await`
+  should also be copied into stable native values before suspension until the
+  coroutine emitter traces every live managed local across suspension points.
+
+Each language/runtime boundary above is covered in the single native language
+smoke. The full 2278-test suite and the CLI validation passed after the native
+compiler produced and executed the minimal program.

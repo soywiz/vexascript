@@ -55,7 +55,7 @@ function copyNodeBounds<T extends Node>(target: T, source: Node): T {
     });
   }
   if (source.__vexaNativeSourcePath) {
-    target.__vexaNativeSourcePath = source.__vexaNativeSourcePath;
+    (target as Node).__vexaNativeSourcePath = source.__vexaNativeSourcePath;
   }
   return target;
 }

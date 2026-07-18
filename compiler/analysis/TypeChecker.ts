@@ -1116,7 +1116,7 @@ export class TypeChecker {
                 !isUnknownType(actualGetterType) &&
                 !this.isTypeAssignable(actualGetterType, explicitType)
               ) {
-                this.reportTypeMismatch(actualGetterType, explicitType, statement.name, accessor.body);
+                this.reportTypeMismatch(actualGetterType, explicitType, statement.name);
               }
             } else if (accessor.accessorKind === "set") {
               setterType = accessor.parameters[0]
@@ -11725,10 +11725,10 @@ export class TypeChecker {
       ? this.typeFromTypeNameLoose(classStatement.extendsType.name)
       : null;
     if (!resolvedExtendsType || resolvedExtendsType.kind !== "named" || !this.classStatementsByName.has(resolvedExtendsType.name)) {
-      addIfInterface(classStatement.extendsType);
+      addIfInterface(classStatement.extendsType as Identifier);
     }
     for (const implementedType of classStatement.implementsTypes ?? []) {
-      addIfInterface(implementedType);
+      addIfInterface(implementedType as Identifier);
     }
 
     return implementedTypes;

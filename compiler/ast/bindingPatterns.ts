@@ -36,7 +36,7 @@ export function bindingElementPropertyName(element: BindingElement): string | un
     return element.propertyName.value;
   }
   if (element.name.kind === NodeKind.Identifier) {
-    return element.name.name;
+    return element.name.__vexaNativeOriginalName ?? element.name.name;
   }
   return undefined;
 }

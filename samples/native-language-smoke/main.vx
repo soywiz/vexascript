@@ -61,6 +61,26 @@ class OptionalNativeFields {
   var leaf?: Leaf = undefined
 }
 
+class InheritedOptionalNativeFields extends OptionalNativeFields {
+  constructor() {
+    super()
+  }
+}
+
+class DynamicFieldBase
+
+class DynamicFieldChild extends DynamicFieldBase {
+  var childOnly: int = 23
+
+  fun declaredAdd(value: int): int => childOnly + value
+}
+
+class DescriptorTarget(var visible: int, var hidden: int)
+
+fun optionalDescriptorVisible(target?: DescriptorTarget): any => target?.visible
+
+fun defaultFromReceiver(receiver: DynamicFieldChild, value: int = receiver.childOnly): int => value
+
 class ConstructorBase {
   constructor(public baseValue: int) {}
 }
@@ -80,11 +100,30 @@ class NativeBox<T>(val value: T) {
 
 class NativeDefaultBox<T = bigint>(val value: T)
 
+class GenericArrayHolder<T>(val items: T[])
+
+fun mutateGenericArray(holder: GenericArrayHolder<int>): int {
+  holder.items[0] = 9
+  return holder.items[0]
+}
+
 fun nativeSingleton<T>(value: T): T[] => [value]
 
 fun nativeRecursiveFirst<T>(values: T[], index: int): T {
   if (index <= 0) return values[0]
   return nativeRecursiveFirst(values, index - 1)
+}
+
+fun capturedNullishArray(): string {
+  var values: int[] | null = null
+  val getValues = (): int[] => {
+    values ??= [4]
+    return values!
+  }
+  val first = getValues()
+  val second = getValues()
+  first.push(5)
+  return `${second.length}:${second[1]}`
 }
 
 async fun nativePromised<T>(value: T): Promise<T> {
@@ -101,6 +140,19 @@ class Animal {
 
 class Dog extends Animal {
   override fun speak(): string => super.speak() + "!"
+}
+
+class Cat extends Animal {
+  override fun speak(): string => super.speak() + "?"
+}
+
+fun chooseAnimal(dog?: Dog): Animal => dog ?? Cat()
+
+fun dogSound(dog: Dog): string => dog.speak()
+
+fun narrowedAnimalSound(animal: Animal): string {
+  if (animal is Dog) return dogSound(animal)
+  return animal.speak()
 }
 
 fun render(meter: Meter): string {
@@ -241,6 +293,7 @@ val nativeReader: NativeLabeledReadable<int> = NativeReader(8, "count")
 console.log("generic interface", nativeReader.label, nativeReader.read())
 console.log("generic extension", [11, 12].nativeFirstOr(0), ["x"].nativeFirstOrElse("empty"))
 console.log("generic property", [1, 2].nativeDoubledLength, ["x"].nativeDoubledLength)
+console.log("generic array property", mutateGenericArray(GenericArrayHolder<int>([1])))
 val nativeView = NativeView(1, 2)
 nativeView.nativePoint = NativePoint(3, 4)
 console.log("extension property", nativeView.nativePoint.x, nativeView.x, nativeView.y)
@@ -248,7 +301,8 @@ val dynamicShared = [1, 2]
 val dynamicArray: any = dynamicShared
 val dynamicRestored = dynamicArray as int[]
 dynamicRestored.push(3)
-console.log("dynamic array", dynamicShared, dynamicArray, dynamicRestored)
+val dynamicSpread: int[] = [...dynamicArray]
+console.log("dynamic array", dynamicShared, dynamicArray, dynamicRestored, dynamicArray.length, dynamicSpread.join("|"))
 val dynamicCounterSource = Counter(2, "dynamic", Leaf(0))
 val dynamicCounter: any = dynamicCounterSource
 val dynamicCounterRestored = dynamicCounter as Counter
@@ -265,9 +319,29 @@ val dynamicFunctions = {
 console.log("dynamic function", dynamicFunction(4), dynamicFunctions.apply(5), dynamicFunctions.add(6))
 val optionalNativeFields = OptionalNativeFields()
 console.log("optional fields empty", optionalNativeFields.label === undefined, optionalNativeFields.leaf === undefined)
+console.log("optional chain", optionalNativeFields.leaf?.value ?? 0)
+console.log("captured nullish array", capturedNullishArray())
 optionalNativeFields.label = "ready"
 optionalNativeFields.leaf = Leaf(18)
 console.log("optional fields set", optionalNativeFields.label, optionalNativeFields.leaf.value)
+val inheritedOptionalNativeFields = InheritedOptionalNativeFields()
+inheritedOptionalNativeFields.leaf = Leaf(19)
+console.log("optional fields inherited", inheritedOptionalNativeFields.leaf.value)
+val dynamicFieldBase: DynamicFieldBase = DynamicFieldChild()
+console.log("dynamic inherited field", "childOnly" in dynamicFieldBase, (dynamicFieldBase as any).childOnly)
+val enumerableDynamicChild = DynamicFieldChild()
+var enumerableDynamicKeys = ""
+for (val dynamicKey in enumerableDynamicChild) enumerableDynamicKeys += dynamicKey + "|"
+val spreadDynamicChild = { ...enumerableDynamicChild }
+var reverseDynamicTotal = 0
+for (var reverseIndex = [2, 3, 4].length - 1; reverseIndex >= 0; reverseIndex -= 1) reverseDynamicTotal += reverseIndex
+console.log("dynamic class enumeration", enumerableDynamicKeys, spreadDynamicChild.childOnly, defaultFromReceiver(enumerableDynamicChild), reverseDynamicTotal)
+val openDynamicChild: any = enumerableDynamicChild
+openDynamicChild.extra = 29
+openDynamicChild.callback = (value: int) => value + 30
+val openDynamicBeforeDelete = "extra" in openDynamicChild
+val openDynamicRemoved = delete openDynamicChild.extra
+console.log("dynamic class fallback", openDynamicChild.declaredAdd(2), openDynamicChild.callback(3), openDynamicBeforeDelete, openDynamicRemoved, "extra" in openDynamicChild)
 val optionalDynamicFunctions: any = { callback: undefined }
 optionalDynamicFunctions.callback?.()
 optionalDynamicFunctions.callback = () => console.log("optional dynamic call", "called")
@@ -302,7 +376,8 @@ for (val { value: int } of [{ value: 5 }, { value: 6 }]) destructuredLoopTotal +
 console.log("loop destructuring", destructuredLoopTotal)
 
 val counter: Meter = Counter(1, "cpu", Leaf(9))
-console.log("interface", render(counter), counter.add(3))
+val { value } = counter
+console.log("interface", render(counter), counter.add(3), value)
 
 val greeters: Greeter[] = [English("Ada"), Spanish("Luz")]
 console.log("dispatch", greet(greeters[0], "Hello"), greet(greeters[1], "Hola"))
@@ -315,9 +390,14 @@ val indexed = box[4]
 box[2] = 8
 console.log("operators", box.value, negative.value, less, indexed)
 console.log("inheritance", Dog().speak())
+val conditionalAnimal = true ? Dog() : Cat()
+console.log("conditional base", conditionalAnimal.speak())
+console.log("nullish base", chooseAnimal().speak(), chooseAnimal(Dog()).speak())
 val checkedDog = Dog()
 val dynamicDog: any = checkedDog
-console.log("type checks", checkedDog is Dog, checkedDog instanceof Animal, dynamicDog is Animal)
+val animalReference: Animal = checkedDog
+val recastDog = animalReference as Dog
+console.log("type checks", checkedDog is Dog, checkedDog instanceof Animal, dynamicDog is Animal, recastDog.speak(), narrowedAnimalSound(checkedDog))
 
 val shared: Scores = [1, 2]
 val firstBag = Bag(shared)
@@ -417,6 +497,9 @@ val nativeWeakSet = new WeakSet<Leaf>()
 nativeWeakMap.set(nativeWeakKey, "stored")
 nativeWeakSet.add(nativeWeakKey)
 console.log("weak collections", nativeWeakMap.get(nativeWeakKey), nativeWeakMap.has(nativeWeakKey), nativeWeakSet.has(nativeWeakKey), nativeWeakMap.delete(nativeWeakKey), nativeWeakSet.delete(nativeWeakKey))
+val nativeLeafMap = new Map<string, Leaf>()
+nativeLeafMap.set("leaf", Leaf(31))
+console.log("typed map object", nativeLeafMap.get("leaf")?.value, nativeLeafMap.get("missing")?.value)
 
 val nativeEpoch = new Date(0)
 val nativeLater = new Date(1000)
@@ -437,6 +520,20 @@ console.log("binary float", nativeFloatView.getFloat64(0, true))
 val mixed = [1, "two", true]
 mixed.push("three")
 console.log("mixed", mixed.includes("two"), mixed.indexOf(true), mixed.join("|"))
+
+val descriptorTarget = DescriptorTarget(1, 2)
+Object.defineProperty(descriptorTarget, "hidden", {
+  value: 7,
+  enumerable: false,
+  writable: true,
+  configurable: true
+})
+val structuralFields = descriptorTarget as unknown as Record<string, unknown>
+structuralFields["visible"] = 4
+var structuralKeys = ""
+for (val fieldKey in structuralFields) structuralKeys += fieldKey
+val structuralVisible = (descriptorTarget as { visible?: int }).visible
+console.log("define property", descriptorTarget.hidden, Object.keys(descriptorTarget).join("|"), structuralVisible, structuralKeys, optionalDescriptorVisible(descriptorTarget), optionalDescriptorVisible())
 
 val key = "score"
 val base = { name: "Ada", stale: true }
