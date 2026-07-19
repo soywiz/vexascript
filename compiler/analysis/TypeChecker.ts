@@ -94,6 +94,7 @@ import type {
   SelectedCallResolution,
   Scope
 } from "./model";
+import { resolveScopeSymbol } from "./model";
 import {
   type AnalysisType,
   type ArrayType,
@@ -9254,23 +9255,7 @@ export class TypeChecker {
     scope: Scope,
     usageOffset: number | undefined
   ): AnalysisSymbol | null {
-    let current: Scope | undefined = scope;
-    while (current) {
-      const symbol = current.symbols.get(name);
-      if (symbol) {
-        if (!current.parent) {
-          return symbol;
-        }
-        if (symbol.implicitReceiver === true) {
-          return symbol;
-        }
-        if (usageOffset === undefined || symbol.declaredOffset < 0 || symbol.declaredOffset <= usageOffset) {
-          return symbol;
-        }
-      }
-      current = current.parent;
-    }
-    return null;
+    return resolveScopeSymbol(name, scope, usageOffset);
   }
 
   private resolveIdentifierType(

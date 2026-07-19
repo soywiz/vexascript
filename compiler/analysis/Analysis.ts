@@ -1,6 +1,6 @@
 import { NodeKind } from "compiler/ast/ast";
 import type { BinaryExpression, Identifier, ImportStatement, JsxAttribute, MemberExpression, Node, Program, Statement } from "compiler/ast/ast";
-import { walkAst } from "compiler/ast/traversal";
+import { childNodes, walkAst } from "compiler/ast/traversal";
 import { Binder } from "./Binder";
 import type {
   AnalysisIssue,
@@ -15,6 +15,7 @@ import type {
 import { TypeChecker } from "./TypeChecker";
 import { type AnalysisType, typeToString } from "./types";
 import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
+import { resolveScopeSymbol, type BoundAnalysis } from "./model";
 
 export type { AnalysisIssue, AnalysisSymbol, AnalysisSymbolKind, AnalysisValueType } from "./model";
 
@@ -84,11 +85,34 @@ export interface AnalysisOptions {
    * Defaults to true.
    */
   checkTypes?: boolean;
+  /**
+   * Populate type-driven emitter metadata. Dynamic native bootstrap builds may
+   * disable this after binding and rely on conservative lowering instead.
+   * Defaults to true.
+   */
+  inferTypes?: boolean;
 }
 
 export interface AnalysisProfileEvent {
   phase: "binding" | "type-inference" | "type-checking";
   elapsedMs: number;
+}
+
+function collectBoundImplicitReceiverResolutions(
+  node: Node,
+  inheritedScope: Scope,
+  bound: BoundAnalysis,
+  resolutions: IdentifierResolution[]
+): void {
+  const scope = bound.scopeByNode.get(node) ?? inheritedScope;
+  if (node.kind === NodeKind.Identifier) {
+    const identifier = node as Identifier;
+    const symbol = resolveScopeSymbol(identifier.name, scope, identifier.firstToken?.range.start.offset);
+    if (symbol?.implicitReceiver === true) resolutions.push({ identifier, symbol });
+  }
+  for (const child of childNodes(node)) {
+    collectBoundImplicitReceiverResolutions(child, scope, bound, resolutions);
+  }
 }
 
 export class Analysis {
@@ -120,6 +144,22 @@ export class Analysis {
     ).bind();
     options.profile?.({ phase: "binding", elapsedMs: Date.now() - phaseStartedAt });
     this.rootScope = bound.rootScope;
+
+    if (options.inferTypes === false) {
+      options.profile?.({ phase: "type-inference", elapsedMs: 0 });
+      this.issues = [...bound.issues];
+      const identifierResolutions: IdentifierResolution[] = [];
+      collectBoundImplicitReceiverResolutions(program, bound.rootScope, bound, identifierResolutions);
+      this.identifierResolutions = identifierResolutions;
+      this.jsxAttributeResolutions = [];
+      this.operatorResolutions = [];
+      this.extensionPropertyResolutions = [];
+      this.expressionTypes = new Map();
+      this.selectedCallResolutions = [];
+      this.autoAwaitExpressions = new Set();
+      this.asyncForStatements = new Set();
+      return;
+    }
 
     phaseStartedAt = Date.now();
     const validateTypes = options.checkTypes ?? true;

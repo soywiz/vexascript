@@ -21,6 +21,8 @@ export interface ModuleGraphOptions {
   globalSymbols?: GlobalSymbolSourceOptions;
   /** Forwarded to transpilation; false keeps semantic metadata but does not fail emission. */
   typeCheck?: boolean;
+  /** Populate type-driven emitter metadata; false selects conservative dynamic lowering. */
+  inferTypes?: boolean;
   /** Root used to resolve TypeScript-style non-relative source imports. */
   baseUrl?: string;
   /** Optional phase timing sink used by benchmarks and Node-only CLI profiling. */

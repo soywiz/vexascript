@@ -51,6 +51,25 @@ export interface BoundAnalysis {
   issues: AnalysisIssue[];
 }
 
+export function resolveScopeSymbol(
+  name: string,
+  scope: Scope,
+  usageOffset: number | undefined
+): AnalysisSymbol | null {
+  let current: Scope | undefined = scope;
+  while (current) {
+    const symbol = current.symbols.get(name);
+    if (symbol) {
+      if (!current.parent || symbol.implicitReceiver === true || usageOffset === undefined ||
+          symbol.declaredOffset < 0 || symbol.declaredOffset <= usageOffset) {
+        return symbol;
+      }
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
 export interface IdentifierResolution {
   identifier: Identifier;
   symbol: AnalysisSymbol;

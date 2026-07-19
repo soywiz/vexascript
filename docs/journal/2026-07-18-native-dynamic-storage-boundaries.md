@@ -254,6 +254,52 @@ but a known generated object pointer calls its virtual `dynamicGet` or
 a runtime argument. This keeps the generic boundary available without routing
 nominal objects through it.
 
+## Dynamic Self-Host Emission And Callback Boundaries
+
+The first attempt to make the native compiler emit without type inference
+appeared to hang while generating its own C++. The cause was not binding or
+Oilpan: dynamic binary emission eagerly emitted both operands before checking
+whether an operator had a runtime helper. Logical `||` and `&&` have dedicated
+short-circuit emission, so their operands were emitted once by the failed
+dynamic-helper attempt and again by the real logical path. A left-deep logical
+chain therefore grew exponentially. Checking for a concrete helper before
+emitting either operand reduced full compiler C++ generation under Node to
+about 1.9 seconds without inference and 2.9 seconds with inference.
+
+Generating the bootstrap itself without inference was a misleading dead end.
+That output correctly used dynamic operations everywhere, but the current C++
+representation still needs analyzed storage types while compiling the emitter.
+The durable bootstrap boundary is: Node performs one fully analyzed emission;
+the resulting native compiler requests `inferTypes: false` when it produces the
+next generation. This lets the bootstrap compile statically while exercising
+the dynamic-first emitter in every native roundtrip.
+
+Disabling inference also exposed a distinction that the inferred path had
+hidden: the semantic type of `left + right` may be `int`, while the dynamic
+helper actually emits `vexa::Value`. Caches now keep those concepts separate.
+Conversions happen at constructor arguments, typed array elements, callable
+returns, and other declared boundaries. A boxed callable also passes its chosen
+`FunctionObject<Result, Args...>` signature back into lambda emission, so the
+lambda and its wrapper cannot disagree. Array callbacks reuse the same
+contextual parameter and return types; `reduce` additionally supplies its
+accumulator type.
+
+Dynamic operator overloads use the existing virtual property protocol rather
+than adding a parallel invocation interface. Generated classes expose operator
+closures through reserved dynamic keys, and runtime arithmetic, comparison,
+and computed-index helpers call those closures. Ordinary dynamic properties
+continue to fall back to the nullable record stored by `DynamicValueObject`.
+The language smoke consequently covers the same overloaded `+`, unary `-`,
+spaceship comparison, `[]`, and `[]=` operations in both analyzed and
+inference-free native emission.
+
+After these fixes, the inference-free native compiler generated the complete
+language smoke in about 9.4 seconds, its C++ compiled at `-O0 -DNDEBUG`, and the
+executable output matched `expected.native.txt` exactly. The generated compiler
+bootstrap itself compiled in about 17.3 seconds. These measurements keep both
+generation and C++ compilation comfortably below the two-minute iteration
+budget before the larger self-roundtrip is attempted.
+
 Several analysis APIs still described concrete AST nodes as structural
 intersections such as `Node & { kind: NodeKind.JsxAttribute; name: string }`.
 Those types prevented the native emitter from seeing the concrete class even

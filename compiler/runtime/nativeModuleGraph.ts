@@ -624,6 +624,7 @@ export async function compileNativeModuleGraph(
   const compilationArtifacts = compileParsedSource({ ...entryParsed, ast: mergedProgram }, {
     ambientDeclarations: options.ambientDeclarations ?? [],
     checkTypes: options.typeCheck ?? true,
+    inferTypes: options.inferTypes ?? true,
     profile: (event) => options.profile?.({
       phase: `merged-${event.phase}`,
       elapsedMs: event.elapsedMs,

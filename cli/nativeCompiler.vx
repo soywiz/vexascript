@@ -38,6 +38,7 @@ sync fun compileNativeGeneration() {
     vfs: NativeCompilerVfs(),
     baseUrl,
     typeCheck: false,
+    inferTypes: false,
     profile: (event: ModuleGraphProfileEvent) => {
       if (profileEnabled) console.error(`[profile] ${event.phase}: ${event.elapsedMs} ms (${event.moduleCount} modules)`)
     },

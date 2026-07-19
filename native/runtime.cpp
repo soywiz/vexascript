@@ -1705,6 +1705,11 @@ inline DynamicIterationRange dynamicIterationRange(Runtime& runtime, ArrayObject
 }
 
 template <typename T>
+inline std::vector<T> dynamicIterationRange(Runtime&, std::vector<T> value) {
+  return value;
+}
+
+template <typename T>
 inline DynamicIterationRange dynamicIterationRange(Runtime& runtime, const cppgc::Member<T>& value) {
   return dynamicIterationRange(runtime, Value(value.Get()));
 }
@@ -2833,6 +2838,17 @@ inline Value callOptional(Runtime& runtime, const Value& callable, std::vector<V
   return call(runtime, callable, std::move(arguments));
 }
 
+inline std::optional<Value> callDynamicOperator(
+    Runtime& runtime,
+    const Value& receiver,
+    const PropertyKey& operatorKey,
+    std::vector<Value> arguments = {}) {
+  if (!receiver.isDynamicObject()) return std::nullopt;
+  const Value callable = receiver.dynamicObject()->dynamicGet(operatorKey);
+  if (callable.isUndefined()) return std::nullopt;
+  return call(runtime, callable, std::move(arguments));
+}
+
 template <typename Result>
 Result recordGet(Runtime& runtime, RecordObject* record, const std::string& key) {
   if (!record) throw std::runtime_error("Cannot read a property of null");
@@ -3067,6 +3083,39 @@ template <typename T>
 inline Value dynamicSet(T* target, const PropertyKey& key, const Value& value) {
   if (!target) throw std::runtime_error("Cannot set a property on null");
   return target->dynamicSet(key, value);
+}
+
+inline Value dynamicIndexArgument(Runtime& runtime, const PropertyKey& key) {
+  if (const auto index = propertyIndex(key)) return Value(static_cast<double>(*index));
+  return runtime.string(key);
+}
+
+template <typename Target>
+inline Value dynamicIndexGet(Target&& target, const PropertyKey& key) {
+  auto& runtime = currentRuntime();
+  const Value receiver = convertValue<Value>(std::forward<Target>(target));
+  if (const auto result = callDynamicOperator(
+        runtime,
+        receiver,
+        u"__vexa_operator:[]",
+        {dynamicIndexArgument(runtime, key)})) {
+    return *result;
+  }
+  return dynamicGet(receiver, key);
+}
+
+template <typename Target>
+inline Value dynamicIndexSet(Target&& target, const PropertyKey& key, const Value& value) {
+  auto& runtime = currentRuntime();
+  const Value receiver = convertValue<Value>(std::forward<Target>(target));
+  if (const auto result = callDynamicOperator(
+        runtime,
+        receiver,
+        u"__vexa_operator:[]=",
+        {dynamicIndexArgument(runtime, key), value})) {
+    return *result;
+  }
+  return dynamicSet(receiver, key, value);
 }
 
 inline bool dynamicDelete(const Value& target, const PropertyKey& key) {
@@ -5772,6 +5821,9 @@ template <typename Left, typename Right>
 inline Value add(Runtime& runtime, Left&& leftInput, Right&& rightInput) {
   const Value left = convertValue<Value>(std::forward<Left>(leftInput));
   const Value right = convertValue<Value>(std::forward<Right>(rightInput));
+  if (const auto result = callDynamicOperator(runtime, left, u"__vexa_operator:+", {right})) {
+    return *result;
+  }
   if (left.isString() || right.isString()) {
     return runtime.string(toString(left) + toString(right));
   }
@@ -5797,6 +5849,9 @@ inline void requireMatchingBigInts(const Value& left, const Value& right) {
 }
 
 inline Value subtract(const Value& left, const Value& right) {
+  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:-", {right})) {
+    return *result;
+  }
   requireMatchingBigInts(left, right);
   return left.isBigInt()
       ? Value(left.bigint() - right.bigint())
@@ -5804,6 +5859,9 @@ inline Value subtract(const Value& left, const Value& right) {
 }
 
 inline Value multiply(const Value& left, const Value& right) {
+  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:*", {right})) {
+    return *result;
+  }
   requireMatchingBigInts(left, right);
   return left.isBigInt()
       ? Value(left.bigint() * right.bigint())
@@ -5811,6 +5869,9 @@ inline Value multiply(const Value& left, const Value& right) {
 }
 
 inline Value divide(const Value& left, const Value& right) {
+  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:/", {right})) {
+    return *result;
+  }
   requireMatchingBigInts(left, right);
   return left.isBigInt()
       ? Value(left.bigint() / right.bigint())
@@ -5818,6 +5879,9 @@ inline Value divide(const Value& left, const Value& right) {
 }
 
 inline Value power(const Value& left, const Value& right) {
+  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:**", {right})) {
+    return *result;
+  }
   requireMatchingBigInts(left, right);
   return left.isBigInt()
       ? Value(vexa::pow(left.bigint(), right.bigint()))
@@ -5825,6 +5889,9 @@ inline Value power(const Value& left, const Value& right) {
 }
 
 inline Value negate(const Value& value) {
+  if (const auto result = callDynamicOperator(currentRuntime(), value, u"__vexa_operator:-")) {
+    return *result;
+  }
   return value.isBigInt() ? Value(-value.bigint()) : Value(-Number(value));
 }
 
@@ -5890,6 +5957,17 @@ inline std::int32_t compare(const Left& left, const Right& right) {
 }
 
 inline std::int32_t compare(const Value& left, const Value& right) {
+  if (const auto result = callDynamicOperator(
+        currentRuntime(), left, u"__vexa_operator:<=>", {right})) {
+    return convertValue<std::int32_t>(*result);
+  }
+  if (left.isDynamicObject() && right.isDynamicObject()) {
+    auto* leftDate = static_cast<DateObject*>(
+      left.dynamicObject()->dynamicCast(nativeTypeToken<DateObject>()));
+    auto* rightDate = static_cast<DateObject*>(
+      right.dynamicObject()->dynamicCast(nativeTypeToken<DateObject>()));
+    if (leftDate && rightDate) return compare(leftDate->getTime(), rightDate->getTime());
+  }
   if (left.isString() && right.isString()) {
     return compare(left.utf16(), right.utf16());
   }
