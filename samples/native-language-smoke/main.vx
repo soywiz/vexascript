@@ -142,6 +142,26 @@ fun capturedNullishArray(): string {
   return `${second.length}:${second[1]}`
 }
 
+fun scopedResult<T>(action: () => T): T {
+  try {
+    return action()
+  } finally {
+  }
+}
+
+fun scopedVoid(action: () => void) {
+  try {
+    action()
+  } finally {
+  }
+}
+
+fun scopedCallbackSemantics(): string {
+  var value = 1
+  scopedVoid(() => { value += 1 })
+  return scopedResult(() => `${value}:ok`)
+}
+
 async fun nativePromised<T>(value: T): Promise<T> {
   return value
 }
@@ -361,6 +381,9 @@ val optionalNativeFields = OptionalNativeFields()
 console.log("optional fields empty", optionalNativeFields.label === undefined, optionalNativeFields.leaf === undefined)
 console.log("optional chain", optionalNativeFields.leaf?.value ?? 0)
 console.log("captured nullish array", capturedNullishArray())
+console.log("scoped callback result", scopedCallbackSemantics())
+val embeddedNull = "a\u0000b"
+console.log("embedded null", embeddedNull.length, embeddedNull.charCodeAt(1), embeddedNull.charCodeAt(2))
 optionalNativeFields.label = "ready"
 optionalNativeFields.leaf = Leaf(18)
 console.log("optional fields set", optionalNativeFields.label, optionalNativeFields.leaf.value)

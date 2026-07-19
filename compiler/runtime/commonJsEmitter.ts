@@ -96,9 +96,13 @@ export function emitCommonJsExportStatement(exportStatement: ExportStatement, co
   if (runtimeBindings.length === 0) {
     return emitted;
   }
+  const runtimeExportLines: string[] = [];
+  for (const binding of runtimeBindings) {
+    runtimeExportLines.push(`exports.${binding.exportedName} = ${binding.valueExpression};`);
+  }
   return [
     emitted,
-    ...runtimeBindings.map(({ exportedName, valueExpression }) => `exports.${exportedName} = ${valueExpression};`)
+    ...runtimeExportLines
   ].join("\n");
 }
 
@@ -143,18 +147,19 @@ export function emitCommonJsImportStatement(importStatement: ImportStatement, co
   const hadOperatorImport = importStatement.specifiers.some((specifier) => context.isOperatorImportName(specifier.imported.name));
   const lines: string[] = [];
   const requiresModuleObject = importStatement.defaultImport !== undefined || importStatement.namespaceImport !== undefined;
-  const moduleObject = requiresModuleObject ? context.nextGeneratedSymbol("__vexa_import") : null;
-  if (moduleObject) {
+  let moduleObject = "";
+  if (requiresModuleObject) {
+    moduleObject = context.nextGeneratedSymbol("__vexa_import");
     lines.push(`const ${moduleObject} = require(${source});`);
   }
   if (importStatement.defaultImport) {
-    lines.push(`const ${importStatement.defaultImport.name} = ${context.defaultRequireBinding(moduleObject!)};`);
+    lines.push(`const ${importStatement.defaultImport.name} = ${context.defaultRequireBinding(moduleObject)};`);
   }
   if (importStatement.namespaceImport) {
-    lines.push(`const ${importStatement.namespaceImport.name} = ${moduleObject!};`);
+    lines.push(`const ${importStatement.namespaceImport.name} = ${moduleObject};`);
   }
   if (namedImports.length > 0) {
-    const bindingTarget = moduleObject ?? `require(${source})`;
+    const bindingTarget = moduleObject.length > 0 ? moduleObject : `require(${source})`;
     lines.push(`const { ${namedImports.map(context.esmImportBindingToCommonJs).join(", ")} } = ${bindingTarget};`);
   }
   if (lines.length === 0) {

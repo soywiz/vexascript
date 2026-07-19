@@ -61,8 +61,12 @@ development loop.
   mismatch. Declared top-level callback returns, array `join`, and console
   boxing are now independent of host-specific semantic-map precision. Sorting
   the complete literal set before assigning pool indices removed incidental
-  traversal-order cascades and exposed 419 real diff hunks. The current native
-  `-O1` compiler emits the next full translation unit in 26.84 seconds.
+  traversal-order cascades and exposed 419 real diff hunks. Returning values
+  explicitly from scoped callbacks fixed native loss of generic method
+  signatures and function-expression types; making embedded-NUL literals
+  length-aware fixed another host divergence. The current comparison has 45
+  context diff hunks. Node emits the checked translation unit in 6.43 seconds;
+  the `-O1` native compiler emits it in 35.55 seconds.
 * [x] Introduce the JavaScript/TypeScript side of a complete nominal AST
   migration: concrete AST node classes with typed positional constructors, a
   shared metadata base, numeric `const enum` discriminators, and native
@@ -89,7 +93,9 @@ development loop.
   -DNDEBUG` 27.36 seconds before the nominal-type checkpoint and 33.08 seconds
   after it. Compiling the generated translation unit took 110.14–119.28
   seconds at `-O1`; `-O3` took 146.72 seconds to compile and 27.45 seconds to
-  execute, so it provided no useful runtime improvement.
+  execute, so it provided no useful runtime improvement. The latest parity
+  checkpoint takes 112.70 seconds to compile at `-O1` and 35.55 seconds to
+  execute a checked generation.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -119,9 +125,12 @@ development loop.
 
 ## Tests
 
-* [ ] Run progressive self-host fixtures before the full compiler roundtrip.
+* [x] Run progressive self-host fixtures before the full compiler roundtrip.
+  The semantic collections fixture verifies checked `Array.push` and `Map.get`
+  signatures under both hosts, and the unified native smoke covers scoped
+  generic callback results and embedded NUL code units.
 * [ ] Run two complete native compiler roundtrips.
-* [x] Run `pnpm test` (2278 tests passed on 2026-07-18).
+* [x] Run `pnpm test` (2306 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 
 ## Related Files

@@ -36,10 +36,14 @@ export interface Scope {
   children: Scope[];
 }
 
+export class FlowLabel {
+  constructor(public name: string, public allowsContinue: boolean) {}
+}
+
 export interface FlowContext {
   loopDepth: number;
   switchDepth: number;
-  labels?: Array<{ name: string; allowsContinue: boolean }>;
+  labels?: FlowLabel[];
   expectedReturnType?: AnalysisType;
   inAsync?: boolean;
   inGenerator?: boolean;

@@ -95,3 +95,40 @@ comparison from 1,113 index-cascaded diff hunks to 419 real code-generation
 differences. The remaining first differences are concrete conversion and
 static-versus-dynamic decisions, so further parity work can address causes
 without reading through thousands of shifted literal references.
+
+## Scoped callback results must cross the callback boundary
+
+The native host incorrectly reported that `Array.push` and `Map.get` accepted
+zero arguments. `collectInterfaceMembersInto` initialized a method type outside
+`withTypeParameters`, then assigned the real signature inside its callback.
+The generated C++ callback captured the outer local by value, so the assignment
+never reached the caller. The same pattern also lost arrow- and function-
+expression results inside nested async, sync, and generator scopes.
+
+Scoped helpers now have separate void and result-returning forms. Callers that
+need a value return it from the callback instead of relying on mutation of a
+captured local. The migration covered interface overloads, constructors, type
+aliases, class methods, generic constraints, and function expressions. A
+checked collections fixture now produces byte-identical C++ under Node and the
+native compiler, and the unified native smoke exercises both result-returning
+and mutating callbacks.
+
+This work exposed a second checked-cast failure in generic substitution. A
+nullish fallback combined an arbitrary default `AnalysisType` with a
+`NamedType`, causing emission to force the whole expression to `NamedType*`.
+Making the common `AnalysisType` result explicit removed the invalid native
+cast and allowed the full checked compiler graph to complete again.
+
+## Embedded NUL literals require an explicit length
+
+The native host represented `"\u0000"` as an empty string because generated
+`Text(u"\0")` construction used the null-terminated pointer overload. Literal
+emission now passes a UTF-16 `string_view` with its code-unit length, and pooled
+UTF-8 initialization passes an explicit byte count. The smoke verifies that
+`"a\u0000b"` has length three and preserves the code units after the NUL.
+
+After these fixes and small source-side nominal typing improvements, the full
+checked comparison fell from 419 real diff hunks to 45 context hunks. The
+latest Node generation took 6.43 seconds, native `-O1` compilation took 112.70
+seconds, and the native checked generation took 35.55 seconds. Exact output
+parity and the second byte-identical native roundtrip remain pending.

@@ -230,7 +230,7 @@ export class Command {
 
   private exitWithHelp(): never {
     this.outputHelp();
-    process.exit(0);
+    process.exit(0.0);
   }
 
   private matchingOption(token: string): CommandOption | undefined {
@@ -298,7 +298,7 @@ export class Command {
     }
     if ((tokens[0] === "--version" || tokens[0] === "-V") && root.versionValue !== undefined) {
       console.log(root.versionValue);
-      process.exit(0);
+      process.exit(0.0);
     }
     if (tokens.length === 0 || tokens[0] === "--help" || tokens[0] === "-h") {
       root.outputHelp();

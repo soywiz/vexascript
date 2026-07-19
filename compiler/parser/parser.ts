@@ -2048,7 +2048,7 @@ export class Parser {
 
     private parseArrayLiteral(): ArrayLiteral {
         const startToken = this.getLastReadToken();
-        const elements: ArrayLiteral["elements"] = [];
+        const elements: Expr[] = [];
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
@@ -4384,7 +4384,7 @@ export class Parser {
 
     private parseArrayBindingPattern(): ArrayBindingPattern {
         const open = this.tokens.read();
-        const elements: ArrayBindingPattern["elements"] = [];
+        const elements: (BindingElement | BindingHole)[] = [];
         while (this.tokens.hasMore && !(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]")) {
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",") {
                 const comma = this.tokens.read();

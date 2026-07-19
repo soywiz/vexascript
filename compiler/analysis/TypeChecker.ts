@@ -94,7 +94,7 @@ import type {
   SelectedCallResolution,
   Scope
 } from "./model";
-import { resolveScopeSymbol } from "./model";
+import { FlowLabel, resolveScopeSymbol } from "./model";
 import {
   type AnalysisType,
   type ArrayType,
@@ -172,10 +172,6 @@ function typeParameterNameList(typeParameters: readonly TypeParameter[]): string
     names.push(typeParameter.name.name);
   }
   return names;
-}
-
-function emptyFunctionTypeParameters(): FunctionTypeParameter[] {
-  return [];
 }
 
 export interface SourcePosition {
@@ -733,7 +729,7 @@ export class TypeChecker {
         }
         const labels = [
           ...(flow.labels ?? []),
-          { name: labeled.label.name, allowsContinue: statementAllowsLabeledContinue(labeled.body) }
+          new FlowLabel(labeled.label.name, statementAllowsLabeledContinue(labeled.body))
         ];
         this.visitStatement(labeled.body, scope, { ...flow, labels });
         return;
@@ -3229,16 +3225,15 @@ export class TypeChecker {
       case NodeKind.ArrowFunctionExpression: {
         const arrow = expression as ArrowFunctionExpression;
         const arrowIsAsyncLike = isAsyncLike(arrow.async, arrow.sync);
-        this.withGeneratorFunction(false, () => {
-          this.withSyncFunction(arrow.sync === true, () => {
-            this.withAsyncLikeFunction(arrowIsAsyncLike, () => {
+        result = this.withGeneratorFunction(false, () =>
+          this.withSyncFunction(arrow.sync === true, () =>
+            this.withAsyncLikeFunction(arrowIsAsyncLike, (): AnalysisType => {
           const expectedFunctionType = this.contextualFunctionTypeForExpression(
             this.contextualFunctionExpectedType(expectedType),
             scope
           );
           if (arrow.contextualObjectLiteral && expectedType && !expectedFunctionType) {
-            result = this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
-            return;
+            return this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
           }
           const arrowScope = this.createFunctionLikeExpressionScope(scope, arrow, arrow.parameters, expectedFunctionType);
           let returnType: AnalysisType;
@@ -3287,22 +3282,24 @@ export class TypeChecker {
               returnType = expectedFunctionType.returnType;
             }
           }
-          result = this.buildFunctionType(
+          return this.buildFunctionType(
             arrow.parameters,
             returnType,
             arrowScope,
             [] as TypeParameter[],
             arrow.returnType?.name
           );
-            });
-          });
-        });
+            })
+          )
+        );
         break;
       }
       case NodeKind.FunctionExpression: {
         const fn = expression as FunctionExpression;
         const fnIsAsyncLike = isAsyncLike(fn.async, fn.sync);
-        this.withGeneratorFunction(fn.generator === true, () => this.withSyncFunction(fn.sync === true, () => this.withAsyncLikeFunction(fnIsAsyncLike, () => {
+        result = this.withGeneratorFunction(fn.generator === true, () =>
+          this.withSyncFunction(fn.sync === true, () =>
+            this.withAsyncLikeFunction(fnIsAsyncLike, (): AnalysisType => {
           const expectedFunctionType = this.contextualFunctionTypeForExpression(
             this.contextualFunctionExpectedType(expectedType),
             scope
@@ -3340,14 +3337,16 @@ export class TypeChecker {
             fn.generator === true
           );
           this.reportMissingReturnPath(fn.body, returnType, diagnosticNode, fnIsAsyncLike, fn.generator === true);
-          result = this.buildFunctionType(
+          return this.buildFunctionType(
             fn.parameters,
             returnType,
             functionScope,
             [] as TypeParameter[],
             fn.returnType?.name
           );
-        })));
+            })
+          )
+        );
         break;
       }
       case NodeKind.Identifier:
@@ -5364,10 +5363,10 @@ export class TypeChecker {
 
     for (const typeParameter of typeParameters) {
       if (!substitutions.has(typeParameter)) {
-        substitutions.set(
-          typeParameter,
-          calleeType.typeParameterDefaults?.[typeParameter] ?? namedType(typeParameter)
-        );
+        const defaultType = calleeType.typeParameterDefaults?.[typeParameter];
+        let resolvedType: AnalysisType = namedType(typeParameter);
+        if (defaultType !== undefined) resolvedType = defaultType;
+        substitutions.set(typeParameter, resolvedType);
       }
     }
     if (resolveDependentSubstitutions) {
@@ -5975,8 +5974,7 @@ export class TypeChecker {
     if (!substitutions) {
       return true;
     }
-    let satisfies = true;
-    this.withTypeParameters(typeParameters, () => {
+    return this.withTypeParametersResult(typeParameters, () => {
       for (const typeParameter of typeParameters) {
         const constraint = constraints[typeParameter];
         const typeArgument = substitutions.get(typeParameter);
@@ -5989,12 +5987,11 @@ export class TypeChecker {
         const substitutedConstraint = this.substituteTypeParameters(constraint, substitutions);
         const assignable = this.isTypeAssignable(typeArgument, substitutedConstraint);
         if (!assignable) {
-          satisfies = false;
-          return;
+          return false;
         }
       }
+      return true;
     }, constraints);
-    return satisfies;
   }
 
 
@@ -6040,7 +6037,9 @@ export class TypeChecker {
       return [type];
     }
     if (type.kind === "intersection") {
-      return type.types.flatMap((member) => this.callableCandidatesFrom(member));
+      const candidates: FunctionType[] = [];
+      for (const member of type.types) candidates.push(...this.callableCandidatesFrom(member));
+      return candidates;
     }
     if (type.kind === "named") {
       const expanded = this.expandTypeAliases(this.normalizeLooseNamedType(type));
@@ -6244,9 +6243,8 @@ export class TypeChecker {
       const methodMember = interfaceMember as InterfaceMethodMember;
 
       const methodTypeParameterNames = typeParameterNameList(methodMember.typeParameters ?? []);
-      const availableTypeParameterNames = [...substitutions.keys(), ...methodTypeParameterNames];
-      let methodType: FunctionType = functionType(emptyFunctionTypeParameters(), builtinType("void"));
-      this.withTypeParameters(methodTypeParameterNames, () => {
+      const availableTypeParameterNames: string[] = [...substitutions.keys(), ...methodTypeParameterNames];
+      const methodType = this.withTypeParametersResult(methodTypeParameterNames, (): FunctionType => {
         const methodParameters: FunctionTypeParameter[] = [];
         for (const parameter of methodMember.parameters) {
           if (parameter.thisParameter === true) continue;
@@ -6261,7 +6259,7 @@ export class TypeChecker {
             rest: parameter.rest === true
           });
         }
-        methodType = functionType(
+        return functionType(
           methodParameters,
           this.typeFromAnnotationLooseWithTypeParameters(
             methodMember.returnType,
@@ -6844,10 +6842,9 @@ export class TypeChecker {
       constructorType = this.substituteTypeParameters(constructorType, substitutions) as FunctionType;
     }
 
-    let argumentTypes: AnalysisType[] = [];
-    this.withTypeParameters(typeParameterNames, () => {
-      argumentTypes = this.visitConstructorArgumentsWithContext(newExpression, scope, constructorType);
-    });
+    let argumentTypes = this.withTypeParametersResult(typeParameterNames, () =>
+      this.visitConstructorArgumentsWithContext(newExpression, scope, constructorType)
+    );
 
     const typeParameterSet = new Set(typeParameterNames);
     if (expectedType) {
@@ -6894,9 +6891,8 @@ export class TypeChecker {
   }
 
   private constructorFunctionType(classStatement: ClassStatement, scope: Scope): FunctionType {
-    let result: FunctionType = functionType(emptyFunctionTypeParameters(), UNKNOWN_TYPE);
     const typeParameterNames = typeParameterNameList(classStatement.typeParameters ?? []);
-    this.withTypeParameters(typeParameterNames, () => {
+    return this.withTypeParametersResult(typeParameterNames, (): FunctionType => {
       const constructorMember = classStatement.members.find(
         (member): member is ClassMethodMember => member.kind === NodeKind.ClassMethodMember && member.name.name === "constructor"
       );
@@ -6921,14 +6917,13 @@ export class TypeChecker {
           });
         }
       }
-      result = functionType(
+      return functionType(
         parameters,
         namedType(classStatement.name.name, typeParameterNames.map((typeParameterName) => namedType(typeParameterName))),
         typeParameterNames,
         this.typeParameterConstraintMap(classStatement.typeParameters ?? [], scope)
       );
     });
-    return result;
   }
 
   private interfaceConstructorTypeForNewExpression(
@@ -6997,9 +6992,8 @@ export class TypeChecker {
         ["T"]
       );
     }
-    let result: FunctionType = functionType(emptyFunctionTypeParameters(), UNKNOWN_TYPE);
-    this.withTypeParameters(typeParameterNames, () => {
-      result = functionType(
+    return this.withTypeParametersResult(typeParameterNames, (): FunctionType => {
+      return functionType(
         constructorMember.parameters.map((parameter) => ({
           name: bindingNameText(parameter.name),
           type: this.typeFromAnnotationLooseWithTypeParameters(parameter.typeAnnotation, typeParameterNames) ?? UNKNOWN_TYPE,
@@ -7012,7 +7006,6 @@ export class TypeChecker {
         this.typeParameterDefaultMapLoose(constructorMember.typeParameters ?? [], typeParameterNames)
       );
     });
-    return result;
   }
 
   private constructableTypeFrom(type: AnalysisType): FunctionType | null {
@@ -8395,12 +8388,9 @@ export class TypeChecker {
     }
 
     this.activeTypeAliasNames.add(typeAlias.name.name);
-    let targetType: AnalysisType = UNKNOWN_TYPE;
-    this.withTypeParameters(
+    const targetType = this.withTypeParametersResult(
       typeParameterNameList(typeParameters),
-      () => {
-        targetType = this.resolveTypeNameText(typeAlias.targetType.name, typeAlias.targetType, scope, false);
-      },
+      () => this.resolveTypeNameText(typeAlias.targetType.name, typeAlias.targetType, scope, false),
       this.typeParameterConstraintMap(typeParameters, scope)
     );
     this.activeTypeAliasNames.delete(typeAlias.name.name);
@@ -9036,22 +9026,46 @@ export class TypeChecker {
     return sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE;
   }
 
+  private beginTypeParameterScope(
+    typeParameters: string[],
+    constraints?: Record<string, AnalysisType>
+  ): boolean {
+    if (typeParameters.length <= 0) {
+      return false;
+    }
+    this.activeTypeParameterScopes.push(new Set(typeParameters));
+    this.activeTypeParameterConstraintScopes.push(new Map(Object.entries(constraints ?? {})));
+    return true;
+  }
+
+  private endTypeParameterScope(): void {
+    this.activeTypeParameterConstraintScopes.pop();
+    this.activeTypeParameterScopes.pop();
+  }
+
   private withTypeParameters(
     typeParameters: string[],
     action: () => void,
     constraints?: Record<string, AnalysisType>
   ): void {
-    if (typeParameters.length <= 0) {
-      action();
-      return;
-    }
-    this.activeTypeParameterScopes.push(new Set(typeParameters));
-    this.activeTypeParameterConstraintScopes.push(new Map(Object.entries(constraints ?? {})));
+    const scopeWasAdded = this.beginTypeParameterScope(typeParameters, constraints);
     try {
       action();
     } finally {
-      this.activeTypeParameterConstraintScopes.pop();
-      this.activeTypeParameterScopes.pop();
+      if (scopeWasAdded) this.endTypeParameterScope();
+    }
+  }
+
+  private withTypeParametersResult<T>(
+    typeParameters: string[],
+    action: () => T,
+    constraints?: Record<string, AnalysisType>
+  ): T {
+    const scopeWasAdded = this.beginTypeParameterScope(typeParameters, constraints);
+    try {
+      return action();
+    } finally {
+      if (scopeWasAdded) this.endTypeParameterScope();
     }
   }
 
@@ -11374,9 +11388,8 @@ export class TypeChecker {
     if (candidate.kind === NodeKind.FunctionStatement) {
       const fn = candidate as FunctionStatement;
       const typeParameterNames = typeParameterNameList(fn.typeParameters ?? []);
-      const availableTypeParameterNames = [...typeParameterNames];
-      let functionMemberType: AnalysisType = functionType(emptyFunctionTypeParameters(), builtinType("void"));
-      this.withTypeParameters(typeParameterNames, () => {
+      const availableTypeParameterNames: string[] = [...typeParameterNames];
+      const functionMemberType = this.withTypeParametersResult(typeParameterNames, (): AnalysisType => {
         const params = (fn.parameters ?? []).filter((parameter) => parameter.thisParameter !== true).map((p) => ({
           name: typeof p.name === "object" && "name" in p.name ? (p.name as { name: string }).name : memberName,
           type: this.typeFromAnnotationLooseWithTypeParameters(
@@ -11387,7 +11400,7 @@ export class TypeChecker {
           optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
           rest: p.rest === true,
         }));
-        functionMemberType = functionType(
+        return functionType(
           params,
           this.typeFromAnnotationLooseWithTypeParameters(
             fn.returnType,
@@ -11539,9 +11552,8 @@ export class TypeChecker {
       }
 
       const methodTypeParameterNames = typeParameterNameList(methodMember.typeParameters ?? []);
-      const availableTypeParameterNames = [...substitutions.keys(), ...methodTypeParameterNames];
-      let methodType: AnalysisType = functionType(emptyFunctionTypeParameters(), builtinType("void"));
-      this.withTypeParameters(methodTypeParameterNames, () => {
+      const availableTypeParameterNames: string[] = [...substitutions.keys(), ...methodTypeParameterNames];
+      const methodType = this.withTypeParametersResult(methodTypeParameterNames, (): AnalysisType => {
         const parameters: FunctionTypeParameter[] = [];
         for (const parameter of methodMember.parameters) {
           if (parameter.thisParameter === true) continue;
@@ -11556,7 +11568,7 @@ export class TypeChecker {
             rest: parameter.rest === true
           });
         }
-        methodType = functionType(
+        return functionType(
           parameters,
           this.typeFromAnnotationLooseWithTypeParameters(
               methodMember.returnType,
@@ -11708,15 +11720,14 @@ export class TypeChecker {
         const classScope = this.bound.scopeByNode.get(classStatement);
         const symbolType = classScope ? classScope.symbols.get(methodMember.name.name)?.type : undefined;
         const methodTypeParameterNames = typeParameterNameList(methodMember.typeParameters ?? []);
-        const availableTypeParameterNames = [...substitutions.keys(), ...methodTypeParameterNames];
-        let rawReturnType: AnalysisType | undefined;
-        this.withTypeParameters(methodTypeParameterNames, () => {
-          rawReturnType = this.typeFromAnnotationLooseWithTypeParameters(
+        const availableTypeParameterNames: string[] = [...substitutions.keys(), ...methodTypeParameterNames];
+        let rawReturnType = this.withTypeParametersResult(methodTypeParameterNames, () =>
+          this.typeFromAnnotationLooseWithTypeParameters(
             methodMember.returnType,
             availableTypeParameterNames,
             classStatement.name.name
-          );
-        });
+          )
+        );
         if (!rawReturnType && symbolType) {
           rawReturnType = classMember.accessorKind === "get" || classMember.getterShorthand === true
             ? symbolType
@@ -11733,19 +11744,17 @@ export class TypeChecker {
           continue;
         }
         if (methodMember.accessorKind === "set") {
-          let parameterType: AnalysisType = UNKNOWN_TYPE;
-          this.withTypeParameters(methodTypeParameterNames, () => {
-            parameterType = this.typeFromAnnotationLooseWithTypeParameters(
+          const parameterType = this.withTypeParametersResult(methodTypeParameterNames, () =>
+            this.typeFromAnnotationLooseWithTypeParameters(
               methodMember.parameters[0]?.typeAnnotation,
               availableTypeParameterNames,
               classStatement.name.name
-            ) ?? UNKNOWN_TYPE;
-          });
+            ) ?? UNKNOWN_TYPE
+          );
           members.set(methodMember.name.name, this.substituteTypeParameters(parameterType, substitutions));
           continue;
         }
-        let methodType: AnalysisType = functionType(emptyFunctionTypeParameters(), builtinType("void"));
-        this.withTypeParameters(methodTypeParameterNames, () => {
+        const methodType = this.withTypeParametersResult(methodTypeParameterNames, (): AnalysisType => {
           const parameters: FunctionTypeParameter[] = [];
           for (const parameter of methodMember.parameters) {
             if (parameter.thisParameter === true) continue;
@@ -11760,7 +11769,7 @@ export class TypeChecker {
               rest: parameter.rest === true
             });
           }
-          methodType = functionType(
+          return functionType(
             parameters,
             returnType,
             methodTypeParameterNames,
@@ -13212,13 +13221,12 @@ export class TypeChecker {
           return this.expandTypeAliases(conditionalTarget);
         }
         const typeParameterNames = typeParameterNameList(typeAlias.typeParameters ?? []);
-        let targetType: AnalysisType = UNKNOWN_TYPE;
-        this.withTypeParameters(typeParameterNames, () => {
-          targetType = this.typeFromTypeNameLooseWithTypeParameters(
+        const targetType = this.withTypeParametersResult(typeParameterNames, () =>
+          this.typeFromTypeNameLooseWithTypeParameters(
             typeAlias.targetType.name,
             new Set(typeParameterNames)
-          ) ?? UNKNOWN_TYPE;
-        });
+          ) ?? UNKNOWN_TYPE
+        );
         return this.expandTypeAliases(this.substituteTypeParameters(targetType, substitutions));
       } finally {
         this.activeTypeAliasNames.delete(type.name);

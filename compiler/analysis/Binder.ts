@@ -1014,8 +1014,8 @@ export class Binder {
       const ext = candidate as Statement;
       if (ext.kind === NodeKind.VarStatement) {
         const property = ext as VarStatement;
-        const name = property.name.kind === NodeKind.Identifier ? (property.name as Identifier).name : null;
-        if (!name) continue;
+        if (property.name.kind !== NodeKind.Identifier) continue;
+        const name = (property.name as Identifier).name;
         const propertyType = this.typeFromAnnotationLoose(property.typeAnnotation) ?? UNKNOWN_TYPE;
         this.declare(scope, {
           name,

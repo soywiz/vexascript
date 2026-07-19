@@ -13,6 +13,8 @@ dynamic function 7 10 11
 optional fields empty true true
 optional chain 0
 captured nullish array 2:5
+scoped callback result 2:ok
+embedded null 3 0 98
 optional fields set ready 18
 optional fields inherited 19
 dynamic inherited field true 23

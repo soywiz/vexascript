@@ -447,6 +447,10 @@ function cppUtf16String(value: string): string {
   return `u${cppString(value)}`;
 }
 
+function cppText(value: string): string {
+  return `vexa::Text(std::u16string_view(${cppUtf16String(value)}, ${value.length}))`;
+}
+
 function pooledStringLiteral(value: string): string {
   const name = activeStringLiteralNames.get(value);
   if (!name) throw new CppEmitError(`Missing pooled C++ string literal '${value}'`);
@@ -480,7 +484,7 @@ function emitStringKeyDispatch(
         if (entry.key.length !== 0) continue;
         const compared = valueKind === "utf16"
           ? cppUtf16String(entry.key)
-          : `vexa::Text(${cppUtf16String(entry.key)})`;
+          : cppText(entry.key);
         lines.push(`${indent}    if (${valueName} == ${compared}) { ${entry.body} }`);
       }
     } else {
@@ -501,7 +505,7 @@ function emitStringKeyDispatch(
           if (entryLength !== length || entryFirst !== firstByte) continue;
           const compared = valueKind === "utf16"
             ? cppUtf16String(entry.key)
-            : `vexa::Text(${cppUtf16String(entry.key)})`;
+            : cppText(entry.key);
           lines.push(`${indent}        if (${valueName} == ${compared}) { ${entry.body} }`);
         }
         lines.push(`${indent}        break;`);
@@ -5217,7 +5221,7 @@ function emitExpression(expression: Expr): string {
     case NodeKind.BooleanLiteral:
       return (expression as BooleanLiteral).value ? "true" : "false";
     case NodeKind.StringLiteral:
-      return `vexa::Text(${cppUtf16String((expression as StringLiteral).value)})`;
+      return cppText((expression as StringLiteral).value);
     case NodeKind.RegExpLiteral: {
       const literal = expression as RegExpLiteral;
       return `vexa::RegExp(${cppString(literal.pattern)}, ${cppString(literal.flags)})`;
@@ -5259,7 +5263,7 @@ function emitExpression(expression: Expr): string {
         return emitClassOperatorCall(overloaded, unary.argument, noArguments);
       }
       if (unary.operator === "typeof") {
-        if (usesPooledFunctionTypeof(unary)) return `vexa::Text(${cppUtf16String("function")})`;
+        if (usesPooledFunctionTypeof(unary)) return cppText("function");
         return `vexa::typeOf(${emitExpression(unary.argument)})`;
       }
       if (unary.operator === "void") return `(static_cast<void>(${emitExpression(unary.argument)}), vexa::Value::undefined())`;
@@ -8695,7 +8699,8 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   const stringLiteralInitializers: string[] = [];
   for (const [value, name] of activeStringLiteralNames) {
     stringLiteralDeclarations.push(`static vexa::StringObject* ${name} = nullptr;`);
-    stringLiteralInitializers.push(`  ${name} = runtime.retainLiteral(${cppString(value)});`);
+    const literal = cppString(value);
+    stringLiteralInitializers.push(`  ${name} = runtime.retainLiteral(std::string(${literal}, sizeof(${literal}) - 1));`);
   }
 
   const forwardInterfaces: string[] = [];
