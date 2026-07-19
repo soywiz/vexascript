@@ -2,15 +2,15 @@ export class ListReader<T> {
     constructor(public items: T[], public offset: number = 0) {
     }
 
-    get length() {
+    get length(): number {
         return this.items.length
     }
 
-    get eof() {
+    get eof(): boolean {
         return this.offset >= this.length
     }
 
-    get hasMore() {
+    get hasMore(): boolean {
         return this.offset < this.length
     }
 
@@ -18,7 +18,7 @@ export class ListReader<T> {
         return this.items[this.offset]
     }
 
-    skip(count: number = 1) {
+    skip(count: number = 1): void {
         this.offset += count
     }
 

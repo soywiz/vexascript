@@ -2838,15 +2838,18 @@ inline Value callOptional(Runtime& runtime, const Value& callable, std::vector<V
   return call(runtime, callable, std::move(arguments));
 }
 
+template <typename... Arguments>
 inline std::optional<Value> callDynamicOperator(
     Runtime& runtime,
     const Value& receiver,
     const PropertyKey& operatorKey,
-    std::vector<Value> arguments = {}) {
+    Arguments&&... arguments) {
   if (!receiver.isDynamicObject()) return std::nullopt;
   const Value callable = receiver.dynamicObject()->dynamicGet(operatorKey);
   if (callable.isUndefined()) return std::nullopt;
-  return call(runtime, callable, std::move(arguments));
+  return call(runtime, callable, {
+    convertValue<Value>(std::forward<Arguments>(arguments))...
+  });
 }
 
 template <typename Result>
@@ -3098,7 +3101,7 @@ inline Value dynamicIndexGet(Target&& target, const PropertyKey& key) {
         runtime,
         receiver,
         u"__vexa_operator:[]",
-        {dynamicIndexArgument(runtime, key)})) {
+        dynamicIndexArgument(runtime, key))) {
     return *result;
   }
   return dynamicGet(receiver, key);
@@ -3112,7 +3115,7 @@ inline Value dynamicIndexSet(Target&& target, const PropertyKey& key, const Valu
         runtime,
         receiver,
         u"__vexa_operator:[]=",
-        {dynamicIndexArgument(runtime, key), value})) {
+        dynamicIndexArgument(runtime, key), value)) {
     return *result;
   }
   return dynamicSet(receiver, key, value);
@@ -5821,7 +5824,7 @@ template <typename Left, typename Right>
 inline Value add(Runtime& runtime, Left&& leftInput, Right&& rightInput) {
   const Value left = convertValue<Value>(std::forward<Left>(leftInput));
   const Value right = convertValue<Value>(std::forward<Right>(rightInput));
-  if (const auto result = callDynamicOperator(runtime, left, u"__vexa_operator:+", {right})) {
+  if (const auto result = callDynamicOperator(runtime, left, u"__vexa_operator:+", right)) {
     return *result;
   }
   if (left.isString() || right.isString()) {
@@ -5849,7 +5852,7 @@ inline void requireMatchingBigInts(const Value& left, const Value& right) {
 }
 
 inline Value subtract(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:-", {right})) {
+  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:-", right)) {
     return *result;
   }
   requireMatchingBigInts(left, right);
@@ -5859,7 +5862,7 @@ inline Value subtract(const Value& left, const Value& right) {
 }
 
 inline Value multiply(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:*", {right})) {
+  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:*", right)) {
     return *result;
   }
   requireMatchingBigInts(left, right);
@@ -5869,7 +5872,7 @@ inline Value multiply(const Value& left, const Value& right) {
 }
 
 inline Value divide(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:/", {right})) {
+  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:/", right)) {
     return *result;
   }
   requireMatchingBigInts(left, right);
@@ -5879,7 +5882,7 @@ inline Value divide(const Value& left, const Value& right) {
 }
 
 inline Value power(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:**", {right})) {
+  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:**", right)) {
     return *result;
   }
   requireMatchingBigInts(left, right);
@@ -5958,7 +5961,7 @@ inline std::int32_t compare(const Left& left, const Right& right) {
 
 inline std::int32_t compare(const Value& left, const Value& right) {
   if (const auto result = callDynamicOperator(
-        currentRuntime(), left, u"__vexa_operator:<=>", {right})) {
+        currentRuntime(), left, u"__vexa_operator:<=>", right)) {
     return convertValue<std::int32_t>(*result);
   }
   if (left.isDynamicObject() && right.isDynamicObject()) {

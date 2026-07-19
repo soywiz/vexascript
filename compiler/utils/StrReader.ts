@@ -6,39 +6,39 @@ export class StrReader {
     constructor(public str: string) {
     }
 
-    get offset() {
+    get offset(): number {
         return this._offset
     }
 
-    get length() {
+    get length(): number {
         return this.str.length
     }
 
-    get line() {
+    get line(): number {
         return this._line
     }
 
-    get column() {
+    get column(): number {
         return this._column
     }
 
-    get hasMore() {
+    get hasMore(): boolean {
         return this._offset < this.length
     }
 
-    get eof() {
+    get eof(): boolean {
         return this._offset >= this.length
     }
 
-    peek() {
+    peek(): string {
         return this.str.charAt(this._offset)
     }
 
-    peekCode() {
+    peekCode(): number {
         return this.str.charCodeAt(this._offset)
     }
 
-    skip(count: number = 1) {
+    skip(count: number = 1): number {
         const initial = this._offset
         let remaining = count
         while (remaining > 0 && this._offset < this.length) {
@@ -55,15 +55,15 @@ export class StrReader {
         return initial
     }
 
-    read() {
+    read(): string {
         return this.str.charAt(this.skip(1))
     }
 
-    readCode() {
+    readCode(): number {
         return this.str.charCodeAt(this.skip(1))
     }
 
-    readCount(count: number) {
+    readCount(count: number): string {
         const result = this.str.substring(this.offset, this.offset + count)
         this.skip(result.length)
         return result

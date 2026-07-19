@@ -391,3 +391,41 @@ they disagree. This is intentionally the dynamic-mode rule: static array
 specialization is valid only when every element is representable by the chosen
 storage type. The native compiler now emits the complete language smoke in
 about 9.2 seconds; that C++ compiles and produces byte-for-byte expected output.
+
+## Static Boundaries Recovered Without Type Inference
+
+The first full compiler roundtrip compiled far enough to expose a consistent
+representation mismatch: calls with declared pointer results were emitted
+through the dynamic invocation path as raw `Value` objects, while their callers
+continued using the declared pointer type. Converting once at the dynamic call
+boundary removed the entire initial error family. A related ordering problem
+treated `this.method()` as dynamic before attempting class method resolution.
+Giving declared methods priority reduced the generated parser translation unit
+and restored generic return and callback types without requiring the type
+checker.
+
+Captured GC roots exposed a second source-of-truth problem. A local array could
+be registered both as its element class and as an array, causing either an
+invalid `Persistent<Element>` capture or duplicate captures. Capture emission
+now derives the root from the local's actual emitted C++ type, while global C++
+types are stored separately from callable-local types. The latter also fixes
+indexed access to managed global arrays after entering a function context.
+
+The parser was used as the intermediate self-host target because it contains
+generic class methods, structural token interfaces, object-literal adapters,
+captured arrays, local closures, and hot reader loops while loading only six
+modules. Its native generation took about 42 seconds before the static-boundary
+fixes. Compilation errors fell from 60 to 12 and then to zero by fixing shared
+mechanisms rather than parser-specific expressions. The generated parser now
+compiles with `-O0 -DNDEBUG`, and the comprehensive native language smoke still
+compiles and matches `expected.native.txt` byte for byte.
+
+CPU sampling also showed that primitive dynamic operators eagerly allocated an
+argument vector even when the receiver was not dynamic. Making operator
+dispatch variadic and constructing the argument vector only after confirming a
+dynamic receiver reduced a full native compiler generation from roughly 205
+seconds to roughly 180 seconds. The remaining profile is dominated by dynamic
+AST/token object allocation, `Value` copies, and C++ emission. Explicit numeric
+and string return annotations on `StrReader` and basic annotations on
+`ListReader` are the first source-level step toward the intended strict static
+compiler build.
