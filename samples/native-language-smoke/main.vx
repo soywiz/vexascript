@@ -337,6 +337,11 @@ sync fun rootedArrayAcrossAwait(): string {
   return values.join("|")
 }
 
+sync fun rootedParameterAcrossAwait(value: Leaf): int {
+  await delay(0)
+  return value.value
+}
+
 fun timerMessage(label: string, value: int) {
   console.log("timer arguments", label, value)
 }
@@ -683,6 +688,7 @@ val firstAny = await Promise.any([Promise.reject(Error("ignored")), Promise.reso
 console.log("promise combinators", raced, settled.length, firstAny)
 console.log("async", await asyncValue(), await doubledAsync())
 console.log("async rooted array", await rootedArrayAcrossAwait())
+console.log("async rooted parameter", await rootedParameterAcrossAwait(Leaf(23)))
 if (typeof writeTextFile == "function") console.log("async io", await ioRoundtrip())
 if (typeof nativeRunCommandCapture == "function") {
   val commandResult = await nativeRunCommandCapture("printf", ["native subprocess"], process.cwd())

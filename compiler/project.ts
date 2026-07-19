@@ -73,7 +73,7 @@ function stringRecord(section: Record<string, unknown> | undefined): Record<stri
 }
 
 async function readJsonFile<T>(path: string): Promise<T | null> {
-  let mtimeMs = -1;
+  let mtimeMs: number = -1;
   try {
     mtimeMs = (await vfs().stat(path)).mtimeMs;
   } catch {

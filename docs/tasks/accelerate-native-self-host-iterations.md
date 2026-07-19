@@ -100,8 +100,11 @@ development loop.
   after it. Compiling the generated translation unit took 110.14–119.28
   seconds at `-O1`; `-O3` took 146.72 seconds to compile and 27.45 seconds to
   execute, so it provided no useful runtime improvement. The latest parity
-  checkpoint takes 112.70 seconds to compile at `-O1` and 35.55 seconds to
-  execute a checked generation.
+  checkpoint takes about 111 seconds to compile at `-O1` and 31.5 seconds to
+  execute a checked generation. Native phase profiling is now stable: the
+  2026-07-19 run reported 2.89 seconds for load/parse, 1.77 seconds for module
+  isolation, 0.68 seconds for binding, 13.98 seconds for type inference, and
+  7.67 seconds for C++ emission, for 26.99 seconds total with profiling output.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -115,9 +118,10 @@ development loop.
 
 ## Acceptance Criteria
 
-* [ ] A reproducible benchmark reports the cost of every self-host stage. Set
-  `VEXA_PROFILE_COMPILER=1` for the implemented Node-side phase report; native
-  toolchain phases remain pending.
+* [x] A reproducible benchmark reports the cost of every self-host stage. Set
+  `VEXA_PROFILE_COMPILER=1` for the shared Node/native compiler phase report;
+  use `/usr/bin/time` around the generated C++ compile and native invocation
+  for the toolchain and roundtrip totals.
 * [x] The Node-side compiler benchmark is materially faster than its recorded
   baseline without changing the generated program's behavior.
 * [ ] An unchanged rerun reuses stable work and is materially faster than a cold
@@ -139,12 +143,13 @@ development loop.
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
-  31.26 and 31.37 seconds respectively, and both generated translation units
-  compiled successfully at `-O1`.
+  about 31.5 seconds in the latest checkpoint, and both generated translation
+  units compiled successfully at `-O1` in about 111 seconds each.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
-  three emitted the same 7,854,905-byte translation unit. Rebuilding at `-O1`
-  took 112.50 seconds and the rebuilt host emitted the next roundtrip in 31.55
-  seconds.
+  three latest outputs have SHA-256
+  `297d887a91a3b5582d75c834d36447a9aad8bf4e47586dc490d716d0b8cc8723`.
+  Rebuilding at `-O1` took 111.37 and 111.16 seconds, and the second native
+  host emitted the next roundtrip in 31.53 seconds.
 * [x] Run `pnpm test` (2306 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 

@@ -6304,7 +6304,7 @@ export class TypeChecker {
   }
 
   private isCallableMatch(calleeType: FunctionType, argumentTypes: AnalysisType[]): boolean {
-    const lastParameter = calleeType.parameters[calleeType.parameters.length - 1];
+    const lastParameter = calleeType.parameters.at(-1);
     const restParameter = lastParameter?.rest ? lastParameter : undefined;
     const fixedParameters = restParameter ? calleeType.parameters.slice(0, -1) : calleeType.parameters;
     const requiredCount = fixedParameters.filter((parameter) => !parameter.optional).length;

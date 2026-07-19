@@ -184,3 +184,35 @@ now emit the same 7,854,905-byte translation unit with SHA-256
 `26ce7a192ed2121dd478aaaa1e1ddb642df860af7255dd5a76b2001486b87a56`.
 The `-O1` rebuild took 112.50 seconds and the rebuilt compiler emitted the next
 roundtrip in 31.55 seconds, both within the two-minute acceptance limit.
+
+## Coroutine parameters need roots independently of coroutine locals
+
+Enabling `VEXA_PROFILE_COMPILER=1` made the optimized native compiler crash in
+`resolveImportTargetFilePath`, while the same binary completed normally under
+LLDB. The generated coroutine accepted `ModuleResolutionOptions*` as a raw
+parameter, suspended at an await, and later dereferenced it. Existing coroutine
+rooting covered locals and method receivers but not pointer parameters, so GC
+could reclaim the options object while the coroutine was suspended. Profiling
+changed allocation timing enough to expose the latent lifetime error.
+
+Async functions, async lambdas, and generators now use one shared coroutine
+block emitter. Every pointer-valued callable parameter receives a local
+`cppgc::Persistent` root for the lifetime of the coroutine frame, and instance
+methods continue to root their receiver. The unified native language smoke
+passes a freshly allocated object into an async function, awaits a timer, and
+reads the object afterward. The previously crashing native profile now
+completes in 26.99 seconds.
+
+An AddressSanitizer/UndefinedBehaviorSanitizer build also found two independent
+host assumptions before the coroutine fix. `readJsonFile` inferred its
+timestamp accumulator as an integer from `-1`, although filesystem timestamps
+are large floating-point numbers. `TypeChecker.isCallableMatch` indexed an
+empty parameter array with `length - 1`. An explicit `number` annotation and
+`Array.at(-1)` respectively preserve JavaScript behavior without invalid C++
+conversions or unsigned array indices.
+
+The corrected Node host and two consecutively rebuilt native hosts emit the
+same translation unit with SHA-256
+`297d887a91a3b5582d75c834d36447a9aad8bf4e47586dc490d716d0b8cc8723`.
+The two `-O1` rebuilds took 111.37 and 111.16 seconds, and the second native
+compiler emitted the following checked roundtrip in 31.53 seconds.

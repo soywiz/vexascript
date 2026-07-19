@@ -191,6 +191,7 @@ let activeGlobalDeclaredTypeNames: Map<string, string> = new Map();
 let activeGlobalCppTypes: Map<string, string> = new Map();
 let activeGlobalGcRootTypes: Map<string, string> = new Map();
 let activeLocalCppTypes: Map<string, string> = new Map();
+let activeCallableParameterPointerTypes: Map<string, string> = new Map();
 let activeSharedBindingNames: Set<string> = new Set();
 let activeSharedBindingCandidates: ReadonlySet<string> = new Set();
 let activeRuntimeName = "runtime";
@@ -3722,6 +3723,7 @@ function emitAsyncNativeLambda(
   const parameters = callableParameters(parametersList, undefined, false, true);
   const previousLocalNames = activeLocalNames;
   const previousLocalCppTypes = activeLocalCppTypes;
+  const previousCallableParameterPointerTypes = activeCallableParameterPointerTypes;
   const previousGcObjectTypes = activeGcObjectTypes;
   const previousGcArrayTypes = activeGcArrayTypes;
   const previousDynamicValueNames = activeDynamicValueNames;
@@ -3736,6 +3738,7 @@ function emitAsyncNativeLambda(
   const previousContinueBoundaries = activeContinueBoundaries;
   activeLocalNames = copyStringSetWithValues(activeLocalNames, parameters.names);
   activeLocalCppTypes = new Map(activeLocalCppTypes);
+  activeCallableParameterPointerTypes = new Map(parameters.pointerTypes);
   activeGcObjectTypes = new Map([...activeGcObjectTypes, ...parameters.gcTypes]);
   activeGcArrayTypes = new Map([...activeGcArrayTypes, ...parameters.gcArrayTypes]);
   activeDynamicValueNames = new Set([...activeDynamicValueNames, ...parameters.dynamicNames]);
@@ -3763,7 +3766,7 @@ function emitAsyncNativeLambda(
   try {
     const preamble = emitParameterDestructuring(parameters, "  ");
     const rawBody = body.kind === NodeKind.BlockStatement
-      ? emitAsyncCallableBlock(body as BlockStatement, "", resultType)
+      ? emitAsyncCallableBlock(body as BlockStatement, "", resultType, false)
       : resultType === "void"
         ? `{ ${emitExpression(body as Expr)}; co_return; }`
         : `{ co_return ${emitAsyncResultValue(body as Expr, resultType)}; }`;
@@ -3772,6 +3775,7 @@ function emitAsyncNativeLambda(
   } finally {
     activeLocalNames = previousLocalNames;
     activeLocalCppTypes = previousLocalCppTypes;
+    activeCallableParameterPointerTypes = previousCallableParameterPointerTypes;
     activeGcObjectTypes = previousGcObjectTypes;
     activeGcArrayTypes = previousGcArrayTypes;
     activeDynamicValueNames = previousDynamicValueNames;
@@ -6674,6 +6678,7 @@ interface CallableParameterInfo {
   names: string[];
   gcTypes: Map<string, string>;
   gcArrayTypes: Map<string, string>;
+  pointerTypes: Map<string, string>;
   dynamicNames: Set<string>;
   destructured: DestructuredCallableParameter[];
 }
@@ -6687,6 +6692,7 @@ function callableParameters(
   const names: string[] = [];
   const gcTypes = new Map<string, string>();
   const gcArrayTypes = new Map<string, string>();
+  const pointerTypes = new Map<string, string>();
   const dynamicNames = new Set<string>();
   const destructured: DestructuredCallableParameter[] = [];
   const text = parameters.map((parameter, parameterIndex) => {
@@ -6728,10 +6734,11 @@ function callableParameters(
     const nativeObjectName = typeName ? canonicalNativeObjectName(typeName) : null;
     if (nativeObjectName) gcTypes.set(sourceName, nativeObjectName);
     if (managedArrayElementType(type) !== null) gcArrayTypes.set(sourceName, type.slice(0, -1));
+    if (type.endsWith("*")) pointerTypes.set(sourceName, type.slice(0, -1));
     if (type === "vexa::Value") dynamicNames.add(sourceName);
     return `${type} ${cppName(sourceName)}`;
   }).join(", ");
-  return { text, names, gcTypes, gcArrayTypes, dynamicNames, destructured };
+  return { text, names, gcTypes, gcArrayTypes, pointerTypes, dynamicNames, destructured };
 }
 
 function emitParameterDestructuring(
@@ -6791,6 +6798,7 @@ function withCallableContext<T>(
   const previousLocalNames = activeLocalNames;
   const previousDeclaredTypeNames = activeLocalDeclaredTypeNames;
   const previousLocalCppTypes = activeLocalCppTypes;
+  const previousCallableParameterPointerTypes = activeCallableParameterPointerTypes;
   const previousGcObjectTypes = activeGcObjectTypes;
   const previousGcArrayTypes = activeGcArrayTypes;
   const previousDynamicValueNames = activeDynamicValueNames;
@@ -6826,6 +6834,7 @@ function withCallableContext<T>(
   }
   activeLocalDeclaredTypeNames = localDeclaredTypeNames;
   activeLocalCppTypes = localCppTypes;
+  activeCallableParameterPointerTypes = new Map(parameterInfo.pointerTypes);
   activeGcObjectTypes = new Map(parameterInfo.gcTypes);
   activeGcArrayTypes = new Map(parameterInfo.gcArrayTypes);
   activeDynamicValueNames = new Set(parameterInfo.dynamicNames);
@@ -6850,6 +6859,7 @@ function withCallableContext<T>(
     activeLocalNames = previousLocalNames;
     activeLocalDeclaredTypeNames = previousDeclaredTypeNames;
     activeLocalCppTypes = previousLocalCppTypes;
+    activeCallableParameterPointerTypes = previousCallableParameterPointerTypes;
     activeGcObjectTypes = previousGcObjectTypes;
     activeGcArrayTypes = previousGcArrayTypes;
     activeDynamicValueNames = previousDynamicValueNames;
@@ -6896,39 +6906,53 @@ function emitCallableReturnBoundary(
   ].join("\n");
 }
 
-function emitAsyncCallableBlock(body: BlockStatement, indent: string, resultType: string): string {
-  const trailing = resultType === "void"
-    ? "co_return;"
-    : `co_return vexa::defaultValue<${resultType}>();`;
-  return emitBlock(body, indent, trailing);
-}
-
-function emitGeneratorCallableBlock(body: BlockStatement, indent: string, resultType: string): string {
+function emitCoroutineCallableBlock(
+  body: BlockStatement,
+  indent: string,
+  trailingStatement: string,
+  rootThis: boolean
+): string {
   const childIndent = `${indent}  `;
   const roots: string[] = [];
-  for (const [sourceName, className] of activeGcObjectTypes) {
+  for (const [sourceName, pointeeType] of activeCallableParameterPointerTypes) {
     roots.push(
-      `${childIndent}cppgc::Persistent<${cppName(className)}> __vexa_generator_root_${cppName(sourceName)}(${cppName(sourceName)});`
-    );
-  }
-  for (const [sourceName, pointeeType] of activeGcArrayTypes) {
-    roots.push(
-      `${childIndent}cppgc::Persistent<${pointeeType}> __vexa_generator_root_${cppName(sourceName)}(vexa::arrayPointer(${cppName(sourceName)}));`
+      `${childIndent}cppgc::Persistent<${pointeeType}> __vexa_coroutine_root_${cppName(sourceName)}(vexa::rawPointer(${cppName(sourceName)}));`
     );
   }
   const previousThisExpression = activeThisExpression;
-  if (activeCurrentClassName && !activeCurrentMethodStatic) {
-    roots.push(`${childIndent}cppgc::Persistent<${cppName(activeCurrentClassName)}> __vexa_generator_self(this);`);
-    activeThisExpression = "__vexa_generator_self";
+  if (rootThis && activeCurrentClassName && !activeCurrentMethodStatic) {
+    roots.push(`${childIndent}cppgc::Persistent<${cppName(activeCurrentClassName)}> __vexa_coroutine_self(this);`);
+    activeThisExpression = "__vexa_coroutine_self";
   }
   try {
-    const emitted = emitBlock(body, indent, `co_return vexa::defaultValue<${resultType}>();`);
+    const emitted = emitBlock(body, indent, trailingStatement);
     return roots.length > 0
       ? emitted.replace("{\n", `{\n${roots.join("\n")}\n`)
       : emitted;
   } finally {
     activeThisExpression = previousThisExpression;
   }
+}
+
+function emitAsyncCallableBlock(
+  body: BlockStatement,
+  indent: string,
+  resultType: string,
+  rootThis = true
+): string {
+  const trailing = resultType === "void"
+    ? "co_return;"
+    : `co_return vexa::defaultValue<${resultType}>();`;
+  return emitCoroutineCallableBlock(body, indent, trailing, rootThis);
+}
+
+function emitGeneratorCallableBlock(body: BlockStatement, indent: string, resultType: string): string {
+  return emitCoroutineCallableBlock(
+    body,
+    indent,
+    `co_return vexa::defaultValue<${resultType}>();`,
+    true
+  );
 }
 
 function validateFunction(statement: FunctionStatement): void {
@@ -8695,6 +8719,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeLocalNames = new Set();
   activeLocalDeclaredTypeNames = new Map();
   activeLocalCppTypes = new Map();
+  activeCallableParameterPointerTypes = new Map();
   activeGlobalDeclaredTypeNames = new Map();
   activeGlobalCppTypes = new Map();
   activeGlobalGcRootTypes = new Map();
@@ -8826,6 +8851,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeLocalNames = new Set();
   activeLocalDeclaredTypeNames = new Map();
   activeLocalCppTypes = new Map();
+  activeCallableParameterPointerTypes = new Map();
   activeRuntimeName = "runtime";
   for (const info of topLevelVariableInfo) {
     if (info.statement.name.kind !== NodeKind.Identifier) continue;
