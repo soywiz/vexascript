@@ -75,6 +75,10 @@ class DynamicFieldChild extends DynamicFieldBase {
   fun declaredAdd(value: int): int => childOnly + value
 }
 
+class OptionalDynamicLeft(val shared: Leaf) extends DynamicFieldBase
+
+class OptionalDynamicRight(val shared: Leaf) extends DynamicFieldBase
+
 class DescriptorTarget(var visible: int, var hidden: int)
 
 fun optionalDescriptorVisible(target?: DescriptorTarget): any => target?.visible
@@ -344,6 +348,11 @@ inheritedOptionalNativeFields.leaf = Leaf(19)
 console.log("optional fields inherited", inheritedOptionalNativeFields.leaf.value)
 val dynamicFieldBase: DynamicFieldBase = DynamicFieldChild()
 console.log("dynamic inherited field", "childOnly" in dynamicFieldBase, (dynamicFieldBase as any).childOnly)
+val optionalDynamicClass = false
+  ? OptionalDynamicLeft(Leaf(1))
+  : (false ? OptionalDynamicRight(Leaf(2)) : null)
+val optionalDynamicShared = optionalDynamicClass?.shared as Leaf | undefined
+console.log("optional dynamic class", optionalDynamicShared?.value ?? "safe")
 val enumerableDynamicChild = DynamicFieldChild()
 var enumerableDynamicKeys = ""
 for (val dynamicKey in enumerableDynamicChild) enumerableDynamicKeys += dynamicKey + "|"

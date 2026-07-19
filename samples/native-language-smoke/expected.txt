@@ -16,6 +16,7 @@ captured nullish array 2:5
 optional fields set ready 18
 optional fields inherited 19
 dynamic inherited field true 23
+optional dynamic class safe
 dynamic class enumeration childOnly| 23 23 3
 dynamic class fallback 25 33 true true false
 optional dynamic call called

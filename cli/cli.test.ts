@@ -181,7 +181,7 @@ describe("CLI", () => {
     expect(outputCode).toContain('#include "runtime.cpp"');
     expect(outputCode).toContain('static vexa::StringObject* __vexa_literal_0 = nullptr;');
     expect(outputCode).toContain('__vexa_literal_0 = runtime.retainLiteral("cpp");');
-    expect(outputCode).toContain('vexa::console.log(vexa::Value(__vexa_literal_0));');
+    expect(outputCode).toContain('vexa::console.log(vexa::Text(u"cpp"));');
     expect(outputCode).not.toContain("VEXA_NATIVE_SOURCE(");
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });

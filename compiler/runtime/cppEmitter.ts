@@ -406,7 +406,9 @@ function emitStringKeyDispatch(
     if (length === 0) {
       for (const entry of entries) {
         if (entry.key.length !== 0) continue;
-        const compared = valueKind === "utf16" ? cppUtf16String(entry.key) : pooledStringLiteral(entry.key);
+        const compared = valueKind === "utf16"
+          ? cppUtf16String(entry.key)
+          : `vexa::Text(${cppUtf16String(entry.key)})`;
         lines.push(`${indent}    if (${valueName} == ${compared}) { ${entry.body} }`);
       }
     } else {
@@ -425,7 +427,9 @@ function emitStringKeyDispatch(
           const entryLength = entry.key.length;
           const entryFirst = entry.key.charCodeAt(0);
           if (entryLength !== length || entryFirst !== firstByte) continue;
-          const compared = valueKind === "utf16" ? cppUtf16String(entry.key) : pooledStringLiteral(entry.key);
+          const compared = valueKind === "utf16"
+            ? cppUtf16String(entry.key)
+            : `vexa::Text(${cppUtf16String(entry.key)})`;
           lines.push(`${indent}        if (${valueName} == ${compared}) { ${entry.body} }`);
         }
         lines.push(`${indent}        break;`);
@@ -465,6 +469,7 @@ function cppTypeForBuiltin(typeName: BuiltinTypeName): string | null {
     case "null":
       return "vexa::Null";
     case "string":
+      return "vexa::Text";
     case "any":
     case "unknown":
     case "object":
@@ -639,7 +644,7 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
   const arrayType = splitArraySuffixTypeName(typeName);
   if (arrayType) {
     const elementType = arrayType.elementTypeName === "string"
-      ? "std::string"
+      ? "vexa::Text"
       : cppTypeForDeclaredName(arrayType.elementTypeName, visitedAliases);
     if (!elementType || elementType === "void") return null;
     let result = elementType;
@@ -742,8 +747,8 @@ function canonicalNativeObjectName(typeName: string): string | null {
 }
 
 function cppArrayElementType(type: AnalysisType): string | null {
-  if (type.kind === "builtin" && type.name === "string") return "std::string";
-  if (type.kind === "literal" && type.base === "string") return "std::string";
+  if (type.kind === "builtin" && type.name === "string") return "vexa::Text";
+  if (type.kind === "literal" && type.base === "string") return "vexa::Text";
   if (type.kind === "union") return "vexa::Value";
   return cppTypeForAnalysisType(type);
 }
@@ -952,7 +957,7 @@ function managedArrayCppTypeForExpression(expression: Expr): string | null {
     const name = (expression as Identifier).name;
     const globalType = activeGlobalCppTypes.get(name);
     if (globalType && managedArrayElementType(globalType) !== null) return globalType;
-    const pointee = activeGcArrayTypes.get(name) ?? activeGlobalGcRootTypes.get(name);
+    const pointee = activeGcArrayTypes.get(name);
     if (pointee) return `${pointee}*`;
   }
   if (expression.kind === NodeKind.ConditionalExpression) {
@@ -1025,16 +1030,20 @@ function nativeCollectionKind(expression: Expr): "map" | "set" | "weakMap" | "we
 
 function nativeCollectionPointerCppType(expression: Expr): string | null {
   const type = activeExpressionTypes.get(expression as Node);
-  if (!type) return null;
-  const candidates = type.kind === "union" || type.kind === "intersection" ? type.types : [type];
-  for (const candidate of candidates) {
-    if (candidate.kind !== "named") continue;
-    if (!new Set(["Map", "ReadonlyMap", "Set", "ReadonlySet", "WeakMap", "WeakSet"]).has(candidate.name)) {
-      continue;
+  if (type) {
+    const candidates = type.kind === "union" || type.kind === "intersection" ? type.types : [type];
+    for (const candidate of candidates) {
+      if (candidate.kind !== "named") continue;
+      if (!new Set(["Map", "ReadonlyMap", "Set", "ReadonlySet", "WeakMap", "WeakSet"]).has(candidate.name)) {
+        continue;
+      }
+      const mapped = cppTypeForAnalysisType(candidate);
+      if (mapped?.endsWith("*")) return mapped;
     }
-    const mapped = cppTypeForAnalysisType(candidate);
-    if (mapped?.endsWith("*")) return mapped;
   }
+  const emitted = emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
+  const collectionPrefixes = ["vexa::MapObject<", "vexa::SetObject<", "vexa::WeakMapObject<", "vexa::WeakSetObject<"];
+  if (collectionPrefixes.some((prefix) => emitted.startsWith(prefix)) && emitted.endsWith("*")) return emitted;
   return null;
 }
 
@@ -1064,7 +1073,7 @@ function isStringExpression(expression: Expr): boolean {
       return true;
     }
   }
-  return localCppType === "std::string" ||
+  return localCppType === "vexa::Text" ||
     (type?.kind === "builtin" && type.name === "string") ||
     (type?.kind === "literal" && type.base === "string") ||
     declaredTypeNameForExpression(expression) === "string" ||
@@ -1125,6 +1134,41 @@ function nativeCollectionCppType(
       mapped = activeExpectedExpressionCppType;
     }
   }
+  if (explicit.length === 0 && !activeExpectedExpressionCppType && (call.args?.length ?? 0) === 1) {
+    const iterable = call.args![0] as Expr;
+    const collectionType = nativeCollectionPointerCppType(iterable);
+    if (name === "Map" && collectionType?.startsWith("vexa::MapObject<")) {
+      mapped = collectionType;
+    } else if (name === "Set") {
+      const setElementType = collectionType?.startsWith("vexa::SetObject<")
+        ? cppTemplateArguments(collectionType, "vexa::SetObject<")?.[0]
+        : iterable.kind === NodeKind.ArrayLiteral
+          ? arrayLiteralCppElementType(iterable as ArrayLiteral)
+          : managedArrayElementType(managedArrayCppTypeForExpression(iterable) ?? "");
+      if (setElementType && setElementType !== "auto") {
+        mapped = `vexa::SetObject<${setElementType}>*`;
+      }
+    }
+  }
+  if (!activeExpectedExpressionCppType && (call.args?.length ?? 0) === 1) {
+    const mappedTypes = cppTemplateArguments(mapped, `vexa::${name}Object<`);
+    if (mappedTypes?.every((type) => type === "vexa::Value")) {
+      const iterable = call.args![0] as Expr;
+      const collectionType = nativeCollectionPointerCppType(iterable);
+      if (name === "Map" && collectionType?.startsWith("vexa::MapObject<")) {
+        mapped = collectionType;
+      } else if (name === "Set") {
+        const elementType = iterable.kind === NodeKind.ArrayLiteral
+          ? arrayLiteralCppElementType(iterable as ArrayLiteral)
+          : collectionType?.startsWith("vexa::SetObject<")
+            ? cppTemplateArguments(collectionType, "vexa::SetObject<")?.[0]
+            : managedArrayElementType(managedArrayCppTypeForExpression(iterable) ?? "");
+        if (elementType && elementType !== "auto" && elementType !== "vexa::Value") {
+          mapped = `vexa::SetObject<${elementType}>*`;
+        }
+      }
+    }
+  }
   if (!mapped.endsWith("*") && name === "Map") mapped = "vexa::MapObject<vexa::Value, vexa::Value>*";
   if (!mapped.endsWith("*") && name === "Set") mapped = "vexa::SetObject<vexa::Value>*";
   if (!mapped.endsWith("*") && name === "WeakSet" && (call.args?.length ?? 0) === 1) {
@@ -1170,12 +1214,19 @@ function emitNativeCollectionConstruction(call: CallExpression | NewExpression, 
     }
     if (name === "Map") {
       const mappedTypes = cppTemplateArguments(mapped, "vexa::MapObject<");
+      const iterableCollectionTypes = cppTemplateArguments(
+        nativeCollectionPointerCppType(values) ?? "",
+        "vexa::MapObject<"
+      );
       const analysisType = activeExpressionTypes.get(call as Node);
       const inferred = analysisType?.kind === "named"
         ? (analysisType.typeArguments ?? []).map((argument) => cppTypeForAnalysisType(argument) ?? "vexa::Value")
         : [];
       let types: string[] = inferred;
       if (mappedTypes) types = mappedTypes;
+      if (types.every((type) => type === "vexa::Value") && iterableCollectionTypes) {
+        types = iterableCollectionTypes;
+      }
       if (explicit.length === 2) types = explicit;
       if (types.length < 2) throw new CppEmitError("C++ cannot infer Map entry types", call);
       return `vexa::mapFromIterable<${types[0]}, ${types[1]}>(${activeRuntimeName}, ${emitExpression(values)})`;
@@ -1188,8 +1239,14 @@ function emitNativeCollectionConstruction(call: CallExpression | NewExpression, 
     const selectedType = explicit[0] ?? mappedTypes?.[0] ?? inferred;
     const iterableType = managedArrayCppTypeForExpression(values);
     const elementType = iterableType ? managedArrayElementType(iterableType) : null;
-    const emittedType = selectedType === "undefined" || selectedType === "vexa::Undefined"
-      ? elementType ?? "vexa::Value"
+    const iterableCollectionType = cppTemplateArguments(
+      nativeCollectionPointerCppType(values) ?? "",
+      `vexa::${name}Object<`
+    )?.[0] ?? null;
+    const inferredIterableType = elementType ?? iterableCollectionType;
+    const emittedType = selectedType === "undefined" || selectedType === "vexa::Undefined" ||
+        (selectedType === "vexa::Value" && inferredIterableType && inferredIterableType !== "vexa::Value")
+      ? inferredIterableType ?? "vexa::Value"
       : selectedType;
     return `vexa::setFromIterable<${emittedType}>(${activeRuntimeName}, ${emitExpression(values)})`;
   }
@@ -1221,6 +1278,9 @@ function isGeneratorExpression(expression: Expr): boolean {
 function emitConvertedValue(expression: Expr, resultType: string): string {
   if (resultType === "void") {
     return `([&]() { ${emitExpression(expression)}; }())`;
+  }
+  if (resultType === "vexa::Value" && expression.kind === NodeKind.StringLiteral) {
+    return pooledStringLiteral((expression as unknown as { value: string }).value);
   }
   if (expression.kind === NodeKind.ConditionalExpression) {
     const conditional = expression as ConditionalExpression;
@@ -1301,7 +1361,7 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
 function emitArrayElements(elements: readonly Expr[], elementType: string): string {
   const emitElement = (element: Expr): string => {
     const emitted = emitExpression(element);
-    return elementType === "std::string" ? `vexa::toString(${emitted})` : emitted;
+    return elementType === "vexa::Text" ? `vexa::convertValue<vexa::Text>(${emitted})` : emitted;
   };
   const emitTypedElement = (element: Expr): string =>
     interfaceStatementForCppType(elementType) !== null
@@ -1350,7 +1410,7 @@ function emitArrayElements(elements: readonly Expr[], elementType: string): stri
 
 function arrayLiteralElementCppType(element: Expr): string {
   if (element.kind === NodeKind.ArrayHole) return "vexa::Value";
-  if (element.kind === NodeKind.StringLiteral) return "std::string";
+  if (element.kind === NodeKind.StringLiteral) return "vexa::Text";
   if (element.kind === NodeKind.IntLiteral) return "std::int32_t";
   if (element.kind === NodeKind.FloatLiteral) return "double";
   if (element.kind === NodeKind.LongLiteral) return "std::int64_t";
@@ -1383,7 +1443,7 @@ function arrayElementCanUseCppType(element: Expr, expectedElementType: string): 
     return spreadElementType === null || spreadElementType === expectedElementType || expectedElementType === "vexa::Value";
   }
   if (element.kind === NodeKind.StringLiteral) {
-    return expectedElementType === "std::string" || expectedElementType === "vexa::Value";
+    return expectedElementType === "vexa::Text" || expectedElementType === "vexa::Value";
   }
   if (element.kind === NodeKind.IntLiteral || element.kind === NodeKind.FloatLiteral || element.kind === NodeKind.LongLiteral) {
     return expectedElementType === "std::int32_t" || expectedElementType === "std::int64_t" ||
@@ -1453,6 +1513,15 @@ function emitObjectLiteral(object: ObjectLiteral): string {
       ? `vexa::convertValue<vexa::Value>(${emitExpressionWithExpectedCppType(value, expectedType)})`
       : emitConvertedValue(value, "vexa::Value");
   };
+  const emitSpreadValue = (value: Expr): string => {
+    const previousExpectedType = activeExpectedExpressionCppType;
+    activeExpectedExpressionCppType = null;
+    try {
+      return emitExpression(value);
+    } finally {
+      activeExpectedExpressionCppType = previousExpectedType;
+    }
+  };
   try {
   const simple = object.properties.every((property) =>
     property.kind === NodeKind.ObjectProperty &&
@@ -1469,7 +1538,7 @@ function emitObjectLiteral(object: ObjectLiteral): string {
 
   const operations = object.properties.map((property) => {
     if (property.kind === NodeKind.ObjectSpreadProperty) {
-      return `vexa::recordSpread(__vexa_record, ${emitExpression(property.argument)})`;
+      return `vexa::recordSpread(__vexa_record, ${emitSpreadValue(property.argument)})`;
     }
     const objectProperty = property as ObjectProperty;
     const name = objectPropertyName(objectProperty);
@@ -1724,6 +1793,9 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
   if (expression.kind === NodeKind.CallExpression) {
     const callExpression = expression as CallExpression;
     const callMember = memberParts(callExpression.callee);
+    if (callMember?.objectName === "JSON" && callMember.propertyName === "stringify") {
+      return "vexa::Value";
+    }
     if (callMember?.objectName === "console" && new Set(["log", "info", "warn", "error"]).has(callMember.propertyName)) {
       return "void";
     }
@@ -1794,6 +1866,14 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
   if (expression.kind === NodeKind.MemberExpression) {
     const member = expression as MemberExpression;
     if (emittedCppTypeForExpression(member.object) === "vexa::Value") return "vexa::Value";
+    const propertyName = !member.computed ? identifierName(member.property) : null;
+    const interfaceProperty = propertyName
+      ? interfacePropertyForMember(createMemberParts(member.object, propertyName))
+      : null;
+    const interfacePropertyType = interfaceProperty
+      ? interfacePropertyCppType(interfaceProperty)
+      : null;
+    if (interfacePropertyType) return interfacePropertyType;
     if (member.optional || isOptionalChainExpression(member.object)) {
       const valueType = classStoredPropertyInfoForMember(member)?.valueType ?? cppTypeForExpression(expression);
       if (!valueType.endsWith("*")) return "vexa::Value";
@@ -1947,14 +2027,14 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         return `vexa::GeneratorResult<${generatorElementType}>`;
       }
       if (member?.objectName === "Object") {
-        if (member.propertyName === "keys") return "vexa::ArrayObject<std::string>*";
+        if (member.propertyName === "keys") return "vexa::ArrayObject<vexa::Text>*";
         if (member.propertyName === "values") return "vexa::ArrayObject<vexa::Value>*";
         if (member.propertyName === "entries") return "vexa::ArrayObject<vexa::ArrayObject<vexa::Value>*>*";
       }
       if (member?.objectName === "Number" && member.propertyName === "isInteger") return "bool";
       if (member?.objectName === "Number" && member.propertyName === "isNaN") return "bool";
       if (member?.objectName === "Array" && member.propertyName === "isArray") return "bool";
-      if (member?.objectName === "String" && member.propertyName === "fromCharCode") return "std::string";
+      if (member?.objectName === "String" && member.propertyName === "fromCharCode") return "vexa::Text";
       if (member?.objectName === "Promise" && member.propertyName === "allSettled") {
         return "vexa::Task<vexa::ArrayObject<vexa::RecordObject*>*>";
       }
@@ -1978,11 +2058,11 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         }
       }
       if (member && isStringExpression(member.object)) {
-        if (member.propertyName === "split") return "vexa::ArrayObject<std::string>*";
+        if (member.propertyName === "split") return "vexa::ArrayObject<vexa::Text>*";
         if (new Set([
           "toString", "toUpperCase", "toLowerCase", "trim", "trimStart", "trimEnd", "charAt", "repeat",
           "replace", "substring", "slice",
-        ]).has(member.propertyName)) return "std::string";
+        ]).has(member.propertyName)) return "vexa::Text";
         if (new Set(["includes", "startsWith", "endsWith", "test"]).has(member.propertyName)) return "bool";
         if (new Set(["charCodeAt", "lastIndexOf", "indexOf"]).has(member.propertyName)) return "double";
       }
@@ -2050,7 +2130,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         );
         if (mapTypes?.[1]) return mapTypes[1];
       }
-      if (identifierName((expression as CallExpression).callee) === "String") return "std::string";
+      if (identifierName((expression as CallExpression).callee) === "String") return "vexa::Text";
       const inferredFunctionResult = inferredFunctionCallCppType(expression as CallExpression);
       if (inferredFunctionResult) return inferredFunctionResult;
       const declaredResult = declaredCallResultType(expression as CallExpression);
@@ -4622,6 +4702,68 @@ function syntacticDynamicBinaryResultType(operator: string, left: string, right:
   return "std::int32_t";
 }
 
+function isNativeNumericCppType(type: string): boolean {
+  return type === "std::int32_t" || type === "std::int64_t" || type === "double";
+}
+
+function isDirectNativePrimitiveExpression(operand: Expr): boolean {
+  switch (operand.kind) {
+    case NodeKind.Identifier:
+    case NodeKind.IntLiteral:
+    case NodeKind.LongLiteral:
+    case NodeKind.FloatLiteral:
+    case NodeKind.BooleanLiteral:
+      return true;
+    case NodeKind.MemberExpression:
+    case NodeKind.CallExpression:
+      return !isDynamicValueExpression(operand);
+    case NodeKind.AsExpression:
+    case NodeKind.SatisfiesExpression:
+    case NodeKind.NonNullExpression:
+      return isDirectNativePrimitiveExpression((operand as unknown as { expression: Expr }).expression);
+    case NodeKind.UnaryExpression:
+      return isDirectNativePrimitiveExpression((operand as UnaryExpression).argument);
+    default:
+      return false;
+  }
+}
+
+function isDirectNativeTextExpression(expression: Expr): boolean {
+  const type = emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
+  if (type !== "vexa::Text") return false;
+  switch (expression.kind) {
+    case NodeKind.StringLiteral:
+    case NodeKind.Identifier:
+      return true;
+    case NodeKind.MemberExpression:
+    case NodeKind.CallExpression:
+      return !isDynamicValueExpression(expression);
+    case NodeKind.AsExpression:
+    case NodeKind.SatisfiesExpression:
+    case NodeKind.NonNullExpression:
+      return isDirectNativeTextExpression((expression as unknown as { expression: Expr }).expression);
+    case NodeKind.BinaryExpression: {
+      const binary = expression as BinaryExpression;
+      return binary.operator === "+" &&
+        isDirectNativeTextExpression(binary.left) &&
+        isDirectNativeTextExpression(binary.right);
+    }
+    default:
+      return false;
+  }
+}
+
+function hasStaticPrimitiveOperands(expression: BinaryExpression): boolean {
+  const left = emittedCppTypeForExpression(expression.left) ?? cppTypeForExpression(expression.left);
+  const right = emittedCppTypeForExpression(expression.right) ?? cppTypeForExpression(expression.right);
+  const primitiveTypesMatch = (isNativeNumericCppType(left) && isNativeNumericCppType(right)) ||
+    (left === "bool" && right === "bool") ||
+    (left === "vexa::Text" && right === "vexa::Text");
+  return primitiveTypesMatch &&
+    isDirectNativePrimitiveExpression(expression.left) &&
+    isDirectNativePrimitiveExpression(expression.right);
+}
+
 function emitDynamicBinaryText(operator: string, left: string, right: string): string | null {
   const helper = dynamicBinaryHelper(operator);
   if (!helper) return null;
@@ -4637,6 +4779,22 @@ function emitBinary(expression: BinaryExpression): string {
   if (overloaded) return overloaded;
   const pointerNullishEquality = emitPointerNullishEquality(expression);
   if (pointerNullishEquality) return pointerNullishEquality;
+  if (expression.operator === "+" &&
+      isDirectNativeTextExpression(expression.left) &&
+      isDirectNativeTextExpression(expression.right)) {
+    return `(${emitExpression(expression.left)} + ${emitExpression(expression.right)})`;
+  }
+  if (expression.operator === "+") {
+    const leftType = emittedCppTypeForExpression(expression.left) ?? cppTypeForExpression(expression.left);
+    const rightType = emittedCppTypeForExpression(expression.right) ?? cppTypeForExpression(expression.right);
+    if (leftType === "vexa::Text" || rightType === "vexa::Text") {
+      return emitDynamicBinaryText(
+        expression.operator,
+        emitExpression(expression.left),
+        emitExpression(expression.right)
+      )!;
+    }
+  }
   if (expression.operator === "&" || expression.operator === "|" || expression.operator === "^" ||
       expression.operator === "<<" || expression.operator === ">>" || expression.operator === ">>>") {
     return emitDynamicBinaryText(
@@ -4770,6 +4928,9 @@ function emitBinary(expression: BinaryExpression): string {
   if (
     new Set(["<", ">", "<=", ">=", "==", "!="]).has(operator)
   ) {
+    if (hasStaticPrimitiveOperands(expression)) {
+      return `(${emitExpression(expression.left)} ${operator} ${emitExpression(expression.right)})`;
+    }
     const left = emitConvertedValue(expression.left, "vexa::Value");
     const right = emitConvertedValue(expression.right, "vexa::Value");
     if (operator === "==" || operator === "!=") {
@@ -4821,7 +4982,7 @@ function emitExpression(expression: Expr): string {
     case NodeKind.BooleanLiteral:
       return (expression as unknown as { value: boolean }).value ? "true" : "false";
     case NodeKind.StringLiteral:
-      return pooledStringLiteral((expression as unknown as { value: string }).value);
+      return `vexa::Text(${cppUtf16String((expression as unknown as { value: string }).value)})`;
     case NodeKind.RegExpLiteral: {
       const literal = expression as RegExpLiteral;
       return `vexa::RegExp(${cppString(literal.pattern)}, ${cppString(literal.flags)})`;
@@ -4863,7 +5024,7 @@ function emitExpression(expression: Expr): string {
         return emitClassOperatorCall(overloaded, unary.argument, noArguments);
       }
       if (unary.operator === "typeof") {
-        if (usesPooledFunctionTypeof(unary)) return pooledStringLiteral("function");
+        if (usesPooledFunctionTypeof(unary)) return `vexa::Text(${cppUtf16String("function")})`;
         return `vexa::typeOf(${emitExpression(unary.argument)})`;
       }
       if (unary.operator === "void") return `(static_cast<void>(${emitExpression(unary.argument)}), vexa::Value::undefined())`;
@@ -5003,6 +5164,20 @@ function emitExpression(expression: Expr): string {
           return `vexa::assignWith(${target}, [&](const vexa::Value& __vexa_compound_current) { return ${value}; })`;
         }
       }
+      if (compoundOperator) {
+        const targetType = emittedCppTypeForExpression(assignment.left) ?? cppTypeForExpression(assignment.left);
+        if (targetType === "vexa::Text") {
+          const target = emitExpression(assignment.left);
+          const value = emitDynamicBinaryText(
+            compoundOperator,
+            "__vexa_compound_current",
+            emitExpression(assignment.right)
+          );
+          if (value) {
+            return `vexa::assignWith(${target}, [&](const vexa::Text& __vexa_compound_current) { return vexa::convertValue<vexa::Text>(${value}); })`;
+          }
+        }
+      }
       if (compoundOperator && !activeHasExpressionTypes) {
         const target = emitExpression(assignment.left);
         const targetType = assignment.left.kind === NodeKind.Identifier
@@ -5056,8 +5231,18 @@ function emitExpression(expression: Expr): string {
     }
     case NodeKind.ConditionalExpression: {
       const conditional = expression as ConditionalExpression;
+      const hasNullishBranch = new Set([NodeKind.NullLiteral, NodeKind.UndefinedLiteral]).has(conditional.consequent.kind) ||
+        new Set([NodeKind.NullLiteral, NodeKind.UndefinedLiteral]).has(conditional.alternate.kind);
+      const presentBranch = new Set([NodeKind.NullLiteral, NodeKind.UndefinedLiteral]).has(conditional.consequent.kind)
+        ? conditional.alternate
+        : conditional.consequent;
+      const presentBranchType = hasNullishBranch
+        ? emittedCppTypeForExpression(presentBranch) ?? cppTypeForExpression(presentBranch)
+        : null;
       const resultType = activeExpectedExpressionCppType ??
-        emittedCppTypeForExpression(conditional) ?? cppTypeForExpression(conditional);
+        (hasNullishBranch && presentBranchType === "vexa::Text"
+          ? "vexa::Value"
+          : emittedCppTypeForExpression(conditional) ?? cppTypeForExpression(conditional));
       const branch = (value: Expr): string => {
         const emittedType = emittedCppTypeForExpression(value);
         if (resultType !== "auto" && emittedType !== resultType) {
@@ -5208,6 +5393,9 @@ function emitExpression(expression: Expr): string {
       if (!member.computed && isStringExpression(member.object) && identifierName(member.property) === "length") {
         return `static_cast<double>(vexa::stringCodeUnitLength(${emitExpression(member.object)}))`;
       }
+      if (member.computed && isStringExpression(member.object)) {
+        return `vexa::stringIndex(${emitExpression(member.object)}, ${emitExpression(member.property)})`;
+      }
       if (!member.computed && member.optional && identifierName(member.property) === "length") {
         return `vexa::dynamicGetOptional(vexa::convertValue<vexa::Value>(${emitExpression(member.object)}), u"length")`;
       }
@@ -5250,7 +5438,7 @@ function emitExpression(expression: Expr): string {
       const interfaceProperty: InterfacePropertyMember | null = memberInfo
         ? interfacePropertyForMember(memberInfo)
         : null;
-      if (interfaceProperty) {
+      if (interfaceProperty && !isDynamicValueExpression(member.object)) {
         const receiver = emitExpression(member.object);
         const getter = (target: string) => `${target}->${interfacePropertyGetterName(interfaceProperty.name.name)}()`;
         if (member.optional || isOptionalChainExpression(member.object)) {
@@ -5329,7 +5517,10 @@ function emitExpression(expression: Expr): string {
         const key = member.computed
           ? `vexa::propertyKey(${emitExpression(member.property)})`
           : cppUtf16String((member.property as Identifier).name);
-        return `vexa::rawPointer(${emitExpression(member.object)})->dynamicGet(${key})`;
+        const receiver = `vexa::rawPointer(${emitExpression(member.object)})`;
+        return member.optional || isOptionalChainExpression(member.object)
+          ? `vexa::dynamicGetOptional(${receiver}, ${key})`
+          : `${receiver}->dynamicGet(${key})`;
       }
       if (!member.computed && (member.optional || isOptionalChainExpression(member.object))) {
         const resultType = emittedCppTypeForExpression(member) ?? cppTypeForExpression(member);
@@ -5789,7 +5980,7 @@ function emitFor(statement: ForStatement, indent: string, label?: string): strin
       if (iteratorBinding.kind === NodeKind.Identifier) {
         activeLocalNames.add(iteratorBinding.name);
         const elementType = stringIterable
-          ? "std::string"
+          ? "vexa::Text"
           : deferredNativeArray
             ? "vexa::Value"
             : managedArrayElementType(iterableCppType);
@@ -8212,11 +8403,18 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   for (const statement of topLevelVariables) {
     const name = cppName((statement.name as Identifier).name);
     const declaredType = statement.typeAnnotation ? cppTypeForDeclaredName(statement.typeAnnotation.name) : null;
+    const emittedInferredType = statement.initializer
+      ? emittedCppTypeForExpression(statement.initializer)
+      : null;
+    const analyzedInferredType = statement.initializer
+      ? cppTypeForExpression(statement.initializer)
+      : null;
     const inferredType = statement.initializer?.kind === NodeKind.ArrayLiteral
       ? `vexa::ArrayObject<${arrayLiteralCppElementType(statement.initializer as ArrayLiteral)}>*`
-      : statement.initializer
-        ? emittedCppTypeForExpression(statement.initializer)
-        : null;
+      : (!emittedInferredType || emittedInferredType === "auto") &&
+          analyzedInferredType && analyzedInferredType !== "auto"
+        ? analyzedInferredType
+        : emittedInferredType;
     let type: string = "vexa::Value";
     if (declaredType) type = declaredType;
     else if (inferredType && inferredType !== "auto" && inferredType !== "void") type = inferredType;

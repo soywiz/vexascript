@@ -218,6 +218,50 @@ dynamic reads and writes, and the existing language-wide edge cases. Source
 locations have focused CLI coverage for both their default absence and their
 explicit opt-in path.
 
+## Static Text Boundaries And Full-Graph Recovery
+
+Profiling the first self-host executable showed that immutable compiler strings
+were repeatedly boxed into managed `Value` objects. Native `string` storage now
+uses a small `vexa::Text` value backed by UTF-16, while conversions to dynamic
+`Value` allocate only at an actual dynamic boundary. String indexing, slicing,
+case conversion, replacement, concatenation, collection keys, and command-line
+arguments share this representation. Managed dynamic strings remain traced by
+Oilpan, and `StringObject` concatenation uses lazy immutable rope nodes before
+flattening.
+
+Several full-graph-only type mismatches exposed an important inference rule:
+the type selected for `Map` and `Set` construction must also be the type stored
+for the receiving local or global root. Inferring a typed construction from its
+iterable while declaring `Map<Value, Value>` or `Set<Value>` produces invalid
+C++ even though each decision is locally plausible. Collection construction
+now reuses iterable collection and array element types, including when an
+indexed TypeScript generic such as `BinaryExpression["operator"]` falls back to
+`Value`. Conversely, an expression deliberately kept dynamic, such as a class
+cast through `unknown` to a structural record, must not be re-stabilized from
+its analysis type. The native smoke covers that structural cast and an absent
+optional dynamic class value.
+
+The complete 44-module compiler once again emits a roughly 7 MB translation
+unit and compiles with `-O0 -DNDEBUG` in about 20.5 seconds. Its first execution
+then found a concrete static-boundary bug: spreading two `Map<string, string>`
+instances into an unannotated map lost the key and value types before adapting
+the result to `NativeModuleInfo`. The compiler source now declares that map
+explicitly, matching the longer-term strict-static self-host direction.
+
+After that correction, a native compiler run on a one-line source completed
+load, parse, module resolution, and module isolation in under 6 ms without a
+runtime cast failure. It remained inside merged semantic analysis past the
+two-minute performance budget and was stopped after 146 seconds. The current
+milestone is therefore compilation and early execution stability, not a full
+two-roundtrip result.
+
+An attempted shared `cppgc::Persistent` handle for every managed value was also
+measured and reverted: self-host execution regressed from roughly 150 seconds
+to 163 seconds. Lazy string ropes improved parsing but did not materially reduce
+emission time. These dead ends point performance work toward generated dynamic
+semantic operations and declaration analysis rather than broader rooting or
+string concatenation changes.
+
 The first self-host run after the UTF-16 migration exposed a second-order bug:
 the parser stored source text as UTF-16, but `substring`, `slice`, `charAt`,
 `indexOf`, and related runtime helpers converted to UTF-8 and then treated

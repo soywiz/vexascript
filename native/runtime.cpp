@@ -160,17 +160,91 @@ class OilpanPlatform final : public cppgc::Platform {
   v8::base::PageAllocator allocator_;
 };
 
-class StringObject final : public cppgc::GarbageCollected<StringObject> {
- public:
-  explicit StringObject(std::string value) : value_(utf8ToUtf16(value)) {}
-  explicit StringObject(std::u16string value) : value_(std::move(value)) {}
+class Value;
 
-  void Trace(cppgc::Visitor*) const {}
-  const std::u16string& value() const { return value_; }
+class Text final {
+ public:
+  Text() = default;
+  Text(const char* value) : value_(utf8ToUtf16(value)) {}
+  Text(std::string value) : value_(utf8ToUtf16(value)) {}
+  Text(std::string_view value) : value_(utf8ToUtf16(value)) {}
+  Text(const char16_t* value) : value_(value) {}
+  Text(std::u16string value) : value_(std::move(value)) {}
+  Text(std::u16string_view value) : value_(value) {}
+  Text(const Value& value);
+
+  const std::u16string& utf16() const { return value_; }
   std::string utf8() const { return utf16ToUtf8(value_); }
+  std::size_t size() const { return value_.size(); }
+  bool empty() const { return value_.empty(); }
+  char16_t operator[](std::size_t index) const { return value_[index]; }
+  explicit operator bool() const { return !value_.empty(); }
+
+  Text& operator+=(const Text& other) {
+    value_ += other.value_;
+    return *this;
+  }
+
+  operator std::string() const { return utf8(); }
+
+  friend Text operator+(Text left, const Text& right) {
+    left += right;
+    return left;
+  }
+  friend bool operator==(const Text&, const Text&) = default;
+  friend auto operator<=>(const Text&, const Text&) = default;
+  friend std::ostream& operator<<(std::ostream& output, const Text& value) {
+    return output << value.utf8();
+  }
 
  private:
   std::u16string value_;
+};
+
+class StringObject final : public cppgc::GarbageCollected<StringObject> {
+ public:
+  explicit StringObject(std::string value)
+      : value_(utf8ToUtf16(value)), size_(value_->size()) {}
+  explicit StringObject(std::u16string value)
+      : value_(std::move(value)), size_(value_->size()) {}
+  StringObject(StringObject* left, StringObject* right)
+      : left_(left), right_(right), size_(left->size() + right->size()) {}
+
+  void Trace(cppgc::Visitor* visitor) const {
+    visitor->Trace(left_);
+    visitor->Trace(right_);
+  }
+
+  std::size_t size() const { return size_; }
+
+  const std::u16string& value() const {
+    if (value_) return *value_;
+
+    std::u16string flattened;
+    flattened.reserve(size_);
+    std::vector<const StringObject*> pending;
+    pending.push_back(this);
+    while (!pending.empty()) {
+      const StringObject* current = pending.back();
+      pending.pop_back();
+      if (current->value_) {
+        flattened.append(*current->value_);
+        continue;
+      }
+      if (current->right_) pending.push_back(current->right_.Get());
+      if (current->left_) pending.push_back(current->left_.Get());
+    }
+    value_ = std::move(flattened);
+    return *value_;
+  }
+
+  std::string utf8() const { return utf16ToUtf8(value()); }
+
+ private:
+  mutable std::optional<std::u16string> value_;
+  cppgc::Member<StringObject> left_;
+  cppgc::Member<StringObject> right_;
+  std::size_t size_ = 0;
 };
 
 struct Undefined final {};
@@ -290,6 +364,9 @@ class Value final {
   const std::u16string& utf16() const {
     return std::get<cppgc::Persistent<StringObject>>(storage_)->value();
   }
+  StringObject* stringObject() const {
+    return std::get<cppgc::Persistent<StringObject>>(storage_).Get();
+  }
   RecordObject* record() const;
   DynamicValueObject* dynamicObject() const {
     return std::get<cppgc::Persistent<DynamicValueObject>>(storage_).Get();
@@ -310,6 +387,13 @@ class Value final {
   explicit Value(Null value) : storage_(value) {}
   Storage storage_;
 };
+
+inline Text::Text(const Value& value) {
+  if (!value.isString()) {
+    throw std::runtime_error("VexaScript value is not a string");
+  }
+  value_ = value.utf16();
+}
 
 class StoredValue final {
  public:
@@ -348,10 +432,18 @@ inline std::size_t stringCodeUnitLength(const std::string& value) {
   return utf8ToUtf16(value).size();
 }
 
+inline std::size_t stringCodeUnitLength(const Text& value) {
+  return value.size();
+}
+
 inline std::int32_t stringFirstCodeUnit(const Value& value) {
   return value.isString() && !value.utf16().empty()
     ? static_cast<std::uint16_t>(value.utf16()[0])
     : -1;
+}
+
+inline std::int32_t stringFirstCodeUnit(const Text& value) {
+  return value.empty() ? -1 : static_cast<std::uint16_t>(value[0]);
 }
 
 class RecordObject final : public cppgc::GarbageCollected<RecordObject>, public cppgc::GarbageCollectedMixin {
@@ -928,6 +1020,8 @@ struct SameValueZeroHash final {
   std::size_t operator()(const T& value) const {
     if constexpr (std::is_same_v<T, BigInt>) {
       return std::hash<std::string>{}(value.toString());
+    } else if constexpr (std::is_same_v<T, Text>) {
+      return std::hash<std::u16string>{}(value.utf16());
     } else if constexpr (std::is_pointer_v<T>) {
       return std::hash<const void*>{}(value);
     } else {
@@ -1851,6 +1945,10 @@ inline bool regexTest(const RegExp& expression, const Value& value) {
   return expression.test(value.isString() ? value.string() : "");
 }
 
+inline bool regexTest(const RegExp& expression, const Text& value) {
+  return expression.test(value.utf8());
+}
+
 inline std::string stringReplace(const std::string& value, const RegExp& expression, const Value& replacement) {
   return expression.replace(value, toString(replacement));
 }
@@ -1879,6 +1977,42 @@ inline std::string stringReplace(const Value& value, const Value& search, const 
 
 inline std::string stringReplace(const Value& value, const RegExp& expression, const Value& replacement) {
   return expression.replace(toString(value), toString(replacement));
+}
+
+inline Text stringReplace(const Text& value, const RegExp& expression, const Text& replacement) {
+  return Text(expression.replace(value.utf8(), replacement.utf8()));
+}
+
+inline Text stringReplace(const Text& value, const RegExp& expression, const Value& replacement) {
+  return Text(expression.replace(value.utf8(), toString(replacement)));
+}
+
+inline Text stringReplace(const std::string& value, const RegExp& expression, const Text& replacement) {
+  return Text(expression.replace(value, replacement.utf8()));
+}
+
+inline Text stringReplace(const Value& value, const RegExp& expression, const Text& replacement) {
+  return Text(expression.replace(toString(value), replacement.utf8()));
+}
+
+inline Text stringReplace(const Text& value, const Text& search, const Text& replacement) {
+  const auto offset = value.utf16().find(search.utf16());
+  if (offset == std::u16string::npos) return value;
+  auto result = value.utf16();
+  result.replace(offset, search.size(), replacement.utf16());
+  return Text(std::move(result));
+}
+
+inline Text stringReplace(const Text& value, const Text& search, const Value& replacement) {
+  return stringReplace(value, search, Text(replacement));
+}
+
+inline Text stringReplace(const Value& value, const Text& search, const Text& replacement) {
+  return stringReplace(Text(value), search, replacement);
+}
+
+inline Text stringReplace(const Value& value, const Text& search, const Value& replacement) {
+  return stringReplace(Text(value), search, Text(replacement));
 }
 
 template <typename Callback>
@@ -1949,6 +2083,13 @@ class Runtime final {
   Value string(std::u16string value) {
     return Value(cppgc::MakeGarbageCollected<StringObject>(
         heap_->GetAllocationHandle(), std::move(value)));
+  }
+
+  Value concatStrings(StringObject* left, StringObject* right) {
+    if (left->size() == 0) return Value(right);
+    if (right->size() == 0) return Value(left);
+    return Value(cppgc::MakeGarbageCollected<StringObject>(
+        heap_->GetAllocationHandle(), left, right));
   }
 
   StringObject* retainLiteral(std::string value) {
@@ -2262,6 +2403,8 @@ Result convertValue(Input&& input) {
       return Value::null();
     } else if constexpr (std::is_same_v<Source, std::string>) {
       return currentRuntime().string(std::forward<Input>(input));
+    } else if constexpr (std::is_same_v<Source, Text>) {
+      return currentRuntime().string(input.utf16());
     } else if constexpr (std::is_pointer_v<Source>) {
       if (!input) return Value::null();
       if constexpr (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Source>>) {
@@ -2307,6 +2450,9 @@ Result convertValue(Input&& input) {
       throw std::runtime_error("VexaScript value cannot be converted to bigint");
     } else if constexpr (std::is_same_v<Result, std::string>) {
       if (input.isString()) return input.string();
+      throw errorAtCurrentSource("VexaScript value is not a string");
+    } else if constexpr (std::is_same_v<Result, Text>) {
+      if (input.isString()) return Text(input.utf16());
       throw errorAtCurrentSource("VexaScript value is not a string");
     } else if constexpr (std::is_arithmetic_v<Result>) {
       if (input.isNumber()) return static_cast<Result>(input.number());
@@ -3134,27 +3280,27 @@ inline Value recordGetOptional(RecordObject* record, const PropertyKey& key) {
   return record ? record->get(key) : Value::undefined();
 }
 
-inline ArrayObject<std::string>* recordKeys(Runtime& runtime, RecordObject* record) {
-  auto* result = runtime.array<std::string>();
-  if (record) for (const auto& key : record->keys()) result->append(key);
+inline ArrayObject<Text>* recordKeys(Runtime& runtime, RecordObject* record) {
+  auto* result = runtime.array<Text>();
+  if (record) for (const auto& key : record->keys()) result->append(Text(key));
   return result;
 }
 
-inline ArrayObject<std::string>* recordKeys(Runtime& runtime, EnumerableObject* object) {
-  auto* result = runtime.array<std::string>();
-  if (object) for (const auto& key : objectKeys(object)) result->append(key);
+inline ArrayObject<Text>* recordKeys(Runtime& runtime, EnumerableObject* object) {
+  auto* result = runtime.array<Text>();
+  if (object) for (const auto& key : objectKeys(object)) result->append(Text(key));
   return result;
 }
 
-inline ArrayObject<std::string>* recordKeys(Runtime& runtime, DynamicValueObject* object) {
-  auto* result = runtime.array<std::string>();
-  if (object) for (const auto& key : objectKeys(object)) result->append(key);
+inline ArrayObject<Text>* recordKeys(Runtime& runtime, DynamicValueObject* object) {
+  auto* result = runtime.array<Text>();
+  if (object) for (const auto& key : objectKeys(object)) result->append(Text(key));
   return result;
 }
 
 template <typename T>
   requires std::is_base_of_v<DynamicValueObject, T>
-inline ArrayObject<std::string>* recordKeys(Runtime& runtime, T* object) {
+inline ArrayObject<Text>* recordKeys(Runtime& runtime, T* object) {
   return recordKeys(runtime, static_cast<DynamicValueObject*>(object));
 }
 
@@ -3245,10 +3391,10 @@ inline RecordObject* recordFromEntries(Runtime& runtime, const Value& entries) {
   return record;
 }
 
-inline ArrayObject<std::string>* recordKeys(Runtime& runtime, const Value& value) {
+inline ArrayObject<Text>* recordKeys(Runtime& runtime, const Value& value) {
   if (value.isRecord()) return recordKeys(runtime, value.record());
   if (value.isDynamicObject()) return recordKeys(runtime, value.dynamicObject());
-  return runtime.array<std::string>();
+  return runtime.array<Text>();
 }
 
 inline ArrayObject<Value>* recordValues(Runtime& runtime, const Value& value) {
@@ -3273,6 +3419,11 @@ Value nullishCoalesce(Value value, Callback&& fallback) {
   return value.isNull() || value.isUndefined()
       ? std::forward<Callback>(fallback)()
       : value;
+}
+
+template <typename Callback>
+Text nullishCoalesce(Text value, Callback&&) {
+  return value;
 }
 
 template <typename T, typename Callback>
@@ -3769,11 +3920,11 @@ class Process final {
 
 inline Process* process = nullptr;
 
-inline ArrayObject<std::string>* commandLineArguments(Runtime& runtime) {
-  auto* result = runtime.array<std::string>();
+inline ArrayObject<Text>* commandLineArguments(Runtime& runtime) {
+  auto* result = runtime.array<Text>();
   if (!process || !process->argv) return result;
   for (std::size_t index = 2; index < process->argv->size(); ++index) {
-    result->append(process->argv->get(index));
+    result->append(Text(process->argv->get(index)));
   }
   return result;
 }
@@ -4634,6 +4785,8 @@ inline std::string toString(const Value& value) {
   return "[object Object]";
 }
 
+inline std::string toString(const Text& value) { return value.utf8(); }
+
 inline std::string toString(double value) { return numberToString(value); }
 inline std::string toString(int value) { return std::to_string(value); }
 inline std::string toString(std::int64_t value) { return std::to_string(value); }
@@ -5305,6 +5458,15 @@ inline std::string toUpperCase(std::string value) {
   return value;
 }
 inline std::string toUpperCase(const Value& value) { return toUpperCase(toString(value)); }
+inline Text toUpperCase(Text value) {
+  auto codeUnits = value.utf16();
+  std::transform(codeUnits.begin(), codeUnits.end(), codeUnits.begin(), [](char16_t character) {
+    return character <= 0x7f
+      ? static_cast<char16_t>(std::toupper(static_cast<unsigned char>(character)))
+      : character;
+  });
+  return Text(std::move(codeUnits));
+}
 
 inline std::string toLowerCase(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
@@ -5313,6 +5475,15 @@ inline std::string toLowerCase(std::string value) {
   return value;
 }
 inline std::string toLowerCase(const Value& value) { return toLowerCase(toString(value)); }
+inline Text toLowerCase(Text value) {
+  auto codeUnits = value.utf16();
+  std::transform(codeUnits.begin(), codeUnits.end(), codeUnits.begin(), [](char16_t character) {
+    return character <= 0x7f
+      ? static_cast<char16_t>(std::tolower(static_cast<unsigned char>(character)))
+      : character;
+  });
+  return Text(std::move(codeUnits));
+}
 
 inline std::string trim(std::string value) {
   const auto isSpace = [](unsigned char character) { return std::isspace(character) != 0; };
@@ -5321,6 +5492,16 @@ inline std::string trim(std::string value) {
   return value;
 }
 inline std::string trim(const Value& value) { return trim(toString(value)); }
+inline Text trim(Text value) {
+  auto codeUnits = value.utf16();
+  const auto isSpace = [](char16_t character) {
+    return character == u' ' || character == u'\t' || character == u'\n' ||
+      character == u'\r' || character == u'\f' || character == u'\v';
+  };
+  codeUnits.erase(codeUnits.begin(), std::find_if_not(codeUnits.begin(), codeUnits.end(), isSpace));
+  codeUnits.erase(std::find_if_not(codeUnits.rbegin(), codeUnits.rend(), isSpace).base(), codeUnits.end());
+  return Text(std::move(codeUnits));
+}
 
 inline std::string trimStart(std::string value) {
   const auto isSpace = [](unsigned char character) { return std::isspace(character) != 0; };
@@ -5328,6 +5509,15 @@ inline std::string trimStart(std::string value) {
   return value;
 }
 inline std::string trimStart(const Value& value) { return trimStart(toString(value)); }
+inline Text trimStart(Text value) {
+  auto codeUnits = value.utf16();
+  const auto isSpace = [](char16_t character) {
+    return character == u' ' || character == u'\t' || character == u'\n' ||
+      character == u'\r' || character == u'\f' || character == u'\v';
+  };
+  codeUnits.erase(codeUnits.begin(), std::find_if_not(codeUnits.begin(), codeUnits.end(), isSpace));
+  return Text(std::move(codeUnits));
+}
 
 inline std::string trimEnd(std::string value) {
   const auto isSpace = [](unsigned char character) { return std::isspace(character) != 0; };
@@ -5335,6 +5525,15 @@ inline std::string trimEnd(std::string value) {
   return value;
 }
 inline std::string trimEnd(const Value& value) { return trimEnd(toString(value)); }
+inline Text trimEnd(Text value) {
+  auto codeUnits = value.utf16();
+  const auto isSpace = [](char16_t character) {
+    return character == u' ' || character == u'\t' || character == u'\n' ||
+      character == u'\r' || character == u'\f' || character == u'\v';
+  };
+  codeUnits.erase(std::find_if_not(codeUnits.rbegin(), codeUnits.rend(), isSpace).base(), codeUnits.end());
+  return Text(std::move(codeUnits));
+}
 
 inline bool stringIncludes(const std::string& value, const std::string& search, double position = 0) {
   const auto valueCodeUnits = utf8ToUtf16(value);
@@ -5417,6 +5616,20 @@ inline std::string charAt(const Value& value, double index = 0) {
     : "";
 }
 
+inline Text charAt(const Text& value, double index = 0) {
+  const auto position = static_cast<std::int64_t>(std::trunc(index));
+  return position >= 0 && static_cast<std::size_t>(position) < value.size()
+    ? Text(std::u16string(1, value[static_cast<std::size_t>(position)]))
+    : Text();
+}
+
+inline Text stringIndex(const Text& value, double index) {
+  const auto position = static_cast<std::int64_t>(std::trunc(index));
+  return position >= 0 && static_cast<std::size_t>(position) < value.size()
+    ? Text(std::u16string(1, value[static_cast<std::size_t>(position)]))
+    : Text();
+}
+
 inline double charCodeAt(const std::string& value, double index = 0) {
   const auto codeUnits = utf8ToUtf16(value);
   const auto position = static_cast<std::int64_t>(std::trunc(index));
@@ -5467,6 +5680,13 @@ inline std::string stringRepeat(const std::string& value, double count) {
 inline std::string stringRepeat(const Value& value, double count) {
   return stringRepeat(toString(value), count);
 }
+inline Text stringRepeat(const Text& value, double count) {
+  const auto repetitions = std::max<std::int64_t>(0, static_cast<std::int64_t>(count));
+  std::u16string result;
+  result.reserve(value.size() * static_cast<std::size_t>(repetitions));
+  for (std::int64_t index = 0; index < repetitions; ++index) result += value.utf16();
+  return Text(std::move(result));
+}
 
 inline std::string substring(const std::string& value, double start, double end = std::numeric_limits<double>::infinity()) {
   const auto codeUnits = utf8ToUtf16(value);
@@ -5482,6 +5702,12 @@ inline std::string substring(const Value& value, double start, double end = std:
   if (first > last) std::swap(first, last);
   return utf16ToUtf8(value.utf16().substr(first, last - first));
 }
+inline Text substring(const Text& value, double start, double end = std::numeric_limits<double>::infinity()) {
+  std::size_t first = normalizedSliceIndex(std::max(0.0, start), value.size());
+  std::size_t last = std::isinf(end) ? value.size() : normalizedSliceIndex(std::max(0.0, end), value.size());
+  if (first > last) std::swap(first, last);
+  return Text(value.utf16().substr(first, last - first));
+}
 
 inline std::string stringSlice(const std::string& value, double start, double end = std::numeric_limits<double>::infinity()) {
   const auto codeUnits = utf8ToUtf16(value);
@@ -5494,6 +5720,29 @@ inline std::string stringSlice(const Value& value, double start, double end = st
   const std::size_t first = normalizedSliceIndex(start, value.utf16().size());
   const std::size_t last = std::isinf(end) ? value.utf16().size() : normalizedSliceIndex(end, value.utf16().size());
   return last <= first ? "" : utf16ToUtf8(value.utf16().substr(first, last - first));
+}
+inline Text stringSlice(const Text& value, double start, double end = std::numeric_limits<double>::infinity()) {
+  const std::size_t first = normalizedSliceIndex(start, value.size());
+  const std::size_t last = std::isinf(end) ? value.size() : normalizedSliceIndex(end, value.size());
+  return last <= first ? Text() : Text(value.utf16().substr(first, last - first));
+}
+
+inline ArrayObject<Text>* split(Runtime& runtime, const Text& value, const Text& separator) {
+  auto* result = runtime.array<Text>();
+  if (separator.empty()) {
+    for (char16_t character : value.utf16()) result->append(Text(std::u16string(1, character)));
+    return result;
+  }
+  std::size_t start = 0;
+  while (true) {
+    const std::size_t next = value.utf16().find(separator.utf16(), start);
+    if (next == std::u16string::npos) {
+      result->append(Text(value.utf16().substr(start)));
+      return result;
+    }
+    result->append(Text(value.utf16().substr(start, next - start)));
+    start = next + separator.size();
+  }
 }
 
 inline ArrayObject<std::string>* split(Runtime& runtime, const std::string& value, const std::string& separator) {
@@ -5649,6 +5898,7 @@ inline std::string String(const T& value) {
 inline bool Boolean(bool value) { return value; }
 inline bool Boolean(double value) { return value != 0 && !std::isnan(value); }
 inline bool Boolean(const std::string& value) { return !value.empty(); }
+inline bool Boolean(const Text& value) { return !value.empty(); }
 template <typename Result, typename... Arguments>
 inline bool Boolean(const std::function<Result(Arguments...)>& value) {
   return static_cast<bool>(value);
@@ -5828,7 +6078,9 @@ inline Value add(Runtime& runtime, Left&& leftInput, Right&& rightInput) {
     return *result;
   }
   if (left.isString() || right.isString()) {
-    return runtime.string(toString(left) + toString(right));
+    const Value leftText = left.isString() ? left : runtime.string(toString(left));
+    const Value rightText = right.isString() ? right : runtime.string(toString(right));
+    return runtime.concatStrings(leftText.stringObject(), rightText.stringObject());
   }
   if (left.isBigInt() || right.isBigInt()) {
     if (!left.isBigInt() || !right.isBigInt()) {

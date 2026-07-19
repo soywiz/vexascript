@@ -348,7 +348,7 @@ function moduleInfo(program: Program, path: string, moduleIndex: number): Native
       localSymbols.set(identifier.name, nativeSymbolName(moduleIndex, identifier.name));
     }
   }
-  const exports = new Map([...localSymbols, ...extensionSymbols]);
+  const exports = new Map<string, string>([...localSymbols, ...extensionSymbols]);
   for (const statement of program.body) {
     if (statement.kind !== NodeKind.ExportStatement) continue;
     const exported = statement as ExportStatement;

@@ -1002,13 +1002,45 @@ export interface TokenizeOptions {
   jsx?: boolean;
 }
 
+function readNonTemplateCodeFragment(
+  reader: StrReader,
+  previousSignificantToken: Token | undefined
+): TokenFragment {
+  const code = reader.peekCode();
+  const start = snapshot(reader);
+  let type: Token["type"];
+  let value: string;
+  if (
+    code === CODE_SLASH &&
+    peekNextCode(reader) !== CODE_SLASH &&
+    peekNextCode(reader) !== CODE_STAR &&
+    peekNextCode(reader) !== CODE_EQUALS &&
+    tokenAllowsRegExpLiteral(previousSignificantToken)
+  ) {
+    type = "regexp";
+    value = readRegExpLiteral(reader, start);
+  } else if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
+    type = "string";
+    value = readEscapedString(reader, code, start);
+  } else if (isIdentifierStartCode(code)) {
+    type = "identifier";
+    value = readIdentifier(reader);
+  } else if (isDigitCode(code) || (code === CODE_DOT && isDigitCode(peekNextCode(reader)))) {
+    type = "number";
+    value = readNumber(reader);
+  } else {
+    type = "symbol";
+    value = readSymbol(reader);
+  }
+  return { type, value, range: { start, end: snapshot(reader) } };
+}
+
 export function tokenize(input: string, options: TokenizeOptions = {}): Token[] {
   const jsxEnabled = options.jsx ?? false;
   const reader = new StrReader(input);
   const tokens: Token[] = [];
   let pendingComments: TokenComment[] = [];
   let previousSignificantToken: Token | undefined;
-  let readCodeToken: () => void;
   let readJsxElement: () => void;
 
   const pushFragment = (fragment: TokenFragment): Token => {
@@ -1099,7 +1131,24 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         }
         continue;
       }
-      readCodeToken();
+      if (
+        jsxEnabled &&
+        code === CODE_LT &&
+        tokenAllowsRegExpLiteral(previousSignificantToken)
+      ) {
+        const nextCode = peekNextCode(reader);
+        if (isIdentifierStartCode(nextCode) || nextCode === CODE_GT) {
+          readJsxElement();
+          continue;
+        }
+      }
+      if (code === CODE_BACKTICK) {
+        for (const fragment of readTemplateAsConcatenation(reader, snapshot(reader))) {
+          pushFragment(fragment);
+        }
+        continue;
+      }
+      pushFragment(readNonTemplateCodeFragment(reader, previousSignificantToken));
     }
     throw new TokenizeError("Unterminated JSX expression container", {
       start: braceStart,
@@ -1257,59 +1306,6 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
     readJsxChildren();
   };
 
-  // Reads a single non-trivia token (or JSX element / template expansion).
-  readCodeToken = (): void => {
-    const code = reader.peekCode();
-    const start = snapshot(reader);
-
-    if (
-      jsxEnabled &&
-      code === CODE_LT &&
-      tokenAllowsRegExpLiteral(previousSignificantToken)
-    ) {
-      const nextCode = peekNextCode(reader);
-      if (isIdentifierStartCode(nextCode) || nextCode === CODE_GT) {
-        readJsxElement();
-        return;
-      }
-    }
-
-    if (code === CODE_BACKTICK) {
-      const templateFragments = readTemplateAsConcatenation(reader, start);
-      for (const fragment of templateFragments) {
-        pushFragment(fragment);
-      }
-      return;
-    }
-
-    let type: Token["type"];
-    let value: string;
-    if (
-      code === CODE_SLASH &&
-      peekNextCode(reader) !== CODE_SLASH &&
-      peekNextCode(reader) !== CODE_STAR &&
-      peekNextCode(reader) !== CODE_EQUALS &&
-      tokenAllowsRegExpLiteral(previousSignificantToken)
-    ) {
-      type = "regexp";
-      value = readRegExpLiteral(reader, start);
-    } else if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
-      type = "string";
-      value = readEscapedString(reader, code, start);
-    } else if (isIdentifierStartCode(code)) {
-      type = "identifier";
-      value = readIdentifier(reader);
-    } else if (isDigitCode(code) || (code === CODE_DOT && isDigitCode(peekNextCode(reader)))) {
-      type = "number";
-      value = readNumber(reader);
-    } else {
-      type = "symbol";
-      value = readSymbol(reader);
-    }
-
-    pushFragment({ type, value, range: { start, end: snapshot(reader) } });
-  };
-
   while (reader.hasMore) {
     const code = reader.peekCode();
     const shebang = readShebangLine(reader);
@@ -1329,7 +1325,24 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       continue;
     }
 
-    readCodeToken();
+    if (
+      jsxEnabled &&
+      code === CODE_LT &&
+      tokenAllowsRegExpLiteral(previousSignificantToken)
+    ) {
+      const nextCode = peekNextCode(reader);
+      if (isIdentifierStartCode(nextCode) || nextCode === CODE_GT) {
+        readJsxElement();
+        continue;
+      }
+    }
+    if (code === CODE_BACKTICK) {
+      for (const fragment of readTemplateAsConcatenation(reader, snapshot(reader))) {
+        pushFragment(fragment);
+      }
+      continue;
+    }
+    pushFragment(readNonTemplateCodeFragment(reader, previousSignificantToken));
   }
 
   const eofPosition = snapshot(reader);
