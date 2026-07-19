@@ -307,6 +307,13 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes declaration-sized template literals as one exact segment", () => {
+        const payload = "interface Example { value: string }\n".repeat(10_000)
+        expect(simplifyTokens("`" + payload + "`")).toStrictEqual([
+            { type: "string", value: payload }
+        ])
+    })
+
     it("tokenizes template literals with interpolation as concatenation", () => {
         expect(simplifyTokens("`hello ${name}`")).toStrictEqual([
             { type: "string", value: "hello " },

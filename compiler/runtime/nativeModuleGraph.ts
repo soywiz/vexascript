@@ -1,6 +1,22 @@
-import { Identifier, MemberExpression, Node, NodeKind, Program } from "compiler/ast/ast";
+import {
+  ArrowFunctionExpression,
+  BlockStatement,
+  CatchClause,
+  ClassMethodMember,
+  ClassStatement,
+  ForStatement,
+  FunctionExpression,
+  FunctionStatement,
+  Identifier,
+  MemberExpression,
+  Node,
+  NodeKind,
+  ObjectProperty,
+  Program,
+} from "compiler/ast/ast";
 import type {
   ExportStatement,
+  FunctionParameter,
   ImportStatement,
   Statement,
   VarStatement,
@@ -81,6 +97,194 @@ function nativeSymbolName(moduleIndex: number, sourceName: string): string {
   return `__vexa_module_${moduleIndex}_${sourceName}`;
 }
 
+interface NativeShadowBinding {
+  name: string;
+  declaredOffset: number;
+}
+
+function appendNativeBinding(
+  bindings: NativeShadowBinding[],
+  name: VarStatement["name"],
+  declaredOffset = -1
+): void {
+  for (const identifier of bindingIdentifiers(name)) {
+    bindings.push({
+      name: identifier.name,
+      declaredOffset: declaredOffset >= 0
+        ? declaredOffset
+        : identifier.firstToken?.range.start.offset ?? -1,
+    });
+  }
+}
+
+function nativeIsolationBindings(node: Node): NativeShadowBinding[] | undefined {
+  const createsScope = node.kind === NodeKind.FunctionStatement ||
+    node.kind === NodeKind.ArrowFunctionExpression ||
+    node.kind === NodeKind.FunctionExpression ||
+    node.kind === NodeKind.ClassMethodMember ||
+    node.kind === NodeKind.ClassStatement ||
+    node.kind === NodeKind.BlockStatement ||
+    node.kind === NodeKind.ForStatement ||
+    node.kind === NodeKind.CatchClause;
+  if (!createsScope) return undefined;
+  const bindings: NativeShadowBinding[] = [];
+  let parameters: FunctionParameter[] | undefined;
+  if (node.kind === NodeKind.FunctionStatement) {
+    parameters = (node as FunctionStatement).parameters;
+  } else if (node.kind === NodeKind.ArrowFunctionExpression) {
+    parameters = (node as ArrowFunctionExpression).parameters;
+  } else if (node.kind === NodeKind.FunctionExpression) {
+    parameters = (node as FunctionExpression).parameters;
+  } else if (node.kind === NodeKind.ClassMethodMember) {
+    parameters = (node as ClassMethodMember).parameters;
+  }
+  if (parameters) {
+    for (const parameter of parameters) appendNativeBinding(bindings, parameter.name, -1);
+  }
+  if (node.kind === NodeKind.FunctionExpression) {
+    const name = (node as FunctionExpression).name;
+    if (name) bindings.push({ name: name.name, declaredOffset: -1 });
+  }
+  if (node.kind === NodeKind.ClassStatement) {
+    const classStatement = node as ClassStatement;
+    for (const member of classStatement.members) {
+      bindings.push({ name: member.name.name, declaredOffset: -1 });
+    }
+    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+      bindings.push({ name: parameter.name.name, declaredOffset: -1 });
+    }
+  }
+  if (node.kind === NodeKind.BlockStatement) {
+    for (const statement of (node as BlockStatement).body) {
+      const declaration = unwrapExportedDeclaration(statement);
+      if (!declaration) continue;
+      if (declaration.kind === NodeKind.VarStatement) {
+        const variable = declaration as VarStatement;
+        if (variable.declarations?.length) {
+          for (const declarator of variable.declarations) {
+            appendNativeBinding(bindings, declarator.name, declarator.firstToken?.range.start.offset ?? -1);
+          }
+        } else {
+          appendNativeBinding(bindings, variable.name, variable.firstToken?.range.start.offset ?? -1);
+        }
+        continue;
+      }
+      const name = (declaration as unknown as { name?: Identifier }).name;
+      if (name) bindings.push({ name: name.name, declaredOffset: -1 });
+    }
+  }
+  if (node.kind === NodeKind.ForStatement) {
+    const loop = node as ForStatement;
+    if (loop.iterator?.kind === NodeKind.VarStatement) {
+      appendNativeBinding(bindings, (loop.iterator as VarStatement).name, -1);
+    }
+    if (loop.initializer?.kind === NodeKind.VarStatement) {
+      appendNativeBinding(bindings, (loop.initializer as VarStatement).name, -1);
+    }
+  }
+  if (node.kind === NodeKind.CatchClause) {
+    const parameter = (node as CatchClause).parameter;
+    if (parameter) bindings.push({ name: parameter.name, declaredOffset: -1 });
+  }
+  return bindings;
+}
+
+function isNativeTypeNodeKey(key: string): boolean {
+  return key === "typeAnnotation" || key === "returnType" || key === "extendsType" ||
+    key === "extendsTypes" || key === "implementsTypes" || key === "targetType" ||
+    key === "constraint" || key === "defaultType" || key === "receiverType" ||
+    key === "receiverTypeArguments" || key === "typeArguments";
+}
+
+function isNativeIdentifierReference(parent: Node, key: string): boolean {
+  if (key.length === 0 || isNativeTypeNodeKey(key)) return false;
+  if (key === "name" || key === "local" || key === "imported" || key === "exported" ||
+      key === "defaultImport" || key === "namespaceImport" || key === "propertyName" ||
+      key === "label" || key === "names") return false;
+  if (parent.kind === NodeKind.MemberExpression && key === "property") {
+    return (parent as MemberExpression).computed;
+  }
+  if (parent.kind === NodeKind.PropertyReferenceExpression && key === "property") return false;
+  if (parent.kind === NodeKind.ObjectProperty && key === "key") {
+    return (parent as ObjectProperty).computed === true;
+  }
+  return true;
+}
+
+function isNativeIdentifierShadowed(
+  identifier: Identifier,
+  shadowScopes: readonly NativeShadowBinding[][]
+): boolean {
+  const usageOffset = identifier.firstToken
+    ? identifier.firstToken.range.start.offset
+    : 2_147_483_647;
+  for (let index = shadowScopes.length - 1; index >= 0; index -= 1) {
+    for (const binding of shadowScopes[index]!) {
+      if (binding.name === identifier.name &&
+          (binding.declaredOffset < 0 || binding.declaredOffset <= usageOffset)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function visitNativeIdentifierResolutions(
+  node: Node,
+  parent: Node,
+  key: string,
+  targetsByName: ReadonlyMap<string, Node>,
+  typeNames: ReadonlyMap<string, string>,
+  resolved: Map<Node, Node>,
+  shadowScopes: NativeShadowBinding[][]
+): void {
+  const bindings = nativeIsolationBindings(node);
+  if (bindings && bindings.length > 0) shadowScopes.push(bindings);
+  if (node instanceof Identifier) {
+    if (isNativeTypeNodeKey(key)) {
+      node.name = typeNameWithRenamedBase(node.name, typeNames);
+    } else if (isNativeIdentifierReference(parent, key) &&
+        !isNativeIdentifierShadowed(node, shadowScopes)) {
+      const target = targetsByName.get(node.name);
+      if (target) resolved.set(node, target);
+    }
+  }
+  const fields = node as unknown as Record<string, unknown>;
+  for (const childKey in fields) {
+    if (childKey === "firstToken" || childKey === "lastToken" || childKey.startsWith("__vexa")) continue;
+    const value = fields[childKey];
+    if (value instanceof Node) {
+      visitNativeIdentifierResolutions(value, node, childKey, targetsByName, typeNames, resolved, shadowScopes);
+    } else if (Array.isArray(value)) {
+      for (const child of value) {
+        if (child instanceof Node) {
+          visitNativeIdentifierResolutions(child, node, childKey, targetsByName, typeNames, resolved, shadowScopes);
+        }
+      }
+    }
+  }
+  if (bindings && bindings.length > 0) shadowScopes.pop();
+}
+
+function nativeIdentifierResolutions(
+  program: Program,
+  targetSymbols: ReadonlyMap<Node, string>,
+  typeNames: ReadonlyMap<string, string>,
+  additionalTargets: readonly Node[] = []
+): Map<Node, Node> {
+  const targetsByName = new Map<string, Node>();
+  for (const target of targetSymbols.keys()) {
+    if (target instanceof Identifier) targetsByName.set(target.name, target);
+  }
+  for (const target of additionalTargets) {
+    if (target instanceof Identifier) targetsByName.set(target.name, target);
+  }
+  const resolved = new Map<Node, Node>();
+  const shadowScopes: NativeShadowBinding[][] = [];
+  visitNativeIdentifierResolutions(program, program, "", targetsByName, typeNames, resolved, shadowScopes);
+  return resolved;
+}
+
 function typeNameWithRenamedBase(typeName: string, names: ReadonlyMap<string, string>): string {
   return substituteTypeNameText(typeName, names);
 }
@@ -123,26 +327,6 @@ function rewriteNamespaceMembers(
     }
   }
   return node;
-}
-
-const TYPE_NODE_KEYS = new Set([
-  "typeAnnotation", "returnType", "extendsType", "extendsTypes", "implementsTypes",
-  "targetType", "constraint", "defaultType", "receiverType", "receiverTypeArguments", "typeArguments",
-]);
-
-function rewriteTypeNames(node: Node, names: ReadonlyMap<string, string>): void {
-  const record = node as unknown as Record<string, unknown>;
-  for (const key of TYPE_NODE_KEYS) {
-    const value = record[key];
-    const identifiers = Array.isArray(value) ? value : value ? [value] : [];
-    for (const candidate of identifiers) {
-      if (typeof candidate === "object" && candidate !== null && (candidate as Node).kind === NodeKind.Identifier) {
-        const identifier = candidate as Identifier;
-        identifier.name = typeNameWithRenamedBase(identifier.name, names);
-      }
-    }
-  }
-  for (const child of childNodes(node)) rewriteTypeNames(child, names);
 }
 
 function moduleInfo(program: Program, path: string, moduleIndex: number): NativeModuleInfo {
@@ -353,23 +537,7 @@ export async function compileNativeModuleGraph(
 
   for (const filePath of order) {
     const info = moduleInfos.get(filePath)!;
-    const compilation = compileParsedSource(parsedByPath.get(filePath)!, {
-      profile: (event) => options.profile?.({
-        phase: `module-isolation-${event.phase}`,
-        elapsedMs: event.elapsedMs,
-        moduleCount: order.length,
-      }),
-    });
-    const analysis = compilation.analysis;
-    if (!analysis) {
-      errors.push(`Unable to analyze native module '${filePath}' for symbol isolation${
-        compilation.fatalError ? `: ${compilation.fatalError}` : ""
-      }`);
-      continue;
-    }
-    const resolvedSymbols = new Map<Node, Node>(
-      analysis.getIdentifierResolutions().map((resolution) => [resolution.identifier, resolution.symbol.node])
-    );
+    const isolationStartedAt = Date.now();
     const symbolNames = new Map<Node, string>();
     const typeNames = new Map(info.localSymbols);
     const namespaceExports = new Map<Node, ReadonlyMap<string, string>>();
@@ -408,8 +576,18 @@ export async function compileNativeModuleGraph(
         typeNames.set(local.name, renamed);
       }
     }
+    const namespaceTargets: Node[] = [];
+    for (const target of namespaceExports.keys()) namespaceTargets.push(target);
+    const resolvedSymbols = nativeIdentifierResolutions(info.program, symbolNames, typeNames, namespaceTargets);
+    options.profile?.({
+      phase: "module-isolation-resolution",
+      elapsedMs: Date.now() - isolationStartedAt,
+      moduleCount: order.length,
+    });
 
-    rewriteNamespaceMembers(info.program, resolvedSymbols, namespaceExports);
+    if (namespaceExports.size > 0) {
+      rewriteNamespaceMembers(info.program, resolvedSymbols, namespaceExports);
+    }
     for (const [identifierNode, symbolNode] of resolvedSymbols) {
       const renamed = symbolNames.get(symbolNode);
       if (renamed && identifierNode.kind === NodeKind.Identifier) {
@@ -428,7 +606,6 @@ export async function compileNativeModuleGraph(
         identifier.name = renamed;
       }
     }
-    rewriteTypeNames(info.program, typeNames);
   }
   reportPhase("module-isolation-analysis", order.length);
   if (errors.length > 0) {
@@ -446,6 +623,7 @@ export async function compileNativeModuleGraph(
   }
   const compilationArtifacts = compileParsedSource({ ...entryParsed, ast: mergedProgram }, {
     ambientDeclarations: options.ambientDeclarations ?? [],
+    checkTypes: options.typeCheck ?? true,
     profile: (event) => options.profile?.({
       phase: `merged-${event.phase}`,
       elapsedMs: event.elapsedMs,

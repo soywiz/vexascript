@@ -495,7 +495,8 @@ function resolveOverloadedFunctionCall(call: CallExpression): string | null {
   const argumentTypes = call.args.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
   const match = overloads.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, argumentTypes))
     ?? overloads.find((candidate) => candidate.hasBody && candidate.parameterTypes.length === call.args.length);
-  return match?.emittedName ?? null;
+  if (!match) return null;
+  return match.emittedName;
 }
 
 function escapeRegExp(text: string): string {
@@ -1955,7 +1956,9 @@ function emitConstructorBlock(method: ClassMethodMember): string {
   if (assignments.length === 0 && temps.length === 0) {
     return emitBlock(method.body);
   }
-  emittedStatements.splice(insertAt, 0, ...assignments);
+  if (assignments.length > 0) {
+    emittedStatements.splice(insertAt, 0, assignments.join("\n"));
+  }
   return `{
 ${emittedStatements.join("\n")}
 }`;

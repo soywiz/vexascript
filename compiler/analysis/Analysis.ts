@@ -78,10 +78,16 @@ export interface AnalysisOptions {
   language?: "vexascript" | "typescript";
   /** Optional fine-grained timing sink for compiler performance diagnostics. */
   profile?: (event: AnalysisProfileEvent) => void;
+  /**
+   * Validate semantic type compatibility after binding. When false, analysis
+   * still infers the expression and call information required by emitters.
+   * Defaults to true.
+   */
+  checkTypes?: boolean;
 }
 
 export interface AnalysisProfileEvent {
-  phase: "binding" | "type-checking";
+  phase: "binding" | "type-inference" | "type-checking";
   elapsedMs: number;
 }
 
@@ -116,6 +122,7 @@ export class Analysis {
     this.rootScope = bound.rootScope;
 
     phaseStartedAt = Date.now();
+    const validateTypes = options.checkTypes ?? true;
     const checked = new TypeChecker(
       program,
       bound,
@@ -123,10 +130,14 @@ export class Analysis {
       ambientDeclarations,
       invalidImportedBindings,
       options.language ?? "vexascript",
-      options.projectOwnedExternalDeclarations === true
+      options.projectOwnedExternalDeclarations === true,
+      validateTypes
     ).check();
-    options.profile?.({ phase: "type-checking", elapsedMs: Date.now() - phaseStartedAt });
-    this.issues = [...bound.issues, ...checked.issues];
+    options.profile?.({
+      phase: validateTypes ? "type-checking" : "type-inference",
+      elapsedMs: Date.now() - phaseStartedAt
+    });
+    this.issues = validateTypes ? [...bound.issues, ...checked.issues] : [...bound.issues];
     this.identifierResolutions = checked.identifierResolutions;
     this.jsxAttributeResolutions = checked.jsxAttributeResolutions;
     this.operatorResolutions = checked.operatorResolutions;

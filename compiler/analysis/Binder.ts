@@ -113,7 +113,7 @@ function scopeHasGlobalPredeclaration(scope: Scope): boolean {
 }
 
 export class Binder {
-  private readonly scopeByNode: WeakMap<Node, Scope> = new WeakMap();
+  private readonly scopeByNode: WeakMap<Node, Scope> = new WeakMap<Node, Scope>();
   private readonly rootScope: Scope;
   private readonly classStatementsByName = new Map<string, ClassStatement>();
   private readonly interfaceStatementsByName = new Map<string, InterfaceStatement[]>();

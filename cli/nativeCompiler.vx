@@ -34,7 +34,7 @@ sync fun compileNativeGeneration() {
   val entryPath = args[0]
   val outputPath = args[1]
   val profileEnabled = args.length > 3 && args[3] == "--profile"
-  val result = compileNativeModuleGraph(entryPath, "optimized", {
+  val result = await compileNativeModuleGraph(entryPath, "optimized", {
     vfs: NativeCompilerVfs(),
     baseUrl,
     typeCheck: false,

@@ -370,7 +370,7 @@ function isSameTypeInternal(
   if (seenTargets) {
     seenTargets.add(b as object);
   } else {
-    seenPairs.set(a as object, new WeakSet([b as object]));
+    seenPairs.set(a as object, new WeakSet<object>([b as object]));
   }
 
   if (a.kind !== b.kind) {

@@ -607,6 +607,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
   advanceCode(reader);
   let literalStart = snapshot(reader);
   let literalValue = "";
+  let segmentStart = reader.offset;
   let hadInterpolation = false;
 
   while (reader.hasMore) {
@@ -614,6 +615,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
     const code = advanceCode(reader);
 
     if (code === CODE_BACKTICK) {
+      literalValue += reader.str.slice(segmentStart, reader.offset - 1);
       if (hadInterpolation || literalValue.length > 0) {
         pushPlusIfNeeded(charStart);
         pushLiteralString(literalValue, literalStart, charStart);
@@ -624,6 +626,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
     }
 
     if (code === CODE_BACKSLASH) {
+      literalValue += reader.str.slice(segmentStart, reader.offset - 1);
       if (!reader.hasMore) {
         throw new TokenizeError("Unterminated escape sequence in template literal", {
           start,
@@ -668,10 +671,12 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
           { start: escStart, end: snapshot(reader) }
         );
       }
+      segmentStart = reader.offset;
       continue;
     }
 
     if (code === CODE_DOLLAR && reader.hasMore && reader.peekCode() === 123) {
+      literalValue += reader.str.slice(segmentStart, reader.offset - 1);
       hadInterpolation = true;
       const interpolationStart = charStart;
       if (literalValue.length > 0 || fragments.length === 0) {
@@ -810,10 +815,9 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
 
       pushSymbol(")", snapshot(reader));
       literalStart = snapshot(reader);
+      segmentStart = reader.offset;
       continue;
     }
-
-    literalValue += String.fromCharCode(code);
   }
 
   throw new TokenizeError("Unterminated template literal", {

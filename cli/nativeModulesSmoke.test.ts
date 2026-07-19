@@ -29,7 +29,9 @@ export fun second(): int => helper()`, "utf8");
 import { second as renamed } from "./second.vx"
 import * as values from "./second.vx"
 import { doubledLength } from "./extensions.vx"
-console.log(selected(), renamed(), values.second(), [1, 2, 3].doubledLength)`, "utf8");
+fun shadowed(renamed: int): int => renamed
+val shadowedLambda = [1].map { renamed: int -> renamed + 1 }
+console.log(selected(), renamed(), values.second(), [1, 2, 3].doubledLength, shadowed(9), shadowedLambda[0])`, "utf8");
 
     try {
       await runCli([
@@ -45,7 +47,7 @@ console.log(selected(), renamed(), values.second(), [1, 2, 3].doubledLength)`, "
       const result = await runCommandCapture(executablePath, [], { cwd: projectRoot });
       expect(result.code).toBe(0);
       expect(result.stderr).toBe("");
-      expect(result.stdout.trim()).toBe("1 2 2 6");
+      expect(result.stdout.trim()).toBe("1 2 2 6 9 2");
     } finally {
       await rm(projectRoot, { recursive: true, force: true });
     }

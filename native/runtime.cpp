@@ -178,6 +178,8 @@ struct Null final {};
 class RecordObject;
 class Runtime;
 Runtime& currentRuntime();
+template <typename T, typename... Arguments>
+T* makeManaged(Arguments&&... arguments);
 class DynamicValueObject;
 class EnumerableObject;
 class Value;
@@ -839,6 +841,11 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   }
   std::string dynamicToString() const override { return toString(); }
   bool dynamicIsArray() const override { return true; }
+  bool dynamicIsIterable() const override { return true; }
+  std::size_t dynamicIterableSize() const override { return size(); }
+  Value dynamicIterableGet(Runtime& runtime, std::size_t index) override {
+    return dynamicArrayGet(runtime, index);
+  }
   std::size_t dynamicArraySize() const override { return size(); }
   Value dynamicArrayGet(Runtime& runtime, std::size_t index) override {
     if constexpr (IsDynamicArrayElement<T>) {
@@ -916,6 +923,46 @@ inline bool sameValueZero(const Value& left, const Value& right) {
       std::isnan(left.number()) && std::isnan(right.number()));
 }
 
+template <typename T>
+struct SameValueZeroHash final {
+  std::size_t operator()(const T& value) const {
+    if constexpr (std::is_same_v<T, BigInt>) {
+      return std::hash<std::string>{}(value.toString());
+    } else if constexpr (std::is_pointer_v<T>) {
+      return std::hash<const void*>{}(value);
+    } else {
+      return std::hash<T>{}(value);
+    }
+  }
+};
+
+template <>
+struct SameValueZeroHash<Value> final {
+  std::size_t operator()(const Value& value) const {
+    if (value.isUndefined()) return 0x11;
+    if (value.isNull()) return 0x23;
+    if (value.isBoolean()) return value.boolean() ? 0x37 : 0x41;
+    if (value.isNumber()) {
+      if (std::isnan(value.number())) return 0x53;
+      const double normalized = value.number() == 0 ? 0 : value.number();
+      return std::hash<double>{}(normalized) ^ 0x67;
+    }
+    if (value.isBigInt()) {
+      return std::hash<std::string>{}(value.bigint().toString()) ^ 0x79;
+    }
+    if (value.isString()) return std::hash<std::u16string>{}(value.utf16()) ^ 0x83;
+    if (value.isRecord()) return std::hash<const void*>{}(value.record()) ^ 0x97;
+    return std::hash<const void*>{}(value.dynamicObject()) ^ 0xa9;
+  }
+};
+
+template <typename T>
+struct SameValueZeroEqual final {
+  bool operator()(const T& left, const T& right) const {
+    return sameValueZero(left, right);
+  }
+};
+
 class MapLikeObject : public DynamicValueObject {};
 class SetLikeObject : public DynamicValueObject {};
 class WeakMapLikeObject : public DynamicValueObject {};
@@ -927,35 +974,38 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   std::size_t size() const { return entries_.size(); }
 
   MapObject* set(K key, V value) {
-    for (auto& entry : entries_) {
-      if (sameValueZero(entry.key.load(), key)) {
-        entry.value.store(std::move(value));
-        return this;
-      }
+    const auto existing = index_.find(key);
+    if (existing != index_.end()) {
+      entries_[existing->second].value.store(std::move(value));
+      return this;
     }
     entries_.push_back(Entry{ArraySlot<K>(std::move(key)), ArraySlot<V>(std::move(value))});
+    index_.emplace(entries_.back().key.load(), entries_.size() - 1);
     return this;
   }
 
   std::optional<V> get(const K& key) const {
-    for (const auto& entry : entries_) {
-      if (sameValueZero(entry.key.load(), key)) return entry.value.load();
-    }
-    return std::nullopt;
+    const auto found = index_.find(key);
+    return found == index_.end()
+        ? std::nullopt
+        : std::optional<V>(entries_[found->second].value.load());
   }
 
   bool has(const K& key) const { return get(key).has_value(); }
 
   bool erase(const K& key) {
-    const auto found = std::find_if(entries_.begin(), entries_.end(), [&](const Entry& entry) {
-      return sameValueZero(entry.key.load(), key);
-    });
-    if (found == entries_.end()) return false;
-    entries_.erase(found);
+    const auto found = index_.find(key);
+    if (found == index_.end()) return false;
+    const std::size_t erasedIndex = found->second;
+    entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(erasedIndex));
+    rebuildIndex(erasedIndex);
     return true;
   }
 
-  void clear() { entries_.clear(); }
+  void clear() {
+    entries_.clear();
+    index_.clear();
+  }
 
   template <typename Callback>
   void forEach(Callback callback) {
@@ -997,7 +1047,14 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
     ArraySlot<K> key;
     ArraySlot<V> value;
   };
+  void rebuildIndex(std::size_t start) {
+    index_.clear();
+    for (std::size_t index = 0; index < entries_.size(); ++index) {
+      index_.emplace(entries_[index].key.load(), index);
+    }
+  }
   std::vector<Entry> entries_;
+  std::unordered_map<K, std::size_t, SameValueZeroHash<K>, SameValueZeroEqual<K>> index_;
 };
 
 template <typename T>
@@ -1006,26 +1063,28 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
   std::size_t size() const { return values_.size(); }
 
   SetObject* add(T value) {
-    if (!has(value)) values_.emplace_back(std::move(value));
+    if (index_.insert(value).second) values_.emplace_back(std::move(value));
     return this;
   }
 
   bool has(const T& value) const {
-    return std::any_of(values_.begin(), values_.end(), [&](const ArraySlot<T>& candidate) {
-      return sameValueZero(candidate.load(), value);
-    });
+    return index_.contains(value);
   }
 
   bool erase(const T& value) {
+    if (index_.erase(value) == 0) return false;
     const auto found = std::find_if(values_.begin(), values_.end(), [&](const ArraySlot<T>& candidate) {
       return sameValueZero(candidate.load(), value);
     });
-    if (found == values_.end()) return false;
+    if (found == values_.end()) return true;
     values_.erase(found);
     return true;
   }
 
-  void clear() { values_.clear(); }
+  void clear() {
+    values_.clear();
+    index_.clear();
+  }
 
   template <typename Callback>
   void forEach(Callback callback) {
@@ -1058,6 +1117,7 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
 
  private:
   std::vector<ArraySlot<T>> values_;
+  std::unordered_set<T, SameValueZeroHash<T>, SameValueZeroEqual<T>> index_;
 };
 
 template <typename K, typename V>
@@ -1068,29 +1128,34 @@ class WeakMapObject final : public cppgc::GarbageCollected<WeakMapObject<K, V>>,
  public:
   WeakMapObject* set(K key, V value) {
     if (!key) throw std::runtime_error("Invalid WeakMap key");
-    compact();
-    for (auto& entry : entries_) {
-      if (entry.key.Get() == key) {
-        entry.value.store(std::move(value));
-        return this;
-      }
+    const auto existing = index_.find(key);
+    if (existing != index_.end()) {
+      entries_[existing->second]->value.store(std::move(value));
+      return this;
     }
-    entries_.push_back(Entry{cppgc::WeakMember<KeyObject>(key), ArraySlot<V>(std::move(value))});
+    index_.emplace(key, entries_.size());
+    entries_.emplace_back(makeManaged<Entry>(key, std::move(value)));
     return this;
   }
 
   std::optional<V> get(K key) const {
-    for (const auto& entry : entries_) if (entry.key.Get() == key) return entry.value.load();
-    return std::nullopt;
+    const auto found = index_.find(key);
+    return found == index_.end()
+        ? std::nullopt
+        : std::optional<V>(entries_[found->second]->value.load());
   }
 
   bool has(K key) const { return get(key).has_value(); }
   bool erase(K key) {
-    const auto found = std::find_if(entries_.begin(), entries_.end(), [&](const Entry& entry) {
-      return entry.key.Get() == key;
-    });
-    if (found == entries_.end()) return false;
-    entries_.erase(found);
+    const auto found = index_.find(key);
+    if (found == index_.end()) return false;
+    const std::size_t erasedIndex = found->second;
+    index_.erase(found);
+    if (erasedIndex + 1 != entries_.size()) {
+      entries_[erasedIndex] = std::move(entries_.back());
+      index_[entries_[erasedIndex]->key.Get()] = erasedIndex;
+    }
+    entries_.pop_back();
     return true;
   }
 
@@ -1100,20 +1165,36 @@ class WeakMapObject final : public cppgc::GarbageCollected<WeakMapObject<K, V>>,
   }
   std::string dynamicToString() const override { return "[object WeakMap]"; }
   void Trace(cppgc::Visitor* visitor) const override {
-    for (const auto& entry : entries_) {
-      visitor->Trace(entry.key);
-      entry.value.Trace(visitor);
-    }
+    for (const auto& entry : entries_) visitor->Trace(entry);
+    visitor->RegisterWeakCallbackMethod<
+        WeakMapObject, &WeakMapObject::processWeakness>(this);
   }
 
  private:
-  struct Entry final { cppgc::WeakMember<KeyObject> key; ArraySlot<V> value; };
-  void compact() {
-    entries_.erase(std::remove_if(entries_.begin(), entries_.end(), [](const Entry& entry) {
-      return entry.key.Get() == nullptr;
+  class Entry final : public cppgc::GarbageCollected<Entry> {
+   public:
+    Entry(K keyValue, V mappedValue) : key(keyValue), value(std::move(mappedValue)) {}
+    void Trace(cppgc::Visitor* visitor) const {
+      visitor->Trace(key);
+      value.Trace(visitor);
+    }
+    cppgc::WeakMember<KeyObject> key;
+    ArraySlot<V> value;
+  };
+  void processWeakness(const cppgc::LivenessBroker& broker) {
+    entries_.erase(std::remove_if(entries_.begin(), entries_.end(), [](const auto& entry) {
+      return entry->key.Get() == nullptr;
     }), entries_.end());
+    entries_.erase(std::remove_if(entries_.begin(), entries_.end(), [&](const auto& entry) {
+      return !broker.IsHeapObjectAlive(entry->key);
+    }), entries_.end());
+    index_.clear();
+    for (std::size_t index = 0; index < entries_.size(); ++index) {
+      index_.emplace(entries_[index]->key.Get(), index);
+    }
   }
-  std::vector<Entry> entries_;
+  std::vector<cppgc::Member<Entry>> entries_;
+  std::unordered_map<K, std::size_t> index_;
 };
 
 template <typename T>
@@ -1124,20 +1205,18 @@ class WeakSetObject final : public cppgc::GarbageCollected<WeakSetObject<T>>, pu
  public:
   WeakSetObject* add(T value) {
     if (!value) throw std::runtime_error("Invalid WeakSet value");
-    compact();
-    if (!has(value)) values_.emplace_back(value);
+    if (index_.insert(value).second) values_.emplace_back(makeManaged<Entry>(value));
     return this;
   }
   bool has(T value) const {
-    return std::any_of(values_.begin(), values_.end(), [&](const auto& candidate) {
-      return candidate.Get() == value;
-    });
+    return index_.contains(value);
   }
   bool erase(T value) {
+    if (index_.erase(value) == 0) return false;
     const auto found = std::find_if(values_.begin(), values_.end(), [&](const auto& candidate) {
-      return candidate.Get() == value;
+      return candidate->value.Get() == value;
     });
-    if (found == values_.end()) return false;
+    if (found == values_.end()) return true;
     values_.erase(found);
     return true;
   }
@@ -1148,15 +1227,26 @@ class WeakSetObject final : public cppgc::GarbageCollected<WeakSetObject<T>>, pu
   std::string dynamicToString() const override { return "[object WeakSet]"; }
   void Trace(cppgc::Visitor* visitor) const override {
     for (const auto& value : values_) visitor->Trace(value);
+    visitor->RegisterWeakCallbackMethod<
+        WeakSetObject, &WeakSetObject::processWeakness>(this);
   }
 
  private:
-  void compact() {
-    values_.erase(std::remove_if(values_.begin(), values_.end(), [](const auto& value) {
-      return value.Get() == nullptr;
+  class Entry final : public cppgc::GarbageCollected<Entry> {
+   public:
+    explicit Entry(T entryValue) : value(entryValue) {}
+    void Trace(cppgc::Visitor* visitor) const { visitor->Trace(value); }
+    cppgc::WeakMember<ValueObject> value;
+  };
+  void processWeakness(const cppgc::LivenessBroker& broker) {
+    values_.erase(std::remove_if(values_.begin(), values_.end(), [&](const auto& value) {
+      return value->value.Get() == nullptr || !broker.IsHeapObjectAlive(value->value);
     }), values_.end());
+    index_.clear();
+    for (const auto& value : values_) index_.insert(value->value.Get());
   }
-  std::vector<cppgc::WeakMember<ValueObject>> values_;
+  std::vector<cppgc::Member<Entry>> values_;
+  std::unordered_set<T> index_;
 };
 
 template <typename Kind>
@@ -2046,6 +2136,11 @@ class Runtime final {
 
 inline Runtime& currentRuntime() { return Runtime::current(); }
 
+template <typename T, typename... Arguments>
+inline T* makeManaged(Arguments&&... arguments) {
+  return currentRuntime().make<T>(std::forward<Arguments>(arguments)...);
+}
+
 inline ArrayObject<Value>* makeDynamicArrayValueView(DynamicValueObject* backing) {
   return currentRuntime().make<ArrayObject<Value>>(backing);
 }
@@ -2243,7 +2338,7 @@ Result convertValue(Input&& input) {
       }
       if (input.isRecord()) return std::remove_pointer_t<Result>::fromRecord(input.record());
       if (input.isNull() || input.isUndefined()) return nullptr;
-      throw std::runtime_error("VexaScript value is not a compatible structural object");
+      throw errorAtCurrentSource("VexaScript value is not a compatible structural object");
     } else if constexpr (std::is_pointer_v<Result>) {
       if (input.isNull() || input.isUndefined()) return nullptr;
       if (!input.isDynamicObject()) {
@@ -2993,6 +3088,12 @@ inline ArrayObject<std::string>* recordKeys(Runtime& runtime, RecordObject* reco
   return result;
 }
 
+inline ArrayObject<std::string>* recordKeys(Runtime& runtime, EnumerableObject* object) {
+  auto* result = runtime.array<std::string>();
+  if (object) for (const auto& key : objectKeys(object)) result->append(key);
+  return result;
+}
+
 inline ArrayObject<std::string>* recordKeys(Runtime& runtime, DynamicValueObject* object) {
   auto* result = runtime.array<std::string>();
   if (object) for (const auto& key : objectKeys(object)) result->append(key);
@@ -3008,6 +3109,14 @@ inline ArrayObject<std::string>* recordKeys(Runtime& runtime, T* object) {
 inline ArrayObject<Value>* recordValues(Runtime& runtime, RecordObject* record) {
   auto* result = runtime.array<Value>();
   if (record) for (const auto& value : record->values()) result->append(value);
+  return result;
+}
+
+inline ArrayObject<Value>* recordValues(Runtime& runtime, EnumerableObject* object) {
+  auto* result = runtime.array<Value>();
+  if (object) {
+    for (const auto& key : objectKeys(object)) result->append(object->enumerableGet(key));
+  }
   return result;
 }
 
@@ -3030,6 +3139,15 @@ inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, RecordO
   if (!record) return result;
   for (const auto& key : record->keys()) {
     result->append(runtime.array<Value>({runtime.string(key), record->get(key)}));
+  }
+  return result;
+}
+
+inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, EnumerableObject* object) {
+  auto* result = runtime.array<ArrayObject<Value>*>();
+  if (!object) return result;
+  for (const auto& key : objectKeys(object)) {
+    result->append(runtime.array<Value>({runtime.string(key), object->enumerableGet(key)}));
   }
   return result;
 }

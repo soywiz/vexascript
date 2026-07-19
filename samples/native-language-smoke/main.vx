@@ -379,6 +379,10 @@ console.log("dynamic updates", dynamicArithmetic, dynamicArithmeticValues[0], dy
 val firstTransformer: NativeTransformer = { label: "double", apply: (value: int) => value * 2 }
 val secondTransformer: NativeTransformer = { label: "offset", apply(value: int): int { return value + 3 } }
 console.log("callable interface", firstTransformer.label, runNativeTransformer(firstTransformer, 4), secondTransformer.label, runNativeTransformer(secondTransformer, 4))
+val transformerKeys = Object.keys(firstTransformer)
+val transformerValues = Object.values(firstTransformer)
+val transformerEntries = Object.entries(firstTransformer)
+console.log("interface enumeration", transformerKeys.join("|"), transformerValues.length, transformerEntries[0][0])
 val arrayApiValues = [1, 2, 3, 2]
 val arrayApiFound = arrayApiValues.find { value, index, array -> value == 2 && index < array.length }
 val arrayApiRemoved = arrayApiValues.splice(1, 2, 8, 9)
@@ -627,3 +631,8 @@ console.log("timeout", "done")
 val [defaulted = 7, ...[nestedRest]] = [undefined, 8]
 val { missing = 3, ...objectRest } = { extra: 9 }
 console.log("destructuring defaults", defaulted, nestedRest, missing, objectRest.extra)
+
+val dynamicallySelected: any = true ? [2, 3] : [9]
+var dynamicIterationTotal: number = 0
+for (dynamicValue of dynamicallySelected) dynamicIterationTotal += Number(dynamicValue)
+console.log("dynamic array iteration", dynamicIterationTotal)

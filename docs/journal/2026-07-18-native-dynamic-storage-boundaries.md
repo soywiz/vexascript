@@ -316,3 +316,32 @@ in 22.26 seconds. The generated smoke translation unit compiled in 4.18 seconds
 and its output exactly matched `expected.native.txt`. The failed branches above
 were preserved because they explain why adding more inferred precision is not
 always safe unless it agrees with the lowered C++ representation.
+
+## Self-Host Scaling And Managed Weak Storage
+
+The next complete self-host profile exposed three independent scaling and
+correctness boundaries. Template-literal tokenization repeatedly sliced the
+unconsumed suffix, making a large source quadratic under the UTF-16 native
+runtime. Scanning by offsets and slicing each completed segment once reduced
+the 44-module native parse phase from more than two minutes to about 58 seconds.
+The C++ emitter also performed repeated linear class, interface, method, getter,
+setter, and stored-property searches. Per-program lookup maps and caches reduced
+Node's generation of the compiler translation unit from roughly 14 seconds to
+3.5 seconds and reduced native emission of the complete language smoke to about
+0.8 seconds.
+
+An ASAN run found that storing `cppgc::WeakMember` directly inside a
+`std::vector` is invalid. Vector growth relocates the weak slots after Oilpan has
+registered their addresses, so a later collection writes through stale
+off-heap addresses. Weak maps and sets now allocate stable, traced entry objects
+on the Oilpan heap and keep only `cppgc::Member<Entry>` handles in their ordered
+vectors. This preserves insertion order without moving registered weak slots.
+
+Finally, the native bootstrap inferred mixed array literals more narrowly than
+the Node bootstrap, producing declarations such as `ArrayObject<bool>*` for
+`[1, "two", true]`. Array literal emission now validates contextual and inferred
+element types against the literal syntax and falls back to `Value` storage when
+they disagree. This is intentionally the dynamic-mode rule: static array
+specialization is valid only when every element is representable by the chosen
+storage type. The native compiler now emits the complete language smoke in
+about 9.2 seconds; that C++ compiles and produces byte-for-byte expected output.
