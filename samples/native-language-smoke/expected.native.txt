@@ -62,6 +62,7 @@ binary float 1.5
 mixed true 2 1|two|true|three
 define property 7 visible 4 visible 4 undefined
 record Ada 42 false true true Ada
+unicode record utf16 á😀 true
 enum 0 3
 switch compiled
 strings VEXA true

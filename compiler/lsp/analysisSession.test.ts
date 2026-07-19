@@ -11,6 +11,7 @@ import {
 } from "./analysisSession";
 import type { ImportedSymbolResolution } from "compiler/importedSymbols";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
+import { namedType } from "compiler/analysis/types";
 
 describe("lsp analysis session", () => {
   it("builds analysis even when parser recovered from syntax errors", () => {
@@ -46,7 +47,7 @@ describe("lsp analysis session", () => {
 
   it("keeps imported symbol details in the shared importedSymbols map", () => {
     const importedSymbols = new Map<string, ImportedSymbolResolution>([
-      ["readFile", { type: { kind: "named", name: "ReadFileFn" }, displayType: 'typeof import("node:fs").readFile' }],
+      ["readFile", { type: namedType("ReadFileFn"), displayType: 'typeof import("node:fs").readFile' }],
       ["missing", { invalid: true }]
     ]);
 

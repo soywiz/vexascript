@@ -39,6 +39,16 @@ development loop.
 * [ ] Avoid regenerating or recompiling unchanged modules and runtime sources.
 * [ ] Evaluate compiler-source simplifications that reduce generated C++ size or
   template pressure without distorting the compiler architecture.
+* [ ] Replace the string-valued `AnalysisTypeKind` discriminator with a numeric
+  `const enum`, then measure Node and native analysis before and after the
+  change. Keep this separate from the nominal-type migration checkpoint so a
+  discriminator-wide regression remains easy to isolate.
+* [ ] Make Node-hosted and native-hosted compilation emit byte-identical C++ for
+  the same source graph. The 2026-07-19 nominal-type checkpoint completes a
+  checked native generation in 33.08 seconds at `-O1`, but differs in 1,151
+  diff hunks because the native host loses contextual expression types in some
+  callbacks; string-pool index changes are a downstream cascade, not the root
+  cause.
 * [x] Introduce the JavaScript/TypeScript side of a complete nominal AST
   migration: concrete AST node classes with typed positional constructors, a
   shared metadata base, numeric `const enum` discriminators, and native
@@ -60,6 +70,12 @@ development loop.
   pending.
 * [ ] Provide fast debug and syntax-validation profiles plus a separate final
   optimized roundtrip profile.
+  Current measurements for the same checked `cli/cli.ts` C++ generation are:
+  Node 6.31 seconds, native `-O0 -DNDEBUG` 190.23 seconds, native `-O1
+  -DNDEBUG` 27.36 seconds before the nominal-type checkpoint and 33.08 seconds
+  after it. Compiling the generated translation unit took 110.14–119.28
+  seconds at `-O1`; `-O3` took 146.72 seconds to compile and 27.45 seconds to
+  execute, so it provided no useful runtime improvement.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -84,6 +100,8 @@ development loop.
   and native execution and does not add a structural compatibility path.
 * [ ] Progressive fixtures and the full compiler use the same native pipeline.
 * [ ] At least two complete native compiler roundtrips remain output-equivalent.
+* [ ] A Node-hosted generation and both native generations are byte-identical,
+  including deterministic string-pool numbering.
 
 ## Tests
 

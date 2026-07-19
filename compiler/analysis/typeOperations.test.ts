@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { AnalysisType } from "./types";
+import { builtinType } from "./types";
 import {
   combineTypes,
   elementTypeFromIterable,
@@ -34,7 +35,7 @@ function range(elementType: AnalysisType): AnalysisType {
 describe("combineTypes", () => {
   it("returns void for an empty array", () => {
     const result = combineTypes([]);
-    assert.deepEqual(result, { kind: "builtin", name: "void" });
+    assert.equal(result, builtinType("void"));
   });
 
   it("returns the single type directly when only one distinct type", () => {

@@ -595,6 +595,9 @@ record.nested.active = false
 val hadName = "name" in record
 val removed = delete record.stale
 console.log("record", record.name, record.score, record.nested.active, hadName, removed, record?.name)
+val unicodeRecord = {} as any
+unicodeRecord["á😀"] = "utf16"
+console.log("unicode record", unicodeRecord["á😀"], Object.keys(unicodeRecord).join("|"), "á😀" in unicodeRecord)
 
 console.log("enum", Permission.None, Permission.All)
 switch (Permission.All) {

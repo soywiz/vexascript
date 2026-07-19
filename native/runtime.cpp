@@ -460,14 +460,22 @@ class RecordObject final : public cppgc::GarbageCollected<RecordObject>, public 
   RecordObject() = default;
   explicit RecordObject(DynamicValueObject* dynamicBacking);
 
+  Value get(const char* key) const;
   Value get(const std::string& key) const;
+  Value get(const Text& key) const;
   Value get(const PropertyKey& key) const;
+  void set(const char* key, const Value& value);
   void set(std::string key, const Value& value);
-  void set(const PropertyKey& key, const Value& value);
+  void set(Text key, const Value& value);
+  void set(PropertyKey key, const Value& value);
+  void setHidden(const char* key, const Value& value);
   void setHidden(std::string key, const Value& value);
-  void setHidden(const PropertyKey& key, const Value& value);
+  void setHidden(Text key, const Value& value);
+  void setHidden(PropertyKey key, const Value& value);
+  bool has(const char* key) const;
   bool has(const std::string& key) const;
   bool has(const PropertyKey& key) const;
+  bool erase(const char* key);
   bool erase(const std::string& key);
   bool erase(const PropertyKey& key);
   void copyTo(RecordObject* target) const;
@@ -477,9 +485,9 @@ class RecordObject final : public cppgc::GarbageCollected<RecordObject>, public 
 
  private:
   cppgc::Member<DynamicValueObject> dynamic_backing_;
-  std::unordered_map<std::string, StoredValue> properties_;
-  std::unordered_map<std::string, StoredValue> hidden_properties_;
-  std::vector<std::string> property_order_;
+  std::unordered_map<PropertyKey, StoredValue> properties_;
+  std::unordered_map<PropertyKey, StoredValue> hidden_properties_;
+  std::vector<PropertyKey> property_order_;
 };
 
 class EnumerableObject {
@@ -626,13 +634,13 @@ inline Value DynamicValueObject::dynamicCall(Runtime&, const std::vector<Value>&
 }
 
 inline Value DynamicValueObject::dynamicGet(const PropertyKey& key) {
-  return dynamic_properties_ ? dynamic_properties_->get(utf16ToUtf8(key)) : Value::undefined();
+  return dynamic_properties_ ? dynamic_properties_->get(key) : Value::undefined();
 }
 
 inline Value DynamicValueObject::dynamicSet(const PropertyKey& key, const Value& value) {
   auto& runtime = currentRuntime();
   if (!dynamic_properties_) dynamic_properties_ = makeDynamicPropertyRecord(runtime);
-  dynamic_properties_->set(utf16ToUtf8(key), value);
+  dynamic_properties_->set(key, value);
   return value;
 }
 
@@ -659,7 +667,7 @@ inline std::vector<std::string> DynamicValueObject::dynamicEnumerableKeys(
 
 inline bool DynamicValueObject::dynamicDelete(const PropertyKey& key) {
   non_enumerable_properties_.erase(key);
-  return dynamic_properties_ && dynamic_properties_->erase(utf16ToUtf8(key));
+  return dynamic_properties_ && dynamic_properties_->erase(key);
 }
 
 inline void DynamicValueObject::Trace(cppgc::Visitor* visitor) const {
@@ -669,21 +677,41 @@ inline void DynamicValueObject::Trace(cppgc::Visitor* visitor) const {
 inline RecordObject::RecordObject(DynamicValueObject* dynamicBacking)
     : dynamic_backing_(dynamicBacking) {}
 
+inline Value RecordObject::get(const char* key) const {
+  return get(utf8ToUtf16(key));
+}
+
 inline Value RecordObject::get(const std::string& key) const {
-  if (dynamic_backing_) return dynamic_backing_->dynamicGet(utf8ToUtf16(key));
+  return get(utf8ToUtf16(key));
+}
+
+inline Value RecordObject::get(const Text& key) const {
+  return get(key.utf16());
+}
+
+inline Value RecordObject::get(const PropertyKey& key) const {
+  if (dynamic_backing_) return dynamic_backing_->dynamicGet(key);
   const auto property = properties_.find(key);
   if (property != properties_.end()) return property->second.load();
   const auto hidden = hidden_properties_.find(key);
   return hidden == hidden_properties_.end() ? Value::undefined() : hidden->second.load();
 }
 
-inline Value RecordObject::get(const PropertyKey& key) const {
-  return get(utf16ToUtf8(key));
+inline void RecordObject::set(const char* key, const Value& value) {
+  set(utf8ToUtf16(key), value);
 }
 
 inline void RecordObject::set(std::string key, const Value& value) {
+  set(utf8ToUtf16(key), value);
+}
+
+inline void RecordObject::set(Text key, const Value& value) {
+  set(PropertyKey(key.utf16()), value);
+}
+
+inline void RecordObject::set(PropertyKey key, const Value& value) {
   if (dynamic_backing_) {
-    dynamic_backing_->dynamicSet(utf8ToUtf16(key), value);
+    dynamic_backing_->dynamicSet(key, value);
     return;
   }
   hidden_properties_.erase(key);
@@ -691,13 +719,21 @@ inline void RecordObject::set(std::string key, const Value& value) {
   properties_.insert_or_assign(std::move(key), StoredValue(value));
 }
 
-inline void RecordObject::set(const PropertyKey& key, const Value& value) {
-  set(utf16ToUtf8(key), value);
+inline void RecordObject::setHidden(const char* key, const Value& value) {
+  setHidden(utf8ToUtf16(key), value);
 }
 
 inline void RecordObject::setHidden(std::string key, const Value& value) {
+  setHidden(utf8ToUtf16(key), value);
+}
+
+inline void RecordObject::setHidden(Text key, const Value& value) {
+  setHidden(PropertyKey(key.utf16()), value);
+}
+
+inline void RecordObject::setHidden(PropertyKey key, const Value& value) {
   if (dynamic_backing_) {
-    dynamic_backing_->dynamicDefineProperty(utf8ToUtf16(key), value, false);
+    dynamic_backing_->dynamicDefineProperty(key, value, false);
     return;
   }
   if (properties_.erase(key) > 0) {
@@ -706,50 +742,66 @@ inline void RecordObject::setHidden(std::string key, const Value& value) {
   hidden_properties_.insert_or_assign(std::move(key), StoredValue(value));
 }
 
-inline void RecordObject::setHidden(const PropertyKey& key, const Value& value) {
-  setHidden(utf16ToUtf8(key), value);
+inline bool RecordObject::has(const char* key) const {
+  return has(utf8ToUtf16(key));
 }
 
 inline bool RecordObject::has(const std::string& key) const {
+  return has(utf8ToUtf16(key));
+}
+
+inline bool RecordObject::has(const PropertyKey& key) const {
   if (dynamic_backing_) {
     const auto keys = dynamic_backing_->dynamicKeys();
-    return std::find(keys.begin(), keys.end(), key) != keys.end();
+    return std::find(keys.begin(), keys.end(), utf16ToUtf8(key)) != keys.end();
   }
   return properties_.contains(key) || hidden_properties_.contains(key);
 }
 
-inline bool RecordObject::has(const PropertyKey& key) const {
-  return has(utf16ToUtf8(key));
+inline bool RecordObject::erase(const char* key) {
+  return erase(utf8ToUtf16(key));
 }
 
 inline bool RecordObject::erase(const std::string& key) {
-  if (dynamic_backing_) return dynamic_backing_->dynamicDelete(utf8ToUtf16(key));
+  return erase(utf8ToUtf16(key));
+}
+
+inline bool RecordObject::erase(const PropertyKey& key) {
+  if (dynamic_backing_) return dynamic_backing_->dynamicDelete(key);
   const bool visible = properties_.erase(key) > 0;
   const bool hidden = hidden_properties_.erase(key) > 0;
   if (visible) property_order_.erase(std::remove(property_order_.begin(), property_order_.end(), key), property_order_.end());
   return visible || hidden;
 }
 
-inline bool RecordObject::erase(const PropertyKey& key) {
-  return erase(utf16ToUtf8(key));
-}
-
 inline void RecordObject::copyTo(RecordObject* target) const {
-  for (const auto& key : keys()) target->set(key, get(key));
+  if (dynamic_backing_) {
+    for (const auto& key : keys()) target->set(key, get(key));
+    return;
+  }
+  for (const auto& key : property_order_) target->set(key, get(key));
 }
 
 inline std::vector<std::string> RecordObject::keys() const {
   if (dynamic_backing_) {
     return dynamic_backing_->dynamicEnumerableKeys(dynamic_backing_->dynamicKeys());
   }
-  return property_order_;
+  std::vector<std::string> result;
+  result.reserve(property_order_.size());
+  for (const auto& key : property_order_) result.push_back(utf16ToUtf8(key));
+  return result;
 }
 
 inline std::vector<Value> RecordObject::values() const {
   std::vector<Value> result;
-  const auto visibleKeys = keys();
-  result.reserve(visibleKeys.size());
-  for (const auto& key : visibleKeys) result.push_back(get(key));
+  if (dynamic_backing_) {
+    const auto visibleKeys = keys();
+    result.reserve(visibleKeys.size());
+    for (const auto& key : visibleKeys) result.push_back(get(key));
+    return result;
+  }
+  result.reserve(property_order_.size());
+  for (const auto& key : property_order_) result.push_back(get(key));
   return result;
 }
 
@@ -2678,11 +2730,15 @@ Result convertValue(Input&& input) {
     } else if constexpr (std::is_pointer_v<Result>) {
       if (input.isNull() || input.isUndefined()) return nullptr;
       if (!input.isDynamicObject()) {
-        throw errorAtCurrentSource("VexaScript dynamic value has an incompatible native object type");
+        throw errorAtCurrentSource(
+            std::string("VexaScript dynamic value has an incompatible native object type: ") +
+            __PRETTY_FUNCTION__);
       }
       void* converted = input.dynamicObject()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
       if (!converted) {
-        throw errorAtCurrentSource("VexaScript dynamic value has an incompatible native object type");
+        throw errorAtCurrentSource(
+            std::string("VexaScript dynamic value has an incompatible native object type: ") +
+            __PRETTY_FUNCTION__);
       }
       return static_cast<Result>(converted);
     } else {
@@ -3332,18 +3388,18 @@ inline bool recordHas(RecordObject* record, const PropertyKey& key) {
 }
 
 inline bool hasProperty(Runtime& runtime, const Value& value, const PropertyKey& key) {
-  if (value.isRecord()) return value.record()->has(utf16ToUtf8(key));
+  if (value.isRecord()) return value.record()->has(key);
   if (value.isDynamicObject()) return !value.dynamicObject()->dynamicGet(key).isUndefined();
   return false;
 }
 
 inline bool hasProperty(Runtime&, RecordObject* record, const PropertyKey& key) {
-  return recordHas(record, utf16ToUtf8(key));
+  return recordHas(record, key);
 }
 
 template <typename T>
 inline bool hasProperty(Runtime& runtime, T* value, const PropertyKey& key) {
-  if constexpr (std::is_base_of_v<RecordObject, T>) return recordHas(value, utf16ToUtf8(key));
+  if constexpr (std::is_base_of_v<RecordObject, T>) return recordHas(value, key);
   if constexpr (std::is_base_of_v<DynamicValueObject, T>) return value && !value->dynamicGet(key).isUndefined();
   return false;
 }
@@ -3369,7 +3425,7 @@ inline Value dynamicObjectGet(DynamicValueObject* target, const PropertyKey& key
 }
 
 inline Value dynamicGet(const Value& target, const PropertyKey& key) {
-  if (target.isRecord()) return target.record()->get(utf16ToUtf8(key));
+  if (target.isRecord()) return target.record()->get(key);
   if (target.isDynamicObject()) return dynamicObjectGet(target.dynamicObject(), key);
   if (target.isString()) {
     if (key == u"message") return target;
@@ -3388,7 +3444,7 @@ inline Value dynamicGet(const Value& target, const PropertyKey& key) {
 
 inline Value dynamicGet(RecordObject* target, const PropertyKey& key) {
   if (!target) throw std::runtime_error("Cannot read a property of null");
-  return target->get(utf16ToUtf8(key));
+  return target->get(key);
 }
 
 template <typename T>
@@ -3414,7 +3470,7 @@ inline Value dynamicGetOptional(T* target, const PropertyKey& key) {
 
 inline Value dynamicSet(const Value& target, const PropertyKey& key, const Value& value) {
   if (target.isRecord()) {
-    target.record()->set(utf16ToUtf8(key), value);
+    target.record()->set(key, value);
     return value;
   }
   if (target.isDynamicObject()) return target.dynamicObject()->dynamicSet(key, value);
@@ -3423,7 +3479,7 @@ inline Value dynamicSet(const Value& target, const PropertyKey& key, const Value
 
 inline Value dynamicSet(RecordObject* target, const PropertyKey& key, const Value& value) {
   if (!target) throw std::runtime_error("Cannot set a property on null");
-  target->set(utf16ToUtf8(key), value);
+  target->set(key, value);
   return value;
 }
 
@@ -3468,7 +3524,7 @@ inline Value dynamicIndexSet(Target&& target, const PropertyKey& key, const Valu
 }
 
 inline bool dynamicDelete(const Value& target, const PropertyKey& key) {
-  if (target.isRecord()) return target.record()->erase(utf16ToUtf8(key));
+  if (target.isRecord()) return target.record()->erase(key);
   return target.isDynamicObject() && target.dynamicObject()->dynamicDelete(key);
 }
 
@@ -5469,6 +5525,34 @@ inline std::string join(const std::vector<T>& array) {
 template <typename T>
 inline std::string join(const ArrayObject<T>* array) {
   return array->join();
+}
+
+inline Text join(const std::vector<Text>& array, const Text& separator) {
+  if (array.empty()) return Text();
+  std::size_t size = separator.size() * (array.size() - 1);
+  for (const auto& value : array) size += value.size();
+  std::u16string result;
+  result.reserve(size);
+  for (std::size_t index = 0; index < array.size(); ++index) {
+    if (index > 0) result += separator.utf16();
+    result += array[index].utf16();
+  }
+  return Text(std::move(result));
+}
+
+inline Text join(const ArrayObject<Text>* array, const Text& separator) {
+  if (!array || array->size() == 0) return Text();
+  std::size_t size = separator.size() * (array->size() - 1);
+  for (std::size_t index = 0; index < array->size(); ++index) {
+    size += array->get(index).size();
+  }
+  std::u16string result;
+  result.reserve(size);
+  for (std::size_t index = 0; index < array->size(); ++index) {
+    if (index > 0) result += separator.utf16();
+    result += array->get(index).utf16();
+  }
+  return Text(std::move(result));
 }
 
 template <typename T, typename Separator>

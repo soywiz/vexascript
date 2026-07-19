@@ -106,7 +106,6 @@ import {
   type TupleType,
   type UnionType,
   type IntersectionType,
-  type LiteralType,
   BUILTIN_TYPE_NAMES,
   UNKNOWN_TYPE,
   arrayType,
@@ -4191,7 +4190,7 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "tuple" && targetType.kind === "array") {
-      if (sourceType.readonly === true && targetType.readonly !== true) {
+      if (sourceType.isReadonly === true && targetType.isReadonly !== true) {
         return false;
       }
       const targetElementType = targetType.elementType;
@@ -4205,7 +4204,7 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "tuple" && targetType.kind === "tuple") {
-      if (sourceType.readonly === true && targetType.readonly !== true) {
+      if (sourceType.isReadonly === true && targetType.isReadonly !== true) {
         return false;
       }
       if (sourceType.elements.length !== targetType.elements.length) {
@@ -4303,7 +4302,7 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "array" && targetType.kind === "array") {
-      if (sourceType.readonly === true && targetType.readonly !== true) {
+      if (sourceType.isReadonly === true && targetType.isReadonly !== true) {
         return false;
       }
       // An array whose element type is `unknown` (for example the empty array
@@ -4363,7 +4362,7 @@ export class TypeChecker {
       && (sourceType.elements.length === 0 || targetType.typeArguments?.[0])
       && (targetType.name === "Array" || targetType.name === "ReadonlyArray")
     ) {
-      if (sourceType.readonly === true && targetType.name !== "ReadonlyArray") {
+      if (sourceType.isReadonly === true && targetType.name !== "ReadonlyArray") {
         return false;
       }
       const targetElementType = targetType.typeArguments?.[0] ?? UNKNOWN_TYPE;
@@ -4424,7 +4423,7 @@ export class TypeChecker {
     sourceType: AnalysisType & { kind: "array" },
     targetType: AnalysisType & { kind: "tuple" }
   ): boolean {
-    if (sourceType.readonly === true && targetType.readonly !== true) {
+    if (sourceType.isReadonly === true && targetType.isReadonly !== true) {
       return false;
     }
     if (targetType.elements.length === 0) {
@@ -5172,10 +5171,14 @@ export class TypeChecker {
       return expectedType;
     }
 
-    return {
-      ...expectedType,
-      returnType: UNKNOWN_TYPE
-    };
+    return functionType(
+      expectedType.parameters,
+      UNKNOWN_TYPE,
+      expectedType.typeParameters,
+      expectedType.typeParameterConstraints,
+      expectedType.typeParameterDefaults,
+      expectedType.assertion
+    );
   }
 
   private shouldEraseContextualFunctionReturnType(
@@ -5291,10 +5294,14 @@ export class TypeChecker {
     if (!this.typeContainsUnresolvedNamedReference(expectedFunctionType.returnType, scope, new Set(expectedFunctionType.typeParameters ?? []))) {
       return expectedFunctionType;
     }
-    return {
-      ...expectedFunctionType,
-      returnType: UNKNOWN_TYPE
-    };
+    return functionType(
+      expectedFunctionType.parameters,
+      UNKNOWN_TYPE,
+      expectedFunctionType.typeParameters,
+      expectedFunctionType.typeParameterConstraints,
+      expectedFunctionType.typeParameterDefaults,
+      expectedFunctionType.assertion
+    );
   }
 
   private instantiateFunctionType(
@@ -6023,7 +6030,7 @@ export class TypeChecker {
     }
     const callableMembers: FunctionType[] = [];
     for (const member of type.types) {
-      if ((member as FunctionType).kind === "function") callableMembers.push(member as FunctionType);
+      if (member.kind === "function") callableMembers.push(member);
     }
     return callableMembers.find((member) => this.isCallableOverloadMatch(member, argumentTypes)) ?? callableMembers[0] ?? null;
   }
@@ -6047,7 +6054,7 @@ export class TypeChecker {
     if (type.kind === "union") {
       const callableMembers: FunctionType[] = [];
       for (const member of type.types) {
-        if ((member as FunctionType).kind === "function") callableMembers.push(member as FunctionType);
+        if (member.kind === "function") callableMembers.push(member);
       }
       return callableMembers;
     }
@@ -9204,10 +9211,10 @@ export class TypeChecker {
       );
     }
     if (objectType.kind === "tuple" && isIntType(propertyType)) {
-      return objectType.readonly === true;
+      return objectType.isReadonly === true;
     }
     if (objectType.kind === "array" && isIntType(propertyType)) {
-      return objectType.readonly === true;
+      return objectType.isReadonly === true;
     }
     if (
       objectType.kind === "named"
@@ -9515,8 +9522,7 @@ export class TypeChecker {
     }
     if (expandedExpectedType.kind === "union") {
       for (const member of expandedExpectedType.types) {
-        const literalMember = member as LiteralType;
-        if (literalMember.kind === "literal" && this.isTypeAssignable(literal, literalMember)) return literalMember;
+        if (member.kind === "literal" && this.isTypeAssignable(literal, member)) return member;
       }
       return null;
     }
@@ -10578,16 +10584,14 @@ export class TypeChecker {
       return null;
     }
     if (calleeType.kind === "function") {
-      const functionType = calleeType as FunctionType;
-      return functionType.typeParameterConstraints?.[typeParameterName] ?? null;
+      return calleeType.typeParameterConstraints?.[typeParameterName] ?? null;
     }
     if (calleeType.kind === "union") {
       for (const member of calleeType.types) {
-        const functionMember = member as FunctionType;
-        if (functionMember.kind !== "function") {
+        if (member.kind !== "function") {
           continue;
         }
-        const constraint = functionMember.typeParameterConstraints?.[typeParameterName];
+        const constraint = member.typeParameterConstraints?.[typeParameterName];
         if (constraint) {
           return constraint;
         }
@@ -11472,7 +11476,7 @@ export class TypeChecker {
       else existingMembers.push(existing);
       const callableMembers: FunctionType[] = [];
       for (const type of existingMembers) {
-        if ((type as FunctionType).kind === "function") callableMembers.push(type as FunctionType);
+        if (type.kind === "function") callableMembers.push(type);
       }
       if (callableMembers.length === existingMembers.length) {
         members.set(memberName, unionType([...callableMembers, memberType]));
@@ -12851,10 +12855,9 @@ export class TypeChecker {
       properties[`[${effectiveKeyType.name}]`] = effectiveValueType;
     }
     if (effectiveKeyType.kind === "union") {
-      for (const member of (effectiveKeyType as UnionType).types) {
-        const builtinMember = member as BuiltinType;
-        if (builtinMember.kind === "builtin" && (builtinMember.name === "string" || builtinMember.name === "number" || builtinMember.name === "symbol")) {
-          properties[`[${builtinMember.name}]`] = effectiveValueType;
+      for (const member of effectiveKeyType.types) {
+        if (member.kind === "builtin" && (member.name === "string" || member.name === "number" || member.name === "symbol")) {
+          properties[`[${member.name}]`] = effectiveValueType;
         }
       }
     }
@@ -12863,13 +12866,12 @@ export class TypeChecker {
 
   private returnTypeUtilityType(sourceType: AnalysisType): AnalysisType | null {
     if (sourceType.kind === "function") {
-      return (sourceType as FunctionType).returnType;
+      return sourceType.returnType;
     }
     if (sourceType.kind === "union") {
       const returnTypes: AnalysisType[] = [];
-      for (const member of (sourceType as UnionType).types) {
-        const functionMember = member as FunctionType;
-        if (functionMember.kind === "function") returnTypes.push(functionMember.returnType);
+      for (const member of sourceType.types) {
+        if (member.kind === "function") returnTypes.push(member.returnType);
       }
       return returnTypes.length > 0 ? combineTypes(returnTypes) : null;
     }
@@ -12879,16 +12881,15 @@ export class TypeChecker {
   private parametersUtilityType(sourceType: AnalysisType): AnalysisType | null {
     if (sourceType.kind === "function") {
       const parameterTypes: AnalysisType[] = [];
-      for (const parameter of (sourceType as FunctionType).parameters) parameterTypes.push(parameter.type);
+      for (const parameter of sourceType.parameters) parameterTypes.push(parameter.type);
       return tupleType(parameterTypes);
     }
     if (sourceType.kind === "union") {
       const tuples: AnalysisType[] = [];
-      for (const member of (sourceType as UnionType).types) {
-        const functionMember = member as FunctionType;
-        if (functionMember.kind !== "function") continue;
+      for (const member of sourceType.types) {
+        if (member.kind !== "function") continue;
         const parameterTypes: AnalysisType[] = [];
-        for (const parameter of functionMember.parameters) parameterTypes.push(parameter.type);
+        for (const parameter of member.parameters) parameterTypes.push(parameter.type);
         tuples.push(tupleType(parameterTypes));
       }
       return tuples.length > 0 ? combineTypes(tuples) : null;
@@ -13225,7 +13226,7 @@ export class TypeChecker {
     }
 
     if (type.kind === "array") {
-      return arrayType(this.expandTypeAliases(type.elementType), type.readonly === true);
+      return arrayType(this.expandTypeAliases(type.elementType), type.isReadonly === true);
     }
 
     if (type.kind === "range") {
@@ -13319,7 +13320,7 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "array") {
-      return arrayType(this.substituteTypeParameters(sourceType.elementType, substitutions), sourceType.readonly === true);
+      return arrayType(this.substituteTypeParameters(sourceType.elementType, substitutions), sourceType.isReadonly === true);
     }
 
     if (sourceType.kind === "range") {
@@ -13391,7 +13392,7 @@ export class TypeChecker {
         sourceType.elements.map(
           (element: AnalysisType): AnalysisType => this.substituteTypeParameters(element, substitutions)
         ),
-        sourceType.readonly === true
+        sourceType.isReadonly === true
       );
     }
 

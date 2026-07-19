@@ -39,19 +39,47 @@ export const BUILTIN_TYPE_NAMES: ReadonlySet<string> = new Set<BuiltinTypeName>(
   "symbol"
 ]);
 
-export interface UnknownType {
-  kind: "unknown";
+export type AnalysisTypeKind =
+  | "unknown"
+  | "builtin"
+  | "named"
+  | "function"
+  | "array"
+  | "object"
+  | "range"
+  | "union"
+  | "intersection"
+  | "literal"
+  | "tuple";
+
+export abstract class AnalysisTypeBase {
+  declare private readonly __analysisTypeBrand: void;
+
+  protected constructor(public kind: AnalysisTypeKind) {}
 }
 
-export interface BuiltinType {
-  kind: "builtin";
-  name: BuiltinTypeName;
+export class UnknownType extends AnalysisTypeBase {
+  declare kind: "unknown";
+
+  constructor() {
+    super("unknown");
+  }
 }
 
-export interface NamedType {
-  kind: "named";
-  name: string;
-  typeArguments?: AnalysisType[];
+export class BuiltinType extends AnalysisTypeBase {
+  declare kind: "builtin";
+
+  constructor(public name: BuiltinTypeName) {
+    super("builtin");
+  }
+}
+
+export class NamedType extends AnalysisTypeBase {
+  declare kind: "named";
+
+  constructor(public name: string, public typeArguments?: AnalysisType[]) {
+    super("named");
+  }
 }
 
 export interface FunctionTypeParameter {
@@ -61,52 +89,75 @@ export interface FunctionTypeParameter {
   rest?: boolean;
 }
 
-export interface FunctionType {
-  kind: "function";
-  typeParameters?: string[];
-  typeParameterConstraints?: Record<string, AnalysisType>;
-  typeParameterDefaults?: Record<string, AnalysisType>;
-  parameters: FunctionTypeParameter[];
-  returnType: AnalysisType;
-  assertion?: { target: string; type?: AnalysisType };
+export class FunctionType extends AnalysisTypeBase {
+  declare kind: "function";
+
+  constructor(
+    public parameters: FunctionTypeParameter[],
+    public returnType: AnalysisType,
+    public typeParameters?: string[],
+    public typeParameterConstraints?: Record<string, AnalysisType>,
+    public typeParameterDefaults?: Record<string, AnalysisType>,
+    public assertion?: { target: string; type?: AnalysisType }
+  ) {
+    super("function");
+  }
 }
 
-export interface ArrayType {
-  kind: "array";
-  elementType: AnalysisType;
-  readonly?: boolean;
+export class ArrayType extends AnalysisTypeBase {
+  declare kind: "array";
+
+  constructor(public elementType: AnalysisType, public isReadonly?: boolean) {
+    super("array");
+  }
 }
 
-export interface ObjectType {
-  kind: "object";
-  properties: Record<string, AnalysisType>;
+export class ObjectType extends AnalysisTypeBase {
+  declare kind: "object";
+
+  constructor(public properties: Record<string, AnalysisType>) {
+    super("object");
+  }
 }
 
-export interface RangeType {
-  kind: "range";
-  elementType: AnalysisType;
+export class RangeType extends AnalysisTypeBase {
+  declare kind: "range";
+
+  constructor(public elementType: AnalysisType) {
+    super("range");
+  }
 }
 
-export interface UnionType {
-  kind: "union";
-  types: AnalysisType[];
+export class UnionType extends AnalysisTypeBase {
+  declare kind: "union";
+
+  constructor(public types: AnalysisType[]) {
+    super("union");
+  }
 }
 
-export interface IntersectionType {
-  kind: "intersection";
-  types: AnalysisType[];
+export class IntersectionType extends AnalysisTypeBase {
+  declare kind: "intersection";
+
+  constructor(public types: AnalysisType[]) {
+    super("intersection");
+  }
 }
 
-export interface LiteralType {
-  kind: "literal";
-  base: "string" | "number" | "boolean";
-  value: string | number | boolean;
+export class LiteralType extends AnalysisTypeBase {
+  declare kind: "literal";
+
+  constructor(public base: "string" | "number" | "boolean", public value: string | number | boolean) {
+    super("literal");
+  }
 }
 
-export interface TupleType {
-  kind: "tuple";
-  elements: AnalysisType[];
-  readonly?: boolean;
+export class TupleType extends AnalysisTypeBase {
+  declare kind: "tuple";
+
+  constructor(public elements: AnalysisType[], public isReadonly?: boolean) {
+    super("tuple");
+  }
 }
 
 export type AnalysisType =
@@ -122,24 +173,24 @@ export type AnalysisType =
   | LiteralType
   | TupleType;
 
-export const UNKNOWN_TYPE: AnalysisType = { kind: "unknown" };
+export const UNKNOWN_TYPE: AnalysisType = new UnknownType();
 
 export const BUILTIN_TYPES: Record<BuiltinTypeName, BuiltinType> = {
-  int: { kind: "builtin", name: "int" },
-  number: { kind: "builtin", name: "number" },
-  numeric: { kind: "builtin", name: "numeric" },
-  string: { kind: "builtin", name: "string" },
-  boolean: { kind: "builtin", name: "boolean" },
-  bigint: { kind: "builtin", name: "bigint" },
-  long: { kind: "builtin", name: "long" },
-  void: { kind: "builtin", name: "void" },
-  null: { kind: "builtin", name: "null" },
-  undefined: { kind: "builtin", name: "undefined" },
-  any: { kind: "builtin", name: "any" },
-  unknown: { kind: "builtin", name: "unknown" },
-  never: { kind: "builtin", name: "never" },
-  object: { kind: "builtin", name: "object" },
-  symbol: { kind: "builtin", name: "symbol" }
+  int: new BuiltinType("int"),
+  number: new BuiltinType("number"),
+  numeric: new BuiltinType("numeric"),
+  string: new BuiltinType("string"),
+  boolean: new BuiltinType("boolean"),
+  bigint: new BuiltinType("bigint"),
+  long: new BuiltinType("long"),
+  void: new BuiltinType("void"),
+  null: new BuiltinType("null"),
+  undefined: new BuiltinType("undefined"),
+  any: new BuiltinType("any"),
+  unknown: new BuiltinType("unknown"),
+  never: new BuiltinType("never"),
+  object: new BuiltinType("object"),
+  symbol: new BuiltinType("symbol")
 };
 
 export function builtinType(name: BuiltinTypeName): BuiltinType {
@@ -147,11 +198,7 @@ export function builtinType(name: BuiltinTypeName): BuiltinType {
 }
 
 export function namedType(name: string, typeArguments?: AnalysisType[]): NamedType {
-  return {
-    kind: "named",
-    name,
-    ...(typeArguments && typeArguments.length > 0 ? { typeArguments } : {})
-  };
+  return new NamedType(name, typeArguments && typeArguments.length > 0 ? typeArguments : undefined);
 }
 
 export function functionType(
@@ -162,42 +209,34 @@ export function functionType(
   typeParameterDefaults?: Record<string, AnalysisType>,
   assertion?: { target: string; type?: AnalysisType }
 ): FunctionType {
-  return {
-    kind: "function",
-    ...(typeParameters && typeParameters.length > 0 ? { typeParameters } : {}),
-    ...(typeParameterConstraints && Object.keys(typeParameterConstraints).length > 0
-      ? { typeParameterConstraints }
-      : {}),
-    ...(typeParameterDefaults && Object.keys(typeParameterDefaults).length > 0
-      ? { typeParameterDefaults }
-      : {}),
+  return new FunctionType(
     parameters,
     returnType,
-    ...(assertion ? { assertion } : {})
-  };
+    typeParameters && typeParameters.length > 0 ? typeParameters : undefined,
+    typeParameterConstraints && Object.keys(typeParameterConstraints).length > 0
+      ? typeParameterConstraints
+      : undefined,
+    typeParameterDefaults && Object.keys(typeParameterDefaults).length > 0
+      ? typeParameterDefaults
+      : undefined,
+    assertion
+  );
 }
 
 export function arrayType(elementType: AnalysisType = UNKNOWN_TYPE, isReadonly: boolean = false): ArrayType {
-  return {
-    kind: "array",
-    elementType,
-    ...(isReadonly ? { readonly: true } : {})
-  };
+  return new ArrayType(elementType, isReadonly ? true : undefined);
 }
 
 export function objectType(): ObjectType {
-  return { kind: "object", properties: {} };
+  return new ObjectType({});
 }
 
 export function objectTypeWithProperties(properties: Record<string, AnalysisType>): ObjectType {
-  return { kind: "object", properties };
+  return new ObjectType(properties);
 }
 
 export function rangeType(elementType: AnalysisType = builtinType("int")): RangeType {
-  return {
-    kind: "range",
-    elementType
-  };
+  return new RangeType(elementType);
 }
 
 export function unionType(types: AnalysisType[]): UnionType {
@@ -205,19 +244,19 @@ export function unionType(types: AnalysisType[]): UnionType {
   for (const type of types) {
     normalizedTypes.push(type ?? UNKNOWN_TYPE);
   }
-  return { kind: "union", types: normalizedTypes };
+  return new UnionType(normalizedTypes);
 }
 
 export function intersectionType(types: AnalysisType[]): IntersectionType {
-  return { kind: "intersection", types };
+  return new IntersectionType(types);
 }
 
 export function literalType(base: LiteralType["base"], value: LiteralType["value"]): LiteralType {
-  return { kind: "literal", base, value };
+  return new LiteralType(base, value);
 }
 
 export function tupleType(elements: AnalysisType[], isReadonly: boolean = false): TupleType {
-  return { kind: "tuple", elements, ...(isReadonly ? { readonly: true } : {}) };
+  return new TupleType(elements, isReadonly ? true : undefined);
 }
 
 export function typeToString(type: AnalysisType): string {
@@ -271,7 +310,7 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
         return `${typeParameterPrefix}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
       }
       case "array":
-        return `${type.readonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;
+        return `${type.isReadonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;
       case "object":
         if (Object.keys(type.properties).length === 0) {
           return "object";
@@ -295,7 +334,7 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
       case "literal":
         return type.base === "string" ? JSON.stringify(type.value) : String(type.value);
       case "tuple":
-        return `${type.readonly === true ? "readonly " : ""}[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
+        return `${type.isReadonly === true ? "readonly " : ""}[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
       default:
         return "unknown";
     }
@@ -413,7 +452,7 @@ function isSameTypeInternal(
   }
 
   if (a.kind === "array" && b.kind === "array") {
-    return (a.readonly ?? false) === (b.readonly ?? false)
+    return (a.isReadonly ?? false) === (b.isReadonly ?? false)
       && isSameTypeInternal(a.elementType, b.elementType, seenPairs);
   }
 
@@ -460,7 +499,7 @@ function isSameTypeInternal(
   }
 
   if (a.kind === "tuple" && b.kind === "tuple") {
-    if ((a.readonly ?? false) !== (b.readonly ?? false) || a.elements.length !== b.elements.length) {
+    if ((a.isReadonly ?? false) !== (b.isReadonly ?? false) || a.elements.length !== b.elements.length) {
       return false;
     }
     return a.elements.every((element, index) => isSameTypeInternal(element, b.elements[index]!, seenPairs));

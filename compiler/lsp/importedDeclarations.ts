@@ -1376,15 +1376,12 @@ function ambientReturnTypeUtility(sourceType: AnalysisType): AnalysisType | null
 
 function ambientParametersUtility(sourceType: AnalysisType): AnalysisType | null {
   if (sourceType.kind === "function") {
-    return {
-      kind: "tuple",
-      elements: sourceType.parameters.map((parameter) => parameter.type)
-    };
+    return tupleType(sourceType.parameters.map((parameter) => parameter.type));
   }
   if (sourceType.kind === "union") {
     const tuples = sourceType.types
       .filter((member): member is AnalysisType & { kind: "function" } => member.kind === "function")
-      .map((member) => ({ kind: "tuple", elements: member.parameters.map((parameter) => parameter.type) } as const));
+      .map((member) => tupleType(member.parameters.map((parameter) => parameter.type)));
     return tuples.length > 0 ? combineTypes(tuples) : null;
   }
   return null;
@@ -1436,7 +1433,7 @@ function ambientConstructorParametersUtility(
     visited
   );
   return constructorType
-    ? { kind: "tuple", elements: constructorType.parameters.map((parameter) => parameter.type) }
+    ? tupleType(constructorType.parameters.map((parameter) => parameter.type))
     : null;
 }
 
@@ -1779,13 +1776,12 @@ function typeFromAmbientAnnotationText(
   }
   const readonlyContainer = parseReadonlyContainerTypeText(normalized);
   if (readonlyContainer?.kind === "tuple") {
-    return {
-      kind: "tuple",
-      readonly: true,
-      elements: (readonlyContainer.tupleElementTypeTexts ?? []).map((part) =>
+    return tupleType(
+      (readonlyContainer.tupleElementTypeTexts ?? []).map((part) =>
         typeFromAmbientAnnotationText(part, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
-      )
-    };
+      ),
+      true
+    );
   }
   if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
     return arrayType(
@@ -2192,7 +2188,7 @@ function ambientInferConditionalPatternSubstitutions(
 
   const functionArgsInferMatch = /^\(\s*\.\.\.[^:]+:\s*infer\s+([A-Za-z_$][\w$]*)\s*\)\s*=>\s*any$/.exec(trimmed);
   if (functionArgsInferMatch?.[1] && sourceType.kind === "function") {
-    return new Map([[functionArgsInferMatch[1], { kind: "tuple", elements: sourceType.parameters.map((parameter) => parameter.type) }]]);
+    return new Map([[functionArgsInferMatch[1], tupleType(sourceType.parameters.map((parameter) => parameter.type))]]);
   }
 
   const functionReturnInferMatch = /^\(\s*\.\.\.[^:]+:\s*any\s*\)\s*=>\s*infer\s+([A-Za-z_$][\w$]*)$/.exec(trimmed);
@@ -2209,7 +2205,7 @@ function ambientInferConditionalPatternSubstitutions(
       if (restInferMatch?.[1]) {
         const constrained = ambientConstrainedInferSubstitution(
           restInferMatch[1],
-          { kind: "tuple", elements: sourceType.parameters.map((parameter) => parameter.type) },
+          tupleType(sourceType.parameters.map((parameter) => parameter.type)),
           restInferMatch[2]?.trim()
         );
         if (!constrained) {
@@ -2245,7 +2241,7 @@ function ambientInferConditionalPatternSubstitutions(
   if (constructorParamsMatch?.[1]) {
     const constructorType = sourceType.kind === "function" ? sourceType : null;
     return constructorType
-      ? new Map([[constructorParamsMatch[1], { kind: "tuple", elements: constructorType.parameters.map((parameter) => parameter.type) }]])
+      ? new Map([[constructorParamsMatch[1], tupleType(constructorType.parameters.map((parameter) => parameter.type))]])
       : null;
   }
 
