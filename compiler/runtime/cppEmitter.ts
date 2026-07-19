@@ -1275,12 +1275,43 @@ function isGeneratorExpression(expression: Expr): boolean {
   return Boolean(classMethod.generator);
 }
 
+function directlyEmittedCppType(expression: Expr): string | null {
+  switch (expression.kind) {
+    case NodeKind.IntLiteral:
+      return "std::int32_t";
+    case NodeKind.FloatLiteral:
+      return "double";
+    case NodeKind.LongLiteral:
+      return "std::int64_t";
+    case NodeKind.BigIntLiteral:
+      return "vexa::BigInt";
+    case NodeKind.BooleanLiteral:
+      return "bool";
+    case NodeKind.StringLiteral:
+      return "vexa::Text";
+    case NodeKind.NullLiteral:
+    case NodeKind.UndefinedLiteral:
+      return "vexa::Value";
+    case NodeKind.ArrayLiteral:
+      return `vexa::ArrayObject<${arrayLiteralCppElementType(expression as ArrayLiteral)}>*`;
+    case NodeKind.ObjectLiteral:
+      return "vexa::RecordObject*";
+    case NodeKind.RegExpLiteral:
+      return "vexa::RegExp";
+    default:
+      return null;
+  }
+}
+
 function emitConvertedValue(expression: Expr, resultType: string): string {
   if (resultType === "void") {
     return `([&]() { ${emitExpression(expression)}; }())`;
   }
   if (resultType === "vexa::Value" && expression.kind === NodeKind.StringLiteral) {
     return pooledStringLiteral((expression as unknown as { value: string }).value);
+  }
+  if (directlyEmittedCppType(expression) === resultType) {
+    return emitExpression(expression);
   }
   if (expression.kind === NodeKind.ConditionalExpression) {
     const conditional = expression as ConditionalExpression;
@@ -1359,10 +1390,6 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
 }
 
 function emitArrayElements(elements: readonly Expr[], elementType: string): string {
-  const emitElement = (element: Expr): string => {
-    const emitted = emitExpression(element);
-    return elementType === "vexa::Text" ? `vexa::convertValue<vexa::Text>(${emitted})` : emitted;
-  };
   const emitTypedElement = (element: Expr): string =>
     interfaceStatementForCppType(elementType) !== null
       ? emitConvertedValue(element, elementType)
@@ -1370,7 +1397,7 @@ function emitArrayElements(elements: readonly Expr[], elementType: string): stri
         ? emitExpressionWithExpectedCppType(element, elementType)
       : emittedCppTypeForExpression(element) !== elementType
         ? emitConvertedValue(element, elementType)
-        : emitElement(element);
+        : emitExpression(element);
   const hasExpandedElements = elements.some((element) =>
     element.kind === NodeKind.ArrayHole || element.kind === NodeKind.SpreadExpression);
   if (hasExpandedElements) {

@@ -229,6 +229,17 @@ arguments share this representation. Managed dynamic strings remain traced by
 Oilpan, and `StringObject` concatenation uses lazy immutable rope nodes before
 flattening.
 
+The C++ type model must describe the representation actually emitted. String
+literals emit `vexa::Text` while their semantic representation may still be
+`vexa::Value`; typed arrays consequently generated redundant code such as
+`convertValue<Text>(Text(...))`. The shared conversion path now recognizes
+direct physical representations for literals and literal containers, returning
+them unchanged when the requested C++ type
+matches. On the complete native smoke this reduced `convertValue<Text>`
+occurrences from 25 to 5; the remaining five cross real dynamic `Value`
+boundaries. A broader shortcut based on semantic expression types was rejected
+because types such as `null` do not yet describe their emitted storage exactly.
+
 Several full-graph-only type mismatches exposed an important inference rule:
 the type selected for `Map` and `Set` construction must also be the type stored
 for the receiving local or global root. Inferring a typed construction from its
