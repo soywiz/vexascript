@@ -216,3 +216,25 @@ same translation unit with SHA-256
 `297d887a91a3b5582d75c834d36447a9aad8bf4e47586dc490d716d0b8cc8723`.
 The two `-O1` rebuilds took 111.37 and 111.16 seconds, and the second native
 compiler emitted the following checked roundtrip in 31.53 seconds.
+
+## Sampling exposed exception-based normal returns
+
+A 15-second native sample of the semantic-analysis phase showed roughly ten
+percent of its stacks in `ReturnSignal`, `throwReturn`, and C++ unwinding. The
+type checker used small stack-scope helpers whose `try` blocks returned callback
+results and whose `finally` blocks restored state. The native emitter correctly
+preserved `finally` by lowering those returns to exceptions, but that made an
+ordinary expression callback pay for a throw and catch at every invocation.
+
+The void and result-bearing function-context helpers are now separate, and
+result helpers assign the callback result before the `finally` and return after
+state restoration. `withTypeParametersResult` follows the same shape. This
+keeps JavaScript cleanup semantics, avoids invalid `T = void` locals in C++, and
+removes exception-based normal completion from these hot type-checker helpers.
+
+The optimized compiler remained byte-stable across Node and native hosts. In a
+profiled `-O1` run, merged type inference fell from 13.98 to 13.54 seconds and
+total checked C++ generation fell from 26.99 to 26.32 seconds. Native C++ build
+time was unchanged at 113.53 seconds. A follow-up sample identified the same
+source pattern in emitter helpers, especially `withCallableContext` and
+`withCppTypeParameters`, as the next normal-return exception hot path.

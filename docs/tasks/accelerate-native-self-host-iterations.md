@@ -39,6 +39,12 @@ development loop.
 * [ ] Avoid regenerating or recompiling unchanged modules and runtime sources.
 * [ ] Evaluate compiler-source simplifications that reduce generated C++ size or
   template pressure without distorting the compiler architecture.
+  The first sampling-guided cleanup split void and result-bearing type-checker
+  scope helpers and moved result returns outside `finally`. This removed
+  exception-based normal returns from those helpers and reduced profiled native
+  type inference from 13.98 to 13.54 seconds and total generation from 26.99 to
+  26.32 seconds. The next sampled exception hot path is C++ emission's
+  `withCallableContext`, followed by `withCppTypeParameters`.
 * [ ] Replace the monolithic `convertValue<T>` decision tree at generated call
   sites with emitter-selected, narrowly scoped conversion operations. Prefer
   non-template boxing/coercion helpers such as `boxText`, `toText`, `toNumber`,

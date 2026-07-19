@@ -579,13 +579,24 @@ export class TypeChecker {
     return this.generatorFunctionStack[this.generatorFunctionStack.length - 1] === true;
   }
 
-  private withGeneratorFunction<T>(isGenerator: boolean, run: () => T): T {
+  private withGeneratorFunction(isGenerator: boolean, run: () => void): void {
     this.generatorFunctionStack.push(isGenerator);
     try {
-      return run();
+      run();
     } finally {
       this.generatorFunctionStack.pop();
     }
+  }
+
+  private withGeneratorFunctionResult<T>(isGenerator: boolean, run: () => T): T {
+    this.generatorFunctionStack.push(isGenerator);
+    let result: T;
+    try {
+      result = run();
+    } finally {
+      this.generatorFunctionStack.pop();
+    }
+    return result;
   }
 
   // True when traversal is inside a function whose innermost enclosing function is
@@ -594,13 +605,24 @@ export class TypeChecker {
     return this.asyncLikeFunctionStack[this.asyncLikeFunctionStack.length - 1] === true;
   }
 
-  private withAsyncLikeFunction<T>(isAsyncLike: boolean, run: () => T): T {
+  private withAsyncLikeFunction(isAsyncLike: boolean, run: () => void): void {
     this.asyncLikeFunctionStack.push(isAsyncLike);
     try {
-      return run();
+      run();
     } finally {
       this.asyncLikeFunctionStack.pop();
     }
+  }
+
+  private withAsyncLikeFunctionResult<T>(isAsyncLike: boolean, run: () => T): T {
+    this.asyncLikeFunctionStack.push(isAsyncLike);
+    let result: T;
+    try {
+      result = run();
+    } finally {
+      this.asyncLikeFunctionStack.pop();
+    }
+    return result;
   }
 
   // True when the innermost enclosing function is `sync`. Auto-await and the `go` opt-out are only
@@ -609,13 +631,24 @@ export class TypeChecker {
     return this.syncFunctionStack[this.syncFunctionStack.length - 1] === true;
   }
 
-  private withSyncFunction<T>(isSync: boolean, run: () => T): T {
+  private withSyncFunction(isSync: boolean, run: () => void): void {
     this.syncFunctionStack.push(isSync);
     try {
-      return run();
+      run();
     } finally {
       this.syncFunctionStack.pop();
     }
+  }
+
+  private withSyncFunctionResult<T>(isSync: boolean, run: () => T): T {
+    this.syncFunctionStack.push(isSync);
+    let result: T;
+    try {
+      result = run();
+    } finally {
+      this.syncFunctionStack.pop();
+    }
+    return result;
   }
 
   // True when traversal is inside any function body rather than module/global scope.
@@ -3240,9 +3273,9 @@ export class TypeChecker {
       case NodeKind.ArrowFunctionExpression: {
         const arrow = expression as ArrowFunctionExpression;
         const arrowIsAsyncLike = isAsyncLike(arrow.async, arrow.sync);
-        result = this.withGeneratorFunction(false, () =>
-          this.withSyncFunction(arrow.sync === true, () =>
-            this.withAsyncLikeFunction(arrowIsAsyncLike, (): AnalysisType => {
+        result = this.withGeneratorFunctionResult(false, () =>
+          this.withSyncFunctionResult(arrow.sync === true, () =>
+            this.withAsyncLikeFunctionResult(arrowIsAsyncLike, (): AnalysisType => {
           const expectedFunctionType = this.contextualFunctionTypeForExpression(
             this.contextualFunctionExpectedType(expectedType),
             scope
@@ -3312,9 +3345,9 @@ export class TypeChecker {
       case NodeKind.FunctionExpression: {
         const fn = expression as FunctionExpression;
         const fnIsAsyncLike = isAsyncLike(fn.async, fn.sync);
-        result = this.withGeneratorFunction(fn.generator === true, () =>
-          this.withSyncFunction(fn.sync === true, () =>
-            this.withAsyncLikeFunction(fnIsAsyncLike, (): AnalysisType => {
+        result = this.withGeneratorFunctionResult(fn.generator === true, () =>
+          this.withSyncFunctionResult(fn.sync === true, () =>
+            this.withAsyncLikeFunctionResult(fnIsAsyncLike, (): AnalysisType => {
           const expectedFunctionType = this.contextualFunctionTypeForExpression(
             this.contextualFunctionExpectedType(expectedType),
             scope
@@ -9077,11 +9110,13 @@ export class TypeChecker {
     constraints?: Record<string, AnalysisType>
   ): T {
     const scopeWasAdded = this.beginTypeParameterScope(typeParameters, constraints);
+    let result: T;
     try {
-      return action();
+      result = action();
     } finally {
       if (scopeWasAdded) this.endTypeParameterScope();
     }
+    return result;
   }
 
   private isActiveTypeParameter(name: string): boolean {
