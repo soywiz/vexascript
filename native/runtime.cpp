@@ -10,6 +10,7 @@
 #include <coroutine>
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 #include <cstdint>
 #include <ctime>
 #include <deque>
@@ -38,6 +39,10 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+#if !defined(_WIN32)
+#include <sys/wait.h>
+#endif
 
 #include "bigint.h"
 
@@ -4084,6 +4089,78 @@ inline Task<void> nativeCopyFile(Runtime& runtime, std::string source, std::stri
     } catch (const std::exception& error) {
       reject(Error(std::string(error.what())));
     }
+  });
+}
+
+struct NativeCommandResult final {
+  int code;
+  std::string output;
+};
+
+inline std::string shellQuote(std::string_view value) {
+  std::string quoted("'");
+  for (const char character : value) {
+    if (character == '\'') quoted += "'\\''";
+    else quoted += character;
+  }
+  quoted += '\'';
+  return quoted;
+}
+
+inline Task<Value> nativeRunCommandCapture(
+    Runtime& runtime,
+    std::string command,
+    ArrayObject<Text>* arguments,
+    std::string workingDirectory) {
+  std::vector<std::string> copiedArguments;
+  copiedArguments.reserve(arguments ? arguments->size() : 0);
+  if (arguments) {
+    for (std::size_t index = 0; index < arguments->size(); ++index) {
+      copiedArguments.push_back(arguments->get(index).utf8());
+    }
+  }
+  auto operation = std::async(std::launch::async, [
+      command = std::move(command),
+      arguments = std::move(copiedArguments),
+      workingDirectory = std::move(workingDirectory)] {
+    std::string shellCommand;
+    if (!workingDirectory.empty()) shellCommand = "cd " + shellQuote(workingDirectory) + " && ";
+    shellCommand += shellQuote(command);
+    for (const auto& argument : arguments) shellCommand += " " + shellQuote(argument);
+    shellCommand += " 2>&1";
+#if defined(_WIN32)
+    FILE* pipe = _popen(shellCommand.c_str(), "r");
+#else
+    FILE* pipe = popen(shellCommand.c_str(), "r");
+#endif
+    if (!pipe) throw std::runtime_error("Cannot start command: " + command);
+    std::string output;
+    char buffer[4096];
+    while (std::fgets(buffer, sizeof(buffer), pipe)) output += buffer;
+#if defined(_WIN32)
+    const int status = _pclose(pipe);
+    const int code = status;
+#else
+    const int status = pclose(pipe);
+    const int code = WIFEXITED(status) ? WEXITSTATUS(status) : status;
+#endif
+    return NativeCommandResult{code, std::move(output)};
+  }).share();
+  return Task<Value>::create(runtime, [&runtime, operation = std::move(operation)](auto resolve, auto reject) mutable {
+    runtime.enqueueIo([&runtime, operation = std::move(operation), resolve, reject]() mutable {
+      if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
+      try {
+        auto result = operation.get();
+        auto* value = runtime.record();
+        value->set("code", Value(static_cast<double>(result.code)));
+        value->set("stdout", runtime.string(result.output));
+        value->set("stderr", runtime.string(""));
+        resolve(Value(value));
+      } catch (const std::exception& error) {
+        reject(Error(std::string(error.what())));
+      }
+      return true;
+    });
   });
 }
 

@@ -79,12 +79,20 @@ export async function startServe(_options: unknown): Promise<number> {
   throw new Error("The development server is not available in the native VexaScript CLI");
 }
 
-export async function runCommand(_command: string, _args: string[], _options?: unknown): Promise<void> {
-  throw new Error("Child processes are not available in the native VexaScript CLI yet");
+export async function runCommand(command: string, args: string[], options?: any): Promise<void> {
+  const result = await runCommandCapture(command, args, options);
+  if (result.code !== 0) {
+    throw new Error(result.stderr || result.stdout || `Command failed with exit code ${result.code}`);
+  }
 }
 
-export async function runCommandCapture(_command: string, _args: string[], _options?: unknown): Promise<CommandOutput> {
-  throw new Error("Child processes are not available in the native VexaScript CLI yet");
+export async function runCommandCapture(command: string, args: string[], options?: any): Promise<CommandOutput> {
+  const result = await nativeRunCommandCapture(command, args, options?.cwd ?? process.cwd());
+  return {
+    code: result.code,
+    stdout: result.stdout,
+    stderr: result.stderr
+  };
 }
 
 export async function openUrlInDefaultBrowser(_url: string, _options?: unknown): Promise<void> {

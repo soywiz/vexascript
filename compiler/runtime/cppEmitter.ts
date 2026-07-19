@@ -91,7 +91,7 @@ const CPP_RESERVED_WORDS = new Set([
 ]);
 const NATIVE_RUNTIME_FUNCTION_NAMES = new Set([
   "readTextFile", "writeTextFile", "commandLineArguments",
-  "nativeStatPath", "nativeReadDirectory", "nativeCreateDirectory", "nativeRemovePath", "nativeCopyFile", "nativeRunTask", "nativeEnvironmentVariable",
+  "nativeStatPath", "nativeReadDirectory", "nativeCreateDirectory", "nativeRemovePath", "nativeCopyFile", "nativeRunCommandCapture", "nativeRunTask", "nativeEnvironmentVariable",
   "setTimeout", "setInterval", "clearTimeout", "clearInterval",
 ]);
 const cppNameCache: Map<string, string> = new Map();
@@ -4646,6 +4646,12 @@ function emitCall(call: CallExpression): string {
       throw new CppEmitError("C++ nativeCopyFile expects source and target paths");
     }
     return `vexa::nativeCopyFile(${activeRuntimeName}, vexa::convertValue<std::string>(${emitExpression(call.args[0]!)}), vexa::convertValue<std::string>(${emitExpression(call.args[1]!)}))`;
+  }
+  if (calleeName === "nativeRunCommandCapture") {
+    if (call.args.length !== 3) {
+      throw new CppEmitError("C++ nativeRunCommandCapture expects a command, arguments, and working directory");
+    }
+    return `vexa::nativeRunCommandCapture(${activeRuntimeName}, vexa::toString(${emitExpression(call.args[0]!)}), vexa::convertValue<vexa::ArrayObject<vexa::Text>*>(${emitExpression(call.args[1]!)}), vexa::toString(${emitExpression(call.args[2]!)}))`;
   }
   if (calleeName === "nativeRunTask") {
     if (call.args.length !== 1) {

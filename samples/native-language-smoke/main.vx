@@ -639,6 +639,10 @@ val firstAny = await Promise.any([Promise.reject(Error("ignored")), Promise.reso
 console.log("promise combinators", raced, settled.length, firstAny)
 console.log("async", await asyncValue(), await doubledAsync())
 if (typeof writeTextFile == "function") console.log("async io", await ioRoundtrip())
+if (typeof nativeRunCommandCapture == "function") {
+  val commandResult = await nativeRunCommandCapture("printf", ["native subprocess"], process.cwd())
+  console.log("native command", commandResult.code, commandResult.stdout, commandResult.stderr.length)
+}
 
 val cancelledInterval = setInterval(() => console.log("unexpected interval"), 0)
 clearInterval(cancelledInterval)

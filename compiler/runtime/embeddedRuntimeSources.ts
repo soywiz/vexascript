@@ -11650,6 +11650,7 @@ declare fun nativeReadDirectory(path: string): Promise<any[]>
 declare fun nativeCreateDirectory(path: string, recursive: boolean): Promise<void>
 declare fun nativeRemovePath(path: string, recursive: boolean): Promise<void>
 declare fun nativeCopyFile(source: string, target: string): Promise<void>
+declare fun nativeRunCommandCapture(command: string, args: string[], cwd: string): Promise<any>
 declare fun nativeRunTask(task: Promise<void>): void
 declare fun nativeEnvironmentVariable(name: string): string | undefined
 

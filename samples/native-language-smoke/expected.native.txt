@@ -85,6 +85,7 @@ promise assimilation 11 why
 promise combinators 5 2 8
 async 20 40
 async io native io works
+native command 0 native subprocess 0
 interval cancelled
 timer arguments named 3
 async timer 5
