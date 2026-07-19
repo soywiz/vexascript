@@ -5,36 +5,42 @@
  */
 import type { AnalysisType } from "./types";
 
-export function isIntType(type: AnalysisType): boolean {
+export function isIntType(type: AnalysisType | null | undefined): boolean {
+  if (!type) return false;
   return (
     (type.kind === "builtin" && type.name === "int") ||
     (type.kind === "literal" && type.base === "number" && Number.isInteger(type.value))
   );
 }
 
-export function isStringLikeType(type: AnalysisType): boolean {
+export function isStringLikeType(type: AnalysisType | null | undefined): boolean {
+  if (!type) return false;
   return (
     (type.kind === "builtin" && type.name === "string") ||
     (type.kind === "literal" && type.base === "string")
   );
 }
 
-export function isBigIntType(type: AnalysisType): boolean {
+export function isBigIntType(type: AnalysisType | null | undefined): boolean {
+  if (!type) return false;
   return type.kind === "builtin" && type.name === "bigint";
 }
 
-export function isLongType(type: AnalysisType): boolean {
+export function isLongType(type: AnalysisType | null | undefined): boolean {
+  if (!type) return false;
   return type.kind === "builtin" && type.name === "long";
 }
 
-export function isNumberType(type: AnalysisType): boolean {
+export function isNumberType(type: AnalysisType | null | undefined): boolean {
+  if (!type) return false;
   return (
     (type.kind === "builtin" && (type.name === "int" || type.name === "number")) ||
     (type.kind === "literal" && type.base === "number")
   );
 }
 
-export function isNumericType(type: AnalysisType): boolean {
+export function isNumericType(type: AnalysisType | null | undefined): boolean {
+  if (!type) return false;
   return type.kind === "builtin" && type.name === "numeric";
 }
 
@@ -43,15 +49,17 @@ export function isNumericType(type: AnalysisType): boolean {
  * `numeric` itself, the integer family (`int`/`number` and numeric literals)
  * and the big-integer family (`long`/`bigint`).
  */
-export function isNumericFamilyType(type: AnalysisType): boolean {
+export function isNumericFamilyType(type: AnalysisType | null | undefined): boolean {
   return isNumericType(type) || isNumberType(type) || isLongType(type) || isBigIntType(type);
 }
 
-export function isNullishType(type: AnalysisType): boolean {
+export function isNullishType(type: AnalysisType | null | undefined): boolean {
+  if (!type) return false;
   return type.kind === "builtin" && (type.name === "null" || type.name === "undefined");
 }
 
-export function isPrimitiveLikeOperatorType(type: AnalysisType): boolean {
+export function isPrimitiveLikeOperatorType(type: AnalysisType | null | undefined): boolean {
+  if (!type) return false;
   if (type.kind === "builtin") {
     return (
       type.name === "int" ||

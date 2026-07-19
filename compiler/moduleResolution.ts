@@ -261,8 +261,9 @@ export async function resolveNodeModulesTypingsPath(
   const packagePathParts = normalizedPackageName.startsWith("@")
     ? normalizedPackageName.split("/").slice(0, 2)
     : normalizedPackageName.split("/").slice(0, 1);
-  const rootPackageName = packagePathParts.join("/");
-  const exportSubpath = normalizedPackageName.slice(rootPackageName.length).replace(/^\/+/, "") || null;
+  const rootPackageName: string = packagePathParts.join("/");
+  const rawExportSubpath: string = normalizedPackageName.slice(rootPackageName.length).replace(/^\/+/, "");
+  const exportSubpath: string | null = rawExportSubpath.length > 0 ? rawExportSubpath : null;
   let dir = dirname(importerFilePath);
   while (true) {
     const nodeModulesDir = resolve(dir, "node_modules");

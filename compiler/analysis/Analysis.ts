@@ -135,7 +135,7 @@ export class Analysis {
     const invalidImportedBindings = options.invalidImportedBindings ?? new Set<string>();
     const importedSymbolViews = normalizeImportedSymbolSources(options);
     const importedSymbols: Map<string, ImportedSymbolResolution> = importedSymbolViews.importedSymbols;
-    let phaseStartedAt = Date.now();
+    let phaseStartedAt: number = Date.now();
     const bound = new Binder(
       program,
       externalDeclarations,

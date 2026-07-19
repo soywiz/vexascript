@@ -22,7 +22,10 @@ export function compileParsedSource(
   }
 
   try {
-    const analysis = new Analysis(parsed.ast, analysisOptions);
+    const analysis = new Analysis(parsed.ast, {
+      ...analysisOptions,
+      language: analysisOptions.language ?? parsed.language
+    });
     return {
       ...parsed,
       analysis,

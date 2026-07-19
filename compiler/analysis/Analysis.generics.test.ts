@@ -773,6 +773,23 @@ describe("Analysis", () => {
     expect(messages).toContain("Type 'Map<string, string>' is not assignable to type 'boolean'");
   });
 
+  it("infers no-argument constructor type parameters from the declared target type", () => {
+    const source = dedent`
+      class Box<T> {
+        value: T
+      }
+      fun demo() {
+        const box: Box<string> = new Box()
+        const value: string = box.value
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("treats class accessors as typed properties and validates accessor parameters", () => {
     const source = dedent`
       class Box {

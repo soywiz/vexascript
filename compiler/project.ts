@@ -218,7 +218,9 @@ function resolvedImportMappings(configDir: string, rawMappings: unknown): Record
     return {};
   }
   const mappings: Record<string, string> = {};
-  for (const [specifier, target] of Object.entries(rawMappings as Record<string, unknown>)) {
+  const sourceMappings = rawMappings as Record<string, unknown>;
+  for (const specifier of Object.keys(sourceMappings)) {
+    const target = sourceMappings[specifier];
     if (typeof target === "string" && specifier.length > 0) {
       mappings[specifier] = resolve(configDir, target);
     }

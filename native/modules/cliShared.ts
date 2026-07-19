@@ -9,6 +9,16 @@ export async function globalDeclarationsForProject(_project: unknown): Promise<a
 export async function ensureRuntimeDependencies(_sourcePath: string, _project: unknown): Promise<void> {
 }
 
+export async function vexaTypeCheckForSource(
+  sourcePath: string,
+  _project: unknown,
+  semanticCheck: boolean
+): Promise<boolean> {
+  if (!semanticCheck) return false;
+  const lowerPath = sourcePath.toLowerCase();
+  return !(lowerPath.endsWith(".ts") || lowerPath.endsWith(".tsx"));
+}
+
 export async function createBundledModuleArtifacts(
   _sourcePath: string,
   _target: unknown,

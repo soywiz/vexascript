@@ -15,7 +15,8 @@ import {
   createBundledModuleArtifacts,
   ensureRuntimeDependencies,
   globalDeclarationsForProject,
-  resolveServeBundleInput
+  resolveServeBundleInput,
+  vexaTypeCheckForSource
 } from "./cliShared";
 import {
   astForCli,
@@ -131,6 +132,7 @@ async function buildFile(
   const sourcePath = resolve(process.cwd(), input);
   const source = (await vfs().readFile(sourcePath))!;
   const project = await loadProject(sourcePath);
+  const vexaTypeCheck = await vexaTypeCheckForSource(sourcePath, project, typeCheck);
   const outputExtension = emit === "cpp" ? ".cpp" : ".js";
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, outputExtension));
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
@@ -141,7 +143,7 @@ async function buildFile(
     target,
     emit,
     emitNativeSourceLocations,
-    typeCheck,
+    typeCheck: vexaTypeCheck,
     emitSourceMap: emit === "javascript",
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     rewriteImportExtensions: true,
@@ -190,6 +192,7 @@ async function buildNativeFile(
   if (!sourcePath) {
     throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
   }
+  const vexaTypeCheck = await vexaTypeCheckForSource(sourcePath, project, typeCheck);
   const projectOutputDir = project?.buildOutputDir ?? resolve(inputPath, "dist");
   const executableName = basename(sourcePath).replace(/\.[^.]+$/, runtimePlatform() === "win32" ? ".exe" : "");
   const paths = await resolveNativeProgramPaths(
@@ -205,7 +208,7 @@ async function buildNativeFile(
   const result = await compileNativeModuleGraph(paths.sourcePath, target, {
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     importMappings: nativeImportMappings(project),
-    typeCheck,
+    typeCheck: vexaTypeCheck,
     emitNativeSourceLocations,
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
@@ -236,6 +239,7 @@ async function buildCppModuleGraph(
   if (!sourcePath) {
     throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
   }
+  const vexaTypeCheck = await vexaTypeCheckForSource(sourcePath, project, typeCheck);
   const outputPath = directoryBuild
     ? resolve(process.cwd(), out ?? project?.buildOutputDir ?? resolve(inputPath, "dist"), "main.cpp")
     : resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".cpp"));
@@ -250,7 +254,7 @@ async function buildCppModuleGraph(
   const result = await compileNativeModuleGraph(sourcePath, target, {
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     importMappings: nativeImportMappings(project),
-    typeCheck,
+    typeCheck: vexaTypeCheck,
     emitNativeSourceLocations,
     ...(profile ? { profile } : {}),
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
@@ -569,16 +573,15 @@ async function printSyntax(opts: {
 }
 
 function createProgram(): Command {
-  const program = new Command()
-    .name(LANGUAGE_CLI_BIN)
-    .description(`VexaScript compiler CLI - ${COMPILER_VERSION} - Soywiz Software 2026`)
-    .version(COMPILER_VERSION);
+  const program = new Command();
+  program.name(LANGUAGE_CLI_BIN);
+  program.description(`VexaScript compiler CLI - ${COMPILER_VERSION} - Soywiz Software 2026`);
+  program.version(COMPILER_VERSION);
 
-  program
-    .command("lsp")
-    .description("Start the language server")
-    .allowUnknownOption(true)
-    .action0(async (): Promise<void> => {
+  const lspCommand = program.command("lsp");
+  lspCommand.description("Start the language server");
+  lspCommand.allowUnknownOption(true);
+  lspCommand.action0(async (): Promise<void> => {
       const lspArgv = ensureLspTransportArg(process.argv);
       const originalArgv = process.argv;
       process.argv = lspArgv;
@@ -587,29 +590,27 @@ function createProgram(): Command {
       } finally {
         process.argv = originalArgv;
       }
-    });
+  });
 
-  program
-    .command("mcp")
-    .description("Start the VexaScript MCP codebase navigation server")
-    .option("--root <dir>", "Workspace root used to resolve relative file paths and scan symbols", process.cwd())
-    .actionOptions(async (opts: { root?: string }): Promise<void> => {
-      await startMcpServer({ cwd: resolve(process.cwd(), opts.root ?? ".") });
-    });
+  const mcpCommand = program.command("mcp");
+  mcpCommand.description("Start the VexaScript MCP codebase navigation server");
+  mcpCommand.option("--root <dir>", "Workspace root used to resolve relative file paths and scan symbols", process.cwd());
+  mcpCommand.actionOptions(async (opts: { root?: string }): Promise<void> => {
+    await startMcpServer({ cwd: resolve(process.cwd(), opts.root ?? ".") });
+  });
 
-  program
-    .command("syntax")
-    .description("Print embedded VexaScript syntax definitions for editor integrations")
-    .option("--target <name>", `Syntax target: ${SYNTAX_TARGETS.join("|")}`)
-    .option("--monaco", "Print Monaco-ready bundle source")
-    .option("--monaco-language", "Print Monaco Monarch language JSON")
-    .option("--monaco-configuration", "Print Monaco language-configuration JSON")
-    .option("--vscode", "Print VS Code/TextMate grammar JSON")
-    .option("--vscode-grammar", "Print VS Code/TextMate grammar JSON")
-    .option("--vscode-configuration", "Print VS Code language-configuration JSON")
-    .option("--codemirror", "Print CodeMirror legacy mode source")
-    .option("--textmate", "Print TextMate grammar JSON")
-    .actionOptions(async (opts: {
+  const syntaxCommand = program.command("syntax");
+  syntaxCommand.description("Print embedded VexaScript syntax definitions for editor integrations");
+  syntaxCommand.option("--target <name>", `Syntax target: ${SYNTAX_TARGETS.join("|")}`);
+  syntaxCommand.option("--monaco", "Print Monaco-ready bundle source");
+  syntaxCommand.option("--monaco-language", "Print Monaco Monarch language JSON");
+  syntaxCommand.option("--monaco-configuration", "Print Monaco language-configuration JSON");
+  syntaxCommand.option("--vscode", "Print VS Code/TextMate grammar JSON");
+  syntaxCommand.option("--vscode-grammar", "Print VS Code/TextMate grammar JSON");
+  syntaxCommand.option("--vscode-configuration", "Print VS Code language-configuration JSON");
+  syntaxCommand.option("--codemirror", "Print CodeMirror legacy mode source");
+  syntaxCommand.option("--textmate", "Print TextMate grammar JSON");
+  syntaxCommand.actionOptions(async (opts: {
       target?: string;
       monaco?: boolean;
       monacoLanguage?: boolean;
@@ -619,9 +620,9 @@ function createProgram(): Command {
       vscodeConfiguration?: boolean;
       codemirror?: boolean;
       textmate?: boolean;
-    }): Promise<void> => {
-      await printSyntax(opts);
-    });
+  }): Promise<void> => {
+    await printSyntax(opts);
+  });
 
   const resolveBuildOptions = (opts: { target?: string; jsxFactory?: string; jsxFragmentFactory?: string }): BuildOptions =>
     new BuildOptions(
@@ -630,36 +631,34 @@ function createProgram(): Command {
     );
 
   const addExecutableCommand = (name: "executable" | "native", description: string): void => {
-    program
-      .command(name)
-      .description(description)
-      .argument("<input>", "Input .vx file or configured project directory")
-      .option("-o, --out <path>", "Output executable, or output directory for project builds")
-      .option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)")
-      .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
-      .option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics")
-      .option("--native-source-locations", "Emit per-statement native source-location hooks")
-      .actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
-        const target = opts.target === "conservative" ? "conservative" : "optimized";
-        await buildNativeFile(input, opts.out, opts.buildDir, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
-      });
+    const executableCommand = program.command(name);
+    executableCommand.description(description);
+    executableCommand.argument("<input>", "Input .vx file or configured project directory");
+    executableCommand.option("-o, --out <path>", "Output executable, or output directory for project builds");
+    executableCommand.option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)");
+    executableCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
+    executableCommand.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
+    executableCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
+    executableCommand.actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
+      const target = opts.target === "conservative" ? "conservative" : "optimized";
+      await buildNativeFile(input, opts.out, opts.buildDir, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
+    });
   };
 
-  program
-    .command("build")
-    .description("Compile a VexaScript file to JavaScript or C++, optionally linking a native Oilpan executable")
-    .argument("<input>", "Input file or project directory")
-    .option("-o, --out <path>", "Output file for file builds, or output directory for project builds")
-    .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
-    .option("--emit <language>", "Output language for file builds: javascript|cpp", "javascript")
-    .option("--native", "Emit C++, build Oilpan with g++, and link a native executable")
-    .option("--native-source-locations", "Emit per-statement native source-location hooks")
-    .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
-    .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
-    .option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and node_modules packages as ESM")
-    .option("--transpile-only", "Emit TypeScript without failing on VexaScript semantic diagnostics")
-    .option("--platform <platform>", "Bundle platform: browser|node", "browser")
-    .actionInput(async (input: string, opts: { out?: string; target?: string; emit?: string; native?: boolean; nativeSourceLocations?: boolean; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean; transpileOnly?: boolean; platform?: string }): Promise<void> => {
+  const buildCommand = program.command("build");
+  buildCommand.description("Compile a VexaScript file to JavaScript or C++, optionally linking a native Oilpan executable");
+  buildCommand.argument("<input>", "Input file or project directory");
+  buildCommand.option("-o, --out <path>", "Output file for file builds, or output directory for project builds");
+  buildCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
+  buildCommand.option("--emit <language>", "Output language for file builds: javascript|cpp", "javascript");
+  buildCommand.option("--native", "Emit C++, build Oilpan with g++, and link a native executable");
+  buildCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
+  buildCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
+  buildCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
+  buildCommand.option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and node_modules packages as ESM");
+  buildCommand.option("--transpile-only", "Emit TypeScript without failing on VexaScript semantic diagnostics");
+  buildCommand.option("--platform <platform>", "Bundle platform: browser|node", "browser");
+  buildCommand.actionInput(async (input: string, opts: { out?: string; target?: string; emit?: string; native?: boolean; nativeSourceLocations?: boolean; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean; transpileOnly?: boolean; platform?: string }): Promise<void> => {
       const buildOptions = resolveBuildOptions(opts);
       const target = buildOptions.target;
       const jsxOptions = buildOptions.jsxOptions;
@@ -696,40 +695,38 @@ function createProgram(): Command {
         return;
       }
       await buildFile(input, opts.out, target, jsxOptions, emit, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
-    });
+  });
 
-  program
-    .command("cpp")
-    .description("Emit a VexaScript file or configured project as a C++ translation unit without compiling it")
-    .argument("<input>", "Input .vx file or project directory")
-    .option("-o, --out <path>", "Output C++ file, or output directory for project builds")
-    .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
-    .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
-    .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
-    .option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics")
-    .option("--native-source-locations", "Emit per-statement native source-location hooks")
-    .actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
+  const cppCommand = program.command("cpp");
+  cppCommand.description("Emit a VexaScript file or configured project as a C++ translation unit without compiling it");
+  cppCommand.argument("<input>", "Input .vx file or configured project directory");
+  cppCommand.option("-o, --out <path>", "Output C++ file, or output directory for project builds");
+  cppCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
+  cppCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
+  cppCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
+  cppCommand.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
+  cppCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
+  cppCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
       const buildOptions = resolveBuildOptions(opts);
       const target = buildOptions.target;
       const jsxOptions = buildOptions.jsxOptions;
       void jsxOptions;
       await buildCppModuleGraph(input, opts.out, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
-    });
+  });
 
   addExecutableCommand("executable", "Compile one VexaScript file directly to a native Oilpan executable");
   addExecutableCommand("native", "Compatibility alias for the executable command");
 
-  program
-    .command("bundle")
-    .description("Bundle a VexaScript entry file and its resolved local and package modules as ESM")
-    .argument("<input>", "Input file")
-    .option("-o, --out <file>", "Output file")
-    .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
-    .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
-    .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
-    .option("--transpile-only", "Emit TypeScript without failing on VexaScript semantic diagnostics")
-    .option("--platform <platform>", "Bundle platform: browser|node", "browser")
-    .actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; platform?: string }): Promise<void> => {
+  const bundleCommand = program.command("bundle");
+  bundleCommand.description("Bundle a VexaScript entry file and its resolved local and package modules as ESM");
+  bundleCommand.argument("<input>", "Input file");
+  bundleCommand.option("-o, --out <file>", "Output file");
+  bundleCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
+  bundleCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
+  bundleCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
+  bundleCommand.option("--transpile-only", "Emit TypeScript without failing on VexaScript semantic diagnostics");
+  bundleCommand.option("--platform <platform>", "Bundle platform: browser|node", "browser");
+  bundleCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; platform?: string }): Promise<void> => {
       const buildOptions = resolveBuildOptions(opts);
       const target = buildOptions.target;
       const jsxOptions = buildOptions.jsxOptions;
@@ -737,19 +734,18 @@ function createProgram(): Command {
         throw new Error(`Unsupported bundle platform "${opts.platform}". Supported platforms: browser, node`);
       }
       await bundleFile(input, opts.out, target, jsxOptions, opts.transpileOnly !== true, opts.platform);
-    });
+  });
 
-  program
-    .command("serve")
-    .description("Serve a static folder, inject the bundle into HTML, and live-reload on bundle changes")
-    .argument("[dir]", "Folder to serve", ".")
-    .option("--bundle <input>", "Bundle entry VexaScript file")
-    .option("--open", "Open the served site in the default browser")
-    .option("--port <number>", "HTTP port", "8080")
-    .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
-    .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
-    .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
-    .actionInput(async (
+  const serveCommand = program.command("serve");
+  serveCommand.description("Serve a static folder, inject the bundle into HTML, and live-reload on bundle changes");
+  serveCommand.argument("[dir]", "Folder to serve", ".");
+  serveCommand.option("--bundle <input>", "Bundle entry VexaScript file");
+  serveCommand.option("--open", "Open the served site in the default browser");
+  serveCommand.option("--port <number>", "HTTP port", "8080");
+  serveCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
+  serveCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
+  serveCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
+  serveCommand.actionInput(async (
       dir: string,
       opts: { bundle?: string; open?: boolean; port?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }
     ): Promise<void> => {
@@ -777,51 +773,46 @@ function createProgram(): Command {
           console.warn(`Unable to open ${url} in the default browser: ${message}`);
         }
       }
-    });
+  });
 
-  program
-    .command("run")
-    .description("Transpile and run a VexaScript file with Node.js")
-    .argument("<input>", "Input file")
-    .option("--target <mode>", "Transpile target mode: conservative|optimized", "conservative")
-    .actionInput(async (input: string, opts: { target?: string }): Promise<void> => {
-      const target = opts.target === "conservative" ? "conservative" : "optimized";
-      await runFile(input, target);
-    });
+  const runCommand = program.command("run");
+  runCommand.description("Transpile and run a VexaScript file with Node.js");
+  runCommand.argument("<input>", "Input file");
+  runCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "conservative");
+  runCommand.actionInput(async (input: string, opts: { target?: string }): Promise<void> => {
+    const target = opts.target === "conservative" ? "conservative" : "optimized";
+    await runFile(input, target);
+  });
 
-  program
-    .command("test")
-    .description(`Discover and run .test${LANGUAGE_FILE_EXTENSION} files with inline test and assert helpers`)
-    .argument("[paths...]", "Test files or directories", [])
-    .actionStrings(async (paths: string[]): Promise<void> => {
-      await runTests(paths);
-    });
+  const testCommand = program.command("test");
+  testCommand.description(`Discover and run .test${LANGUAGE_FILE_EXTENSION} files with inline test and assert helpers`);
+  testCommand.argument("[paths...]", "Test files or directories", []);
+  testCommand.actionStrings(async (paths: string[]): Promise<void> => {
+    await runTests(paths);
+  });
 
-  program
-    .command("tokens")
-    .description("Show file tokens")
-    .argument("<input>", "Input file")
-    .actionString(async (input: string): Promise<void> => {
-      await printTokens(input);
-    });
+  const tokensCommand = program.command("tokens");
+  tokensCommand.description("Show file tokens");
+  tokensCommand.argument("<input>", "Input file");
+  tokensCommand.actionString(async (input: string): Promise<void> => {
+    await printTokens(input);
+  });
 
-  program
-    .command("ast")
-    .description("Show simplified AST")
-    .argument("<input>", "Input file")
-    .actionString(async (input: string): Promise<void> => {
-      await printAst(input);
-    });
+  const astCommand = program.command("ast");
+  astCommand.description("Show simplified AST");
+  astCommand.argument("<input>", "Input file");
+  astCommand.actionString(async (input: string): Promise<void> => {
+    await printAst(input);
+  });
 
-  program
-    .command("format")
-    .description("Format a VexaScript file")
-    .argument("<input>", "Input file")
-    .option("-w, --write", "Deprecated: formatting now always overwrites the input file")
-    .option("-o, --out <file>", "Output file")
-    .actionInput(async (input: string, opts: { write?: boolean; out?: string }): Promise<void> => {
-      await formatFile(input, opts);
-    });
+  const formatCommand = program.command("format");
+  formatCommand.description("Format a VexaScript file");
+  formatCommand.argument("<input>", "Input file");
+  formatCommand.option("-w, --write", "Deprecated: formatting now always overwrites the input file");
+  formatCommand.option("-o, --out <file>", "Output file");
+  formatCommand.actionInput(async (input: string, opts: { write?: boolean; out?: string }): Promise<void> => {
+    await formatFile(input, opts);
+  });
 
   return program;
 }
@@ -881,7 +872,9 @@ async function runDirectExecution(): Promise<void> {
     }
   } catch (error) {
     if (!(error instanceof DiagnosticError)) {
-      console.error(error instanceof Error ? error.message : String(error));
+      const errorValue: any = error;
+      const message: string = String(errorValue?.message ?? errorValue);
+      console.error(message);
     }
     process.exitCode = 1;
   }

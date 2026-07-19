@@ -186,6 +186,34 @@ describe("CLI", () => {
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });
 
+  it("uses TypeScript semantic analysis for JavaScript and C++ emission without transpile-only", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-typescript-semantics-"));
+    const validInput = join(dir, "valid.ts");
+    const invalidInput = join(dir, "invalid.ts");
+    const jsOutput = join(dir, "valid.js");
+    const cppOutput = join(dir, "valid.cpp");
+    await writeFile(
+      validInput,
+      [
+        "class Parent { value(offset = 0): number { return 1 + offset; } }",
+        "class Child extends Parent { value(offset = 0): number { return 2 + offset; } }",
+        "console.log(new Child().value());",
+      ].join("\n"),
+      "utf8"
+    );
+    await writeFile(invalidInput, "const value: string = 1;\nconsole.log(value);", "utf8");
+
+    await runCli(["node", "vexa", "build", validInput, "--out", jsOutput]);
+    await runCli(["node", "vexa", "cpp", validInput, "--out", cppOutput]);
+
+    expect((await readFile(jsOutput, "utf8")).length).toBeGreaterThan(0);
+    expect(await readFile(cppOutput, "utf8")).toContain('#include "runtime.cpp"');
+    await expect(runCli(["node", "vexa", "build", invalidInput, "--out", join(dir, "invalid.js")]))
+      .rejects.toThrow("TypeScript semantic analysis failed");
+    await expect(runCli(["node", "vexa", "cpp", invalidInput, "--out", join(dir, "invalid.cpp")]))
+      .rejects.toThrow("TypeScript semantic analysis failed");
+  });
+
   it("cpp command emits native source locations only when requested", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-source-locations-"));
     const input = join(dir, "input.vx");

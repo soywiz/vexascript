@@ -11,7 +11,8 @@ import {
   createEmitProgramRuntimeSeed,
   createEmitProgramRuntimeContext,
   emitProgramStatementPairs,
-  type EmitOptions
+  type EmitOptions,
+  type EmittedProgramStatement
 } from "./emitter";
 import { lowerProgram } from "./lowering";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
@@ -244,7 +245,7 @@ function emitProgramStatementSegments(
     staticImplicitReceiverIdentifiers,
     implicitReceiverExtensionIdentifiers,
     asyncForStatements
-  ).filter(({ emitted }) => emitted.trim().length > 0);
+  ).filter((pair: EmittedProgramStatement): boolean => pair.emitted.trim() !== "");
 }
 
 function emitSegmentsWithSourceLineOffsets(segments: EmittedStatementSegment[]): string {

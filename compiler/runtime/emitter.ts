@@ -1214,7 +1214,7 @@ function emitJsxAttributes(attributes: JsxAttributeLike[]): string {
   if (attributes.length === 0) {
     return "null";
   }
-  const pieces = attributes.map((attribute) => {
+  const pieces: string[] = attributes.map((attribute): string => {
     if (attribute.kind === NodeKind.JsxSpreadAttribute) {
       return `...${emitExpression((attribute as JsxSpreadAttribute).expression)}`;
     }
@@ -1631,7 +1631,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
             return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => ${emitScopedBlock(arrow.body as BlockStatement)}`;
           }
           const bodyExpression = arrow.body as Expr;
-          const scope = withOptionalAssignmentTempScope(() => emitExpression(bodyExpression));
+          const scope = withOptionalAssignmentTempScope<string>(() => emitExpression(bodyExpression));
           const bodyText = scope.result;
           const temps = scope.temps;
           if (temps.length > 0) {
@@ -1798,7 +1798,7 @@ function shouldWrapExpressionStatement(expression: Expr): boolean {
 }
 
 function emitScopedBlock(statement: BlockStatement): string {
-  const scope = withOptionalAssignmentTempScope(() =>
+  const scope = withOptionalAssignmentTempScope<string[]>(() =>
     statement.body.map((child) => emitStatement(child))
   );
   const emittedStatements = scope.result;
@@ -1938,7 +1938,7 @@ function emitConstructorBlock(method: ClassMethodMember): string {
   const assignments = method.parameters
     .filter(isParameterProperty)
     .map((parameter) => `this.${(parameter.name as Identifier).name} = ${(parameter.name as Identifier).name};`);
-  const scope = withOptionalAssignmentTempScope(() =>
+  const scope = withOptionalAssignmentTempScope<string[]>(() =>
     method.body.body.map((statement) => emitStatement(statement))
   );
   const emittedStatements = scope.result;
@@ -2521,12 +2521,12 @@ export function emitStatement(statement: Statement): string {
     }
     case NodeKind.SwitchStatement: {
       const switchStatement = statement as SwitchStatement;
-      const cases = switchStatement.cases
-        .map((switchCase) => {
+      const cases: string = switchStatement.cases
+        .map((switchCase): string => {
           const head = switchCase.test
             ? `case ${emitExpression(switchCase.test)}:`
             : "default:";
-          const body = switchCase.consequent.map((consequent) => emitStatement(consequent)).join("\n");
+          const body: string = switchCase.consequent.map((consequent) => emitStatement(consequent)).join("\n");
           return `${head}${body.length > 0 ? `\n${body}` : ""}`;
         })
         .join("\n");
@@ -3136,7 +3136,7 @@ export function emitProgramStatements(
     asyncForStatements
   )
     .map(({ emitted }) => emitted)
-    .filter((statement) => statement.trim().length > 0);
+    .filter((statement: string) => statement.trim() !== "");
 }
 
 export function emitProgramStatementPairs(
@@ -3183,7 +3183,7 @@ export function emitProgramStatementPairs(
     optionalAssignmentTempScopes: []
   };
   try {
-    const scope = withOptionalAssignmentTempScope(() => program.body.map((statement) => ({
+    const scope = withOptionalAssignmentTempScope<EmittedProgramStatement[]>(() => program.body.map((statement): EmittedProgramStatement => ({
       statement,
       emitted: emitStatement(statement)
     })));

@@ -2674,21 +2674,24 @@ export class Parser {
             openBrace,
             this.getLastReadToken() ?? openBrace
         );
-        const parameters = hasExplicitParameterArrow
-            ? explicitParameters
-            : implicitParameterName
-                ? [
-                  this.attachNodeBounds(
-                      new FunctionParameter(this.attachNodeBounds(
-                              new Identifier(implicitParameterName),
-                              openBrace,
-                              openBrace
-                          )),
-                      openBrace,
-                      openBrace
-                  )
-              ]
-                : [];
+        let parameters: FunctionParameter[];
+        if (hasExplicitParameterArrow) {
+            parameters = explicitParameters;
+        } else if (implicitParameterName) {
+            const identifier = this.attachNodeBounds(
+                new Identifier(implicitParameterName),
+                openBrace,
+                openBrace
+            );
+            const parameter = this.attachNodeBounds(
+                new FunctionParameter(identifier),
+                openBrace,
+                openBrace
+            );
+            parameters = [parameter];
+        } else {
+            parameters = [];
+        }
         if (block.body.length === 1 && block.body[0]?.kind === NodeKind.ExprStatement) {
             const expressionBody = (block.body[0] as ExprStatement).expression;
             return this.attachNodeBounds(
@@ -5304,7 +5307,7 @@ export class Parser {
 
     private parseAnnotationParameters(): FunctionParameter[] {
         const parameters = this.parseClassPrimaryConstructorParameters();
-        return parameters.map((parameter) => {
+        return parameters.map<FunctionParameter>((parameter): FunctionParameter => {
             const functionParameter: FunctionParameter = new FunctionParameter(parameter.name);
             if (parameter.declarationKind === "val" || parameter.declarationKind === "const") {
                 functionParameter.accessModifier = "public";

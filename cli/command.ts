@@ -143,31 +143,31 @@ export class Command {
     return this;
   }
 
-  action0(callback: CommandAction0): Command {
+  action0(callback: () => Promise<void>): Command {
     this.actionCallback0 = callback;
     this.actionArity = 0;
     return this;
   }
 
-  actionOptions(callback: CommandOptionsAction): Command {
+  actionOptions(callback: (options: CommandOptions) => Promise<void>): Command {
     this.optionsCallback = callback;
     this.actionArity = 1;
     return this;
   }
 
-  actionString(callback: CommandStringAction): Command {
+  actionString(callback: (value: string) => Promise<void>): Command {
     this.stringCallback = callback;
     this.actionArity = 2;
     return this;
   }
 
-  actionStrings(callback: CommandStringsAction): Command {
+  actionStrings(callback: (value: string[]) => Promise<void>): Command {
     this.stringsCallback = callback;
     this.actionArity = 3;
     return this;
   }
 
-  actionInput(callback: CommandInputAction): Command {
+  actionInput(callback: (input: string, options: CommandOptions) => Promise<void>): Command {
     this.inputCallback = callback;
     this.actionArity = 4;
     return this;
@@ -184,7 +184,7 @@ export class Command {
   }
 
   private helpText(): string {
-    const argumentUsage = this.arguments.map(commandUsageArgument).join(" ");
+    const argumentUsage: string = this.arguments.map(commandUsageArgument).join(" ");
     let usageTail = "[options] [command]";
     if (this.parent) {
       const usageParts: string[] = [];
@@ -213,11 +213,11 @@ export class Command {
     if (this.commands.length > 0) {
       lines.push("", "Commands:");
       for (const command of this.commands) {
-        const usage = [
+        const usage: string = [
           command.options.length > 0 ? "[options]" : "",
           ...command.arguments.map(commandUsageArgument),
         ].filter((part) => part.length > 0).join(" ");
-        lines.push(`  ${command.commandName}${usage ? ` ${usage}` : ""}  ${command.commandDescription}`);
+        lines.push(`  ${command.commandName}${usage.length > 0 ? ` ${usage}` : ""}  ${command.commandDescription}`);
       }
       lines.push("  help [command]  Display help for command");
     }

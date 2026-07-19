@@ -28,7 +28,7 @@ interface enumeration label|apply 2 label
 array api 5 3 2 [2, 3] [1, 5, 1, 5]
 array flatten [1, 2, 3] [1, 10, 2, 20]
 loop destructuring 21
-interface cpu:4:9 7 1
+interface cpu:4:9 7 1 cpu missing
 dispatch Hello Ada Hola, Luz
 operators 10 -6 true 10
 inheritance base!
@@ -80,6 +80,7 @@ defer
 errors 7
 generator false 0 6 true
 promises 9 1 2 7
+async callback field done
 promise assimilation 11 why
 promise combinators 5 2 8
 async 20 40

@@ -2,6 +2,28 @@ import { describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } fro
 import { compileNativeModuleGraph } from "./nativeModuleGraph";
 
 describe("native module graph profiling", () => {
+  it("preserves TypeScript semantic rules while checking a native module graph", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vexa-native-module-typescript-semantics-"));
+    try {
+      await writeFile(
+        join(directory, "main.ts"),
+        [
+          "class Parent { value(offset = 0): number { return 1 + offset; } }",
+          "class Child extends Parent { value(offset = 0): number { return 2 + offset; } }",
+          "console.log(new Child().value());",
+        ].join("\n"),
+        "utf8"
+      );
+
+      const result = await compileNativeModuleGraph(join(directory, "main.ts"), "optimized");
+
+      expect(result.errors).toEqual([]);
+      expect(result.code.length > 0).toBe(true);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("reports browser-compatible phase timings through an optional callback", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vexa-native-module-profile-"));
     try {

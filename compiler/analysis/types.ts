@@ -346,8 +346,8 @@ function needsParensForOptionalType(type: AnalysisType): boolean {
   return type.kind === "function" || type.kind === "intersection" || type.kind === "union";
 }
 
-export function isUnknownType(type: AnalysisType): boolean {
-  return type.kind === "unknown";
+export function isUnknownType(type: AnalysisType | null | undefined): boolean {
+  return !type || type.kind === "unknown";
 }
 
 export function isSameType(a: AnalysisType, b: AnalysisType): boolean {

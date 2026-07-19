@@ -5,6 +5,48 @@ import { dirname, resolve } from "../compiler/utils/path";
 import { loadProject, type VexaProject } from "../compiler/project";
 import { vfs } from "../compiler/vfs";
 import { ensureDependencies } from "./deps";
+import { runCommandCapture } from "./io";
+
+function isTypeScriptSource(path: string): boolean {
+  const lowerPath = path.toLowerCase();
+  return lowerPath.endsWith(".ts") || lowerPath.endsWith(".tsx");
+}
+
+/**
+ * Validates TypeScript with its own semantic checker, then tells the shared
+ * VexaScript pipeline whether it must also report VexaScript type diagnostics.
+ * Type inference always remains enabled for emission in both cases.
+ */
+export async function vexaTypeCheckForSource(
+  sourcePath: string,
+  project: VexaProject | null,
+  semanticCheck: boolean
+): Promise<boolean> {
+  if (!semanticCheck || !isTypeScriptSource(sourcePath)) {
+    return semanticCheck;
+  }
+
+  const tsconfigPath = project ? resolve(project.projectDir, "tsconfig.json") : "";
+  const hasTsconfig = tsconfigPath.length > 0 && await vfs().fileExists(tsconfigPath);
+  const args = ["exec", "tsc", "--noEmit", "--pretty", "false"];
+  if (hasTsconfig) {
+    args.push("--project", tsconfigPath);
+  } else {
+    args.push(sourcePath);
+  }
+  const result = await runCommandCapture("pnpm", args, {
+    cwd: project?.projectDir ?? process.cwd()
+  });
+  if (result.code !== 0) {
+    const diagnostics = [result.stdout.trim(), result.stderr.trim()]
+      .filter((output) => output.length > 0)
+      .join("\n");
+    throw new Error(diagnostics.length > 0
+      ? `TypeScript semantic analysis failed:\n${diagnostics}`
+      : "TypeScript semantic analysis failed");
+  }
+  return false;
+}
 
 export async function ambientDeclarationsForProject(sourcePath: string, project: VexaProject | null) {
   const declarations: Statement[] = [];
@@ -73,13 +115,18 @@ export async function createBundledModuleArtifacts(
     typeCheck?: boolean;
   } = {}
 ): Promise<BundledModuleArtifacts> {
+  const vexaTypeCheck = await vexaTypeCheckForSource(
+    sourcePath,
+    project,
+    options.typeCheck ?? true
+  );
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const { bundleModuleGraphAsModules } = await import("../compiler/runtime/moduleGraph");
   const result = await bundleModuleGraphAsModules(sourcePath, target, {
     ambientDeclarations,
     importMappings: project?.importMappings ?? {},
     moduleFormat: "commonjs",
-    typeCheck: options.typeCheck ?? true,
+    typeCheck: vexaTypeCheck,
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.globalSymbols ? { globalSymbols: project.globalSymbols } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),

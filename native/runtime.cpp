@@ -260,6 +260,10 @@ class Value;
 std::runtime_error errorAtCurrentSource(std::string);
 template <typename T>
 class ArrayObject;
+template <typename K, typename V>
+class MapObject;
+template <typename T>
+class SetObject;
 ArrayObject<Value>* makeDynamicArrayValueView(DynamicValueObject* backing);
 std::string toString(const Value&);
 std::string jsonQuoted(const std::string&);
@@ -533,6 +537,29 @@ template <typename T>
 struct ArrayObjectPointerTraits<ArrayObject<T>*> final {
   static constexpr bool value = true;
   using Element = T;
+};
+
+template <typename T>
+struct MapObjectPointerTraits final {
+  static constexpr bool value = false;
+};
+
+template <typename K, typename V>
+struct MapObjectPointerTraits<MapObject<K, V>*> final {
+  static constexpr bool value = true;
+  using Key = K;
+  using Mapped = V;
+};
+
+template <typename T>
+struct SetObjectPointerTraits final {
+  static constexpr bool value = false;
+};
+
+template <typename V>
+struct SetObjectPointerTraits<SetObject<V>*> final {
+  static constexpr bool value = true;
+  using Element = V;
 };
 
 template <typename T>
@@ -1058,7 +1085,16 @@ struct SameValueZeroEqual final {
   }
 };
 
-class MapLikeObject : public DynamicValueObject {};
+class MapLikeObject : public DynamicValueObject {
+ public:
+  virtual std::size_t dynamicMapSize() const = 0;
+  virtual Value dynamicMapKeyAt(Runtime&, std::size_t) = 0;
+  virtual Value dynamicMapValueAt(Runtime&, std::size_t) = 0;
+  virtual std::optional<Value> dynamicMapGet(Runtime&, const Value&) = 0;
+  virtual void dynamicMapSet(Runtime&, const Value&, const Value&) = 0;
+  virtual bool dynamicMapDelete(Runtime&, const Value&) = 0;
+  virtual void dynamicMapClear() = 0;
+};
 class SetLikeObject : public DynamicValueObject {};
 class WeakMapLikeObject : public DynamicValueObject {};
 class WeakSetLikeObject : public DynamicValueObject {};
@@ -1066,9 +1102,19 @@ class WeakSetLikeObject : public DynamicValueObject {};
 template <typename K, typename V>
 class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public MapLikeObject {
  public:
-  std::size_t size() const { return entries_.size(); }
+  MapObject() = default;
+  explicit MapObject(MapLikeObject* dynamicBacking) : dynamic_backing_(dynamicBacking) {}
+
+  std::size_t size() const { return dynamic_backing_ ? dynamic_backing_->dynamicMapSize() : entries_.size(); }
 
   MapObject* set(K key, V value) {
+    if (dynamic_backing_) {
+      dynamic_backing_->dynamicMapSet(
+          currentRuntime(),
+          convertValue<Value>(key),
+          convertValue<Value>(value));
+      return this;
+    }
     const auto existing = index_.find(key);
     if (existing != index_.end()) {
       entries_[existing->second].value.store(std::move(value));
@@ -1080,6 +1126,10 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   }
 
   std::optional<V> get(const K& key) const {
+    if (dynamic_backing_) {
+      const auto found = dynamic_backing_->dynamicMapGet(currentRuntime(), convertValue<Value>(key));
+      return found ? std::optional<V>(convertValue<V>(*found)) : std::nullopt;
+    }
     const auto found = index_.find(key);
     return found == index_.end()
         ? std::nullopt
@@ -1089,6 +1139,9 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   bool has(const K& key) const { return get(key).has_value(); }
 
   bool erase(const K& key) {
+    if (dynamic_backing_) {
+      return dynamic_backing_->dynamicMapDelete(currentRuntime(), convertValue<Value>(key));
+    }
     const auto found = index_.find(key);
     if (found == index_.end()) return false;
     const std::size_t erasedIndex = found->second;
@@ -1098,12 +1151,27 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   }
 
   void clear() {
+    if (dynamic_backing_) {
+      dynamic_backing_->dynamicMapClear();
+      return;
+    }
     entries_.clear();
     index_.clear();
   }
 
   template <typename Callback>
   void forEach(Callback callback) {
+    if (dynamic_backing_) {
+      auto& runtime = currentRuntime();
+      for (std::size_t index = 0; index < dynamic_backing_->dynamicMapSize(); ++index) {
+        const K key = convertValue<K>(dynamic_backing_->dynamicMapKeyAt(runtime, index));
+        const V value = convertValue<V>(dynamic_backing_->dynamicMapValueAt(runtime, index));
+        if constexpr (std::is_invocable_v<Callback, V, K, MapObject*>) callback(value, key, this);
+        else if constexpr (std::is_invocable_v<Callback, V, K>) callback(value, key);
+        else callback(value);
+      }
+      return;
+    }
     for (const auto& entry : entries_) {
       if constexpr (std::is_invocable_v<Callback, V, K, MapObject*>) {
         callback(entry.value.load(), entry.key.load(), this);
@@ -1121,16 +1189,46 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   }
   std::string dynamicToString() const override { return "[object Map]"; }
   bool dynamicIsIterable() const override { return true; }
-  std::size_t dynamicIterableSize() const override { return entries_.size(); }
+  std::size_t dynamicIterableSize() const override { return size(); }
   Value dynamicIterableGet(Runtime& runtime, std::size_t index) override {
-    if (index >= entries_.size()) return Value::undefined();
+    if (index >= size()) return Value::undefined();
     return makeDynamicMapEntry(
         runtime,
-        convertValue<Value>(entries_[index].key.load()),
-        convertValue<Value>(entries_[index].value.load()));
+        dynamicMapKeyAt(runtime, index),
+        dynamicMapValueAt(runtime, index));
   }
 
+  std::size_t dynamicMapSize() const override { return size(); }
+  Value dynamicMapKeyAt(Runtime& runtime, std::size_t index) override {
+    if (dynamic_backing_) return dynamic_backing_->dynamicMapKeyAt(runtime, index);
+    return index < entries_.size() ? convertValue<Value>(entries_[index].key.load()) : Value::undefined();
+  }
+  Value dynamicMapValueAt(Runtime& runtime, std::size_t index) override {
+    if (dynamic_backing_) return dynamic_backing_->dynamicMapValueAt(runtime, index);
+    return index < entries_.size() ? convertValue<Value>(entries_[index].value.load()) : Value::undefined();
+  }
+  std::optional<Value> dynamicMapGet(Runtime& runtime, const Value& key) override {
+    if (dynamic_backing_) return dynamic_backing_->dynamicMapGet(runtime, key);
+    const auto found = get(convertValue<K>(key));
+    return found ? std::optional<Value>(convertValue<Value>(*found)) : std::nullopt;
+  }
+  void dynamicMapSet(Runtime& runtime, const Value& key, const Value& value) override {
+    if (dynamic_backing_) {
+      dynamic_backing_->dynamicMapSet(runtime, key, value);
+      return;
+    }
+    set(convertValue<K>(key), convertValue<V>(value));
+  }
+  bool dynamicMapDelete(Runtime& runtime, const Value& key) override {
+    return dynamic_backing_
+      ? dynamic_backing_->dynamicMapDelete(runtime, key)
+      : erase(convertValue<K>(key));
+  }
+  void dynamicMapClear() override { clear(); }
+
   void Trace(cppgc::Visitor* visitor) const override {
+    DynamicValueObject::Trace(visitor);
+    visitor->Trace(dynamic_backing_);
     for (const auto& entry : entries_) {
       entry.key.Trace(visitor);
       entry.value.Trace(visitor);
@@ -1148,6 +1246,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
       index_.emplace(entries_[index].key.load(), index);
     }
   }
+  cppgc::Member<MapLikeObject> dynamic_backing_;
   std::vector<Entry> entries_;
   std::unordered_map<K, std::size_t, SameValueZeroHash<K>, SameValueZeroEqual<K>> index_;
 };
@@ -2362,6 +2461,24 @@ Result convertValue(Input&& input) {
       converted->append(convertValue<ResultElement>(input->get(index)));
     }
     return converted;
+  } else if constexpr (
+      MapObjectPointerTraits<Result>::value &&
+      MapObjectPointerTraits<Source>::value) {
+    using ResultKey = typename MapObjectPointerTraits<Result>::Key;
+    using ResultValue = typename MapObjectPointerTraits<Result>::Mapped;
+    if (!input) return currentRuntime().make<MapObject<ResultKey, ResultValue>>();
+    return currentRuntime().make<MapObject<ResultKey, ResultValue>>(
+        static_cast<MapLikeObject*>(input));
+  } else if constexpr (
+      SetObjectPointerTraits<Result>::value &&
+      SetObjectPointerTraits<Source>::value) {
+    using ResultElement = typename SetObjectPointerTraits<Result>::Element;
+    auto* converted = currentRuntime().make<SetObject<ResultElement>>();
+    if (!input) return converted;
+    input->forEach([&](auto value) {
+      converted->add(convertValue<ResultElement>(value));
+    });
+    return converted;
   } else if constexpr (std::is_pointer_v<Result> && std::is_same_v<Source, Null>) {
     return nullptr;
   } else if constexpr (std::is_pointer_v<Result> && std::is_same_v<Source, Undefined>) {
@@ -2379,7 +2496,11 @@ Result convertValue(Input&& input) {
         std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Source>> &&
         std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Result>>) {
       void* converted = input->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
-      if (!converted) throw errorAtCurrentSource("VexaScript object has an incompatible native pointer type (dynamic cast)");
+      if (!converted) {
+        throw errorAtCurrentSource(
+            std::string("VexaScript object has an incompatible native pointer type (dynamic cast): ") +
+            __PRETTY_FUNCTION__);
+      }
       return static_cast<Result>(converted);
     } else if constexpr (
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>> &&
@@ -3183,7 +3304,10 @@ inline Value dynamicGet(const Value& target, const PropertyKey& key) {
     }
     return Value::undefined();
   }
-  if (target.isNull() || target.isUndefined()) throw std::runtime_error("Cannot read a property of null or undefined");
+  if (target.isNull() || target.isUndefined()) {
+    throw errorAtCurrentSource(
+        std::string("Cannot read property '") + utf16ToUtf8(key) + "' of null or undefined");
+  }
   throw errorAtCurrentSource("Dynamic native object properties require a declared interface or cast");
 }
 
@@ -6037,6 +6161,49 @@ class DynamicArrayMethodObject final
 
   Value dynamicCall(Runtime& runtime, const std::vector<Value>& arguments) override {
     if (!array_) throw runtime.errorAtCurrentSource("Cannot call an array method on null");
+    if constexpr (IsDynamicArrayElement<T>) {
+      if (method_ == u"push") {
+        for (const auto& argument : arguments) array_->append(convertValue<T>(argument));
+        return Value(static_cast<double>(array_->size()));
+      }
+      if (method_ == u"unshift") {
+        for (auto iterator = arguments.rbegin(); iterator != arguments.rend(); ++iterator) {
+          array_->prepend(convertValue<T>(*iterator));
+        }
+        return Value(static_cast<double>(array_->size()));
+      }
+      if (method_ == u"pop") return convertValue<Value>(array_->pop());
+      if (method_ == u"shift") return convertValue<Value>(array_->shift());
+      if (method_ == u"reverse") {
+        array_->reverse();
+        return Value(static_cast<DynamicValueObject*>(array_.Get()));
+      }
+      if (method_ == u"at") {
+        const double index = arguments.empty() ? 0 : Number(arguments[0]);
+        return convertValue<Value>(array_->at(index));
+      }
+      if (method_ == u"includes" || method_ == u"indexOf" || method_ == u"lastIndexOf") {
+        const Value searched = arguments.empty() ? Value::undefined() : arguments[0];
+        double found = -1;
+        for (std::size_t index = 0; index < array_->size(); ++index) {
+          if (!strictEquals(array_->dynamicArrayGet(runtime, index), searched)) continue;
+          found = static_cast<double>(index);
+          if (method_ != u"lastIndexOf") break;
+        }
+        return method_ == u"includes" ? Value(found >= 0) : Value(found);
+      }
+      if (method_ == u"join") {
+        const std::string separator = arguments.empty() ? "," : toString(arguments[0]);
+        return Value(runtime.string(array_->join(separator)));
+      }
+      if (method_ == u"slice") {
+        const double start = arguments.empty() ? 0 : Number(arguments[0]);
+        const double end = arguments.size() < 2
+          ? std::numeric_limits<double>::infinity()
+          : Number(arguments[1]);
+        return Value(static_cast<DynamicValueObject*>(array_->slice(runtime, start, end)));
+      }
+    }
     if (arguments.empty()) {
       throw runtime.errorAtCurrentSource("Dynamic array callback method requires a callback");
     }
@@ -6135,7 +6302,11 @@ inline Value ArrayObject<T>::dynamicGet(const PropertyKey& key) {
   if (
     key == u"map" || key == u"filter" || key == u"flatMap" ||
     key == u"some" || key == u"every" || key == u"find" ||
-    key == u"findIndex" || key == u"forEach" || key == u"reduce"
+    key == u"findIndex" || key == u"forEach" || key == u"reduce" ||
+    key == u"push" || key == u"pop" || key == u"shift" ||
+    key == u"unshift" || key == u"reverse" || key == u"at" ||
+    key == u"includes" || key == u"indexOf" || key == u"lastIndexOf" ||
+    key == u"join" || key == u"slice"
   ) {
     return Value(static_cast<DynamicValueObject*>(
       runtime.make<DynamicArrayMethodObject<T>>(this, key)
