@@ -86,6 +86,10 @@ export class CppEmitError extends Error {
   }
 }
 
+class DeclaredCppTypeCacheEntry {
+  constructor(public cppType: string) {}
+}
+
 const CPP_RESERVED_WORDS = new Set([
   "alignas", "alignof", "and", "asm", "auto", "bitand", "bitor", "bool", "break", "case", "catch",
   "char", "class", "compl", "concept", "const", "consteval", "constexpr", "constinit", "const_cast",
@@ -157,7 +161,7 @@ let activeEnumNames: ReadonlySet<string> = new Set();
 let activeTypeAliases: ReadonlyMap<string, string> = new Map();
 let activeCppTypeParameters: ReadonlySet<string> = new Set();
 let activeCppTypeParameterCacheKey = "";
-let activeDeclaredCppTypeCache: Map<string, string | null> = new Map();
+let activeDeclaredCppTypeCache: Map<string, DeclaredCppTypeCacheEntry> = new Map();
 let activeGcObjectTypes: Map<string, string> = new Map();
 let activeGcArrayTypes: Map<string, string> = new Map();
 let activeDynamicValueNames: Set<string> = new Set();
@@ -250,7 +254,7 @@ function cppTemplatePrefix(
   const parameters = typeParameters.map((parameter) => {
     const defaultType = includeDefaults && parameter.defaultType
       ? cppTypeForDeclaredName(parameter.defaultType.name)
-      : null;
+      : "";
     return `typename ${cppName(parameter.name.name)}${defaultType ? ` = ${defaultType}` : ""}`;
   }).join(", ");
   return `${indent}template <${parameters}>\n`;
@@ -687,16 +691,25 @@ function stripOuterTypeParentheses(typeName: string): string {
   return current;
 }
 
-function cppTypeForDeclaredName(typeName: string, visitedAliases?: Set<string>): string | null {
+function cppTypeForDeclaredName(typeName: string, visitedAliases?: Set<string>): string {
   if (visitedAliases !== undefined) return computeCppTypeForDeclaredName(typeName, visitedAliases);
   const cacheKey = activeCppTypeParameterCacheKey.length === 0
     ? typeName
     : `${activeCppTypeParameterCacheKey}\u0000${typeName}`;
   const cached = activeDeclaredCppTypeCache.get(cacheKey);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) return cached.cppType;
   const result = computeCppTypeForDeclaredName(typeName, new Set<string>());
-  activeDeclaredCppTypeCache.set(cacheKey, result);
+  activeDeclaredCppTypeCache.set(cacheKey, new DeclaredCppTypeCacheEntry(result));
   return result;
+}
+
+function cppTypeForDeclaredNameOr(
+  typeName: string,
+  fallback: string,
+  visitedAliases?: Set<string>
+): string {
+  const mapped = cppTypeForDeclaredName(typeName, visitedAliases);
+  return mapped.length > 0 ? mapped : fallback;
 }
 
 function isRecordUtilityTypeName(typeName: string): boolean {
@@ -728,7 +741,7 @@ function isDynamicUtilityTypeName(typeName: string): boolean {
   }
 }
 
-function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<string>): string | null {
+function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<string>): string {
   typeName = stripOuterTypeParentheses(typeName);
   if (typeName.startsWith("readonly ")) typeName = typeName.slice("readonly ".length).trim();
   if (typeName === "never") return "void";
@@ -740,7 +753,7 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
     if (!functionType) return "vexa::Value";
     const result = cppTypeForDeclaredName(functionType.returnTypeName, new Set(visitedAliases));
     const parameters = functionType.parameters.map((parameter) =>
-      cppTypeForDeclaredName(parameter.typeName, new Set(visitedAliases)) ?? "vexa::Value");
+      cppTypeForDeclaredNameOr(parameter.typeName, "vexa::Value", new Set(visitedAliases)));
     return result ? `std::function<${result}(${parameters.join(", ")})>` : "vexa::Value";
   }
   if (splitTopLevelTypeText(typeName, "&").length > 1) return "vexa::Value";
@@ -769,7 +782,7 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
     const elementType = arrayType.elementTypeName === "string"
       ? "vexa::Text"
       : cppTypeForDeclaredName(arrayType.elementTypeName, visitedAliases);
-    if (!elementType || elementType === "void") return null;
+    if (!elementType || elementType === "void") return "";
     let result = elementType;
     for (let depth = 0; depth < arrayType.arrayDepth; depth += 1) {
       result = `vexa::ArrayObject<${result}>*`;
@@ -790,30 +803,30 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
   }
   if (shape.baseName === "Array" || shape.baseName === "ReadonlyArray" || shape.baseName === "ConcatArray") {
     const elementType = cppTypeForDeclaredName(shape.typeArguments[0] ?? "unknown", visitedAliases);
-    return elementType && elementType !== "void" ? `vexa::ArrayObject<${elementType}>*` : null;
+    return elementType && elementType !== "void" ? `vexa::ArrayObject<${elementType}>*` : "";
   }
   if (shape.baseName === "Map" || shape.baseName === "ReadonlyMap") {
-    const keyType = cppTypeForDeclaredName(shape.typeArguments[0] ?? "any", visitedAliases) ?? "vexa::Value";
-    const valueType = cppTypeForDeclaredName(shape.typeArguments[1] ?? "any", visitedAliases) ?? "vexa::Value";
+    const keyType = cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "any", "vexa::Value", visitedAliases);
+    const valueType = cppTypeForDeclaredNameOr(shape.typeArguments[1] ?? "any", "vexa::Value", visitedAliases);
     return `vexa::MapObject<${keyType}, ${valueType}>*`;
   }
   if (shape.baseName === "Promise") {
-    const resultType = cppTypeForDeclaredName(shape.typeArguments[0] ?? "unknown", visitedAliases) ?? "vexa::Value";
+    const resultType = cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "unknown", "vexa::Value", visitedAliases);
     return `vexa::Task<${resultType}>`;
   }
   if (shape.baseName === "Record") return "vexa::RecordObject*";
   if (shape.baseName === "Set" || shape.baseName === "ReadonlySet") {
-    const valueType = cppTypeForDeclaredName(shape.typeArguments[0] ?? "any", visitedAliases) ?? "vexa::Value";
+    const valueType = cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "any", "vexa::Value", visitedAliases);
     return `vexa::SetObject<${valueType}>*`;
   }
   if (shape.baseName === "WeakMap") {
     const keyType = cppTypeForWeakDeclaredKey(shape.typeArguments[0] ?? "unknown");
-    const valueType = cppTypeForDeclaredName(shape.typeArguments[1] ?? "any", visitedAliases) ?? "vexa::Value";
-    return keyType?.endsWith("*") ? `vexa::WeakMapObject<${keyType}, ${valueType}>*` : null;
+    const valueType = cppTypeForDeclaredNameOr(shape.typeArguments[1] ?? "any", "vexa::Value", visitedAliases);
+    return keyType?.endsWith("*") ? `vexa::WeakMapObject<${keyType}, ${valueType}>*` : "";
   }
   if (shape.baseName === "WeakSet") {
     const valueType = cppTypeForWeakDeclaredKey(shape.typeArguments[0] ?? "unknown");
-    return valueType?.endsWith("*") ? `vexa::WeakSetObject<${valueType}>*` : null;
+    return valueType?.endsWith("*") ? `vexa::WeakSetObject<${valueType}>*` : "";
   }
   if (shape.baseName === "Date") return "vexa::DateObject*";
   if (shape.baseName === "URL") return "vexa::URLObject*";
@@ -827,17 +840,17 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
     const argumentNames = [...shape.typeArguments];
     for (let index = argumentNames.length; index < parameters.length; index += 1) {
       const defaultType = parameters[index]?.defaultType;
-      if (!defaultType) return null;
+      if (!defaultType) return "";
       argumentNames.push(defaultType.name);
     }
     const typeArguments = argumentNames.map((argument) => cppTypeForDeclaredName(argument, visitedAliases));
-    if (typeArguments.some((argument) => !argument) || typeArguments.length < parameters.length) return null;
+    if (typeArguments.some((argument) => !argument) || typeArguments.length < parameters.length) return "";
     const specialization = parameters.length > 0 ? `<${typeArguments.join(", ")}>` : "";
     return `${cppName(statement?.name.name ?? shape.baseName)}${specialization}*`;
   }
-  if (visitedAliases.has(typeName)) return null;
+  if (visitedAliases.has(typeName)) return "";
   const aliasTarget = activeTypeAliases.get(typeName);
-  if (!aliasTarget) return null;
+  if (!aliasTarget) return "";
   visitedAliases.add(typeName);
   return cppTypeForDeclaredName(aliasTarget, visitedAliases);
 }
@@ -943,7 +956,7 @@ function computeCppTypeForExpression(expression: Expr): string {
     const defaultArgument = resolvedDefaultArgument(name);
     if (defaultArgument) return cppTypeForExpression(defaultArgument);
     const declared = activeLocalDeclaredTypeNames.get(name) ?? activeGlobalDeclaredTypeNames.get(name);
-    const mappedDeclared = declared ? cppTypeForDeclaredName(declared) : null;
+    const mappedDeclared = declared ? cppTypeForDeclaredName(declared) : "";
     if (mappedDeclared) return mappedDeclared;
     const emittedType = activeLocalCppTypes.get(name) ?? activeGlobalCppTypes.get(name);
     if (emittedType) return emittedType;
@@ -1238,10 +1251,12 @@ function nativeCollectionCppType(
   let mapped = cppTypeForExpression(call as unknown as Expr);
   let explicit: string[] = [];
   if (call.typeArguments?.length) {
-    explicit = call.typeArguments.map((argument, index) =>
-      (name === "WeakMap" || name === "WeakSet") && index === 0
-        ? cppTypeForWeakDeclaredKey(argument.name) ?? "vexa::Value"
-        : cppTypeForDeclaredName(argument.name) ?? "vexa::Value");
+    explicit = call.typeArguments.map((argument, index): string => {
+      if ((name === "WeakMap" || name === "WeakSet") && index === 0) {
+        return cppTypeForWeakDeclaredKey(argument.name) ?? "vexa::Value";
+      }
+      return cppTypeForDeclaredNameOr(argument.name, "vexa::Value");
+    });
     if (name === "Map" || name === "WeakMap") {
       if (explicit.length !== 2) throw new CppEmitError("C++ Map expects two explicit type arguments", call);
       mapped = name === "Map"
@@ -1764,7 +1779,7 @@ function cppTypeForSubstitutedCallableParameter(
   if (!functionType) return cppTypeForDeclaredName(substituteTypeName(declared, substitutions));
   const mapType = (typeName: string): string | null => {
     const binding = substitutions.get(typeName);
-    return binding ? cppTypeForDeclaredName(binding) ?? binding : cppTypeForDeclaredName(typeName);
+    return binding ? cppTypeForDeclaredNameOr(binding, binding) : cppTypeForDeclaredName(typeName);
   };
   const result = mapType(functionType.returnTypeName);
   if (!result) return null;
@@ -2042,7 +2057,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         receiverStatement.typeParameters.forEach((parameter, index) => {
           const argument = receiverShape.typeArguments[index] ?? parameter.defaultType?.name;
           if (argument && !bindings.has(parameter.name.name)) {
-            bindings.set(parameter.name.name, cppTypeForDeclaredName(argument) ?? argument);
+            bindings.set(parameter.name.name, cppTypeForDeclaredNameOr(argument, argument));
           }
         });
       }
@@ -2080,8 +2095,10 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
   }
   if (expression.kind === NodeKind.AsExpression) {
     if (dynamicStructuralCastSource(expression)) return "vexa::Value";
-    return cppTypeForDeclaredName((expression as AsExpression).typeAnnotation.name) ??
-      emittedCppTypeForExpression((expression as AsExpression).expression);
+    const mapped = cppTypeForDeclaredName((expression as AsExpression).typeAnnotation.name);
+    return mapped.length > 0
+      ? mapped
+      : emittedCppTypeForExpression((expression as AsExpression).expression);
   }
   if (expression.kind === NodeKind.SatisfiesExpression || expression.kind === NodeKind.NonNullExpression) {
     return emittedCppTypeForExpression((expression as SatisfiesExpression | NonNullExpression).expression);
@@ -2363,7 +2380,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
       const inferredFunctionResult = inferredFunctionCallCppType(expression as CallExpression);
       if (inferredFunctionResult) return inferredFunctionResult;
       const declaredResult = declaredCallResultType(expression as CallExpression);
-      const mappedResult = declaredResult ? cppTypeForDeclaredName(declaredResult) : null;
+      const mappedResult = declaredResult ? cppTypeForDeclaredName(declaredResult) : "";
       if (mappedResult) return mappedResult;
     }
   }
@@ -2387,7 +2404,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
     if (nativeProperty?.kind === "dynamic") return "vexa::Value";
     if (nativeProperty?.kind === "record") {
       const declaredResult = declaredTypeNameForExpression(expression);
-      return declaredResult ? cppTypeForDeclaredName(declaredResult) ?? "vexa::Value" : "vexa::Value";
+      return declaredResult ? cppTypeForDeclaredNameOr(declaredResult, "vexa::Value") : "vexa::Value";
     }
     if (member.computed && isManagedArrayExpression(member.object)) {
       const arrayType = managedArrayCppTypeForExpression(member.object) ??
@@ -2735,7 +2752,7 @@ function classStoredPropertyInfo(statement: ClassStatement, propertyName: string
       }
     }
     const primaryTypeName = primaryProperty?.typeAnnotation?.name;
-    const primaryType = primaryTypeName ? cppTypeForDeclaredName(primaryTypeName) ?? "vexa::Value" : null;
+    const primaryType = primaryTypeName ? cppTypeForDeclaredNameOr(primaryTypeName, "vexa::Value") : null;
     if (primaryTypeName && primaryType) {
       const result = { typeName: primaryTypeName, valueType: primaryType };
       activeClassStoredPropertyInfoCache.set(cacheKey, result);
@@ -2786,7 +2803,7 @@ function classStoredPropertyInfoForMember(member: MemberExpression): ClassStored
   const typeName = substituteTypeName(info.typeName, bindings);
   return {
     typeName,
-    valueType: cppTypeForDeclaredName(typeName) ?? info.valueType,
+    valueType: cppTypeForDeclaredNameOr(typeName, info.valueType),
   };
 }
 
@@ -3014,11 +3031,15 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
     if (!statement || activeCurrentMethodStatic) return null;
     const getter = classGetterForName(statement, propertyName);
     const setter = classSetterForName(statement, propertyName);
-    const valueType = currentClassPropertyCppType(propertyName) ??
-      (getter?.returnType ? cppTypeForDeclaredName(getter.returnType.name) : null) ??
-      (setter?.parameters[0]?.typeAnnotation
-        ? cppTypeForDeclaredName(setter.parameters[0].typeAnnotation.name)
-        : null);
+    let valueType = currentClassPropertyCppType(propertyName);
+    if (!valueType && getter?.returnType) {
+      const mapped = cppTypeForDeclaredName(getter.returnType.name);
+      if (mapped.length > 0) valueType = mapped;
+    }
+    if (!valueType && setter?.parameters[0]?.typeAnnotation) {
+      const mapped = cppTypeForDeclaredName(setter.parameters[0].typeAnnotation.name);
+      if (mapped.length > 0) valueType = mapped;
+    }
     return getter || setter
       ? new NativePropertyMember(
           "method",
@@ -3149,11 +3170,15 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
   const getter = classGetterForName(statement, propertyName);
   const setter = classSetterForName(statement, propertyName);
   const storedType = classStoredPropertyInfo(statement, propertyName)?.valueType ?? null;
-  const valueType = storedType ??
-    (getter?.returnType ? cppTypeForDeclaredName(getter.returnType.name) : null) ??
-    (setter?.parameters[0]?.typeAnnotation
-      ? cppTypeForDeclaredName(setter.parameters[0].typeAnnotation.name)
-      : null);
+  let valueType = storedType;
+  if (!valueType && getter?.returnType) {
+    const mapped = cppTypeForDeclaredName(getter.returnType.name);
+    if (mapped.length > 0) valueType = mapped;
+  }
+  if (!valueType && setter?.parameters[0]?.typeAnnotation) {
+    const mapped = cppTypeForDeclaredName(setter.parameters[0].typeAnnotation.name);
+    if (mapped.length > 0) valueType = mapped;
+  }
   return getter || setter
     ? new NativePropertyMember(
         "method",
@@ -3181,8 +3206,9 @@ function emitNativePropertyGet(
 ): string {
   if (property.kind === "record") {
     const declaredResult = declaredTypeNameForExpression(property.expression);
-    const resultType = declaredResult
-      ? cppTypeForDeclaredName(declaredResult) ?? cppTypeForExpression(property.expression)
+    const mappedResult = declaredResult ? cppTypeForDeclaredName(declaredResult) : "";
+    const resultType = mappedResult.length > 0
+      ? mappedResult
       : cppTypeForExpression(property.expression);
     return `vexa::recordGet<${resultType === "auto" ? "vexa::Value" : resultType}>(${activeRuntimeName}, ${receiver}, ${key ?? emitNativePropertyKey(property)})`;
   }
@@ -3756,8 +3782,10 @@ function emitAsyncNativeLambda(
   }
   const functionType = activeExpressionTypes.get(expression as Node);
   const analyzedReturn = functionType?.kind === "function" ? (functionType as FunctionType).returnType : null;
-  const declaredReturn = expression.returnType ? cppTypeForDeclaredName(expression.returnType.name) : null;
-  const taskType = declaredReturn ?? (analyzedReturn ? cppTypeForAnalysisType(analyzedReturn) : null);
+  const declaredReturn = expression.returnType ? cppTypeForDeclaredName(expression.returnType.name) : "";
+  const taskType = declaredReturn.length > 0
+    ? declaredReturn
+    : analyzedReturn ? cppTypeForAnalysisType(analyzedReturn) : null;
   let resultType = contextualTaskResult ?? "vexa::Value";
   if (!contextualTaskResult && taskType?.startsWith("vexa::Task<") && taskType.endsWith(">")) {
     resultType = taskType.slice("vexa::Task<".length, -1);
@@ -3921,7 +3949,7 @@ function classConstructionCppType(
   if (!classStatement.typeParameters.every((parameter) => substitutions.has(parameter.name.name))) return null;
   return `${cppName(classStatement.name.name)}<${classStatement.typeParameters.map((parameter) => {
     const binding = substitutions.get(parameter.name.name)!;
-    return cppTypeForDeclaredName(binding) ?? binding;
+    return cppTypeForDeclaredNameOr(binding, binding);
   }).join(", ")}>*`;
 }
 
@@ -4139,7 +4167,7 @@ function inferredMethodTemplateArguments(call: CallExpression, method: CallableM
   if (method.name.name === "attachNodeBounds") return "";
   return `<${typeParameters.map((parameter) => {
     const binding = bindings.get(parameter.name.name)!;
-    return cppTypeForDeclaredName(binding) ?? binding;
+    return cppTypeForDeclaredNameOr(binding, binding);
   }).join(", ")}>`;
 }
 
@@ -4925,7 +4953,7 @@ function emitCall(call: CallExpression): string {
           hasEveryBinding = false;
           break;
         }
-        templateArgumentTypes.push(cppTypeForDeclaredName(binding) ?? binding);
+        templateArgumentTypes.push(cppTypeForDeclaredNameOr(binding, binding));
       }
       if (hasEveryBinding) inferredTemplateArguments = `<${templateArgumentTypes.join(", ")}>`;
     }
@@ -5643,11 +5671,13 @@ function emitExpression(expression: Expr): string {
         const args = construction.args ?? [];
         const explicitElementType = construction.typeArguments?.[0]
           ? cppTypeForDeclaredName(construction.typeArguments[0].name)
-          : null;
+          : "";
         const expectedElementType = activeExpectedExpressionCppType
           ? managedArrayElementType(activeExpectedExpressionCppType)
           : null;
-        const elementType: string = explicitElementType ?? expectedElementType ?? "vexa::Value";
+        let elementType = "vexa::Value";
+        if (expectedElementType !== null) elementType = expectedElementType;
+        if (explicitElementType.length > 0) elementType = explicitElementType;
         if (args.length === 0) return `${activeRuntimeName}.array<${elementType}>()`;
         if (args.length === 1) {
           return `vexa::arrayWithLength<${elementType}>(${activeRuntimeName}, ${emitExpression(args[0] as Expr)})`;
@@ -5989,8 +6019,8 @@ function emitDestructuredBindings(
     if (!propertyName) throw new CppEmitError("C++ object destructuring requires static property names");
     const annotatedType = element.typeAnnotation
       ? cppTypeForDeclaredName(element.typeAnnotation.name)
-      : null;
-    const type = annotatedType && annotatedType !== "void"
+      : "";
+    const type = annotatedType.length > 0 && annotatedType !== "void"
       ? annotatedType
       : bindingValueType(element.name);
     const propertyValue = sourceType === "vexa::Value"
@@ -6066,17 +6096,17 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
     activeSharedBindingCandidates.has(sourceName);
   if (!statement.initializer) {
     const declaredTypeName = statement.typeAnnotation?.name;
-    const declaredCppType = declaredTypeName ? cppTypeForDeclaredName(declaredTypeName) : null;
+    const declaredCppType = declaredTypeName ? cppTypeForDeclaredName(declaredTypeName) : "";
     activeLocalNames.add(sourceName);
     if (declaredTypeName) activeLocalDeclaredTypeNames.set(sourceName, declaredTypeName);
-    if (declaredCppType?.endsWith("*")) {
+    if (declaredCppType.endsWith("*")) {
       const nativeObjectName = canonicalNativeObjectName(declaredTypeName!);
       if (nativeObjectName) activeGcObjectTypes.set(sourceName, nativeObjectName);
       if (managedArrayElementType(declaredCppType) !== null) {
         activeGcArrayTypes.set(sourceName, declaredCppType.slice(0, -1));
       }
     }
-    const type = declaredCppType && declaredCppType !== "void" ? declaredCppType : "vexa::Value";
+    const type = declaredCppType.length > 0 && declaredCppType !== "void" ? declaredCppType : "vexa::Value";
     activeSharedBindingNames.delete(sourceName);
     activeLocalCppTypes.set(sourceName, type);
     if (type === "vexa::Value") activeDynamicValueNames.add(sourceName);
@@ -6099,7 +6129,7 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
     return `${type} ${name} = vexa::defaultValue<${type}>()`;
   }
   const declaredTypeName = statement.typeAnnotation?.name;
-  const declaredCppType = declaredTypeName ? cppTypeForDeclaredName(declaredTypeName) : null;
+  const declaredCppType = declaredTypeName ? cppTypeForDeclaredName(declaredTypeName) : "";
   if (declaredTypeName && !declaredCppType) {
     const shape = parseTypeNameShape(declaredTypeName);
     const genericStatement = activeClassStatements.get(shape.baseName) ?? activeInterfaceStatements.get(shape.baseName);
@@ -6113,7 +6143,7 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
   let type: string;
   if (forInitializer) {
     type = cppTypeForExpression(statement.initializer);
-  } else if (declaredCppType === null) {
+  } else if (declaredCppType.length === 0) {
     type = "auto";
   } else {
     type = declaredCppType;
@@ -6156,8 +6186,9 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
   activeLocalNames.add(sourceName);
   activeSharedBindingNames.delete(sourceName);
   const actualInitializerType = emittedCppTypeForExpression(statement.initializer);
-  const emittedVariableType = declaredCppType ??
-    (actualInitializerType && actualInitializerType !== "auto" ? actualInitializerType : inferredCallCppType);
+  const emittedVariableType = declaredCppType.length > 0
+    ? declaredCppType
+    : actualInitializerType && actualInitializerType !== "auto" ? actualInitializerType : inferredCallCppType;
   if (emittedVariableType && emittedVariableType !== "auto") activeLocalCppTypes.set(sourceName, emittedVariableType);
   if (inferredDeclaredTypeName) activeLocalDeclaredTypeNames.set(sourceName, inferredDeclaredTypeName);
   if (emittedVariableType === "vexa::Value" || (!emittedVariableType && type === "vexa::Value")) {
@@ -6716,7 +6747,7 @@ function callableGeneratorInfo(
       async: analyzedReturn.name === "AsyncGenerator",
     };
   }
-  const fallback = returnType ? cppTypeForDeclaredName(returnType.name) : null;
+  const fallback = returnType ? cppTypeForDeclaredName(returnType.name) : "";
   if (!fallback) {
     throw new CppEmitError("C++ emission could not map the analyzed generator element type", owner);
   }
@@ -7062,7 +7093,7 @@ function emitExtensionProperty(statement: VarStatement): string {
     }
     const declaredResult = statement.typeAnnotation
       ? cppTypeForDeclaredName(statement.typeAnnotation.name)
-      : null;
+      : "";
     let getter: ClassMethodMember | undefined;
     if (statement.accessors) {
       for (const accessor of statement.accessors) {
@@ -7075,7 +7106,7 @@ function emitExtensionProperty(statement: VarStatement): string {
     const analyzedResult = statement.initializer
       ? cppTypeForExpression(statement.initializer)
       : getter?.returnType
-        ? cppTypeForDeclaredName(getter.returnType.name) ?? "auto"
+        ? cppTypeForDeclaredNameOr(getter.returnType.name, "auto")
         : "auto";
     const resultType = declaredResult && declaredResult !== "void"
       ? declaredResult
@@ -8799,7 +8830,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   const topLevelVariableInfo: TopLevelVariableInfo[] = [];
   for (const statement of topLevelVariables) {
     const name = cppName((statement.name as Identifier).name);
-    const declaredType = statement.typeAnnotation ? cppTypeForDeclaredName(statement.typeAnnotation.name) : null;
+    const declaredType = statement.typeAnnotation ? cppTypeForDeclaredName(statement.typeAnnotation.name) : "";
     const emittedInferredType = statement.initializer
       ? emittedCppTypeForExpression(statement.initializer)
       : null;
@@ -8813,7 +8844,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
         ? analyzedInferredType
         : emittedInferredType;
     let type: string = "vexa::Value";
-    if (declaredType) type = declaredType;
+    if (declaredType.length > 0) type = declaredType;
     else if (inferredType && inferredType !== "auto" && inferredType !== "void") type = inferredType;
     topLevelVariableInfo.push({ statement, name, type, pointee: type.endsWith("*") ? type.slice(0, -1) : null });
     activeLocalCppTypes.set((statement.name as Identifier).name, type);

@@ -137,7 +137,12 @@ development loop.
   lookup produced subsequent complete runs of 20.66 and 19.81 seconds. This
   removes `std::regex` construction from that sampled path, but the essentially
   flat total confirms that allocation, collection, and `Text` hash lookup are
-  now the larger targets.
+  now the larger targets. Replacing the emitter's nullable declared-type result
+  with an internal empty-string sentinel and a nominal cache entry then made
+  the hot function return `vexa::Text` instead of `vexa::Value`. The two next
+  complete native runs took 18.88 and 18.81 seconds, while their `-O1` builds
+  took 104.00 and 102.56 seconds. This removes per-hit `StringObject` boxing
+  and improves both generated-code execution and C++ optimization time.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -181,8 +186,8 @@ development loop.
   seconds.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `53026a27d1d0a931863cf639405be9498098951667217e0792e162ac0b2ec475`.
-  All three 7,903,101-byte outputs were byte-identical.
+  `a1e03b4e923ddc7a180d8f0a1b3e6af0b4234c30485c121da8168d2043267d17`.
+  All three 7,904,273-byte outputs were byte-identical.
 * [x] Run `pnpm test` (2308 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 

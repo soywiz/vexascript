@@ -344,3 +344,30 @@ The native compiler phases took 20.66 and 19.81 seconds. The change removed the
 sampled regex path but did not materially move total runtime, confirming that
 allocation, Oilpan collection, and `Text` hash lookup are the next larger
 targets rather than regex substitution itself.
+
+## Nullable internal strings forced GC boxing in the hottest emitter cache
+
+Changing the declared-type cache from `Map<string, string | null>` to a typed
+map did not initially remove its allocation cost. The nullable result made
+`cppTypeForDeclaredName` return `vexa::Value`, so every successful cache hit
+still boxed its `Text` as a newly managed `StringObject` before callers
+unboxed it again.
+
+An empty string is not a valid C++ type name, so the emitter now uses it as its
+private unmappable-type sentinel. The cache stores a nominal
+`DeclaredCppTypeCacheEntry`, and `cppTypeForDeclaredName` returns `string`
+directly. A small shared fallback helper keeps sentinel interpretation in one
+place. Related emitter locals normalize absent declared types to the same
+sentinel, avoiding host-dependent `string | null` inference and preserving a
+single static representation through hot paths.
+
+The first native attempt was faster but exposed 14 Node/native output hunks.
+Those differences came from conditional and nullish expressions whose
+contextual type was more precise in the rebuilt native host. Normalizing the
+remaining boundaries to explicit strings removed all 14 differences rather
+than accepting semantically plausible but non-identical output.
+
+The final two `-O1` native hosts compiled in 104.00 and 102.56 seconds and
+generated checked C++ in 18.88 and 18.81 seconds. Node and both native hosts
+emitted the same 7,904,273-byte translation unit with SHA-256
+`a1e03b4e923ddc7a180d8f0a1b3e6af0b4234c30485c121da8168d2043267d17`.
