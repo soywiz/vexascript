@@ -3569,7 +3569,9 @@ export class TypeChecker {
     if (indexArguments.length === 1 && indexArguments[0] === member.property && singlePropertyType) {
       return [singlePropertyType];
     }
-    return indexArguments.map((argument) => this.expressionTypes.get(argument as unknown as Node) ?? UNKNOWN_TYPE);
+    return indexArguments.map((argument: Expr): AnalysisType =>
+      this.expressionTypes.get(argument as unknown as Node) ?? UNKNOWN_TYPE
+    );
   }
 
   private hasIndexOperatorCandidates(left: Expr, operator: "[]" | "[]="): boolean {
@@ -10533,7 +10535,7 @@ export class TypeChecker {
     }
     if (type.kind === "union") {
       const union = type as UnionType;
-      const resolvedTypes: AnalysisType[] = union.types.map((member) =>
+      const resolvedTypes: AnalysisType[] = union.types.map((member: AnalysisType): AnalysisType =>
         this.resolveConstrainedNamedExpressionType(expression, member) ?? member
       );
       return unionType(resolvedTypes);
@@ -10737,13 +10739,13 @@ export class TypeChecker {
       return preferredExtensionType;
     }
     if (resolvedObjectType.kind === "union") {
-      if (resolvedObjectType.types.some((type) => this.isBuiltinTypeNamed(type, "any"))) {
+      if (resolvedObjectType.types.some((type: AnalysisType): boolean => this.isBuiltinTypeNamed(type, "any"))) {
         return builtinType("any");
       }
       const memberTypes = resolvedObjectType.types
-        .filter((type) => !isNullishType(type))
-        .map((type) => this.resolveKnownMemberType(member, type))
-        .filter((type): type is AnalysisType => type !== null);
+        .filter((type: AnalysisType): boolean => !isNullishType(type))
+        .map((type: AnalysisType): AnalysisType | null => this.resolveKnownMemberType(member, type))
+        .filter((type: AnalysisType | null): type is AnalysisType => type !== null);
       if (memberTypes.length === 0) {
         return null;
       }
@@ -10751,8 +10753,8 @@ export class TypeChecker {
     }
     if (resolvedObjectType.kind === "intersection") {
       const memberTypes = resolvedObjectType.types
-        .map((type) => this.resolveKnownMemberType(member, type))
-        .filter((type): type is AnalysisType => type !== null);
+        .map((type: AnalysisType): AnalysisType | null => this.resolveKnownMemberType(member, type))
+        .filter((type: AnalysisType | null): type is AnalysisType => type !== null);
       if (memberTypes.length === 0) {
         return null;
       }
@@ -10973,13 +10975,13 @@ export class TypeChecker {
       return normalizedObjectType;
     }
     if (normalizedObjectType.kind === "union") {
-      if (normalizedObjectType.types.some((type) => this.isBuiltinTypeNamed(type, "any"))) {
+      if (normalizedObjectType.types.some((type: AnalysisType): boolean => this.isBuiltinTypeNamed(type, "any"))) {
         return builtinType("any");
       }
       const memberTypes = normalizedObjectType.types
-        .filter((type) => !isNullishType(type))
-        .map((type) => this.resolveComputedMemberType(type, normalizedPropertyType))
-        .filter((type) => !isUnknownType(type));
+        .filter((type: AnalysisType): boolean => !isNullishType(type))
+        .map((type: AnalysisType): AnalysisType => this.resolveComputedMemberType(type, normalizedPropertyType))
+        .filter((type: AnalysisType): boolean => !isUnknownType(type));
       if (memberTypes.length === 0) {
         return UNKNOWN_TYPE;
       }
@@ -13153,7 +13155,10 @@ export class TypeChecker {
     );
   }
 
-  private expandTypeAliases(type: AnalysisType): AnalysisType {
+  private expandTypeAliases(type: AnalysisType | null | undefined): AnalysisType {
+    if (!type) {
+      return UNKNOWN_TYPE;
+    }
     if (type.kind === "named") {
       if (type.name === "Awaited" && (type.typeArguments?.length ?? 0) === 1) {
         const innerExpanded = this.expandTypeAliases(type.typeArguments![0]!);
@@ -13163,7 +13168,9 @@ export class TypeChecker {
         return this.evaluateAwaitedType(innerExpanded);
       }
       if (type.typeArguments && type.typeArguments.length > 0) {
-        const expandedArguments = type.typeArguments.map((typeArgument) => this.expandTypeAliases(typeArgument));
+        const expandedArguments = type.typeArguments.map(
+          (typeArgument: AnalysisType): AnalysisType => this.expandTypeAliases(typeArgument)
+        );
         const specialResolved = this.resolveSpecialNamedType(type.name, expandedArguments);
         if (specialResolved) {
           return this.expandTypeAliases(specialResolved);
@@ -13176,7 +13183,9 @@ export class TypeChecker {
         }
         return namedType(
           type.name,
-          type.typeArguments.map((typeArgument) => this.expandTypeAliases(typeArgument))
+          type.typeArguments.map(
+            (typeArgument: AnalysisType): AnalysisType => this.expandTypeAliases(typeArgument)
+          )
         );
       }
       this.activeTypeAliasNames.add(type.name);
@@ -13303,7 +13312,7 @@ export class TypeChecker {
       }
       return namedType(
         sourceType.name,
-        sourceType.typeArguments.map((typeArgument) =>
+        sourceType.typeArguments.map((typeArgument: AnalysisType): AnalysisType =>
           this.substituteTypeParameters(typeArgument, substitutions)
         )
       );
@@ -13366,16 +13375,22 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "union") {
-      return unionType(sourceType.types.map((type) => this.substituteTypeParameters(type, substitutions)));
+      return unionType(sourceType.types.map(
+        (type: AnalysisType): AnalysisType => this.substituteTypeParameters(type, substitutions)
+      ));
     }
 
     if (sourceType.kind === "intersection") {
-      return intersectionType(sourceType.types.map((type) => this.substituteTypeParameters(type, substitutions)));
+      return intersectionType(sourceType.types.map(
+        (type: AnalysisType): AnalysisType => this.substituteTypeParameters(type, substitutions)
+      ));
     }
 
     if (sourceType.kind === "tuple") {
       return tupleType(
-        sourceType.elements.map((element) => this.substituteTypeParameters(element, substitutions)),
+        sourceType.elements.map(
+          (element: AnalysisType): AnalysisType => this.substituteTypeParameters(element, substitutions)
+        ),
         sourceType.readonly === true
       );
     }

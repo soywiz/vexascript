@@ -37,6 +37,14 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("preserves explicit type arguments through constructed generic types", () => {
+    const ast = parseFile(tokenizeReader("const visited = new WeakSet<object>()"), { language: "typescript" });
+    const analysis = new Analysis(ast);
+    const initializer = (ast.body[0] as VarStatement).initializer!;
+
+    expect(typeToString(analysis.getExpressionTypes().get(initializer)!)).toBe("WeakSet<object>");
+  });
+
   it("checks exported runtime namespace members", () => {
     const ast = parseFile(tokenizeReader("namespace Tools { export const version: int = 1; const hidden = 2 }\nlet ok: int = Tools.version\nlet bad = Tools.hidden"));
     const analysis = new Analysis(ast);

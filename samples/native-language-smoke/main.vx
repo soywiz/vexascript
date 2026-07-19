@@ -1,4 +1,4 @@
-import { importedDouble, importedLabel } from "./support.vx"
+import { ImportedStructuralBox, importedDouble, importedLabel } from "./support.vx"
 
 enum Permission {
   None,
@@ -34,6 +34,10 @@ interface Greeter {
 interface NativeTransformer {
   val label: string
   fun apply(value: int): int
+}
+
+interface ImportedStructuralValue {
+  var value: int
 }
 
 fun runNativeTransformer(transformer: NativeTransformer, value: int): int => transformer.apply(value)
@@ -398,6 +402,10 @@ console.log("dynamic updates", dynamicArithmetic, dynamicArithmeticValues[0], dy
 val firstTransformer: NativeTransformer = { label: "double", apply: (value: int) => value * 2 }
 val secondTransformer: NativeTransformer = { label: "offset", apply(value: int): int { return value + 3 } }
 console.log("callable interface", firstTransformer.label, runNativeTransformer(firstTransformer, 4), secondTransformer.label, runNativeTransformer(secondTransformer, 4))
+val importedStructuralSource = ImportedStructuralBox(40)
+val importedStructuralView: ImportedStructuralValue = importedStructuralSource
+importedStructuralView.value += 2
+console.log("imported structural interface", importedStructuralSource.value, importedStructuralView.value)
 val transformerKeys = Object.keys(firstTransformer)
 val transformerValues = Object.values(firstTransformer)
 val transformerEntries = Object.entries(firstTransformer)
@@ -503,6 +511,9 @@ val mergedNativeScores = new Map<string, int>([
 ])
 val spreadNativeSet = [...new Set<int>([6, 7])]
 console.log("collection spread", mergedNativeScores.get("left"), mergedNativeScores.get("right"), spreadNativeSet.join("|"))
+val typedNativeLabels: Set<string> = new Set<string>(["local", "parameter"])
+val spreadTypedNativeLabels: string[] = [...typedNativeLabels]
+console.log("typed collection spread", spreadTypedNativeLabels.join("|"))
 
 val nestedNativeScores = new Map<string, Map<string, int>>()
 nestedNativeScores.set("group", new Map<string, int>([["score", 12]]))

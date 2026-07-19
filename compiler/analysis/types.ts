@@ -201,7 +201,11 @@ export function rangeType(elementType: AnalysisType = builtinType("int")): Range
 }
 
 export function unionType(types: AnalysisType[]): UnionType {
-  return { kind: "union", types };
+  const normalizedTypes: AnalysisType[] = [];
+  for (const type of types) {
+    normalizedTypes.push(type ?? UNKNOWN_TYPE);
+  }
+  return { kind: "union", types: normalizedTypes };
 }
 
 export function intersectionType(types: AnalysisType[]): IntersectionType {
@@ -350,15 +354,21 @@ export function isUnknownType(type: AnalysisType | null | undefined): boolean {
   return !type || type.kind === "unknown";
 }
 
-export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
+export function isSameType(
+  a: AnalysisType | null | undefined,
+  b: AnalysisType | null | undefined
+): boolean {
   return isSameTypeInternal(a, b, new WeakMap<object, WeakSet<object>>());
 }
 
 function isSameTypeInternal(
-  a: AnalysisType,
-  b: AnalysisType,
+  a: AnalysisType | null | undefined,
+  b: AnalysisType | null | undefined,
   seenPairs: WeakMap<object, WeakSet<object>>
 ): boolean {
+  if (!a || !b) {
+    return false;
+  }
   if (a === b) {
     return true;
   }

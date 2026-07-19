@@ -1,3 +1,8 @@
+import type { VexaProject } from "../../compiler/project";
+import { resolve } from "../../compiler/utils/path";
+import { vfs } from "../../compiler/vfs";
+import { runCommandCapture } from "./cliIo";
+
 export async function ambientDeclarationsForProject(_sourcePath: string, _project: unknown): Promise<any[]> {
   return [];
 }
@@ -27,9 +32,7 @@ export async function vexaTypeCheckForSource(
     cwd: project?.projectDir ?? process.cwd()
   });
   if (result.code !== 0) {
-    const diagnostics = [result.stdout.trim(), result.stderr.trim()]
-      .filter((output) => output.length > 0)
-      .join("\n");
+    const diagnostics = result.stdout.length > 0 ? result.stdout : result.stderr;
     throw new Error(diagnostics.length > 0
       ? `TypeScript semantic analysis failed:\n${diagnostics}`
       : "TypeScript semantic analysis failed");
@@ -50,7 +53,3 @@ export async function createBundledModuleArtifacts(
 export async function resolveServeBundleInput(_rootDir: string, _explicitBundleInput?: string): Promise<string> {
   throw new Error("The development server is not available in the native VexaScript CLI yet");
 }
-import type { VexaProject } from "../../compiler/project";
-import { resolve } from "../../compiler/utils/path";
-import { vfs } from "../../compiler/vfs";
-import { runCommandCapture } from "./cliIo";

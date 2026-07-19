@@ -1611,7 +1611,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
             const key = emitObjectPropertyKey(objectProperty);
             if (objectProperty.method && objectProperty.value.kind === NodeKind.FunctionExpression) {
               const fn = objectProperty.value as FunctionExpression;
-              return withVariableDelegateShadows(
+              return withVariableDelegateShadows<string>(
                 functionParameterBindingNames(fn.parameters),
                 () => `${asyncEmitPrefix(fn.async, fn.sync)}${key}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
               );
@@ -1626,7 +1626,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           return emitExpression(arrow.contextualObjectLiteral, parentPrecedence, side);
         }
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
-        return withVariableDelegateShadows(functionParameterBindingNames(arrow.parameters), () => {
+        return withVariableDelegateShadows<string>(functionParameterBindingNames(arrow.parameters), () => {
           if (arrow.body.kind === NodeKind.BlockStatement) {
             return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => ${emitScopedBlock(arrow.body as BlockStatement)}`;
           }
@@ -1646,7 +1646,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       case NodeKind.FunctionExpression: {
         const fn = expression as FunctionExpression;
         const name = fn.name ? ` ${fn.name.name}` : "";
-        return withVariableDelegateShadows(
+        return withVariableDelegateShadows<string>(
           functionParameterBindingNames(fn.parameters),
           () => `${asyncEmitPrefix(fn.async, fn.sync)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
         );
@@ -1986,7 +1986,7 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
     : method.operator
       ? operatorMethodName(method.operator, method.parameters)
       : method.name.name;
-  return withVariableDelegateShadows(functionParameterBindingNames(method.parameters), () => {
+  return withVariableDelegateShadows<string>(functionParameterBindingNames(method.parameters), () => {
     const body = methodName === "constructor" ? emitConstructorBlock(method) : emitScopedBlock(method.body);
     return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${body}`;
   });
@@ -2454,7 +2454,7 @@ export function emitStatement(statement: Statement): string {
         activeExtensionThis = true;
         activeExtensionReceiverTypeName = fn.receiverType.name;
         try {
-          return withVariableDelegateShadows(
+          return withVariableDelegateShadows<string>(
             functionParameterBindingNames(fn.parameters),
             () => `${asyncEmitPrefix(fn.async, fn.sync)}function${fn.generator === true ? "*" : ""} ${emittedName}(${parameterList}) ${emitScopedBlock(fn.body)}`
           );
@@ -2466,7 +2466,7 @@ export function emitStatement(statement: Statement): string {
       const overloads = activeState.programOverloads.get(fn.name.name);
       const emittedName = activeState.jsNames.get(fn.name.name)
         ?? (overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name);
-      return withVariableDelegateShadows(
+      return withVariableDelegateShadows<string>(
         functionParameterBindingNames(fn.parameters),
         () => `${asyncEmitPrefix(fn.async, fn.sync)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
       );

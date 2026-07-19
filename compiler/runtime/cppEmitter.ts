@@ -1240,9 +1240,12 @@ function emitNativeCollectionConstruction(call: CallExpression | NewExpression, 
         "vexa::MapObject<"
       );
       const analysisType = activeExpressionTypes.get(call as Node);
-      const inferred = analysisType?.kind === "named"
-        ? (analysisType.typeArguments ?? []).map((argument) => cppTypeForAnalysisType(argument) ?? "vexa::Value")
-        : [];
+      let inferred: string[] = [];
+      if (analysisType?.kind === "named") {
+        inferred = (analysisType.typeArguments ?? []).map(
+          (argument: AnalysisType): string => cppTypeForAnalysisType(argument) ?? "vexa::Value"
+        );
+      }
       let types: string[] = inferred;
       if (mappedTypes) types = mappedTypes;
       if (types.every((type) => type === "vexa::Value") && iterableCollectionTypes) {

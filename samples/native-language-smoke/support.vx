@@ -3,3 +3,5 @@ export fun importedDouble(value: int): int {
 }
 
 export fun importedLabel(): string => "module"
+
+export class ImportedStructuralBox(var value: int)
