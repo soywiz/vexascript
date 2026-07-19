@@ -47,6 +47,12 @@ development loop.
   and specializing its two string-only scope helpers, reduced generated
   `ReturnSignal`/`throwReturn` references from 127 to 97. Follow-up profiled
   generations took 26.02–26.21 seconds; C++ emission reached 7.43 seconds.
+  Replacing reflective AST property enumeration with one exhaustive static
+  `NodeKind` traversal then reduced the best profiled generation to 20.80
+  seconds: type inference took 11.05 seconds and C++ emission took 5.46 seconds. The
+  generated translation unit grew by about 48 KB and still took about 113
+  seconds to compile at `-O1`, so this improves compiler execution rather than
+  C++ frontend throughput.
 * [ ] Replace the monolithic `convertValue<T>` decision tree at generated call
   sites with emitter-selected, narrowly scoped conversion operations. Prefer
   non-template boxing/coercion helpers such as `boxText`, `toText`, `toNumber`,
@@ -99,7 +105,9 @@ development loop.
   numeric discriminator for JavaScript; use nominal classes where identity is
   semantically useful and when native specialization benefits from it. Oilpan
   inheritance, layout, and allocation designed for derived nodes remain
-  pending.
+  pending. AST traversal now also dispatches centrally on `NodeKind` and reads
+  concrete fields directly; `walkAst` reuses that implementation instead of
+  maintaining a second reflective traversal.
 * [ ] Provide fast debug and syntax-validation profiles plus a separate final
   optimized roundtrip profile.
   Current measurements for the same checked `cli/cli.ts` C++ generation are:
@@ -113,6 +121,12 @@ development loop.
   2026-07-19 run reported 2.89 seconds for load/parse, 1.77 seconds for module
   isolation, 0.68 seconds for binding, 13.98 seconds for type inference, and
   7.67 seconds for C++ emission, for 26.99 seconds total with profiling output.
+  Static AST traversal reduced the best subsequent profile to 1.98 seconds for
+  load/parse, 1.82 seconds for isolation, 0.49 seconds for binding, 11.05
+  seconds for type inference, and 5.46 seconds for C++ emission, for 20.80
+  seconds total. The next byte-identical host took 21.68 seconds, while an
+  earlier run reached 33.30 seconds after longer GC pauses; allocation and
+  collection therefore remain important sources of variance.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -151,14 +165,14 @@ development loop.
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
-  about 31.5 seconds in the latest checkpoint, and both generated translation
-  units compiled successfully at `-O1` in about 111 seconds each.
+  20.80 and 21.68 profiled seconds in the latest checkpoint, and both generated
+  translation units compiled successfully at `-O1` in about 113 seconds each.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `297d887a91a3b5582d75c834d36447a9aad8bf4e47586dc490d716d0b8cc8723`.
-  Rebuilding at `-O1` took 111.37 and 111.16 seconds, and the second native
-  host emitted the next roundtrip in 31.53 seconds.
-* [x] Run `pnpm test` (2306 tests passed on 2026-07-19).
+  `09442947f87ee1c2a41a2ada5644e49ac758e36d8092f27c4d9f964fca57ef2c`.
+  The 7,907,570-byte translation units compiled at `-O1` in 113.07 and 113.75
+  seconds, and all three outputs were byte-identical.
+* [x] Run `pnpm test` (2307 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 
 ## Related Files

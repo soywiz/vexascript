@@ -1,6 +1,15 @@
-import { NodeKind } from "compiler/ast/ast";
+import {
+  AnnotationApplication,
+  BinaryExpression,
+  ExportStatement,
+  ExprStatement,
+  Identifier,
+  IntLiteral,
+  NodeKind,
+  Program,
+} from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
-import type { ExportStatement, Node, Statement } from "./ast";
+import type { Node } from "./ast";
 import { childNodes, findNode, unwrapExportedDeclaration, walkAst } from "./traversal";
 
 describe("AST traversal", () => {
@@ -24,57 +33,89 @@ describe("AST traversal", () => {
         }
       ]
     };
-    const identifier: Node = { kind: NodeKind.Identifier, firstToken: token, lastToken: token };
-    const literal: Node = { kind: NodeKind.IntLiteral };
+    const identifier = new Identifier("value");
+    identifier.firstToken = token;
+    identifier.lastToken = token;
+    const literal = new IntLiteral(1);
     const recoveryMarker = { kind: "RecoveryMarker" };
-    const root: Node & { body: Node[]; __vexaRecoveryMarkers: unknown[] } = {
-      kind: NodeKind.Program,
-      firstToken: token,
-      lastToken: token,
-      body: [identifier, literal],
-      __vexaRecoveryMarkers: [recoveryMarker]
-    };
+    const root = new Program(
+      [new ExprStatement(identifier), new ExprStatement(literal)],
+      [recoveryMarker]
+    );
+    root.firstToken = token;
+    root.lastToken = token;
 
-    expect(childNodes(root).map((node) => node.kind)).toEqual([NodeKind.Identifier, NodeKind.IntLiteral]);
+    expect(childNodes(root).map((node) => node.kind)).toEqual([
+      NodeKind.ExprStatement,
+      NodeKind.ExprStatement,
+    ]);
 
     const visited: NodeKind[] = [];
     walkAst(root, (node) => visited.push(node.kind));
 
-    expect(visited).toEqual([NodeKind.Program, NodeKind.Identifier, NodeKind.IntLiteral]);
+    expect(visited).toEqual([
+      NodeKind.Program,
+      NodeKind.ExprStatement,
+      NodeKind.Identifier,
+      NodeKind.ExprStatement,
+      NodeKind.IntLiteral,
+    ]);
   });
 
   it("visits shared or cyclic nodes only once", () => {
-    const shared: Node = { kind: NodeKind.Identifier };
-    const root = { kind: NodeKind.Program, body: [shared], contextual: shared } as Node & { parent?: Node };
+    const shared = new ExprStatement(new Identifier("shared"));
+    const root = new Program([shared]) as Program & { contextual?: Node; parent?: Node };
+    root.contextual = shared;
     root.parent = root;
 
     const visited: NodeKind[] = [];
     walkAst(root, (node) => visited.push(node.kind));
 
-    expect(visited).toEqual([NodeKind.Program, NodeKind.Identifier]);
+    expect(visited).toEqual([NodeKind.Program, NodeKind.ExprStatement, NodeKind.Identifier]);
   });
 
   it("stops the whole walk when the visitor returns false", () => {
-    const first: Node = { kind: NodeKind.Identifier };
-    const nested: Node = { kind: NodeKind.IntLiteral };
-    const second = { kind: NodeKind.BinaryExpression, left: nested } as unknown as Node;
-    const root = { kind: NodeKind.Program, body: [first, second] } as unknown as Node;
+    const first = new ExprStatement(new Identifier("first"));
+    const nested = new IntLiteral(1);
+    const second = new ExprStatement(
+      new BinaryExpression("+", nested, new IntLiteral(2))
+    );
+    const root = new Program([first, second]);
 
     const visited: NodeKind[] = [];
     walkAst(root, (node) => {
       visited.push(node.kind);
-      return node.kind !== NodeKind.Identifier;
+      return node !== first;
     });
 
-    expect(visited).toEqual([NodeKind.Program, NodeKind.Identifier]);
+    expect(visited).toEqual([NodeKind.Program, NodeKind.ExprStatement]);
+  });
+
+  it("walks statement annotations after a persisted program is deserialized", () => {
+    const annotation = new AnnotationApplication(new Identifier("Memo"), []);
+    const program = new Program([
+      new ExprStatement(new Identifier("value"), [annotation]),
+    ]);
+    const restored = JSON.parse(JSON.stringify(program)) as Program;
+
+    const visited: NodeKind[] = [];
+    walkAst(restored, (node) => visited.push(node.kind));
+
+    expect(visited).toEqual([
+      NodeKind.Program,
+      NodeKind.ExprStatement,
+      NodeKind.AnnotationApplication,
+      NodeKind.Identifier,
+      NodeKind.Identifier,
+    ]);
   });
 });
 
 describe("findNode", () => {
   it("returns the first pre-order node accepted by the predicate", () => {
-    const target: Node = { kind: NodeKind.Identifier };
-    const later: Node = { kind: NodeKind.Identifier };
-    const root = { kind: NodeKind.Program, body: [{ kind: NodeKind.ExprStatement, expression: target } as unknown as Node, later] } as unknown as Node;
+    const target = new Identifier("target");
+    const later = new Identifier("later");
+    const root = new Program([new ExprStatement(target), new ExprStatement(later)]);
 
     expect(findNode(root, (node): node is Node => node.kind === NodeKind.Identifier)).toBe(target);
     expect(findNode(root, (node): node is Node => node.kind === NodeKind.ClassStatement)).toBe(null);
@@ -83,20 +124,20 @@ describe("findNode", () => {
 
 describe("unwrapExportedDeclaration", () => {
   it("returns the inner declaration of an export statement", () => {
-    const declaration = { kind: NodeKind.FunctionStatement } as unknown as Statement;
-    const exportStatement = { kind: NodeKind.ExportStatement, declaration } as unknown as ExportStatement;
+    const declaration = new ExprStatement(new Identifier("value"));
+    const exportStatement = new ExportStatement(declaration);
 
     expect(unwrapExportedDeclaration(exportStatement)).toBe(declaration);
   });
 
   it("returns the statement itself when it is not an export", () => {
-    const statement = { kind: NodeKind.ClassStatement } as unknown as Statement;
+    const statement = new ExprStatement(new Identifier("value"));
 
     expect(unwrapExportedDeclaration(statement)).toBe(statement);
   });
 
   it("returns undefined for re-export statements without an inline declaration", () => {
-    const reExport = { kind: NodeKind.ExportStatement } as unknown as ExportStatement;
+    const reExport = new ExportStatement();
 
     expect(unwrapExportedDeclaration(reExport)).toBeUndefined();
   });

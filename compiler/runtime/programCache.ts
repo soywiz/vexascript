@@ -1,7 +1,8 @@
 import type { Program } from "compiler/ast/ast";
 import { globalVfs, vfs, type Vfs } from "compiler/vfs";
 
-const PROGRAM_CACHE_VERSION = 2;
+// Numeric NodeKind values replaced the legacy string discriminators in cached ASTs.
+const PROGRAM_CACHE_VERSION = 3;
 const STORAGE_KEY_PREFIX = `vexa.runtime.program-cache.v${PROGRAM_CACHE_VERSION}.`;
 const memoryStorage = new Map<string, string>();
 

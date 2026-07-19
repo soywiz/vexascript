@@ -193,8 +193,8 @@ describe("website project", () => {
         return { kind: NodeKind.Program, body: [] } as never;
       });
 
-      expect(storageState.has(`vexa.runtime.program-cache.v2.${sourceFilePath}`)).toBe(true);
-      expect(storageState.has(`vexa.runtime.program-cache.v2.${sourceFilePath}_hash`)).toBe(true);
+      expect(storageState.has(`vexa.runtime.program-cache.v3.${sourceFilePath}`)).toBe(true);
+      expect(storageState.has(`vexa.runtime.program-cache.v3.${sourceFilePath}_hash`)).toBe(true);
       expect(first).toEqual(program);
       expect(second).toEqual(program);
       expect(generateCount).toBe(1);

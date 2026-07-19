@@ -1,7 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
+import { ExprStatement, Identifier, Program } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { cacheProgram } from "./programCache";
-import type { Program } from "compiler/ast/ast";
 import { globalVfs, setVfs, Vfs } from "compiler/vfs";
 
 describe("runtime program cache", () => {
@@ -34,17 +33,7 @@ describe("runtime program cache", () => {
 
     try {
       const sourceFilePath = "/runtime/runtime.d.ts";
-      const program: Program = {
-        kind: NodeKind.Program,
-        body: [
-          {
-            kind: NodeKind.VarStatement,
-            declarationKind: "const",
-            name: { kind: NodeKind.Identifier, name: "answer" },
-            declarations: []
-          } as unknown as Program["body"][number]
-        ]
-      };
+      const program = new Program([new ExprStatement(new Identifier("answer"))]);
       let generateCount = 0;
 
       const first = await cacheProgram(sourceFilePath, "hash-a", async () => {
@@ -53,21 +42,15 @@ describe("runtime program cache", () => {
       });
       const second = await cacheProgram(sourceFilePath, "hash-a", async () => {
         generateCount += 1;
-        return {
-          ...program,
-          body: [],
-        };
+          return new Program([]);
       });
       const third = await cacheProgram(sourceFilePath, "hash-b", async () => {
         generateCount += 1;
-        return {
-          ...program,
-          body: [],
-        };
+          return new Program([]);
       });
 
-      expect(storageState.has("vexa.runtime.program-cache.v2./runtime/runtime.d.ts")).toBe(true);
-      expect(storageState.has("vexa.runtime.program-cache.v2./runtime/runtime.d.ts_hash")).toBe(true);
+      expect(storageState.has("vexa.runtime.program-cache.v3./runtime/runtime.d.ts")).toBe(true);
+      expect(storageState.has("vexa.runtime.program-cache.v3./runtime/runtime.d.ts_hash")).toBe(true);
       expect(first).toEqual(program);
       expect(second).toEqual(program);
       expect(third.body).toEqual([]);
@@ -129,10 +112,7 @@ describe("runtime program cache", () => {
 
     try {
       const sourceFilePath = "/runtime/node-vfs.d.ts";
-      const program: Program = {
-        kind: NodeKind.Program,
-        body: []
-      };
+      const program = new Program([]);
       let generateCount = 0;
 
       const first = await cacheProgram(sourceFilePath, "hash-a", async () => {
@@ -141,15 +121,7 @@ describe("runtime program cache", () => {
       });
       const second = await cacheProgram(sourceFilePath, "hash-a", async () => {
         generateCount += 1;
-        return {
-          ...program,
-          body: [{
-            kind: NodeKind.VarStatement,
-            declarationKind: "const",
-            name: { kind: NodeKind.Identifier, name: "later" },
-            declarations: []
-          } as unknown as Program["body"][number]]
-        };
+          return new Program([new ExprStatement(new Identifier("later"))]);
       });
 
       expect(first).toEqual(program);

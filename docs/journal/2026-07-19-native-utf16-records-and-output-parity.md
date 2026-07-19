@@ -248,3 +248,48 @@ the emitter changes took 26.02 and 26.21 seconds; the best C++ emission phase
 fell from 7.59 to 7.43 seconds. The generated translation unit still compiled
 at `-O1` and remained byte-identical between Node and native hosts with SHA-256
 `84d913582cc2fa1d190e4d41e51e8fbb1c9f3aceda4e09069831f962e29a06dd`.
+
+## Reflective AST traversal hid a large dynamic hot path
+
+After the exception-return cleanup, sampling still showed frequent UTF-8 to
+UTF-16 conversion, object-key enumeration, hash lookup, allocation, and Oilpan
+marking under `childNodes`. The traversal iterated every enumerable property of
+each AST node, converted property names into native text, dynamically fetched
+their values, and repeated the same reflective loop independently in
+`walkAst`. This was especially expensive because semantic analysis traverses
+the compiler's nominal AST repeatedly.
+
+`childNodes` now has one centralized `NodeKind` switch covering every concrete
+AST node and reads its typed child fields directly. Statement cases include
+their annotations explicitly, leaf kinds are explicit, and an unknown future
+kind fails immediately. `walkAst` reuses `childNodes`, removing the duplicate
+traversal semantics. Constructors remain field-only nominal constructors; the
+optimization does not add dynamic metadata or a parallel native-only AST path.
+
+An initial exhaustiveness idiom assigned `node.kind` to a TypeScript `never`
+local in the default branch. The native emitter represented that unreachable
+local as C++ `void`, producing invalid code. Replacing it with an explicit
+unsupported-kind error retained fail-fast behavior and restored valid C++.
+This is a useful boundary: TypeScript compile-time-only `never` assertions
+must not become runtime locals in generated native code.
+
+A repeated full-suite run then found a stale persisted declaration AST whose
+root still used the pre-migration string discriminator `"Program"`. The
+runtime-program cache version had not changed when `NodeKind` became numeric,
+so an old process-local cache file could be accepted after PID reuse. The cache
+format is now version 3, and its tests build nominal nodes before serialization.
+Because JSON persistence deliberately restores structural records without
+prototypes, statement annotation traversal is keyed by the numeric kind rather
+than `instanceof`; a regression test walks annotations after a serialize/parse
+roundtrip.
+
+The first profiled `-O1` native candidate fell from 26.02–26.21 seconds to
+21.20 seconds. One intermediate repeat experienced longer GC pauses and took
+33.30 seconds, which initially obscured the steady-state improvement. After
+the cache-format regression was fixed, the two final native hosts completed in
+20.80 and 21.68 profiled seconds. The best merged type-inference and C++
+emission phases were 11.05 and 5.46 seconds. Their 7,907,570-byte translation
+units compiled in 113.07 and 113.75 seconds, so the extra static dispatch code
+did not improve or materially worsen C++ build time. Node and both native hosts
+emitted byte-identical C++ with SHA-256
+`09442947f87ee1c2a41a2ada5644e49ac758e36d8092f27c4d9f964fca57ef2c`.
