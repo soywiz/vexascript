@@ -179,6 +179,14 @@ export interface SourcePosition {
   character: number;
 }
 
+class IssueRange {
+  constructor(public start: number, public end: number) {}
+}
+
+class ResolvedOperatorOverload {
+  constructor(public type: AnalysisType, public symbol: AnalysisSymbol) {}
+}
+
 function advanceSourcePosition(
   startLine: number,
   startCharacter: number,
@@ -727,7 +735,7 @@ export class TypeChecker {
             node: labeled.label
           });
         }
-        const labels = [
+        const labels: FlowLabel[] = [
           ...(flow.labels ?? []),
           new FlowLabel(labeled.label.name, statementAllowsLabeledContinue(labeled.body))
         ];
@@ -2509,13 +2517,15 @@ export class TypeChecker {
           ? this.resolveOperatorOverload(compoundOperator, leftType, rightType, scope)
           : null;
         if (compoundOverload) {
-          this.operatorResolutions.push({ expression: assignment, symbol: compoundOverload.symbol });
+          const symbol: AnalysisSymbol = compoundOverload.symbol;
+          this.operatorResolutions.push({ expression: assignment, symbol });
         }
         const indexSetterOverload = assignment.operator === "="
           ? this.resolveIndexSetterOperatorOverload(assignment.left, rightType, scope)
           : null;
         if (indexSetterOverload) {
-          this.operatorResolutions.push({ expression: assignment, symbol: indexSetterOverload.symbol });
+          const symbol: AnalysisSymbol = indexSetterOverload.symbol;
+          this.operatorResolutions.push({ expression: assignment, symbol });
         }
         const hasIndexSetterCandidates = assignment.operator === "=" &&
           this.hasIndexOperatorCandidates(assignment.left, "[]=");
@@ -2702,13 +2712,13 @@ export class TypeChecker {
         const call = expression as CallExpression;
         const calleeType = this.visitExpression(call.callee, scope);
         const argumentTypes: AnalysisType[] = [];
-        const initialArgumentIssueRanges: Array<{ start: number; end: number } | null> = [];
+        const initialArgumentIssueRanges: Array<IssueRange | null> = [];
         for (const argument of call.args) {
           const issueStart = this.issues.length;
           argumentTypes.push(this.visitExpression(argument, scope));
           const issueEnd = this.issues.length;
           if (this.validateTypes) {
-            initialArgumentIssueRanges.push(issueEnd > issueStart ? { start: issueStart, end: issueEnd } : null);
+            initialArgumentIssueRanges.push(issueEnd > issueStart ? new IssueRange(issueStart, issueEnd) : null);
           }
         }
         const overloadArgumentTypes = this.preserveCallLiteralArgumentTypes(call.args, argumentTypes);
@@ -2719,8 +2729,13 @@ export class TypeChecker {
         if (calledClass) {
           const explicitTypeArguments = this.resolveTypeArguments(call.typeArguments ?? [], scope);
           if (this.validateTypes) {
+            let typeParameterCount = 0.0;
+            if (calledClass.typeParameters) {
+              const typeParameters: TypeParameter[] = calledClass.typeParameters;
+              typeParameterCount = typeParameters.length;
+            }
             this.validateExplicitTypeArgumentArity(
-              calledClass.typeParameters?.length ?? 0,
+              typeParameterCount,
               explicitTypeArguments.length,
               call.callee
             );
@@ -3488,7 +3503,7 @@ export class TypeChecker {
     leftType: AnalysisType,
     rightType: AnalysisType,
     scope: Scope
-  ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
+  ): ResolvedOperatorOverload | null {
     return this.resolveOperatorOverloadForArguments(operator, leftType, [rightType], scope);
   }
 
@@ -3497,7 +3512,7 @@ export class TypeChecker {
     leftType: AnalysisType,
     argumentTypes: AnalysisType[],
     scope: Scope
-  ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
+  ): ResolvedOperatorOverload | null {
     if (leftType.kind === "named") {
       const classStatement = this.classStatementsByName.get(leftType.name);
       const classSubstitutions = classStatement
@@ -3511,12 +3526,12 @@ export class TypeChecker {
         if (method.operator !== operator || !this.operatorParametersMatch(method.parameters, argumentTypes, scope, classSubstitutions)) {
           continue;
         }
-        return {
-          type: method.returnType
+        return new ResolvedOperatorOverload(
+          method.returnType
             ? this.resolveOperatorTypeAnnotation(method.returnType, scope, classSubstitutions) ?? UNKNOWN_TYPE
             : namedType(leftType.name),
-          symbol: this.createMethodSymbol(method)
-        };
+          this.createMethodSymbol(method)
+        );
       }
     }
     for (const receiverName of this.extensionReceiverNames(leftType)) {
@@ -3524,12 +3539,12 @@ export class TypeChecker {
         if (extension.operator !== operator || !this.operatorParametersMatch(extension.parameters, argumentTypes, scope)) {
           continue;
         }
-        return {
-          type: extension.returnType
+        return new ResolvedOperatorOverload(
+          extension.returnType
             ? this.resolveTypeAnnotation(extension.returnType, scope) ?? UNKNOWN_TYPE
             : leftType,
-          symbol: this.createFunctionSymbol(extension)
-        };
+          this.createFunctionSymbol(extension)
+        );
       }
     }
     return null;
@@ -3539,7 +3554,7 @@ export class TypeChecker {
     left: Expr,
     valueType: AnalysisType,
     scope: Scope
-  ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
+  ): ResolvedOperatorOverload | null {
     if (left.kind !== NodeKind.MemberExpression) {
       return null;
     }
@@ -3626,7 +3641,7 @@ export class TypeChecker {
     operator: "+" | "-",
     argumentType: AnalysisType,
     scope: Scope
-  ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
+  ): ResolvedOperatorOverload | null {
     if (argumentType.kind !== "named") {
       return null;
     }
@@ -3637,22 +3652,22 @@ export class TypeChecker {
       }
       const method = member as ClassMethodMember;
       if (method.operator === operator && method.parameters.length === 0) {
-        return {
-          type: method.returnType
+        return new ResolvedOperatorOverload(
+          method.returnType
             ? this.resolveTypeAnnotation(method.returnType, scope) ?? UNKNOWN_TYPE
             : namedType(argumentType.name),
-          symbol: this.createMethodSymbol(method)
-        };
+          this.createMethodSymbol(method)
+        );
       }
     }
     for (const extension of this.extensionOperatorsByReceiver.get(argumentType.name) ?? []) {
       if (extension.operator === operator && extension.parameters.length === 0) {
-        return {
-          type: extension.returnType
+        return new ResolvedOperatorOverload(
+          extension.returnType
             ? this.resolveTypeAnnotation(extension.returnType, scope) ?? UNKNOWN_TYPE
             : namedType(argumentType.name),
-          symbol: this.createFunctionSymbol(extension)
-        };
+          this.createFunctionSymbol(extension)
+        );
       }
     }
     return null;
@@ -3769,7 +3784,7 @@ export class TypeChecker {
     leftType: AnalysisType,
     rightType: AnalysisType,
     scope: Scope
-  ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
+  ): ResolvedOperatorOverload | null {
     if (!["<", "<=", ">", ">=", "==", "!="].includes(operator)) {
       return null;
     }
@@ -5974,7 +5989,7 @@ export class TypeChecker {
     if (!substitutions) {
       return true;
     }
-    return this.withTypeParametersResult(typeParameters, () => {
+    return this.withTypeParametersResult<boolean>(typeParameters, () => {
       for (const typeParameter of typeParameters) {
         const constraint = constraints[typeParameter];
         const typeArgument = substitutions.get(typeParameter);
@@ -6244,7 +6259,7 @@ export class TypeChecker {
 
       const methodTypeParameterNames = typeParameterNameList(methodMember.typeParameters ?? []);
       const availableTypeParameterNames: string[] = [...substitutions.keys(), ...methodTypeParameterNames];
-      const methodType = this.withTypeParametersResult(methodTypeParameterNames, (): FunctionType => {
+      const methodType = this.withTypeParametersResult<FunctionType>(methodTypeParameterNames, (): FunctionType => {
         const methodParameters: FunctionTypeParameter[] = [];
         for (const parameter of methodMember.parameters) {
           if (parameter.thisParameter === true) continue;
@@ -6842,7 +6857,7 @@ export class TypeChecker {
       constructorType = this.substituteTypeParameters(constructorType, substitutions) as FunctionType;
     }
 
-    let argumentTypes = this.withTypeParametersResult(typeParameterNames, () =>
+    let argumentTypes = this.withTypeParametersResult(typeParameterNames, (): AnalysisType[] =>
       this.visitConstructorArgumentsWithContext(newExpression, scope, constructorType)
     );
 
@@ -6892,7 +6907,7 @@ export class TypeChecker {
 
   private constructorFunctionType(classStatement: ClassStatement, scope: Scope): FunctionType {
     const typeParameterNames = typeParameterNameList(classStatement.typeParameters ?? []);
-    return this.withTypeParametersResult(typeParameterNames, (): FunctionType => {
+    return this.withTypeParametersResult<FunctionType>(typeParameterNames, (): FunctionType => {
       const constructorMember = classStatement.members.find(
         (member): member is ClassMethodMember => member.kind === NodeKind.ClassMethodMember && member.name.name === "constructor"
       );
@@ -6992,7 +7007,7 @@ export class TypeChecker {
         ["T"]
       );
     }
-    return this.withTypeParametersResult(typeParameterNames, (): FunctionType => {
+    return this.withTypeParametersResult<FunctionType>(typeParameterNames, (): FunctionType => {
       return functionType(
         constructorMember.parameters.map((parameter) => ({
           name: bindingNameText(parameter.name),
@@ -11721,21 +11736,21 @@ export class TypeChecker {
         const symbolType = classScope ? classScope.symbols.get(methodMember.name.name)?.type : undefined;
         const methodTypeParameterNames = typeParameterNameList(methodMember.typeParameters ?? []);
         const availableTypeParameterNames: string[] = [...substitutions.keys(), ...methodTypeParameterNames];
-        let rawReturnType = this.withTypeParametersResult(methodTypeParameterNames, () =>
+        let rawReturnType = this.withTypeParametersResult(methodTypeParameterNames, (): AnalysisType =>
           this.typeFromAnnotationLooseWithTypeParameters(
             methodMember.returnType,
             availableTypeParameterNames,
             classStatement.name.name
-          )
+          ) ?? UNKNOWN_TYPE
         );
-        if (!rawReturnType && symbolType) {
+        if (!methodMember.returnType && symbolType) {
           rawReturnType = classMember.accessorKind === "get" || classMember.getterShorthand === true
             ? symbolType
             : symbolType.kind === "function"
               ? symbolType.returnType
-              : undefined;
+              : UNKNOWN_TYPE;
         }
-        rawReturnType ??= builtinType("void");
+        if (!methodMember.returnType && !symbolType) rawReturnType = builtinType("void");
         const returnType = isAsyncLike(methodMember.async, methodMember.sync) && !this.getAsyncReturnValueType(rawReturnType)
           ? namedType("Promise", [rawReturnType])
           : rawReturnType;
@@ -11744,7 +11759,7 @@ export class TypeChecker {
           continue;
         }
         if (methodMember.accessorKind === "set") {
-          const parameterType = this.withTypeParametersResult(methodTypeParameterNames, () =>
+          const parameterType = this.withTypeParametersResult(methodTypeParameterNames, (): AnalysisType =>
             this.typeFromAnnotationLooseWithTypeParameters(
               methodMember.parameters[0]?.typeAnnotation,
               availableTypeParameterNames,
@@ -13221,7 +13236,7 @@ export class TypeChecker {
           return this.expandTypeAliases(conditionalTarget);
         }
         const typeParameterNames = typeParameterNameList(typeAlias.typeParameters ?? []);
-        const targetType = this.withTypeParametersResult(typeParameterNames, () =>
+        const targetType = this.withTypeParametersResult(typeParameterNames, (): AnalysisType =>
           this.typeFromTypeNameLooseWithTypeParameters(
             typeAlias.targetType.name,
             new Set(typeParameterNames)

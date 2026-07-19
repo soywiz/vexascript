@@ -1528,7 +1528,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
                 break;
               }
             }
-            const resolvedName = available ? runtimeExtensionMethodName(available) : undefined;
+            const resolvedName: string | undefined = available ? runtimeExtensionMethodName(available) : undefined;
             if (resolvedName) {
               const thisReceiver = activeExtensionThis ? "$this" : "this";
               const callArguments = [thisReceiver, ...emitCallArgumentTexts(call.callee, call.args)];
@@ -3124,7 +3124,7 @@ export function emitProgramStatements(
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map(),
   asyncForStatements: ReadonlySet<Node> = new Set()
 ): string[] {
-  return emitProgramStatementPairs(
+  const pairs = emitProgramStatementPairs(
     program,
     expressionTypes,
     contextProgram,
@@ -3134,9 +3134,12 @@ export function emitProgramStatements(
     staticImplicitReceiverIdentifiers,
     new Map(),
     asyncForStatements
-  )
-    .map(({ emitted }) => emitted)
-    .filter((statement: string) => statement.trim() !== "");
+  );
+  const statements: string[] = [];
+  for (const pair of pairs) {
+    if (pair.emitted.trim() !== "") statements.push(pair.emitted);
+  }
+  return statements;
 }
 
 export function emitProgramStatementPairs(

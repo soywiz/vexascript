@@ -280,7 +280,7 @@ function createSourceMap(
   const outputFileName = basename(options.outputFilePath ?? "output.js");
 
   const map: SourceMapV3 = {
-    version: 3,
+    version: 3.0,
     file: outputFileName,
     sources: [sourceFileName],
     sourcesContent: [source],

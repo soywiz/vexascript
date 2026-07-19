@@ -132,3 +132,28 @@ checked comparison fell from 419 real diff hunks to 45 context hunks. The
 latest Node generation took 6.43 seconds, native `-O1` compilation took 112.70
 seconds, and the native checked generation took 35.55 seconds. Exact output
 parity and the second byte-identical native roundtrip remain pending.
+
+## A generated file is not a successful roundtrip until C++ compiles
+
+The first parity-reduction candidate generated successfully under both hosts
+but was not valid C++. An explicit generic argument of `AnalysisType |
+undefined` was emitted literally as a C++ template type, and a nullable
+`Expr` constructor argument emitted `Value::null()` where the nominal C++
+constructor required `Expr*`. Generation-only comparisons did not catch
+either failure.
+
+The scoped callbacks now infer the `AnalysisType` union result instead of
+forcing a source alias into a C++ template argument. `NativePropertyMember`
+became a nominal class whose receiver is always a real expression, with an
+explicit `implicitReceiver` flag instead of a nullable receiver. This keeps
+the constructor statically callable and avoids using null as an out-of-band
+receiver marker.
+
+After rebuilding from the Node-generated translation unit, two complete
+native compiler generations completed in 31.26 and 31.37 seconds. Their
+7,855,681-byte outputs were byte-identical with SHA-256
+`db3241e7629da3c23891e458cd83f2f3e17b708c067e3f663364a1ee369488ff`.
+The Node-hosted output still differs from the native fixed point in 19 context
+hunks, concentrated in nullable array access, string-concatenation lowering,
+project object construction, and one profiling callback. Exact cross-host
+parity remains separate from the now-proven native-to-native fixed point.

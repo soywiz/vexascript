@@ -262,10 +262,9 @@ function withCppTypeParameters<T>(
   if (!typeParameters?.length) return emit();
   const previous = activeCppTypeParameters;
   const previousCacheKey = activeCppTypeParameterCacheKey;
-  activeCppTypeParameters = new Set([
-    ...activeCppTypeParameters,
-    ...typeParameters.map((parameter) => parameter.name.name),
-  ]);
+  const nextTypeParameters = new Set<string>(activeCppTypeParameters);
+  for (const parameter of typeParameters) nextTypeParameters.add(parameter.name.name);
+  activeCppTypeParameters = nextTypeParameters;
   activeCppTypeParameterCacheKey = [...activeCppTypeParameters].sort().join("\u001f");
   try {
     return emit();
@@ -273,6 +272,13 @@ function withCppTypeParameters<T>(
     activeCppTypeParameters = previous;
     activeCppTypeParameterCacheKey = previousCacheKey;
   }
+}
+
+function copyStringSetWithValues(base: ReadonlySet<string>, values: readonly string[]): Set<string> {
+  const result = new Set<string>();
+  for (const value of base) result.add(value);
+  for (const value of values) result.add(value);
+  return result;
 }
 
 function substituteTypeName(typeName: string, bindings: ReadonlyMap<string, string>): string {
@@ -842,8 +848,8 @@ function currentClassPropertyCppType(propertyName: string): string | null {
   activeClassPropertyCppTypes.set(cacheKey, null);
   const currentClass = activeCurrentClassStatement ?? activeClassStatements.get(activeCurrentClassName);
   const storedProperty = currentClass ? classStoredPropertyInfo(currentClass, propertyName) : null;
-  const fieldType = storedProperty ? storedProperty.valueType : null;
-  if (fieldType) {
+  const fieldType: string | null = storedProperty ? storedProperty.valueType : null;
+  if (fieldType !== null) {
     activeClassPropertyCppTypes.set(cacheKey, fieldType);
     return fieldType;
   }
@@ -1436,7 +1442,9 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
         callableParameters.push(emittedCallableParameterCppType(parameter, false) ?? "vexa::Value");
       }
     }
-    const templateArguments = [callableResult, ...callableParameters].join(", ");
+    const templateArgumentParts: string[] = [callableResult];
+    templateArgumentParts.push(...callableParameters);
+    const templateArguments = templateArgumentParts.join(", ");
     const captureNames = nativeFunctionCaptureNames(expression);
     const roots = nativeLambdaRootValues(captureNames);
     const previousFunctionObjectCapture = activeFunctionObjectCapture;
@@ -2043,7 +2051,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
       ? interfacePropertyCppType(interfaceProperty)
       : null;
     if (member.optional || isOptionalChainExpression(member.object)) {
-      const valueType = interfacePropertyType ??
+      const valueType: string = interfacePropertyType ??
         classStoredPropertyInfoForMember(member)?.valueType ??
         resolvedNativePropertyMember(member)?.valueType ??
         cppTypeForExpression(expression);
@@ -2712,15 +2720,18 @@ function classStoredPropertyInfoForMember(member: MemberExpression): ClassStored
   const className = classNameForExpression(member.object);
   const statement = className ? activeClassStatements.get(className) : undefined;
   const info = statement ? classStoredPropertyInfo(statement, (member.property as Identifier).name) : null;
-  if (!info?.typeName || !statement?.typeParameters?.length) return info;
+  if (!info?.typeName || !statement) return info;
+  if (!statement.typeParameters?.length) return info;
+  const typeParameters: TypeParameter[] = statement.typeParameters;
   const receiverTypeName = declaredTypeNameForExpression(member.object);
   if (!receiverTypeName) return info;
   const receiverShape = parseTypeNameShape(receiverTypeName);
   const bindings = new Map<string, string>();
-  statement.typeParameters.forEach((parameter, index) => {
+  for (let index = 0; index < typeParameters.length; index += 1) {
+    const parameter = typeParameters[index]!;
     const argument = receiverShape.typeArguments[index] ?? parameter.defaultType?.name;
     if (argument) bindings.set(parameter.name.name, argument);
-  });
+  }
   if (bindings.size === 0) return info;
   const typeName = substituteTypeName(info.typeName, bindings);
   return {
@@ -2919,15 +2930,18 @@ function interfacePropertyForMember(member: MemberParts): InterfacePropertyMembe
   return statement ? interfacePropertyForName(statement, member.propertyName) : null;
 }
 
-interface NativePropertyMember {
-  kind: "method" | "record" | "dynamic" | "extension";
-  expression: Expr;
-  receiver: Expr | null;
-  propertyName: string;
-  getterName: string | null;
-  setterName: string | null;
-  valueType: string | null;
-  keyExpression?: Expr;
+class NativePropertyMember {
+  constructor(
+    public kind: "method" | "record" | "dynamic" | "extension",
+    public expression: Expr,
+    public receiver: Expr,
+    public implicitReceiver: boolean,
+    public propertyName: string,
+    public getterName: string | null,
+    public setterName: string | null,
+    public valueType: string | null,
+    public keyExpression?: Expr
+  ) {}
 }
 
 function dynamicStructuralCastSource(expression: Expr): Expr | null {
@@ -2955,15 +2969,18 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
       (setter?.parameters[0]?.typeAnnotation
         ? cppTypeForDeclaredName(setter.parameters[0].typeAnnotation.name)
         : null);
-    return getter || setter ? {
-      kind: "method",
-      expression,
-      receiver: null,
-      propertyName,
-      getterName: getter ? cppName(propertyName) : null,
-      setterName: setter ? cppName(propertyName) : null,
-      valueType,
-    } : null;
+    return getter || setter
+      ? new NativePropertyMember(
+          "method",
+          expression,
+          expression,
+          true,
+          propertyName,
+          getter ? cppName(propertyName) : null,
+          setter ? cppName(propertyName) : null,
+          valueType
+        )
+      : null;
   }
   if (expression.kind !== NodeKind.MemberExpression) return null;
   const member = expression as MemberExpression;
@@ -2976,15 +2993,16 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
       if (accessor.accessorKind === "get") getter = true;
       if (accessor.accessorKind === "set") setter = true;
     }
-    return {
-      kind: "extension",
+    return new NativePropertyMember(
+      "extension",
       expression,
-      receiver: member.object,
-      propertyName: (declaration.name as Identifier).name,
-      getterName: getter ? extensionPropertyCppName(declaration) : null,
-      setterName: setter ? extensionPropertyCppName(declaration, true) : null,
-      valueType: declaration.typeAnnotation ? cppTypeForDeclaredName(declaration.typeAnnotation.name) : null,
-    };
+      member.object,
+      false,
+      (declaration.name as Identifier).name,
+      getter ? extensionPropertyCppName(declaration) : null,
+      setter ? extensionPropertyCppName(declaration, true) : null,
+      declaration.typeAnnotation ? cppTypeForDeclaredName(declaration.typeAnnotation.name) : null
+    );
   }
   const propertyName = !member.computed ? identifierName(member.property) : null;
   if (propertyName) {
@@ -2997,75 +3015,80 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
         if (accessor.accessorKind === "get") getter = true;
         if (accessor.accessorKind === "set") setter = true;
       }
-      return {
-        kind: "extension",
+      return new NativePropertyMember(
+        "extension",
         expression,
-        receiver: member.object,
+        member.object,
+        false,
         propertyName,
-        getterName: getter ? extensionPropertyCppName(declaration) : null,
-        setterName: setter ? extensionPropertyCppName(declaration, true) : null,
-        valueType: declaration.typeAnnotation ? cppTypeForDeclaredName(declaration.typeAnnotation.name) : null,
-      };
+        getter ? extensionPropertyCppName(declaration) : null,
+        setter ? extensionPropertyCppName(declaration, true) : null,
+        declaration.typeAnnotation ? cppTypeForDeclaredName(declaration.typeAnnotation.name) : null
+      );
     }
   }
   const structuralSource = dynamicStructuralCastSource(member.object);
   if (structuralSource) {
     if (!member.computed && !propertyName) return null;
-    return {
-      kind: "dynamic",
+    return new NativePropertyMember(
+      "dynamic",
       expression,
-      receiver: structuralSource,
-      propertyName: propertyName ?? "<computed>",
-      getterName: propertyName ?? "<computed>",
-      setterName: propertyName ?? "<computed>",
-      valueType: null,
-      ...(member.computed ? { keyExpression: member.property } : {}),
-    };
+      structuralSource,
+      false,
+      propertyName ?? "<computed>",
+      propertyName ?? "<computed>",
+      propertyName ?? "<computed>",
+      null,
+      member.computed ? member.property : undefined
+    );
   }
   if (emittedCppTypeForExpression(member.object) === "vexa::Value") {
     if (!member.computed && !propertyName) return null;
-    return {
-      kind: "dynamic",
+    return new NativePropertyMember(
+      "dynamic",
       expression,
-      receiver: member.object,
-      propertyName: propertyName ?? "<computed>",
-      getterName: propertyName ?? "<computed>",
-      setterName: propertyName ?? "<computed>",
-      valueType: null,
-      ...(member.computed ? { keyExpression: member.property } : {}),
-    };
+      member.object,
+      false,
+      propertyName ?? "<computed>",
+      propertyName ?? "<computed>",
+      propertyName ?? "<computed>",
+      null,
+      member.computed ? member.property : undefined
+    );
   }
   if (activeExpressionTypes.get(member.object as Node)?.kind === "object" ||
     cppTypeForExpression(member.object) === "vexa::RecordObject*" ||
     emittedCppTypeForExpression(member.object) === "vexa::RecordObject*") {
     if (!member.computed && !propertyName) return null;
-    return {
-      kind: "record",
+    return new NativePropertyMember(
+      "record",
       expression,
-      receiver: member.object,
-      propertyName: propertyName ?? "<computed>",
-      getterName: propertyName ?? "<computed>",
-      setterName: propertyName ?? "<computed>",
-      valueType: declaredTypeNameForExpression(expression)
+      member.object,
+      false,
+      propertyName ?? "<computed>",
+      propertyName ?? "<computed>",
+      propertyName ?? "<computed>",
+      declaredTypeNameForExpression(expression)
         ? cppTypeForDeclaredName(declaredTypeNameForExpression(expression)!)
         : null,
-      ...(member.computed ? { keyExpression: member.property } : {}),
-    };
+      member.computed ? member.property : undefined
+    );
   }
   if (!propertyName) return null;
   const interfaceProperty = interfacePropertyForMember(createMemberParts(member.object, propertyName));
   if (interfaceProperty) {
-    return {
-      kind: "method",
+    return new NativePropertyMember(
+      "method",
       expression,
-      receiver: member.object,
+      member.object,
+      false,
       propertyName,
-      getterName: interfacePropertyGetterName(propertyName),
-      setterName: isMutableInterfaceProperty(interfaceProperty)
+      interfacePropertyGetterName(propertyName),
+      isMutableInterfaceProperty(interfaceProperty)
         ? interfacePropertySetterName(propertyName)
         : null,
-      valueType: interfacePropertyCppType(interfaceProperty),
-    };
+      interfacePropertyCppType(interfaceProperty)
+    );
   }
   const className = classNameForExpression(member.object);
   const statement = className ? activeClassStatements.get(className) : undefined;
@@ -3078,15 +3101,18 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
     (setter?.parameters[0]?.typeAnnotation
       ? cppTypeForDeclaredName(setter.parameters[0].typeAnnotation.name)
       : null);
-  return getter || setter ? {
-    kind: "method",
-    expression,
-    receiver: member.object,
-    propertyName,
-    getterName: getter ? cppName(propertyName) : null,
-    setterName: setter ? cppName(propertyName) : null,
-    valueType,
-  } : null;
+  return getter || setter
+    ? new NativePropertyMember(
+        "method",
+        expression,
+        member.object,
+        false,
+        propertyName,
+        getter ? cppName(propertyName) : null,
+        setter ? cppName(propertyName) : null,
+        valueType
+      )
+    : null;
 }
 
 function emitNativePropertyKey(property: NativePropertyMember): string {
@@ -3186,7 +3212,7 @@ function emitPropertyAssignment(
   if (!property.setterName) {
     throw new CppEmitError(`C++ cannot assign to read-only property '${property.propertyName}'`);
   }
-  const receiver = property.receiver ? emitExpression(property.receiver) : activeThisExpression;
+  const receiver = property.implicitReceiver ? activeThisExpression : emitExpression(property.receiver);
   const keyDeclaration = (property.kind === "record" || property.kind === "dynamic") && property.keyExpression
     ? ` auto __vexa_property_key = ${emitNativePropertyKey(property)};`
     : "";
@@ -3194,7 +3220,7 @@ function emitPropertyAssignment(
     ? "__vexa_property_key"
     : undefined;
   if (assignment.operator === "=") {
-    const interfaceProperty = property.receiver
+    const interfaceProperty = !property.implicitReceiver
       ? interfacePropertyForMember(createMemberParts(property.receiver, property.propertyName))
       : null;
     const expectedType = interfaceProperty ? interfacePropertyCppType(interfaceProperty) : null;
@@ -3239,7 +3265,7 @@ function emitPropertyUpdate(
   }
   const delta = update.operator === "++" ? "+" : "-";
   const returned = update.prefix ? "__vexa_property_value" : "__vexa_property_current";
-  const receiver = property.receiver ? emitExpression(property.receiver) : activeThisExpression;
+  const receiver = property.implicitReceiver ? activeThisExpression : emitExpression(property.receiver);
   const keyDeclaration = (property.kind === "record" || property.kind === "dynamic") && property.keyExpression
     ? ` auto __vexa_property_key = ${emitNativePropertyKey(property)};`
     : "";
@@ -3594,7 +3620,7 @@ function emitNativeLambda(
   const previousFinallyProtectedDepth = activeFinallyProtectedDepth;
   const previousBreakBoundaries = activeBreakBoundaries;
   const previousContinueBoundaries = activeContinueBoundaries;
-  activeLocalNames = new Set([...activeLocalNames, ...parameters.names]);
+  activeLocalNames = copyStringSetWithValues(activeLocalNames, parameters.names);
   activeLocalCppTypes = new Map(activeLocalCppTypes);
   activeGcObjectTypes = new Map([...activeGcObjectTypes, ...parameters.gcTypes]);
   activeGcArrayTypes = new Map([...activeGcArrayTypes, ...parameters.gcArrayTypes]);
@@ -3705,7 +3731,7 @@ function emitAsyncNativeLambda(
   const previousFinallyProtectedDepth = activeFinallyProtectedDepth;
   const previousBreakBoundaries = activeBreakBoundaries;
   const previousContinueBoundaries = activeContinueBoundaries;
-  activeLocalNames = new Set([...activeLocalNames, ...parameters.names]);
+  activeLocalNames = copyStringSetWithValues(activeLocalNames, parameters.names);
   activeLocalCppTypes = new Map(activeLocalCppTypes);
   activeGcObjectTypes = new Map([...activeGcObjectTypes, ...parameters.gcTypes]);
   activeGcArrayTypes = new Map([...activeGcArrayTypes, ...parameters.gcArrayTypes]);
@@ -3909,7 +3935,7 @@ function emitPromiseCall(call: CallExpression): string {
   const parameterNames = executor.parameters.map((parameter) => (parameter.name as Identifier).name);
   const previousLocalNames = activeLocalNames;
   const previousThisExpression = activeThisExpression;
-  activeLocalNames = new Set([...activeLocalNames, ...parameterNames]);
+  activeLocalNames = copyStringSetWithValues(activeLocalNames, parameterNames);
   try {
     const capture = nativeLambdaCapture("__vexa_promise_self", true);
     activeThisExpression = capture.thisExpression;
@@ -4681,7 +4707,7 @@ function emitCall(call: CallExpression): string {
         const baseName = currentClass?.extendsType
           ? parseTypeNameShape(currentClass.extendsType.name).baseName
           : null;
-        if (!baseName) throw new CppEmitError("C++ super method call requires a generated base class");
+        if (baseName === null) throw new CppEmitError("C++ super method call requires a generated base class");
         return `${cppName(baseName)}::${cppName(method.name.name)}${methodTemplateArguments}(${withRuntimeArgument(methodArguments)})`;
       }
       if (call.typeArguments?.length) {
@@ -4824,13 +4850,21 @@ function emitCall(call: CallExpression): string {
     const bindings = methodTemplateBindings(call, functionStatement);
     const functionArguments = emitArguments(call.args, functionStatement.parameters, bindings);
     const explicitTemplateArguments = cppCallTemplateArguments(call);
-    const inferredTemplateArguments = functionStatement.typeParameters?.length &&
-      functionStatement.typeParameters.every((parameter) => bindings.has(parameter.name.name))
-      ? `<${functionStatement.typeParameters.map((parameter) => {
-          const binding = bindings.get(parameter.name.name)!;
-          return cppTypeForDeclaredName(binding) ?? binding;
-        }).join(", ")}>`
-      : "";
+    let inferredTemplateArguments = "";
+    if (functionStatement.typeParameters?.length) {
+      const typeParameters: TypeParameter[] = functionStatement.typeParameters;
+      const templateArgumentTypes: string[] = [];
+      let hasEveryBinding = true;
+      for (const parameter of typeParameters) {
+        const binding = bindings.get(parameter.name.name);
+        if (binding === undefined) {
+          hasEveryBinding = false;
+          break;
+        }
+        templateArgumentTypes.push(cppTypeForDeclaredName(binding) ?? binding);
+      }
+      if (hasEveryBinding) inferredTemplateArguments = `<${templateArgumentTypes.join(", ")}>`;
+    }
     return `${cppName(calleeName)}${explicitTemplateArguments || inferredTemplateArguments}(${withRuntimeArgument(functionArguments)})`;
   }
   if (calleeName && activeClassNames.has(calleeName)) {
@@ -5549,7 +5583,7 @@ function emitExpression(expression: Expr): string {
         const expectedElementType = activeExpectedExpressionCppType
           ? managedArrayElementType(activeExpectedExpressionCppType)
           : null;
-        const elementType = explicitElementType ?? expectedElementType ?? "vexa::Value";
+        const elementType: string = explicitElementType ?? expectedElementType ?? "vexa::Value";
         if (args.length === 0) return `${activeRuntimeName}.array<${elementType}>()`;
         if (args.length === 1) {
           return `vexa::arrayWithLength<${elementType}>(${activeRuntimeName}, ${emitExpression(args[0] as Expr)})`;
@@ -6009,7 +6043,7 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
       );
     }
   }
-  const type = forInitializer
+  const type: string = forInitializer
     ? cppTypeForExpression(statement.initializer)
     : declaredCppType ?? "auto";
   const emittedInitializer = declaredTypeName && activeInterfaceNames.has(parseTypeNameShape(declaredTypeName).baseName) && isRecordExpression(statement.initializer)
@@ -6124,8 +6158,12 @@ function emitStatementPreamble(statement: Statement, indent: string): string[] {
   const statementSourcePath = statement.__vexaNativeSourcePath;
   const sourcePath = typeof statementSourcePath === "string" ? statementSourcePath : activeSourceFilePath;
   const file = sourcePath ? cppString(sourcePath) : '""';
-  const line = position ? position.line + 1 : 0;
-  const column = position ? position.column + 1 : 0;
+  let line = 0.0;
+  let column = 0.0;
+  if (position) {
+    line = position.line + 1.0;
+    column = position.column + 1.0;
+  }
   return [`${indent}VEXA_NATIVE_SOURCE(${activeRuntimeName}, ${file}, ${line}, ${column});`];
 }
 
@@ -6295,7 +6333,8 @@ function appendSwitchCases(
 function emitSwitchBody(statement: SwitchStatement, indent: string): string {
   const discriminantType = activeExpressionTypes.get(statement.discriminant as Node);
   const mappedType = discriminantType ? cppTypeForAnalysisType(discriminantType) : null;
-  if (new Set(["std::int32_t", "std::int64_t", "bool"]).has(mappedType ?? "")) {
+  const switchType: string = mappedType ?? "";
+  if (new Set(["std::int32_t", "std::int64_t", "bool"]).has(switchType)) {
     const lines = [`${indent}switch (${emitExpression(statement.discriminant)}) {`];
     appendSwitchCases(lines, statement, indent, (index) => {
       const switchCase = statement.cases[index]!;
@@ -7053,7 +7092,7 @@ function emitFunction(statement: FunctionStatement): string {
     : null;
   const valueResultType = generatorInfo?.resultType ?? asyncResultType ??
     callableReturnType(statement.returnType, statement.body, statement, statement.name, producesTask);
-  const callableResultType = producesTask && !asyncResultType
+  const callableResultType = producesTask && asyncResultType === null
     ? `vexa::Task<${valueResultType}>`
     : valueResultType;
   return withCallableContext<string>(
@@ -7074,7 +7113,7 @@ function emitFunction(statement: FunctionStatement): string {
       try {
       const body = generatorInfo
         ? emitGeneratorCallableBlock(statement.body, "  ", generatorInfo.resultType)
-        : asyncResultType
+        : asyncResultType !== null
           ? emitAsyncCallableBlock(statement.body, "  ", asyncResultType)
           : emitBlock(statement.body, "  ");
       return `${cppTemplatePrefix(statement.typeParameters)}${signature} ${emitCallableReturnBoundary(body, "", callableResultType, Boolean(generatorInfo || asyncResultType))}`;
@@ -7697,7 +7736,7 @@ function emitClassMethodWithActiveTypeParameters(
   const virtual = activeDerivedClassNames.has(statement.name.name) && !method.isStatic ? "virtual " : "";
   const valueResultType = generatorInfo?.resultType ?? asyncResultType ??
     callableReturnType(method.returnType, method.body, statement, method.name, producesTask);
-  const callableResultType = producesTask && !asyncResultType
+  const callableResultType = producesTask && asyncResultType === null
     ? `vexa::Task<${valueResultType}>`
     : valueResultType;
   return withCallableContext<string>(
@@ -7711,7 +7750,7 @@ function emitClassMethodWithActiveTypeParameters(
     () => {
       const body = generatorInfo
         ? emitGeneratorCallableBlock(method.body, "    ", generatorInfo.resultType)
-        : asyncResultType
+        : asyncResultType !== null
           ? emitAsyncCallableBlock(method.body, "    ", asyncResultType)
           : emitBlock(method.body, "    ");
       return `${cppTemplatePrefix(method.typeParameters, "  ", true)}  ${method.isStatic ? "static " : virtual}${signature}${override} ${emitCallableReturnBoundary(body, "  ", callableResultType, Boolean(generatorInfo || asyncResultType))}`;
@@ -8816,20 +8855,26 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
     entryStatements.push(emitted);
   }
 
-  return [
+  const outputLines: string[] = [
     "// Generated by VexaScript. Compile through `vexa build <file> --emit cpp --native`.",
     '#include "runtime.cpp"',
-    "",
-    ...declarations,
-    declarations.length > 0 ? "" : null,
+    ""
+  ];
+  outputLines.push(...declarations);
+  if (declarations.length > 0) outputLines.push("");
+  outputLines.push(
     "int main(int argc, char** argv) {",
     "  vexa::Runtime runtime;",
-    `  runtime.reserveLiterals(${activeStringLiteralNames.size});`,
-    ...stringLiteralInitializers,
+    `  runtime.reserveLiterals(${activeStringLiteralNames.size});`
+  );
+  outputLines.push(...stringLiteralInitializers);
+  outputLines.push(
     "  vexa::Process process(runtime, argc, argv);",
     "  vexa::process = &process;",
-    "  try {",
-    ...entryStatements,
+    "  try {"
+  );
+  outputLines.push(...entryStatements);
+  outputLines.push(
     "    runtime.runEventLoop();",
     "  } catch (const std::exception& error) {",
     '    std::cerr << "Uncaught " << error.what();',
@@ -8840,6 +8885,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
     "  }",
     "  return static_cast<int>(process.exitCode);",
     "}",
-    "",
-  ].filter((line): line is string => line !== null).join("\n");
+    ""
+  );
+  return outputLines.join("\n");
 }

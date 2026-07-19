@@ -64,9 +64,11 @@ development loop.
   traversal-order cascades and exposed 419 real diff hunks. Returning values
   explicitly from scoped callbacks fixed native loss of generic method
   signatures and function-expression types; making embedded-NUL literals
-  length-aware fixed another host divergence. The current comparison has 45
-  context diff hunks. Node emits the checked translation unit in 6.43 seconds;
-  the `-O1` native compiler emits it in 35.55 seconds.
+  length-aware fixed another host divergence. Nominal operator resolutions,
+  nominal native-property metadata, and source-side typed loops reduced the
+  current comparison to 19 context diff hunks. Node emits the checked
+  translation unit in about 6.4 seconds; the `-O1` native compiler emits it in
+  about 31.3 seconds.
 * [x] Introduce the JavaScript/TypeScript side of a complete nominal AST
   migration: concrete AST node classes with typed positional constructors, a
   shared metadata base, numeric `const enum` discriminators, and native
@@ -119,7 +121,10 @@ development loop.
 * [ ] Any nominal AST migration outperforms the structural AST under both Node
   and native execution and does not add a structural compatibility path.
 * [ ] Progressive fixtures and the full compiler use the same native pipeline.
-* [ ] At least two complete native compiler roundtrips remain output-equivalent.
+* [x] At least two complete native compiler roundtrips remain output-equivalent.
+  On 2026-07-19 the first and second native hosts emitted byte-identical
+  7,855,681-byte translation units with SHA-256
+  `db3241e7629da3c23891e458cd83f2f3e17b708c067e3f663364a1ee369488ff`.
 * [ ] A Node-hosted generation and both native generations are byte-identical,
   including deterministic string-pool numbering.
 
@@ -129,7 +134,9 @@ development loop.
   The semantic collections fixture verifies checked `Array.push` and `Map.get`
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
-* [ ] Run two complete native compiler roundtrips.
+* [x] Run two complete native compiler roundtrips. Checked generation took
+  31.26 and 31.37 seconds respectively, and both generated translation units
+  compiled successfully at `-O1`.
 * [x] Run `pnpm test` (2306 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 

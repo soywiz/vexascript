@@ -524,7 +524,8 @@ export function parseMappedTypeMemberText(typeName: string): MappedTypeMemberTex
   const readonlyMatch = /^([+-]?readonly)\s+/.exec(rest);
   if (readonlyMatch?.[1]) {
     readonlyModifier = readonlyMatch[1] as MappedTypeMemberText["readonlyModifier"];
-    rest = rest.slice(readonlyMatch[0].length).trimStart();
+    const readonlyPrefix: string = readonlyMatch[0];
+    rest = rest.slice(readonlyPrefix.length).trimStart();
   }
 
   if (!rest.startsWith("[")) {
@@ -541,7 +542,8 @@ export function parseMappedTypeMemberText(typeName: string): MappedTypeMemberTex
   const optionalMatch = /^([+-]?\?)/.exec(rest);
   const optionalModifier = optionalMatch?.[1] as MappedTypeMemberText["optionalModifier"] | undefined;
   if (optionalMatch) {
-    rest = rest.slice(optionalMatch[0].length).trimStart();
+    const optionalPrefix: string = optionalMatch[0];
+    rest = rest.slice(optionalPrefix.length).trimStart();
   }
 
   if (!rest.startsWith(":")) {
