@@ -485,6 +485,8 @@ nativeSeen.values()
 val removedNativeScore = nativeScores.delete("b")
 val removedNativeSeen = nativeSeen.delete(1)
 console.log("collections", nativeScores.get("a"), nativeScores.get("missing"), removedNativeScore, nativeScores.size, nativeSeen.has(2), removedNativeSeen, nativeSeen.size, nativeCollectionTotal)
+val nativeLabels = new Map<string, string>([["known", "value"]])
+console.log("map nullish", nativeLabels.get("known") ?? "fallback", nativeLabels.get("missing") ?? "fallback")
 val mergedNativeScores = new Map<string, int>([
   ...new Map<string, int>([["left", 4]]),
   ...new Map<string, int>([["right", 5]])

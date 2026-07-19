@@ -131,7 +131,7 @@ describe("project configuration", () => {
     });
   });
 
-  it("loads import mappings and global symbols relative to vexascript.json", async () => {
+  it("loads target-neutral and native import mappings relative to vexascript.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
     const input = join(dir, "example", "main.vx");
     await mkdir(join(dir, "example"), { recursive: true });
@@ -139,6 +139,9 @@ describe("project configuration", () => {
     await writeFile(join(dir, "vexascript.json"), JSON.stringify({
       importMappings: {
         myengine: "runtime/myengine-runtime.vx"
+      },
+      nativeImports: {
+        commander: "native/commander.vx"
       },
       globalSymbols: {
         paths: ["runtime/myengine-runtime.vx"],
@@ -152,6 +155,9 @@ describe("project configuration", () => {
       dependencies: {},
       importMappings: {
         myengine: join(dir, "runtime/myengine-runtime.vx")
+      },
+      nativeImportMappings: {
+        commander: join(dir, "native/commander.vx")
       },
       globalSymbols: {
         paths: [join(dir, "runtime/myengine-runtime.vx")],

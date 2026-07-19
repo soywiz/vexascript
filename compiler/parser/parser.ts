@@ -1,6 +1,6 @@
 import { NodeKind } from "compiler/ast/ast";
 import { ListReader } from "compiler/utils/ListReader";
-import { Token } from "./tokenizer";
+import { SourcePosition, SourceRange, Token } from "./tokenizer";
 import { hasLineBreakBetween, isClassMemberModifier, isEofToken, isLikelyStatementStart, typeTokenText } from "./tokenHelpers";
 import {
     AnnotationApplication,
@@ -190,6 +190,15 @@ export interface ParseIssue {
 }
 
 type RecoveryHint = "block" | "switch" | "statement";
+
+function tokenWithValue(
+    token: Token,
+    value: string,
+    start: SourcePosition = token.range.start,
+    end: SourcePosition = token.range.end
+): Token {
+    return new Token(token.type, value, token.index, new SourceRange(start, end), token.leadingComments);
+}
 
 export interface ParseRecoveryMarker {
     token: Token;
@@ -798,14 +807,7 @@ export class Parser {
         ) {
             this.tokens.skip();
             this.tokens.skip();
-            return {
-                ...name,
-                value: `#${name.value}`,
-                range: {
-                    start: hash.range.start,
-                    end: name.range.end
-                }
-            };
+            return tokenWithValue(name, `#${name.value}`, hash.range.start, name.range.end);
         }
         return null;
     }
@@ -954,18 +956,12 @@ export class Parser {
         }
 
         this.recordTokenMutation(this.tokens.offset);
-        this.tokens.items[this.tokens.offset] = {
-            ...token,
-            value: token.value.slice(1),
-            range: {
-                start: {
-                    ...token.range.start,
-                    offset: token.range.start.offset + 1,
-                    column: token.range.start.column + 1
-                },
-                end: token.range.end
-            }
-        };
+        const start = new SourcePosition(
+            token.range.start.offset + 1,
+            token.range.start.line,
+            token.range.start.column + 1
+        );
+        this.tokens.items[this.tokens.offset] = tokenWithValue(token, token.value.slice(1), start);
         return true;
     }
 
@@ -1597,7 +1593,7 @@ export class Parser {
                     }
                 }
                 if (remaining > 0) {
-                    this.tokens.items.splice(this.tokens.offset, 0, { ...token, value: ">".repeat(remaining) });
+                    this.tokens.items.splice(this.tokens.offset, 0, tokenWithValue(token, ">".repeat(remaining)));
                 }
                 continue;
             }
@@ -4752,11 +4748,12 @@ export class Parser {
             if (nameToken.value === "operator") {
                 const parsedOperator = this.parseOperatorOverload();
                 if (parsedOperator) {
-                    nameToken = {
-                        ...nameToken,
-                        value: `operator${parsedOperator.operator}`,
-                        range: { start: nameToken.range.start, end: parsedOperator.endToken.range.end }
-                    };
+                    nameToken = tokenWithValue(
+                        nameToken,
+                        `operator${parsedOperator.operator}`,
+                        nameToken.range.start,
+                        parsedOperator.endToken.range.end
+                    );
                 }
             }
             const imported = this.buildIdentifierFromToken(nameToken);
@@ -4975,11 +4972,12 @@ export class Parser {
                     this.fail("Expected overloadable operator after 'operator'", this.tokenAt(this.tokens.peek()));
                 }
                 overloadedOperator = parsedOperator.operator;
-                nameToken = {
-                    ...nameToken,
-                    value: `operator${overloadedOperator}`,
-                    range: { start: nameToken.range.start, end: parsedOperator.endToken.range.end }
-                };
+                nameToken = tokenWithValue(
+                    nameToken,
+                    `operator${overloadedOperator}`,
+                    nameToken.range.start,
+                    parsedOperator.endToken.range.end
+                );
             }
         }
 
@@ -5611,14 +5609,12 @@ export class Parser {
             : null;
         const effectiveMemberNameToken: Token | undefined =
             memberNameToken?.type === "symbol" && memberNameToken.value === "#" && privateMemberNameToken?.type === "identifier"
-                ? {
-                    ...privateMemberNameToken,
-                    value: `#${privateMemberNameToken.value}`,
-                    range: {
-                        start: memberNameToken.range.start,
-                        end: privateMemberNameToken.range.end
-                    }
-                }
+                ? tokenWithValue(
+                    privateMemberNameToken,
+                    `#${privateMemberNameToken.value}`,
+                    memberNameToken.range.start,
+                    privateMemberNameToken.range.end
+                )
                 : memberNameToken;
         if (!computedMemberKey && effectiveMemberNameToken?.type !== "identifier") {
             this.fail("Expected class member name", this.tokenAt(memberNameToken));
@@ -5640,15 +5636,12 @@ export class Parser {
                 this.fail("Expected overloadable operator after 'operator'", this.tokenAt(this.tokens.peek()));
             }
             overloadedOperator = parsedOperator.operator;
-            resolvedMemberNameToken = {
-                ...effectiveMemberNameToken,
-                type: effectiveMemberNameToken.type,
-                value: `operator${overloadedOperator}`,
-                range: {
-                    start: effectiveMemberNameToken.range.start,
-                    end: parsedOperator.endToken.range.end
-                }
-            };
+            resolvedMemberNameToken = tokenWithValue(
+                effectiveMemberNameToken,
+                `operator${overloadedOperator}`,
+                effectiveMemberNameToken.range.start,
+                parsedOperator.endToken.range.end
+            );
         }
 
         const resolvedMemberName = computedMemberKey

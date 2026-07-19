@@ -17,20 +17,10 @@ export function parseSource(source: string, options: ParserOptions = {}): ParseA
     const tokens = tokenize(source, { jsx: jsxEnabled });
     const parser = new Parser(new ListReader(tokens), options);
     const ast = parser.parseFile();
-    return {
-      ast,
-      parserIssues: parser.errors,
-      tokenizeError: null,
-      fatalError: null
-    };
+    return { ast, parserIssues: parser.errors, tokenizeError: null, fatalError: null };
   } catch (error) {
     if (error instanceof TokenizeError) {
-      return {
-        ast: null,
-        parserIssues: [],
-        tokenizeError: error,
-        fatalError: null
-      };
+      return { ast: null, parserIssues: [], tokenizeError: error, fatalError: null };
     }
 
     return {

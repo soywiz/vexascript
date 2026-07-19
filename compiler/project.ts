@@ -6,6 +6,7 @@ export interface VexaProject {
   projectDir: string;
   dependencies: Record<string, string>;
   importMappings?: Record<string, string>;
+  nativeImportMappings?: Record<string, string>;
   baseUrl?: string;
   globalSymbols?: VexaGlobalSymbols;
   jsxFactory?: string;
@@ -27,53 +28,39 @@ export interface VexaGlobalSymbols {
   emit: "globalThis" | "assume";
 }
 
-interface PackageJsonConfig {
+type CompilerOptionsRecord = Record<string, any> & {
+  jsx?: unknown;
+  jsxFactory?: unknown;
+  jsxFragmentFactory?: unknown;
+  jsxImportSource?: unknown;
+  lib?: unknown;
+  types?: unknown;
+  baseUrl?: unknown;
+};
+type PackageJsonConfig = Record<string, any> & {
   dependencies?: Record<string, unknown>;
   devDependencies?: Record<string, unknown>;
   peerDependencies?: Record<string, unknown>;
   optionalDependencies?: Record<string, unknown>;
-}
-
-interface TsConfigJson {
-  compilerOptions?: {
-    jsx?: unknown;
-    jsxFactory?: unknown;
-    jsxFragmentFactory?: unknown;
-    jsxImportSource?: unknown;
-    lib?: unknown;
-    types?: unknown;
-    baseUrl?: unknown;
-  };
-}
-
-interface CompilerOptionsConfig {
-  compilerOptions?: {
-    jsx?: unknown;
-    jsxFactory?: unknown;
-    jsxFragmentFactory?: unknown;
-    jsxImportSource?: unknown;
-    lib?: unknown;
-    types?: unknown;
-    baseUrl?: unknown;
-  };
-}
-
-interface VexaScriptConfigJson extends CompilerOptionsConfig {
+};
+type CompilerOptionsConfig = Record<string, any> & { compilerOptions?: CompilerOptionsRecord };
+type TsConfigJson = CompilerOptionsConfig;
+type VexaScriptConfigJson = CompilerOptionsConfig & {
   entrypoint?: unknown;
   outDir?: unknown;
   outputDir?: unknown;
   imports?: unknown;
   importMappings?: unknown;
+  nativeImports?: unknown;
   globalSymbols?: unknown;
   serveMappings?: unknown;
+};
+
+class CachedJsonFile {
+  constructor(public mtimeMs: number, public value: unknown | null) {}
 }
 
-interface CachedJsonFile<T> {
-  mtimeMs: number;
-  value: T | null;
-}
-
-const jsonFileCache = new Map<string, CachedJsonFile<unknown>>();
+const jsonFileCache = new Map<string, CachedJsonFile>();
 
 function stringRecord(section: Record<string, unknown> | undefined): Record<string, string> {
   const result: Record<string, string> = {};
@@ -100,10 +87,10 @@ async function readJsonFile<T>(path: string): Promise<T | null> {
 
   try {
     const value = JSON.parse(await vfs().readFile(path)) as T;
-    jsonFileCache.set(path, { mtimeMs, value });
+    jsonFileCache.set(path, new CachedJsonFile(mtimeMs, value));
     return value;
   } catch {
-    jsonFileCache.set(path, { mtimeMs, value: null });
+    jsonFileCache.set(path, new CachedJsonFile(mtimeMs, null));
     return null;
   }
 }
@@ -226,8 +213,7 @@ function serveMappingsFromConfig(configDir: string, config: VexaScriptConfigJson
   return mappings;
 }
 
-function importMappingsFromConfig(configDir: string, config: VexaScriptConfigJson | null): Record<string, string> {
-  const rawMappings = config?.importMappings ?? config?.imports;
+function resolvedImportMappings(configDir: string, rawMappings: unknown): Record<string, string> {
   if (!rawMappings || typeof rawMappings !== "object" || Array.isArray(rawMappings)) {
     return {};
   }
@@ -238,6 +224,10 @@ function importMappingsFromConfig(configDir: string, config: VexaScriptConfigJso
     }
   }
   return mappings;
+}
+
+function importMappingsFromConfig(configDir: string, config: VexaScriptConfigJson | null): Record<string, string> {
+  return resolvedImportMappings(configDir, config?.importMappings ?? config?.imports);
 }
 
 function stringArray(value: unknown): string[] {
@@ -322,6 +312,7 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
   const buildOutputDir = configuredBuildOutputDir ? resolve(configDir, configuredBuildOutputDir) : undefined;
   const serveMappings = serveMappingsFromConfig(configDir, vexaConfig);
   const importMappings = importMappingsFromConfig(configDir, vexaConfig);
+  const nativeImportMappings = resolvedImportMappings(configDir, vexaConfig?.nativeImports);
   const globalSymbols = globalSymbolsFromConfig(configDir, vexaConfig);
   const configuredBaseUrl = typeof vexaConfig?.compilerOptions?.baseUrl === "string"
     ? vexaConfig.compilerOptions.baseUrl
@@ -337,6 +328,7 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
     projectDir: packageDir ?? resolve(startDir),
     dependencies,
     ...(Object.keys(importMappings).length > 0 ? { importMappings } : {}),
+    ...(Object.keys(nativeImportMappings).length > 0 ? { nativeImportMappings } : {}),
     ...(baseUrl ? { baseUrl } : {}),
     ...(globalSymbols.paths.length > 0 ? { globalSymbols } : {}),
     libs: libsFromConfig(config),

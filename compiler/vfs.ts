@@ -1,13 +1,9 @@
-export interface VfsDirEntry {
-  name: string;
-  isFile: boolean;
-  isDirectory: boolean;
+export class VfsDirEntry {
+  constructor(public name: string, public isFile: boolean, public isDirectory: boolean) {}
 }
 
-export interface VfsStat {
-  mtimeMs: number;
-  isFile?: boolean;
-  isDirectory?: boolean;
+export class VfsStat {
+  constructor(public mtimeMs: number, public isFile: boolean = false, public isDirectory: boolean = false) {}
 }
 
 function unconfiguredVfsError(): Error {
@@ -40,8 +36,6 @@ export class Vfs {
   }
 }
 
-export var globalVfs = {} as { ref: Vfs }
-
 class UnconfiguredVfs extends Vfs {
   override async readFile(_path: string): Promise<string> {
     throw unconfiguredVfsError();
@@ -69,6 +63,12 @@ class UnconfiguredVfs extends Vfs {
 }
 
 const unconfiguredVfs = new UnconfiguredVfs()
+
+class VfsReference {
+  constructor(public ref: Vfs) {}
+}
+
+export const globalVfs = new VfsReference(unconfiguredVfs)
 
 export function vfs() {
   return globalVfs.ref ?? unconfiguredVfs

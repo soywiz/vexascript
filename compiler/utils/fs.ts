@@ -6,7 +6,8 @@ export async function fileExists(path: string): Promise<boolean> {
 
 export async function isDirectory(path: string): Promise<boolean> {
   try {
-    return (await vfs().stat(path))?.isDirectory || false
+    const result = await vfs().stat(path)
+    return result.isDirectory || false
   } catch {
     return false
   }

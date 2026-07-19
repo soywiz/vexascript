@@ -27,7 +27,8 @@ async function resolveLocalModulePath(
   importPath: string,
   vfs: Vfs,
   importMappings: Readonly<Record<string, string>>,
-  baseUrl?: string
+  baseUrl?: string,
+  includeAssets = false
 ): Promise<string | null> {
   const baseUrlTarget = baseUrl && !importPath.startsWith(".")
     ? resolve(baseUrl, importPath)
@@ -42,7 +43,9 @@ async function resolveLocalModulePath(
     vfs,
     importMappings: effectiveImportMappings
   });
-  return targetPath && isBundledLocalModulePath(targetPath) ? targetPath : null;
+  return targetPath && (isBundledLocalModulePath(targetPath) || (includeAssets && extname(targetPath).toLowerCase() === ".json"))
+    ? targetPath
+    : null;
 }
 
 export async function localImportSpecifiers(
@@ -50,7 +53,8 @@ export async function localImportSpecifiers(
   importerFilePath: string,
   vfs: Vfs,
   importMappings: Readonly<Record<string, string>>,
-  baseUrl?: string
+  baseUrl?: string,
+  includeAssets = false
 ): Promise<LocalImportDependency[]> {
   const imports: LocalImportDependency[] = [];
   for (const statement of ast.body) {
@@ -61,7 +65,8 @@ export async function localImportSpecifiers(
       importStatement.from.value,
       vfs,
       importMappings,
-      baseUrl
+      baseUrl,
+      includeAssets
     );
     if (targetPath) imports.push({ statement: importStatement, targetPath });
   }

@@ -104,7 +104,7 @@ This section is the fast onboarding map for agents and contributors.
   - Formatter tests: `compiler/runtime/formatter.test.ts`
   - LSP formatting adapter: `compiler/lsp/formatting.ts`
 - Embedded syntax definitions:
-  - Shared editor-syntax generators used by the CLI and editor integrations: `compiler/syntax.ts`
+  - Shared editor-syntax generators used by the CLI and editor integrations: `compiler/syntax.ts`; the lightweight target-name contract used without loading the generators lives in `compiler/syntaxTargets.ts`.
   - Syntax generator consistency tests: `validation/syntax.test.ts`
 - Shared async file helpers live in `compiler/utils/fs.ts`, and CLI-only async process helpers live in `cli/io.ts`. Reuse them instead of duplicating `fileExists`, directory probes, or child-process wrappers.
 

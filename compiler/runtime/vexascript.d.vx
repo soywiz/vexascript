@@ -15,6 +15,15 @@ declare fun writeTextFile(path: string, contents: string): Promise<void>
 /// Returns user arguments, matching Node's process.argv.slice(2).
 declare fun commandLineArguments(): string[]
 
+/// Native filesystem primitives used by platform adapters such as node:fs/promises.
+declare fun nativeStatPath(path: string): Promise<any>
+declare fun nativeReadDirectory(path: string): Promise<any[]>
+declare fun nativeCreateDirectory(path: string, recursive: boolean): Promise<void>
+declare fun nativeRemovePath(path: string, recursive: boolean): Promise<void>
+declare fun nativeCopyFile(source: string, target: string): Promise<void>
+declare fun nativeRunTask(task: Promise<void>): void
+declare fun nativeEnvironmentVariable(name: string): string | undefined
+
 declare interface Process {
   argv: string[]
   env: { [key: string]: string | undefined }

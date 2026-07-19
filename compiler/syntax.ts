@@ -1,4 +1,6 @@
 import { LANGUAGE_NAME, LANGUAGE_SCOPE } from "./language";
+import type { SyntaxTarget } from "./syntaxTargets";
+export { SYNTAX_TARGETS, type SyntaxTarget } from "./syntaxTargets";
 
 export const VEXA_KEYWORD_DECLARATIONS = [
   "import", "export", "from", "let", "var", "val", "const", "by", "function", "fun",
@@ -19,18 +21,6 @@ export const VEXA_PRIMITIVE_TYPES = [
   "string", "number", "boolean", "int", "long", "bigint", "numeric",
   "unknown", "any", "void", "never", "object"
 ] as const;
-
-export const SYNTAX_TARGETS = [
-  "monaco",
-  "monaco-language",
-  "monaco-configuration",
-  "vscode-grammar",
-  "vscode-configuration",
-  "codemirror-legacy",
-  "textmate",
-] as const;
-
-export type SyntaxTarget = (typeof SYNTAX_TARGETS)[number];
 
 export interface PortableMonarchRule {
   match: string;

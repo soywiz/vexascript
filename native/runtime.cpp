@@ -390,7 +390,7 @@ class Value final {
 
 inline Text::Text(const Value& value) {
   if (!value.isString()) {
-    throw std::runtime_error("VexaScript value is not a string");
+    throw errorAtCurrentSource("VexaScript value is not a string");
   }
   value_ = value.utf16();
 }
@@ -793,7 +793,8 @@ class ArraySlot<Value> final {
 
 template <typename T>
 inline constexpr bool IsDynamicArrayElement =
-    std::is_same_v<T, Value> || std::is_same_v<T, std::string> ||
+    std::is_same_v<T, Value> || std::is_same_v<T, Text> ||
+    std::is_same_v<T, std::string> ||
     std::is_same_v<T, BigInt> || std::is_arithmetic_v<T> ||
     (std::is_pointer_v<T> &&
      (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<T>> ||
@@ -2378,7 +2379,7 @@ Result convertValue(Input&& input) {
         std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Source>> &&
         std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Result>>) {
       void* converted = input->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
-      if (!converted) throw errorAtCurrentSource("VexaScript object has an incompatible native pointer type");
+      if (!converted) throw errorAtCurrentSource("VexaScript object has an incompatible native pointer type (dynamic cast)");
       return static_cast<Result>(converted);
     } else if constexpr (
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>> &&
@@ -2391,7 +2392,7 @@ Result convertValue(Input&& input) {
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>>) {
       return input->enumerableBackingRecord();
     } else {
-      throw errorAtCurrentSource("VexaScript object has an incompatible native pointer type");
+      throw errorAtCurrentSource("VexaScript object has an incompatible native pointer type (unsupported conversion)");
     }
   } else
   if constexpr (std::is_same_v<Result, Value>) {
@@ -3887,14 +3888,109 @@ inline Task<void> writeTextFile(Runtime& runtime, std::string path, std::string 
   });
 }
 
+inline Task<Value> nativeStatPath(Runtime& runtime, std::string path) {
+  return Task<Value>::create(runtime, [&runtime, path = std::move(path)](auto resolve, auto reject) mutable {
+    const std::filesystem::path filePath(path);
+    std::error_code error;
+    const auto status = std::filesystem::status(filePath, error);
+    if (error || !std::filesystem::exists(status)) {
+      reject(Error("File does not exist: " + path));
+      return;
+    }
+    const auto modified = std::filesystem::last_write_time(filePath, error);
+    if (error) {
+      reject(Error("Cannot read file modification time: " + path));
+      return;
+    }
+    auto* value = runtime.record();
+    value->set("mtimeMs", Value(static_cast<double>(modified.time_since_epoch().count()) / 1'000'000.0));
+    value->set("isFile", Value(std::filesystem::is_regular_file(status)));
+    value->set("isDirectory", Value(std::filesystem::is_directory(status)));
+    resolve(Value(value));
+  });
+}
+
+inline Task<ArrayObject<Value>*> nativeReadDirectory(Runtime& runtime, std::string path) {
+  return Task<ArrayObject<Value>*>::create(runtime, [&runtime, path = std::move(path)](auto resolve, auto reject) mutable {
+    try {
+      auto* result = runtime.array<Value>();
+      for (const auto& entry : std::filesystem::directory_iterator(path)) {
+        auto* value = runtime.record();
+        value->set("name", Value(runtime.string(entry.path().filename().string())));
+        value->set("isFile", Value(entry.is_regular_file()));
+        value->set("isDirectory", Value(entry.is_directory()));
+        result->append(Value(value));
+      }
+      resolve(result);
+    } catch (const std::exception& error) {
+      reject(Error(std::string(error.what())));
+    }
+  });
+}
+
+inline Task<void> nativeCreateDirectory(Runtime& runtime, std::string path, bool recursive) {
+  return Task<void>::create(runtime, [path = std::move(path), recursive](auto resolve, auto reject) mutable {
+    try {
+      if (recursive) std::filesystem::create_directories(path);
+      else std::filesystem::create_directory(path);
+      resolve();
+    } catch (const std::exception& error) {
+      reject(Error(std::string(error.what())));
+    }
+  });
+}
+
+inline Task<void> nativeRemovePath(Runtime& runtime, std::string path, bool recursive) {
+  return Task<void>::create(runtime, [path = std::move(path), recursive](auto resolve, auto reject) mutable {
+    try {
+      if (recursive) std::filesystem::remove_all(path);
+      else std::filesystem::remove(path);
+      resolve();
+    } catch (const std::exception& error) {
+      reject(Error(std::string(error.what())));
+    }
+  });
+}
+
+inline Task<void> nativeCopyFile(Runtime& runtime, std::string source, std::string target) {
+  return Task<void>::create(runtime, [source = std::move(source), target = std::move(target)](auto resolve, auto reject) mutable {
+    try {
+      std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing);
+      resolve();
+    } catch (const std::exception& error) {
+      reject(Error(std::string(error.what())));
+    }
+  });
+}
+
+template <typename T>
+inline void nativeRunTask(const Task<T>& task) {
+  static_cast<void>(task.get());
+}
+
+inline void nativeRunTask(const Task<void>& task) {
+  task.get();
+}
+
+inline Value nativeEnvironmentVariable(Runtime& runtime, const std::string& name) {
+  const char* value = std::getenv(name.c_str());
+  return value ? Value(runtime.string(value)) : Value::undefined();
+}
+
+inline Task<Value> dynamicImportUnavailable(Runtime& runtime, std::string specifier) {
+  return Task<Value>::create(runtime, [specifier = std::move(specifier)](auto, auto reject) mutable {
+    reject(Error("Dynamic import is not available in native C++: " + specifier));
+  });
+}
+
 class Process final {
  public:
   Process(Runtime& runtime, int argc, char** arguments)
-      : argv(runtime.array<std::string>()), env(runtime.record()) {
+      : argv(runtime.array<Text>()), env(runtime.record()) {
     const std::string executable = argc > 0 && arguments[0] ? arguments[0] : "vexa";
-    argv->append(executable);
-    argv->append(executable);
-    for (int index = 1; index < argc; ++index) argv->append(arguments[index] ? arguments[index] : "");
+    argv->append(Text(executable));
+    argv->append(Text(executable));
+    for (int index = 1; index < argc; ++index) argv->append(Text(arguments[index] ? arguments[index] : ""));
 #if defined(_WIN32)
     char** environment = _environ;
 #else
@@ -3913,7 +4009,7 @@ class Process final {
   std::string cwd() const { return std::filesystem::current_path().string(); }
   [[noreturn]] void exit(double code = 0) const { std::exit(static_cast<int>(code)); }
 
-  cppgc::Persistent<ArrayObject<std::string>> argv;
+  cppgc::Persistent<ArrayObject<Text>> argv;
   cppgc::Persistent<RecordObject> env;
   double exitCode = 0;
 };
@@ -3924,7 +4020,7 @@ inline ArrayObject<Text>* commandLineArguments(Runtime& runtime) {
   auto* result = runtime.array<Text>();
   if (!process || !process->argv) return result;
   for (std::size_t index = 2; index < process->argv->size(); ++index) {
-    result->append(Text(process->argv->get(index)));
+    result->append(process->argv->get(index));
   }
   return result;
 }
@@ -5648,6 +5744,14 @@ inline double charCodeAt(const Value& value, double index = 0) {
   return static_cast<std::uint16_t>(value.utf16()[static_cast<std::size_t>(position)]);
 }
 
+inline double charCodeAt(const Text& value, double index = 0) {
+  const auto position = static_cast<std::int64_t>(std::trunc(index));
+  if (position < 0 || static_cast<std::size_t>(position) >= value.size()) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return static_cast<std::uint16_t>(value[static_cast<std::size_t>(position)]);
+}
+
 template <typename T>
 inline bool numberIsNaN(const T& value) {
   return std::isnan(Number(value));
@@ -6037,13 +6141,7 @@ inline Value ArrayObject<T>::dynamicGet(const PropertyKey& key) {
       runtime.make<DynamicArrayMethodObject<T>>(this, key)
     ));
   }
-  if constexpr (
-    std::is_same_v<T, Value> || std::is_same_v<T, std::string> ||
-    std::is_same_v<T, BigInt> || std::is_arithmetic_v<T> ||
-    (std::is_pointer_v<T> && (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<T>> ||
-      std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>> ||
-      std::is_same_v<std::remove_pointer_t<T>, RecordObject>))
-  ) {
+  if constexpr (IsDynamicArrayElement<T>) {
     if (const auto index = propertyIndex(key); index && *index < size()) {
       if constexpr (std::is_pointer_v<T> && std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>>) {
         auto* value = get(*index);
@@ -6056,7 +6154,10 @@ inline Value ArrayObject<T>::dynamicGet(const PropertyKey& key) {
     }
     return DynamicValueObject::dynamicGet(key);
   } else {
-    throw runtime.errorAtCurrentSource("This native array element type cannot flow through dynamic access");
+    throw runtime.errorAtCurrentSource(
+      std::string("This native array element type cannot flow through dynamic access: ") +
+      __PRETTY_FUNCTION__
+    );
   }
 }
 

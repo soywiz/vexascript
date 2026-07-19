@@ -1,29 +1,39 @@
 import { StrReader } from "compiler/utils/StrReader";
 import { ListReader } from "compiler/utils/ListReader";
 
-export interface SourcePosition {
-  offset: number;
-  line: number;
-  column: number;
+export class SourcePosition {
+  constructor(
+    public offset: number,
+    public line: number,
+    public column: number
+  ) {}
 }
 
-export interface SourceRange {
-  start: SourcePosition;
-  end: SourcePosition;
+export class SourceRange {
+  constructor(
+    public start: SourcePosition,
+    public end: SourcePosition
+  ) {}
 }
 
-export interface Token {
-  type: "identifier" | "number" | "string" | "regexp" | "symbol" | "jsxText" | "eof";
-  value: string;
-  index: number;
-  range: SourceRange;
-  leadingComments?: TokenComment[];
+export type TokenType = "identifier" | "number" | "string" | "regexp" | "symbol" | "jsxText" | "eof";
+
+export class Token {
+  constructor(
+    public type: TokenType,
+    public value: string,
+    public index: number,
+    public range: SourceRange,
+    public leadingComments?: TokenComment[]
+  ) {}
 }
 
-export interface TokenComment {
-  kind: "line" | "block";
-  value: string;
-  range: SourceRange;
+export class TokenComment {
+  constructor(
+    public kind: "line" | "block",
+    public value: string,
+    public range: SourceRange
+  ) {}
 }
 
 export class TokenizeError extends Error {
@@ -85,11 +95,11 @@ const CODE_LBRACE = 123; // {
 const CODE_RBRACE = 125; // }
 
 function snapshot(reader: StrReader): SourcePosition {
-  return {
-    offset: reader.offset,
-    line: reader.line,
-    column: reader.column
-  };
+  return new SourcePosition(reader.offset, reader.line, reader.column);
+}
+
+function sourceRange(start: SourcePosition, end: SourcePosition): SourceRange {
+  return new SourceRange(start, end);
 }
 
 function advanceCode(reader: StrReader): number {
@@ -143,21 +153,13 @@ function readLineComment(reader: StrReader): TokenComment {
   while (reader.hasMore) {
     if (reader.peekCode() === 10) {
       const end = snapshot(reader);
-      return {
-        kind: "line",
-        value: reader.str.slice(startOffset, reader.offset),
-        range: { start, end }
-      };
+      return new TokenComment("line", reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
     }
     advanceCode(reader);
   }
 
   const end = snapshot(reader);
-  return {
-    kind: "line",
-    value: reader.str.slice(startOffset, reader.offset),
-    range: { start, end }
-  };
+  return new TokenComment("line", reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
 }
 
 function readShebangLine(reader: StrReader): TokenComment | null {
@@ -170,21 +172,13 @@ function readShebangLine(reader: StrReader): TokenComment | null {
   while (reader.hasMore) {
     if (reader.peekCode() === 10) {
       const end = snapshot(reader);
-      return {
-        kind: "line",
-        value: reader.str.slice(startOffset, reader.offset),
-        range: { start, end }
-      };
+      return new TokenComment("line", reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
     }
     advanceCode(reader);
   }
 
   const end = snapshot(reader);
-  return {
-    kind: "line",
-    value: reader.str.slice(startOffset, reader.offset),
-    range: { start, end }
-  };
+  return new TokenComment("line", reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
 }
 
 function readBlockComment(reader: StrReader, start: SourcePosition): TokenComment {
@@ -199,19 +193,12 @@ function readBlockComment(reader: StrReader, start: SourcePosition): TokenCommen
       advanceCode(reader);
       advanceCode(reader);
       const end = snapshot(reader);
-      return {
-        kind: "block",
-        value: reader.str.slice(startOffset, reader.offset),
-        range: { start, end }
-      };
+      return new TokenComment("block", reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
     }
     advanceCode(reader);
   }
 
-  throw new TokenizeError("Unterminated block comment", {
-    start,
-    end: snapshot(reader)
-  });
+  throw new TokenizeError("Unterminated block comment", sourceRange(start, snapshot(reader)));
 }
 
 function readComment(reader: StrReader): TokenComment | null {
@@ -238,29 +225,79 @@ function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
     return true;
   }
   if (previousToken.type === "identifier") {
-    return [
-      "return",
-      "throw",
-      "case",
-      "delete",
-      "void",
-      "typeof",
-      "await",
-      "in",
-      "instanceof",
-      "is",
-      "new",
-      "default",
-      "else",
-      "do"
-    ].includes(previousToken.value);
+    switch (previousToken.value) {
+      case "return":
+      case "throw":
+      case "case":
+      case "delete":
+      case "void":
+      case "typeof":
+      case "await":
+      case "in":
+      case "instanceof":
+      case "is":
+      case "new":
+      case "default":
+      case "else":
+      case "do":
+        return true;
+      default:
+        return false;
+    }
   }
   if (previousToken.type === "symbol") {
-    return new Set([
-      "(", "{", "[", ",", ";", ":", "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", ">>>=",
-      "&=", "|=", "&&=", "||=", "??=", "?", "=>", "->", "||", "&&", "??", "|", "^", "&",
-      "==", "!=", "===", "!==", "<", ">", "<=", ">=", "<=>", "+", "-", "*", "/", "%", "**", "!", "~", "..."
-    ]).has(previousToken.value);
+    switch (previousToken.value) {
+      case "(":
+      case "{":
+      case "[":
+      case ",":
+      case ";":
+      case ":":
+      case "=":
+      case "+=":
+      case "-=":
+      case "*=":
+      case "/=":
+      case "%=":
+      case "<<=":
+      case ">>=":
+      case ">>>=":
+      case "&=":
+      case "|=":
+      case "&&=":
+      case "||=":
+      case "??=":
+      case "?":
+      case "=>":
+      case "->":
+      case "||":
+      case "&&":
+      case "??":
+      case "|":
+      case "^":
+      case "&":
+      case "==":
+      case "!=":
+      case "===":
+      case "!==":
+      case "<":
+      case ">":
+      case "<=":
+      case ">=":
+      case "<=>":
+      case "+":
+      case "-":
+      case "*":
+      case "/":
+      case "%":
+      case "**":
+      case "!":
+      case "~":
+      case "...":
+        return true;
+      default:
+        return false;
+    }
   }
   return false;
 }
@@ -275,10 +312,7 @@ function readRegExpLiteral(reader: StrReader, start: SourcePosition): string {
   while (reader.hasMore) {
     const code = advanceCode(reader);
     if (code === 10 || code === 13) {
-      throw new TokenizeError("Unterminated regular expression literal", {
-        start,
-        end: snapshot(reader)
-      });
+      throw new TokenizeError("Unterminated regular expression literal", sourceRange(start, snapshot(reader)));
     }
 
     if (escaped) {
@@ -307,10 +341,7 @@ function readRegExpLiteral(reader: StrReader, start: SourcePosition): string {
 
     if (code === CODE_SLASH && !inCharacterClass) {
       if (bodyLength === 0) {
-        throw new TokenizeError("Empty regular expression literal", {
-          start,
-          end: snapshot(reader)
-        });
+        throw new TokenizeError("Empty regular expression literal", sourceRange(start, snapshot(reader)));
       }
       while (reader.hasMore && isIdentifierPartCode(reader.peekCode())) {
         advanceCode(reader);
@@ -321,10 +352,7 @@ function readRegExpLiteral(reader: StrReader, start: SourcePosition): string {
     bodyLength += 1;
   }
 
-  throw new TokenizeError("Unterminated regular expression literal", {
-    start,
-    end: snapshot(reader)
-  });
+  throw new TokenizeError("Unterminated regular expression literal", sourceRange(start, snapshot(reader)));
 }
 
 function readIdentifier(reader: StrReader): string {
@@ -365,7 +393,7 @@ function readDigitRun(
     }
     if (code === CODE_UNDERSCORE) {
       if (!sawDigit || previousWasSeparator) {
-        throw new TokenizeError(message, { start: startPosition, end: snapshot(reader) });
+        throw new TokenizeError(message, sourceRange(startPosition, snapshot(reader)));
       }
       previousWasSeparator = true;
       advanceCode(reader);
@@ -375,7 +403,7 @@ function readDigitRun(
   }
 
   if ((requireDigit && !sawDigit) || previousWasSeparator) {
-    throw new TokenizeError(message, { start: startPosition, end: snapshot(reader) });
+    throw new TokenizeError(message, sourceRange(startPosition, snapshot(reader)));
   }
 }
 
@@ -396,19 +424,19 @@ function readNumber(reader: StrReader): string {
       advanceCode(reader);
       readDigitRun(reader, startPosition, isHexDigitCode, "Invalid hex number literal", true);
       if (reader.hasMore && isIdentifierPartCode(reader.peekCode()) && !isNumericLiteralSuffixCode(reader.peekCode())) {
-        throw new TokenizeError("Invalid hex number literal", { start: startPosition, end: snapshot(reader) });
+        throw new TokenizeError("Invalid hex number literal", sourceRange(startPosition, snapshot(reader)));
       }
     } else if (baseMarker === CODE_B_LOWER || baseMarker === CODE_B_UPPER) {
       advanceCode(reader);
       readDigitRun(reader, startPosition, isBinaryDigitCode, "Invalid binary number literal", true);
       if (reader.hasMore && isIdentifierPartCode(reader.peekCode()) && !isNumericLiteralSuffixCode(reader.peekCode())) {
-        throw new TokenizeError("Invalid binary number literal", { start: startPosition, end: snapshot(reader) });
+        throw new TokenizeError("Invalid binary number literal", sourceRange(startPosition, snapshot(reader)));
       }
     } else if (baseMarker === CODE_O_LOWER || baseMarker === CODE_O_UPPER) {
       advanceCode(reader);
       readDigitRun(reader, startPosition, isOctalDigitCode, "Invalid octal number literal", true);
       if (reader.hasMore && isIdentifierPartCode(reader.peekCode()) && !isNumericLiteralSuffixCode(reader.peekCode())) {
-        throw new TokenizeError("Invalid octal number literal", { start: startPosition, end: snapshot(reader) });
+        throw new TokenizeError("Invalid octal number literal", sourceRange(startPosition, snapshot(reader)));
       }
     } else {
       readDigitRun(reader, startPosition, isDigitCode, "Invalid number literal", false, true);
@@ -468,10 +496,7 @@ function readEscapedString(reader: StrReader, quoteCode: number, start: SourcePo
     value += reader.str.slice(segmentStart, reader.offset - 1);
 
     if (!reader.hasMore) {
-      throw new TokenizeError("Unterminated escape sequence in string literal", {
-        start,
-        end: snapshot(reader)
-      });
+      throw new TokenizeError("Unterminated escape sequence in string literal", sourceRange(start, snapshot(reader)));
     }
 
     const escCode = advanceCode(reader);
@@ -507,34 +532,25 @@ function readEscapedString(reader: StrReader, quoteCode: number, start: SourcePo
     } else {
       throw new TokenizeError(
         `Unsupported escape sequence \\${String.fromCharCode(escCode)} in string literal`,
-        { start, end: snapshot(reader) }
+        sourceRange(start, snapshot(reader))
       );
     }
 
     segmentStart = reader.offset;
   }
 
-  throw new TokenizeError("Unterminated string literal", {
-    start,
-    end: snapshot(reader)
-  });
+  throw new TokenizeError("Unterminated string literal", sourceRange(start, snapshot(reader)));
 }
 
 function readHexValue(reader: StrReader, length: number, errorMessage: string, start: SourcePosition): number {
   let hexValue = 0;
   for (let i = 0; i < length; i += 1) {
     if (!reader.hasMore) {
-      throw new TokenizeError(errorMessage, {
-        start,
-        end: snapshot(reader)
-      });
+      throw new TokenizeError(errorMessage, sourceRange(start, snapshot(reader)));
     }
     const hexCode = advanceCode(reader);
     if (!isHexDigitCode(hexCode)) {
-      throw new TokenizeError(errorMessage, {
-        start,
-        end: snapshot(reader)
-      });
+      throw new TokenizeError(errorMessage, sourceRange(start, snapshot(reader)));
     }
     hexValue <<= 4;
     if (hexCode >= CODE_ZERO && hexCode <= CODE_NINE) {
@@ -556,18 +572,17 @@ function readUnicodeEscape(reader: StrReader, start: SourcePosition, context: st
   return String.fromCharCode(readHexValue(reader, 4, `Invalid unicode escape sequence in ${context}`, start));
 }
 
-interface TokenFragment {
-  type: Token["type"];
-  value: string;
-  range: SourceRange;
-  leadingComments?: TokenComment[];
+class TokenFragment {
+  constructor(
+    public type: TokenType,
+    public value: string,
+    public range: SourceRange,
+    public leadingComments?: TokenComment[]
+  ) {}
 }
 
 function syntheticRangeAt(position: SourcePosition): SourceRange {
-  return {
-    start: position,
-    end: position
-  };
+  return sourceRange(position, position);
 }
 
 function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): TokenFragment[] {
@@ -576,11 +591,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
     fragments.push(fragment);
   };
   const pushSymbol = (value: string, position: SourcePosition): void => {
-    pushFragment({
-      type: "symbol",
-      value,
-      range: syntheticRangeAt(position)
-    });
+    pushFragment(new TokenFragment("symbol", value, syntheticRangeAt(position)));
   };
 
   const pushLiteralString = (
@@ -588,14 +599,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
     literalStart: SourcePosition,
     literalEnd: SourcePosition
   ): void => {
-    pushFragment({
-      type: "string",
-      value,
-      range: {
-        start: literalStart,
-        end: literalEnd
-      }
-    });
+    pushFragment(new TokenFragment("string", value, sourceRange(literalStart, literalEnd)));
   };
 
   const pushPlusIfNeeded = (position: SourcePosition): void => {
@@ -628,10 +632,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
     if (code === CODE_BACKSLASH) {
       literalValue += reader.str.slice(segmentStart, reader.offset - 1);
       if (!reader.hasMore) {
-        throw new TokenizeError("Unterminated escape sequence in template literal", {
-          start,
-          end: snapshot(reader)
-        });
+        throw new TokenizeError("Unterminated escape sequence in template literal", sourceRange(start, snapshot(reader)));
       }
       const escStart = snapshot(reader);
       const escCode = advanceCode(reader);
@@ -668,7 +669,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
       } else {
         throw new TokenizeError(
           `Unsupported escape sequence \\${String.fromCharCode(escCode)} in template literal`,
-          { start: escStart, end: snapshot(reader) }
+          sourceRange(escStart, snapshot(reader))
         );
       }
       segmentStart = reader.offset;
@@ -692,7 +693,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
       pushSymbol("(", interpolationOpen);
 
       let interpolationPendingComments: TokenComment[] = [];
-      let interpolationPreviousToken: Token | undefined = { type: "symbol", value: "(", index: -1, range: syntheticRangeAt(interpolationOpen) };
+      let interpolationPreviousToken: Token | undefined = new Token("symbol", "(", -1, syntheticRangeAt(interpolationOpen));
       let depth = 1;
       while (reader.hasMore) {
         const interpolationCode = reader.peekCode();
@@ -712,17 +713,12 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
         if (interpolationCode === 123) {
           depth += 1;
           advanceCode(reader);
-          pushFragment({
-            type: "symbol",
-            value: "{",
-            range: {
-              start: tokenStart,
-              end: snapshot(reader)
-            },
-            ...(interpolationPendingComments.length > 0
-              ? { leadingComments: interpolationPendingComments }
-              : {})
-          });
+          pushFragment(new TokenFragment(
+            "symbol",
+            "{",
+            sourceRange(tokenStart, snapshot(reader)),
+            interpolationPendingComments.length > 0 ? interpolationPendingComments : undefined
+          ));
           interpolationPendingComments = [];
           continue;
         }
@@ -734,17 +730,12 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
             break;
           }
           advanceCode(reader);
-          pushFragment({
-            type: "symbol",
-            value: "}",
-            range: {
-              start: tokenStart,
-              end: snapshot(reader)
-            },
-            ...(interpolationPendingComments.length > 0
-              ? { leadingComments: interpolationPendingComments }
-              : {})
-          });
+          pushFragment(new TokenFragment(
+            "symbol",
+            "}",
+            sourceRange(tokenStart, snapshot(reader)),
+            interpolationPendingComments.length > 0 ? interpolationPendingComments : undefined
+          ));
           interpolationPendingComments = [];
           continue;
         }
@@ -767,14 +758,22 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
         } else if (interpolationCode === CODE_BACKTICK) {
           const nestedFragments = readTemplateAsConcatenation(reader, tokenStart);
           for (const fragment of nestedFragments) {
-            pushFragment({
-              ...fragment,
-              ...(interpolationPendingComments.length > 0
-                ? { leadingComments: interpolationPendingComments }
-                : {})
-            });
+            pushFragment(new TokenFragment(
+              fragment.type,
+              fragment.value,
+              fragment.range,
+              interpolationPendingComments.length > 0
+                ? interpolationPendingComments
+                : fragment.leadingComments
+            ));
             interpolationPendingComments = [];
-            interpolationPreviousToken = { ...fragment, index: -1 };
+            interpolationPreviousToken = new Token(
+              fragment.type,
+              fragment.value,
+              -1,
+              fragment.range,
+              fragment.leadingComments
+            );
           }
           continue;
         } else if (isIdentifierStartCode(interpolationCode)) {
@@ -791,26 +790,19 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
           value = readSymbol(reader);
         }
 
-        pushFragment({
+        const range = sourceRange(tokenStart, snapshot(reader));
+        pushFragment(new TokenFragment(
           type,
           value,
-          range: {
-            start: tokenStart,
-            end: snapshot(reader)
-          },
-          ...(interpolationPendingComments.length > 0
-            ? { leadingComments: interpolationPendingComments }
-            : {})
-        });
-        interpolationPreviousToken = { type, value, index: -1, range: { start: tokenStart, end: snapshot(reader) } };
+          range,
+          interpolationPendingComments.length > 0 ? interpolationPendingComments : undefined
+        ));
+        interpolationPreviousToken = new Token(type, value, -1, range);
         interpolationPendingComments = [];
       }
 
       if (depth !== 0) {
-        throw new TokenizeError("Unterminated template interpolation", {
-          start,
-          end: snapshot(reader)
-        });
+        throw new TokenizeError("Unterminated template interpolation", sourceRange(start, snapshot(reader)));
       }
 
       pushSymbol(")", snapshot(reader));
@@ -820,10 +812,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
     }
   }
 
-  throw new TokenizeError("Unterminated template literal", {
-    start,
-    end: snapshot(reader)
-  });
+  throw new TokenizeError("Unterminated template literal", sourceRange(start, snapshot(reader)));
 }
 
 function readSymbol(reader: StrReader): string {
@@ -1032,7 +1021,7 @@ function readNonTemplateCodeFragment(
     type = "symbol";
     value = readSymbol(reader);
   }
-  return { type, value, range: { start, end: snapshot(reader) } };
+  return new TokenFragment(type, value, sourceRange(start, snapshot(reader)));
 }
 
 export function tokenize(input: string, options: TokenizeOptions = {}): Token[] {
@@ -1046,13 +1035,13 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
   const pushFragment = (fragment: TokenFragment): Token => {
     const leadingComments: TokenComment[] | undefined =
       pendingComments.length > 0 ? pendingComments.slice() : fragment.leadingComments;
-    const token: Token = {
-      type: fragment.type,
-      value: fragment.value,
-      index: tokens.length,
-      range: fragment.range,
-      ...(leadingComments && leadingComments.length > 0 ? { leadingComments } : {})
-    };
+    const token = new Token(
+      fragment.type,
+      fragment.value,
+      tokens.length,
+      fragment.range,
+      leadingComments && leadingComments.length > 0 ? leadingComments : undefined
+    );
     tokens.push(token);
     previousSignificantToken = token;
     pendingComments = [];
@@ -1060,7 +1049,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
   };
 
   const pushSymbol = (value: string, start: SourcePosition): void => {
-    pushFragment({ type: "symbol", value, range: { start, end: snapshot(reader) } });
+    pushFragment(new TokenFragment("symbol", value, sourceRange(start, snapshot(reader))));
   };
 
   const skipInlineWhitespace = (): void => {
@@ -1082,7 +1071,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       }
       break;
     }
-    pushFragment({ type: "identifier", value, range: { start, end: snapshot(reader) } });
+    pushFragment(new TokenFragment("identifier", value, sourceRange(start, snapshot(reader))));
   };
 
   // Reads a (possibly dotted) JSX tag name such as `div` or `Foo.Bar`.
@@ -1150,20 +1139,15 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       }
       pushFragment(readNonTemplateCodeFragment(reader, previousSignificantToken));
     }
-    throw new TokenizeError("Unterminated JSX expression container", {
-      start: braceStart,
-      end: snapshot(reader)
-    });
+    throw new TokenizeError("Unterminated JSX expression container", sourceRange(braceStart, snapshot(reader)));
   };
 
   const readJsxAttributes = (): void => {
     while (true) {
       skipInlineWhitespace();
       if (!reader.hasMore) {
-        throw new TokenizeError("Unterminated JSX opening tag", {
-          start: snapshot(reader),
-          end: snapshot(reader)
-        });
+        const position = snapshot(reader);
+        throw new TokenizeError("Unterminated JSX opening tag", sourceRange(position, position));
       }
       const code = reader.peekCode();
       if (code === CODE_GT || code === CODE_SLASH) {
@@ -1175,10 +1159,8 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         continue;
       }
       if (!isIdentifierStartCode(code)) {
-        throw new TokenizeError("Unexpected character in JSX opening tag", {
-          start: snapshot(reader),
-          end: snapshot(reader)
-        });
+        const position = snapshot(reader);
+        throw new TokenizeError("Unexpected character in JSX opening tag", sourceRange(position, position));
       }
       readJsxNameToken();
       skipInlineWhitespace();
@@ -1191,14 +1173,12 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         if (valueCode === CODE_DOUBLE_QUOTE || valueCode === CODE_SINGLE_QUOTE) {
           const stringStart = snapshot(reader);
           const value = readEscapedString(reader, valueCode, stringStart);
-          pushFragment({ type: "string", value, range: { start: stringStart, end: snapshot(reader) } });
+          pushFragment(new TokenFragment("string", value, sourceRange(stringStart, snapshot(reader))));
         } else if (valueCode === CODE_LBRACE) {
           readJsxExpressionContainer();
         } else {
-          throw new TokenizeError("Expected JSX attribute value", {
-            start: snapshot(reader),
-            end: snapshot(reader)
-          });
+          const position = snapshot(reader);
+          throw new TokenizeError("Expected JSX attribute value", sourceRange(position, position));
         }
       }
     }
@@ -1218,10 +1198,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
     }
     const gtStart = snapshot(reader);
     if (reader.peekCode() !== CODE_GT) {
-      throw new TokenizeError("Expected '>' to close JSX closing tag", {
-        start: gtStart,
-        end: snapshot(reader)
-      });
+      throw new TokenizeError("Expected '>' to close JSX closing tag", sourceRange(gtStart, snapshot(reader)));
     }
     advanceCode(reader);
     pushSymbol(">", gtStart);
@@ -1239,13 +1216,10 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         text += String.fromCharCode(advanceCode(reader));
       }
       if (text.length > 0) {
-        pushFragment({ type: "jsxText", value: text, range: { start: textStart, end: snapshot(reader) } });
+        pushFragment(new TokenFragment("jsxText", text, sourceRange(textStart, snapshot(reader))));
       }
       if (!reader.hasMore) {
-        throw new TokenizeError("Unterminated JSX element", {
-          start: textStart,
-          end: snapshot(reader)
-        });
+        throw new TokenizeError("Unterminated JSX element", sourceRange(textStart, snapshot(reader)));
       }
       const code = reader.peekCode();
       if (code === CODE_LBRACE) {
@@ -1284,10 +1258,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       pushSymbol("/", slashStart);
       const gtStart = snapshot(reader);
       if (reader.peekCode() !== CODE_GT) {
-        throw new TokenizeError("Expected '>' to close self-closing JSX element", {
-          start: gtStart,
-          end: snapshot(reader)
-        });
+        throw new TokenizeError("Expected '>' to close self-closing JSX element", sourceRange(gtStart, snapshot(reader)));
       }
       advanceCode(reader);
       pushSymbol(">", gtStart);
@@ -1296,10 +1267,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
 
     const gtStart = snapshot(reader);
     if (reader.peekCode() !== CODE_GT) {
-      throw new TokenizeError("Expected '>' in JSX opening tag", {
-        start: gtStart,
-        end: snapshot(reader)
-      });
+      throw new TokenizeError("Expected '>' in JSX opening tag", sourceRange(gtStart, snapshot(reader)));
     }
     advanceCode(reader);
     pushSymbol(">", gtStart);
@@ -1346,16 +1314,13 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
   }
 
   const eofPosition = snapshot(reader);
-  tokens.push({
-    type: "eof",
-    value: "<eof>",
-    index: tokens.length,
-    range: {
-      start: eofPosition,
-      end: eofPosition
-    },
-    ...(pendingComments.length > 0 ? { leadingComments: pendingComments } : {})
-  });
+  tokens.push(new Token(
+    "eof",
+    "<eof>",
+    tokens.length,
+    sourceRange(eofPosition, eofPosition),
+    pendingComments.length > 0 ? pendingComments : undefined
+  ));
 
   return tokens;
 }

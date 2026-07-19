@@ -43,6 +43,7 @@ array-string 1,2
 array-predicates 10 true true 2 1|2|3|4 1|10|2
 array-callbacks 7|6|10|9 3|4 32 true true 2 32
 collections 1 undefined true 1 true true 1 6
+map nullish value fallback
 collection spread 4 5 6|7
 nested collections 12 undefined
 deferred dynamic array first:one|second:two|

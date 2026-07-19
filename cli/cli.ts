@@ -1,13 +1,15 @@
 import "./localVfs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { Command } from "commander";
-import type { EmitLanguage, TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
+import { Command } from "./command";
+import { transpile, type EmitLanguage, type TranspileDiagnostic, type TranspileTarget } from "../compiler/runtime/transpile";
 import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "../compiler/language";
 import { loadProject } from "../compiler/project";
-import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "../compiler/syntax";
+import type { VexaProject } from "../compiler/project";
+import { SYNTAX_TARGETS, type SyntaxTarget } from "../compiler/syntaxTargets";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
-import { basename, dirname, extname, pathToFileURL, resolve } from "../compiler/utils/path";
+import { basename, dirname, extname, resolve } from "../compiler/utils/path";
 import { vfs } from "../compiler/vfs";
+import { compileNativeModuleGraph } from "../compiler/runtime/nativeModuleGraph";
 import {
   ambientDeclarationsForProject,
   createBundledModuleArtifacts,
@@ -15,11 +17,48 @@ import {
   globalDeclarationsForProject,
   resolveServeBundleInput
 } from "./cliShared";
-import { openUrlInDefaultBrowser } from "./io";
+import {
+  astForCli,
+  environmentVariable,
+  executeJavaScriptModule,
+  formatForCli,
+  isBootstrappedCliExecution,
+  isDirectModuleExecution,
+  linkNativeExecutable,
+  openUrlInDefaultBrowser,
+  renderSyntaxForCli,
+  resolveNativeProgramPaths,
+  runAsyncMain,
+  runTestFiles,
+  runtimePlatform,
+  startLanguageServer,
+  startMcpServer,
+  startServe,
+  tokenizeForCli,
+} from "./io";
 
 /** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
 export class DiagnosticError extends Error {
   constructor() { super("Compilation failed"); this.name = "DiagnosticError"; }
+}
+
+class JsxOptions {
+  constructor(public jsxFactory: string = "", public jsxFragmentFactory: string = "") {}
+}
+
+class BuildOptions {
+  constructor(public target: TranspileTarget, public jsxOptions: JsxOptions) {}
+}
+
+class CopyDirectoryOptions {
+  constructor(public bundleFileName?: string) {}
+}
+
+function nativeImportMappings(project: VexaProject | null): Record<string, string> {
+  return {
+    ...(project?.importMappings ?? {}),
+    ...(project?.nativeImportMappings ?? {}),
+  };
 }
 
 function printDiagnostic(diag: TranspileDiagnostic, useColor: boolean): void {
@@ -47,26 +86,21 @@ function printDiagnostic(diag: TranspileDiagnostic, useColor: boolean): void {
   }
 }
 
-function printDiagnostics(result: { errors: string[]; diagnostics?: TranspileDiagnostic[] }, file: string): void {
-  const useColor = process.stderr.isTTY ?? false;
-  if (result.diagnostics && result.diagnostics.length > 0) {
-    for (const diag of result.diagnostics) {
+function printDiagnostics(errors: string[], diagnostics: TranspileDiagnostic[] | undefined, file: string): void {
+  const useColor = false;
+  if (diagnostics && diagnostics.length > 0) {
+    for (const diag of diagnostics) {
       printDiagnostic(diag, useColor);
     }
   } else {
-    for (const error of result.errors) {
-      const atMatch = error.match(/^(.*) at (\d+:\d+)$/);
-      if (atMatch) {
-        console.error(`${file}:${atMatch[2]} error: ${atMatch[1]}`);
-      } else {
-        console.error(`${file}: error: ${error}`);
-      }
+    for (const error of errors) {
+      console.error(`${file}: error: ${error}`);
     }
   }
 }
 
 async function runLanguageServer(): Promise<void> {
-  await import("../compiler/lsp/server");
+  await startLanguageServer();
 }
 
 function hasLspTransportArg(argv: string[]): boolean {
@@ -89,7 +123,7 @@ async function buildFile(
   input: string,
   out?: string,
   target: TranspileTarget = "optimized",
-  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {},
+  jsxOptions: JsxOptions = new JsxOptions(),
   emit: EmitLanguage = "javascript",
   typeCheck = true,
   emitNativeSourceLocations = false
@@ -101,7 +135,6 @@ async function buildFile(
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, outputExtension));
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
-  const { transpile } = await import("../compiler/runtime/transpile");
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
@@ -118,7 +151,7 @@ async function buildFile(
     ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
   });
   if (result.errors.length > 0) {
-    printDiagnostics(result, sourcePath);
+    printDiagnostics(result.errors, result.diagnostics, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
 
@@ -147,9 +180,8 @@ async function buildNativeFile(
   typeCheck = true,
   emitNativeSourceLocations = false
 ): Promise<void> {
-  const { compileNativeExecutable, nativeProgramPaths } = await import("./nativeBuild");
   const inputPath = resolve(process.cwd(), input);
-  const inputStats = await vfs().stat(inputPath).catch(() => null);
+  const inputStats = await vfs().stat(inputPath).catch((_error) => null);
   const project = await loadProject(inputPath);
   const directoryBuild = inputStats?.isDirectory === true;
   const sourcePath = directoryBuild
@@ -159,8 +191,8 @@ async function buildNativeFile(
     throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
   }
   const projectOutputDir = project?.buildOutputDir ?? resolve(inputPath, "dist");
-  const executableName = basename(sourcePath).replace(/\.[^.]+$/, process.platform === "win32" ? ".exe" : "");
-  const paths = nativeProgramPaths(
+  const executableName = basename(sourcePath).replace(/\.[^.]+$/, runtimePlatform() === "win32" ? ".exe" : "");
+  const paths = await resolveNativeProgramPaths(
     sourcePath,
     directoryBuild
       ? resolve(process.cwd(), out ? resolve(out, executableName) : resolve(projectOutputDir, executableName))
@@ -170,10 +202,9 @@ async function buildNativeFile(
   await mkdir(paths.buildRoot, { recursive: true });
   const ambientDeclarations = await ambientDeclarationsForProject(paths.sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
-  const { compileNativeModuleGraph } = await import("../compiler/runtime/nativeModuleGraph");
   const result = await compileNativeModuleGraph(paths.sourcePath, target, {
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
-    importMappings: project?.importMappings ?? {},
+    importMappings: nativeImportMappings(project),
     typeCheck,
     emitNativeSourceLocations,
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
@@ -181,12 +212,12 @@ async function buildNativeFile(
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
   });
   if (result.errors.length > 0) {
-    printDiagnostics(result, paths.sourcePath);
+    printDiagnostics(result.errors, result.diagnostics, paths.sourcePath);
     throw new Error(`Compilation failed for ${paths.sourcePath}`);
   }
   await vfs().writeFile(paths.cppPath, result.code);
   console.log(`Compiled: ${paths.sourcePath} -> ${paths.cppPath}`);
-  await compileNativeExecutable(paths.cppPath, paths.executablePath);
+  await linkNativeExecutable(paths.cppPath, paths.executablePath);
   console.log(`Linked: ${paths.cppPath} + Oilpan -> ${paths.executablePath}`);
 }
 
@@ -198,7 +229,7 @@ async function buildCppModuleGraph(
   emitNativeSourceLocations = false
 ): Promise<void> {
   const inputPath = resolve(process.cwd(), input);
-  const inputStats = await vfs().stat(inputPath).catch(() => null);
+  const inputStats = await vfs().stat(inputPath).catch((_error) => null);
   const project = await loadProject(inputPath);
   const directoryBuild = inputStats?.isDirectory === true;
   const sourcePath = directoryBuild ? project?.bundleEntrypoint : inputPath;
@@ -210,15 +241,15 @@ async function buildCppModuleGraph(
     : resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".cpp"));
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
-  const { compileNativeModuleGraph } = await import("../compiler/runtime/nativeModuleGraph");
-  const profile = process.env["VEXA_PROFILE_COMPILER"] === "1"
-    ? (event: { phase: string; elapsedMs: number; moduleCount: number }): void => {
-        console.error(`[compiler] ${event.phase}: ${event.elapsedMs}ms (${event.moduleCount} modules)`);
-      }
-    : undefined;
+  let profile: ((event: { phase: string; elapsedMs: number; moduleCount: number }) => void) | undefined;
+  if (environmentVariable("VEXA_PROFILE_COMPILER") === "1") {
+    profile = (event): void => {
+      console.error(`[compiler] ${event.phase}: ${event.elapsedMs}ms (${event.moduleCount} modules)`);
+    };
+  }
   const result = await compileNativeModuleGraph(sourcePath, target, {
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
-    importMappings: project?.importMappings ?? {},
+    importMappings: nativeImportMappings(project),
     typeCheck,
     emitNativeSourceLocations,
     ...(profile ? { profile } : {}),
@@ -227,7 +258,7 @@ async function buildCppModuleGraph(
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
   });
   if (result.errors.length > 0) {
-    printDiagnostics(result, sourcePath);
+    printDiagnostics(result.errors, result.diagnostics, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
   await mkdir(dirname(outputPath), { recursive: true });
@@ -239,7 +270,7 @@ async function bundleFile(
   input: string,
   out?: string,
   target: TranspileTarget = "optimized",
-  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {},
+  jsxOptions: JsxOptions = new JsxOptions(),
   typeCheck = true,
   platform: "browser" | "node" = "browser"
 ): Promise<void> {
@@ -253,7 +284,7 @@ async function bundleFile(
     externalDependencyStrategy: platform === "node" ? "node-require" : "runtime-error"
   });
   if (result.errors.length > 0) {
-    printDiagnostics(result, sourcePath);
+    printDiagnostics(result.errors, result.diagnostics, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
 
@@ -303,7 +334,7 @@ async function copyBuildRootStaticFiles(
     }
     const targetPath = resolve(outputDir, entry.name);
     if (entry.isDirectory()) {
-      await copyDirectoryContents(sourcePath, targetPath, { bundleFileName });
+      await copyDirectoryContents(sourcePath, targetPath, new CopyDirectoryOptions(bundleFileName));
       continue;
     }
     await copyBuildFile(sourcePath, targetPath, bundleFileName);
@@ -313,7 +344,7 @@ async function copyBuildRootStaticFiles(
 async function copyDirectoryContents(
   sourceDir: string,
   targetDir: string,
-  options: { bundleFileName?: string }
+  options: CopyDirectoryOptions
 ): Promise<void> {
   await mkdir(targetDir, { recursive: true });
   const entries = await readdir(sourceDir, { withFileTypes: true });
@@ -344,7 +375,7 @@ async function copyServeMappingsToBuildOutput(
   bundleFileName: string
 ): Promise<void> {
   for (const mapping of mappings) {
-    const sourceInfo = await stat(mapping.from).catch(() => null);
+    const sourceInfo = await stat(mapping.from).catch((_error) => null);
     if (!sourceInfo) {
       continue;
     }
@@ -353,7 +384,7 @@ async function copyServeMappingsToBuildOutput(
       throw new Error(`Mapped output path escapes build directory: ${mapping.to}`);
     }
     if (sourceInfo.isDirectory()) {
-      await copyDirectoryContents(mapping.from, targetPath, { bundleFileName });
+      await copyDirectoryContents(mapping.from, targetPath, new CopyDirectoryOptions(bundleFileName));
       continue;
     }
     await copyBuildFile(mapping.from, targetPath, bundleFileName);
@@ -364,7 +395,7 @@ async function buildDirectory(
   input: string,
   out?: string,
   target: TranspileTarget = "optimized",
-  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {}
+  jsxOptions: JsxOptions = new JsxOptions()
 ): Promise<void> {
   const rootDir = resolve(process.cwd(), input);
   const project = await loadProject(rootDir);
@@ -382,7 +413,7 @@ async function buildDirectory(
   const bundleOutputPath = resolve(outputDir, bundleFileName);
   const result = await createBundledModuleArtifacts(bundleInput, target, project, jsxOptions);
   if (result.errors.length > 0) {
-    printDiagnostics(result, bundleInput);
+    printDiagnostics(result.errors, result.diagnostics, bundleInput);
     throw new Error(`Compilation failed for ${bundleInput}`);
   }
 
@@ -404,10 +435,10 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   await ensureRuntimeDependencies(sourcePath, project);
-  const result = await createBundledModuleArtifacts(sourcePath, target, project, {}, {
+  const result = await createBundledModuleArtifacts(sourcePath, target, project, new JsxOptions(), {
     externalDependencyStrategy: "node-require"
   });
-  await executeCompiled({ code: result.code, warnings: result.warnings, errors: result.errors, diagnostics: result.diagnostics }, sourcePath);
+  await executeCompiled(result.code, result.warnings, result.errors, undefined, result.diagnostics, sourcePath);
 }
 
 async function executeSource(source: string, sourcePath: string, target: TranspileTarget): Promise<void> {
@@ -415,7 +446,6 @@ async function executeSource(source: string, sourcePath: string, target: Transpi
   const project = await loadProject(sourcePath);
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
-  const { transpile } = await import("../compiler/runtime/transpile");
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
@@ -425,66 +455,54 @@ async function executeSource(source: string, sourcePath: string, target: Transpi
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {})
   });
-  await executeCompiled(result, sourcePath);
+  await executeCompiled(result.code, result.warnings, result.errors, result.sourceMap, result.diagnostics, sourcePath);
 }
 
 async function executeCompiled(
-  result: { code: string; warnings: string[]; errors: string[]; sourceMap?: string; diagnostics?: TranspileDiagnostic[] },
+  code: string,
+  warnings: string[],
+  errors: string[],
+  sourceMap: string | undefined,
+  diagnostics: TranspileDiagnostic[] | undefined,
   sourcePath: string
 ): Promise<void> {
-  if (result.errors.length > 0) {
-    printDiagnostics(result, sourcePath);
+  if (errors.length > 0) {
+    printDiagnostics(errors, diagnostics, sourcePath);
     throw new DiagnosticError();
   }
-  const inlineSourceMap = result.sourceMap
-    ? `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(result.sourceMap, "utf8").toString("base64")}`
-    : "";
-  const jsToExecute = `${result.code}${inlineSourceMap}\n//# sourceURL=${sourcePath}`;
-  // Write a temp file next to the source so Node.js resolves node_modules from
-  // the source's directory when the compiled code contains bare specifier imports.
-  const tmpPath = resolve(dirname(sourcePath), `.vexa-run-${process.pid}-${Date.now()}.mjs`);
-  try {
-    await vfs().writeFile(tmpPath, jsToExecute);
-    await import(pathToFileURL(tmpPath).href);
-  } finally {
-    await vfs().unlink(tmpPath).catch(() => undefined);
-  }
+  await executeJavaScriptModule(code, sourceMap, sourcePath);
 
-  if (result.warnings.length > 0) {
-    for (const warning of result.warnings) {
+  if (warnings.length > 0) {
+    for (const warning of warnings) {
       console.warn(`warning: ${warning}`);
     }
   }
 }
 
 async function runTests(paths: string[]): Promise<void> {
-  const { runVexaScriptTests } = await import("./testRunner");
-  const result = await runVexaScriptTests(paths, async (source, testFile) => {
+  const testFiles = await runTestFiles(paths, async (source, testFile) => {
     await executeSource(source, testFile, "conservative");
     console.log(`Passed: ${testFile}`);
   });
-  console.log(`${result.testFiles.length} test file${result.testFiles.length === 1 ? "" : "s"} passed`);
+  console.log(`${testFiles.length} test file${testFiles.length === 1 ? "" : "s"} passed`);
 }
 
 async function printTokens(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await vfs().readFile(sourcePath);
-  const { tokenize } = await import("../compiler/runtime/tooling");
-  console.log(JSON.stringify(tokenize(source), null, 2));
+  console.log(JSON.stringify(await tokenizeForCli(source), null, 2));
 }
 
 async function printAst(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await vfs().readFile(sourcePath);
-  const { toAstPreview } = await import("../compiler/runtime/tooling");
-  console.log(JSON.stringify(toAstPreview(source), null, 2));
+  console.log(JSON.stringify(await astForCli(source), null, 2));
 }
 
 async function formatFile(input: string, opts: { write?: boolean; out?: string }): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await vfs().readFile(sourcePath);
-  const { format } = await import("../compiler/runtime/tooling");
-  const formatted = format(source);
+  const formatted = await formatForCli(source);
   const formattedWithTrailingNewline = `${formatted}\n`;
 
   await vfs().writeFile(sourcePath, formattedWithTrailingNewline);
@@ -510,14 +528,14 @@ function resolveSyntaxTarget(opts: {
   textmate?: boolean;
 }): SyntaxTarget {
   const requestedTargets = [
-    opts.monaco ? "monaco" : undefined,
-    opts.monacoLanguage ? "monaco-language" : undefined,
-    opts.monacoConfiguration ? "monaco-configuration" : undefined,
-    opts.vscode ? "vscode-grammar" : undefined,
-    opts.vscodeGrammar ? "vscode-grammar" : undefined,
-    opts.vscodeConfiguration ? "vscode-configuration" : undefined,
-    opts.codemirror ? "codemirror-legacy" : undefined,
-    opts.textmate ? "textmate" : undefined,
+    opts.monaco === true ? "monaco" : undefined,
+    opts.monacoLanguage === true ? "monaco-language" : undefined,
+    opts.monacoConfiguration === true ? "monaco-configuration" : undefined,
+    opts.vscode === true ? "vscode-grammar" : undefined,
+    opts.vscodeGrammar === true ? "vscode-grammar" : undefined,
+    opts.vscodeConfiguration === true ? "vscode-configuration" : undefined,
+    opts.codemirror === true ? "codemirror-legacy" : undefined,
+    opts.textmate === true ? "textmate" : undefined,
     opts.target,
   ].filter((target): target is string => target !== undefined);
 
@@ -547,7 +565,7 @@ async function printSyntax(opts: {
   codemirror?: boolean;
   textmate?: boolean;
 }): Promise<void> {
-  console.log(renderSyntaxTarget(resolveSyntaxTarget(opts)));
+  console.log(await renderSyntaxForCli(resolveSyntaxTarget(opts)));
 }
 
 function createProgram(): Command {
@@ -560,7 +578,7 @@ function createProgram(): Command {
     .command("lsp")
     .description("Start the language server")
     .allowUnknownOption(true)
-    .action(async () => {
+    .action0(async (): Promise<void> => {
       const lspArgv = ensureLspTransportArg(process.argv);
       const originalArgv = process.argv;
       process.argv = lspArgv;
@@ -575,9 +593,8 @@ function createProgram(): Command {
     .command("mcp")
     .description("Start the VexaScript MCP codebase navigation server")
     .option("--root <dir>", "Workspace root used to resolve relative file paths and scan symbols", process.cwd())
-    .action(async (opts: { root?: string }) => {
-      const { runMcpServer } = await import("./mcpServer");
-      await runMcpServer({ cwd: resolve(process.cwd(), opts.root ?? ".") });
+    .actionOptions(async (opts: { root?: string }): Promise<void> => {
+      await startMcpServer({ cwd: resolve(process.cwd(), opts.root ?? ".") });
     });
 
   program
@@ -592,7 +609,7 @@ function createProgram(): Command {
     .option("--vscode-configuration", "Print VS Code language-configuration JSON")
     .option("--codemirror", "Print CodeMirror legacy mode source")
     .option("--textmate", "Print TextMate grammar JSON")
-    .action(async (opts: {
+    .actionOptions(async (opts: {
       target?: string;
       monaco?: boolean;
       monacoLanguage?: boolean;
@@ -602,17 +619,15 @@ function createProgram(): Command {
       vscodeConfiguration?: boolean;
       codemirror?: boolean;
       textmate?: boolean;
-    }) => {
+    }): Promise<void> => {
       await printSyntax(opts);
     });
 
-  const resolveBuildOptions = (opts: { target?: string; jsxFactory?: string; jsxFragmentFactory?: string }) => ({
-    target: opts.target === "conservative" ? "conservative" as const : "optimized" as const,
-    jsxOptions: {
-      ...(opts.jsxFactory ? { jsxFactory: opts.jsxFactory } : {}),
-      ...(opts.jsxFragmentFactory ? { jsxFragmentFactory: opts.jsxFragmentFactory } : {})
-    }
-  });
+  const resolveBuildOptions = (opts: { target?: string; jsxFactory?: string; jsxFragmentFactory?: string }): BuildOptions =>
+    new BuildOptions(
+      opts.target === "conservative" ? "conservative" : "optimized",
+      new JsxOptions(opts.jsxFactory ?? "", opts.jsxFragmentFactory ?? "")
+    );
 
   const addExecutableCommand = (name: "executable" | "native", description: string): void => {
     program
@@ -624,9 +639,9 @@ function createProgram(): Command {
       .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
       .option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics")
       .option("--native-source-locations", "Emit per-statement native source-location hooks")
-      .action(async (input: string, opts: { out?: string; buildDir?: string; target?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }) => {
+      .actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
         const target = opts.target === "conservative" ? "conservative" : "optimized";
-        await buildNativeFile(input, opts.out, opts.buildDir, target, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
+        await buildNativeFile(input, opts.out, opts.buildDir, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
       });
   };
 
@@ -644,41 +659,43 @@ function createProgram(): Command {
     .option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and node_modules packages as ESM")
     .option("--transpile-only", "Emit TypeScript without failing on VexaScript semantic diagnostics")
     .option("--platform <platform>", "Bundle platform: browser|node", "browser")
-    .action(async (input: string, opts: { out?: string; target?: string; emit?: string; native?: boolean; nativeSourceLocations?: boolean; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean; transpileOnly?: boolean; platform?: string }) => {
-      const { target, jsxOptions } = resolveBuildOptions(opts);
-      const emit = opts.native ? "cpp" : opts.emit ?? "javascript";
+    .actionInput(async (input: string, opts: { out?: string; target?: string; emit?: string; native?: boolean; nativeSourceLocations?: boolean; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean; transpileOnly?: boolean; platform?: string }): Promise<void> => {
+      const buildOptions = resolveBuildOptions(opts);
+      const target = buildOptions.target;
+      const jsxOptions = buildOptions.jsxOptions;
+      const emit = opts.native === true ? "cpp" : opts.emit ?? "javascript";
       if (emit !== "javascript" && emit !== "cpp") {
         throw new Error(`Unsupported output language "${emit}". Supported languages: javascript, cpp`);
       }
       const inputPath = resolve(process.cwd(), input);
-      const inputStats = await vfs().stat(inputPath).catch(() => null);
+      const inputStats = await vfs().stat(inputPath).catch((_error) => null);
       if (inputStats?.isDirectory) {
-        if (opts.native) {
-          await buildNativeFile(input, opts.out, undefined, target, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
+        if (opts.native === true) {
+          await buildNativeFile(input, opts.out, undefined, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
           return;
         }
         if (emit === "cpp") {
-          await buildCppModuleGraph(input, opts.out, target, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
+          await buildCppModuleGraph(input, opts.out, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
           return;
         }
         await buildDirectory(input, opts.out, target, jsxOptions);
         return;
       }
-      if (opts.bundle) {
-        if (emit === "cpp" || opts.native) {
+      if (opts.bundle === true) {
+        if (emit === "cpp" || opts.native === true) {
           throw new Error("C++ emission cannot be combined with --bundle");
         }
         if (opts.platform !== "browser" && opts.platform !== "node") {
           throw new Error(`Unsupported bundle platform "${opts.platform}". Supported platforms: browser, node`);
         }
-        await bundleFile(input, opts.out, target, jsxOptions, !opts.transpileOnly, opts.platform);
+        await bundleFile(input, opts.out, target, jsxOptions, opts.transpileOnly !== true, opts.platform);
         return;
       }
-      if (opts.native) {
-        await buildNativeFile(input, opts.out, undefined, target, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
+      if (opts.native === true) {
+        await buildNativeFile(input, opts.out, undefined, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
         return;
       }
-      await buildFile(input, opts.out, target, jsxOptions, emit, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
+      await buildFile(input, opts.out, target, jsxOptions, emit, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
     });
 
   program
@@ -691,10 +708,12 @@ function createProgram(): Command {
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics")
     .option("--native-source-locations", "Emit per-statement native source-location hooks")
-    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }) => {
-      const { target, jsxOptions } = resolveBuildOptions(opts);
+    .actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
+      const buildOptions = resolveBuildOptions(opts);
+      const target = buildOptions.target;
+      const jsxOptions = buildOptions.jsxOptions;
       void jsxOptions;
-      await buildCppModuleGraph(input, opts.out, target, !opts.transpileOnly, opts.nativeSourceLocations ?? false);
+      await buildCppModuleGraph(input, opts.out, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
     });
 
   addExecutableCommand("executable", "Compile one VexaScript file directly to a native Oilpan executable");
@@ -710,12 +729,14 @@ function createProgram(): Command {
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .option("--transpile-only", "Emit TypeScript without failing on VexaScript semantic diagnostics")
     .option("--platform <platform>", "Bundle platform: browser|node", "browser")
-    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; platform?: string }) => {
-      const { target, jsxOptions } = resolveBuildOptions(opts);
+    .actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; platform?: string }): Promise<void> => {
+      const buildOptions = resolveBuildOptions(opts);
+      const target = buildOptions.target;
+      const jsxOptions = buildOptions.jsxOptions;
       if (opts.platform !== "browser" && opts.platform !== "node") {
         throw new Error(`Unsupported bundle platform "${opts.platform}". Supported platforms: browser, node`);
       }
-      await bundleFile(input, opts.out, target, jsxOptions, !opts.transpileOnly, opts.platform);
+      await bundleFile(input, opts.out, target, jsxOptions, opts.transpileOnly !== true, opts.platform);
     });
 
   program
@@ -728,27 +749,31 @@ function createProgram(): Command {
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
-    .action(async (
-      dir: string | undefined,
+    .actionInput(async (
+      dir: string,
       opts: { bundle?: string; open?: boolean; port?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }
-    ) => {
-      const { target, jsxOptions } = resolveBuildOptions(opts);
-      const rootDir = dir ?? ".";
-      const { startServeSession } = await import("./cliServe");
-      const session = await startServeSession({
+    ): Promise<void> => {
+      const buildOptions = resolveBuildOptions(opts);
+      const target = buildOptions.target;
+      const jsxOptions = buildOptions.jsxOptions;
+      const rootDir = dir;
+      const bundleInput = await resolveServeBundleInput(rootDir, opts.bundle);
+      const portNumber = parseInt(opts.port ?? "8080", 10);
+      const port = await startServe({
         rootDir,
-        bundleInput: await resolveServeBundleInput(rootDir, opts.bundle),
-        port: Number.parseInt(opts.port ?? "8080", 10),
+        bundleInput,
+        port: portNumber,
         target,
         ...jsxOptions,
-        onDiagnosticError: printDiagnostics
+        onDiagnosticError: (result: { errors: string[]; diagnostics?: TranspileDiagnostic[] }, file: string) =>
+          printDiagnostics(result.errors, result.diagnostics, file)
       });
-      if (opts.open) {
-        const url = `http://localhost:${session.port}`;
+      if (opts.open === true) {
+        const url = `http://localhost:${port}`;
         try {
           await openUrlInDefaultBrowser(url);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = String(error);
           console.warn(`Unable to open ${url} in the default browser: ${message}`);
         }
       }
@@ -759,7 +784,7 @@ function createProgram(): Command {
     .description("Transpile and run a VexaScript file with Node.js")
     .argument("<input>", "Input file")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "conservative")
-    .action(async (input: string, opts: { target?: string }) => {
+    .actionInput(async (input: string, opts: { target?: string }): Promise<void> => {
       const target = opts.target === "conservative" ? "conservative" : "optimized";
       await runFile(input, target);
     });
@@ -768,7 +793,7 @@ function createProgram(): Command {
     .command("test")
     .description(`Discover and run .test${LANGUAGE_FILE_EXTENSION} files with inline test and assert helpers`)
     .argument("[paths...]", "Test files or directories", [])
-    .action(async (paths: string[]) => {
+    .actionStrings(async (paths: string[]): Promise<void> => {
       await runTests(paths);
     });
 
@@ -776,7 +801,7 @@ function createProgram(): Command {
     .command("tokens")
     .description("Show file tokens")
     .argument("<input>", "Input file")
-    .action(async (input: string) => {
+    .actionString(async (input: string): Promise<void> => {
       await printTokens(input);
     });
 
@@ -784,7 +809,7 @@ function createProgram(): Command {
     .command("ast")
     .description("Show simplified AST")
     .argument("<input>", "Input file")
-    .action(async (input: string) => {
+    .actionString(async (input: string): Promise<void> => {
       await printAst(input);
     });
 
@@ -794,7 +819,7 @@ function createProgram(): Command {
     .argument("<input>", "Input file")
     .option("-w, --write", "Deprecated: formatting now always overwrites the input file")
     .option("-o, --out <file>", "Output file")
-    .action(async (input: string, opts: { write?: boolean; out?: string }) => {
+    .actionInput(async (input: string, opts: { write?: boolean; out?: string }): Promise<void> => {
       await formatFile(input, opts);
     });
 
@@ -828,7 +853,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");
-    const existsOnDisk = await vfs().stat(resolve(process.cwd(), firstArg)).then(() => true, () => false);
+    const existsOnDisk = await vfs().stat(resolve(process.cwd(), firstArg)).then((_stat) => true).catch((_error) => false);
     if (looksLikeFile || existsOnDisk) {
       await createProgram().parseAsync([argv[0]!, argv[1]!, "run", ...argv.slice(2)]);
       return;
@@ -842,46 +867,27 @@ async function main(): Promise<void> {
   await runCli(process.argv);
 }
 
-function isBootstrappedCliExecution(): boolean {
-  return (globalThis as { __vexaCliBootstrappedEntry?: boolean }).__vexaCliBootstrappedEntry === true;
-}
-
 async function isDirectExecution(): Promise<boolean> {
   if (isBootstrappedCliExecution()) {
     return false;
   }
-  if (process.argv[1] === undefined) return false;
-  if (pathToFileURL(process.argv[1]).href === import.meta.url) return true;
-  try {
-    const { realpath } = await import("node:fs/promises");
-    const { fileURLToPath } = await import("node:url");
-    const [resolvedArgv1, resolvedSelf] = await Promise.all([
-      realpath(process.argv[1]),
-      realpath(fileURLToPath(import.meta.url)),
-    ]);
-    return resolvedArgv1 === resolvedSelf;
-  } catch {
-    return false;
-  }
+  return await isDirectModuleExecution();
 }
 
-const directExecutionKeepAlive = setTimeout(() => undefined, 1 << 30);
-isDirectExecution()
-  .then(async (directExecution) => {
-    if (!directExecution) {
-      return;
+async function runDirectExecution(): Promise<void> {
+  try {
+    if (await isDirectExecution()) {
+      await main();
     }
-    await main();
-  })
-  .catch((error) => {
+  } catch (error) {
     if (!(error instanceof DiagnosticError)) {
       console.error(error instanceof Error ? error.message : String(error));
     }
     process.exitCode = 1;
-  })
-  .finally(() => {
-    clearTimeout(directExecutionKeepAlive);
-    if ((process.exitCode ?? 0) !== 0) {
-      process.exit(process.exitCode ?? 1);
-    }
-  });
+  }
+  if (typeof process.exitCode === "number" && process.exitCode !== 0) {
+    process.exit(process.exitCode);
+  }
+}
+
+runAsyncMain(runDirectExecution());

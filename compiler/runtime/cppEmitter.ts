@@ -91,6 +91,7 @@ const CPP_RESERVED_WORDS = new Set([
 ]);
 const NATIVE_RUNTIME_FUNCTION_NAMES = new Set([
   "readTextFile", "writeTextFile", "commandLineArguments",
+  "nativeStatPath", "nativeReadDirectory", "nativeCreateDirectory", "nativeRemovePath", "nativeCopyFile", "nativeRunTask", "nativeEnvironmentVariable",
   "setTimeout", "setInterval", "clearTimeout", "clearInterval",
 ]);
 const cppNameCache: Map<string, string> = new Map();
@@ -231,6 +232,21 @@ function identifierName(expression: Expr): string | null {
   return expression.kind === NodeKind.Identifier ? (expression as Identifier).name : null;
 }
 
+function resolvedDefaultArgument(name: string): Expr | null {
+  let current = activeDefaultArgumentExpressions.get(name);
+  if (!current) return null;
+  const resolving = new Set<string>([name]);
+  while (current.kind === NodeKind.Identifier) {
+    const currentName = (current as Identifier).name;
+    if (resolving.has(currentName)) return null;
+    const next = activeDefaultArgumentExpressions.get(currentName);
+    if (!next) return current;
+    resolving.add(currentName);
+    current = next;
+  }
+  return current;
+}
+
 function isOptionalChainExpression(expression: Expr): boolean {
   if (expression.kind === NodeKind.MemberExpression) {
     const member = expression as MemberExpression;
@@ -255,7 +271,7 @@ function usesPooledFunctionTypeof(unary: UnaryExpression): boolean {
 
 function emitIdentifier(identifier: Identifier): string {
   if (identifier.name === "this") return activeThisExpression;
-  const defaultArgument = activeDefaultArgumentExpressions.get(identifier.name);
+  const defaultArgument = resolvedDefaultArgument(identifier.name);
   if (defaultArgument) return emitExpression(defaultArgument);
   if (identifier.name === "process") return "vexa::process";
   if (activeImplicitReceiverExtensionIdentifiers.has(identifier as Node)) {
@@ -816,7 +832,7 @@ function computeCppTypeForExpression(expression: Expr): string {
   if (expression.kind === NodeKind.Identifier) {
     const identifier = expression as Identifier;
     const name = identifier.name;
-    const defaultArgument = activeDefaultArgumentExpressions.get(name);
+    const defaultArgument = resolvedDefaultArgument(name);
     if (defaultArgument) return cppTypeForExpression(defaultArgument);
     const declared = activeLocalDeclaredTypeNames.get(name) ?? activeGlobalDeclaredTypeNames.get(name);
     const mappedDeclared = declared ? cppTypeForDeclaredName(declared) : null;
@@ -1796,7 +1812,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
   }
   if (expression.kind === NodeKind.Identifier) {
     const name = (expression as Identifier).name;
-    const defaultArgument = activeDefaultArgumentExpressions.get(name);
+    const defaultArgument = resolvedDefaultArgument(name);
     if (defaultArgument) return emittedCppTypeForExpression(defaultArgument);
     const localType = activeLocalCppTypes.get(name);
     if (localType) return localType;
@@ -1856,18 +1872,12 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
     const member = memberParts((expression as CallExpression).callee);
     const collectionKind = member ? nativeCollectionKind(member.object) : null;
     const collectionType = member ? nativeCollectionPointerCppType(member.object) : null;
-    const emittedCollectionType = member
-      ? emittedCppTypeForExpression(member.object) ?? cppTypeForExpression(member.object)
-      : null;
     if (member?.propertyName === "get" && collectionKind === "map") {
       const resultType = cppTypeForExpression(expression);
       if (resultType.endsWith("*")) return resultType;
+      return "vexa::Value";
     }
     const mapTypes = collectionType ? cppTemplateArguments(collectionType, "vexa::MapObject<") : null;
-    if (member?.propertyName === "get" && mapTypes && emittedCollectionType === collectionType &&
-        !new Set(["auto", "vexa::Value"]).has(mapTypes[1]!)) {
-      return mapTypes[1]!;
-    }
     if (member?.propertyName === "keys" && mapTypes) {
       return `vexa::ArrayObject<${mapTypes[0]}>*`;
     }
@@ -2378,7 +2388,7 @@ function withRuntimeArgument(argumentsText: string): string {
 function classNameForExpression(expression: Expr): string | null {
   if (expression.kind === NodeKind.Identifier) {
     const name = (expression as Identifier).name;
-    const defaultArgument = activeDefaultArgumentExpressions.get(name);
+    const defaultArgument = resolvedDefaultArgument(name);
     if (defaultArgument) return classNameForExpression(defaultArgument);
     if (name === "this") return activeCurrentClassName;
     const tracked = activeGcObjectTypes.get(name);
@@ -2426,7 +2436,7 @@ function declaredTypeNameForExpression(expression: Expr): string | null {
   }
   if (expression.kind === NodeKind.Identifier) {
     const name = (expression as Identifier).name;
-    const defaultArgument = activeDefaultArgumentExpressions.get(name);
+    const defaultArgument = resolvedDefaultArgument(name);
     if (defaultArgument) return declaredTypeNameForExpression(defaultArgument);
     if (name === "this") return activeCurrentClassName;
     return activeLocalDeclaredTypeNames.get(name) ?? activeGlobalDeclaredTypeNames.get(name) ?? null;
@@ -3512,13 +3522,18 @@ function emitAsyncNativeLambda(
   parametersList: readonly FunctionParameter[],
   body: Expr | BlockStatement
 ): string {
+  const contextualReturn = activeExpectedLambdaResultCppType;
+  let contextualTaskResult = contextualReturn;
+  if (contextualTaskResult?.startsWith("vexa::Task<") && contextualTaskResult.endsWith(">")) {
+    contextualTaskResult = contextualTaskResult.slice("vexa::Task<".length, -1);
+  }
   const functionType = activeExpressionTypes.get(expression as Node);
   const analyzedReturn = functionType?.kind === "function" ? (functionType as FunctionType).returnType : null;
   const taskType = analyzedReturn ? cppTypeForAnalysisType(analyzedReturn) : null;
-  let resultType = "vexa::Value";
-  if (taskType?.startsWith("vexa::Task<") && taskType.endsWith(">")) {
+  let resultType = contextualTaskResult ?? "vexa::Value";
+  if (!contextualTaskResult && taskType?.startsWith("vexa::Task<") && taskType.endsWith(">")) {
     resultType = taskType.slice("vexa::Task<".length, -1);
-  } else if (analyzedReturn) {
+  } else if (!contextualTaskResult && analyzedReturn) {
     resultType = cppTypeForAnalysisType(analyzedReturn) ?? "vexa::Value";
   }
   const capture = nativeLambdaCapture(
@@ -4135,7 +4150,12 @@ function emitCall(call: CallExpression): string {
     return `([&]() { auto __vexa_define_receiver = ${receiver}; vexa::defineProperty(${activeRuntimeName}, __vexa_define_receiver, vexa::toString(${emitExpression(key)}), ${assigned}, ${isEnumerable}); return __vexa_define_receiver; }())`;
   }
   if (member?.objectName === "JSON" && (member.propertyName === "parse" || member.propertyName === "stringify")) {
-    if (call.args.length !== 1) throw new CppEmitError(`C++ JSON.${member.propertyName} expects one argument`, call);
+    const validArgumentCount = member.propertyName === "parse"
+      ? call.args.length === 1
+      : call.args.length >= 1 && call.args.length <= 3;
+    if (!validArgumentCount) {
+      throw new CppEmitError(`C++ JSON.${member.propertyName} expects ${member.propertyName === "parse" ? "one argument" : "one to three arguments"}`, call);
+    }
     const argument = emitConvertedValue(call.args[0]!, "vexa::Value");
     return member.propertyName === "parse"
       ? `vexa::jsonParse(${activeRuntimeName}, ${argument})`
@@ -4556,6 +4576,42 @@ function emitCall(call: CallExpression): string {
     }
     return `vexa::commandLineArguments(${activeRuntimeName})`;
   }
+  if (calleeName === "import") {
+    if (call.args.length !== 1) {
+      throw new CppEmitError("C++ dynamic import expects one module specifier");
+    }
+    return `vexa::dynamicImportUnavailable(${activeRuntimeName}, vexa::toString(${emitExpression(call.args[0]!)}))`;
+  }
+  if (calleeName === "nativeStatPath" || calleeName === "nativeReadDirectory") {
+    if (call.args.length !== 1) {
+      throw new CppEmitError(`C++ ${calleeName} expects one path`);
+    }
+    return `vexa::${calleeName}(${activeRuntimeName}, vexa::convertValue<std::string>(${emitExpression(call.args[0]!)}))`;
+  }
+  if (calleeName === "nativeCreateDirectory" || calleeName === "nativeRemovePath") {
+    if (call.args.length !== 2) {
+      throw new CppEmitError(`C++ ${calleeName} expects a path and a recursive flag`);
+    }
+    return `vexa::${calleeName}(${activeRuntimeName}, vexa::convertValue<std::string>(${emitExpression(call.args[0]!)}), vexa::convertValue<bool>(${emitExpression(call.args[1]!)}))`;
+  }
+  if (calleeName === "nativeCopyFile") {
+    if (call.args.length !== 2) {
+      throw new CppEmitError("C++ nativeCopyFile expects source and target paths");
+    }
+    return `vexa::nativeCopyFile(${activeRuntimeName}, vexa::convertValue<std::string>(${emitExpression(call.args[0]!)}), vexa::convertValue<std::string>(${emitExpression(call.args[1]!)}))`;
+  }
+  if (calleeName === "nativeRunTask") {
+    if (call.args.length !== 1) {
+      throw new CppEmitError("C++ nativeRunTask expects one task");
+    }
+    return `vexa::nativeRunTask(${emitExpression(call.args[0]!)})`;
+  }
+  if (calleeName === "nativeEnvironmentVariable") {
+    if (call.args.length !== 1) {
+      throw new CppEmitError("C++ nativeEnvironmentVariable expects one name");
+    }
+    return `vexa::nativeEnvironmentVariable(${activeRuntimeName}, vexa::toString(${emitExpression(call.args[0]!)}))`;
+  }
   const runtimeGlobals = new Set([
     "String", "Number", "Boolean", "BigInt", "Error", "parseInt", "parseFloat", "isNaN", "isFinite",
     "encodeURIComponent", "decodeURIComponent",
@@ -4931,15 +4987,13 @@ function emitBinary(expression: BinaryExpression): string {
   }
   if ((expression.operator === "is" || expression.operator === "instanceof") && expression.right.kind === NodeKind.Identifier) {
     const targetName = (expression.right as Identifier).name;
-    if (new Set(["Error", "TypeError", "RangeError", "SyntaxError"]).has(targetName)) {
+    if (targetName === "Error" || targetName === "TypeError" || targetName === "RangeError" || targetName === "SyntaxError") {
       return `vexa::isErrorLike(${emitExpression(expression.left)})`;
     }
-    const collectionHelper = targetName === "Map" ? "isMapLike"
-      : targetName === "Set" ? "isSetLike"
-        : targetName === "WeakMap" ? "isWeakMapLike"
-          : targetName === "WeakSet" ? "isWeakSetLike"
-            : null;
-    if (collectionHelper) return `vexa::${collectionHelper}(${emitExpression(expression.left)})`;
+    if (targetName === "Map") return `vexa::isMapLike(${emitExpression(expression.left)})`;
+    if (targetName === "Set") return `vexa::isSetLike(${emitExpression(expression.left)})`;
+    if (targetName === "WeakMap") return `vexa::isWeakMapLike(${emitExpression(expression.left)})`;
+    if (targetName === "WeakSet") return `vexa::isWeakSetLike(${emitExpression(expression.left)})`;
     const targetType = cppTypeForDeclaredName(targetName);
     if (targetType?.endsWith("*") &&
       (activeClassNames.has(parseTypeNameShape(targetName).baseName) ||
@@ -7891,6 +7945,9 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     addDynamicProperty(property.name, property.type, Boolean(property.parameter.isReadonly));
   }
   for (const field of typedFieldMembers) {
+    if (field.field.accessModifier === "private" || field.field.accessModifier === "protected") {
+      continue;
+    }
     const immutable = Boolean(field.field.initializer) && Boolean(
       field.field.declarationKind === "val" || field.field.declarationKind === "const" || field.field.isReadonly
     );

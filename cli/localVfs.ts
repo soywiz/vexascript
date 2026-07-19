@@ -1,4 +1,10 @@
-import { readFile as nodeReadFile, readdir as nodeReadDir, stat as nodeStat, writeFile, unlink } from "node:fs/promises";
+import {
+  readFile as nodeReadFile,
+  readdir as nodeReadDir,
+  stat as nodeStat,
+  writeFile as nodeWriteFile,
+  unlink as nodeUnlink,
+} from "node:fs/promises";
 import { setVfs, Vfs, VfsDirEntry, VfsStat } from "../compiler/vfs";
 
 export class LocalVfs extends Vfs {
@@ -7,21 +13,17 @@ export class LocalVfs extends Vfs {
   }
 
   override async writeFile(path: string, content: string | ArrayBufferView) {
-    return await writeFile(path, content as string | NodeJS.ArrayBufferView);
+    await nodeWriteFile(path, content as string | NodeJS.ArrayBufferView);
   }
 
   override async unlink(path: string) {
-    return await unlink(path);
+    await nodeUnlink(path);
   }
 
   override async stat(path: string): Promise<VfsStat> {
     try {
       const stats = await nodeStat(path);
-      return {
-        mtimeMs: stats.mtimeMs,
-        isFile: stats.isFile(),
-        isDirectory: stats.isDirectory()
-      };
+      return new VfsStat(stats.mtimeMs, stats.isFile(), stats.isDirectory());
     } catch {
       throw new Error(`File '${path}' doesn't exists`);
     }
@@ -30,11 +32,7 @@ export class LocalVfs extends Vfs {
   override async readDir(path: string): Promise<VfsDirEntry[]> {
     try {
       const entries = await nodeReadDir(path, { withFileTypes: true });
-      return entries.map((entry) => ({
-        name: entry.name,
-        isFile: entry.isFile(),
-        isDirectory: entry.isDirectory()
-      }));
+      return entries.map((entry) => new VfsDirEntry(entry.name, entry.isFile(), entry.isDirectory()));
     } catch {
       throw new Error(`File '${path} doesn't exists`);
     }

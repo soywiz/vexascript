@@ -46,11 +46,17 @@ export interface AssertionTypePredicateText {
   assertedTypeText?: string;
 }
 
-interface TypeTextDepths {
-  angle: number;
-  paren: number;
-  bracket: number;
-  brace: number;
+class TypeTextDepths {
+  constructor(
+    public angle: number = 0,
+    public paren: number = 0,
+    public bracket: number = 0,
+    public brace: number = 0
+  ) {}
+
+  get isTopLevel(): boolean {
+    return this.angle === 0 && this.paren === 0 && this.bracket === 0 && this.brace === 0;
+  }
 }
 
 interface FunctionTypeParameterText {
@@ -74,7 +80,7 @@ function scanTypeText(
   text: string,
   visit: (character: string, index: number, isTopLevel: boolean) => boolean | void
 ): void {
-  const depths: TypeTextDepths = { angle: 0, paren: 0, bracket: 0, brace: 0 };
+  const depths = new TypeTextDepths();
   let quote: string | null = null;
 
   for (let index = 0; index < text.length; index += 1) {
@@ -92,7 +98,7 @@ function scanTypeText(
       continue;
     }
 
-    const isTopLevel = Object.values(depths).every((depth) => depth === 0);
+    const isTopLevel = depths.isTopLevel;
     if (visit(character, index, isTopLevel) === false) {
       return;
     }

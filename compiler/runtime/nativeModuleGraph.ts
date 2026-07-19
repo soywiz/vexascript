@@ -29,7 +29,7 @@ import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import type { ParseIssue } from "compiler/parser/parser";
 import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { vfs, type Vfs } from "compiler/vfs";
-import { resolve } from "compiler/utils/path";
+import { extname, resolve } from "compiler/utils/path";
 import { localImportSpecifiers, parserOptionsForModulePath, type LocalImportDependency } from "./localModuleResolution";
 import type { ModuleGraphOptions } from "./moduleGraphModel";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
@@ -412,7 +412,12 @@ export async function compileNativeModuleGraph(
       return undefined;
     }
     sourceByPath.set(filePath, source);
-    const parsed = parseSource(source, parserOptionsForModulePath(filePath));
+    const parsedSource = extname(filePath).toLowerCase() === ".json"
+      ? `const __vexaJsonDefault = ${source};\nexport default __vexaJsonDefault;`
+      : source;
+    const parsed = parseSource(parsedSource, extname(filePath).toLowerCase() === ".json"
+      ? { language: "typescript" }
+      : parserOptionsForModulePath(filePath));
     parsedByPath.set(filePath, parsed);
     for (const issue of parsed.parserIssues) errors.push(formatNativeParseIssue(filePath, issue));
     if (parsed.tokenizeError) errors.push(`${filePath}: ${parsed.tokenizeError.message}`);
@@ -431,7 +436,8 @@ export async function compileNativeModuleGraph(
       filePath,
       activeVfs,
       importMappings,
-      options.baseUrl
+      options.baseUrl,
+      true
     );
     importsByPath.set(filePath, imports);
     const reexports: NativeReexportDependency[] = [];

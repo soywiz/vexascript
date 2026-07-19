@@ -1,0 +1,8 @@
+{
+  "entrypoint": "cli.ts",
+  "nativeImports": {
+    "node:fs/promises": "../native/modules/nodeFsPromises.ts",
+    "./io": "../native/modules/cliIo.ts",
+    "./cliShared": "../native/modules/cliShared.ts"
+  }
+}
