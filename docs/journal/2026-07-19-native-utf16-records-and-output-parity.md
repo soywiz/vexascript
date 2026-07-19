@@ -293,3 +293,31 @@ units compiled in 113.07 and 113.75 seconds, so the extra static dispatch code
 did not improve or materially worsen C++ build time. Node and both native hosts
 emitted byte-identical C++ with SHA-256
 `09442947f87ee1c2a41a2ada5644e49ac758e36d8092f27c4d9f964fca57ef2c`.
+
+## Hot emitter carriers must be nominal at every construction site
+
+The next native sample showed `MemberParts` property reads under
+`RecordObject::get`, UTF-8 to UTF-16 key conversion, and record-adapter methods.
+Although the carrier had a fixed three-field interface, its constructors used
+anonymous object literals, so native emission could not use direct class-field
+access. The same sample showed `cppTypeForDeclaredName` allocating an empty
+alias `Set` before every declared-type cache lookup and constructing utility
+type-name sets on every cache miss.
+
+`MemberParts` is now a nominal class with a positional constructor, and every
+creation site uses that constructor. The declared-type helper creates an alias
+set only on a cache miss, while utility-type classification uses string
+switches instead of newly allocated sets. The generated translation unit lost
+about 6 KB and no longer contains a record adapter for `MemberParts`.
+
+The first native roundtrip exposed one missed anonymous construction site:
+Node emitted it structurally, but the native host correctly rejected converting
+the resulting `RecordObject` to `MemberParts*`. Routing that branch through the
+shared constructor restored native execution and exact output parity. This is
+why each nominal migration must be exercised by the native host rather than
+accepted after Node-only generation.
+
+Two stable profiled generations took 20.50 and 20.52 seconds, with C++ emission
+at 5.18 and 5.25 seconds. The two `-O1` builds took 117.66 and 110.52 seconds.
+Node and both native hosts emitted the same 7,901,507-byte translation unit with
+SHA-256 `9754082e94d08c062ac8e14ced6e7fc9d8505f7648273b009267f345ad93953f`.

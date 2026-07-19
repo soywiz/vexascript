@@ -427,25 +427,27 @@ function emitAsyncResultValue(expression: Expr, resultType: string): string {
   return emitConvertedValue(expression, resultType);
 }
 
-interface MemberParts {
-  object: Expr;
-  objectName: string | null;
-  propertyName: string;
+class MemberParts {
+  constructor(
+    public object: Expr,
+    public objectName: string | null,
+    public propertyName: string
+  ) {}
 }
 
 function createMemberParts(object: Expr, propertyName: string): MemberParts {
-  return { object, objectName: identifierName(object), propertyName };
+  return new MemberParts(object, identifierName(object), propertyName);
 }
 
 function memberParts(expression: Expr): MemberParts | null {
   if (expression.kind !== NodeKind.MemberExpression) return null;
   const member = expression as MemberExpression;
   if (member.computed || member.property.kind !== NodeKind.Identifier) return null;
-  return {
-    object: member.object,
-    objectName: identifierName(member.object),
-    propertyName: (member.property as Identifier).name,
-  };
+  return new MemberParts(
+    member.object,
+    identifierName(member.object),
+    (member.property as Identifier).name
+  );
 }
 
 function cppString(value: string): string {
@@ -685,13 +687,42 @@ function stripOuterTypeParentheses(typeName: string): string {
   return current;
 }
 
-function cppTypeForDeclaredName(typeName: string, visitedAliases = new Set<string>()): string | null {
-  if (visitedAliases.size > 0) return computeCppTypeForDeclaredName(typeName, visitedAliases);
+function cppTypeForDeclaredName(typeName: string, visitedAliases?: Set<string>): string | null {
+  if (visitedAliases !== undefined) return computeCppTypeForDeclaredName(typeName, visitedAliases);
   const cacheKey = `${activeCppTypeParameterCacheKey}\u0000${typeName}`;
   if (activeDeclaredCppTypeCache.has(cacheKey)) return activeDeclaredCppTypeCache.get(cacheKey)!;
-  const result = computeCppTypeForDeclaredName(typeName, visitedAliases);
+  const result = computeCppTypeForDeclaredName(typeName, new Set<string>());
   activeDeclaredCppTypeCache.set(cacheKey, result);
   return result;
+}
+
+function isRecordUtilityTypeName(typeName: string): boolean {
+  switch (typeName) {
+    case "Omit":
+    case "Pick":
+    case "Partial":
+    case "Required":
+    case "Readonly":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function isDynamicUtilityTypeName(typeName: string): boolean {
+  switch (typeName) {
+    case "ReturnType":
+    case "Parameters":
+    case "ConstructorParameters":
+    case "InstanceType":
+    case "Awaited":
+    case "Exclude":
+    case "Extract":
+    case "NonNullable":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<string>): string | null {
@@ -748,13 +779,10 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
   if (builtin) return builtin;
   if (activeEnumNames.has(typeName)) return "std::int32_t";
   const shape = parseTypeNameShape(typeName);
-  if (new Set(["Omit", "Pick", "Partial", "Required", "Readonly"]).has(shape.baseName)) {
+  if (isRecordUtilityTypeName(shape.baseName)) {
     return "vexa::RecordObject*";
   }
-  if (new Set([
-    "ReturnType", "Parameters", "ConstructorParameters", "InstanceType", "Awaited",
-    "Exclude", "Extract", "NonNullable",
-  ]).has(shape.baseName)) {
+  if (isDynamicUtilityTypeName(shape.baseName)) {
     return "vexa::Value";
   }
   if (shape.baseName === "Array" || shape.baseName === "ReadonlyArray" || shape.baseName === "ConcatArray") {
@@ -5740,11 +5768,9 @@ function emitExpression(expression: Expr): string {
         }
       }
       const propertyName = !member.computed ? identifierName(member.property) : null;
-      const memberInfo: MemberParts | null = propertyName ? {
-        object: member.object,
-        objectName: identifierName(member.object),
-        propertyName,
-      } : null;
+      const memberInfo: MemberParts | null = propertyName
+        ? createMemberParts(member.object, propertyName)
+        : null;
       const interfaceProperty: InterfacePropertyMember | null = memberInfo
         ? interfacePropertyForMember(memberInfo)
         : null;

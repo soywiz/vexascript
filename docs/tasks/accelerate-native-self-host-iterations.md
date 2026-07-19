@@ -52,7 +52,11 @@ development loop.
   seconds: type inference took 11.05 seconds and C++ emission took 5.46 seconds. The
   generated translation unit grew by about 48 KB and still took about 113
   seconds to compile at `-O1`, so this improves compiler execution rather than
-  C++ frontend throughput.
+  C++ frontend throughput. Converting the hot `MemberParts` carrier from an
+  anonymous interface record to a nominal class, avoiding empty alias-set
+  allocation on declared-type cache hits, and replacing per-call utility-type
+  sets with static switches then reduced the steady profiled total to
+  20.50–20.52 seconds and C++ emission to 5.18–5.25 seconds.
 * [ ] Replace the monolithic `convertValue<T>` decision tree at generated call
   sites with emitter-selected, narrowly scoped conversion operations. Prefer
   non-template boxing/coercion helpers such as `boxText`, `toText`, `toNumber`,
@@ -124,7 +128,8 @@ development loop.
   Static AST traversal reduced the best subsequent profile to 1.98 seconds for
   load/parse, 1.82 seconds for isolation, 0.49 seconds for binding, 11.05
   seconds for type inference, and 5.46 seconds for C++ emission, for 20.80
-  seconds total. The next byte-identical host took 21.68 seconds, while an
+  seconds total. Nominal `MemberParts` and cheaper declared-type cache hits
+  reduced the next stable runs to 20.50–20.52 seconds, while an
   earlier run reached 33.30 seconds after longer GC pauses; allocation and
   collection therefore remain important sources of variance.
 * [ ] Make strict native object mode the final self-host target so compiler
@@ -165,13 +170,13 @@ development loop.
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
-  20.80 and 21.68 profiled seconds in the latest checkpoint, and both generated
-  translation units compiled successfully at `-O1` in about 113 seconds each.
+  20.50 and 20.52 profiled seconds in the latest checkpoint, and both generated
+  translation units compiled successfully at `-O1` in 117.66 and 110.52
+  seconds.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `09442947f87ee1c2a41a2ada5644e49ac758e36d8092f27c4d9f964fca57ef2c`.
-  The 7,907,570-byte translation units compiled at `-O1` in 113.07 and 113.75
-  seconds, and all three outputs were byte-identical.
+  `9754082e94d08c062ac8e14ced6e7fc9d8505f7648273b009267f345ad93953f`.
+  All three 7,901,507-byte outputs were byte-identical.
 * [x] Run `pnpm test` (2307 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 
