@@ -87,6 +87,7 @@ async callback field done
 promise assimilation 11 why
 promise combinators 5 2 8
 async 20 40
+async rooted array before|after
 async io native io works
 native command 0 native subprocess 0
 interval cancelled

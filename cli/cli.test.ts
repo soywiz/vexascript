@@ -179,9 +179,6 @@ describe("CLI", () => {
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).toContain('#include "runtime.cpp"');
-    expect(outputCode).toContain('static vexa::StringObject* __vexa_literal_0 = nullptr;');
-    expect(outputCode).toContain('__vexa_literal_0 = runtime.retainLiteral("cpp");');
-    expect(outputCode).toContain('vexa::console.log(vexa::Text(u"cpp"));');
     expect(outputCode).not.toContain("VEXA_NATIVE_SOURCE(");
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });
@@ -625,6 +622,15 @@ describe("CLI", () => {
     const executableHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
     expect(executableHelp).toContain("Usage: vexa executable [options] <input>");
     expect(executableHelp).toContain("--build-dir <dir>");
+
+    const helpExecutableStart = stdoutWriteSpy.mock.calls.length;
+    await expect(runCli(["node", "vexa", "help", "executable"])).rejects.toThrow("process.exit:0");
+    const helpExecutable = stdoutWriteSpy.mock.calls
+      .slice(helpExecutableStart)
+      .map((call) => String(call[0] ?? ""))
+      .join("");
+    expect(helpExecutable).toContain("Usage: vexa executable [options] <input>");
+    expect(helpExecutable).toContain("--build-dir <dir>");
 
     await expect(runCli(["node", "vexa", "native", "--help"])).rejects.toThrow("process.exit:0");
     const nativeHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");

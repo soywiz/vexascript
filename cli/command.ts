@@ -293,7 +293,8 @@ export class Command {
     const tokens = argv.slice(2);
     if (tokens[0] === "help") {
       const command = root.commands.find((candidate) => candidate.commandName === tokens[1]);
-      (command ?? root).exitWithHelp();
+      if (command) command.exitWithHelp();
+      root.exitWithHelp();
     }
     if ((tokens[0] === "--version" || tokens[0] === "-V") && root.versionValue !== undefined) {
       console.log(root.versionValue);

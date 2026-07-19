@@ -64,3 +64,34 @@ hide the symptom without fixing the semantic divergence.
 `AnalysisTypeKind` remains string-valued in this checkpoint. Once output parity
 is restored, converting it to a numeric `const enum` should be benchmarked in
 the same controlled way as `NodeKind`.
+
+## Contextual arrays exposed coroutine rooting
+
+Propagating an expected `Array<T>` through conversions fixed the first native
+versus Node output difference: callbacks such as `entries.map(...)` now receive
+the expected result element type even when the native semantic map is less
+precise. It also changed several previously dynamic `Array<Value>` allocations
+into their declared element types.
+
+That change exposed a latent lifetime bug. Oilpan pointers stored as raw locals
+inside a C++ coroutine were not rooted while the coroutine was suspended at
+`co_await`. An optimized native compiler crashed while appending to an array
+created before an await. Async and generator locals whose native type is a GC
+pointer are now stored in `cppgc::Persistent`, and native property update
+helpers normalize raw and persistent receivers through `vexa::rawPointer`.
+The complete native language smoke keeps a typed array alive across an await.
+
+The ordinary CLI spelling `executable --help` worked natively, while
+`help executable` failed with a dynamic-call error. A nullish receiver expression
+in `(command ?? root).exitWithHelp()` lost its nominal class receiver during C++
+emission. Splitting it into explicit branches keeps both calls static and makes
+the control flow simpler. The rebuilt native CLI now prints the command-specific
+help and exits successfully for the exact `help executable` spelling.
+
+Both hosts discovered the same 2,555 string literals but assigned indices in a
+different order because generic AST child enumeration is host-dependent. The
+pool now sorts the complete value set before assigning names. This reduced the
+comparison from 1,113 index-cascaded diff hunks to 419 real code-generation
+differences. The remaining first differences are concrete conversion and
+static-versus-dynamic decisions, so further parity work can address causes
+without reading through thousands of shifted literal references.
