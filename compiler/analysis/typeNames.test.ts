@@ -287,6 +287,21 @@ describe("substituteTypeNameText", () => {
       "(value: string, next?: string) => string"
     );
   });
+
+  it("classifies identifier and whitespace characters without rewriting qualified names or literals", () => {
+    const substitutions = new Map<string, string>([
+      ["T", "Result"],
+      ["$Value", "string"],
+      ["_Value", "number"]
+    ]);
+
+    expect(substituteTypeNameText(
+      "{\u00a0label\u00a0:\u00a0T; qualified: namespace.T; literal: 'T'; first: $Value; second: _Value }",
+      substitutions
+    )).toBe(
+      "{\u00a0label\u00a0:\u00a0Result; qualified: namespace.T; literal: 'T'; first: string; second: number }"
+    );
+  });
 });
 
 describe("parseReadonlyContainerTypeText", () => {

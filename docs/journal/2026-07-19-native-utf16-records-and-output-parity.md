@@ -321,3 +321,26 @@ Two stable profiled generations took 20.50 and 20.52 seconds, with C++ emission
 at 5.18 and 5.25 seconds. The two `-O1` builds took 117.66 and 110.52 seconds.
 Node and both native hosts emitted the same 7,901,507-byte translation unit with
 SHA-256 `9754082e94d08c062ac8e14ced6e7fc9d8505f7648273b009267f345ad93953f`.
+
+## Character-class regexes can hide inside manual scanners
+
+The next sample attributed native time to `std::basic_regex` below
+`substituteTypeNameText`. The function already used a manual scanner, but each
+whitespace, identifier-start, and identifier-part decision still called a
+regular-expression test. Native lowering therefore constructed and executed
+regex machinery for individual UTF-16 code units.
+
+Dedicated code-unit predicates now preserve JavaScript whitespace coverage and
+the existing ASCII TypeScript-identifier rules without regex allocation. The
+regression test includes non-breaking whitespace, labels, qualified names,
+quoted type literals, and `$`/`_` identifiers. The adjacent declared-type cache
+lookup now uses one `get` and avoids constructing a composite key when no C++
+type parameters are active.
+
+Node and both consecutively rebuilt native hosts emitted the same 7,903,101-byte
+translation unit with SHA-256
+`53026a27d1d0a931863cf639405be9498098951667217e0792e162ac0b2ec475`.
+The native compiler phases took 20.66 and 19.81 seconds. The change removed the
+sampled regex path but did not materially move total runtime, confirming that
+allocation, Oilpan collection, and `Text` hash lookup are the next larger
+targets rather than regex substitution itself.

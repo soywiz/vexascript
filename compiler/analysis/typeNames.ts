@@ -270,6 +270,34 @@ export function boxedPrimitiveTypeName(typeName: string): string {
   return typeName;
 }
 
+function isTypeTextWhitespace(character: string): boolean {
+  const code = character.charCodeAt(0);
+  return (code >= 0x09 && code <= 0x0d)
+    || code === 0x20
+    || code === 0xa0
+    || code === 0x1680
+    || (code >= 0x2000 && code <= 0x200a)
+    || code === 0x2028
+    || code === 0x2029
+    || code === 0x202f
+    || code === 0x205f
+    || code === 0x3000
+    || code === 0xfeff;
+}
+
+function isTypeTextIdentifierStart(character: string): boolean {
+  const code = character.charCodeAt(0);
+  return (code >= 65 && code <= 90)
+    || (code >= 97 && code <= 122)
+    || code === 95
+    || code === 36;
+}
+
+function isTypeTextIdentifierPart(character: string): boolean {
+  const code = character.charCodeAt(0);
+  return isTypeTextIdentifierStart(character) || (code >= 48 && code <= 57);
+}
+
 export function substituteTypeNameText(typeName: string, substitutions: ReadonlyMap<string, string>): string {
   const substituteIdentifierTokens = (text: string): string => {
     let result = "";
@@ -279,7 +307,7 @@ export function substituteTypeNameText(typeName: string, substitutions: Readonly
     const previousNonWhitespaceCharacter = (start: number): string | null => {
       for (let cursor = start - 1; cursor >= 0; cursor -= 1) {
         const character = text.charAt(cursor);
-        if (!/\s/.test(character)) {
+        if (!isTypeTextWhitespace(character)) {
           return character;
         }
       }
@@ -288,7 +316,7 @@ export function substituteTypeNameText(typeName: string, substitutions: Readonly
     const nextNonWhitespaceCharacter = (start: number): string | null => {
       for (let cursor = start; cursor < text.length; cursor += 1) {
         const character = text.charAt(cursor);
-        if (!/\s/.test(character)) {
+        if (!isTypeTextWhitespace(character)) {
           return character;
         }
       }
@@ -314,9 +342,9 @@ export function substituteTypeNameText(typeName: string, substitutions: Readonly
         continue;
       }
 
-      if (/[A-Za-z_$]/.test(character)) {
+      if (isTypeTextIdentifierStart(character)) {
         let end = index + 1;
-        while (end < text.length && /[\w$]/.test(text.charAt(end))) {
+        while (end < text.length && isTypeTextIdentifierPart(text.charAt(end))) {
           end += 1;
         }
         const identifier = text.slice(index, end);

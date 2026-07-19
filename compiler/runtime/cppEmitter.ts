@@ -689,8 +689,11 @@ function stripOuterTypeParentheses(typeName: string): string {
 
 function cppTypeForDeclaredName(typeName: string, visitedAliases?: Set<string>): string | null {
   if (visitedAliases !== undefined) return computeCppTypeForDeclaredName(typeName, visitedAliases);
-  const cacheKey = `${activeCppTypeParameterCacheKey}\u0000${typeName}`;
-  if (activeDeclaredCppTypeCache.has(cacheKey)) return activeDeclaredCppTypeCache.get(cacheKey)!;
+  const cacheKey = activeCppTypeParameterCacheKey.length === 0
+    ? typeName
+    : `${activeCppTypeParameterCacheKey}\u0000${typeName}`;
+  const cached = activeDeclaredCppTypeCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const result = computeCppTypeForDeclaredName(typeName, new Set<string>());
   activeDeclaredCppTypeCache.set(cacheKey, result);
   return result;

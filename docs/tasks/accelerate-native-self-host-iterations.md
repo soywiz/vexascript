@@ -131,7 +131,13 @@ development loop.
   seconds total. Nominal `MemberParts` and cheaper declared-type cache hits
   reduced the next stable runs to 20.50–20.52 seconds, while an
   earlier run reached 33.30 seconds after longer GC pauses; allocation and
-  collection therefore remain important sources of variance.
+  collection therefore remain important sources of variance. Replacing the
+  per-character regular expressions in type-name substitution with equivalent
+  UTF-16 code-unit classification and avoiding a second declared-type-cache
+  lookup produced subsequent complete runs of 20.66 and 19.81 seconds. This
+  removes `std::regex` construction from that sampled path, but the essentially
+  flat total confirms that allocation, collection, and `Text` hash lookup are
+  now the larger targets.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -175,9 +181,9 @@ development loop.
   seconds.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `9754082e94d08c062ac8e14ced6e7fc9d8505f7648273b009267f345ad93953f`.
-  All three 7,901,507-byte outputs were byte-identical.
-* [x] Run `pnpm test` (2307 tests passed on 2026-07-19).
+  `53026a27d1d0a931863cf639405be9498098951667217e0792e162ac0b2ec475`.
+  All three 7,903,101-byte outputs were byte-identical.
+* [x] Run `pnpm test` (2308 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 
 ## Related Files
