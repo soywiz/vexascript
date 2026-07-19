@@ -238,3 +238,13 @@ total checked C++ generation fell from 26.99 to 26.32 seconds. Native C++ build
 time was unchanged at 113.53 seconds. A follow-up sample identified the same
 source pattern in emitter helpers, especially `withCallableContext` and
 `withCppTypeParameters`, as the next normal-return exception hot path.
+
+The emitter cleanup then made `withCallableContext` and
+`withCppTypeParameters` concrete string helpers instead of generic functions,
+returned their callback results after cleanup, and applied the same pattern to
+the remaining state-restoring expression helpers. Generated references to
+`ReturnSignal` and `throwReturn` fell from 127 to 97. Two profiled runs after
+the emitter changes took 26.02 and 26.21 seconds; the best C++ emission phase
+fell from 7.59 to 7.43 seconds. The generated translation unit still compiled
+at `-O1` and remained byte-identical between Node and native hosts with SHA-256
+`84d913582cc2fa1d190e4d41e51e8fbb1c9f3aceda4e09069831f962e29a06dd`.

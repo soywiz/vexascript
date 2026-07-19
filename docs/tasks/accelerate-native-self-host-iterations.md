@@ -43,8 +43,10 @@ development loop.
   scope helpers and moved result returns outside `finally`. This removed
   exception-based normal returns from those helpers and reduced profiled native
   type inference from 13.98 to 13.54 seconds and total generation from 26.99 to
-  26.32 seconds. The next sampled exception hot path is C++ emission's
-  `withCallableContext`, followed by `withCppTypeParameters`.
+  26.32 seconds. Applying the same result-after-`finally` shape to the emitter,
+  and specializing its two string-only scope helpers, reduced generated
+  `ReturnSignal`/`throwReturn` references from 127 to 97. Follow-up profiled
+  generations took 26.02–26.21 seconds; C++ emission reached 7.43 seconds.
 * [ ] Replace the monolithic `convertValue<T>` decision tree at generated call
   sites with emitter-selected, narrowly scoped conversion operations. Prefer
   non-template boxing/coercion helpers such as `boxText`, `toText`, `toNumber`,
