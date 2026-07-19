@@ -318,7 +318,8 @@ function parserOptionsForTranspile(options: TranspileOptions): ParserOptions {
 
 export function transpile(source: string, options: TranspileOptions = {}): TranspileResult {
   const externalDeclarations = options.externalDeclarations ?? [];
-  const { importedSymbols } = normalizeImportedSymbolSources(options);
+  const importedSymbols: Map<string, ImportedSymbolResolution> =
+    normalizeImportedSymbolSources(options).importedSymbols;
   const ambientDeclarations = options.ambientDeclarations ?? [];
   const parserOptions = parserOptionsForTranspile(options);
   const artifacts = options.compilationArtifacts ?? compileSource(

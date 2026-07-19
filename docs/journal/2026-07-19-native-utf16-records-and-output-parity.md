@@ -157,3 +157,30 @@ The Node-hosted output still differs from the native fixed point in 19 context
 hunks, concentrated in nullable array access, string-concatenation lowering,
 project object construction, and one profiling callback. Exact cross-host
 parity remains separate from the now-proven native-to-native fixed point.
+
+## Cross-host parity needs explicit host-neutral boundaries
+
+The final 19 Node-versus-native differences were not string-pool noise. They
+came from contextual typing that one host preserved more precisely than the
+other: optional generic arrays, inline profiling callbacks, nullable record
+fields, inferred string operations, and process exit codes. Moving those
+values through explicit nominal or primitive boundaries removed the divergent
+emission decisions without adding a second compiler path.
+
+A broad attempt to treat every locally typed identifier or string-method call
+as directly emitted briefly expanded the comparison to hundreds of differences.
+The optimization was unsafe because the two hosts did not yet agree on every
+local semantic type. The successful approach stayed narrow: preserve concrete
+types in source, remove optional object-literal ambiguity, and use explicit
+primitive operations only at the affected boundaries.
+
+The first byte-identical candidate still failed native compilation because a
+nullable `Text` temporary was emitted as `Value`. Replacing it with a non-null
+string accumulator fixed the generated C++ and reinforced the rule that parity
+alone is insufficient: the shared output must compile and execute.
+
+The Node host, the previous native compiler, and the rebuilt native compiler
+now emit the same 7,854,905-byte translation unit with SHA-256
+`26ce7a192ed2121dd478aaaa1e1ddb642df860af7255dd5a76b2001486b87a56`.
+The `-O1` rebuild took 112.50 seconds and the rebuilt compiler emitted the next
+roundtrip in 31.55 seconds, both within the two-minute acceptance limit.

@@ -331,13 +331,13 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
     dependencies,
     ...(Object.keys(importMappings).length > 0 ? { importMappings } : {}),
     ...(Object.keys(nativeImportMappings).length > 0 ? { nativeImportMappings } : {}),
-    ...(baseUrl ? { baseUrl } : {}),
+    ...(baseUrl !== undefined ? { baseUrl } : {}),
     ...(globalSymbols.paths.length > 0 ? { globalSymbols } : {}),
     libs: libsFromConfig(config),
     types: typesFromConfig(config),
     serveMappings,
-    ...(bundleEntrypoint ? { bundleEntrypoint } : {}),
-    ...(buildOutputDir ? { buildOutputDir } : {}),
+    ...(bundleEntrypoint !== undefined ? { bundleEntrypoint } : {}),
+    ...(buildOutputDir !== undefined ? { buildOutputDir } : {}),
     ...jsxOptionsFromConfig(config)
   };
 }

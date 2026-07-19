@@ -23,6 +23,7 @@ import type {
 } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { childNodes, unwrapExportedDeclaration } from "compiler/ast/traversal";
+import type { AnalysisProfileEvent } from "compiler/analysis/Analysis";
 import { substituteTypeNameText } from "compiler/analysis/typeNames";
 import { compileParsedSource } from "compiler/pipeline/compile";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
@@ -472,10 +473,9 @@ export async function compileNativeModuleGraph(
       if (visiting.has(dependency.targetPath)) {
         if (!isTypeOnlyImport(dependency.statement)) {
           const cycleStart = visitStack.indexOf(dependency.targetPath);
-          errors.push(`Native module initialization cycle: ${[
-            ...visitStack.slice(Math.max(0, cycleStart)),
-            dependency.targetPath,
-          ].join(" -> ")}`);
+          const cyclePaths: string[] = visitStack.slice(Math.max(0, cycleStart));
+          cyclePaths.push(dependency.targetPath);
+          errors.push(`Native module initialization cycle: ${cyclePaths.join(" -> ")}`);
         }
         continue;
       }
@@ -627,15 +627,18 @@ export async function compileNativeModuleGraph(
   if (entryParsed.ast.__vexaNativeSourcePath) {
     mergedProgram.__vexaNativeSourcePath = entryParsed.ast.__vexaNativeSourcePath;
   }
+  const reportMergedAnalysis = (event: AnalysisProfileEvent): void => {
+    options.profile?.({
+      phase: `merged-${event.phase}`,
+      elapsedMs: event.elapsedMs,
+      moduleCount: order.length,
+    });
+  };
   const compilationArtifacts = compileParsedSource({ ...entryParsed, ast: mergedProgram }, {
     ambientDeclarations: options.ambientDeclarations ?? [],
     checkTypes: options.typeCheck ?? true,
     inferTypes: options.inferTypes ?? true,
-    profile: (event) => options.profile?.({
-      phase: `merged-${event.phase}`,
-      elapsedMs: event.elapsedMs,
-      moduleCount: order.length,
-    }),
+    profile: reportMergedAnalysis,
   });
   reportPhase("merged-analysis", order.length);
   const result = transpile(entrySource, {

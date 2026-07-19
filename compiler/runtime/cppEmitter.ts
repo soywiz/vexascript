@@ -2721,8 +2721,8 @@ function classStoredPropertyInfoForMember(member: MemberExpression): ClassStored
   const statement = className ? activeClassStatements.get(className) : undefined;
   const info = statement ? classStoredPropertyInfo(statement, (member.property as Identifier).name) : null;
   if (!info?.typeName || !statement) return info;
-  if (!statement.typeParameters?.length) return info;
-  const typeParameters: TypeParameter[] = statement.typeParameters;
+  const typeParameters: TypeParameter[] | undefined = statement.typeParameters;
+  if (!typeParameters || typeParameters.length === 0) return info;
   const receiverTypeName = declaredTypeNameForExpression(member.object);
   if (!receiverTypeName) return info;
   const receiverShape = parseTypeNameShape(receiverTypeName);
@@ -3030,28 +3030,30 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
   const structuralSource = dynamicStructuralCastSource(member.object);
   if (structuralSource) {
     if (!member.computed && !propertyName) return null;
+    const resolvedPropertyName: string = propertyName ?? "<computed>";
     return new NativePropertyMember(
       "dynamic",
       expression,
       structuralSource,
       false,
-      propertyName ?? "<computed>",
-      propertyName ?? "<computed>",
-      propertyName ?? "<computed>",
+      resolvedPropertyName,
+      resolvedPropertyName,
+      resolvedPropertyName,
       null,
       member.computed ? member.property : undefined
     );
   }
   if (emittedCppTypeForExpression(member.object) === "vexa::Value") {
     if (!member.computed && !propertyName) return null;
+    const resolvedPropertyName: string = propertyName ?? "<computed>";
     return new NativePropertyMember(
       "dynamic",
       expression,
       member.object,
       false,
-      propertyName ?? "<computed>",
-      propertyName ?? "<computed>",
-      propertyName ?? "<computed>",
+      resolvedPropertyName,
+      resolvedPropertyName,
+      resolvedPropertyName,
       null,
       member.computed ? member.property : undefined
     );
@@ -3060,14 +3062,15 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
     cppTypeForExpression(member.object) === "vexa::RecordObject*" ||
     emittedCppTypeForExpression(member.object) === "vexa::RecordObject*") {
     if (!member.computed && !propertyName) return null;
+    const resolvedPropertyName: string = propertyName ?? "<computed>";
     return new NativePropertyMember(
       "record",
       expression,
       member.object,
       false,
-      propertyName ?? "<computed>",
-      propertyName ?? "<computed>",
-      propertyName ?? "<computed>",
+      resolvedPropertyName,
+      resolvedPropertyName,
+      resolvedPropertyName,
       declaredTypeNameForExpression(expression)
         ? cppTypeForDeclaredName(declaredTypeNameForExpression(expression)!)
         : null,
@@ -4851,8 +4854,8 @@ function emitCall(call: CallExpression): string {
     const functionArguments = emitArguments(call.args, functionStatement.parameters, bindings);
     const explicitTemplateArguments = cppCallTemplateArguments(call);
     let inferredTemplateArguments = "";
-    if (functionStatement.typeParameters?.length) {
-      const typeParameters: TypeParameter[] = functionStatement.typeParameters;
+    const typeParameters: TypeParameter[] | undefined = functionStatement.typeParameters;
+    if (typeParameters && typeParameters.length > 0) {
       const templateArgumentTypes: string[] = [];
       let hasEveryBinding = true;
       for (const parameter of typeParameters) {
@@ -6019,15 +6022,20 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
     activeLocalCppTypes.set(sourceName, type);
     if (type === "vexa::Value") activeDynamicValueNames.add(sourceName);
     clearExpressionTypeCaches();
-    if (type.startsWith("std::function<") || (sharesMutableBinding && type !== "vexa::Value")) {
+    const storesFunction: boolean = Boolean(type.startsWith("std::function<"));
+    const storesSharedMutableValue: boolean = sharesMutableBinding && type !== "vexa::Value";
+    if (storesFunction || storesSharedMutableValue) {
       activeSharedBindingNames.add(sourceName);
-      if (type.endsWith("*")) {
-        return `auto ${name} = std::make_shared<cppgc::Persistent<${type.slice(0, -1)}>>()`;
+      const storesPointer: boolean = Boolean(type.endsWith("*"));
+      if (storesPointer) {
+        const pointeeType: string = String(type.slice(0, -1));
+        return `auto ${name} = std::make_shared<cppgc::Persistent<${pointeeType}>>()`;
       }
       return `auto ${name} = std::make_shared<${type}>()`;
     }
     if (type.endsWith("*") && (activeAsyncResultType || activeGeneratorResultType)) {
-      return `cppgc::Persistent<${type.slice(0, -1)}> ${name}`;
+      const pointeeType: string = String(type.slice(0, -1));
+      return `cppgc::Persistent<${pointeeType}> ${name}`;
     }
     return `${type} ${name} = vexa::defaultValue<${type}>()`;
   }
@@ -6043,9 +6051,14 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
       );
     }
   }
-  const type: string = forInitializer
-    ? cppTypeForExpression(statement.initializer)
-    : declaredCppType ?? "auto";
+  let type: string;
+  if (forInitializer) {
+    type = cppTypeForExpression(statement.initializer);
+  } else if (declaredCppType === null) {
+    type = "auto";
+  } else {
+    type = declaredCppType;
+  }
   const emittedInitializer = declaredTypeName && activeInterfaceNames.has(parseTypeNameShape(declaredTypeName).baseName) && isRecordExpression(statement.initializer)
     ? emitRecordInterfaceAdaptation(statement.initializer, declaredTypeName)
     : emitExpression(statement.initializer);
@@ -6109,8 +6122,10 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
   clearExpressionTypeCaches();
   if (sharesMutableBinding && emittedVariableType && emittedVariableType !== "vexa::Value") {
     activeSharedBindingNames.add(sourceName);
-    if (emittedVariableType.endsWith("*")) {
-      return `auto ${name} = std::make_shared<cppgc::Persistent<${emittedVariableType.slice(0, -1)}>>(${initializer})`;
+    const storesPointer: boolean = Boolean(emittedVariableType.endsWith("*"));
+    if (storesPointer) {
+      const pointeeType: string = String(emittedVariableType.slice(0, -1));
+      return `auto ${name} = std::make_shared<cppgc::Persistent<${pointeeType}>>(${initializer})`;
     }
     return `auto ${name} = std::make_shared<std::remove_cvref_t<decltype(${initializer})>>(${initializer})`;
   }
@@ -7817,10 +7832,16 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   const classType = statement.typeParameters?.length
     ? `${className}<${statement.typeParameters.map((parameter) => cppName(parameter.name.name)).join(", ")}>`
     : className;
-  const baseClass = statement.extendsType
+  const baseClass: ClassStatement | undefined = statement.extendsType
     ? activeClassStatements.get(parseTypeNameShape(statement.extendsType.name).baseName)
     : undefined;
-  const mappedBaseType = statement.extendsType ? cppTypeForDeclaredName(statement.extendsType.name) : null;
+  const mappedBaseType: string | null = statement.extendsType
+    ? cppTypeForDeclaredName(statement.extendsType.name)
+    : null;
+  let mappedBaseClassType: string = "";
+  if (mappedBaseType !== null) {
+    mappedBaseClassType = mappedBaseType.slice(0, -1) as string;
+  }
   const constructorMethod = classConstructorMethod(statement);
   const implementedInterfaces: string[] = [];
   for (const implementedType of implementedInterfaceTypes(statement)) {
@@ -7923,12 +7944,12 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
         const methodParameters = callableParameters(constructorMethod.parameters, statement).text;
         const nativeParameters = methodParameters;
         const nativeInitializers: string[] = [];
-        if (baseClass && mappedBaseType) {
+        if (baseClass && mappedBaseClassType) {
           const baseArguments = superCall
             ? emitArguments(superCall.args, classConstructorParameters(baseClass))
             : "";
           nativeInitializers.push(
-            `${mappedBaseType.slice(0, -1)}(${classUsesRuntimeConstructor(baseClass) ? withRuntimeArgument(baseArguments) : baseArguments})`
+            `${mappedBaseClassType}(${classUsesRuntimeConstructor(baseClass) ? withRuntimeArgument(baseArguments) : baseArguments})`
           );
         } else if (nativeErrorBase) {
           if (superCall && superCall.args.length > 1) {
@@ -7962,7 +7983,7 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
         return `${className}(${nativeParameters})${nativeInitializers.length > 0 ? ` : ${nativeInitializers.join(", ")}` : ""} ${emitBlock(body, "  ")}`;
       }
     );
-  } else if (baseClass && ((baseClass.primaryConstructorParameters?.length ?? 0) > 0 || classUsesRuntimeConstructor(baseClass))) {
+  } else if (baseClass && (classRequiresConstructorArguments(baseClass) || classUsesRuntimeConstructor(baseClass))) {
     throw new CppEmitError(
       `C++ derived class '${statement.name.name}' requires an explicit constructor with super(...) for base class '${baseClass.name.name}'`,
       statement
@@ -8062,7 +8083,7 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     if (field.genericTraced) tracedFields.push(`vexa::traceManagedValue(visitor, ${field.name});`);
   }
   const traceStatements: string[] = [];
-  if (baseClass && mappedBaseType) traceStatements.push(`${mappedBaseType.slice(0, -1)}::Trace(visitor);`);
+  if (baseClass && mappedBaseClassType) traceStatements.push(`${mappedBaseClassType}::Trace(visitor);`);
   else traceStatements.push("vexa::DynamicValueObject::Trace(visitor);");
   for (const implementedType of implementedInterfaceTypes(statement)) {
     traceStatements.push(`${cppTypeForDeclaredName(implementedType.name)!.slice(0, -1)}::Trace(visitor);`);
@@ -8100,8 +8121,8 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
 
   const final = statement.abstract || activeDerivedClassNames.has(statement.name.name) ? "" : " final";
   const nativeBases: string[] = [];
-  nativeBases.push(baseClass && mappedBaseType
-    ? `public ${mappedBaseType.slice(0, -1)}`
+  nativeBases.push(baseClass && mappedBaseClassType
+    ? `public ${mappedBaseClassType}`
     : `public cppgc::GarbageCollected<${classType}>`);
   if (!baseClass) nativeBases.push("public vexa::DynamicValueObject");
   if (nativeErrorBase) nativeBases.push("public vexa::Error");
@@ -8116,8 +8137,8 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     const interfaceType = cppTypeForDeclaredName(implementedType.name)!.slice(0, -1);
     dynamicCastBranches.push(`if (__vexa_type == vexa::nativeTypeToken<${interfaceType}>()) return static_cast<${interfaceType}*>(this);`);
   }
-  if (baseClass && mappedBaseType) {
-    dynamicCastBranches.push(`if (auto* __vexa_base = ${mappedBaseType.slice(0, -1)}::dynamicCast(__vexa_type)) return __vexa_base;`);
+  if (baseClass && mappedBaseClassType) {
+    dynamicCastBranches.push(`if (auto* __vexa_base = ${mappedBaseClassType}::dynamicCast(__vexa_type)) return __vexa_base;`);
   }
   const dynamicPropertyReads: Array<{ key: string; body: string }> = [];
   const dynamicPropertyWrites: Array<{ key: string; body: string }> = [];
@@ -8186,14 +8207,14 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
       body: `return vexa::Value(vexa::makeFunction<${functionTypes.join(", ")}>(${currentRuntimeExpression}, [this](${lambdaParameters}) -> ${resultType} { ${result} }, {vexa::convertValue<vexa::Value>(this)}));`,
     });
   }
-  const dynamicGetFallback = baseClass && mappedBaseType
-    ? `${mappedBaseType.slice(0, -1)}::dynamicGet(__vexa_key)`
+  const dynamicGetFallback = baseClass && mappedBaseClassType
+    ? `${mappedBaseClassType}::dynamicGet(__vexa_key)`
     : "vexa::DynamicValueObject::dynamicGet(__vexa_key)";
-  const dynamicSetFallback = baseClass && mappedBaseType
-    ? `${mappedBaseType.slice(0, -1)}::dynamicSet(__vexa_key, __vexa_value)`
+  const dynamicSetFallback = baseClass && mappedBaseClassType
+    ? `${mappedBaseClassType}::dynamicSet(__vexa_key, __vexa_value)`
     : "vexa::DynamicValueObject::dynamicSet(__vexa_key, __vexa_value)";
-  const dynamicKeysFallback = baseClass && mappedBaseType
-    ? `${mappedBaseType.slice(0, -1)}::dynamicKeys()`
+  const dynamicKeysFallback = baseClass && mappedBaseClassType
+    ? `${mappedBaseClassType}::dynamicKeys()`
     : "std::vector<std::string>{}";
   const dynamicMethods = [
     `  const void* dynamicTypeToken() const override { return vexa::nativeTypeToken<${classType}>(); }`,

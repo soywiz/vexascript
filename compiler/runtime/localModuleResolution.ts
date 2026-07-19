@@ -30,13 +30,13 @@ async function resolveLocalModulePath(
   baseUrl?: string,
   includeAssets = false
 ): Promise<string | null> {
-  const baseUrlTarget = baseUrl && !importPath.startsWith(".")
+  const baseUrlTarget: string | undefined = baseUrl !== undefined && !importPath.startsWith(".")
     ? resolve(baseUrl, importPath)
     : undefined;
-  if (!importPath.startsWith(".") && !importMappings[importPath] && !baseUrlTarget) {
+  if (!importPath.startsWith(".") && !importMappings[importPath] && baseUrlTarget === undefined) {
     return null;
   }
-  const effectiveImportMappings = baseUrlTarget && !importMappings[importPath]
+  const effectiveImportMappings = baseUrlTarget !== undefined && !importMappings[importPath]
     ? { ...importMappings, [importPath]: baseUrlTarget }
     : importMappings;
   const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, {

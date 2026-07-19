@@ -51,7 +51,7 @@ development loop.
   `const enum`, then measure Node and native analysis before and after the
   change. Keep this separate from the nominal-type migration checkpoint so a
   discriminator-wide regression remains easy to isolate.
-* [ ] Make Node-hosted and native-hosted compilation emit byte-identical C++ for
+* [x] Make Node-hosted and native-hosted compilation emit byte-identical C++ for
   the same source graph. The 2026-07-19 nominal-type checkpoint completes a
   checked native generation in 33.08 seconds at `-O1`, but differs in 1,151
   diff hunks because the native host loses contextual expression types in some
@@ -66,9 +66,13 @@ development loop.
   signatures and function-expression types; making embedded-NUL literals
   length-aware fixed another host divergence. Nominal operator resolutions,
   nominal native-property metadata, and source-side typed loops reduced the
-  current comparison to 19 context diff hunks. Node emits the checked
-  translation unit in about 6.4 seconds; the `-O1` native compiler emits it in
-  about 31.3 seconds.
+  comparison to 19 context diff hunks. Explicitly typed callback boundaries,
+  optional collection handling, stable record construction, and host-neutral
+  string operations then removed the remaining differences. On 2026-07-19 all
+  three checked outputs were byte-identical at 7,854,905 bytes with SHA-256
+  `26ce7a192ed2121dd478aaaa1e1ddb642df860af7255dd5a76b2001486b87a56`.
+  Node emits the checked translation unit in about 6.4 seconds; the `-O1`
+  native compiler emits it in about 31.6 seconds.
 * [x] Introduce the JavaScript/TypeScript side of a complete nominal AST
   migration: concrete AST node classes with typed positional constructors, a
   shared metadata base, numeric `const enum` discriminators, and native
@@ -125,7 +129,7 @@ development loop.
   On 2026-07-19 the first and second native hosts emitted byte-identical
   7,855,681-byte translation units with SHA-256
   `db3241e7629da3c23891e458cd83f2f3e17b708c067e3f663364a1ee369488ff`.
-* [ ] A Node-hosted generation and both native generations are byte-identical,
+* [x] A Node-hosted generation and both native generations are byte-identical,
   including deterministic string-pool numbering.
 
 ## Tests
@@ -137,6 +141,10 @@ development loop.
 * [x] Run two complete native compiler roundtrips. Checked generation took
   31.26 and 31.37 seconds respectively, and both generated translation units
   compiled successfully at `-O1`.
+* [x] Compare Node, the previous native host, and the rebuilt native host. All
+  three emitted the same 7,854,905-byte translation unit. Rebuilding at `-O1`
+  took 112.50 seconds and the rebuilt host emitted the next roundtrip in 31.55
+  seconds.
 * [x] Run `pnpm test` (2306 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 

@@ -876,10 +876,11 @@ async function runDirectExecution(): Promise<void> {
       const message: string = String(errorValue?.message ?? errorValue);
       console.error(message);
     }
-    process.exitCode = 1;
+    process.exit(1 as number);
   }
-  if (typeof process.exitCode === "number" && process.exitCode !== 0) {
-    process.exit(process.exitCode);
+  const exitCode: number = typeof process.exitCode === "number" ? process.exitCode : 0;
+  if (exitCode !== 0) {
+    process.exit(exitCode);
   }
 }
 
