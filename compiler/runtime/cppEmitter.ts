@@ -1730,7 +1730,7 @@ function emitObjectLiteral(object: ObjectLiteral): string {
       const properties = object.properties.map((property) => {
         const objectProperty = property as ObjectProperty;
         const name = objectPropertyName(objectProperty)!;
-        return `{${cppString(name)}, ${emitPropertyValue(name, objectProperty.value)}}`;
+        return `{${cppUtf16String(name)}, ${emitPropertyValue(name, objectProperty.value)}}`;
       });
       result = `${activeRuntimeName}.record({${properties.join(", ")}})`;
     } else {
@@ -1742,7 +1742,7 @@ function emitObjectLiteral(object: ObjectLiteral): string {
         const name = objectPropertyName(objectProperty);
         const key = objectProperty.computed
           ? `vexa::propertyKey(${emitExpression(objectProperty.key)})`
-          : cppString(name!);
+          : cppUtf16String(name!);
         return `vexa::recordSet(${activeRuntimeName}, __vexa_record, ${key}, ${emitPropertyValue(name ?? "", objectProperty.value)})`;
       });
       result = `([&]() { auto* __vexa_record = ${activeRuntimeName}.record(); ${operations.join("; ")}; return __vexa_record; }())`;
@@ -4413,7 +4413,7 @@ function emitCall(call: CallExpression): string {
     const receiver = emitExpression(target);
     const assigned = emitConvertedValue(value, "vexa::Value");
     const isEnumerable = enumerable ? emitCondition(enumerable) : "false";
-    return `([&]() { auto __vexa_define_receiver = ${receiver}; vexa::defineProperty(${activeRuntimeName}, __vexa_define_receiver, vexa::toString(${emitExpression(key)}), ${assigned}, ${isEnumerable}); return __vexa_define_receiver; }())`;
+    return `([&]() { auto __vexa_define_receiver = ${receiver}; vexa::defineProperty(${activeRuntimeName}, __vexa_define_receiver, vexa::propertyKey(${emitExpression(key)}), ${assigned}, ${isEnumerable}); return __vexa_define_receiver; }())`;
   }
   if (member?.objectName === "JSON" && (member.propertyName === "parse" || member.propertyName === "stringify")) {
     const validArgumentCount = member.propertyName === "parse"
@@ -6027,7 +6027,7 @@ function emitDestructuredBindings(
       ? `vexa::dynamicGet(${source}, ${cppUtf16String(propertyName)})`
       : interfaceStatementForCppType(sourceType) !== null
         ? `vexa::enumerableGet(${activeRuntimeName}, vexa::rawPointer(${source}), ${cppString(propertyName)})`
-        : `vexa::recordGet<vexa::Value>(${activeRuntimeName}, ${source}, ${cppString(propertyName)})`;
+        : `vexa::recordGet<vexa::Value>(${activeRuntimeName}, ${source}, ${cppUtf16String(propertyName)})`;
     const value = element.initializer
       ? `vexa::convertValue<${type}>(vexa::destructureDefault(${activeRuntimeName}, ${propertyValue}, [&]() { return ${emitExpression(element.initializer)}; }))`
       : `vexa::convertValue<${type}>(${propertyValue})`;
@@ -7653,10 +7653,10 @@ function emitRecordInterfaceAdapter(statement: InterfaceStatement): string | nul
         statement
       );
     }
-    properties.push(`  ${type} ${interfacePropertyGetterName(property.name.name)}() override { return vexa::recordGet<${type}>(${currentRuntimeExpression}, record_, ${cppString(property.name.name)}); }`);
+    properties.push(`  ${type} ${interfacePropertyGetterName(property.name.name)}() override { return vexa::recordGet<${type}>(${currentRuntimeExpression}, record_, ${cppUtf16String(property.name.name)}); }`);
     if (isMutableInterfaceProperty(property)) {
       properties.push(
-        `  void ${interfacePropertySetterName(property.name.name)}(${type} value) override { vexa::recordSet(${currentRuntimeExpression}, record_, ${cppString(property.name.name)}, value); }`
+        `  void ${interfacePropertySetterName(property.name.name)}(${type} value) override { vexa::recordSet(${currentRuntimeExpression}, record_, ${cppUtf16String(property.name.name)}, value); }`
       );
     }
   }
@@ -7669,7 +7669,7 @@ function emitRecordInterfaceAdapter(statement: InterfaceStatement): string | nul
     const parameters = callableParameters(method.parameters, statement, false);
     const dynamicArguments = parameters.names.map((name) =>
       `vexa::convertValue<vexa::Value>(${cppName(name)})`).join(", ");
-    const invocation = `vexa::call(${currentRuntimeExpression}, vexa::recordGet<vexa::Value>(${currentRuntimeExpression}, record_, ${cppString(method.name.name)}), {${dynamicArguments}})`;
+    const invocation = `vexa::call(${currentRuntimeExpression}, vexa::recordGet<vexa::Value>(${currentRuntimeExpression}, record_, ${cppUtf16String(method.name.name)}), {${dynamicArguments}})`;
     const body = resultType === "void"
       ? `${invocation};`
       : `return vexa::convertValue<${resultType}>(${invocation});`;
@@ -7683,7 +7683,7 @@ function emitRecordInterfaceAdapter(statement: InterfaceStatement): string | nul
     "  std::vector<std::string> enumerableKeys() const override { return record_->keys(); }",
     "  vexa::Value enumerableGet(const std::string& key) override { return record_->get(key); }",
     "  vexa::RecordObject* enumerableBackingRecord() override { return record_; }",
-    "  void defineProperty(const std::string& key, const vexa::Value& value, bool enumerable) override { if (enumerable) record_->set(key, value); else record_->setHidden(key, value); }",
+    "  void defineProperty(const vexa::PropertyKey& key, const vexa::Value& value, bool enumerable) override { if (enumerable) record_->set(key, value); else record_->setHidden(key, value); }",
     ...properties,
     ...methods,
     " private:",

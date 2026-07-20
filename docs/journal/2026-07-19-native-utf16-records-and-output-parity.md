@@ -485,3 +485,32 @@ checked generations took 12.10 and 12.13 seconds, with type inference at about
 5.15 seconds and C++ emission at about 3.50 seconds. Node and both native hosts
 again emitted byte-identical 7,901,140-byte translation units with SHA-256
 `1a8647253e574e0d453d9e82fbc844ff0d1dfd1f4ccdf7ebfea76a8a1e4ca411`.
+
+## Known property keys should never enter the UTF-8 compatibility path
+
+The next sample still found `utf8ToUtf16` among the leading runtime functions.
+Record literals used narrow C++ keys even though JavaScript property names and
+`RecordObject` storage were already UTF-16. Worse, the `PropertyKey` overloads
+of `recordGet` and `recordSet` converted computed UTF-16 keys to UTF-8 and then
+immediately decoded them again through the legacy string overloads.
+
+Object literals, record adapters, object destructuring, and
+`Object.defineProperty` now preserve `PropertyKey` from generated code through
+runtime storage. The direct `PropertyKey` record helpers no longer delegate
+through UTF-8. The same checkpoint moves the ordinary assignability result
+outside its cleanup `finally`, removing a `ReturnSignal` throw/catch on cache
+misses while retaining exceptional cleanup.
+
+Two tempting follow-ups were measured and rejected. Nested numeric maps for
+assignability keys grew the generated C++ and produced no native speedup.
+Changing a recursive `string | undefined` type-name parameter to plain
+`string` made the generated signature statically typed, but `Text` is currently
+a value-owning `u16string`; recursive calls copied it and made native inference
+slower. Static text propagation should resume only after `Text` becomes cheap
+to copy or the emitter can pass immutable text by reference.
+
+The final two `-O1` hosts compiled in 111.77 and 112.73 seconds and emitted
+checked C++ in 13.24 and 13.13 seconds. The timings are inside the recent
+machine-load variance rather than a new record. Node and both native hosts
+emitted byte-identical 7,904,605-byte translation units with SHA-256
+`4783ecb90e6dc9d44fb852bdbcadf0e1dbdc00aefa5ea90dcbf3a8cfaba30164`.

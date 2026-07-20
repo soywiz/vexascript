@@ -4180,13 +4180,14 @@ export class TypeChecker {
       return true;
     }
     this.assignabilityChecksInProgress.add(assignabilityKey);
+    let result: boolean;
     try {
-      const result = this.computeTypeAssignable(sourceType, targetType);
+      result = this.computeTypeAssignable(sourceType, targetType);
       this.assignabilityCache.set(assignabilityKey, result);
-      return result;
     } finally {
       this.assignabilityChecksInProgress.delete(assignabilityKey);
     }
+    return result;
   }
 
   private computeTypeAssignable(sourceType: AnalysisType, targetType: AnalysisType): boolean {

@@ -65,6 +65,12 @@ development loop.
   and optimization time, and native execution time before and after. Safe
   boxing into `Value` may use implicit constructors, but broad implicit
   unboxing conversions must not make JavaScript coercions ambiguous.
+* [ ] Make immutable native `Text` cheap to pass through statically typed code,
+  either through shared backing storage with copy-on-write mutation or through
+  emitter-selected `const Text&` parameters. A measured recursive type-name
+  experiment showed that replacing `Value` with the current value-owning
+  `Text` copies `u16string` buffers and slows inference, despite producing
+  cleaner and smaller C++.
 * [ ] Replace the string-valued `AnalysisTypeKind` discriminator with a numeric
   `const enum`, then measure Node and native analysis before and after the
   change. Keep this separate from the nominal-type migration checkpoint so a
@@ -174,6 +180,16 @@ development loop.
   overloads, reduced the next two generations to 12.10 and 12.13 seconds.
   Type inference reached 5.15 seconds and C++ emission about 3.50 seconds;
   the `-O1` rebuilds took 98.10 and 97.94 seconds.
+  The following profile found known record and `Object.defineProperty` keys
+  still entering the runtime as UTF-8. Object literals, record adapters,
+  structural reads/writes, and property definitions now emit and retain
+  `PropertyKey` values directly in UTF-16. The same checkpoint also moves the
+  normal return in `isTypeAssignable` outside its cleanup `finally`, avoiding
+  a native `ReturnSignal` on assignability-cache misses. Two rebuilt native
+  hosts emitted checked C++ in 13.24 and 13.13 seconds and compiled at `-O1`
+  in 111.77 and 112.73 seconds. These timings remain within the noisy recent
+  band rather than establishing a new best, but the sampled UTF-8 record-key
+  path and its UTF-16-to-UTF-8-to-UTF-16 computed-key roundtrip are gone.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -212,13 +228,13 @@ development loop.
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
-  12.10 and 12.13 profiled seconds in the latest checkpoint, and both generated
-  translation units compiled successfully at `-O1` in 98.10 and 97.94
+  13.24 and 13.13 profiled seconds in the latest checkpoint, and both generated
+  translation units compiled successfully at `-O1` in 111.77 and 112.73
   seconds. Native execution remained comfortably below two minutes.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `1a8647253e574e0d453d9e82fbc844ff0d1dfd1f4ccdf7ebfea76a8a1e4ca411`.
-  All three 7,901,140-byte outputs were byte-identical.
+  `4783ecb90e6dc9d44fb852bdbcadf0e1dbdc00aefa5ea90dcbf3a8cfaba30164`.
+  All three 7,904,605-byte outputs were byte-identical.
 * [x] Run `pnpm test` (2312 tests passed on 2026-07-20).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 

@@ -499,7 +499,7 @@ class EnumerableObject {
   virtual std::vector<std::string> enumerableKeys() const { return {}; }
   virtual Value enumerableGet(const std::string&) { return Value::undefined(); }
   virtual RecordObject* enumerableBackingRecord() { return nullptr; }
-  virtual void defineProperty(const std::string&, const Value&, bool) {
+  virtual void defineProperty(const PropertyKey&, const Value&, bool) {
     throw std::runtime_error("Native object does not support dynamic property definitions");
   }
 };
@@ -2074,14 +2074,14 @@ inline Value optionalCall(Runtime& runtime, Target* target, Callback&& callback)
 }
 
 template <typename T>
-inline void defineProperty(Runtime& runtime, T&& object, std::string key, const Value& value, bool enumerable) {
+inline void defineProperty(Runtime& runtime, T&& object, PropertyKey key, const Value& value, bool enumerable) {
   using Input = std::remove_cvref_t<T>;
   if constexpr (std::is_same_v<Input, Value>) {
     if (object.isRecord()) {
       if (enumerable) object.record()->set(std::move(key), value);
       else object.record()->setHidden(std::move(key), value);
     } else if (object.isDynamicObject()) {
-      object.dynamicObject()->dynamicDefineProperty(utf8ToUtf16(key), value, enumerable);
+      object.dynamicObject()->dynamicDefineProperty(key, value, enumerable);
     } else {
       throw std::runtime_error("Native Object.defineProperty requires an object");
     }
@@ -2090,7 +2090,7 @@ inline void defineProperty(Runtime& runtime, T&& object, std::string key, const 
     using Object = std::remove_pointer_t<decltype(pointer)>;
     if constexpr (std::is_base_of_v<DynamicValueObject, Object>) {
       if (!pointer) throw std::runtime_error("Cannot define a property on null");
-      pointer->dynamicDefineProperty(utf8ToUtf16(key), value, enumerable);
+      pointer->dynamicDefineProperty(key, value, enumerable);
     } else if constexpr (std::is_base_of_v<EnumerableObject, Object>) {
       if (!pointer) throw std::runtime_error("Cannot define a property on null");
       pointer->defineProperty(key, value, enumerable);
@@ -2315,7 +2315,7 @@ class Runtime final {
   void reserveLiterals(std::size_t count) { literalStrings_.reserve(count); }
 
   RecordObject* record(
-      std::initializer_list<std::pair<std::string, Value>> properties = {}) {
+      std::initializer_list<std::pair<PropertyKey, Value>> properties = {}) {
     auto* result = make<RecordObject>();
     for (const auto& [key, value] : properties) result->set(key, value);
     return result;
@@ -3265,12 +3265,14 @@ Result recordGet(Runtime& runtime, const Value& value, const std::string& key) {
 
 template <typename Result>
 Result recordGet(Runtime& runtime, RecordObject* record, const PropertyKey& key) {
-  return recordGet<Result>(runtime, record, utf16ToUtf8(key));
+  if (!record) throw std::runtime_error("Cannot read a property of null");
+  return convertValue<Result>(record->get(key));
 }
 
 template <typename Result>
 Result recordGet(Runtime& runtime, const Value& value, const PropertyKey& key) {
-  return recordGet<Result>(runtime, value, utf16ToUtf8(key));
+  if (!value.isRecord()) throw std::runtime_error("Cannot read a property of a non-record value");
+  return recordGet<Result>(runtime, value.record(), key);
 }
 
 template <typename Input>
@@ -3292,10 +3294,15 @@ std::remove_cvref_t<Input> recordSet(
     RecordObject* record,
     const PropertyKey& key,
     Input&& input) {
-  return recordSet(runtime, record, utf16ToUtf8(key), std::forward<Input>(input));
+  if (!record) throw std::runtime_error("Cannot write a property of null");
+  using Result = std::remove_cvref_t<Input>;
+  Result result = std::forward<Input>(input);
+  record->set(key, convertValue<Value>(result));
+  return result;
 }
 
 inline PropertyKey propertyKey(const std::string& value) { return utf8ToUtf16(value); }
+inline PropertyKey propertyKey(const Text& value) { return value.utf16(); }
 inline const PropertyKey& propertyKey(const PropertyKey& value) { return value; }
 inline PropertyKey propertyKey(double value) {
   std::ostringstream output;
@@ -5367,18 +5374,18 @@ Task<ArrayObject<RecordObject*>*> promiseAllSettled(
             RecordObject* result = nullptr;
             try {
               result = runtime.record({
-                  {"status", runtime.string("fulfilled")},
-                  {"value", convertValue<Value>(task.settledValue())},
+                  {u"status", runtime.string("fulfilled")},
+                  {u"value", convertValue<Value>(task.settledValue())},
               });
             } catch (const RejectedValue& rejected) {
               result = runtime.record({
-                  {"status", runtime.string("rejected")},
-                  {"reason", rejected.reason()},
+                  {u"status", runtime.string("rejected")},
+                  {u"reason", rejected.reason()},
               });
             } catch (const std::exception& error) {
               result = runtime.record({
-                  {"status", runtime.string("rejected")},
-                  {"reason", runtime.string(error.what())},
+                  {u"status", runtime.string("rejected")},
+                  {u"reason", runtime.string(error.what())},
               });
             }
             rootedResults->set(index, result);
