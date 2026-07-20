@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { AnalysisType } from "./types";
+import type { AnalysisType, BuiltinTypeName } from "./types";
+import { builtinType, literalType, namedType as createNamedType } from "./types";
 import {
   isBigIntType,
   isIntType,
@@ -14,13 +15,13 @@ import {
 } from "./typeClassifiers";
 
 function builtin(name: string): AnalysisType {
-  return { kind: "builtin", name } as AnalysisType;
+  return builtinType(name as BuiltinTypeName);
 }
 function literal(base: string, value: string | number | boolean): AnalysisType {
-  return { kind: "literal", base, value } as unknown as AnalysisType;
+  return literalType(base as "string" | "number" | "boolean", value);
 }
 function namedType(name: string): AnalysisType {
-  return { kind: "named", name } as AnalysisType;
+  return createNamedType(name);
 }
 
 describe("isIntType", () => {

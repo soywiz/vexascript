@@ -71,10 +71,18 @@ development loop.
   experiment showed that replacing `Value` with the current value-owning
   `Text` copies `u16string` buffers and slows inference, despite producing
   cleaner and smaller C++.
-* [ ] Replace the string-valued `AnalysisTypeKind` discriminator with a numeric
+* [x] Replace the string-valued `AnalysisTypeKind` discriminator with a numeric
   `const enum`, then measure Node and native analysis before and after the
-  change. Keep this separate from the nominal-type migration checkpoint so a
-  discriminator-wide regression remains easy to isolate.
+  change. The 2026-07-20 checkpoint changed the nominal type hierarchy to one
+  numeric discriminator and migrated production narrowing plus fixtures to
+  real type instances. Three interleaved native generations with a 4096 MB
+  initial heap had a 7.65-second median CPU time, versus 7.74 seconds before
+  the change, while median wall time moved from 8.70 to 8.64 seconds. The
+  generated translation unit grew by 26,613 bytes and `-O1` build time stayed
+  effectively flat. The small execution win confirms that the remaining large
+  cost is not discriminator comparison: `AnalysisType` union values are still
+  boxed as dynamic `Value`. Emitting those nominal unions as their common C++
+  base pointer is the next distinct checkpoint.
 * [x] Make Node-hosted and native-hosted compilation emit byte-identical C++ for
   the same source graph. The 2026-07-19 nominal-type checkpoint completes a
   checked native generation in 33.08 seconds at `-O1`, but differs in 1,151
@@ -228,13 +236,14 @@ development loop.
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
-  13.24 and 13.13 profiled seconds in the latest checkpoint, and both generated
-  translation units compiled successfully at `-O1` in 111.77 and 112.73
-  seconds. Native execution remained comfortably below two minutes.
+  16.40 and 16.42 wall-clock seconds in the numeric-analysis-kind checkpoint
+  (8.78 and 9.14 CPU seconds with a 4096 MB initial heap), and the two generated
+  translation units compiled successfully at `-O1` in 115.48 and 122.94
+  seconds. Native generation remained comfortably below two minutes.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `4783ecb90e6dc9d44fb852bdbcadf0e1dbdc00aefa5ea90dcbf3a8cfaba30164`.
-  All three 7,904,605-byte outputs were byte-identical.
+  `3c2ea8562a13c55187e5d7562abe75a6e9a1d976334e38274920382ed7d36c01`.
+  All three 7,912,467-byte outputs were byte-identical.
 * [x] Run `pnpm test` (2312 tests passed on 2026-07-20).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 

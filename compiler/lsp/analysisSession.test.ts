@@ -54,7 +54,7 @@ describe("lsp analysis session", () => {
     const session = createAnalysisSession('import { readFile, missing } from "node:fs"\n', { importedSymbols: importedSymbols });
 
     expect(session.importedSymbols.get("readFile")?.displayType).toBe('typeof import("node:fs").readFile');
-    expect(session.importedSymbols.get("readFile")?.type).toEqual({ kind: "named", name: "ReadFileFn" });
+    expect(session.importedSymbols.get("readFile")?.type).toEqual(namedType("ReadFileFn"));
     expect(session.invalidImportedBindings.has("missing")).toBe(true);
   });
 

@@ -1,6 +1,6 @@
 import type { Identifier, JsxAttribute, MemberExpression, Node, VarStatement } from "compiler/ast/ast";
 import type { AnalysisRange } from "./Analysis";
-import type { AnalysisType } from "./types";
+import type { AnalysisType, FunctionType } from "./types";
 import type { AnalysisIssueCode, AnalysisIssueData } from "./issueCodes";
 
 export type AnalysisSymbolKind = "variable" | "parameter" | "function" | "class" | "method" | "annotation";
@@ -98,7 +98,7 @@ export interface ExtensionPropertyResolution {
 export interface SelectedCallResolution {
   call: Node;
   callee: Node;
-  overload: AnalysisType & { kind: "function" };
+  overload: FunctionType;
   overloadIndex: number;
 }
 

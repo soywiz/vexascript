@@ -1,3 +1,4 @@
+import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
@@ -63,9 +64,9 @@ async function hasDeprecatedResolvedDocumentation(
   if (!objectType) {
     return false;
   }
-  const typeName = objectType.kind === "array"
+  const typeName = objectType.kind === AnalysisTypeKind.Array
     ? "Array"
-    : objectType.kind === "named" || objectType.kind === "builtin"
+    : objectType.kind === AnalysisTypeKind.Named || objectType.kind === AnalysisTypeKind.Builtin
       ? boxedPrimitiveTypeName(objectType.name)
       : null;
   const property = member.property as Identifier;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "../test/expect";
-import type { AnalysisType } from "./types";
+import type { AnalysisType, BuiltinTypeName } from "./types";
+import { builtinType, unionType } from "./types";
 import {
   isDynamicPropertyName,
   normalizeIndexSignaturePropertyName,
@@ -12,10 +13,10 @@ import {
 } from "./propertyNames";
 
 function builtin(name: string): AnalysisType {
-  return { kind: "builtin", name } as AnalysisType;
+  return builtinType(name as BuiltinTypeName);
 }
 function union(...types: AnalysisType[]): AnalysisType {
-  return { kind: "union", types } as unknown as AnalysisType;
+  return unionType(types);
 }
 
 describe("normalizeIndexSignaturePropertyName", () => {

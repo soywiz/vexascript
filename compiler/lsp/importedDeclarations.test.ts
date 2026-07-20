@@ -4,7 +4,7 @@ import { createAnalysisSession } from "./analysisSession";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
-import { typeToString } from "compiler/analysis/types";
+import { AnalysisTypeKind, typeToString } from "compiler/analysis/types";
 import { readFile } from "node:fs/promises";
 
 function parseAmbientModule(src: string, moduleName: string): Statement[] {
@@ -35,7 +35,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
 
     expect(importedSymbols.has("readFile")).toBe(true);
     const type = importedSymbols.get("readFile")!.type!;
-    expect(type.kind).toBe("function");
+    expect(type.kind).toBe(AnalysisTypeKind.Function);
   });
 
   it("resolves named import type from interface member via export= pattern (node:path style)", async () => {
@@ -71,7 +71,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
 
     expect(importedSymbols.has("join")).toBe(true);
     const joinType = importedSymbols.get("join")!.type!;
-    expect(joinType.kind).toBe("function");
+    expect(joinType.kind).toBe(AnalysisTypeKind.Function);
     // Pin the display path through the `export =` interface-member traversal so
     // the shared member-search generator keeps both type and display in sync.
     expect(importedSymbols.get("join")!.displayType).toBe("(...paths: string[]) => string");
@@ -121,7 +121,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     });
 
     expect(importedSymbols.has("process")).toBe(true);
-    expect(importedSymbols.get("process")!.type!.kind).toBe("function");
+    expect(importedSymbols.get("process")!.type!.kind).toBe(AnalysisTypeKind.Function);
   });
 
   it("preserves ambient function overloads for named imports", async () => {
@@ -154,7 +154,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
       ambientModuleDeclarations
     });
 
-    expect(importedSymbols.get("readFile")?.type?.kind).toBe("union");
+    expect(importedSymbols.get("readFile")?.type?.kind).toBe(AnalysisTypeKind.Union);
     expect(typeToString(importedSymbols.get("readFile")!.type!)).toContain("(path: string | Buffer | URL | object) => Promise<Buffer>");
     expect(typeToString(importedSymbols.get("readFile")!.type!)).toContain("(path: string | Buffer | URL | object, options: { encoding: string }) => Promise<string>");
   });
@@ -382,7 +382,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
       ambientModuleDeclarations
     });
 
-    expect(importedSymbols.get("readFile")?.type?.kind).toBe("function");
+    expect(importedSymbols.get("readFile")?.type?.kind).toBe(AnalysisTypeKind.Function);
     expect(typeToString(importedSymbols.get("readFile")!.type!)).toContain("Promise<string>");
   });
 

@@ -4,7 +4,7 @@ import { Parser, parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "./Analysis";
 import type { AnalysisSymbol } from "./Analysis";
-import { typeToString } from "./types";
+import { AnalysisTypeKind, builtinType, typeToString } from "./types";
 import type { VarStatement } from "compiler/ast/ast";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import dedent from "compiler/utils/dedent";
@@ -712,7 +712,7 @@ let after = bind`));
       const negType = analysis.getExpressionTypes().get(
         (ast.body[2] as import("../ast/ast.js").VarStatement).initializer!
       );
-      expect(negType?.kind === "named" && negType.name).toBe("Point");
+      expect(negType?.kind === AnalysisTypeKind.Named && negType.name).toBe("Point");
     });
 
     it("reports an error for unary - on a class with no operator- method", () => {
@@ -761,8 +761,8 @@ val total = negative + (-4294967297n)
       const expressionTypes = analysis.getExpressionTypes();
       const negative = (ast.body[0] as import("../ast/ast.js").VarStatement).initializer!;
       const total = (ast.body[1] as import("../ast/ast.js").VarStatement).initializer!;
-      expect(expressionTypes.get(negative)).toEqual({ kind: "builtin", name: "bigint" });
-      expect(expressionTypes.get(total)).toEqual({ kind: "builtin", name: "bigint" });
+      expect(expressionTypes.get(negative)).toEqual(builtinType("bigint"));
+      expect(expressionTypes.get(total)).toEqual(builtinType("bigint"));
     });
 
     it("a class can have both unary operator- and binary operator- independently", () => {
@@ -3077,8 +3077,8 @@ let bad = "Ada" satisfies number
     );
 
     expect(messages.some((message) => message.includes("does not exist on type 'any'"))).toBe(false);
-    expect(directType?.kind === "builtin" && directType.name).toBe("any");
-    expect(computedType?.kind === "builtin" && computedType.name).toBe("any");
+    expect(directType?.kind === AnalysisTypeKind.Builtin && directType.name).toBe("any");
+    expect(computedType?.kind === AnalysisTypeKind.Builtin && computedType.name).toBe("any");
   });
 
   it("allows calling members reached through 'any'", () => {
@@ -3097,7 +3097,7 @@ let bad = "Ada" satisfies number
     );
 
     expect(messages.some((message) => message.includes("not callable"))).toBe(false);
-    expect(callType?.kind === "builtin" && callType.name).toBe("any");
+    expect(callType?.kind === AnalysisTypeKind.Builtin && callType.name).toBe("any");
   });
 
   it("reports call argument type and arity mismatches, with int->number and long->bigint assignability", () => {

@@ -1,3 +1,4 @@
+import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType, type FunctionType, typeToString } from "compiler/analysis/types";
@@ -182,7 +183,7 @@ function findAnnotationInvocationContext(program: Program, line: number, charact
 
 
 function toFunctionType(type: AnalysisType | undefined): FunctionType | null {
-  if (!type || type.kind !== "function") {
+  if (!type || type.kind !== AnalysisTypeKind.Function) {
     return null;
   }
   return type;
@@ -197,7 +198,7 @@ function signatureInfosFromAnalysisType(
     return [];
   }
 
-  if (type.kind === "function") {
+  if (type.kind === AnalysisTypeKind.Function) {
     return [signatureInfoFromResolved({
       name,
       parameters: type.parameters.map((parameter) => ({
@@ -211,7 +212,7 @@ function signatureInfosFromAnalysisType(
     })];
   }
 
-  if (type.kind === "union") {
+  if (type.kind === AnalysisTypeKind.Union) {
     const signatures = type.types.flatMap((candidate) => signatureInfosFromAnalysisType(name, candidate, documentation));
     return signatures;
   }

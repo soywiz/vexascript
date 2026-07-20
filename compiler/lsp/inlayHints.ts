@@ -1,3 +1,4 @@
+import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisType } from "compiler/analysis/types";
@@ -56,7 +57,7 @@ const InlayHintKind = {
 
 function unwrapPromiseTypeForDisplay(type: AnalysisType): AnalysisType {
   if (
-    type.kind === "named" &&
+    type.kind === AnalysisTypeKind.Named &&
     type.name === "Promise" &&
     type.typeArguments &&
     type.typeArguments.length > 0

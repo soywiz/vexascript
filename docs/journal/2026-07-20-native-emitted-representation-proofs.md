@@ -66,3 +66,48 @@ With the 256-megabyte initial-heap setting, the two native generations took
 12.7416 and 12.7180 seconds internally. This provides an end-to-end guard that
 the retained optimizations preserve compiler behavior, not merely small native
 fixtures.
+
+## Numeric analysis-type discriminators
+
+`AnalysisTypeKind` was migrated from string literals to a numeric `const enum`,
+and tests now construct the same nominal analysis-type classes used by the
+compiler instead of anonymous objects that only resemble them. Three
+interleaved native self-host generations with a 4096 MB initial heap measured a
+7.65-second median CPU time for the numeric discriminator and 7.74 seconds for
+the string checkpoint. Median wall time moved from 8.70 to 8.64 seconds. The
+generated source grew from 7,885,854 to 7,912,467 bytes and the `-O1` build
+remained in the existing 110-second band, so discriminator comparisons were not
+a major frontend or execution bottleneck.
+
+The generated base class now stores `kind` as `std::int32_t`, but functions
+whose source type is the `AnalysisType` union still receive `vexa::Value` and
+read the discriminator dynamically. That boundary also increased generated
+`convertValue` calls because the emitter boxes enum values while moving between
+the dynamic union and concrete classes. The next useful change is therefore a
+representation rule: when every member of a source union is a nominal class
+derived from the same base, emit the common base pointer and use discriminator
+narrowing to select concrete subclasses. More local discriminator rewrites
+cannot remove that boxing.
+
+Changing `typeFromTypeNameLooseWithTypeParameters` from an optional string
+parameter to the string every caller already supplies removed one dynamic
+native boundary, but complete generation timings remained flat. This is still
+the correct declared contract; it is evidence that isolated signature cleanup
+is too small to measure without a broader representation change.
+
+Increasing `VEXA_NATIVE_INITIAL_HEAP_MB` from 256 to 4096 reduced the same
+native generation from roughly 13.5 to 8.7 seconds, at the cost of physical
+memory peaking around 2 GB. Sampling the larger-heap run moved the dominant
+cost from Oilpan marking and sweeping to allocation, persistent-root handling,
+text conversion, and dynamic access. The setting remains opt-in because the
+memory tradeoff is unsuitable as a default; it is useful for separating GC
+pressure from allocation and representation costs during profiling.
+
+After import cleanup, the Node host and two consecutive rebuilt native hosts
+produced byte-identical 7,912,467-byte translation units with SHA-256
+`3c2ea8562a13c55187e5d7562abe75a6e9a1d976334e38274920382ed7d36c01`.
+The two native generations took 16.40 and 16.42 wall-clock seconds externally
+(8.78 and 9.14 CPU seconds), and their `-O1` builds took 115.48 and 122.94
+seconds. The emitted program therefore remains deterministic and operational
+through two full native self-host generations; build throughput, rather than
+roundtrip correctness, remains the dominant iteration cost.

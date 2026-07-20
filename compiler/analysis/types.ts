@@ -39,18 +39,33 @@ export const BUILTIN_TYPE_NAMES: ReadonlySet<string> = new Set<BuiltinTypeName>(
   "symbol"
 ]);
 
-export type AnalysisTypeKind =
-  | "unknown"
-  | "builtin"
-  | "named"
-  | "function"
-  | "array"
-  | "object"
-  | "range"
-  | "union"
-  | "intersection"
-  | "literal"
-  | "tuple";
+export const enum AnalysisTypeKind {
+  Unknown,
+  Builtin,
+  Named,
+  Function,
+  Array,
+  Object,
+  Range,
+  Union,
+  Intersection,
+  Literal,
+  Tuple,
+}
+
+const ANALYSIS_TYPE_KIND_NAMES = [
+  "unknown",
+  "builtin",
+  "named",
+  "function",
+  "array",
+  "object",
+  "range",
+  "union",
+  "intersection",
+  "literal",
+  "tuple",
+] as const;
 
 export abstract class AnalysisTypeBase {
   declare private readonly __analysisTypeBrand: void;
@@ -59,26 +74,26 @@ export abstract class AnalysisTypeBase {
 }
 
 export class UnknownType extends AnalysisTypeBase {
-  declare kind: "unknown";
+  declare kind: AnalysisTypeKind.Unknown;
 
   constructor() {
-    super("unknown");
+    super(AnalysisTypeKind.Unknown);
   }
 }
 
 export class BuiltinType extends AnalysisTypeBase {
-  declare kind: "builtin";
+  declare kind: AnalysisTypeKind.Builtin;
 
   constructor(public name: BuiltinTypeName) {
-    super("builtin");
+    super(AnalysisTypeKind.Builtin);
   }
 }
 
 export class NamedType extends AnalysisTypeBase {
-  declare kind: "named";
+  declare kind: AnalysisTypeKind.Named;
 
   constructor(public name: string, public typeArguments?: AnalysisType[]) {
-    super("named");
+    super(AnalysisTypeKind.Named);
   }
 }
 
@@ -90,7 +105,7 @@ export interface FunctionTypeParameter {
 }
 
 export class FunctionType extends AnalysisTypeBase {
-  declare kind: "function";
+  declare kind: AnalysisTypeKind.Function;
 
   constructor(
     public parameters: FunctionTypeParameter[],
@@ -100,63 +115,63 @@ export class FunctionType extends AnalysisTypeBase {
     public typeParameterDefaults?: Record<string, AnalysisType>,
     public assertion?: { target: string; type?: AnalysisType }
   ) {
-    super("function");
+    super(AnalysisTypeKind.Function);
   }
 }
 
 export class ArrayType extends AnalysisTypeBase {
-  declare kind: "array";
+  declare kind: AnalysisTypeKind.Array;
 
   constructor(public elementType: AnalysisType, public isReadonly?: boolean) {
-    super("array");
+    super(AnalysisTypeKind.Array);
   }
 }
 
 export class ObjectType extends AnalysisTypeBase {
-  declare kind: "object";
+  declare kind: AnalysisTypeKind.Object;
 
   constructor(public properties: Record<string, AnalysisType>) {
-    super("object");
+    super(AnalysisTypeKind.Object);
   }
 }
 
 export class RangeType extends AnalysisTypeBase {
-  declare kind: "range";
+  declare kind: AnalysisTypeKind.Range;
 
   constructor(public elementType: AnalysisType) {
-    super("range");
+    super(AnalysisTypeKind.Range);
   }
 }
 
 export class UnionType extends AnalysisTypeBase {
-  declare kind: "union";
+  declare kind: AnalysisTypeKind.Union;
 
   constructor(public types: AnalysisType[]) {
-    super("union");
+    super(AnalysisTypeKind.Union);
   }
 }
 
 export class IntersectionType extends AnalysisTypeBase {
-  declare kind: "intersection";
+  declare kind: AnalysisTypeKind.Intersection;
 
   constructor(public types: AnalysisType[]) {
-    super("intersection");
+    super(AnalysisTypeKind.Intersection);
   }
 }
 
 export class LiteralType extends AnalysisTypeBase {
-  declare kind: "literal";
+  declare kind: AnalysisTypeKind.Literal;
 
   constructor(public base: "string" | "number" | "boolean", public value: string | number | boolean) {
-    super("literal");
+    super(AnalysisTypeKind.Literal);
   }
 }
 
 export class TupleType extends AnalysisTypeBase {
-  declare kind: "tuple";
+  declare kind: AnalysisTypeKind.Tuple;
 
   constructor(public elements: AnalysisType[], public isReadonly?: boolean) {
-    super("tuple");
+    super(AnalysisTypeKind.Tuple);
   }
 }
 
@@ -267,28 +282,28 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
   let trackedObject: object | undefined;
   if (typeof type === "object" && type !== null) {
     if (seen.has(type as object)) {
-      if (type.kind === "named") {
+      if (type.kind === AnalysisTypeKind.Named) {
         return type.name;
       }
-      return type.kind;
+      return ANALYSIS_TYPE_KIND_NAMES[type.kind] ?? "unknown";
     }
     trackedObject = type as object;
     seen.add(trackedObject);
   }
   let result: string;
   switch (type.kind) {
-    case "unknown":
+    case AnalysisTypeKind.Unknown:
       result = "unknown";
       break;
-    case "builtin":
+    case AnalysisTypeKind.Builtin:
       result = type.name;
       break;
-    case "named":
+    case AnalysisTypeKind.Named:
       result = !type.typeArguments || type.typeArguments.length === 0
         ? type.name
         : `${type.name}<${type.typeArguments.map((argument) => typeToStringInternal(argument, seen)).join(", ")}>`;
       break;
-    case "function": {
+    case AnalysisTypeKind.Function: {
       const functionType = type as FunctionType;
       const renderedTypeParameters: string[] = [];
       for (const parameter of functionType.typeParameters ?? []) {
@@ -312,20 +327,20 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
       result = `${typeParameterPrefix}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
       break;
     }
-    case "array":
+    case AnalysisTypeKind.Array:
       result = `${type.isReadonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;
       break;
-    case "object":
+    case AnalysisTypeKind.Object:
       result = Object.keys(type.properties).length === 0
         ? "object"
         : `{ ${Object.entries(type.properties)
           .map(([name, propertyType]) => `${name}: ${typeToStringInternal(propertyType, seen)}`)
           .join(", ")} }`;
       break;
-    case "range":
+    case AnalysisTypeKind.Range:
       result = `range<${typeToStringInternal(type.elementType, seen)}>`;
       break;
-    case "union": {
+    case AnalysisTypeKind.Union: {
       const members = dedupeUnionDisplayMembers(flattenUnionDisplayMembers(type));
       const optionalMember = optionalTypeMember(members);
       if (optionalMember) {
@@ -336,13 +351,13 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
       }
       break;
     }
-    case "intersection":
+    case AnalysisTypeKind.Intersection:
       result = type.types.map((member) => typeToStringInternal(member, seen)).join(" & ");
       break;
-    case "literal":
+    case AnalysisTypeKind.Literal:
       result = type.base === "string" ? JSON.stringify(type.value) : String(type.value);
       break;
-    case "tuple":
+    case AnalysisTypeKind.Tuple:
       result = `${type.isReadonly === true ? "readonly " : ""}[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
       break;
     default:
@@ -354,7 +369,7 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
 }
 
 function flattenUnionDisplayMembers(type: AnalysisType): AnalysisType[] {
-  if (type.kind !== "union") {
+  if (type.kind !== AnalysisTypeKind.Union) {
     return [type];
   }
   const members: AnalysisType[] = [];
@@ -379,26 +394,26 @@ function optionalTypeMember(members: AnalysisType[]): AnalysisType | null {
   if (members.length !== 2) {
     return null;
   }
-  const nonUndefinedMembers = members.filter((member) => !(member.kind === "builtin" && member.name === "undefined"));
+  const nonUndefinedMembers = members.filter((member) => !(member.kind === AnalysisTypeKind.Builtin && member.name === "undefined"));
   if (nonUndefinedMembers.length !== 1) {
     return null;
   }
   const optionalMember = nonUndefinedMembers[0]!;
-  if (optionalMember.kind === "union") {
+  if (optionalMember.kind === AnalysisTypeKind.Union) {
     return null;
   }
-  if (optionalMember.kind === "builtin" && optionalMember.name === "null") {
+  if (optionalMember.kind === AnalysisTypeKind.Builtin && optionalMember.name === "null") {
     return null;
   }
   return optionalMember;
 }
 
 function needsParensForOptionalType(type: AnalysisType): boolean {
-  return type.kind === "function" || type.kind === "intersection" || type.kind === "union";
+  return type.kind === AnalysisTypeKind.Function || type.kind === AnalysisTypeKind.Intersection || type.kind === AnalysisTypeKind.Union;
 }
 
 export function isUnknownType(type: AnalysisType | null | undefined): boolean {
-  return !type || type.kind === "unknown";
+  return !type || type.kind === AnalysisTypeKind.Unknown;
 }
 
 export function isSameType(
@@ -434,11 +449,11 @@ function isSameTypeInternal(
     return false;
   }
 
-  if (a.kind === "builtin" && b.kind === "builtin") {
+  if (a.kind === AnalysisTypeKind.Builtin && b.kind === AnalysisTypeKind.Builtin) {
     return a.name === b.name;
   }
 
-  if (a.kind === "named" && b.kind === "named") {
+  if (a.kind === AnalysisTypeKind.Named && b.kind === AnalysisTypeKind.Named) {
     if (a.name !== b.name) {
       return false;
     }
@@ -455,20 +470,20 @@ function isSameTypeInternal(
     return true;
   }
 
-  if (a.kind === "unknown" && b.kind === "unknown") {
+  if (a.kind === AnalysisTypeKind.Unknown && b.kind === AnalysisTypeKind.Unknown) {
     return true;
   }
 
-  if (a.kind === "array" && b.kind === "array") {
+  if (a.kind === AnalysisTypeKind.Array && b.kind === AnalysisTypeKind.Array) {
     return (a.isReadonly ?? false) === (b.isReadonly ?? false)
       && isSameTypeInternal(a.elementType, b.elementType, seenPairs);
   }
 
-  if (a.kind === "range" && b.kind === "range") {
+  if (a.kind === AnalysisTypeKind.Range && b.kind === AnalysisTypeKind.Range) {
     return isSameTypeInternal(a.elementType, b.elementType, seenPairs);
   }
 
-  if (a.kind === "object" && b.kind === "object") {
+  if (a.kind === AnalysisTypeKind.Object && b.kind === AnalysisTypeKind.Object) {
     const aKeys = Object.keys(a.properties).sort();
     const bKeys = Object.keys(b.properties).sort();
     if (aKeys.length !== bKeys.length) {
@@ -488,32 +503,32 @@ function isSameTypeInternal(
     return true;
   }
 
-  if (a.kind === "union" && b.kind === "union") {
+  if (a.kind === AnalysisTypeKind.Union && b.kind === AnalysisTypeKind.Union) {
     if (a.types.length !== b.types.length) {
       return false;
     }
     return a.types.every((aType, index) => isSameTypeInternal(aType, b.types[index]!, seenPairs));
   }
 
-  if (a.kind === "intersection" && b.kind === "intersection") {
+  if (a.kind === AnalysisTypeKind.Intersection && b.kind === AnalysisTypeKind.Intersection) {
     if (a.types.length !== b.types.length) {
       return false;
     }
     return a.types.every((aType, index) => isSameTypeInternal(aType, b.types[index]!, seenPairs));
   }
 
-  if (a.kind === "literal" && b.kind === "literal") {
+  if (a.kind === AnalysisTypeKind.Literal && b.kind === AnalysisTypeKind.Literal) {
     return a.base === b.base && a.value === b.value;
   }
 
-  if (a.kind === "tuple" && b.kind === "tuple") {
+  if (a.kind === AnalysisTypeKind.Tuple && b.kind === AnalysisTypeKind.Tuple) {
     if ((a.isReadonly ?? false) !== (b.isReadonly ?? false) || a.elements.length !== b.elements.length) {
       return false;
     }
     return a.elements.every((element, index) => isSameTypeInternal(element, b.elements[index]!, seenPairs));
   }
 
-  if (a.kind === "function" && b.kind === "function") {
+  if (a.kind === AnalysisTypeKind.Function && b.kind === AnalysisTypeKind.Function) {
     if (a.parameters.length !== b.parameters.length) {
       return false;
     }

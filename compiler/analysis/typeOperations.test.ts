@@ -1,7 +1,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { AnalysisType } from "./types";
-import { builtinType } from "./types";
+import type { AnalysisType, BuiltinTypeName } from "./types";
+import {
+  AnalysisTypeKind,
+  arrayType,
+  builtinType,
+  namedType as createNamedType,
+  rangeType,
+  tupleType,
+  unionType,
+} from "./types";
 import {
   combineTypes,
   elementTypeFromIterable,
@@ -14,22 +22,22 @@ import {
 } from "./typeOperations";
 
 function builtin(name: string): AnalysisType {
-  return { kind: "builtin", name } as AnalysisType;
+  return builtinType(name as BuiltinTypeName);
 }
 function namedType(name: string, typeArguments?: AnalysisType[]): AnalysisType {
-  return { kind: "named", name, ...(typeArguments ? { typeArguments } : {}) } as AnalysisType;
+  return createNamedType(name, typeArguments);
 }
 function union(...types: AnalysisType[]): AnalysisType {
-  return { kind: "union", types } as AnalysisType;
+  return unionType(types);
 }
 function array(elementType: AnalysisType): AnalysisType {
-  return { kind: "array", elementType } as AnalysisType;
+  return arrayType(elementType);
 }
 function tuple(...elements: AnalysisType[]): AnalysisType {
-  return { kind: "tuple", elements } as AnalysisType;
+  return tupleType(elements);
 }
 function range(elementType: AnalysisType): AnalysisType {
-  return { kind: "range", elementType } as AnalysisType;
+  return rangeType(elementType);
 }
 
 describe("combineTypes", () => {
@@ -51,7 +59,7 @@ describe("combineTypes", () => {
 
   it("builds a union for multiple distinct types", () => {
     const result = combineTypes([builtin("int"), builtin("string")]);
-    assert.equal(result.kind, "union");
+    assert.equal(result.kind, AnalysisTypeKind.Union);
   });
 });
 
@@ -64,7 +72,7 @@ describe("unwrapPromiseType", () => {
 
   it("returns unknown when Promise has no type argument", () => {
     const result = unwrapPromiseType(namedType("Promise"));
-    assert.equal(result?.kind, "unknown");
+    assert.equal(result?.kind, AnalysisTypeKind.Unknown);
   });
 
   it("returns null for non-Promise named types", () => {
@@ -107,7 +115,7 @@ describe("removeNullishFromType", () => {
 
   it("returns unknown when all members are nullish", () => {
     const result = removeNullishFromType(union(builtin("null"), builtin("undefined")));
-    assert.equal(result.kind, "unknown");
+    assert.equal(result.kind, AnalysisTypeKind.Unknown);
   });
 
   it("returns non-union types unchanged", () => {
@@ -129,7 +137,7 @@ describe("spreadArgumentElementType", () => {
 
   it("returns a union for multi-element tuples", () => {
     const result = spreadArgumentElementType(tuple(builtin("int"), builtin("string")));
-    assert.equal(result.kind, "union");
+    assert.equal(result.kind, AnalysisTypeKind.Union);
   });
 
   it("returns T from Array<T> named type", () => {
@@ -140,7 +148,7 @@ describe("spreadArgumentElementType", () => {
 
   it("returns unknown for unrecognized types", () => {
     const result = spreadArgumentElementType(builtin("int"));
-    assert.equal(result.kind, "unknown");
+    assert.equal(result.kind, AnalysisTypeKind.Unknown);
   });
 });
 
@@ -169,7 +177,7 @@ describe("elementTypeFromIterable", () => {
 
   it("returns unknown for non-iterable types", () => {
     const result = elementTypeFromIterable(builtin("string"));
-    assert.equal(result.kind, "unknown");
+    assert.equal(result.kind, AnalysisTypeKind.Unknown);
   });
 });
 
@@ -198,20 +206,20 @@ describe("isAsyncIteratorType", () => {
 describe("resolveLiteralTypeName", () => {
   it("parses double-quoted string literals", () => {
     const result = resolveLiteralTypeName('"hello"');
-    assert.equal(result?.kind, "literal");
+    assert.equal(result?.kind, AnalysisTypeKind.Literal);
     assert.equal((result as any).base, "string");
     assert.equal((result as any).value, "hello");
   });
 
   it("parses single-quoted string literals", () => {
     const result = resolveLiteralTypeName("'world'");
-    assert.equal(result?.kind, "literal");
+    assert.equal(result?.kind, AnalysisTypeKind.Literal);
     assert.equal((result as any).value, "world");
   });
 
   it("parses true", () => {
     const result = resolveLiteralTypeName("true");
-    assert.equal(result?.kind, "literal");
+    assert.equal(result?.kind, AnalysisTypeKind.Literal);
     assert.equal((result as any).value, true);
   });
 
@@ -222,7 +230,7 @@ describe("resolveLiteralTypeName", () => {
 
   it("parses integer literals", () => {
     const result = resolveLiteralTypeName("42");
-    assert.equal(result?.kind, "literal");
+    assert.equal(result?.kind, AnalysisTypeKind.Literal);
     assert.equal((result as any).value, 42);
   });
 

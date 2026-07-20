@@ -1,3 +1,4 @@
+import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Analysis } from "compiler/analysis/Analysis";
@@ -1734,7 +1735,7 @@ export async function resolveCallableSignature(
     if (!symbol) {
       return null;
     }
-    if (symbol.type?.kind === "function") {
+    if (symbol.type?.kind === AnalysisTypeKind.Function) {
       const documentation =
         symbol.node.kind === NodeKind.Identifier
           ? readDocumentationForSymbol(ast, symbol.node as Identifier, {
@@ -1865,7 +1866,7 @@ export async function resolveCallableSignatures(
             ambientModuleDeclarations: options.ambientModuleDeclarations
           })
         : undefined;
-    if (symbol.type?.kind === "function") {
+    if (symbol.type?.kind === AnalysisTypeKind.Function) {
       return [{
         name: identifier.name,
         parameters: symbol.type.parameters.map((parameter) => ({
@@ -1878,10 +1879,10 @@ export async function resolveCallableSignatures(
         ...(documentation ? { documentation } : {})
       }];
     }
-    if (symbol.type?.kind === "union") {
+    if (symbol.type?.kind === AnalysisTypeKind.Union) {
       const sigs: ResolvedFunctionSignature[] = [];
       for (const t of symbol.type.types) {
-        if (t.kind !== "function") continue;
+        if (t.kind !== AnalysisTypeKind.Function) continue;
         sigs.push({
           name: identifier.name,
           parameters: t.parameters.map((parameter) => ({
@@ -1982,7 +1983,7 @@ export async function resolveConstructorSignature(
     identifier.firstToken.range.start.line,
     identifier.firstToken.range.start.column
   )?.symbol;
-  if (symbol?.type?.kind === "function") {
+  if (symbol?.type?.kind === AnalysisTypeKind.Function) {
     return null;
   }
   if (symbol?.valueType?.includes("=>")) {

@@ -5,7 +5,7 @@
  * compared regardless of spacing or the bound variable name.
  */
 import type { AnalysisType } from "./types";
-import { unionType } from "./types";
+import { AnalysisTypeKind, unionType } from "./types";
 
 export function isReadonlyPropertyName(name: string): boolean {
   return name.trim().startsWith("readonly ");
@@ -115,10 +115,10 @@ export function propertyTypeFrom(
 }
 
 export function propertyTypeAllowsUndefined(type: AnalysisType): boolean {
-  if (type.kind === "builtin") {
+  if (type.kind === AnalysisTypeKind.Builtin) {
     return type.name === "undefined" || type.name === "any" || type.name === "unknown";
   }
-  if (type.kind === "union") {
+  if (type.kind === AnalysisTypeKind.Union) {
     for (const rawMember of type.types) {
       const member = rawMember as AnalysisType;
       if (propertyTypeAllowsUndefined(member)) return true;
@@ -129,13 +129,13 @@ export function propertyTypeAllowsUndefined(type: AnalysisType): boolean {
 }
 
 export function propertyTypeWithoutUndefined(type: AnalysisType): AnalysisType | null {
-  if (type.kind !== "union") {
+  if (type.kind !== AnalysisTypeKind.Union) {
     return null;
   }
   const definedMembers: AnalysisType[] = [];
   for (const rawMember of type.types) {
     const member = rawMember as AnalysisType;
-    if (!(member.kind === "builtin" && member.name === "undefined")) definedMembers.push(member);
+    if (!(member.kind === AnalysisTypeKind.Builtin && member.name === "undefined")) definedMembers.push(member);
   }
   if (definedMembers.length === 0 || definedMembers.length === type.types.length) {
     return null;

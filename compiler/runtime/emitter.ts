@@ -1,3 +1,4 @@
+import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import {
   ArrowFunctionExpression,
@@ -415,13 +416,13 @@ function typeMangleName(type: AnalysisType | undefined): string | null {
   if (!type) {
     return null;
   }
-  if (type.kind === "literal") {
+  if (type.kind === AnalysisTypeKind.Literal) {
     return type.base === "number" && Number.isInteger(type.value) ? "int" : type.base;
   }
-  if (type.kind === "builtin") {
+  if (type.kind === AnalysisTypeKind.Builtin) {
     return type.name === "number" ? "int" : type.name;
   }
-  if (type.kind === "named") {
+  if (type.kind === AnalysisTypeKind.Named) {
     return type.name;
   }
   return sanitizeManglePart(typeToString(type));
@@ -435,7 +436,7 @@ function receiverTypeMatches(
   if (!expressionType) {
     return options.allowUntyped === true;
   }
-  if (receiverType === "Array" && (expressionType.kind === "array" || expressionType.kind === "tuple")) {
+  if (receiverType === "Array" && (expressionType.kind === AnalysisTypeKind.Array || expressionType.kind === AnalysisTypeKind.Tuple)) {
     return true;
   }
   const actualType = typeMangleName(expressionType);
@@ -532,7 +533,7 @@ function resolveOperatorMethodForArguments(
   argumentExpressions: readonly Expr[]
 ): RuntimeOperatorInfo | null {
   const leftType = activeState.expressionTypes?.get(receiver as unknown as Node);
-  if (leftType?.kind !== "named") {
+  if (leftType?.kind !== AnalysisTypeKind.Named) {
     return null;
   }
   const operators = activeState.operators.get(leftType.name)?.filter((candidate) => candidate.operator === operator);
@@ -609,7 +610,7 @@ function resolveUnaryOperatorMethod(unary: UnaryExpression): RuntimeOperatorInfo
     return null;
   }
   const argumentType = activeState.expressionTypes?.get(unary.argument as unknown as Node);
-  if (argumentType?.kind !== "named") {
+  if (argumentType?.kind !== AnalysisTypeKind.Named) {
     return null;
   }
   const operators = activeState.operators.get(argumentType.name)?.filter((candidate) =>
@@ -625,13 +626,13 @@ function resolveUnaryOperatorMethod(unary: UnaryExpression): RuntimeOperatorInfo
 }
 
 function extensionReceiverTypeName(type: AnalysisType | undefined): string | null {
-  if (type?.kind === "named") {
+  if (type?.kind === AnalysisTypeKind.Named) {
     return type.name;
   }
-  if (type?.kind === "builtin") {
+  if (type?.kind === AnalysisTypeKind.Builtin) {
     return type.name === "int" ? "number" : type.name;
   }
-  if (type?.kind === "array" || type?.kind === "tuple") {
+  if (type?.kind === AnalysisTypeKind.Array || type?.kind === AnalysisTypeKind.Tuple) {
     return "Array";
   }
   return null;
@@ -705,7 +706,7 @@ function resolveImportedExtensionMethodName(methodName: string, argumentTypes: A
 }
 
 function isBuiltinTypeNamed(type: AnalysisType | undefined, name: string): boolean {
-  return type?.kind === "builtin" && type.name === name;
+  return type?.kind === AnalysisTypeKind.Builtin && type.name === name;
 }
 
 function emitTypedIntegerBinary(binary: BinaryExpression, leftText: string, rightText: string): string | null {
@@ -852,23 +853,23 @@ function namedTypeHasValueMember(typeName: string, program: Program): boolean {
 }
 
 function variableDelegateKind(type: AnalysisType | undefined, program: Program): RuntimeVariableDelegateInfo["kind"] {
-  if (type?.kind === "function") {
+  if (type?.kind === AnalysisTypeKind.Function) {
     return "function";
   }
-  if (type?.kind === "named" && type.name === "Property" && (type.typeArguments?.length ?? 0) === 1) {
+  if (type?.kind === AnalysisTypeKind.Named && type.name === "Property" && (type.typeArguments?.length ?? 0) === 1) {
     return "objectValue";
   }
-  if (type?.kind === "tuple") {
+  if (type?.kind === AnalysisTypeKind.Tuple) {
     const first = type.elements[0];
-    if (first?.kind === "function") {
+    if (first?.kind === AnalysisTypeKind.Function) {
       return "tupleFunction";
     }
     return "tupleValue";
   }
-  if (type?.kind === "object" && type.properties["value"]) {
+  if (type?.kind === AnalysisTypeKind.Object && type.properties["value"]) {
     return "objectValue";
   }
-  if (type?.kind === "named" && namedTypeHasValueMember(type.name, program)) {
+  if (type?.kind === AnalysisTypeKind.Named && namedTypeHasValueMember(type.name, program)) {
     return "objectValue";
   }
   return "unknownTuple";
@@ -1092,7 +1093,7 @@ function eraseTypeArguments(typeName: string): string {
 
 function isLongExpression(expression: Expr): boolean {
   const type = activeState.expressionTypes?.get(expression as unknown as Node);
-  return type?.kind === "builtin" && type.name === "long";
+  return type?.kind === AnalysisTypeKind.Builtin && type.name === "long";
 }
 
 function wrapLongExpressionIfNeeded(expression: Expr, text: string): string {
@@ -1261,7 +1262,7 @@ function resolveCalleeParameterNames(callee: Expr): string[] | null {
     }
   }
   const calleeType = activeState.expressionTypes?.get(callee as unknown as Node);
-  if (calleeType?.kind === "function") {
+  if (calleeType?.kind === AnalysisTypeKind.Function) {
     const functionType = calleeType as FunctionType;
     const names: string[] = [];
     for (const parameter of functionType.parameters) names.push(parameter.name);
@@ -1622,7 +1623,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case NodeKind.ArrowFunctionExpression: {
         const arrow = expression as ArrowFunctionExpression;
-        if (arrow.contextualObjectLiteral && activeState.expressionTypes?.get(expression as unknown as Node)?.kind !== "function") {
+        if (arrow.contextualObjectLiteral && activeState.expressionTypes?.get(expression as unknown as Node)?.kind !== AnalysisTypeKind.Function) {
           return emitExpression(arrow.contextualObjectLiteral, parentPrecedence, side);
         }
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
@@ -1692,7 +1693,7 @@ function emitEnumComputedMemberExpression(member: MemberExpression, objectText: 
   const enumName =
     directEnumName && activeState.enumInfos.has(directEnumName)
       ? directEnumName
-      : objectType?.kind === "named" && activeState.enumInfos.has(objectType.name)
+      : objectType?.kind === AnalysisTypeKind.Named && activeState.enumInfos.has(objectType.name)
         ? objectType.name
         : null;
   if (!enumName) {
@@ -3041,11 +3042,11 @@ function collectEmitProgramRuntimeContext(
             !importedExtensionRuntimeNames.has(name)
           ) {
             const objectType = expressionTypes?.get(member.object);
-            if (objectType?.kind === "builtin") {
+            if (objectType?.kind === AnalysisTypeKind.Builtin) {
               extensionProperties.set(name, objectType.name === "int" ? "number" : objectType.name);
-            } else if (objectType?.kind === "named") {
+            } else if (objectType?.kind === AnalysisTypeKind.Named) {
               extensionProperties.set(name, objectType.name);
-            } else if (objectType?.kind === "array" || objectType?.kind === "tuple") {
+            } else if (objectType?.kind === AnalysisTypeKind.Array || objectType?.kind === AnalysisTypeKind.Tuple) {
               extensionProperties.set(name, "Array");
             }
           }
@@ -3060,11 +3061,11 @@ function collectEmitProgramRuntimeContext(
           const name = (member.property as Identifier).name;
           if (!extensionPropertySetters.has(name) && importedNames.has(name)) {
             const objectType = expressionTypes?.get(member.object);
-            if (objectType?.kind === "builtin") {
+            if (objectType?.kind === AnalysisTypeKind.Builtin) {
               extensionPropertySetters.set(name, objectType.name === "int" ? "number" : objectType.name);
-            } else if (objectType?.kind === "named") {
+            } else if (objectType?.kind === AnalysisTypeKind.Named) {
               extensionPropertySetters.set(name, objectType.name);
-            } else if (objectType?.kind === "array" || objectType?.kind === "tuple") {
+            } else if (objectType?.kind === AnalysisTypeKind.Array || objectType?.kind === AnalysisTypeKind.Tuple) {
               extensionPropertySetters.set(name, "Array");
             }
           }

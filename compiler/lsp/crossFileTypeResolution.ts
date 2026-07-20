@@ -1,3 +1,4 @@
+import { AnalysisTypeKind } from "../analysis/types";
 import { isNodeKind, NodeKind } from "compiler/ast/ast";
 /**
  * Shared cross-file member/type resolution helpers: class/interface/type-alias
@@ -1033,11 +1034,11 @@ export async function resolveCanonicalMemberSymbol(context: ResolveContext): Pro
   }
 
   const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
-  if (!objectType || (objectType.kind !== "named" && objectType.kind !== "array")) {
+  if (!objectType || (objectType.kind !== AnalysisTypeKind.Named && objectType.kind !== AnalysisTypeKind.Array)) {
     return null;
   }
 
-  const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
+  const resolvedClassName = objectType.kind === AnalysisTypeKind.Array ? "Array" : objectType.name;
   const memberName = (memberExpression.property as Identifier).name;
 
   // An in-scope extension member shadows the class member of the same name (the

@@ -1,3 +1,4 @@
+import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName, parseTypeNameShape, splitTopLevelTypeText, stripEnclosingTypeParens } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
@@ -44,9 +45,9 @@ export function normalizeRecoveredReceiverType(
   node: Expr,
   expressionTypes: ReadonlyMap<import("compiler/ast/ast").Node, AnalysisType>
 ): string {
-  if (type.kind === "union") {
+  if (type.kind === AnalysisTypeKind.Union) {
     const nonNullish = type.types.filter((member) =>
-      !(member.kind === "builtin" && (member.name === "null" || member.name === "undefined"))
+      !(member.kind === AnalysisTypeKind.Builtin && (member.name === "null" || member.name === "undefined"))
     );
     const narrowed = nonNullish.length > 0 ? nonNullish : type.types;
     if (narrowed.length === 1) {
@@ -54,7 +55,7 @@ export function normalizeRecoveredReceiverType(
     }
     return narrowed.map((member) => normalizeRecoveredReceiverType(member, node, expressionTypes)).join(" | ");
   }
-  if (type.kind === "named" && node.kind === NodeKind.CallExpression) {
+  if (type.kind === AnalysisTypeKind.Named && node.kind === NodeKind.CallExpression) {
     const calleeType = expressionTypes.get((node as CallExpression).callee);
     const constraint = constraintForRecoveredTypeParameter(calleeType, type.name);
     if (constraint) {
@@ -71,12 +72,12 @@ function constraintForRecoveredTypeParameter(
   if (!calleeType) {
     return null;
   }
-  if (calleeType.kind === "function") {
+  if (calleeType.kind === AnalysisTypeKind.Function) {
     return calleeType.typeParameterConstraints?.[typeParameterName] ?? null;
   }
-  if (calleeType.kind === "union") {
+  if (calleeType.kind === AnalysisTypeKind.Union) {
     for (const member of calleeType.types) {
-      if (member.kind !== "function") {
+      if (member.kind !== AnalysisTypeKind.Function) {
         continue;
       }
       const constraint = member.typeParameterConstraints?.[typeParameterName];

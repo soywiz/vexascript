@@ -1,3 +1,4 @@
+import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
@@ -8,10 +9,10 @@ export function typeNameFromAnalysisType(type: AnalysisType | undefined): string
   if (!type) {
     return null;
   }
-  if (type.kind === "builtin") {
+  if (type.kind === AnalysisTypeKind.Builtin) {
     return type.name;
   }
-  if (type.kind === "named") {
+  if (type.kind === AnalysisTypeKind.Named) {
     return typeToString(type);
   }
   return typeToString(type);

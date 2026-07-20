@@ -1,3 +1,4 @@
+import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import { parseTypeNameShape } from "compiler/analysis/typeNames";
 import type { AnalysisType } from "compiler/analysis/types";
@@ -83,13 +84,13 @@ function normalizeReceiverTypeName(typeName: string | undefined): string | null 
 }
 
 function directReceiverTypeNamesForObjectType(objectType: AnalysisType): string[] {
-  if (objectType.kind === "array") {
+  if (objectType.kind === AnalysisTypeKind.Array) {
     return ["Array"];
   }
-  if ((objectType.kind === "named" || objectType.kind === "builtin") && objectType.name === "int") {
+  if ((objectType.kind === AnalysisTypeKind.Named || objectType.kind === AnalysisTypeKind.Builtin) && objectType.name === "int") {
     return ["int", "number"];
   }
-  if (objectType.kind === "named" || objectType.kind === "builtin") {
+  if (objectType.kind === AnalysisTypeKind.Named || objectType.kind === AnalysisTypeKind.Builtin) {
     return [objectType.name];
   }
   return [];

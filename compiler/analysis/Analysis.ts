@@ -13,7 +13,7 @@ import type {
   Scope
 } from "./model";
 import { TypeChecker } from "./TypeChecker";
-import { type AnalysisType, typeToString } from "./types";
+import { AnalysisTypeKind, type AnalysisType, typeToString } from "./types";
 import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
 import { resolveScopeSymbol, type BoundAnalysis } from "./model";
 
@@ -308,7 +308,7 @@ export class Analysis {
       const scope = pendingScopes.pop()!;
       for (const value of scope.symbols.values()) {
         const symbol: AnalysisSymbol = value;
-        if (symbol.type?.kind === "function") {
+        if (symbol.type?.kind === AnalysisTypeKind.Function) {
           result.set(symbol.node, symbol.type);
         }
       }

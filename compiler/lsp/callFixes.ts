@@ -1,3 +1,4 @@
+import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import { bindingElementPropertyName, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import { splitOptionalTypeSuffix, splitTopLevelTypeText } from "compiler/analysis/typeNames";
@@ -377,7 +378,7 @@ function toTypeAnnotation(type: AnalysisType | undefined): string | null {
   if (!type) {
     return null;
   }
-  if (type.kind === "builtin") {
+  if (type.kind === AnalysisTypeKind.Builtin) {
     if (
       type.name === "int" ||
       type.name === "number" ||
@@ -391,7 +392,7 @@ function toTypeAnnotation(type: AnalysisType | undefined): string | null {
     }
     return null;
   }
-  if (type.kind === "named") {
+  if (type.kind === AnalysisTypeKind.Named) {
     return type.name;
   }
   return null;

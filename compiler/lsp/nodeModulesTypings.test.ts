@@ -10,7 +10,7 @@ import {
 import { collectImportedTypeDeclarations, collectAllImportedDeclarations } from "./importedDeclarations";
 import { createAnalysisSession } from "./analysisSession";
 import dedent from "compiler/utils/dedent";
-import { typeToString } from "compiler/analysis/types";
+import { AnalysisTypeKind, typeToString } from "compiler/analysis/types";
 import type { Identifier, Statement, VarStatement } from "compiler/ast/ast";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 
@@ -212,7 +212,7 @@ describe("node_modules typings resolution", () => {
     const importedSymbols = collected.importedSymbols;
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(importedSymbols.get("render")?.type?.kind).toBe("function");
+    expect(importedSymbols.get("render")?.type?.kind).toBe(AnalysisTypeKind.Function);
     expect(typeToString(importedSymbols.get("render")!.type!)).toBe("(value: unknown) => string");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain("Type 'renderer' is not callable");
   });
@@ -727,7 +727,7 @@ describe("node_modules typings resolution", () => {
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(collected.importedSymbols.get("useState")?.type?.kind).toBe("union");
+    expect(collected.importedSymbols.get("useState")?.type?.kind).toBe(AnalysisTypeKind.Union);
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
