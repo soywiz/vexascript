@@ -167,6 +167,13 @@ development loop.
   with direct UTF-16 scans and prefix checks reduced the next two checked
   native generations to 12.93 and 12.94 seconds. Type inference fell to about
   5.71 seconds; the `-O1` rebuilds took 98.77 and 98.06 seconds.
+  The following profile showed 254 top-of-stack samples in UTF-8-to-UTF-16
+  conversion because typed `Text` search operations still selected legacy
+  `std::string` overloads. Direct UTF-16 overloads for `includes`, `indexOf`,
+  `lastIndexOf`, `startsWith`, and `endsWith`, plus explicit mixed-type
+  overloads, reduced the next two generations to 12.10 and 12.13 seconds.
+  Type inference reached 5.15 seconds and C++ emission about 3.50 seconds;
+  the `-O1` rebuilds took 98.10 and 97.94 seconds.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -205,8 +212,8 @@ development loop.
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
-  12.93 and 12.94 profiled seconds in the latest checkpoint, and both generated
-  translation units compiled successfully at `-O1` in 98.77 and 98.06
+  12.10 and 12.13 profiled seconds in the latest checkpoint, and both generated
+  translation units compiled successfully at `-O1` in 98.10 and 97.94
   seconds. Native execution remained comfortably below two minutes.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256

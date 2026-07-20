@@ -5996,6 +5996,9 @@ inline bool stringIncludes(const std::string& value, const std::string& search, 
   const auto searchCodeUnits = utf8ToUtf16(search);
   return valueCodeUnits.find(searchCodeUnits, normalizedSliceIndex(position, valueCodeUnits.size())) != std::u16string::npos;
 }
+inline bool stringIncludes(const Text& value, const Text& search, double position = 0) {
+  return value.utf16().find(search.utf16(), normalizedSliceIndex(position, value.size())) != std::u16string::npos;
+}
 inline bool stringIncludes(const std::string& value, const Value& search, double position = 0) {
   return stringIncludes(value, toString(search), position);
 }
@@ -6013,6 +6016,10 @@ double stringIndexOf(const ValueLike& valueLike, const SearchLike& searchLike, d
   const auto found = value.find(search, normalizedSliceIndex(position, value.size()));
   return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
 }
+inline double stringIndexOf(const Text& value, const Text& search, double position = 0) {
+  const auto found = value.utf16().find(search.utf16(), normalizedSliceIndex(position, value.size()));
+  return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
+}
 
 template <typename ValueLike, typename SearchLike>
 double stringLastIndexOf(const ValueLike& valueLike, const SearchLike& searchLike,
@@ -6025,11 +6032,35 @@ double stringLastIndexOf(const ValueLike& valueLike, const SearchLike& searchLik
   const auto found = value.rfind(search, start);
   return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
 }
+inline double stringLastIndexOf(const Text& value, const Text& search,
+                                double position = std::numeric_limits<double>::infinity()) {
+  const std::size_t start = std::isfinite(position)
+      ? std::min(value.size(), static_cast<std::size_t>(std::max(0.0, std::floor(position))))
+      : value.size();
+  const auto found = value.utf16().rfind(search.utf16(), start);
+  return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
+}
 
 inline bool startsWith(const std::string& value, const std::string& search, double position = 0) {
   const auto valueCodeUnits = utf8ToUtf16(value);
   const auto searchCodeUnits = utf8ToUtf16(search);
   return valueCodeUnits.compare(normalizedSliceIndex(position, valueCodeUnits.size()), searchCodeUnits.size(), searchCodeUnits) == 0;
+}
+inline bool startsWith(const Text& value, const Text& search, double position = 0) {
+  return value.utf16().compare(normalizedSliceIndex(position, value.size()), search.size(), search.utf16()) == 0;
+}
+inline bool startsWith(const std::string& value, const Text& search, double position = 0) {
+  return startsWith(Text(value), search, position);
+}
+inline bool startsWith(const Value& value, const Text& search, double position = 0) {
+  return value.isString()
+    ? startsWith(Text(value), search, position)
+    : startsWith(Text(toString(value)), search, position);
+}
+inline bool startsWith(const Text& value, const Value& search, double position = 0) {
+  return search.isString()
+    ? startsWith(value, Text(search), position)
+    : startsWith(value, Text(toString(search)), position);
 }
 inline bool startsWith(const Value& value, const Value& search, double position = 0) {
   return startsWith(toString(value), toString(search), position);
@@ -6046,6 +6077,23 @@ inline bool endsWith(const std::string& value, const std::string& search) {
   const auto searchCodeUnits = utf8ToUtf16(search);
   return searchCodeUnits.size() <= valueCodeUnits.size() &&
     valueCodeUnits.compare(valueCodeUnits.size() - searchCodeUnits.size(), searchCodeUnits.size(), searchCodeUnits) == 0;
+}
+inline bool endsWith(const Text& value, const Text& search) {
+  return search.size() <= value.size() &&
+    value.utf16().compare(value.size() - search.size(), search.size(), search.utf16()) == 0;
+}
+inline bool endsWith(const std::string& value, const Text& search) {
+  return endsWith(Text(value), search);
+}
+inline bool endsWith(const Value& value, const Text& search) {
+  return value.isString()
+    ? endsWith(Text(value), search)
+    : endsWith(Text(toString(value)), search);
+}
+inline bool endsWith(const Text& value, const Value& search) {
+  return search.isString()
+    ? endsWith(value, Text(search))
+    : endsWith(value, Text(toString(search)));
 }
 inline bool endsWith(const Value& value, const Value& search) {
   return endsWith(toString(value), toString(search));

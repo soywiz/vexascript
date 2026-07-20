@@ -464,3 +464,24 @@ the same translation unit in 12.93 and 12.94 seconds. Merged type inference
 fell to 5.71 seconds. All three 7,901,140-byte outputs were byte-identical with
 SHA-256
 `1a8647253e574e0d453d9e82fbc844ff0d1dfd1f4ccdf7ebfea76a8a1e4ca411`.
+
+## UTF-16 text searches still round-tripped through UTF-8
+
+The post-regex profile attributed 254 top-of-stack samples to
+`utf8ToUtf16`. The native runtime already represented `Text` as UTF-16, but
+several string-search helpers only exposed `std::string` and dynamic `Value`
+overloads. A typed `Text.startsWith(Text)` therefore converted the receiver and
+argument to UTF-8 and decoded both again before comparing them.
+
+Direct `Text` overloads now implement `includes`, `indexOf`, `lastIndexOf`,
+`startsWith`, and `endsWith` over their existing UTF-16 buffers. Explicit
+mixed `Text`, `Value`, and `std::string` overloads keep dynamic coercion
+semantics while preventing ambiguous two-conversion overload resolution. The
+unified native smoke now checks searching from a UTF-16 code-unit offset across
+a surrogate pair as well as `endsWith` and `lastIndexOf`.
+
+The first and rebuilt native hosts compiled in 98.10 and 97.94 seconds. Their
+checked generations took 12.10 and 12.13 seconds, with type inference at about
+5.15 seconds and C++ emission at about 3.50 seconds. Node and both native hosts
+again emitted byte-identical 7,901,140-byte translation units with SHA-256
+`1a8647253e574e0d453d9e82fbc844ff0d1dfd1f4ccdf7ebfea76a8a1e4ca411`.
