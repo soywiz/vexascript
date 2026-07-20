@@ -866,7 +866,7 @@ function variableDelegateKind(type: AnalysisType | undefined, program: Program):
     }
     return "tupleValue";
   }
-  if (type?.kind === AnalysisTypeKind.Object && type.properties["value"]) {
+  if (type?.kind === AnalysisTypeKind.Object && type.properties.has("value")) {
     return "objectValue";
   }
   if (type?.kind === AnalysisTypeKind.Named && namedTypeHasValueMember(type.name, program)) {

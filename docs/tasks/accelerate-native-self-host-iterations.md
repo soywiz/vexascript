@@ -206,6 +206,14 @@ development loop.
   seconds; at 256 MB it improved from a 12.65-second baseline to 12.51/12.52
   seconds. The pure variant compiled at `-O1` in 109.09 seconds, within the
   existing noisy build-time band.
+  The next checkpoint replaces analysis-type records with typed maps and maps
+  nominal class unions to their nearest shared native base. It also keeps
+  optional managed class fields in typed Oilpan storage instead of boxing them.
+  The Node-emitted self-host unit decreased from 7,859,722 to 7,782,548 bytes,
+  `dynamicGet` occurrences from 2,614 to 1,733, and `convertValue` occurrences
+  from 25,145 to 20,963. Native syntax validation, the unified native smoke,
+  all 2,312 tests, and the CLI sanity program pass. Native execution timing and
+  two rebuilt roundtrips still need to be recorded for this checkpoint.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional

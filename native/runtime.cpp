@@ -3482,6 +3482,12 @@ inline Value dynamicGetOptional(T* target, const PropertyKey& key) {
   return target ? dynamicGet(target, key) : Value::undefined();
 }
 
+template <typename T>
+  requires std::is_base_of_v<DynamicValueObject, T>
+inline Value dynamicGetOptional(const cppgc::Member<T>& target, const PropertyKey& key) {
+  return target ? dynamicGet(target.Get(), key) : Value::undefined();
+}
+
 inline Value dynamicSet(const Value& target, const PropertyKey& key, const Value& value) {
   if (target.isRecord()) {
     target.record()->set(key, value);
@@ -3699,6 +3705,12 @@ Text nullishCoalesce(Text value, Callback&&) {
 template <typename T, typename Callback>
 T* nullishCoalesce(T* value, Callback&& fallback) {
   if (value) return value;
+  return convertValue<T*>(std::forward<Callback>(fallback)());
+}
+
+template <typename T, typename Callback>
+T* nullishCoalesce(const cppgc::Member<T>& value, Callback&& fallback) {
+  if (value) return value.Get();
   return convertValue<T*>(std::forward<Callback>(fallback)());
 }
 

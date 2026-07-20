@@ -866,7 +866,7 @@ function mergeAmbientObjectProperties(
 
 function ambientObjectProperties(type: AnalysisType): Record<string, AnalysisType> | null {
   if (type.kind === AnalysisTypeKind.Object) {
-    return (type as ObjectType).properties;
+    return Object.fromEntries((type as ObjectType).properties);
   }
   if (type.kind === AnalysisTypeKind.Intersection) {
     const merged: Record<string, AnalysisType> = {};
@@ -1546,7 +1546,7 @@ function ambientConstructSignatureForUtility(
     return sourceType;
   }
   if (sourceType.kind === AnalysisTypeKind.Object) {
-    const constructorType = sourceType.properties["constructor"];
+    const constructorType = sourceType.properties.get("constructor");
     return constructorType?.kind === AnalysisTypeKind.Function ? constructorType : null;
   }
   if (sourceType.kind === AnalysisTypeKind.Union) {

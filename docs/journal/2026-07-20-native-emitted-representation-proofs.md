@@ -149,3 +149,43 @@ representation (or migrating those compiler records to typed maps/classes),
 then re-enabling the already validated common-base union rule. Contextual array
 and destructuring changes that did not improve the stable output were also
 removed rather than retained as speculative scaffolding.
+
+## Typed analysis maps unlock the common-base representation
+
+The compiler's `ObjectType.properties` and generic constraint/default tables
+were migrated from `Record<string, AnalysisType>` to typed maps. The common-base
+union rule could then be enabled without unsafe casts: a union whose members are
+nominal class pointers now uses their nearest shared native base. Compiler code
+that reads a subclass after checking its numeric discriminator keeps an explicit
+nominal cast, and mixed map-entry destructuring was replaced with typed
+`keys()`/`get()` loops where it would otherwise manufacture heterogeneous
+`Value` tuples.
+
+The first attempt exposed an important second-order issue. Every optional class
+property had previously used `Value`, including arrays and managed object
+pointers. Changing the analysis representation therefore made valid static
+assignments fail against Oilpan `Member<T>` storage. The durable fix was not to
+restore boxing: optional managed fields and constructor properties now retain
+their declared pointer type, assignment emission recovers that storage type,
+and the nullish/optional runtime helpers accept `Member<T>` directly. Primitive
+optional fields still use `Value`, preserving the observable distinction among
+numeric zero, `null`, and `undefined`.
+
+Explicit callback return annotations also have to outrank a weaker contextual
+or inferred `any` result. Without that rule, typed map and array callbacks were
+still emitted as `Value` even though their source signatures declared
+`AnalysisType`. The shared arrow/function-expression path now applies the
+explicit result first. Two `map(...).filter(...)` chains in the checker were
+replaced by direct typed loops because nullable callback arrays unnecessarily
+lost their element representation and allocated intermediate arrays.
+
+Against the boxed-literal checkpoint, the Node-emitted self-host translation
+unit decreased from 7,859,722 to 7,782,548 bytes. Generated `dynamicGet`
+occurrences decreased from 2,614 to 1,733, and `convertValue` occurrences from
+25,145 to 20,963. The complete file passes a native C++ syntax check; the
+unified native language smoke compiles, runs, and matches its expected output.
+The full 2,312-test suite and the CLI sanity program also pass. The latest Node
+output has SHA-256
+`4d26f881c05994cf55c73206433836954f72ba4075ee0da09b02466644652627`.
+Execution-time and two-roundtrip parity measurements remain the next step,
+because static source counts alone do not establish a runtime improvement.

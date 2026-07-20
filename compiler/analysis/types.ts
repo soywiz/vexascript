@@ -111,8 +111,8 @@ export class FunctionType extends AnalysisTypeBase {
     public parameters: FunctionTypeParameter[],
     public returnType: AnalysisType,
     public typeParameters?: string[],
-    public typeParameterConstraints?: Record<string, AnalysisType>,
-    public typeParameterDefaults?: Record<string, AnalysisType>,
+    public typeParameterConstraints?: ReadonlyMap<string, AnalysisType>,
+    public typeParameterDefaults?: ReadonlyMap<string, AnalysisType>,
     public assertion?: { target: string; type?: AnalysisType }
   ) {
     super(AnalysisTypeKind.Function);
@@ -130,7 +130,7 @@ export class ArrayType extends AnalysisTypeBase {
 export class ObjectType extends AnalysisTypeBase {
   declare kind: AnalysisTypeKind.Object;
 
-  constructor(public properties: Record<string, AnalysisType>) {
+  constructor(public properties: ReadonlyMap<string, AnalysisType>) {
     super(AnalysisTypeKind.Object);
   }
 }
@@ -220,22 +220,26 @@ export function functionType(
   parameters: FunctionTypeParameter[],
   returnType: AnalysisType,
   typeParameters?: string[],
-  typeParameterConstraints?: Record<string, AnalysisType>,
-  typeParameterDefaults?: Record<string, AnalysisType>,
+  typeParameterConstraints?: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
+  typeParameterDefaults?: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
   assertion?: { target: string; type?: AnalysisType }
 ): FunctionType {
   return new FunctionType(
     parameters,
     returnType,
     typeParameters && typeParameters.length > 0 ? typeParameters : undefined,
-    typeParameterConstraints && Object.keys(typeParameterConstraints).length > 0
-      ? typeParameterConstraints
-      : undefined,
-    typeParameterDefaults && Object.keys(typeParameterDefaults).length > 0
-      ? typeParameterDefaults
-      : undefined,
+    optionalAnalysisTypeMap(typeParameterConstraints),
+    optionalAnalysisTypeMap(typeParameterDefaults),
     assertion
   );
+}
+
+function optionalAnalysisTypeMap(
+  values: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType> | undefined
+): ReadonlyMap<string, AnalysisType> | undefined {
+  if (!values) return undefined;
+  const map = values instanceof Map ? values : new Map(Object.entries(values));
+  return map.size > 0 ? map : undefined;
 }
 
 export function arrayType(elementType: AnalysisType = UNKNOWN_TYPE, isReadonly: boolean = false): ArrayType {
@@ -243,11 +247,13 @@ export function arrayType(elementType: AnalysisType = UNKNOWN_TYPE, isReadonly: 
 }
 
 export function objectType(): ObjectType {
-  return new ObjectType({});
+  return new ObjectType(new Map());
 }
 
-export function objectTypeWithProperties(properties: Record<string, AnalysisType>): ObjectType {
-  return new ObjectType(properties);
+export function objectTypeWithProperties(
+  properties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>
+): ObjectType {
+  return new ObjectType(properties instanceof Map ? properties : new Map(Object.entries(properties)));
 }
 
 export function rangeType(elementType: AnalysisType = builtinType("int")): RangeType {
@@ -307,7 +313,7 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
       const functionType = type as FunctionType;
       const renderedTypeParameters: string[] = [];
       for (const parameter of functionType.typeParameters ?? []) {
-        const constraint = functionType.typeParameterConstraints?.[parameter];
+        const constraint = functionType.typeParameterConstraints?.get(parameter);
         renderedTypeParameters.push(
           constraint ? `${parameter} extends ${typeToStringInternal(constraint, seen)}` : parameter
         );
@@ -330,13 +336,19 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
     case AnalysisTypeKind.Array:
       result = `${type.isReadonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;
       break;
-    case AnalysisTypeKind.Object:
-      result = Object.keys(type.properties).length === 0
-        ? "object"
-        : `{ ${Object.entries(type.properties)
-          .map(([name, propertyType]) => `${name}: ${typeToStringInternal(propertyType, seen)}`)
-          .join(", ")} }`;
+    case AnalysisTypeKind.Object: {
+      const objectSource = type as ObjectType;
+      if (objectSource.properties.size === 0) {
+        result = "object";
+        break;
+      }
+      const renderedProperties: string[] = [];
+      for (const name of objectSource.properties.keys()) {
+        renderedProperties.push(`${name}: ${typeToStringInternal(objectSource.properties.get(name)!, seen)}`);
+      }
+      result = `{ ${renderedProperties.join(", ")} }`;
       break;
+    }
     case AnalysisTypeKind.Range:
       result = `range<${typeToStringInternal(type.elementType, seen)}>`;
       break;
@@ -484,8 +496,8 @@ function isSameTypeInternal(
   }
 
   if (a.kind === AnalysisTypeKind.Object && b.kind === AnalysisTypeKind.Object) {
-    const aKeys = Object.keys(a.properties).sort();
-    const bKeys = Object.keys(b.properties).sort();
+    const aKeys = [...a.properties.keys()].sort();
+    const bKeys = [...b.properties.keys()].sort();
     if (aKeys.length !== bKeys.length) {
       return false;
     }
@@ -494,8 +506,8 @@ function isSameTypeInternal(
         return false;
       }
       const key = aKeys[i]!;
-      const aProperty = a.properties[key];
-      const bProperty = b.properties[key];
+      const aProperty = a.properties.get(key);
+      const bProperty = b.properties.get(key);
       if (!aProperty || !bProperty || !isSameTypeInternal(aProperty, bProperty, seenPairs)) {
         return false;
       }

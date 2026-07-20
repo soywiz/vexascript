@@ -1427,7 +1427,7 @@ export class Binder {
     }
     return namedType(
       receiverType.name,
-      receiverTypeArguments.map((argument) => this.typeFromAnnotationLoose(argument) ?? UNKNOWN_TYPE)
+      receiverTypeArguments.map((argument): AnalysisType => this.typeFromAnnotationLoose(argument) ?? UNKNOWN_TYPE)
     );
   }
 
@@ -1479,7 +1479,7 @@ export class Binder {
       return tupleType(
         tupleBody.length === 0
           ? []
-          : splitTopLevelDelimitedTypeText(tupleBody).map((part) =>
+          : splitTopLevelDelimitedTypeText(tupleBody).map((part): AnalysisType =>
             this.typeFromTypeNameLoose(tupleElementTypeText(part))
           )
       );
@@ -1489,7 +1489,7 @@ export class Binder {
       ? builtinType(parsed.baseName as BuiltinTypeName)
       : namedType(
       parsed.baseName,
-      parsed.typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
+      parsed.typeArguments.map((typeArgument): AnalysisType => this.typeFromTypeNameLoose(typeArgument))
     );
     for (let i = 0; i < parsed.arrayDepth; i += 1) {
       resolved = arrayType(resolved);

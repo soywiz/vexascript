@@ -73,14 +73,14 @@ function constraintForRecoveredTypeParameter(
     return null;
   }
   if (calleeType.kind === AnalysisTypeKind.Function) {
-    return calleeType.typeParameterConstraints?.[typeParameterName] ?? null;
+    return calleeType.typeParameterConstraints?.get(typeParameterName) ?? null;
   }
   if (calleeType.kind === AnalysisTypeKind.Union) {
     for (const member of calleeType.types) {
       if (member.kind !== AnalysisTypeKind.Function) {
         continue;
       }
-      const constraint = member.typeParameterConstraints?.[typeParameterName];
+      const constraint = member.typeParameterConstraints?.get(typeParameterName);
       if (constraint) {
         return constraint;
       }
