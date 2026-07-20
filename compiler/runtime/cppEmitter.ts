@@ -1492,6 +1492,9 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
   if (builtinCallCppType(expression) === resultType) {
     return emitExpression(expression);
   }
+  if (canStaticallyConvertClassPointer(expression, resultType)) {
+    return `static_cast<${resultType}>(${emitExpression(expression)})`;
+  }
   if (expression.kind === NodeKind.ConditionalExpression) {
     const conditional = expression as ConditionalExpression;
     const branch = (value: Expr): string => emitConvertedValue(value, resultType);
@@ -2895,6 +2898,12 @@ function commonClassPointerType(leftType: string, rightType: string): string | n
   const leftNames = new Set(classHierarchy(leftClass).map((statement) => statement.name.name));
   const commonClass = classHierarchy(rightClass).find((statement) => leftNames.has(statement.name.name));
   return commonClass ? cppTypeForDeclaredName(commonClass.name.name) : null;
+}
+
+function canStaticallyConvertClassPointer(expression: Expr, resultType: string): boolean {
+  if (!resultType.endsWith("*")) return false;
+  const sourceType = emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
+  return commonClassPointerType(sourceType, resultType) === resultType;
 }
 
 function isClassStoredPropertyMember(member: MemberExpression): boolean {

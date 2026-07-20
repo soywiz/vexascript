@@ -220,6 +220,15 @@ development loop.
   106.14 and 107.61 wall-clock seconds, remaining below the two-minute
   limit. Node and both rebuilt hosts emitted byte-identical output with SHA-256
   `438e08c2e151dfcf28fc7fa8b07a1dc579399f6d46a0470215412f5bb986c6c1`.
+  A subsequent nominal-pointer cleanup replaces runtime `convertValue` calls
+  with C++ `static_cast` for proven identity/upcast relationships. It reduced
+  conversion occurrences from 21,298 to 18,924 and the translation unit from
+  7,797,600 to 7,781,209 bytes. The `-O0` build took 22.65 seconds and checked
+  generation took 104.82 seconds, with C++ emission falling to 30.27 seconds.
+  The `-O1` build took 105.50 seconds and generated the same output in 16.85
+  seconds externally. Node, `-O0`, and `-O1` outputs are byte-identical with
+  SHA-256
+  `c4bee9f024535f49056ba6b8fe5a0e5d325e723eedd51240dcce3f867f2ba14c`.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -245,11 +254,14 @@ development loop.
   and native execution and does not add a structural compatibility path.
 * [ ] Progressive fixtures and the full compiler use the same native pipeline.
 * [x] At least two complete native compiler roundtrips remain output-equivalent.
-  On 2026-07-20 the first and second `-O0 -DNDEBUG` native hosts emitted
+  On 2026-07-20 the first and second `-O0 -DNDEBUG` native hosts at the typed
+  analysis checkpoint emitted
   byte-identical 7,797,600-byte translation units in 106.14 and 107.61 seconds.
 * [x] A Node-hosted generation and both native generations are byte-identical,
-  including deterministic string-pool numbering. Their latest shared SHA-256 is
-  `438e08c2e151dfcf28fc7fa8b07a1dc579399f6d46a0470215412f5bb986c6c1`.
+  including deterministic string-pool numbering. After the nominal-pointer
+  cleanup, Node, `-O0`, and `-O1` native hosts emitted the same 7,781,209-byte
+  translation unit. Its shared SHA-256 is
+  `c4bee9f024535f49056ba6b8fe5a0e5d325e723eedd51240dcce3f867f2ba14c`.
 
 ## Tests
 
@@ -259,12 +271,13 @@ development loop.
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
   106.14 and 107.61 wall-clock seconds in the latest default-heap `-O0`
-  checkpoint. The final generated translation unit compiled successfully in
-  22.63 seconds. Native generation remained below two minutes.
+  two-round checkpoint. The generated translation unit compiled successfully
+  in 22.63 seconds. Native generation remained below two minutes.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
-  three latest 7,797,600-byte outputs have SHA-256
-  `438e08c2e151dfcf28fc7fa8b07a1dc579399f6d46a0470215412f5bb986c6c1`
-  and are byte-identical.
+  three outputs at that checkpoint were byte-identical. The subsequent
+  nominal-pointer checkpoint also produced byte-identical Node, `-O0`, and
+  `-O1` output with SHA-256
+  `c4bee9f024535f49056ba6b8fe5a0e5d325e723eedd51240dcce3f867f2ba14c`.
 * [x] Run `pnpm test` (2312 tests passed on 2026-07-20).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 

@@ -230,3 +230,31 @@ Two consecutive native compilers completed checked semantic generations in
 106.14 and 107.61 seconds. Node and both native generations are byte-identical
 with SHA-256
 `438e08c2e151dfcf28fc7fa8b07a1dc579399f6d46a0470215412f5bb986c6c1`.
+
+## Nominal pointer conversions do not need the dynamic conversion template
+
+The next generated unit still contained 1,272 conversions to
+`AnalysisTypeBase*`, plus similar conversions across the AST hierarchy. When
+the source and result C++ types are the same nominal class pointer or the result
+is a known base class, the runtime conversion template adds no safety. The
+emitter now checks the declared generated class hierarchy and emits an explicit
+`static_cast` for only those identity/upcast relationships. Dynamic values,
+interfaces, and downcasts continue through their existing checked paths.
+
+An initial implicit-pointer version failed C++ syntax validation in conditional
+expressions: C++ does not infer a shared base for two sibling pointer operands.
+Using an explicit base cast preserves the template removal and gives the
+conditional a single type. The first native roundtrip then found two generic
+calls where Node already inferred `Node*` while native retained a subclass.
+Allowing nominal pointer identity as well as strict upcasts made the decision
+host-independent; the next Node and native outputs were byte-identical.
+
+This checkpoint reduces `convertValue` occurrences from 21,298 to 18,924 and
+source size from 7,797,600 to 7,781,209 bytes. An `-O0 -DNDEBUG` build took
+22.65 seconds and generated the complete checked compiler in 104.82 seconds,
+including 30.27 seconds in C++ emission. An `-O1 -DNDEBUG` build took 105.50
+seconds and generated the same output in 16.85 seconds externally (12.42 seconds
+inside compiler phases). The optimized build time remains within the previously
+observed noisy band, while the unoptimized generation improved from about
+107.6 seconds. Node, `-O0`, and `-O1` outputs share SHA-256
+`c4bee9f024535f49056ba6b8fe5a0e5d325e723eedd51240dcce3f867f2ba14c`.
