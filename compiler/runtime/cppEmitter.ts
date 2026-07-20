@@ -1425,6 +1425,8 @@ function isGeneratorExpression(expression: Expr): boolean {
 
 function directlyEmittedCppType(expression: Expr): string | null {
   switch (expression.kind) {
+    case NodeKind.MemberExpression:
+      return resolvedNativePropertyMember(expression)?.valueType ?? null;
     case NodeKind.IntLiteral:
       return "std::int32_t";
     case NodeKind.FloatLiteral:
@@ -2430,7 +2432,7 @@ function emitArguments(
   typeSubstitutions?: ReadonlyMap<string, string>
 ): string {
   if (!parameters) {
-    return argumentsList.map(emitExpression).join(", ");
+    return argumentsList.map((argument) => emitExpression(argument)).join(", ");
   }
   const ordered = orderedCallArguments(argumentsList, parameters);
   const restIndex = parameters.findIndex((parameter) => "rest" in parameter && parameter.rest);
@@ -3286,7 +3288,8 @@ function emitExpressionWithExpectedCppType(expression: Expr, expectedCppType: st
 
 function emitPropertyAssignment(
   assignment: AssignmentExpression,
-  property: NativePropertyMember
+  property: NativePropertyMember,
+  resultUsed = true
 ): string {
   if (!property.setterName) {
     throw new CppEmitError(`C++ cannot assign to read-only property '${property.propertyName}'`);
@@ -3311,7 +3314,10 @@ function emitPropertyAssignment(
             assignment.right.kind === NodeKind.FunctionExpression)
         ? emitConvertedValue(assignment.right, "vexa::Value")
         : emitExpression(assignment.right);
-    return `([&]() { ${emitNativePropertyReceiverDeclaration(property, receiver)}${keyDeclaration} auto __vexa_property_value = ${assignedValue}; ${emitNativePropertySet(property, "__vexa_property_receiver", "__vexa_property_value", key)}; return __vexa_property_value; }())`;
+    const body = `${emitNativePropertyReceiverDeclaration(property, receiver)}${keyDeclaration} auto __vexa_property_value = ${assignedValue}; ${emitNativePropertySet(property, "__vexa_property_receiver", "__vexa_property_value", key)};`;
+    return resultUsed
+      ? `([&]() { ${body} return __vexa_property_value; }())`
+      : `{ ${body} }`;
   }
   const binaryOperator = compoundAssignmentBinaryOperator(assignment.operator);
   if (!binaryOperator || !new Set(["+", "-", "*", "/", "%", "<<", ">>", "&", "|", "^"]).has(binaryOperator)) {
@@ -3329,12 +3335,16 @@ function emitPropertyAssignment(
     ? emitDynamicBinaryText(binaryOperator, "__vexa_property_current", "__vexa_property_operand") ??
       `(__vexa_property_current ${binaryOperator} __vexa_property_operand)`
     : `(__vexa_property_current ${binaryOperator} __vexa_property_operand)`;
-  return `([&]() { ${emitNativePropertyReceiverDeclaration(property, receiver)}${keyDeclaration} auto __vexa_property_current = ${emitNativePropertyGet(property, "__vexa_property_receiver", key)}; auto __vexa_property_operand = ${emitExpression(assignment.right)}; auto __vexa_property_value = ${value}; ${emitNativePropertySet(property, "__vexa_property_receiver", "__vexa_property_value", key)}; return __vexa_property_value; }())`;
+  const body = `${emitNativePropertyReceiverDeclaration(property, receiver)}${keyDeclaration} auto __vexa_property_current = ${emitNativePropertyGet(property, "__vexa_property_receiver", key)}; auto __vexa_property_operand = ${emitExpression(assignment.right)}; auto __vexa_property_value = ${value}; ${emitNativePropertySet(property, "__vexa_property_receiver", "__vexa_property_value", key)};`;
+  return resultUsed
+    ? `([&]() { ${body} return __vexa_property_value; }())`
+    : `{ ${body} }`;
 }
 
 function emitPropertyUpdate(
   update: UpdateExpression,
-  property: NativePropertyMember
+  property: NativePropertyMember,
+  resultUsed = true
 ): string {
   if (!property.setterName) {
     throw new CppEmitError(`C++ cannot update read-only property '${property.propertyName}'`);
@@ -3359,7 +3369,10 @@ function emitPropertyUpdate(
     propertyType === "vexa::Value"
     ? emitDynamicBinaryText(delta, "__vexa_property_current", "1") ?? `(__vexa_property_current ${delta} 1)`
     : `(__vexa_property_current ${delta} 1)`;
-  return `([&]() { ${emitNativePropertyReceiverDeclaration(property, receiver)}${keyDeclaration} auto __vexa_property_current = ${emitNativePropertyGet(property, "__vexa_property_receiver", key)}; auto __vexa_property_value = ${updated}; ${emitNativePropertySet(property, "__vexa_property_receiver", "__vexa_property_value", key)}; return ${returned}; }())`;
+  const body = `${emitNativePropertyReceiverDeclaration(property, receiver)}${keyDeclaration} auto __vexa_property_current = ${emitNativePropertyGet(property, "__vexa_property_receiver", key)}; auto __vexa_property_value = ${updated}; ${emitNativePropertySet(property, "__vexa_property_receiver", "__vexa_property_value", key)};`;
+  return resultUsed
+    ? `([&]() { ${body} return ${returned}; }())`
+    : `{ ${body} }`;
 }
 
 function classMethodForMember(
@@ -4324,7 +4337,7 @@ function primitiveRuntimeMethodName(name: string): string | null {
   }
 }
 
-function emitCall(call: CallExpression): string {
+function emitCall(call: CallExpression, resultUsed = true): string {
   const calleeName = identifierName(call.callee);
   if (calleeName === "Promise") return emitPromiseCall(call);
   if (calleeName === "Map" || calleeName === "Set" || calleeName === "WeakMap" || calleeName === "WeakSet") {
@@ -4413,7 +4426,10 @@ function emitCall(call: CallExpression): string {
     const receiver = emitExpression(target);
     const assigned = emitConvertedValue(value, "vexa::Value");
     const isEnumerable = enumerable ? emitCondition(enumerable) : "false";
-    return `([&]() { auto __vexa_define_receiver = ${receiver}; vexa::defineProperty(${activeRuntimeName}, __vexa_define_receiver, vexa::propertyKey(${emitExpression(key)}), ${assigned}, ${isEnumerable}); return __vexa_define_receiver; }())`;
+    const body = `auto __vexa_define_receiver = ${receiver}; vexa::defineProperty(${activeRuntimeName}, __vexa_define_receiver, vexa::propertyKey(${emitExpression(key)}), ${assigned}, ${isEnumerable});`;
+    return resultUsed
+      ? `([&]() { ${body} return __vexa_define_receiver; }())`
+      : `{ ${body} }`;
   }
   if (member?.objectName === "JSON" && (member.propertyName === "parse" || member.propertyName === "stringify")) {
     const validArgumentCount = member.propertyName === "parse"
@@ -4639,13 +4655,18 @@ function emitCall(call: CallExpression): string {
     if (member.propertyName === "push" && call.args.some((argument) => argument.kind === NodeKind.SpreadExpression)) {
       const elementType = receiverElementType ?? "vexa::Value";
       const packed = emitArrayElements(call.args, elementType);
-      return `([&]() { auto* __vexa_receiver = ${receiver}; auto* __vexa_values = ${packed}; return vexa::pushAll(__vexa_receiver, __vexa_values); }())`;
+      const body = `auto* __vexa_receiver = ${receiver}; auto* __vexa_values = ${packed};`;
+      return resultUsed
+        ? `([&]() { ${body} return vexa::pushAll(__vexa_receiver, __vexa_values); }())`
+        : `{ ${body} vexa::pushAll(__vexa_receiver, __vexa_values); }`;
     }
     if (member.propertyName === "splice" && call.args.slice(2).some((argument) => argument.kind === NodeKind.SpreadExpression)) {
       if (call.args.length < 2) throw new CppEmitError("C++ Array.splice expects a start and delete count before spread items", call);
       const elementType = receiverElementType ?? "vexa::Value";
       const packed = emitArrayElements(call.args.slice(2), elementType);
-      return `([&]() { auto* __vexa_receiver = ${receiver}; auto* __vexa_values = ${packed}; return vexa::spliceAll(${activeRuntimeName}, __vexa_receiver, ${emitExpression(call.args[0]!)}, ${emitExpression(call.args[1]!)}, __vexa_values); }())`;
+      const body = `auto* __vexa_receiver = ${receiver}; auto* __vexa_values = ${packed};`;
+      const splice = `vexa::spliceAll(${activeRuntimeName}, __vexa_receiver, ${emitExpression(call.args[0]!)}, ${emitExpression(call.args[1]!)}, __vexa_values)`;
+      return resultUsed ? `([&]() { ${body} return ${splice}; }())` : `{ ${body} ${splice}; }`;
     }
     const semanticCallType = cppTypeForExpression(call);
     const mappedCallType = activeExpectedExpressionCppType ??
@@ -4684,7 +4705,7 @@ function emitCall(call: CallExpression): string {
         : null;
       let result: string;
       try {
-        result = call.args.map(emitExpression).join(", ");
+        result = call.args.map((argument) => emitExpression(argument)).join(", ");
       } finally {
         activeExpectedExpressionCppType = previous;
         activeExpectedLambdaParameterCppTypes = previousParameters;
@@ -5336,6 +5357,14 @@ function emitParenthesizedCondition(expression: Expr): string {
 }
 
 function emitExpression(expression: Expr): string {
+  return emitExpressionResult(expression, true);
+}
+
+function emitDiscardedExpression(expression: Expr): string {
+  return emitExpressionResult(expression, false);
+}
+
+function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
   switch (expression.kind) {
     case NodeKind.IntLiteral:
     case NodeKind.FloatLiteral:
@@ -5357,7 +5386,7 @@ function emitExpression(expression: Expr): string {
     case NodeKind.ObjectLiteral:
       return emitObjectLiteral(expression as ObjectLiteral);
     case NodeKind.CommaExpression:
-      return `(${(expression as CommaExpression).expressions.map(emitExpression).join(", ")})`;
+      return `(${(expression as CommaExpression).expressions.map((item) => emitExpression(item)).join(", ")})`;
     case NodeKind.RangeExpression: {
       const range = expression as RangeExpression;
       return `vexa::range(${emitExpression(range.start)}, ${emitExpression(range.end)}, ${range.exclusive ? "true" : "false"})`;
@@ -5435,19 +5464,21 @@ function emitExpression(expression: Expr): string {
           const updated = elementType === "vexa::Value"
             ? emitDynamicBinaryText(delta, "__vexa_array_current", "1") ?? `(__vexa_array_current ${delta} 1)`
             : `(__vexa_array_current ${delta} 1)`;
-          return `([&]() { auto* __vexa_array = ${receiver}; auto __vexa_array_index = ${index}; auto __vexa_array_current = vexa::arrayGet(__vexa_array, __vexa_array_index); auto __vexa_array_value = vexa::arraySet(__vexa_array, __vexa_array_index, ${updated}); return ${returned}; }())`;
+          const body = `auto* __vexa_array = ${receiver}; auto __vexa_array_index = ${index}; auto __vexa_array_current = vexa::arrayGet(__vexa_array, __vexa_array_index); auto __vexa_array_value = vexa::arraySet(__vexa_array, __vexa_array_index, ${updated});`;
+          return resultUsed ? `([&]() { ${body} return ${returned}; }())` : `{ ${body} }`;
         }
       }
       const property = resolvedNativePropertyMember(update.argument);
       if (property) {
-        return emitPropertyUpdate(update, property);
+        return emitPropertyUpdate(update, property, resultUsed);
       }
       if (isDynamicValueExpression(update.argument)) {
         const current = emitExpression(update.argument);
         const delta = update.operator === "++" ? "+" : "-";
         const updated = emitDynamicBinaryText(delta, "__vexa_update_current", "1")!;
         const returned = update.prefix ? current : "__vexa_update_current";
-        return `([&]() { auto __vexa_update_current = ${current}; ${current} = ${updated}; return ${returned}; }())`;
+        const body = `auto __vexa_update_current = ${current}; ${current} = ${updated};`;
+        return resultUsed ? `([&]() { ${body} return ${returned}; }())` : `{ ${body} }`;
       }
       const text = `${emitExpression(update.argument)}${update.operator}`;
       return update.prefix ? `${update.operator}${emitExpression(update.argument)}` : text;
@@ -5467,7 +5498,8 @@ function emitExpression(expression: Expr): string {
           }
           const receiver = emitManagedArrayPointer(member.object);
           const size = emitConvertedValue(assignment.right, "double");
-          return `([&]() { auto* __vexa_array = ${receiver}; auto __vexa_array_length = ${size}; __vexa_array->resize(static_cast<std::size_t>(__vexa_array_length)); return __vexa_array_length; }())`;
+          const body = `auto* __vexa_array = ${receiver}; auto __vexa_array_length = ${size}; __vexa_array->resize(static_cast<std::size_t>(__vexa_array_length));`;
+          return resultUsed ? `([&]() { ${body} return __vexa_array_length; }())` : `{ ${body} }`;
         }
         if (member.computed && nativeBinaryObjectKind(member.object) === "uint8") {
           if (assignment.operator !== "=") throw new CppEmitError("C++ Uint8Array compound index assignment is not implemented yet", assignment);
@@ -5487,7 +5519,10 @@ function emitExpression(expression: Expr): string {
           const value = elementType === "vexa::Value"
             ? emitDynamicBinaryText(binaryOperator, current, operand) ?? `(${current} ${binaryOperator} ${operand})`
             : `(${current} ${binaryOperator} ${operand})`;
-          return `([&]() { auto* __vexa_array = ${receiver}; auto __vexa_array_index = ${index}; auto __vexa_array_value = ${value}; return vexa::arraySet(__vexa_array, __vexa_array_index, __vexa_array_value); }())`;
+          const body = `auto* __vexa_array = ${receiver}; auto __vexa_array_index = ${index}; auto __vexa_array_value = ${value};`;
+          return resultUsed
+            ? `([&]() { ${body} return vexa::arraySet(__vexa_array, __vexa_array_index, __vexa_array_value); }())`
+            : `{ ${body} vexa::arraySet(__vexa_array, __vexa_array_index, __vexa_array_value); }`;
         }
         if (usesDynamicClassProperty(member) && !resolvedNativePropertyMember(member)) {
           const receiver = `vexa::rawPointer(${emitExpression(member.object)})`;
@@ -5504,14 +5539,17 @@ function emitExpression(expression: Expr): string {
             const current = `__vexa_receiver->dynamicGet(__vexa_key)`;
             const value = emitDynamicBinaryText(binaryOperator, current, emitExpression(assignment.right));
             if (value) {
-              return `([&]() { auto* __vexa_receiver = ${receiver}; auto __vexa_key = ${key}; return __vexa_receiver->dynamicSet(__vexa_key, ${value}); }())`;
+              const body = `auto* __vexa_receiver = ${receiver}; auto __vexa_key = ${key};`;
+              return resultUsed
+                ? `([&]() { ${body} return __vexa_receiver->dynamicSet(__vexa_key, ${value}); }())`
+                : `{ ${body} __vexa_receiver->dynamicSet(__vexa_key, ${value}); }`;
             }
           }
         }
       }
       const property = resolvedNativePropertyMember(assignment.left);
       if (property) {
-        return emitPropertyAssignment(assignment, property);
+        return emitPropertyAssignment(assignment, property, resultUsed);
       }
       const compoundOperator = compoundAssignmentBinaryOperator(assignment.operator);
       if (overloaded?.operator === compoundOperator) {
@@ -5572,7 +5610,8 @@ function emitExpression(expression: Expr): string {
           const pointee = activeGlobalGcRootTypes.get(sourceName);
           if (pointee && !activeLocalNames.has(sourceName)) {
             const target = emitExpression(assignment.left);
-            return `([&]() { auto* __vexa_value = ${value}; ${target} = __vexa_value; ${cppName(sourceName)}__vexa_root = cppgc::Persistent<${pointee}>(${target}); return ${target}; }())`;
+            const body = `auto* __vexa_value = ${value}; ${target} = __vexa_value; ${cppName(sourceName)}__vexa_root = cppgc::Persistent<${pointee}>(${target});`;
+            return resultUsed ? `([&]() { ${body} return ${target}; }())` : `{ ${body} }`;
           }
         }
         return `(${emitExpression(assignment.left)} = ${value})`;
@@ -5587,7 +5626,8 @@ function emitExpression(expression: Expr): string {
           const pointee = activeGlobalGcRootTypes.get(sourceName);
           if (pointee && !activeLocalNames.has(sourceName)) {
             const target = emitExpression(assignment.left);
-            return `([&]() { auto* __vexa_value = vexa::nullishAssign(${target}, [&]() { return ${fallback}; }); ${cppName(sourceName)}__vexa_root = cppgc::Persistent<${pointee}>(${target}); return __vexa_value; }())`;
+            const body = `auto* __vexa_value = vexa::nullishAssign(${target}, [&]() { return ${fallback}; }); ${cppName(sourceName)}__vexa_root = cppgc::Persistent<${pointee}>(${target});`;
+            return resultUsed ? `([&]() { ${body} return __vexa_value; }())` : `{ ${body} }`;
           }
         }
         return `vexa::nullishAssign(${emitExpression(assignment.left)}, [&]() { return ${fallback}; })`;
@@ -5619,7 +5659,7 @@ function emitExpression(expression: Expr): string {
       return `(${emitCondition(conditional.test)} ? ${branch(conditional.consequent)} : ${branch(conditional.alternate)})`;
     }
     case NodeKind.CallExpression:
-      return maybeAutoAwait(expression, emitCall(expression as CallExpression));
+      return maybeAutoAwait(expression, emitCall(expression as CallExpression, resultUsed));
     case NodeKind.NewExpression: {
       const construction = expression as NewExpression;
       const collectionName = identifierName(construction.callee);
@@ -5665,7 +5705,7 @@ function emitExpression(expression: Expr): string {
       if (collectionName === "DataView") {
         const args = construction.args ?? [];
         if (args.length < 1 || args.length > 3) throw new CppEmitError("C++ DataView construction expects a buffer and optional offset/length", construction);
-        return `vexa::makeDataView(${activeRuntimeName}, ${args.map(emitExpression).join(", ")})`;
+        return `vexa::makeDataView(${activeRuntimeName}, ${args.map((argument) => emitExpression(argument)).join(", ")})`;
       }
       if (collectionName === "Array") {
         const args = construction.args ?? [];
@@ -8410,7 +8450,7 @@ function emitStatement(statement: Statement, indent = ""): string {
           `${indent}}`,
         ].join("\n");
       }
-      return `${indent}${emitExpression(expression)};`;
+      return `${indent}${emitDiscardedExpression(expression)};`;
     }
     case NodeKind.VarStatement:
       return `${indent}${emitVariable(statement as VarStatement)};`;

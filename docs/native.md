@@ -126,6 +126,13 @@ collect the array even when it participates in a cycle. Primitive and owned
 as literals, `slice`, `concat`, `map`, `filter`, `split`, `Object.keys`, and
 `Promise.all` allocate a new managed backing object, while mutating operations
 retain the original identity.
+
+Oilpan uses its normal adaptive heap-growth policy by default. Long-running,
+allocation-heavy native tools can set `VEXA_NATIVE_INITIAL_HEAP_MB` to delay the
+first automatic collection until the heap reaches that many megabytes. This is
+a retention-versus-throughput control rather than an eager reservation: for
+example, the self-hosted compiler runs measurably faster with a larger initial
+heap, while ordinary applications should normally keep the default.
 Generated objects stored in another generated object's primary-constructor or
 ordinary instance fields use `cppgc::Member<T>` and are visited by the owner's
 generated `Trace` method. Field initializers that allocate managed strings or

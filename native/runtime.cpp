@@ -2266,6 +2266,13 @@ class Runtime final {
     options.sweeping_support = cppgc::Heap::SweepingType::kAtomic;
     options.stack_support = cppgc::Heap::StackSupport::kSupportsConservativeStackScan;
     options.stack_start_marker.emplace();
+    if (const char* initialHeapMegabytes = std::getenv("VEXA_NATIVE_INITIAL_HEAP_MB")) {
+      const auto parsed = std::strtoull(initialHeapMegabytes, nullptr, 10);
+      if (parsed > 0 && parsed <= std::numeric_limits<std::size_t>::max() / (1024 * 1024)) {
+        options.resource_constraints.initial_heap_size_bytes =
+            static_cast<std::size_t>(parsed) * 1024 * 1024;
+      }
+    }
     heap_ = cppgc::Heap::Create(platform_, std::move(options));
   }
 
