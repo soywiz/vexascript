@@ -41,16 +41,16 @@ describe("type-name text structure", () => {
     expect(splitTopLevelTypeText("string | int", "|")).toEqual(["string", "int"]);
 
     const shape = parseTypeNameShape("Map<string, int>[]");
-    shape.typeArguments.push("boolean");
-    expect(parseTypeNameShape("Map<string, int>[]")).toEqual({
+    expect(parseTypeNameShape("Map<string, int>[]")).toBe(shape);
+    expect(shape).toEqual({
       baseName: "Map",
       typeArguments: ["string", "int"],
       arrayDepth: 1,
     });
 
     const conditional = parseConditionalTypeText("T extends string ? number : boolean")!;
-    conditional.trueTypeText = "mutated";
-    expect(parseConditionalTypeText("T extends string ? number : boolean")?.trueTypeText).toBe("number");
+    expect(parseConditionalTypeText("T extends string ? number : boolean")).toBe(conditional);
+    expect(conditional.trueTypeText).toBe("number");
   });
 
   it("finds top-level characters and matching delimiters while ignoring quoted text", () => {

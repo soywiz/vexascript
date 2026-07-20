@@ -1,7 +1,9 @@
-export interface TypeNameShape {
-  baseName: string;
-  typeArguments: string[];
-  arrayDepth: number;
+export class TypeNameShape {
+  constructor(
+    public readonly baseName: string,
+    public readonly typeArguments: readonly string[],
+    public readonly arrayDepth: number
+  ) {}
 }
 
 export interface OptionalTypeNameSuffix {
@@ -19,11 +21,13 @@ export interface TemplateLiteralTypeSegment {
   value: string;
 }
 
-export interface ConditionalTypeText {
-  checkTypeText: string;
-  extendsTypeText: string;
-  trueTypeText: string;
-  falseTypeText: string;
+export class ConditionalTypeText {
+  constructor(
+    public readonly checkTypeText: string,
+    public readonly extendsTypeText: string,
+    public readonly trueTypeText: string,
+    public readonly falseTypeText: string
+  ) {}
 }
 
 export interface ReadonlyContainerTypeText {
@@ -66,14 +70,39 @@ interface FunctionTypeParameterText {
 }
 
 const TYPE_TEXT_CACHE_LIMIT = 8192;
-const topLevelTypePartsCache = new Map<string, any>();
-const typeNameShapeCache = new Map<string, any>();
-const conditionalTypeTextCache = new Map<string, any>();
+const topLevelTypePartsCache = new Map<string, string[]>();
+const typeNameShapeCache = new Map<string, TypeNameShape>();
+const conditionalTypeTextCache = new Map<string, ConditionalTypeText>();
+const conditionalTypeTextMissCache = new Set<string>();
 
-function cacheTypeTextResult(cache: Map<string, any>, key: string, value: any): any {
-  if (cache.size >= TYPE_TEXT_CACHE_LIMIT) cache.clear();
-  cache.set(key, value);
+function isTypeTextCacheFull(size: number): boolean {
+  return size >= TYPE_TEXT_CACHE_LIMIT;
+}
+
+function cacheTypeNameShape(key: string, value: TypeNameShape): TypeNameShape {
+  if (isTypeTextCacheFull(typeNameShapeCache.size)) typeNameShapeCache.clear();
+  typeNameShapeCache.set(key, value);
   return value;
+}
+
+function cacheTopLevelTypeParts(key: string, value: string[]): string[] {
+  if (isTypeTextCacheFull(topLevelTypePartsCache.size)) topLevelTypePartsCache.clear();
+  topLevelTypePartsCache.set(key, value);
+  return value;
+}
+
+function cacheConditionalTypeText(
+  key: string,
+  value: ConditionalTypeText
+): ConditionalTypeText {
+  if (isTypeTextCacheFull(conditionalTypeTextCache.size)) conditionalTypeTextCache.clear();
+  conditionalTypeTextCache.set(key, value);
+  return value;
+}
+
+function cacheMissingConditionalTypeText(key: string): void {
+  if (isTypeTextCacheFull(conditionalTypeTextMissCache.size)) conditionalTypeTextMissCache.clear();
+  conditionalTypeTextMissCache.add(key);
 }
 
 function scanTypeText(
@@ -223,7 +252,7 @@ export function splitOptionalTypeSuffix(typeName: string): OptionalTypeNameSuffi
 
 export function parseTypeNameShape(typeName: string): TypeNameShape {
   const cached = typeNameShapeCache.get(typeName);
-  if (cached) return { ...cached, typeArguments: [...cached.typeArguments] };
+  if (cached) return cached;
   let remaining = typeName.trim();
   let arrayDepth = 0;
   while (remaining.endsWith("[]")) {
@@ -233,20 +262,15 @@ export function parseTypeNameShape(typeName: string): TypeNameShape {
 
   const genericStart = remaining.indexOf("<");
   if (genericStart < 0 || !remaining.endsWith(">")) {
-    const result = { baseName: remaining, typeArguments: [], arrayDepth };
-    cacheTypeTextResult(typeNameShapeCache, typeName, result);
-    return { ...result, typeArguments: [] };
+    return cacheTypeNameShape(typeName, new TypeNameShape(remaining, [], arrayDepth));
   }
 
   const baseName = remaining.slice(0, genericStart).trim();
   const argumentBody = remaining.slice(genericStart + 1, -1).trim();
-  const result = {
-    baseName,
-    typeArguments: splitTypeArgumentText(argumentBody),
-    arrayDepth
-  };
-  cacheTypeTextResult(typeNameShapeCache, typeName, result);
-  return { ...result, typeArguments: [...result.typeArguments] };
+  return cacheTypeNameShape(
+    typeName,
+    new TypeNameShape(baseName, splitTypeArgumentText(argumentBody), arrayDepth)
+  );
 }
 
 export function baseTypeName(typeName: string): string {
@@ -391,8 +415,10 @@ export function splitTopLevelTypeText(typeName: string, separator: "|" | "&" | "
   const key = `${separator}:${typeName}`;
   const cached = topLevelTypePartsCache.get(key);
   if (cached) return [...cached];
-  const result = splitTopLevelDelimitedTypeText(typeName, new Set([separator]));
-  cacheTypeTextResult(topLevelTypePartsCache, key, result);
+  const result = cacheTopLevelTypeParts(
+    key,
+    splitTopLevelDelimitedTypeText(typeName, new Set([separator]))
+  );
   return [...result];
 }
 
@@ -476,19 +502,18 @@ export function parseTemplateLiteralTypeText(typeName: string): TemplateLiteralT
 }
 
 export function parseConditionalTypeText(typeName: string): ConditionalTypeText | null {
-  if (conditionalTypeTextCache.has(typeName)) {
-    const cached = conditionalTypeTextCache.get(typeName);
-    return cached ? { ...cached } : null;
-  }
+  const cached = conditionalTypeTextCache.get(typeName);
+  if (cached) return cached;
+  if (conditionalTypeTextMissCache.has(typeName)) return null;
   const trimmed = typeName.trim();
   const questionIndex = findTopLevelTypeCharacter(trimmed, "?");
   if (questionIndex < 0) {
-    cacheTypeTextResult(conditionalTypeTextCache, typeName, null);
+    cacheMissingConditionalTypeText(typeName);
     return null;
   }
   const falseBranchSeparator = findTopLevelTypeCharacter(trimmed.slice(questionIndex + 1), ":");
   if (falseBranchSeparator < 0) {
-    cacheTypeTextResult(conditionalTypeTextCache, typeName, null);
+    cacheMissingConditionalTypeText(typeName);
     return null;
   }
 
@@ -497,25 +522,23 @@ export function parseConditionalTypeText(typeName: string): ConditionalTypeText 
   const falseTypeText = trimmed.slice(questionIndex + 1 + falseBranchSeparator + 1).trim();
   const extendsIndex = findTopLevelExtendsKeyword(conditionText);
   if (extendsIndex < 0) {
-    cacheTypeTextResult(conditionalTypeTextCache, typeName, null);
+    cacheMissingConditionalTypeText(typeName);
     return null;
   }
 
   const checkTypeText = conditionText.slice(0, extendsIndex).trim();
   const extendsTypeText = conditionText.slice(extendsIndex + "extends".length).trim();
   if (!checkTypeText || !extendsTypeText || !trueTypeText || !falseTypeText) {
-    cacheTypeTextResult(conditionalTypeTextCache, typeName, null);
+    cacheMissingConditionalTypeText(typeName);
     return null;
   }
 
-  const result = {
+  return cacheConditionalTypeText(typeName, new ConditionalTypeText(
     checkTypeText,
     extendsTypeText,
     trueTypeText,
     falseTypeText
-  };
-  cacheTypeTextResult(conditionalTypeTextCache, typeName, result);
-  return { ...result };
+  ));
 }
 
 export function parseReadonlyContainerTypeText(typeName: string): ReadonlyContainerTypeText | null {

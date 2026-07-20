@@ -371,3 +371,30 @@ The final two `-O1` native hosts compiled in 104.00 and 102.56 seconds and
 generated checked C++ in 18.88 and 18.81 seconds. Node and both native hosts
 emitted the same 7,904,273-byte translation unit with SHA-256
 `a1e03b4e923ddc7a180d8f0a1b3e6af0b4234c30485c121da8168d2043267d17`.
+
+## Stable nominal cache values remove hidden record cloning
+
+Sampling the next run showed `parseTypeNameShape` allocating a fresh managed
+record even on cache hits. The cache stored structural values and deliberately
+returned object-spread copies, including a copied type-argument array. Parsed
+type-name and conditional-type results are now immutable nominal classes, so a
+cache hit returns the same typed pointer. Separate typed cache helpers avoid
+forcing unrelated map value types through `any`; negative conditional parses
+use a dedicated string set because nullable class values still expose an
+unsupported null-to-pointer lowering in generated C++.
+
+The first native execution failed before analysis with `Object spread requires
+an enumerable object`. LLDB localized the throw to project compiler-options
+merging. The runtime already had record-spread overloads for both records and
+dynamic class objects, but its `Value` overload delegated only records. It now
+also delegates boxed dynamic objects. The unified native language smoke covers
+spreading a class after it has flowed through `any`/`object`, preventing this
+representation-dependent regression.
+
+The two rebuilt `-O1` native hosts generated checked C++ in 19.02 and 18.97
+seconds. The flat result relative to 18.88 and 18.81 seconds shows that the
+removed cache allocation is not presently a dominant end-to-end cost. The
+builds took 134.78 and 110.40 seconds, again demonstrating optimizer-time
+variance. Node and both native hosts emitted byte-identical 7,898,962-byte
+translation units with SHA-256
+`3e26aa001fb18b0749d78847fadb1584ef9e7d6f6d0a676f488e805cc5535a5e`.

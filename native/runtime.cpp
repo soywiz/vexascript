@@ -3351,6 +3351,7 @@ inline RecordObject* recordSpread(RecordObject* target, const cppgc::Member<T>& 
 inline RecordObject* recordSpread(RecordObject* target, const Value& source) {
   if (source.isNull() || source.isUndefined()) return target;
   if (source.isRecord()) return recordSpread(target, source.record());
+  if (source.isDynamicObject()) return recordSpread(target, source.dynamicObject());
   throw std::runtime_error("Object spread requires an enumerable object");
 }
 

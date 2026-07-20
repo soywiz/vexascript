@@ -406,9 +406,11 @@ val enumerableDynamicChild = DynamicFieldChild()
 var enumerableDynamicKeys = ""
 for (val dynamicKey in enumerableDynamicChild) enumerableDynamicKeys += dynamicKey + "|"
 val spreadDynamicChild = { ...enumerableDynamicChild }
+val boxedDynamicChild: any = enumerableDynamicChild
+val spreadBoxedDynamicChild = { ...(boxedDynamicChild as object) }
 var reverseDynamicTotal = 0
 for (var reverseIndex = [2, 3, 4].length - 1; reverseIndex >= 0; reverseIndex -= 1) reverseDynamicTotal += reverseIndex
-console.log("dynamic class enumeration", enumerableDynamicKeys, spreadDynamicChild.childOnly, defaultFromReceiver(enumerableDynamicChild), reverseDynamicTotal)
+console.log("dynamic class enumeration", enumerableDynamicKeys, spreadDynamicChild.childOnly, (spreadBoxedDynamicChild as any).childOnly, defaultFromReceiver(enumerableDynamicChild), reverseDynamicTotal)
 val openDynamicChild: any = enumerableDynamicChild
 openDynamicChild.extra = 29
 openDynamicChild.callback = (value: int) => value + 30

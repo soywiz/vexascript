@@ -12722,7 +12722,7 @@ export class TypeChecker {
     return this.typeFromTypeNameLoose(this.substituteTypeParametersInComputedName(typeName, substitutions));
   }
 
-  private resolveSpecialNamedTypeLoose(baseName: string, typeArguments: string[]): AnalysisType | null {
+  private resolveSpecialNamedTypeLoose(baseName: string, typeArguments: readonly string[]): AnalysisType | null {
     if (baseName === "ReactNode" || baseName === "React.ReactNode") {
       return unionType([
         namedType("JSX.Element"),

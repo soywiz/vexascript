@@ -142,7 +142,13 @@ development loop.
   the hot function return `vexa::Text` instead of `vexa::Value`. The two next
   complete native runs took 18.88 and 18.81 seconds, while their `-O1` builds
   took 104.00 and 102.56 seconds. This removes per-hit `StringObject` boxing
-  and improves both generated-code execution and C++ optimization time.
+  and improves both generated-code execution and C++ optimization time. The
+  next nominalization made parsed type-name and conditional-type cache entries
+  stable class instances instead of cloning structural records on every hit.
+  The two checked native generations took 19.02 and 18.97 seconds, so the
+  allocation reduction did not materially improve the complete runtime. Their
+  `-O1` builds took 134.78 and 110.40 seconds, confirming that optimized C++
+  build time still has substantial run-to-run variance.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -181,13 +187,13 @@ development loop.
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
-  20.50 and 20.52 profiled seconds in the latest checkpoint, and both generated
-  translation units compiled successfully at `-O1` in 117.66 and 110.52
-  seconds.
+  19.02 and 18.97 profiled seconds in the latest checkpoint, and both generated
+  translation units compiled successfully at `-O1` in 134.78 and 110.40
+  seconds. Native execution remained comfortably below two minutes.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `a1e03b4e923ddc7a180d8f0a1b3e6af0b4234c30485c121da8168d2043267d17`.
-  All three 7,904,273-byte outputs were byte-identical.
+  `3e26aa001fb18b0749d78847fadb1584ef9e7d6f6d0a676f488e805cc5535a5e`.
+  All three 7,898,962-byte outputs were byte-identical.
 * [x] Run `pnpm test` (2308 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 
