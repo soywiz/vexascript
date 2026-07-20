@@ -2284,7 +2284,7 @@ class Runtime final {
     while (!scheduledTimers_.empty()) scheduledTimers_.pop();
     microtasks_.clear();
     ioPollers_.clear();
-    literalStrings_.clear();
+    literalValues_.clear();
     heap_.reset();
     cppgc::ShutdownProcess();
     currentRuntime_ = previousRuntime_;
@@ -2312,14 +2312,13 @@ class Runtime final {
         heap_->GetAllocationHandle(), left, right));
   }
 
-  StringObject* retainLiteral(std::string value) {
-    auto* object = cppgc::MakeGarbageCollected<StringObject>(
-        heap_->GetAllocationHandle(), std::move(value));
-    literalStrings_.emplace_back(object);
-    return object;
+  Value* retainLiteralValue(std::string value) {
+    literalValues_.emplace_back(cppgc::MakeGarbageCollected<StringObject>(
+        heap_->GetAllocationHandle(), std::move(value)));
+    return &literalValues_.back();
   }
 
-  void reserveLiterals(std::size_t count) { literalStrings_.reserve(count); }
+  void reserveLiterals(std::size_t) {}
 
   RecordObject* record(
       std::initializer_list<std::pair<PropertyKey, Value>> properties = {}) {
@@ -2495,7 +2494,7 @@ class Runtime final {
   TimerId nextTimerId_ = 1;
   std::deque<TimerCallback> microtasks_;
   std::vector<IoPoller> ioPollers_;
-  std::vector<cppgc::Persistent<StringObject>> literalStrings_;
+  std::deque<Value> literalValues_;
   std::unordered_map<TimerId, TimerState> timers_;
   std::priority_queue<ScheduledTimer, std::vector<ScheduledTimer>, EarlierTimer> scheduledTimers_;
 };

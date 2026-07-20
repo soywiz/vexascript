@@ -111,3 +111,41 @@ The two native generations took 16.40 and 16.42 wall-clock seconds externally
 seconds. The emitted program therefore remains deterministic and operational
 through two full native self-host generations; build throughput, rather than
 roundtrip correctness, remains the dominant iteration cost.
+
+## Box pooled string values once
+
+Sampling a large-heap run still showed `Value(StringObject*)` and Oilpan
+persistent-root registration in the hot path even though literal
+`StringObject` instances were already pooled. Generated expressions rebuilt a
+boxed `Value` around the retained raw pointer on every literal use. The runtime
+now owns one boxed literal value in a stable deque, and generated static slots
+refer to that value. Runtime shutdown clears the boxed values before destroying
+the Oilpan heap, so this does not rely on leaked process-global roots.
+
+On the self-host translation unit, the change removed all 2,427 generated
+`vexa::Value(__vexa_literal_...)` constructions and reduced source size from
+7,912,467 to 7,859,722 bytes. Two latest interleaved 4096 MB comparisons took
+8.70 and 8.67 seconds for the previous host versus 8.36 and 8.37 seconds for
+the boxed-literal host. At 256 MB, previous runs took 12.66 and 12.64 seconds
+versus 12.51 and 12.52 seconds after the change. The pure `-O1` build took
+109.09 seconds, which is not distinguishable from the existing C++ build-time
+variance. Node and all benchmarked native runs emitted byte-identical output
+with SHA-256
+`c6541189e30188b675354bce3b143ad766f3847a4bd44aa14e520a21fed6e1f5`.
+
+The pure Node output and two consecutive rebuilt native hosts also produced
+that exact hash. Their `-O1` builds took 109.09 and 107.54 seconds; representative
+native generations took 8.46 and 9.05 seconds with the 4096 MB profiling heap.
+This separately verifies the runtime-owned boxed-literal lifetime through a
+complete rebuild and process shutdown, beyond the focused native smoke.
+
+An adjacent common-base-pointer experiment mapped the `AnalysisType` nominal
+union to `AnalysisTypeBase*`. It reduced dynamic gets from 1,397 to 326 and
+removed 688 conversions, but exposed 61 `Record<string, AnalysisType>`
+boundaries that still store record values as dynamic `Value`. Keeping the base
+pointer at that point required unsafe implicit casts or dozens of source-side
+casts, so the experiment was reverted. The durable next step is a typed record
+representation (or migrating those compiler records to typed maps/classes),
+then re-enabling the already validated common-base union rule. Contextual array
+and destructuring changes that did not improve the stable output were also
+removed rather than retained as speculative scaffolding.

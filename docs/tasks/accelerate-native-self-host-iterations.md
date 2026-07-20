@@ -198,6 +198,14 @@ development loop.
   in 111.77 and 112.73 seconds. These timings remain within the noisy recent
   band rather than establishing a new best, but the sampled UTF-8 record-key
   path and its UTF-16-to-UTF-8-to-UTF-16 computed-key roundtrip are gone.
+  The 2026-07-20 boxed-string-pool checkpoint stores one retained `Value` per
+  literal and reuses it by reference instead of reconstructing
+  `Value(StringObject*)` at every use. This removed 2,427 wrapper constructions
+  and 52,745 bytes from the self-host translation unit. In the latest paired
+  4096 MB runs, native generation improved from 8.70/8.67 seconds to 8.36/8.37
+  seconds; at 256 MB it improved from a 12.65-second baseline to 12.51/12.52
+  seconds. The pure variant compiled at `-O1` in 109.09 seconds, within the
+  existing noisy build-time band.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -236,14 +244,14 @@ development loop.
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
-  16.40 and 16.42 wall-clock seconds in the numeric-analysis-kind checkpoint
-  (8.78 and 9.14 CPU seconds with a 4096 MB initial heap), and the two generated
-  translation units compiled successfully at `-O1` in 115.48 and 122.94
-  seconds. Native generation remained comfortably below two minutes.
+  8.46 and 9.05 wall-clock seconds in the boxed-string-pool checkpoint with a
+  4096 MB initial heap, and the two generated translation units compiled
+  successfully at `-O1` in 109.09 and 107.54 seconds. Native generation
+  remained comfortably below two minutes.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `3c2ea8562a13c55187e5d7562abe75a6e9a1d976334e38274920382ed7d36c01`.
-  All three 7,912,467-byte outputs were byte-identical.
+  `c6541189e30188b675354bce3b143ad766f3847a4bd44aa14e520a21fed6e1f5`.
+  All three 7,859,722-byte outputs were byte-identical.
 * [x] Run `pnpm test` (2312 tests passed on 2026-07-20).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 

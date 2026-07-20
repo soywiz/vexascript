@@ -472,7 +472,7 @@ function cppText(value: string): string {
 function pooledStringLiteral(value: string): string {
   const name = activeStringLiteralNames.get(value);
   if (!name) throw new CppEmitError(`Missing pooled C++ string literal '${value}'`);
-  return `vexa::Value(${name})`;
+  return `*${name}`;
 }
 
 function emitStringKeyDispatch(
@@ -8918,9 +8918,9 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   const stringLiteralDeclarations: string[] = [];
   const stringLiteralInitializers: string[] = [];
   for (const [value, name] of activeStringLiteralNames) {
-    stringLiteralDeclarations.push(`static vexa::StringObject* ${name} = nullptr;`);
+    stringLiteralDeclarations.push(`static vexa::Value* ${name} = nullptr;`);
     const literal = cppString(value);
-    stringLiteralInitializers.push(`  ${name} = runtime.retainLiteral(std::string(${literal}, sizeof(${literal}) - 1));`);
+    stringLiteralInitializers.push(`  ${name} = runtime.retainLiteralValue(std::string(${literal}, sizeof(${literal}) - 1));`);
   }
 
   const forwardInterfaces: string[] = [];
