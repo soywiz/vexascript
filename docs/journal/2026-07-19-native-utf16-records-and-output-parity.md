@@ -398,3 +398,25 @@ builds took 134.78 and 110.40 seconds, again demonstrating optimizer-time
 variance. Node and both native hosts emitted byte-identical 7,898,962-byte
 translation units with SHA-256
 `3e26aa001fb18b0749d78847fadb1584ef9e7d6f6d0a676f488e805cc5535a5e`.
+
+## Context callbacks obscured the hottest class-analysis path
+
+A 15-second sample of the rebuilt host attributed 3,954 of 11,177 active
+samples to checking methods of the compiler's `TypeChecker` class. Every method
+body sat below four nested callback guards for generator, sync, async-like, and
+type-parameter state. Those guards preserved the right stack discipline, but
+native lowering turned each level into a captured `std::function` and made the
+generated method difficult for both a reader and the C++ optimizer.
+
+Function and class-method statement analysis now use shared begin/end context
+operations with one direct `try/finally`. The shared operations remain the
+single source of truth for stack ordering; only the callback allocation and
+nested generated lambdas were removed. Result-producing expression paths keep
+their existing helpers until profiling shows that they matter. Generated C++
+capture warnings fell from 15 to 7, and the translation unit shrank by 1,577
+bytes.
+
+The first and rebuilt `-O1` hosts compiled in 104.22 and 109.16 seconds and
+generated checked C++ in 18.63 and 18.66 seconds. Node and both native hosts
+emitted byte-identical 7,897,385-byte translation units with SHA-256
+`69080e315436126ef199b0247bafd8c8c3f76938d471370dfc9591110860380d`.

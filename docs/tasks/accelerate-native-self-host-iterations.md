@@ -149,6 +149,12 @@ development loop.
   allocation reduction did not materially improve the complete runtime. Their
   `-O1` builds took 134.78 and 110.40 seconds, confirming that optimized C++
   build time still has substantial run-to-run variance.
+  Sampling that checkpoint then showed class-method checking beneath four
+  nested callback context guards. Replacing the hot statement and method paths
+  with shared explicit begin/end context operations reduced generated capture
+  warnings from 15 to 7 and the translation unit by 1,577 bytes. The next two
+  checked native generations took 18.63 and 18.66 seconds; their `-O1` builds
+  took 104.22 and 109.16 seconds.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -192,8 +198,8 @@ development loop.
   seconds. Native execution remained comfortably below two minutes.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `3e26aa001fb18b0749d78847fadb1584ef9e7d6f6d0a676f488e805cc5535a5e`.
-  All three 7,898,962-byte outputs were byte-identical.
+  `69080e315436126ef199b0247bafd8c8c3f76938d471370dfc9591110860380d`.
+  All three 7,897,385-byte outputs were byte-identical.
 * [x] Run `pnpm test` (2308 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 

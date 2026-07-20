@@ -579,15 +579,6 @@ export class TypeChecker {
     return this.generatorFunctionStack[this.generatorFunctionStack.length - 1] === true;
   }
 
-  private withGeneratorFunction(isGenerator: boolean, run: () => void): void {
-    this.generatorFunctionStack.push(isGenerator);
-    try {
-      run();
-    } finally {
-      this.generatorFunctionStack.pop();
-    }
-  }
-
   private withGeneratorFunctionResult<T>(isGenerator: boolean, run: () => T): T {
     this.generatorFunctionStack.push(isGenerator);
     let result: T;
@@ -603,15 +594,6 @@ export class TypeChecker {
   // async-like (declared `async` or `sync`). `await` is permitted in those bodies.
   private isInsideAsyncLikeFunction(): boolean {
     return this.asyncLikeFunctionStack[this.asyncLikeFunctionStack.length - 1] === true;
-  }
-
-  private withAsyncLikeFunction(isAsyncLike: boolean, run: () => void): void {
-    this.asyncLikeFunctionStack.push(isAsyncLike);
-    try {
-      run();
-    } finally {
-      this.asyncLikeFunctionStack.pop();
-    }
   }
 
   private withAsyncLikeFunctionResult<T>(isAsyncLike: boolean, run: () => T): T {
@@ -631,15 +613,6 @@ export class TypeChecker {
     return this.syncFunctionStack[this.syncFunctionStack.length - 1] === true;
   }
 
-  private withSyncFunction(isSync: boolean, run: () => void): void {
-    this.syncFunctionStack.push(isSync);
-    try {
-      run();
-    } finally {
-      this.syncFunctionStack.pop();
-    }
-  }
-
   private withSyncFunctionResult<T>(isSync: boolean, run: () => T): T {
     this.syncFunctionStack.push(isSync);
     let result: T;
@@ -656,6 +629,26 @@ export class TypeChecker {
   // means an enclosing function exists.
   private isInsideFunction(): boolean {
     return this.syncFunctionStack.length > 0;
+  }
+
+  private beginFunctionAnalysisContext(
+    typeParameters: string[],
+    constraints: Record<string, AnalysisType> | undefined,
+    isGenerator: boolean,
+    isSync: boolean,
+    isAsyncLike: boolean
+  ): boolean {
+    this.generatorFunctionStack.push(isGenerator);
+    this.syncFunctionStack.push(isSync);
+    this.asyncLikeFunctionStack.push(isAsyncLike);
+    return this.beginTypeParameterScope(typeParameters, constraints);
+  }
+
+  private endFunctionAnalysisContext(typeParameterScopeWasAdded: boolean): void {
+    if (typeParameterScopeWasAdded) this.endTypeParameterScope();
+    this.asyncLikeFunctionStack.pop();
+    this.syncFunctionStack.pop();
+    this.generatorFunctionStack.pop();
   }
 
   private visitProgram(program: Program, scope: Scope, flow: FlowContext): void {
@@ -1678,10 +1671,16 @@ export class TypeChecker {
         });
       }
     }
-      const asyncLike = isAsyncLike(statement.async, statement.sync);
-    this.withGeneratorFunction(statement.generator === true, () => this.withSyncFunction(statement.sync === true, () => this.withAsyncLikeFunction(asyncLike, () => {
-      const typeParameterNames = typeParameterNameList(statement.typeParameters ?? []);
-      this.withTypeParameters(typeParameterNames, () => {
+    const asyncLike = isAsyncLike(statement.async, statement.sync);
+    const typeParameters = statement.typeParameters ?? [];
+    const contextWasAdded = this.beginFunctionAnalysisContext(
+      typeParameterNameList(typeParameters),
+      this.typeParameterConstraintMap(typeParameters, scope),
+      statement.generator === true,
+      statement.sync === true,
+      asyncLike
+    );
+    try {
         const functionScope = this.scopeFor(statement, scope);
         if (statement.receiverType) {
           this.resolveReceiverTypeAnnotation(statement.receiverType, statement.receiverTypeArguments, functionScope);
@@ -1743,8 +1742,9 @@ export class TypeChecker {
         if (this.validateTypes && statement.missingBody !== true) {
           this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, asyncLike, statement.generator === true);
         }
-      }, this.typeParameterConstraintMap(statement.typeParameters ?? [], scope));
-    })));
+    } finally {
+      this.endFunctionAnalysisContext(contextWasAdded);
+    }
   }
 
   private visitEnumStatement(statement: EnumStatement, scope: Scope): void {
@@ -1827,7 +1827,12 @@ export class TypeChecker {
     this.updateSymbolType(scope, statement.name.name, classType);
 
     const classScope = this.scopeFor(statement, scope);
-    this.withTypeParameters(typeParameterNameList(statement.typeParameters ?? []), () => {
+    const classTypeParameters = statement.typeParameters ?? [];
+    const classTypeParameterScopeWasAdded = this.beginTypeParameterScope(
+      typeParameterNameList(classTypeParameters),
+      this.typeParameterConstraintMap(classTypeParameters, scope)
+    );
+    try {
       if (statement.extendsType) {
         this.resolveTypeAnnotation(statement.extendsType, classScope);
       }
@@ -1936,8 +1941,15 @@ export class TypeChecker {
         }
         const methodTypeParameterNames = typeParameterNameList(method.typeParameters ?? []);
         const methodIsAsyncLike = isAsyncLike(method.async, method.sync);
-        this.withGeneratorFunction(method.generator === true, () => this.withSyncFunction(method.sync === true, () => this.withAsyncLikeFunction(methodIsAsyncLike, () => {
-          this.withTypeParameters(methodTypeParameterNames, () => {
+        const methodTypeParameters = method.typeParameters ?? [];
+        const methodContextWasAdded = this.beginFunctionAnalysisContext(
+          methodTypeParameterNames,
+          this.typeParameterConstraintMap(methodTypeParameters, classScope),
+          method.generator === true,
+          method.sync === true,
+          methodIsAsyncLike
+        );
+        try {
             const declaredMethodReturnType = this.resolveTypeAnnotation(method.returnType, classScope);
             if (methodIsAsyncLike) {
               this.validateAsyncReturnTypeAnnotation(declaredMethodReturnType, method.returnType ?? method.name);
@@ -2014,8 +2026,9 @@ export class TypeChecker {
             if (this.validateTypes && statement.declared !== true && method.missingBody !== true && method.abstract !== true) {
               this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, methodIsAsyncLike, method.generator === true);
             }
-          }, this.typeParameterConstraintMap(method.typeParameters ?? [], classScope));
-        })));
+        } finally {
+          this.endFunctionAnalysisContext(methodContextWasAdded);
+        }
       }
 
       if (this.validateTypes) {
@@ -2025,7 +2038,9 @@ export class TypeChecker {
         this.validateImplementedInterfaces(statement);
         this.validateAbstractMemberImplementations(statement);
       }
-    }, this.typeParameterConstraintMap(statement.typeParameters ?? [], scope));
+    } finally {
+      if (classTypeParameterScopeWasAdded) this.endTypeParameterScope();
+    }
   }
 
   private invalidateNamedTypeMembers(statement: ClassStatement): void {
