@@ -1489,6 +1489,9 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
       ? emitExpressionWithExpectedCppType(expression, resultType)
       : emitExpression(expression);
   }
+  if (resultType === "vexa::Text" && emittedCppTypeForExpression(expression) === resultType) {
+    return emitExpression(expression);
+  }
   if (builtinCallCppType(expression) === resultType) {
     return emitExpression(expression);
   }

@@ -669,6 +669,9 @@ val utf16String: string = "A😀é"
 console.log("utf16 string", utf16String.length, utf16String.charCodeAt(1), utf16String.charCodeAt(2), utf16String[3])
 console.log("utf16 operations", utf16String.substring(1, 3).length, utf16String.slice(1, 3).length, utf16String.indexOf("é"), utf16String.includes("é", 3), utf16String.charAt(1).charCodeAt(0))
 console.log("utf16 search", utf16String.startsWith("😀", 1), utf16String.endsWith("é"), utf16String.lastIndexOf("😀"))
+val dynamicText: any = "  A😀b  "
+console.log("dynamic strings", dynamicText.trim().toUpperCase(), dynamicText.charAt(2), dynamicText.substring(2, 5).length, dynamicText.slice(2, 5).length, dynamicText.repeat(2).length)
+console.log("dynamic string methods", dynamicText.trimStart().trimEnd().toLowerCase(), dynamicText.replace("😀", "!").trim(), String.fromCharCode(55357).charCodeAt(0))
 console.log("math-regex", Math.max(3, 7), Math.round(2.6), /vexa/i.test("VEXA"))
 
 val huge: bigint = 123456789012345678901234567890n

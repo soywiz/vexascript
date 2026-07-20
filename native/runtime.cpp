@@ -2190,18 +2190,18 @@ inline std::string stringReplace(const std::string& value, const std::string& se
   return result;
 }
 
-inline std::string stringReplace(const Value& value, const Value& search, const Value& replacement) {
-  const auto source = toString(value);
-  const auto searchText = toString(search);
-  const auto offset = source.find(searchText);
-  if (offset == std::string::npos) return source;
-  auto result = source;
-  result.replace(offset, searchText.size(), toString(replacement));
-  return result;
+inline Text stringReplace(const Value& value, const Value& search, const Value& replacement) {
+  const Text source(value);
+  const Text searchText(search);
+  const auto offset = source.utf16().find(searchText.utf16());
+  if (offset == std::u16string::npos) return source;
+  auto result = source.utf16();
+  result.replace(offset, searchText.size(), Text(replacement).utf16());
+  return Text(std::move(result));
 }
 
-inline std::string stringReplace(const Value& value, const RegExp& expression, const Value& replacement) {
-  return expression.replace(toString(value), toString(replacement));
+inline Text stringReplace(const Value& value, const RegExp& expression, const Value& replacement) {
+  return Text(expression.replace(Text(value).utf8(), Text(replacement).utf8()));
 }
 
 inline Text stringReplace(const Text& value, const RegExp& expression, const Text& replacement) {
@@ -3473,6 +3473,14 @@ inline Value dynamicObjectGet(DynamicValueObject* target, const PropertyKey& key
     }
   }
   return value;
+}
+
+inline Value dynamicGet(const Text& target, const PropertyKey& key) {
+  if (key == u"length") return Value(static_cast<double>(target.size()));
+  if (const auto index = propertyIndex(key); index && *index < target.size()) {
+    return currentRuntime().string(target.utf16().substr(*index, 1));
+  }
+  return Value::undefined();
 }
 
 inline Value dynamicGet(const Value& target, const PropertyKey& key) {
@@ -5975,7 +5983,6 @@ inline std::string toUpperCase(std::string value) {
   });
   return value;
 }
-inline std::string toUpperCase(const Value& value) { return toUpperCase(toString(value)); }
 inline Text toUpperCase(Text value) {
   auto codeUnits = value.utf16();
   std::transform(codeUnits.begin(), codeUnits.end(), codeUnits.begin(), [](char16_t character) {
@@ -5985,6 +5992,7 @@ inline Text toUpperCase(Text value) {
   });
   return Text(std::move(codeUnits));
 }
+inline Text toUpperCase(const Value& value) { return toUpperCase(Text(value)); }
 
 inline std::string toLowerCase(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
@@ -5992,7 +6000,6 @@ inline std::string toLowerCase(std::string value) {
   });
   return value;
 }
-inline std::string toLowerCase(const Value& value) { return toLowerCase(toString(value)); }
 inline Text toLowerCase(Text value) {
   auto codeUnits = value.utf16();
   std::transform(codeUnits.begin(), codeUnits.end(), codeUnits.begin(), [](char16_t character) {
@@ -6002,6 +6009,7 @@ inline Text toLowerCase(Text value) {
   });
   return Text(std::move(codeUnits));
 }
+inline Text toLowerCase(const Value& value) { return toLowerCase(Text(value)); }
 
 inline std::string trim(std::string value) {
   const auto isSpace = [](unsigned char character) { return std::isspace(character) != 0; };
@@ -6009,7 +6017,6 @@ inline std::string trim(std::string value) {
   value.erase(std::find_if_not(value.rbegin(), value.rend(), isSpace).base(), value.end());
   return value;
 }
-inline std::string trim(const Value& value) { return trim(toString(value)); }
 inline Text trim(Text value) {
   auto codeUnits = value.utf16();
   const auto isSpace = [](char16_t character) {
@@ -6020,13 +6027,13 @@ inline Text trim(Text value) {
   codeUnits.erase(std::find_if_not(codeUnits.rbegin(), codeUnits.rend(), isSpace).base(), codeUnits.end());
   return Text(std::move(codeUnits));
 }
+inline Text trim(const Value& value) { return trim(Text(value)); }
 
 inline std::string trimStart(std::string value) {
   const auto isSpace = [](unsigned char character) { return std::isspace(character) != 0; };
   value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), isSpace));
   return value;
 }
-inline std::string trimStart(const Value& value) { return trimStart(toString(value)); }
 inline Text trimStart(Text value) {
   auto codeUnits = value.utf16();
   const auto isSpace = [](char16_t character) {
@@ -6036,13 +6043,13 @@ inline Text trimStart(Text value) {
   codeUnits.erase(codeUnits.begin(), std::find_if_not(codeUnits.begin(), codeUnits.end(), isSpace));
   return Text(std::move(codeUnits));
 }
+inline Text trimStart(const Value& value) { return trimStart(Text(value)); }
 
 inline std::string trimEnd(std::string value) {
   const auto isSpace = [](unsigned char character) { return std::isspace(character) != 0; };
   value.erase(std::find_if_not(value.rbegin(), value.rend(), isSpace).base(), value.end());
   return value;
 }
-inline std::string trimEnd(const Value& value) { return trimEnd(toString(value)); }
 inline Text trimEnd(Text value) {
   auto codeUnits = value.utf16();
   const auto isSpace = [](char16_t character) {
@@ -6052,6 +6059,7 @@ inline Text trimEnd(Text value) {
   codeUnits.erase(std::find_if_not(codeUnits.rbegin(), codeUnits.rend(), isSpace).base(), codeUnits.end());
   return Text(std::move(codeUnits));
 }
+inline Text trimEnd(const Value& value) { return trimEnd(Text(value)); }
 
 inline bool stringIncludes(const std::string& value, const std::string& search, double position = 0) {
   const auto valueCodeUnits = utf8ToUtf16(value);
@@ -6174,12 +6182,12 @@ inline std::string charAt(const std::string& value, double index = 0) {
       ? utf16ToUtf8(codeUnits.substr(static_cast<std::size_t>(position), 1))
       : "";
 }
-inline std::string charAt(const Value& value, double index = 0) {
-  if (!value.isString()) return charAt(toString(value), index);
+inline Text charAt(const Value& value, double index = 0) {
+  if (!value.isString()) return charAt(Text(value), index);
   const auto position = static_cast<std::int64_t>(index);
   return position >= 0 && static_cast<std::size_t>(position) < value.utf16().size()
-    ? utf16ToUtf8(value.utf16().substr(static_cast<std::size_t>(position), 1))
-    : "";
+    ? Text(value.utf16().substr(static_cast<std::size_t>(position), 1))
+    : Text();
 }
 
 inline Text charAt(const Text& value, double index = 0) {
@@ -6227,20 +6235,9 @@ inline bool numberIsNaN(const T& value) {
   return std::isnan(Number(value));
 }
 
-inline std::string stringFromCharCode(double value) {
+inline Text stringFromCharCode(double value) {
   const auto codeUnit = static_cast<std::uint32_t>(static_cast<std::uint16_t>(static_cast<std::uint32_t>(value)));
-  std::string result;
-  if (codeUnit <= 0x7f) {
-    result.push_back(static_cast<char>(codeUnit));
-  } else if (codeUnit <= 0x7ff) {
-    result.push_back(static_cast<char>(0xc0 | (codeUnit >> 6U)));
-    result.push_back(static_cast<char>(0x80 | (codeUnit & 0x3f)));
-  } else {
-    result.push_back(static_cast<char>(0xe0 | (codeUnit >> 12U)));
-    result.push_back(static_cast<char>(0x80 | ((codeUnit >> 6U) & 0x3f)));
-    result.push_back(static_cast<char>(0x80 | (codeUnit & 0x3f)));
-  }
-  return result;
+  return Text(std::u16string(1, static_cast<char16_t>(codeUnit)));
 }
 
 inline std::string stringRepeat(const std::string& value, double count) {
@@ -6251,15 +6248,15 @@ inline std::string stringRepeat(const std::string& value, double count) {
   return result;
 }
 
-inline std::string stringRepeat(const Value& value, double count) {
-  return stringRepeat(toString(value), count);
-}
 inline Text stringRepeat(const Text& value, double count) {
   const auto repetitions = std::max<std::int64_t>(0, static_cast<std::int64_t>(count));
   std::u16string result;
   result.reserve(value.size() * static_cast<std::size_t>(repetitions));
   for (std::int64_t index = 0; index < repetitions; ++index) result += value.utf16();
   return Text(std::move(result));
+}
+inline Text stringRepeat(const Value& value, double count) {
+  return stringRepeat(Text(value), count);
 }
 
 inline std::string substring(const std::string& value, double start, double end = std::numeric_limits<double>::infinity()) {
@@ -6269,12 +6266,12 @@ inline std::string substring(const std::string& value, double start, double end 
   if (first > last) std::swap(first, last);
   return utf16ToUtf8(codeUnits.substr(first, last - first));
 }
-inline std::string substring(const Value& value, double start, double end = std::numeric_limits<double>::infinity()) {
-  if (!value.isString()) return substring(toString(value), start, end);
+inline Text substring(const Value& value, double start, double end = std::numeric_limits<double>::infinity()) {
+  if (!value.isString()) return substring(Text(value), start, end);
   std::size_t first = normalizedSliceIndex(std::max(0.0, start), value.utf16().size());
   std::size_t last = std::isinf(end) ? value.utf16().size() : normalizedSliceIndex(std::max(0.0, end), value.utf16().size());
   if (first > last) std::swap(first, last);
-  return utf16ToUtf8(value.utf16().substr(first, last - first));
+  return Text(value.utf16().substr(first, last - first));
 }
 inline Text substring(const Text& value, double start, double end = std::numeric_limits<double>::infinity()) {
   std::size_t first = normalizedSliceIndex(std::max(0.0, start), value.size());
@@ -6289,11 +6286,11 @@ inline std::string stringSlice(const std::string& value, double start, double en
   const std::size_t last = std::isinf(end) ? codeUnits.size() : normalizedSliceIndex(end, codeUnits.size());
   return last <= first ? "" : utf16ToUtf8(codeUnits.substr(first, last - first));
 }
-inline std::string stringSlice(const Value& value, double start, double end = std::numeric_limits<double>::infinity()) {
-  if (!value.isString()) return stringSlice(toString(value), start, end);
+inline Text stringSlice(const Value& value, double start, double end = std::numeric_limits<double>::infinity()) {
+  if (!value.isString()) return stringSlice(Text(value), start, end);
   const std::size_t first = normalizedSliceIndex(start, value.utf16().size());
   const std::size_t last = std::isinf(end) ? value.utf16().size() : normalizedSliceIndex(end, value.utf16().size());
-  return last <= first ? "" : utf16ToUtf8(value.utf16().substr(first, last - first));
+  return last <= first ? Text() : Text(value.utf16().substr(first, last - first));
 }
 inline Text stringSlice(const Text& value, double start, double end = std::numeric_limits<double>::infinity()) {
   const std::size_t first = normalizedSliceIndex(start, value.size());

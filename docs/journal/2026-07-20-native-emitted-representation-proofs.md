@@ -258,3 +258,32 @@ inside compiler phases). The optimized build time remains within the previously
 observed noisy band, while the unoptimized generation improved from about
 107.6 seconds. Node, `-O0`, and `-O1` outputs share SHA-256
 `c4bee9f024535f49056ba6b8fe5a0e5d325e723eedd51240dcce3f867f2ba14c`.
+
+## Analyzed equality is weaker than emitted representation equality
+
+A tempting follow-up was to omit every conversion whose inferred emitted type
+matched the requested C++ type. It reduced `convertValue` occurrences from
+18,924 to 12,597 and removed about 277 KB, but the complete C++ compile rejected
+it. Narrowed members can be analyzed as `Value` while their final access is a
+typed `Text` field; conversely, null expressions can still emit a boxed
+`Value::null()`. The analysis result alone therefore cannot prove the actual C++
+expression representation.
+
+The safe version only removes `convertValue<Text>` when the emitted expression
+type is explicitly `Text`. That exposed one remaining disagreement: string
+helpers such as `trim(Value)`, `substring(Value)`, and `repeat(Value)` still
+returned legacy UTF-8 `std::string`, even though the emitter correctly modeled
+JavaScript string operations as UTF-16 `Text`. The `Value` overloads now stay in
+`Text` for case conversion, trimming, character access, replacement, repeat,
+substring, and slice; `String.fromCharCode` now constructs its UTF-16 code unit
+directly. `dynamicGet(Text, ...)` supplies code-unit length and indexing after
+those helpers stop returning boxed values.
+
+The unified native smoke exercises these operations through an `any` receiver,
+including a surrogate pair. The final compiler unit has 17,654 conversion
+occurrences and is 7,740,792 bytes. It compiles at `-O0 -DNDEBUG` in 21.38
+seconds. Two native generations during the checkpoint took 98.91 and 100.60
+seconds; the profiled run spent 28.34 seconds in C++ emission, down from 30.27
+seconds. Node and the final rebuilt native host emit byte-identical output with
+SHA-256
+`2c3fc50d15d2259faca60d5781fe08d51aa4193228919f94d801feab1e700393`.

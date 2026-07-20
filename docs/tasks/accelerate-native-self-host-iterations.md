@@ -229,6 +229,15 @@ development loop.
   seconds externally. Node, `-O0`, and `-O1` outputs are byte-identical with
   SHA-256
   `c4bee9f024535f49056ba6b8fe5a0e5d325e723eedd51240dcce3f867f2ba14c`.
+  The following representation-proof checkpoint removes `convertValue<Text>`
+  when the emitted expression is already known to produce `Text`. It also keeps
+  dynamic string method results in UTF-16 `Text`, instead of routing `Value`
+  receivers through legacy UTF-8 overloads. Conversion occurrences fell from
+  18,924 to 17,654 and source size from 7,781,209 to 7,740,792 bytes. The final
+  `-O0` build took 21.38 seconds; native checked generation took 100.60 seconds,
+  with a profiled run spending 28.34 seconds in C++ emission. Node and the
+  rebuilt native host emitted byte-identical output with SHA-256
+  `2c3fc50d15d2259faca60d5781fe08d51aa4193228919f94d801feab1e700393`.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -262,6 +271,9 @@ development loop.
   cleanup, Node, `-O0`, and `-O1` native hosts emitted the same 7,781,209-byte
   translation unit. Its shared SHA-256 is
   `c4bee9f024535f49056ba6b8fe5a0e5d325e723eedd51240dcce3f867f2ba14c`.
+  The subsequent UTF-16 representation checkpoint remains byte-identical
+  between Node and the rebuilt `-O0` native host with SHA-256
+  `2c3fc50d15d2259faca60d5781fe08d51aa4193228919f94d801feab1e700393`.
 
 ## Tests
 
@@ -278,6 +290,8 @@ development loop.
   nominal-pointer checkpoint also produced byte-identical Node, `-O0`, and
   `-O1` output with SHA-256
   `c4bee9f024535f49056ba6b8fe5a0e5d325e723eedd51240dcce3f867f2ba14c`.
+  The next Node/native pair also remained byte-identical after dynamic string
+  methods moved to UTF-16 `Text`.
 * [x] Run `pnpm test` (2312 tests passed on 2026-07-20).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 
