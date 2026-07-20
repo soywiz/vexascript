@@ -98,7 +98,7 @@ export function isAsyncIteratorType(type: AnalysisType): boolean {
  * literal) into its corresponding AnalysisType. Returns null for all other names.
  */
 export function resolveLiteralTypeName(typeName: string): AnalysisType | null {
-  if (/^"(?:[^"\\]|\\.)*"$/.test(typeName) || /^'(?:[^'\\]|\\.)*'$/.test(typeName)) {
+  if (isQuotedLiteralTypeName(typeName)) {
     return literalType("string", typeName.slice(1, -1));
   }
   if (typeName === "true") {
@@ -107,8 +107,53 @@ export function resolveLiteralTypeName(typeName: string): AnalysisType | null {
   if (typeName === "false") {
     return literalType("boolean", false);
   }
-  if (/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(typeName)) {
+  if (isDecimalLiteralTypeName(typeName)) {
     return literalType("number", Number(typeName));
   }
   return null;
+}
+
+function isQuotedLiteralTypeName(typeName: string): boolean {
+  if (typeName.length < 2) return false;
+  const quote = typeName[0];
+  if ((quote !== '"' && quote !== "'") || typeName[typeName.length - 1] !== quote) return false;
+
+  for (let index = 1; index < typeName.length - 1; index += 1) {
+    const character = typeName[index];
+    if (character === "\\") {
+      if (index + 1 >= typeName.length - 1) return false;
+      index += 1;
+    } else if (character === quote) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isDecimalLiteralTypeName(typeName: string): boolean {
+  let index = typeName.startsWith("-") ? 1 : 0;
+  const integerStart = index;
+  while (index < typeName.length && isAsciiDigit(typeName.charCodeAt(index))) index += 1;
+  if (index === integerStart) return false;
+
+  if (typeName[index] === ".") {
+    index += 1;
+    const fractionalStart = index;
+    while (index < typeName.length && isAsciiDigit(typeName.charCodeAt(index))) index += 1;
+    if (index === fractionalStart) return false;
+  }
+
+  if (typeName[index] === "e" || typeName[index] === "E") {
+    index += 1;
+    if (typeName[index] === "+" || typeName[index] === "-") index += 1;
+    const exponentStart = index;
+    while (index < typeName.length && isAsciiDigit(typeName.charCodeAt(index))) index += 1;
+    if (index === exponentStart) return false;
+  }
+
+  return index === typeName.length;
+}
+
+function isAsciiDigit(character: number): boolean {
+  return character >= 48 && character <= 57;
 }

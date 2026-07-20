@@ -326,6 +326,14 @@ describe("parseReadonlyContainerTypeText", () => {
     });
   });
 
+  it("accepts JavaScript whitespace but rejects identifier prefixes", () => {
+    expect(parseReadonlyContainerTypeText("readonly\u00a0string[]")).toEqual({
+      kind: "array",
+      elementTypeText: "string"
+    });
+    expect(parseReadonlyContainerTypeText("readonlyValue[]")).toBeNull();
+  });
+
   it("returns null for non-readonly containers", () => {
     expect(parseReadonlyContainerTypeText("string[]")).toBeNull();
   });

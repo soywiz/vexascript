@@ -543,11 +543,15 @@ export function parseConditionalTypeText(typeName: string): ConditionalTypeText 
 
 export function parseReadonlyContainerTypeText(typeName: string): ReadonlyContainerTypeText | null {
   const trimmed = stripEnclosingTypeParens(typeName.trim());
-  if (!/^readonly(?:\s+|\[)/.test(trimmed)) {
+  if (!trimmed.startsWith("readonly")) {
     return null;
   }
 
-  const inner = trimmed.slice("readonly".length).trim();
+  const suffix = trimmed.slice("readonly".length);
+  const inner = suffix.trim();
+  if (!suffix.startsWith("[") && suffix.length === suffix.trimStart().length) {
+    return null;
+  }
   if (inner.startsWith("[") && inner.endsWith("]")) {
     const tupleBody = inner.slice(1, -1).trim();
     return {

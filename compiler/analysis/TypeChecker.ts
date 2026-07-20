@@ -7792,9 +7792,8 @@ export class TypeChecker {
       return elementType;
     }
 
-    const tupleTypeMatch = /^\[(.*)\]$/.exec(normalizedTypeName);
-    if (tupleTypeMatch) {
-      const tupleBody = tupleTypeMatch[1] ?? "";
+    if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
+      const tupleBody = normalizedTypeName.slice(1, -1);
       const elements: AnalysisType[] = tupleBody.trim().length === 0
         ? []
         : splitTopLevelTypeText(tupleBody, ",").map((part) =>
@@ -8090,7 +8089,10 @@ export class TypeChecker {
   private isDeferredAdvancedTypeName(typeName: string): boolean {
     return (
       typeName.startsWith("infer ") ||
-      /^\{ (?:[+-]?readonly )?\[/.test(typeName) ||
+      typeName.startsWith("{ [") ||
+      typeName.startsWith("{ readonly [") ||
+      typeName.startsWith("{ +readonly [") ||
+      typeName.startsWith("{ -readonly [") ||
       parseConditionalTypeText(typeName) !== null
     );
   }

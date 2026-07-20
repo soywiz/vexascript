@@ -443,3 +443,24 @@ type inference falling from about 10.44 seconds to 7.47–7.50 seconds. Node and
 both native hosts emitted byte-identical 7,895,932-byte translation units with
 SHA-256
 `6f277f403cd0a4d71001f1ab8b250e179a5af19d19535abd99633643d3589d20`.
+
+## Small regular expressions remained expensive in the native hot path
+
+After removing exception-based returns from type rendering, the next native
+sample still recorded 127 top-of-stack samples in `std::basic_regex` matching,
+along with regex allocation and UTF-16-to-UTF-8 conversion. These expressions
+only recognized small lexical shapes: quoted string types, decimal number
+types, readonly containers, tuple delimiters, and mapped-type prefixes.
+
+Characterization tests now cover escaped and unterminated quoted types,
+decimal exponents, incomplete decimals, JavaScript whitespace after
+`readonly`, and identifier-prefix rejection. Direct code-unit scans and exact
+prefix checks replace the regular expressions without introducing a second
+parser or changing the accepted forms.
+
+Node emitted the checked compiler translation unit in 1.911 seconds. The first
+and rebuilt `-O1` native hosts compiled in 98.77 and 98.06 seconds, then emitted
+the same translation unit in 12.93 and 12.94 seconds. Merged type inference
+fell to 5.71 seconds. All three 7,901,140-byte outputs were byte-identical with
+SHA-256
+`1a8647253e574e0d453d9e82fbc844ff0d1dfd1f4ccdf7ebfea76a8a1e4ca411`.

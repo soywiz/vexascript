@@ -161,6 +161,12 @@ development loop.
   next checked native generations to 14.73 and 14.75 seconds. Type inference
   fell from about 10.44 to 7.49 seconds, while the `-O1` builds took 97.87 and
   98.90 seconds.
+  A follow-up sample still attributed 127 top-of-stack samples to regex
+  matching, plus its allocation and UTF conversion overhead. Replacing the
+  literal-type, readonly-container, tuple, and deferred-mapped-type regexes
+  with direct UTF-16 scans and prefix checks reduced the next two checked
+  native generations to 12.93 and 12.94 seconds. Type inference fell to about
+  5.71 seconds; the `-O1` rebuilds took 98.77 and 98.06 seconds.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -199,14 +205,14 @@ development loop.
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
-  19.02 and 18.97 profiled seconds in the latest checkpoint, and both generated
-  translation units compiled successfully at `-O1` in 134.78 and 110.40
+  12.93 and 12.94 profiled seconds in the latest checkpoint, and both generated
+  translation units compiled successfully at `-O1` in 98.77 and 98.06
   seconds. Native execution remained comfortably below two minutes.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `6f277f403cd0a4d71001f1ab8b250e179a5af19d19535abd99633643d3589d20`.
-  All three 7,895,932-byte outputs were byte-identical.
-* [x] Run `pnpm test` (2309 tests passed on 2026-07-19).
+  `1a8647253e574e0d453d9e82fbc844ff0d1dfd1f4ccdf7ebfea76a8a1e4ca411`.
+  All three 7,901,140-byte outputs were byte-identical.
+* [x] Run `pnpm test` (2312 tests passed on 2026-07-20).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 
 ## Related Files

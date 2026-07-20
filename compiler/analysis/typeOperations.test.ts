@@ -231,6 +231,18 @@ describe("resolveLiteralTypeName", () => {
     assert.equal((result as any).value, -3.14);
   });
 
+  it("parses decimal exponents and escaped quotes", () => {
+    assert.equal((resolveLiteralTypeName("1.25e-3") as any).value, 0.00125);
+    assert.equal((resolveLiteralTypeName("-2E+4") as any).value, -20000);
+    assert.equal((resolveLiteralTypeName('"say \\"hello\\""') as any).value, 'say \\"hello\\"');
+  });
+
+  it("rejects incomplete literal spellings", () => {
+    for (const typeName of ['"unterminated', '"trailing\\"', "+1", ".5", "1.", "1e", "1e+"]) {
+      assert.equal(resolveLiteralTypeName(typeName), null, typeName);
+    }
+  });
+
   it("returns null for identifiers", () => {
     assert.equal(resolveLiteralTypeName("string"), null);
     assert.equal(resolveLiteralTypeName("MyType"), null);
