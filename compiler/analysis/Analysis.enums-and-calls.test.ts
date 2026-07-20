@@ -6,6 +6,7 @@ import type { AnalysisSymbol } from "./Analysis";
 import { namedType } from "./types";
 import dedent from "compiler/utils/dedent";
 import { parseSource } from "../pipeline/parse";
+import { sourceWithCursor } from "../test/sourceWithCursor";
 
 function symbolsOfVisibleSymbolsAt(source: string, line: number, character: number): Map<string, AnalysisSymbol> {
   const ast = parseFile(tokenizeReader(source));
@@ -227,6 +228,21 @@ describe("enum semantic analysis", () => {
     `.trimEnd())));
 
     expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("types implicit it as the first visible receiver-function argument", () => {
+    const marked = sourceWithCursor(dedent`
+      class Counter(var value: int)
+      fun <T> T.applyWithValue(block: T.(amount: int) -> void): T {
+        block(this, 10)
+        return this
+      }
+      Counter(1).applyWithValue { value += ^^^it * 2 }
+    `.trimEnd());
+    const analysis = new Analysis(parseFile(tokenizeReader(marked.source)));
+
+    expect(analysis.getIssues()).toEqual([]);
+    expect(analysis.getHoverAt(marked.line, marked.character)?.contents).toContain("parameter it: int");
   });
 
   it("checks explicit type annotations on extension properties", () => {

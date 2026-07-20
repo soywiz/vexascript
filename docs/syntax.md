@@ -674,6 +674,8 @@ fun test(a: A, b: B)
 
 The receiver is hidden only from the receiver-lambda parameter list. Calling the value directly still passes it first, as in `block(a, b)`.
 
+In a brace lambda, implicit `it` represents the first visible parameter when the receiver function declares one. For example, in `T.(amount: int) -> void`, `{ it * 2 }` types `it` as `int`, not as `T`. When the receiver function has no visible parameters (`T.() -> void`), the synthetic `it` aliases the receiver.
+
 The postfix receiver-block shorthand `value. { ... }` is an intrinsic receiver-in/receiver-out expression. It evaluates `value` once, runs the block with that value as its receiver, and returns the same value. It neither requires nor calls a member or extension named `apply`:
 
 ```vexa

@@ -2791,7 +2791,7 @@ export class TypeChecker {
           this.receiverLambdas.set(block, {
             receiverType,
             label: "apply",
-            implicitParameter: this.hasImplicitBraceLambdaParameter(block)
+            implicitReceiverAlias: this.hasImplicitBraceLambdaParameter(block)
           });
           const blockType = functionType(
             [{ name: "this", type: receiverType, receiver: true }],
@@ -3345,7 +3345,7 @@ export class TypeChecker {
             this.receiverLambdas.set(arrow, {
               receiverType: contextualReceiver.type,
               label: "lambda",
-              implicitParameter: this.hasImplicitBraceLambdaParameter(arrow)
+              implicitReceiverAlias: this.hasImplicitReceiverAlias(arrow, expectedFunctionType)
             });
           }
           if (arrow.contextualObjectLiteral && expectedType && !expectedFunctionType) {
@@ -3402,7 +3402,7 @@ export class TypeChecker {
             }
           }
           const receiverInfo = this.receiverLambdas.get(arrow);
-          const valueParameters = receiverInfo?.implicitParameter ? arrow.parameters.slice(1) : arrow.parameters;
+          const valueParameters = receiverInfo?.implicitReceiverAlias ? arrow.parameters.slice(1) : arrow.parameters;
           const inferredFunction = this.buildFunctionType(
             valueParameters,
             returnType,
@@ -5200,7 +5200,7 @@ export class TypeChecker {
           this.receiverLambdas.set(arrow, {
             receiverType: receiver.type,
             label: this.receiverLabelForCall(call),
-            implicitParameter: this.hasImplicitBraceLambdaParameter(arrow)
+            implicitReceiverAlias: this.hasImplicitReceiverAlias(arrow, expectedFunction)
           });
         }
       }
@@ -5233,6 +5233,14 @@ export class TypeChecker {
       (parameter.name as Identifier).name === "it" &&
       parameter.firstToken?.type === "symbol" &&
       parameter.firstToken.value === "{";
+  }
+
+  private hasImplicitReceiverAlias(
+    arrow: ArrowFunctionExpression,
+    expectedFunctionType: FunctionType | null | undefined
+  ): boolean {
+    return this.hasImplicitBraceLambdaParameter(arrow) &&
+      expectedFunctionType?.parameters.every((parameter) => parameter.receiver === true) === true;
   }
 
   private contextualExpectedTypeForCallArgument(
@@ -9659,7 +9667,7 @@ export class TypeChecker {
     if (receiverInfo && receiverParameter) {
       this.declareReceiverLambdaSymbols(functionScope, node, parameters, receiverInfo);
     }
-    const valueParameters = receiverInfo?.implicitParameter ? parameters.slice(1) : parameters;
+    const valueParameters = receiverInfo?.implicitReceiverAlias ? parameters.slice(1) : parameters;
     const expectedValueParameters = expectedFunctionType?.parameters.filter((parameter) => parameter.receiver !== true) ?? [];
     for (let index = 0; index < valueParameters.length; index += 1) {
       const parameter = valueParameters[index]!;
@@ -9776,7 +9784,7 @@ export class TypeChecker {
     };
     scope.symbols.set("this", receiverSymbol);
     scope.symbols.set(`this@${info.label}`, { ...receiverSymbol, name: `this@${info.label}` });
-    if (info.implicitParameter && parameters[0]?.name.kind === NodeKind.Identifier) {
+    if (info.implicitReceiverAlias && parameters[0]?.name.kind === NodeKind.Identifier) {
       const identifier = parameters[0]!.name as Identifier;
       scope.symbols.set(identifier.name, {
         name: identifier.name,

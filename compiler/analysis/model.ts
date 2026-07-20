@@ -106,7 +106,7 @@ export interface SelectedCallResolution {
 export interface ReceiverLambdaInfo {
   receiverType: AnalysisType;
   label: string;
-  implicitParameter: boolean;
+  implicitReceiverAlias: boolean;
 }
 
 export interface CheckedAnalysis {

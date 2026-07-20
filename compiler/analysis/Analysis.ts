@@ -372,7 +372,11 @@ export class Analysis {
   }
 
   getSymbolAt(line: number, character: number): AnalysisSymbolMatch | null {
-    for (const resolution of this.identifierResolutions) {
+    // Contextual call analysis may revisit a lambda after its initial loose
+    // pass. Prefer the latest resolution so editor features see the refined
+    // parameter type rather than the provisional `unknown` symbol.
+    for (let index = this.identifierResolutions.length - 1; index >= 0; index -= 1) {
+      const resolution = this.identifierResolutions[index]!;
       const range = this.nodeToRange(resolution.identifier);
       if (range && this.rangeContains(range, line, character)) {
         return { symbol: resolution.symbol, range };

@@ -3804,7 +3804,7 @@ function emitNativeLambda(
   const receiverParameter = receiverParameterName
     ? new FunctionParameter(new Identifier(receiverParameterName))
     : null;
-  const valueParameters = receiverInfo?.implicitParameter ? parametersList.slice(1) : parametersList;
+  const valueParameters = receiverInfo?.implicitReceiverAlias ? parametersList.slice(1) : parametersList;
   const effectiveParameters = receiverParameter
     ? [receiverParameter, ...valueParameters]
     : parametersList;
@@ -3853,6 +3853,10 @@ function emitNativeLambda(
   });
   activeThisExpression = receiverParameterName ?? capture.thisExpression;
   let labeledReceiverName: string | null = null;
+  const implicitReceiverAlias = receiverInfo?.implicitReceiverAlias === true &&
+    parametersList[0]?.name.kind === NodeKind.Identifier
+    ? (parametersList[0]!.name as Identifier).name
+    : null;
   if (receiverInfo && receiverParameterName) {
     labeledReceiverName = `__vexa_labeled_receiver_${cppName(receiverInfo.label)}_${activeReceiverSymbolCounter++}`;
     activeReceiverLabels = new Map(previousReceiverLabels).set(receiverInfo.label, labeledReceiverName);
@@ -3866,6 +3870,13 @@ function emitNativeLambda(
       activeCurrentClassName = receiverInfo.receiverType.name;
       activeCurrentClassStatement = activeClassStatements.get(receiverInfo.receiverType.name) ?? null;
       activeCurrentMethodStatic = false;
+    }
+    if (implicitReceiverAlias) {
+      activeLocalNames.add(implicitReceiverAlias);
+      activeLocalCppTypes.set(implicitReceiverAlias, receiverCppType);
+      if (receiverCppType.endsWith("*") && receiverInfo.receiverType.kind === AnalysisTypeKind.Named) {
+        activeGcObjectTypes.set(implicitReceiverAlias, receiverInfo.receiverType.name);
+      }
     }
   }
   activeCallableResultType = expectedResultType;
@@ -3882,6 +3893,9 @@ function emitNativeLambda(
     const receiverPreamble = labeledReceiverName && receiverParameterName
       ? [`  auto ${labeledReceiverName} = ${receiverParameterName};`]
       : [];
+    if (implicitReceiverAlias && receiverParameterName) {
+      receiverPreamble.push(`  auto ${cppName(implicitReceiverAlias)} = ${receiverParameterName};`);
+    }
     const destructuringPreamble = emitParameterDestructuring(parameters, "  ");
     const preamble = [...receiverPreamble, ...destructuringPreamble];
     const rawBody = body.kind === NodeKind.BlockStatement

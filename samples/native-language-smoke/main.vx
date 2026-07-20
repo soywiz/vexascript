@@ -778,7 +778,7 @@ val receiverSecond = ReceiverPoint(4, 6). {
   }
 }
 val receiverShortcut = ReceiverShortcutPoint(2). {
-  x *= 4
+  it.x *= 4
 }
 class ReceiverBase(var receiverValue: int)
 class ReceiverDerived extends ReceiverBase {

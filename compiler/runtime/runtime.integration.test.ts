@@ -54,7 +54,7 @@ class TrapPoint(var x: number, var applyCalls: int = 0) {
   }
 }
 
-val plain = PlainPoint(3, 4). { x += y; y = this.x * 2 }
+val plain = PlainPoint(3, 4). { it.x += it.y; y = this.x * 2 }
 val trap = TrapPoint(5). { x *= 3 }
 console.log(plain.x, plain.y, trap.x, trap.applyCalls)
 `;
@@ -76,6 +76,21 @@ console.log(result.value)
 `);
 
     expect(output).toEqual([[7]]);
+  });
+
+  it("passes the first visible receiver-function argument to implicit it", () => {
+    const output = executeTranspiled(`
+class Counter(var value: int)
+fun <T> T.applyWithValue(block: T.(amount: int) -> void): T {
+  block(this, 10)
+  return this
+}
+
+val result = Counter(1).applyWithValue { value += it * 2 }
+console.log(result.value)
+`);
+
+    expect(output).toEqual([[21]]);
   });
 
   it("executes runtime namespace exports", () => {

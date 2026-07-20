@@ -1674,7 +1674,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           return emitExpression(arrow.contextualObjectLiteral, parentPrecedence, side);
         }
         const receiverInfo = activeState.receiverLambdas.get(arrow as Node);
-        const valueParameters = receiverInfo?.implicitParameter ? arrow.parameters.slice(1) : arrow.parameters;
+        const valueParameters = receiverInfo?.implicitReceiverAlias ? arrow.parameters.slice(1) : arrow.parameters;
         const receiverName = receiverInfo
           ? `__vexa_receiver_${sanitizeManglePart(receiverInfo.label)}_${activeState.generatedSymbolCounter++}`
           : null;
@@ -1697,7 +1697,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           try {
           if (arrow.body.kind === NodeKind.BlockStatement) {
             const block = emitScopedBlock(arrow.body as BlockStatement);
-            const receiverAlias = receiverInfo?.implicitParameter && receiverName
+            const receiverAlias = receiverInfo?.implicitReceiverAlias && receiverName
               ? `\nconst it = ${receiverName};`
               : "";
             return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => ${receiverAlias ? `{${receiverAlias}${block.slice(1)}` : block}`;
@@ -1709,7 +1709,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           if (temps.length > 0) {
             return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => {\n${emitOptionalAssignmentTempDeclaration(temps)}\nreturn ${bodyText};\n}`;
           }
-          if (receiverInfo?.implicitParameter && receiverName) {
+          if (receiverInfo?.implicitReceiverAlias && receiverName) {
             return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => { const it = ${receiverName}; return ${bodyText}; }`;
           }
           if (conciseArrowBodyStartsWithObjectLiteral(bodyExpression)) {
