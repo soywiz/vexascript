@@ -1546,7 +1546,7 @@ function ambientConstructSignatureForUtility(
     return sourceType;
   }
   if (sourceType.kind === AnalysisTypeKind.Object) {
-    const constructorType = sourceType.properties.get("constructor");
+    const constructorType = (sourceType as ObjectType).properties.get("constructor");
     return constructorType?.kind === AnalysisTypeKind.Function ? constructorType : null;
   }
   if (sourceType.kind === AnalysisTypeKind.Union) {

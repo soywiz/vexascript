@@ -216,8 +216,8 @@ function isNativeIdentifierShadowed(
   identifier: Identifier,
   shadowScopes: readonly NativeShadowBinding[][]
 ): boolean {
-  const usageOffset = identifier.firstToken
-    ? identifier.firstToken.range.start.offset
+  const usageOffset: number = identifier.firstToken
+    ? Number(identifier.firstToken.range.start.offset)
     : 2_147_483_647;
   for (let index = shadowScopes.length - 1; index >= 0; index -= 1) {
     for (const binding of shadowScopes[index]!) {

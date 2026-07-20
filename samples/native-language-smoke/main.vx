@@ -306,6 +306,15 @@ fun optionalCollectionCalls(): string {
   return `${map?.has("missing") ?? false}:${set?.has(1) ?? false}:${weakMap?.has(key) ?? false}:${weakSet?.has(key) ?? false}`
 }
 
+fun nullishCollectionConstruction(
+  mapSource?: Map<string, int>,
+  setSource?: Set<int>
+): string {
+  val map = new Map<string, int>(mapSource)
+  val set = new Set<int>(setSource)
+  return `${map.size}:${set.size}`
+}
+
 fun * sequence(limit: int): int {
   for (value of 0 ..< limit) yield value
   yield* [limit, limit + 1]
@@ -586,6 +595,7 @@ nativeWeakMap.set(nativeWeakKey, "stored")
 nativeWeakSet.add(nativeWeakKey)
 console.log("weak collections", nativeWeakMap.get(nativeWeakKey), nativeWeakMap.has(nativeWeakKey), nativeWeakSet.has(nativeWeakKey), nativeWeakMap.delete(nativeWeakKey), nativeWeakSet.delete(nativeWeakKey))
 console.log("optional collections", optionalCollectionCalls())
+console.log("nullish collection construction", nullishCollectionConstruction())
 val nativeLeafMap = new Map<string, Leaf>()
 nativeLeafMap.set("leaf", Leaf(31))
 console.log("typed map object", nativeLeafMap.get("leaf")?.value, nativeLeafMap.get("missing")?.value)
@@ -609,6 +619,13 @@ console.log("binary float", nativeFloatView.getFloat64(0, true))
 val mixed = [1, "two", true]
 mixed.push("three")
 console.log("mixed", mixed.includes("two"), mixed.indexOf(true), mixed.join("|"))
+val dynamicLeafFactory: any = (): Leaf => Leaf(18)
+console.log("dynamic object callback", (dynamicLeafFactory() as Leaf).value)
+{
+  val Number = (value: int): string => `number:${value}`
+  val String = (value: int): string => `string:${value}`
+  console.log("builtin shadows", Number(4), String(5))
+}
 
 val descriptorTarget = DescriptorTarget(1, 2)
 Object.defineProperty(descriptorTarget, "hidden", {

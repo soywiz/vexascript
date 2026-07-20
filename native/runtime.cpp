@@ -347,6 +347,9 @@ class Value final {
   Value(BigInt value) : storage_(std::move(value)) {}
   explicit Value(StringObject* value) : storage_(cppgc::Persistent<StringObject>(value)) {}
   explicit Value(RecordObject* value);
+  template <typename T>
+    requires std::is_base_of_v<DynamicValueObject, T>
+  Value(T* value) : storage_(cppgc::Persistent<DynamicValueObject>(value)) {}
   explicit Value(DynamicValueObject* value)
       : storage_(cppgc::Persistent<DynamicValueObject>(value)) {}
 
@@ -1241,7 +1244,14 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   std::optional<V> get(const K& key) const {
     if (dynamic_backing_) {
       const auto found = dynamic_backing_->dynamicMapGet(currentRuntime(), convertValue<Value>(key));
-      return found ? std::optional<V>(convertValue<V>(*found)) : std::nullopt;
+      if (!found) return std::nullopt;
+      try {
+        return std::optional<V>(convertValue<V>(*found));
+      } catch (const std::runtime_error& error) {
+        throw std::runtime_error(
+            std::string(error.what()) + " while reading Map key " +
+            toString(convertValue<Value>(key)));
+      }
     }
     const auto found = index_.find(key);
     return found == index_.end()
@@ -1298,7 +1308,9 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
 
   const void* dynamicTypeToken() const override { return nativeTypeToken<MapObject<K, V>>(); }
   void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<MapObject<K, V>>() ? this : nullptr;
+    if (type == nativeTypeToken<MapObject<K, V>>()) return this;
+    if (type == nativeTypeToken<MapLikeObject>()) return static_cast<MapLikeObject*>(this);
+    return nullptr;
   }
   std::string dynamicToString() const override { return "[object Map]"; }
   bool dynamicIsIterable() const override { return true; }
@@ -2723,6 +2735,18 @@ Result convertValue(Input&& input) {
       }
       auto& runtime = currentRuntime();
       return runtime.make<ArrayObject<ResultElement>>(input.dynamicObject());
+    } else if constexpr (MapObjectPointerTraits<Result>::value) {
+      using ResultKey = typename MapObjectPointerTraits<Result>::Key;
+      using ResultValue = typename MapObjectPointerTraits<Result>::Mapped;
+      if (input.isNull() || input.isUndefined()) return nullptr;
+      if (!input.isDynamicObject()) throw errorAtCurrentSource("VexaScript value is not a map");
+      if (void* exact = input.dynamicObject()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>())) {
+        return static_cast<Result>(exact);
+      }
+      void* mapLike = input.dynamicObject()->dynamicCast(nativeTypeToken<MapLikeObject>());
+      if (!mapLike) throw errorAtCurrentSource("VexaScript value is not a compatible map");
+      return currentRuntime().make<MapObject<ResultKey, ResultValue>>(
+          static_cast<MapLikeObject*>(mapLike));
     } else if constexpr (std::is_pointer_v<Result> && RecordAdaptable<std::remove_pointer_t<Result>>) {
       if (input.isDynamicObject()) {
         void* converted = input.dynamicObject()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
@@ -2738,13 +2762,15 @@ Result convertValue(Input&& input) {
       if (!input.isDynamicObject()) {
         throw errorAtCurrentSource(
             std::string("VexaScript dynamic value has an incompatible native object type: ") +
-            __PRETTY_FUNCTION__);
+            __PRETTY_FUNCTION__ + "; actual value: " + toString(input));
       }
       void* converted = input.dynamicObject()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
       if (!converted) {
+        const auto kind = input.dynamicObject()->dynamicGet(u"kind");
         throw errorAtCurrentSource(
             std::string("VexaScript dynamic value has an incompatible native object type: ") +
-            __PRETTY_FUNCTION__);
+            __PRETTY_FUNCTION__ + "; actual value: " + toString(input) +
+            (kind.isUndefined() ? "" : "; kind: " + toString(kind)));
       }
       return static_cast<Result>(converted);
     } else {
@@ -2888,6 +2914,7 @@ inline MapObject<K, V>* mapFromEntries(
     Runtime& runtime,
     const ArrayObject<ArrayObject<Entry>*>* entries) {
   auto* result = runtime.make<MapObject<K, V>>();
+  if (!entries) return result;
   for (auto* entry : *entries) {
     if (!entry || entry->size() < 2) {
       throw std::runtime_error("VexaScript Map entry must contain a key and value");
@@ -2909,6 +2936,7 @@ inline MapObject<K, V>* mapFromIterable(
 template <typename K, typename V, typename InputK, typename InputV>
 inline MapObject<K, V>* mapFromIterable(Runtime& runtime, MapObject<InputK, InputV>* source) {
   auto* result = runtime.make<MapObject<K, V>>();
+  if (!source) return result;
   source->forEach([&](InputV value, InputK key) {
     result->set(convertValue<K>(key), convertValue<V>(value));
   });
@@ -2919,6 +2947,13 @@ template <typename K, typename V, typename InputK, typename InputV>
 inline MapObject<K, V>* mapFromIterable(
     Runtime& runtime,
     const cppgc::Persistent<MapObject<InputK, InputV>>& source) {
+  return mapFromIterable<K, V>(runtime, source.Get());
+}
+
+template <typename K, typename V, typename InputK, typename InputV>
+inline MapObject<K, V>* mapFromIterable(
+    Runtime& runtime,
+    const cppgc::Member<MapObject<InputK, InputV>>& source) {
   return mapFromIterable<K, V>(runtime, source.Get());
 }
 
@@ -3013,6 +3048,7 @@ inline ArrayObject<T>* setValues(Runtime& runtime, SetObject<T>* set) {
 template <typename T, typename Input>
 inline SetObject<T>* setFromArray(Runtime& runtime, const ArrayObject<Input>* values) {
   auto* result = runtime.make<SetObject<T>>();
+  if (!values) return result;
   for (const auto& value : *values) result->add(convertValue<T>(value));
   return result;
 }
@@ -3030,6 +3066,7 @@ inline SetObject<T>* setFromIterable(Runtime& runtime, const cppgc::Persistent<A
 template <typename T, typename Input>
 inline SetObject<T>* setFromIterable(Runtime& runtime, SetObject<Input>* source) {
   auto* result = runtime.make<SetObject<T>>();
+  if (!source) return result;
   source->forEach([&](Input value) { result->add(convertValue<T>(value)); });
   return result;
 }
@@ -6428,8 +6465,8 @@ inline double remainder(Left left, const Value& right) {
 }
 
 template <typename T>
-inline std::string String(const T& value) {
-  return toString(value);
+inline Text String(const T& value) {
+  return Text(toString(value));
 }
 
 inline bool Boolean(bool value) { return value; }

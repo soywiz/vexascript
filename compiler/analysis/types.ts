@@ -238,7 +238,8 @@ function optionalAnalysisTypeMap(
   values: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType> | undefined
 ): ReadonlyMap<string, AnalysisType> | undefined {
   if (!values) return undefined;
-  const map = values instanceof Map ? values : new Map(Object.entries(values));
+  if (values instanceof Map) return values.size > 0 ? values : undefined;
+  const map = new Map(Object.entries(values));
   return map.size > 0 ? map : undefined;
 }
 
@@ -496,8 +497,10 @@ function isSameTypeInternal(
   }
 
   if (a.kind === AnalysisTypeKind.Object && b.kind === AnalysisTypeKind.Object) {
-    const aKeys = [...a.properties.keys()].sort();
-    const bKeys = [...b.properties.keys()].sort();
+    const aObject = a as ObjectType;
+    const bObject = b as ObjectType;
+    const aKeys = [...aObject.properties.keys()].sort();
+    const bKeys = [...bObject.properties.keys()].sort();
     if (aKeys.length !== bKeys.length) {
       return false;
     }
@@ -506,8 +509,8 @@ function isSameTypeInternal(
         return false;
       }
       const key = aKeys[i]!;
-      const aProperty = a.properties.get(key);
-      const bProperty = b.properties.get(key);
+      const aProperty = aObject.properties.get(key);
+      const bProperty = bObject.properties.get(key);
       if (!aProperty || !bProperty || !isSameTypeInternal(aProperty, bProperty, seenPairs)) {
         return false;
       }

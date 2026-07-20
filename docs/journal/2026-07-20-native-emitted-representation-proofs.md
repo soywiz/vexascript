@@ -184,8 +184,49 @@ unit decreased from 7,859,722 to 7,782,548 bytes. Generated `dynamicGet`
 occurrences decreased from 2,614 to 1,733, and `convertValue` occurrences from
 25,145 to 20,963. The complete file passes a native C++ syntax check; the
 unified native language smoke compiles, runs, and matches its expected output.
-The full 2,312-test suite and the CLI sanity program also pass. The latest Node
-output has SHA-256
-`4d26f881c05994cf55c73206433836954f72ba4075ee0da09b02466644652627`.
-Execution-time and two-roundtrip parity measurements remain the next step,
-because static source counts alone do not establish a runtime improvement.
+The full 2,312-test suite and the CLI sanity program also pass. That intermediate
+Node output had SHA-256
+`4d26f881c05994cf55c73206433836954f72ba4075ee0da09b02466644652627`;
+the following sections record the execution and rebuilt-roundtrip validation.
+
+## Typed callback and collection boundaries must preserve object identity
+
+The first complete execution after the analysis-map migration exposed three
+runtime representation gaps that syntax validation could not find. Constructing
+`Map` or `Set` from an absent optional source dereferenced a null native pointer;
+the collection constructors now treat that source as an empty iterable. A
+generic callback declared to return a generated class pointer was then stored in
+`std::function<Value()>`, where overload resolution selected `Value(bool)` for
+the pointer. A constrained generated-object pointer constructor now boxes the
+object itself. The unified native smoke covers both failures.
+
+Typed map access also reached a map with a different native specialization.
+`MapObject` now exposes its common `MapLikeObject` identity through dynamic
+casting, and `convertValue<TypedMap*>` creates a live typed view when an exact
+specialization is unavailable. Reads still convert at the declared key/value
+boundary and include the offending key in conversion errors. This preserves the
+shared backing map instead of copying entries.
+
+## Builtin result types must not depend on boxed semantic metadata
+
+Node and the first native host eventually differed by one redundant conversion
+around `Number(...)`. The native compiler represented the nullable return of
+`emittedCppTypeForExpression` as `Value`, so an otherwise syntax-known builtin
+type could be lost when `emitConvertedValue` recursively emitted conditional
+branches. A non-null `builtinCallCppType` helper now provides the `String` and
+`Number` native representations to both type prediction and conversion
+emission. This removed the host-dependent decision rather than normalizing the
+finished source text.
+
+Removing the redundant `String(...)` conversion exposed a latent mismatch: the
+emitter had always classified it as UTF-16 `vexa::Text`, while the runtime helper
+returned UTF-8 `std::string`. The runtime now returns `Text`, keeping the actual
+representation aligned with the emitter and with the UTF-16 in-memory string
+policy. The complete native smoke passed after that change.
+
+The final checked translation unit is 7,797,600 bytes. Its Node generation took
+6.00 seconds externally and its `-O0 -DNDEBUG` native build took 22.63 seconds.
+Two consecutive native compilers completed checked semantic generations in
+106.14 and 107.61 seconds. Node and both native generations are byte-identical
+with SHA-256
+`438e08c2e151dfcf28fc7fa8b07a1dc579399f6d46a0470215412f5bb986c6c1`.

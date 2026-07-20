@@ -56,12 +56,15 @@ json {"name":"Ada","values":[1,2],"active":true} Ada 5
 json unicode A😀
 weak collections stored true true true true
 optional collections false:false:false:false
+nullish collection construction 0:0
 typed map object 31 undefined
 date 0 1970 0 1970-01-01T00:00:00.000Z true "1970-01-01T00:00:00.000Z"
 date parsing 2000-01-02T00:00:00.000Z 946771200000
 binary 4 4 0 1 2 3 515 255 0 255
 binary float 1.5
 mixed true 2 1|two|true|three
+dynamic object callback 18
+builtin shadows number:4 string:5
 define property 7 visible 4 visible 4 undefined
 record Ada 42 false true true Ada
 unicode record utf16 á😀 true

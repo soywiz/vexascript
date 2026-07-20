@@ -212,8 +212,14 @@ development loop.
   The Node-emitted self-host unit decreased from 7,859,722 to 7,782,548 bytes,
   `dynamicGet` occurrences from 2,614 to 1,733, and `convertValue` occurrences
   from 25,145 to 20,963. Native syntax validation, the unified native smoke,
-  all 2,312 tests, and the CLI sanity program pass. Native execution timing and
-  two rebuilt roundtrips still need to be recorded for this checkpoint.
+  all 2,312 tests, and the CLI sanity program pass. Follow-up fixes preserved
+  typed generic callback results, adapted compatible `Map` specializations
+  through live typed views, and stopped generated object pointers from selecting
+  the `Value(bool)` constructor. The final 7,797,600-byte checkpoint compiled
+  with `-O0 -DNDEBUG` in 22.63 seconds. Two checked native generations took
+  106.14 and 107.61 wall-clock seconds, remaining below the two-minute
+  limit. Node and both rebuilt hosts emitted byte-identical output with SHA-256
+  `438e08c2e151dfcf28fc7fa8b07a1dc579399f6d46a0470215412f5bb986c6c1`.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -239,11 +245,11 @@ development loop.
   and native execution and does not add a structural compatibility path.
 * [ ] Progressive fixtures and the full compiler use the same native pipeline.
 * [x] At least two complete native compiler roundtrips remain output-equivalent.
-  On 2026-07-19 the first and second native hosts emitted byte-identical
-  7,855,681-byte translation units with SHA-256
-  `db3241e7629da3c23891e458cd83f2f3e17b708c067e3f663364a1ee369488ff`.
+  On 2026-07-20 the first and second `-O0 -DNDEBUG` native hosts emitted
+  byte-identical 7,797,600-byte translation units in 106.14 and 107.61 seconds.
 * [x] A Node-hosted generation and both native generations are byte-identical,
-  including deterministic string-pool numbering.
+  including deterministic string-pool numbering. Their latest shared SHA-256 is
+  `438e08c2e151dfcf28fc7fa8b07a1dc579399f6d46a0470215412f5bb986c6c1`.
 
 ## Tests
 
@@ -252,14 +258,13 @@ development loop.
   signatures under both hosts, and the unified native smoke covers scoped
   generic callback results and embedded NUL code units.
 * [x] Run two complete native compiler roundtrips. Checked generation took
-  8.46 and 9.05 wall-clock seconds in the boxed-string-pool checkpoint with a
-  4096 MB initial heap, and the two generated translation units compiled
-  successfully at `-O1` in 109.09 and 107.54 seconds. Native generation
-  remained comfortably below two minutes.
+  106.14 and 107.61 wall-clock seconds in the latest default-heap `-O0`
+  checkpoint. The final generated translation unit compiled successfully in
+  22.63 seconds. Native generation remained below two minutes.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
-  three latest outputs have SHA-256
-  `c6541189e30188b675354bce3b143ad766f3847a4bd44aa14e520a21fed6e1f5`.
-  All three 7,859,722-byte outputs were byte-identical.
+  three latest 7,797,600-byte outputs have SHA-256
+  `438e08c2e151dfcf28fc7fa8b07a1dc579399f6d46a0470215412f5bb986c6c1`
+  and are byte-identical.
 * [x] Run `pnpm test` (2312 tests passed on 2026-07-20).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 

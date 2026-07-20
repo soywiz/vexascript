@@ -1489,6 +1489,9 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
       ? emitExpressionWithExpectedCppType(expression, resultType)
       : emitExpression(expression);
   }
+  if (builtinCallCppType(expression) === resultType) {
+    return emitExpression(expression);
+  }
   if (expression.kind === NodeKind.ConditionalExpression) {
     const conditional = expression as ConditionalExpression;
     const branch = (value: Expr): string => emitConvertedValue(value, resultType);
@@ -1843,6 +1846,15 @@ function clearExpressionTypeCaches(): void {
   activeEmittedExpressionTypeCache = new Map();
 }
 
+function builtinCallCppType(expression: Expr): string {
+  if (expression.kind !== NodeKind.CallExpression) return "";
+  const name = identifierName((expression as CallExpression).callee);
+  if (name && activeLocalNames.has(name)) return "";
+  if (name === "String") return "vexa::Text";
+  if (name === "Number") return "double";
+  return "";
+}
+
 function isDynamicValueExpression(expression: Expr): boolean {
   if (expression.kind === NodeKind.Identifier) {
     const name = (expression as Identifier).name;
@@ -2048,6 +2060,9 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
   }
   if (expression.kind === NodeKind.CallExpression) {
     const callExpression = expression as CallExpression;
+    const calleeName = identifierName(callExpression.callee);
+    const builtinType = builtinCallCppType(callExpression);
+    if (builtinType) return builtinType;
     const callMember = memberParts(callExpression.callee);
     if (callExpression.callee.kind === NodeKind.MemberExpression) {
       const calleeMember = callExpression.callee as MemberExpression;
@@ -2066,7 +2081,6 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
     if (callMember?.objectName === "console" && isConsoleMethodName(callMember.propertyName)) {
       return "void";
     }
-    const calleeName = identifierName(callExpression.callee);
     const localCallableType = calleeName ? activeLocalCppTypes.get(calleeName) : undefined;
     const localCallableResult = localCallableType ? stdFunctionResultCppType(localCallableType) : null;
     if (localCallableResult) return localCallableResult;
@@ -2402,7 +2416,6 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         );
         if (mapTypes?.[1]) return mapTypes[1];
       }
-      if (identifierName((expression as CallExpression).callee) === "String") return "vexa::Text";
       const inferredFunctionResult = inferredFunctionCallCppType(expression as CallExpression);
       if (inferredFunctionResult) return inferredFunctionResult;
       const declaredResult = declaredCallResultType(expression as CallExpression);
@@ -2927,7 +2940,7 @@ function declaredCallResultType(call: CallExpression): string | null {
 
 function cppTypeForBoundDeclaredName(typeName: string, bindings: ReadonlyMap<string, string>): string | null {
   const direct = bindings.get(typeName);
-  if (direct) return direct;
+  if (direct) return cppTypeForDeclaredNameOr(direct, direct);
   const unionMembers = splitTopLevelTypeText(typeName, "|");
   if (unionMembers.length > 1) {
     const presentMembers = unionMembers.filter((member) => {
@@ -3300,6 +3313,7 @@ function emitExpressionWithExpectedCppType(expression: Expr, expectedCppType: st
       return "nullptr";
     }
     const emitted = emitExpression(expression);
+    if (builtinCallCppType(expression) === expectedCppType) return emitted;
     const actual = emittedCppTypeForExpression(expression);
     if (managedArrayElementType(expectedCppType) !== null &&
       managedArrayElementType(actual ?? "") !== null &&
@@ -4759,7 +4773,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
           ? emitConvertedValue(argument, "vexa::Value")
           : emitExpression(argument);
       }).join(", ");
-    } else if (receiverElementType && interfaceStatementForCppType(receiverElementType) !== null && convertsValueArguments) {
+    } else if (receiverElementType && receiverElementType !== "vexa::Value" && convertsValueArguments) {
       arrayArguments = call.args.map((argument, index) => {
           const converts = member.propertyName === "splice"
             ? index >= 2
@@ -6032,11 +6046,17 @@ function bindingValueType(binding: BindingName): string {
 
 function introducedBindingNames(binding: BindingName): string[] {
   if (binding.kind === NodeKind.Identifier) return [binding.name];
-  const elements = binding.kind === NodeKind.ArrayBindingPattern
-    ? (binding as ArrayBindingPattern).elements
-    : (binding as ObjectBindingPattern).elements;
-  return elements.flatMap((element) =>
-    element.kind === NodeKind.BindingHole ? [] : introducedBindingNames(element.name));
+  const names: string[] = [];
+  if (binding.kind === NodeKind.ArrayBindingPattern) {
+    for (const element of (binding as ArrayBindingPattern).elements) {
+      if (element.kind !== NodeKind.BindingHole) names.push(...introducedBindingNames(element.name));
+    }
+    return names;
+  }
+  for (const element of (binding as ObjectBindingPattern).elements) {
+    names.push(...introducedBindingNames(element.name));
+  }
+  return names;
 }
 
 function emitDestructuredBindings(
@@ -8823,7 +8843,10 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeEnumNames = enumNames;
   const typeAliasTargets = new Map<string, string>();
   for (const statement of typeAliases) {
-    if (!statement.typeParameters?.length) typeAliasTargets.set(statement.name.name, statement.targetType.name);
+    if (statement.typeParameters?.length) continue;
+    for (const name of nativeIdentifierNames(statement.name)) {
+      typeAliasTargets.set(name, statement.targetType.name);
+    }
   }
   activeTypeAliases = typeAliasTargets;
   activeCppTypeParameters = new Set();

@@ -1420,7 +1420,7 @@ export class TypeChecker {
       return true;
     }
     if (delegateType.kind === AnalysisTypeKind.Object) {
-      return delegateType.properties.has("value");
+      return (delegateType as ObjectType).properties.has("value");
     }
     if (delegateType.kind === AnalysisTypeKind.Named) {
       return this.memberTypeFromObjectType(delegateType, "value") !== null &&
@@ -1494,7 +1494,7 @@ export class TypeChecker {
       return getterOrValueType.kind === AnalysisTypeKind.Function ? getterOrValueType.returnType : getterOrValueType;
     }
     if (delegateType.kind === AnalysisTypeKind.Object) {
-      return delegateType.properties.get("value") ?? UNKNOWN_TYPE;
+      return (delegateType as ObjectType).properties.get("value") ?? UNKNOWN_TYPE;
     }
     if (delegateType.kind === AnalysisTypeKind.Named) {
       return this.memberTypeFromObjectType(delegateType, "value") ?? UNKNOWN_TYPE;
@@ -3294,9 +3294,9 @@ export class TypeChecker {
       case NodeKind.ArrowFunctionExpression: {
         const arrow = expression as ArrowFunctionExpression;
         const arrowIsAsyncLike = isAsyncLike(arrow.async, arrow.sync);
-        result = this.withGeneratorFunctionResult(false, () =>
-          this.withSyncFunctionResult(arrow.sync === true, () =>
-            this.withAsyncLikeFunctionResult(arrowIsAsyncLike, (): AnalysisType => {
+        result = this.withGeneratorFunctionResult<AnalysisType>(false, () =>
+          this.withSyncFunctionResult<AnalysisType>(arrow.sync === true, () =>
+            this.withAsyncLikeFunctionResult<AnalysisType>(arrowIsAsyncLike, (): AnalysisType => {
           const expectedFunctionType = this.contextualFunctionTypeForExpression(
             this.contextualFunctionExpectedType(expectedType),
             scope
@@ -3366,9 +3366,9 @@ export class TypeChecker {
       case NodeKind.FunctionExpression: {
         const fn = expression as FunctionExpression;
         const fnIsAsyncLike = isAsyncLike(fn.async, fn.sync);
-        result = this.withGeneratorFunctionResult(fn.generator === true, () =>
-          this.withSyncFunctionResult(fn.sync === true, () =>
-            this.withAsyncLikeFunctionResult(fnIsAsyncLike, (): AnalysisType => {
+        result = this.withGeneratorFunctionResult<AnalysisType>(fn.generator === true, () =>
+          this.withSyncFunctionResult<AnalysisType>(fn.sync === true, () =>
+            this.withAsyncLikeFunctionResult<AnalysisType>(fnIsAsyncLike, (): AnalysisType => {
           const expectedFunctionType = this.contextualFunctionTypeForExpression(
             this.contextualFunctionExpectedType(expectedType),
             scope
@@ -4393,25 +4393,29 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === AnalysisTypeKind.Object && targetType.kind === AnalysisTypeKind.Object) {
-      return this.objectPropertiesAreAssignable(sourceType.properties, targetType.properties);
+      return this.objectPropertiesAreAssignable(
+        (sourceType as ObjectType).properties,
+        (targetType as ObjectType).properties
+      );
     }
 
     if (sourceType.kind === AnalysisTypeKind.Named && targetType.kind === AnalysisTypeKind.Object) {
-      const sourceMembers = this.resolveNamedTypeMembers(sourceType);
+      const sourceMembers = this.resolveNamedTypeMembers(sourceType as NamedType);
       if (!sourceMembers) {
         return false;
       }
-      return this.objectPropertiesAreAssignable(sourceMembers, targetType.properties);
+      return this.objectPropertiesAreAssignable(sourceMembers, (targetType as ObjectType).properties);
     }
 
     if (sourceType.kind === AnalysisTypeKind.Object && targetType.kind === AnalysisTypeKind.Named) {
-      const namedMembers = this.resolveNamedTypeMembers(targetType);
+      const namedTarget = targetType as NamedType;
+      const namedMembers = this.resolveNamedTypeMembers(namedTarget);
       if (!namedMembers) {
         return false;
       }
       return this.objectPropertiesAreAssignable(
-        sourceType.properties,
-        this.withOptionalInterfaceMembers(targetType, namedMembers)
+        (sourceType as ObjectType).properties,
+        this.withOptionalInterfaceMembers(namedTarget, namedMembers)
       );
     }
 
@@ -5660,12 +5664,14 @@ export class TypeChecker {
     }
 
     if (parameterType.kind === AnalysisTypeKind.Named && argumentType.kind === AnalysisTypeKind.Object) {
-      const parameterMembers = this.resolveNamedTypeMembers(parameterType);
+      const parameterMembers = this.resolveNamedTypeMembers(parameterType as NamedType);
       if (!parameterMembers) {
         return;
       }
-      for (const [propertyName, nestedParameterType] of parameterMembers) {
-        const nestedArgumentType = argumentType.properties.get(propertyName);
+      const argumentObject = argumentType as ObjectType;
+      for (const propertyName of parameterMembers.keys()) {
+        const nestedParameterType = parameterMembers.get(propertyName)!;
+        const nestedArgumentType = argumentObject.properties.get(propertyName);
         if (!nestedArgumentType) {
           continue;
         }
@@ -5681,11 +5687,13 @@ export class TypeChecker {
     }
 
     if (parameterType.kind === AnalysisTypeKind.Object && argumentType.kind === AnalysisTypeKind.Named) {
-      const argumentMembers = this.resolveNamedTypeMembers(argumentType);
+      const argumentMembers = this.resolveNamedTypeMembers(argumentType as NamedType);
       if (!argumentMembers) {
         return;
       }
-      for (const [propertyName, nestedParameterType] of parameterType.properties) {
+      const parameterObject = parameterType as ObjectType;
+      for (const propertyName of parameterObject.properties.keys()) {
+        const nestedParameterType = parameterObject.properties.get(propertyName)!;
         const nestedArgumentType = argumentMembers.get(propertyName);
         if (!nestedArgumentType) {
           continue;
@@ -5770,8 +5778,11 @@ export class TypeChecker {
     }
 
     if (parameterType.kind === AnalysisTypeKind.Object && argumentType.kind === AnalysisTypeKind.Object) {
-      for (const [propertyName, nestedParameterType] of parameterType.properties) {
-        const nestedArgumentType = argumentType.properties.get(propertyName);
+      const parameterObject = parameterType as ObjectType;
+      const argumentObject = argumentType as ObjectType;
+      for (const propertyName of parameterObject.properties.keys()) {
+        const nestedParameterType = parameterObject.properties.get(propertyName)!;
+        const nestedArgumentType = argumentObject.properties.get(propertyName);
         if (!nestedArgumentType) {
           continue;
         }
@@ -5897,7 +5908,7 @@ export class TypeChecker {
       return this.typeContainsUnresolvedNamedReference(functionType.returnType, scope, nestedTypeParameters);
     }
     if (type.kind === AnalysisTypeKind.Object) {
-      for (const property of type.properties.values()) {
+      for (const property of (type as ObjectType).properties.values()) {
         if (this.typeContainsUnresolvedNamedReference(property, scope, localTypeParameters)) return true;
       }
       return false;
@@ -5941,7 +5952,7 @@ export class TypeChecker {
       return this.typeContainsTypeParameterReference(functionType.returnType, typeParameters);
     }
     if (type.kind === AnalysisTypeKind.Object) {
-      for (const property of type.properties.values()) {
+      for (const property of (type as ObjectType).properties.values()) {
         if (this.typeContainsTypeParameterReference(property, typeParameters)) return true;
       }
       return false;
@@ -6471,7 +6482,11 @@ export class TypeChecker {
       return type.types.some((member) => this.expectedTypeDependsOnLiteral(member));
     }
     if (type.kind === AnalysisTypeKind.Object) {
-      return [...type.properties.values()].some((member) => this.expectedTypeDependsOnLiteral(member));
+      for (const member of (type as ObjectType).properties.values()) {
+        if (this.expectedTypeDependsOnLiteral(member)) {
+          return true;
+        }
+      }
     }
     return false;
   }
@@ -6645,7 +6660,7 @@ export class TypeChecker {
 
   private propertyMapFromJsxPropsType(propsType: AnalysisType): Map<string, AnalysisType> | null {
     if (propsType.kind === AnalysisTypeKind.Object) {
-      return new Map(propsType.properties);
+      return new Map((propsType as ObjectType).properties);
     }
     if (propsType.kind === AnalysisTypeKind.Named) {
       return this.resolveNamedTypeMembers(propsType);
@@ -7099,7 +7114,7 @@ export class TypeChecker {
       }
     }
     if (type.kind === AnalysisTypeKind.Object) {
-      const constructorType = type.properties.get("constructor");
+      const constructorType = (type as ObjectType).properties.get("constructor");
       return constructorType?.kind === AnalysisTypeKind.Function ? constructorType : null;
     }
     if (type.kind === AnalysisTypeKind.Intersection) {
@@ -7178,7 +7193,9 @@ export class TypeChecker {
     scope: Scope,
     constructorType: FunctionType
   ): AnalysisType[] {
-    const args = newExpression.args ?? [];
+    const args: Expr[] = newExpression.kind === NodeKind.NewExpression
+      ? (newExpression as NewExpression).args ?? []
+      : (newExpression as CallExpression).args ?? [];
     return args.map((argument, index): AnalysisType => {
       const expectedParameterType = constructorType.parameters[index]?.type;
       const contextualExpectedType = expectedParameterType
@@ -8219,7 +8236,7 @@ export class TypeChecker {
 
   private propertyNamesForType(type: AnalysisType): string[] {
     if (type.kind === AnalysisTypeKind.Object) {
-      return [...type.properties.keys()].map((key) => normalizePropertyName(key)).sort();
+      return [...(type as ObjectType).properties.keys()].map((key) => normalizePropertyName(key)).sort();
     }
     if (type.kind === AnalysisTypeKind.Named) {
       const expanded = this.expandTypeAliases(type);
@@ -8259,7 +8276,7 @@ export class TypeChecker {
       return combineTypes(memberTypes);
     }
     if (type.kind === AnalysisTypeKind.Object) {
-      return this.memberTypeFromProperties(type.properties, propertyName);
+      return this.memberTypeFromProperties((type as ObjectType).properties, propertyName);
     }
     if (type.kind === AnalysisTypeKind.Named) {
       const constraint = this.activeTypeParameterConstraint(type.name);
@@ -8472,7 +8489,7 @@ export class TypeChecker {
     }
 
     this.activeTypeAliasNames.add(typeAlias.name.name);
-    const targetType = this.withTypeParametersResult(
+    const targetType = this.withTypeParametersResult<AnalysisType>(
       typeParameterNameList(typeParameters),
       () => this.resolveTypeNameText(typeAlias.targetType.name, typeAlias.targetType, scope, false),
       this.typeParameterConstraintMap(typeParameters, scope)
@@ -8894,7 +8911,7 @@ export class TypeChecker {
 
   private objectLikePropertyEntries(type: AnalysisType): ReadonlyMap<string, AnalysisType> | null {
     if (type.kind === AnalysisTypeKind.Object) {
-      return type.properties;
+      return (type as ObjectType).properties;
     }
     if (type.kind === AnalysisTypeKind.Named) {
       const expanded = this.expandTypeAliases(type);
@@ -9358,7 +9375,7 @@ export class TypeChecker {
     if (type.kind !== AnalysisTypeKind.Object) {
       return false;
     }
-    return propertyEntries(type.properties).some(([candidateName]) =>
+    return propertyEntries((type as ObjectType).properties).some(([candidateName]) =>
       normalizePropertyName(candidateName) === propertyName && isReadonlyPropertyName(candidateName)
     );
   }
@@ -9701,7 +9718,10 @@ export class TypeChecker {
       if (property.kind === NodeKind.ObjectSpreadProperty) {
         const spreadType = this.visitExpression((property as ObjectSpreadProperty).argument, scope);
         if (spreadType.kind === AnalysisTypeKind.Object) {
-          for (const [name, type] of spreadType.properties) properties.set(name, type);
+          const spreadObject = spreadType as ObjectType;
+          for (const name of spreadObject.properties.keys()) {
+            properties.set(name, spreadObject.properties.get(name)!);
+          }
           continue;
         }
         if (spreadType.kind === AnalysisTypeKind.Named) {
@@ -9793,7 +9813,7 @@ export class TypeChecker {
       return undefined;
     }
     if (contextualExpectedType.kind === AnalysisTypeKind.Object) {
-      return new Map(contextualExpectedType.properties);
+      return new Map((contextualExpectedType as ObjectType).properties);
     }
     if (contextualExpectedType.kind === AnalysisTypeKind.Named) {
       return this.resolveNamedTypeMembers(contextualExpectedType) ?? undefined;
@@ -9870,7 +9890,7 @@ export class TypeChecker {
       return false;
     }
     if (type.kind === AnalysisTypeKind.Object) {
-      return !this.objectPropertiesHaveDynamicKeys(type.properties);
+      return !this.objectPropertiesHaveDynamicKeys((type as ObjectType).properties);
     }
     if (type.kind === AnalysisTypeKind.Builtin) {
       return false;
@@ -9951,7 +9971,7 @@ export class TypeChecker {
       return type.name === "any" || type.name === "unknown" || type.name === "object";
     }
     if (type.kind === AnalysisTypeKind.Object) {
-      return this.objectPropertiesHaveDynamicKeys(type.properties);
+      return this.objectPropertiesHaveDynamicKeys((type as ObjectType).properties);
     }
     if (type.kind === AnalysisTypeKind.Named) {
       if (this.objectTypeTextHasDynamicProperties(type.name)) {
@@ -10875,7 +10895,7 @@ export class TypeChecker {
       return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
     }
     if (resolvedObjectType.kind === AnalysisTypeKind.Object) {
-      return resolvedObjectType.properties.get(memberName) ?? fallbackExtensionType();
+      return (resolvedObjectType as ObjectType).properties.get(memberName) ?? fallbackExtensionType();
     }
     if (resolvedObjectType.kind === AnalysisTypeKind.Array) {
       const arrayMembers = this.membersForArrayAlias(resolvedObjectType);
@@ -11389,8 +11409,10 @@ export class TypeChecker {
 
   private membersForType(type: AnalysisType): Map<string, AnalysisType> | null {
     if (type.kind === AnalysisTypeKind.Union) {
+      const union = type as UnionType;
       const memberMaps: Map<string, AnalysisType>[] = [];
-      for (const memberType of type.types.filter((member) => !isNullishType(member))) {
+      for (const memberType of union.types) {
+        if (isNullishType(memberType)) continue;
         const members = this.membersForType(memberType);
         if (!members) {
           return null;
@@ -11405,19 +11427,24 @@ export class TypeChecker {
       }
       const merged = new Map<string, AnalysisType>();
       for (const memberName of allNames) {
-        const variants = memberMaps.map((members) => members.get(memberName) ?? builtinType("undefined"));
+        const variants: AnalysisType[] = memberMaps.map(
+          (members: Map<string, AnalysisType>): AnalysisType =>
+            members.get(memberName) ?? builtinType("undefined")
+        );
         merged.set(memberName, combineTypes(variants));
       }
       return merged.size > 0 ? merged : null;
     }
     if (type.kind === AnalysisTypeKind.Intersection) {
+      const intersection = type as IntersectionType;
       const merged = new Map<string, AnalysisType>();
-      for (const memberType of type.types) {
+      for (const memberType of intersection.types) {
         const members = this.membersForType(memberType);
         if (!members) {
           continue;
         }
-        for (const [memberName, memberValueType] of members.entries()) {
+        for (const memberName of members.keys()) {
+          const memberValueType = members.get(memberName)!;
           const existing = merged.get(memberName);
           merged.set(memberName, existing ? combineTypes([existing, memberValueType]) : memberValueType);
         }
@@ -11425,7 +11452,7 @@ export class TypeChecker {
       return merged.size > 0 ? merged : null;
     }
     if (type.kind === AnalysisTypeKind.Object) {
-      return new Map(type.properties);
+      return new Map((type as ObjectType).properties);
     }
     if (type.kind === AnalysisTypeKind.Array) {
       return this.membersForArrayAlias(type);
@@ -11486,7 +11513,7 @@ export class TypeChecker {
       const fn = candidate as FunctionStatement;
       const typeParameterNames = typeParameterNameList(fn.typeParameters ?? []);
       const availableTypeParameterNames: string[] = [...typeParameterNames];
-      const functionMemberType = this.withTypeParametersResult(typeParameterNames, (): FunctionType => {
+      const functionMemberType = this.withTypeParametersResult<FunctionType>(typeParameterNames, (): FunctionType => {
         const params = (fn.parameters ?? []).filter((parameter) => parameter.thisParameter !== true).map((p) => ({
           name: p.name.kind === NodeKind.Identifier ? (p.name as Identifier).name : memberName,
           type: this.typeFromAnnotationLooseWithTypeParameters(
@@ -11653,7 +11680,7 @@ export class TypeChecker {
 
       const methodTypeParameterNames = typeParameterNameList(methodMember.typeParameters ?? []);
       const availableTypeParameterNames: string[] = [...substitutions.keys(), ...methodTypeParameterNames];
-      const methodType = this.withTypeParametersResult(methodTypeParameterNames, (): FunctionType => {
+      const methodType = this.withTypeParametersResult<FunctionType>(methodTypeParameterNames, (): FunctionType => {
         const parameters: FunctionTypeParameter[] = [];
         for (const parameter of methodMember.parameters) {
           if (parameter.thisParameter === true) continue;
@@ -11821,7 +11848,7 @@ export class TypeChecker {
         const symbolType = classScope ? classScope.symbols.get(methodMember.name.name)?.type : undefined;
         const methodTypeParameterNames = typeParameterNameList(methodMember.typeParameters ?? []);
         const availableTypeParameterNames: string[] = [...substitutions.keys(), ...methodTypeParameterNames];
-        let rawReturnType = this.withTypeParametersResult(methodTypeParameterNames, (): AnalysisType =>
+        let rawReturnType = this.withTypeParametersResult<AnalysisType>(methodTypeParameterNames, (): AnalysisType =>
           this.typeFromAnnotationLooseWithTypeParameters(
             methodMember.returnType,
             availableTypeParameterNames,
@@ -11844,7 +11871,7 @@ export class TypeChecker {
           continue;
         }
         if (methodMember.accessorKind === "set") {
-          const parameterType = this.withTypeParametersResult(methodTypeParameterNames, (): AnalysisType =>
+          const parameterType = this.withTypeParametersResult<AnalysisType>(methodTypeParameterNames, (): AnalysisType =>
             this.typeFromAnnotationLooseWithTypeParameters(
               methodMember.parameters[0]?.typeAnnotation,
               availableTypeParameterNames,
@@ -11854,7 +11881,7 @@ export class TypeChecker {
           members.set(methodMember.name.name, this.substituteTypeParameters(parameterType, substitutions));
           continue;
         }
-        const methodType = this.withTypeParametersResult(methodTypeParameterNames, (): FunctionType => {
+        const methodType = this.withTypeParametersResult<FunctionType>(methodTypeParameterNames, (): FunctionType => {
           const parameters: FunctionTypeParameter[] = [];
           for (const parameter of methodMember.parameters) {
             if (parameter.thisParameter === true) continue;
@@ -13321,7 +13348,7 @@ export class TypeChecker {
           return this.expandTypeAliases(conditionalTarget);
         }
         const typeParameterNames = typeParameterNameList(typeAlias.typeParameters ?? []);
-        const targetType = this.withTypeParametersResult(typeParameterNames, (): AnalysisType =>
+        const targetType = this.withTypeParametersResult<AnalysisType>(typeParameterNames, (): AnalysisType =>
           this.typeFromTypeNameLooseWithTypeParameters(
             typeAlias.targetType.name,
             new Set(typeParameterNames)
