@@ -78,6 +78,7 @@ import type { Node } from "compiler/ast/ast";
 import { compoundAssignmentBinaryOperator } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { AnalysisType, FunctionType } from "compiler/analysis/types";
+import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import { typeToString } from "compiler/analysis/types";
 import type { BindingElement, BindingName } from "compiler/ast/ast";
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
@@ -116,6 +117,7 @@ interface RuntimeOperatorInfo extends RuntimeOverloadInfo {
 
 interface RuntimeExtensionMethodInfo extends RuntimeOverloadInfo {
   name: string;
+  universal?: boolean;
 }
 
 interface RuntimeEnumInfo {
@@ -144,6 +146,8 @@ export const DEFAULT_JSX_FRAGMENT_FACTORY = "React.Fragment";
 // outside ActiveEmitState (they are not a top-level call context).
 let activeExtensionThis = false;
 let activeExtensionReceiverTypeName: string | null = null;
+let activeLambdaReceiverExpression: string | null = null;
+let activeLambdaReceiverLabels: ReadonlyMap<string, string> = new Map();
 
 // All other per-emission emitter state lives in this single state object:
 // emitProgramStatementPairs swaps in a fresh object and restores the previous
@@ -176,6 +180,7 @@ interface ActiveEmitState {
   implicitReceiverIdentifiers: ReadonlySet<Node>;
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string>;
   implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string>;
+  receiverLambdas: ReadonlyMap<Node, ReceiverLambdaInfo>;
   expressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
   /**
    * Expressions flagged by the analyzer as receiving an implicit `await`
@@ -216,6 +221,7 @@ function createEmptyEmitState(): ActiveEmitState {
     implicitReceiverIdentifiers: new Set(),
     staticImplicitReceiverIdentifiers: new Map(),
     implicitReceiverExtensionIdentifiers: new Map(),
+    receiverLambdas: new Map(),
     expressionTypes: undefined,
     autoAwaitExpressions: new Set(),
     asyncForStatements: new Set(),
@@ -651,8 +657,16 @@ function resolveExtensionMethodCall(call: CallExpression): string | null {
     return null;
   }
   const methodName = (member.property as Identifier).name;
-  const methods = activeState.extensionMethods.get(receiverType)?.filter((candidate) => candidate.name === methodName);
+  const resolvedAsExtension = activeState.implicitReceiverExtensionIdentifiers.has(member.property as Node);
+  const methods = [
+    ...(activeState.extensionMethods.get(receiverType) ?? []),
+    ...(resolvedAsExtension
+      ? [...activeState.extensionMethods.values()].flatMap((candidates) =>
+          candidates.filter((candidate) => candidate.universal === true))
+      : [])
+  ].filter((candidate) => candidate.name === methodName);
   if (!methods || methods.length === 0) {
+    if (!resolvedAsExtension) return null;
     const argumentTypes = call.args.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
     return resolveImportedExtensionMethodName(methodName, argumentTypes);
   }
@@ -664,7 +678,7 @@ function resolveExtensionMethodCall(call: CallExpression): string | null {
     if (isOverloadMatch(candidate, argumentTypes)) return runtimeExtensionMethodName(candidate);
   }
   if (available) return runtimeExtensionMethodName(available);
-  return resolveImportedExtensionMethodName(methodName, argumentTypes);
+  return resolvedAsExtension ? resolveImportedExtensionMethodName(methodName, argumentTypes) : null;
 }
 
 function importedExtensionMethodParameterTypes(methodName: string, emittedName: string): string[] | null {
@@ -806,12 +820,22 @@ function emitIdentifier(identifier: Identifier): string {
   if (activeExtensionThis && identifier.name === "this") {
     return "$this";
   }
+  if (identifier.name === "this" && activeLambdaReceiverExpression) {
+    return identifier.receiverLabel
+      ? activeLambdaReceiverLabels.get(identifier.receiverLabel) ?? activeLambdaReceiverExpression
+      : activeLambdaReceiverExpression;
+  }
   const staticClassName = activeState.staticImplicitReceiverIdentifiers.get(identifier);
   if (staticClassName) {
     return `${staticClassName}.${identifier.name}`;
   }
   if (activeState.implicitReceiverIdentifiers.has(identifier)) {
-    return `${activeExtensionThis ? "$this" : "this"}.${identifier.name}`;
+    return `${activeLambdaReceiverExpression ?? (activeExtensionThis ? "$this" : "this")}.${identifier.name}`;
+  }
+  const extensionReceiver = activeState.implicitReceiverExtensionIdentifiers.get(identifier);
+  if (extensionReceiver && activeState.extensionProperties.has(identifier.name)) {
+    const receiver = activeLambdaReceiverExpression ?? (activeExtensionThis ? "$this" : "this");
+    return `${extensionPropertyRuntimeName(extensionReceiver, identifier.name)}(${receiver})`;
   }
   return resolveJsName(identifier.name);
 }
@@ -955,9 +979,18 @@ function emitVariableDelegateAssignment(assignment: AssignmentExpression): strin
 }
 
 function emitExtensionPropertyAssignment(assignment: AssignmentExpression): string | null {
-  if (assignment.operator !== "=" || assignment.left.kind !== NodeKind.MemberExpression) {
+  if (assignment.operator !== "=") {
     return null;
   }
+  if (assignment.left.kind === NodeKind.Identifier) {
+    const identifier = assignment.left as Identifier;
+    const receiverType = activeState.implicitReceiverExtensionIdentifiers.get(identifier);
+    if (!receiverType || !activeState.extensionPropertySetters.has(identifier.name)) return null;
+    const receiverText = activeLambdaReceiverExpression ?? (activeExtensionThis ? "$this" : "this");
+    const valueText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
+    return `${extensionPropertySetterRuntimeName(receiverType, identifier.name)}(${receiverText}, ${valueText})`;
+  }
+  if (assignment.left.kind !== NodeKind.MemberExpression) return null;
   const member = assignment.left as MemberExpression;
   if (member.computed || member.property.kind !== NodeKind.Identifier) {
     return null;
@@ -1496,6 +1529,15 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case NodeKind.CallExpression: {
         const call = expression as CallExpression;
+        if (
+          call.receiverBlockShorthand === true &&
+          call.args[0]?.kind === NodeKind.ArrowFunctionExpression
+        ) {
+          const receiver = call.callee;
+          const receiverText = emitExpression(receiver, PREC_ASSIGNMENT, "right");
+          const blockText = emitExpression(call.args[0]!, PREC_ASSIGNMENT, "right");
+          return `(($$receiver_block) => { (${blockText})($$receiver_block); return $$receiver_block; })(${receiverText})`;
+        }
         const javaScriptImplementation = emitJavaScriptImplementationCall(call);
         if (javaScriptImplementation) {
           return javaScriptImplementation;
@@ -1514,7 +1556,12 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           activeState.implicitReceiverExtensionIdentifiers.has(call.callee as Node)
         ) {
           const methodName = (call.callee as Identifier).name;
-          const receiverMethods = activeState.extensionMethods.get(activeExtensionReceiverTypeName);
+          const resolvedReceiverType = activeState.implicitReceiverExtensionIdentifiers.get(call.callee as Node)!;
+          const receiverMethods = [
+            ...(activeState.extensionMethods.get(resolvedReceiverType) ?? []),
+            ...[...activeState.extensionMethods.values()].flatMap((candidates) =>
+              candidates.filter((candidate) => candidate.universal === true))
+          ];
           const candidates = receiverMethods?.filter((m) => m.name === methodName);
           if (candidates && candidates.length > 0) {
             const argumentTypes = call.args.map((arg) =>
@@ -1531,7 +1578,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
             }
             const resolvedName: string | undefined = available ? runtimeExtensionMethodName(available) : undefined;
             if (resolvedName) {
-              const thisReceiver = activeExtensionThis ? "$this" : "this";
+              const thisReceiver = activeLambdaReceiverExpression ?? (activeExtensionThis ? "$this" : "this");
               const callArguments = [thisReceiver, ...emitCallArgumentTexts(call.callee, call.args)];
               return `${resolvedName}(${callArguments.join(", ")})`;
             }
@@ -1626,10 +1673,34 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (arrow.contextualObjectLiteral && activeState.expressionTypes?.get(expression as unknown as Node)?.kind !== AnalysisTypeKind.Function) {
           return emitExpression(arrow.contextualObjectLiteral, parentPrecedence, side);
         }
-        const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
-        return withVariableDelegateShadows<string>(functionParameterBindingNames(arrow.parameters), () => {
+        const receiverInfo = activeState.receiverLambdas.get(arrow as Node);
+        const valueParameters = receiverInfo?.implicitParameter ? arrow.parameters.slice(1) : arrow.parameters;
+        const receiverName = receiverInfo
+          ? `__vexa_receiver_${sanitizeManglePart(receiverInfo.label)}_${activeState.generatedSymbolCounter++}`
+          : null;
+        const emittedParameters = receiverName
+          ? [receiverName, emitFunctionParameters(valueParameters)].filter(Boolean).join(", ")
+          : emitFunctionParameters(valueParameters);
+        const parameters = `(${emittedParameters})`;
+        const shadowNames = receiverName
+          ? [receiverName, ...functionParameterBindingNames(valueParameters)]
+          : functionParameterBindingNames(valueParameters);
+        return withVariableDelegateShadows<string>(shadowNames, () => {
+          const previousReceiver = activeLambdaReceiverExpression;
+          const previousLabels = activeLambdaReceiverLabels;
+          const previousReceiverType = activeExtensionReceiverTypeName;
+          if (receiverInfo && receiverName) {
+            activeLambdaReceiverExpression = receiverName;
+            activeLambdaReceiverLabels = new Map(previousLabels).set(receiverInfo.label, receiverName);
+            activeExtensionReceiverTypeName = typeToString(receiverInfo.receiverType).replace(/<.*$/, "");
+          }
+          try {
           if (arrow.body.kind === NodeKind.BlockStatement) {
-            return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => ${emitScopedBlock(arrow.body as BlockStatement)}`;
+            const block = emitScopedBlock(arrow.body as BlockStatement);
+            const receiverAlias = receiverInfo?.implicitParameter && receiverName
+              ? `\nconst it = ${receiverName};`
+              : "";
+            return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => ${receiverAlias ? `{${receiverAlias}${block.slice(1)}` : block}`;
           }
           const bodyExpression = arrow.body as Expr;
           const scope = withOptionalAssignmentTempScope<string>(() => emitExpression(bodyExpression));
@@ -1638,10 +1709,18 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           if (temps.length > 0) {
             return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => {\n${emitOptionalAssignmentTempDeclaration(temps)}\nreturn ${bodyText};\n}`;
           }
+          if (receiverInfo?.implicitParameter && receiverName) {
+            return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => { const it = ${receiverName}; return ${bodyText}; }`;
+          }
           if (conciseArrowBodyStartsWithObjectLiteral(bodyExpression)) {
             return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => (${bodyText})`;
           }
           return `${asyncEmitPrefix(arrow.async, arrow.sync)}${parameters} => ${bodyText}`;
+          } finally {
+            activeLambdaReceiverExpression = previousReceiver;
+            activeLambdaReceiverLabels = previousLabels;
+            activeExtensionReceiverTypeName = previousReceiverType;
+          }
         });
       }
       case NodeKind.FunctionExpression: {
@@ -2766,7 +2845,8 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
           emittedName,
           parameterTypes: visibleParameterTypeNames(fn.parameters),
           hasBody: fn.missingBody !== true,
-          rest: fn.parameters.some((parameter) => parameter.rest === true)
+          rest: fn.parameters.some((parameter) => parameter.rest === true),
+          universal: (fn.typeParameters ?? []).some((parameter) => parameter.name.name === fn.receiverType!.name)
         };
         appendMapArrayValue(extensionMethods, fn.receiverType.name, info);
         appendUniqueMapArrayValue(importedExtensionRuntimeNames, fn.name.name, emittedName);
@@ -3152,7 +3232,8 @@ export function emitProgramStatementPairs(
   runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes),
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map(),
   implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string> = new Map(),
-  asyncForStatements: ReadonlySet<Node> = new Set()
+  asyncForStatements: ReadonlySet<Node> = new Set(),
+  receiverLambdas: ReadonlyMap<Node, ReceiverLambdaInfo> = new Map()
 ): EmittedProgramStatement[] {
   const saved = activeState;
   activeState = {
@@ -3175,6 +3256,7 @@ export function emitProgramStatementPairs(
     implicitReceiverIdentifiers,
     staticImplicitReceiverIdentifiers,
     implicitReceiverExtensionIdentifiers,
+    receiverLambdas,
     expressionTypes,
     autoAwaitExpressions,
     asyncForStatements,

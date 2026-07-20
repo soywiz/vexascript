@@ -1,6 +1,6 @@
 import "../cli/localVfs";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import type { Connection, Diagnostic, Range, TextDocuments } from "vscode-languageserver/node.js";
+import type { Connection, Diagnostic, Hover, Location, Range, TextDocuments } from "vscode-languageserver/node.js";
 import { AnalysisSessionCache } from "../compiler/lsp/analysisSession";
 import { collectAllImportedDeclarations } from "../compiler/lsp/importedDeclarations";
 import { ensureDomProgram, getDomDeclarationFilePath } from "../compiler/runtime/domDeclarations";
@@ -35,6 +35,13 @@ interface StartedWorkspaceServer {
 export interface LspOpenSessionResult {
   documentDiagnostics: Diagnostic[];
   workspaceDiagnostics: Diagnostic[];
+  definitions: Array<Location | Location[] | null>;
+  hovers: Array<Hover | null>;
+}
+
+export interface LspPositionProbe {
+  line: number;
+  character: number;
 }
 
 function createFakeConnection(): FakeConnection {
@@ -274,7 +281,8 @@ function fullDocumentRange(document: TextDocument): Range {
 
 export async function openEntrypointInLspSession(
   entrypoint: string,
-  workspaceRoot = process.cwd()
+  workspaceRoot = process.cwd(),
+  probes: readonly LspPositionProbe[] = []
 ): Promise<LspOpenSessionResult> {
   const source = await vfs().readFile(entrypoint);
   const server = await startWorkspaceServer(workspaceRoot);
@@ -335,6 +343,12 @@ export async function openEntrypointInLspSession(
   }>;
 
   const documentDiagnosticReport = await documentDiagnosticsPromise;
+  const definitionsPromise = Promise.all(probes.map((position) => Promise.resolve(
+    server.fakeConnection.handlers.get("definition")!({ textDocument: { uri }, position })
+  ) as Promise<Location | Location[] | null>));
+  const hoversPromise = Promise.all(probes.map((position) => Promise.resolve(
+    server.fakeConnection.handlers.get("hover")!({ textDocument: { uri }, position })
+  ) as Promise<Hover | null>));
   // Keep the full VS Code-like open burst, but let independent requests overlap
   // so shared analysis/cache work can dedupe through the real server paths.
   const codeActionsPromise = server.fakeConnection.handlers.get("codeAction")!({
@@ -354,7 +368,9 @@ export async function openEntrypointInLspSession(
     ,
     ,
     ,
-    workspaceDiagnosticReport
+    workspaceDiagnosticReport,
+    definitions,
+    hovers
   ] = await Promise.all([
     autoAwaitPromise,
     inlayHintsPromise,
@@ -363,11 +379,15 @@ export async function openEntrypointInLspSession(
     codeActionsPromise,
     semanticTokensPromise,
     semanticTokensRangePromise,
-    workspaceDiagnosticsPromise
+    workspaceDiagnosticsPromise,
+    definitionsPromise,
+    hoversPromise
   ]);
 
   return {
     documentDiagnostics: documentDiagnosticReport.items,
-    workspaceDiagnostics: workspaceDiagnosticReport.items.find((item) => item.uri === uri)?.items ?? []
+    workspaceDiagnostics: workspaceDiagnosticReport.items.find((item) => item.uri === uri)?.items ?? [],
+    definitions,
+    hovers
   };
 }

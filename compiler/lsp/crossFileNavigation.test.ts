@@ -2971,8 +2971,9 @@ describe("cross-file navigation", () => {
     const mainPath = "/src/main.vx";
     const virtualDomPath = "/runtime/dom.d.ts";
     const mainSource = 'const div = document.createElement("div")\n';
+    const domProgram = await ensureDomProgram();
     const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
-    const ambientDeclarations = (await ensureDomProgram()).body;
+    const ambientDeclarations = domProgram.body;
     const mainSession = createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
     const domSession = createAnalysisSession(domSource);
 
@@ -3402,8 +3403,9 @@ describe("cross-file navigation", () => {
       "  beginPath()",
       "}"
     ].join("\n");
+    const domProgram = await ensureDomProgram();
     const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
-    const ambientDeclarations = (await ensureDomProgram()).body;
+    const ambientDeclarations = domProgram.body;
     const mainSession = createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
     const domSession = createAnalysisSession(domSource);
 
@@ -3426,6 +3428,43 @@ describe("cross-file navigation", () => {
     expect(location).not.toBeNull();
     expect(location?.uri).toBe(pathToFileURL(virtualDomPath).toString());
     expect(location?.range).toBeTruthy();
+    const domLine = domSource.split("\n").findIndex((line) => line.includes("beginPath()"));
+    expect(location?.range.start.line).toBe(domLine);
+  });
+
+  it("resolves implicit members inside receiver-block shorthand", async () => {
+    const mainPath = "/src/main.vx";
+    const virtualDomPath = "/runtime/dom.d.ts";
+    const cursor = sourceWithCursor(dedent`
+      fun draw(context: CanvasRenderingContext2D): CanvasRenderingContext2D {
+        return context. {
+          begin^^^Path()
+        }
+      }
+    `);
+    const domProgram = await ensureDomProgram();
+    const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
+    const ambientDeclarations = domProgram.body;
+    const mainSession = createAnalysisSession(cursor.source, { ambientDeclarations: ambientDeclarations });
+    const domSession = createAnalysisSession(domSource);
+
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: cursor.line,
+      character: cursor.character,
+      session: mainSession,
+      sourceRoots: [],
+      vfs: new MyVfs(virtualDomPath, domSource),
+      getSessionForFilePath: (filePath) => {
+        if (filePath === mainPath) return mainSession;
+        if (filePath === virtualDomPath) return domSession;
+        return null;
+      }
+    });
+
+    expect(mainSession.parserErrors).toEqual([]);
+    expect(mainSession.semanticIssues).toEqual([]);
+    expect(location?.uri).toBe(pathToFileURL(virtualDomPath).toString());
     const domLine = domSource.split("\n").findIndex((line) => line.includes("beginPath()"));
     expect(location?.range.start.line).toBe(domLine);
   });

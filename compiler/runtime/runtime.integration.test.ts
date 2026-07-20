@@ -20,6 +20,64 @@ function executeTranspiled(source: string, target: TranspileTarget = "optimized"
 }
 
 describe("runtime integration", () => {
+  it("executes receiver lambdas, receiver-block shorthand, and labeled receivers", () => {
+    const output = executeTranspiled(`
+fun <T> T.apply(block: T.() -> void): T { block(this); return this }
+class Point(var x: number, var y: number)
+fun Point.demo(block: Point.() -> void): Point { block(this); return this }
+class ExistingApply {
+  apply(value: number): number { return value + 1 }
+}
+
+val first = Point(10, 20).apply { x = y * 2; y = this.x * 3 }
+val second = Point(4, 6). {
+  x *= 2
+  demo {
+    this@demo.x += 1
+    this@apply.y += this@demo.x / 2
+  }
+}
+console.log(first.x, first.y, second.x, second.y, ExistingApply().apply(4))
+`);
+
+    expect(output).toEqual([[40, 120, 9, 10.5, 5]]);
+  });
+
+  it("executes receiver-block shorthand without calling or requiring apply", () => {
+    const source = `
+class PlainPoint(var x: number, var y: number)
+class TrapPoint(var x: number, var applyCalls: int = 0) {
+  apply(block: TrapPoint.() -> void): TrapPoint {
+    applyCalls += 1
+    block(this)
+    return this
+  }
+}
+
+val plain = PlainPoint(3, 4). { x += y; y = this.x * 2 }
+val trap = TrapPoint(5). { x *= 3 }
+console.log(plain.x, plain.y, trap.x, trap.applyCalls)
+`;
+
+    expect(executeTranspiled(source, "optimized")).toEqual([[7, 14, 15, 0]]);
+    expect(executeTranspiled(source, "conservative")).toEqual([[7, 14, 15, 0]]);
+  });
+
+  it("resolves inherited extension methods inside receiver blocks", () => {
+    const output = executeTranspiled(`
+class ReceiverBase(var value: int)
+class ReceiverDerived extends ReceiverBase {
+  constructor(value: int) { super(value) }
+}
+fun ReceiverBase.increment(amount: int): void { value += amount }
+
+val result = ReceiverDerived(3). { increment(4) }
+console.log(result.value)
+`);
+
+    expect(output).toEqual([[7]]);
+  });
+
   it("executes runtime namespace exports", () => {
     const output = executeTranspiled(`
 namespace Tools {

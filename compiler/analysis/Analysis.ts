@@ -9,6 +9,7 @@ import type {
   IdentifierResolution,
   JsxAttributeResolution,
   OperatorResolution,
+  ReceiverLambdaInfo,
   SelectedCallResolution,
   Scope
 } from "./model";
@@ -125,6 +126,8 @@ export class Analysis {
   private readonly extensionPropertyResolutions: ExtensionPropertyResolution[];
   private readonly expressionTypes: Map<Node, AnalysisType>;
   private readonly selectedCallResolutions: SelectedCallResolution[];
+  private readonly receiverLambdas: ReadonlyMap<Node, ReceiverLambdaInfo>;
+  private readonly extensionMethodsByReceiver: ReadonlyMap<string, ReadonlyMap<string, AnalysisType>>;
   private readonly autoAwaitExpressions: Set<Node>;
   private readonly asyncForStatements: Set<Node>;
 
@@ -156,6 +159,8 @@ export class Analysis {
       this.extensionPropertyResolutions = [];
       this.expressionTypes = new Map();
       this.selectedCallResolutions = [];
+      this.receiverLambdas = new Map();
+      this.extensionMethodsByReceiver = new Map();
       this.autoAwaitExpressions = new Set();
       this.asyncForStatements = new Set();
       return;
@@ -184,6 +189,8 @@ export class Analysis {
     this.extensionPropertyResolutions = checked.extensionPropertyResolutions;
     this.expressionTypes = checked.expressionTypes;
     this.selectedCallResolutions = checked.selectedCallResolutions;
+    this.receiverLambdas = checked.receiverLambdas;
+    this.extensionMethodsByReceiver = checked.extensionMethodsByReceiver;
     this.autoAwaitExpressions = checked.autoAwaitExpressions;
     this.asyncForStatements = checked.asyncForStatements;
   }
@@ -217,6 +224,10 @@ export class Analysis {
 
   getExpressionTypes(): ReadonlyMap<Node, AnalysisType> {
     return this.expressionTypes;
+  }
+
+  getReceiverLambdas(): ReadonlyMap<Node, ReceiverLambdaInfo> {
+    return this.receiverLambdas;
   }
 
   getOperatorResolutions(): readonly OperatorResolution[] {
@@ -299,6 +310,10 @@ export class Analysis {
    */
   getTopLevelSymbolType(name: string): AnalysisType | undefined {
     return this.rootScope.symbols.get(name)?.type;
+  }
+
+  getExtensionMethodType(receiverName: string, name: string): AnalysisType | undefined {
+    return this.extensionMethodsByReceiver.get(receiverName)?.get(name);
   }
 
   getCallableTypes(): ReadonlyMap<Node, AnalysisType> {

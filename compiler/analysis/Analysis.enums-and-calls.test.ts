@@ -197,6 +197,38 @@ describe("enum semantic analysis", () => {
     expect(analysis.getIssues()).toEqual([]);
   });
 
+  it("resolves implicit and labeled members in nested receiver lambdas", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      fun <T> T.apply(block: T.() -> void): T { block(this); return this }
+      class Point(var x: number, var y: number)
+      fun Point.demo(block: Point.() -> void): Point { block(this); return this }
+      Point(10, 20).apply {
+        x = y * 2
+        demo {
+          this@demo.x = 20
+          this@apply.y = 30
+        }
+      }
+    `.trimEnd())));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("treats a receiver function as the equivalent first-argument function type", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      class A(var value: number)
+      class B(val delta: number)
+      fun takesReceiver(callback: A.(B) -> void): void {}
+      fun takesPlain(callback: (A, B) -> void): void {}
+      val receiver: A.(B) -> void = { b -> value += b.delta }
+      val plain: (A, B) -> void = { a, b -> a.value += b.delta }
+      takesPlain(receiver)
+      takesReceiver(plain)
+    `.trimEnd())));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
   it("checks explicit type annotations on extension properties", () => {
     const ok = new Analysis(parseFile(tokenizeReader(dedent`
       class Duration(val value: number)

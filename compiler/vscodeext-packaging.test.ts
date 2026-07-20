@@ -18,10 +18,15 @@ describe("VS Code extension packaging", () => {
     const packageJsonPath = resolve(process.cwd(), "package.json");
     const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as RootPackageJson;
 
-    expect(pkg.scripts?.["vscodeext:install"]).toBe("pnpm --dir plugins/vscode install");
+    expect(pkg.scripts?.["vscodeext:install"]).toBe("pnpm --dir plugins/vscode run install");
+    expect(pkg.scripts?.["vscodeext:uninstall"]).toBe("pnpm --dir plugins/vscode run uninstall");
     expect(pkg.scripts?.["vscodeext:bundle"]).toBe("pnpm --dir plugins/vscode run bundle-extension");
     expect(pkg.scripts?.["vscodeext:launch"]).toBe("pnpm --dir plugins/vscode run launch");
     expect(pkg.scripts?.["vscodeext:package"]).toBe("pnpm --dir plugins/vscode run package");
+    expect(pkg.scripts?.["code"]).toBe(pkg.scripts?.["vscodeext:launch"]);
+    expect(pkg.scripts?.["code:install"]).toBe(pkg.scripts?.["vscodeext:install"]);
+    expect(pkg.scripts?.["code:uninstall"]).toBe(pkg.scripts?.["vscodeext:uninstall"]);
+    expect(pkg.scripts?.["code:package"]).toBe(pkg.scripts?.["vscodeext:package"]);
   });
 
   it("defines the extension setup, bundle, launch, and package scripts in plugins/vscode/package.json", async () => {

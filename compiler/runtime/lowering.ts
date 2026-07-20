@@ -61,7 +61,7 @@ function copyNodeBounds<T extends Node>(target: T, source: Node): T {
 }
 
 function cloneIdentifier(identifier: Identifier): Identifier {
-  return copyNodeBounds(new Identifier(identifier.name), identifier);
+  return copyNodeBounds(new Identifier(identifier.name, identifier.__vexaNativeOriginalName, identifier.receiverLabel), identifier);
 }
 
 function cloneFunctionParameter(parameter: FunctionParameter): FunctionParameter {

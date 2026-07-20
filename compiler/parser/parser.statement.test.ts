@@ -543,6 +543,22 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses receiver function type parameters with the VexaScript arrow", () => {
+        expect(parseStatement(tokenizeReader(
+            "fun <T> T.apply(block: T.() -> void): T { block(this); return this }"
+        ))).toMatchObject({
+            kind: NodeKind.FunctionStatement,
+            receiverType: { kind: NodeKind.Identifier, name: "T" },
+            name: { kind: NodeKind.Identifier, name: "apply" },
+            parameters: [{
+                kind: NodeKind.FunctionParameter,
+                name: { kind: NodeKind.Identifier, name: "block" },
+                typeAnnotation: { kind: NodeKind.Identifier, name: "T.() => void" }
+            }],
+            returnType: { kind: NodeKind.Identifier, name: "T" }
+        });
+    });
+
     it("parses a generic extension property on a generic receiver", () => {
         expect(parseStatement(tokenizeReader("val <T> Array<T>.doubledLength => length * 2"))).toEqual({
             kind: NodeKind.VarStatement,

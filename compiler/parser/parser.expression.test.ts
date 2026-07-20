@@ -1368,6 +1368,32 @@ describe("parseExpression", () => {
         expect(effectLambda.body.body[1].expression.kind).toBe(NodeKind.ArrowFunctionExpression);
     });
 
+    it("parses receiver-block shorthand and labeled this expressions", () => {
+        const expression = parseExpression(tokenizeReader(
+            "Point(10, 20). { demo { this@demo.x = 20; this@apply.y = 30 } }"
+        )) as any;
+
+        expect(expression).toMatchObject({
+            kind: NodeKind.CallExpression,
+            receiverBlockShorthand: true,
+            callee: { kind: NodeKind.CallExpression }
+        });
+        const outerLambda = expression.args[0];
+        const nestedCall = outerLambda.body.kind === NodeKind.BlockStatement
+            ? outerLambda.body.body[0].expression
+            : outerLambda.body;
+        expect(nestedCall.args[0].body.body[0].expression.left.object).toMatchObject({
+            kind: NodeKind.Identifier,
+            name: "this",
+            receiverLabel: "demo"
+        });
+        expect(nestedCall.args[0].body.body[1].expression.left.object).toMatchObject({
+            kind: NodeKind.Identifier,
+            name: "this",
+            receiverLabel: "apply"
+        });
+    });
+
     it("builds an AST for new expression variants", () => {
         expect(parseExpression(tokenizeReader("new instance()"))).toEqual({
             kind: NodeKind.NewExpression,

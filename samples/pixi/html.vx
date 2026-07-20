@@ -25,11 +25,12 @@ val badge = Graphics()
     ..position = center + Vec2(0, -16)
     ..addTo(stage)
 
-val orb = Graphics()
-    ..circle(0, 0, 28)
-    ..fill(0x004e89)
-    ..position = center + Vec2(0, -16)
-    ..addTo(stage)
+val orb = Graphics(). {
+    circle(0, 0, 28)
+    fill(0x004e89)
+    position = center + Vec2(0, -16)
+    addTo(stage)
+}
 
 val label = Text()
     ..text = "Hello PIXI from VexaScript"

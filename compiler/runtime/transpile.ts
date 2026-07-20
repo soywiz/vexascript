@@ -18,6 +18,7 @@ import { lowerProgram } from "./lowering";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
 import type { Node, Program, Statement } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
+import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import type { SourceRange } from "compiler/parser/tokenizer";
 import {
   VEXA_DIAGNOSTIC_CODES,
@@ -232,7 +233,8 @@ function emitProgramStatementSegments(
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map(),
   baseRuntimeSeed?: ReturnType<typeof createEmitProgramRuntimeSeed>,
   implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string> = new Map(),
-  asyncForStatements: ReadonlySet<Node> = new Set()
+  asyncForStatements: ReadonlySet<Node> = new Set(),
+  receiverLambdas: ReadonlyMap<Node, ReceiverLambdaInfo> = new Map()
 ): EmittedStatementSegment[] {
   const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes, emitOptions, baseRuntimeSeed);
   return emitProgramStatementPairs(
@@ -244,7 +246,8 @@ function emitProgramStatementSegments(
     runtimeContext,
     staticImplicitReceiverIdentifiers,
     implicitReceiverExtensionIdentifiers,
-    asyncForStatements
+    asyncForStatements,
+    receiverLambdas
   ).filter((pair: EmittedProgramStatement): boolean => pair.emitted.trim() !== "");
 }
 
@@ -429,7 +432,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
             ),
             extensionPropertyResolutions: new Map(
               artifacts.analysis.getExtensionPropertyResolutions().map((resolution) => [resolution.expression, resolution])
-            )
+            ),
+            receiverLambdas: artifacts.analysis.getReceiverLambdas()
           }
         ),
         warnings: [],
@@ -494,7 +498,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     staticImplicitReceiverIdentifiers,
     cachedEcmaScriptRuntimeEmitSeed,
     implicitReceiverExtensionIdentifiers,
-    asyncForStatements
+    asyncForStatements,
+    artifacts.analysis.getReceiverLambdas()
   );
   let emittedWithOffsets: string;
   if (options.preserveSourceLineOffsets) {

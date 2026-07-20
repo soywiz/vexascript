@@ -278,7 +278,11 @@ export class MissingExpression extends Expr {
 export class Identifier extends Expr {
     declare kind: NodeKind.Identifier
 
-    constructor(public name: string, /** Original module-local name retained while native symbols are isolated. */ public __vexaNativeOriginalName?: string) {
+    constructor(
+        public name: string,
+        /** Original module-local name retained while native symbols are isolated. */ public __vexaNativeOriginalName?: string,
+        /** Receiver-lambda label written as `this@label`. */ public receiverLabel?: string
+    ) {
         super(NodeKind.Identifier)
     }
 }
@@ -429,6 +433,9 @@ export function memberExpressionFromPropertyReference(propertyReference: Propert
 }
 export class CallExpression extends Expr {
     declare kind: NodeKind.CallExpression
+
+    /** `receiver. { ... }`, represented as a marked call-shaped node for shared traversal. */
+    receiverBlockShorthand?: boolean
 
     constructor(public callee: Expr, public args: Expr[], public typeArguments?: Identifier[], public optional?: boolean) {
         super(NodeKind.CallExpression)

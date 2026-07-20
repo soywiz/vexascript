@@ -103,3 +103,4 @@ async timer 5
 timeout done
 destructuring defaults 7 8 3 9
 dynamic array iteration 5
+receiver functions 40 120 10 12.5 8 0 7

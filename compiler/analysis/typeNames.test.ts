@@ -67,6 +67,26 @@ describe("type-name text structure", () => {
 });
 
 describe("parseFunctionTypeAnnotation", () => {
+  it("parses VexaScript receiver function types", () => {
+    expect(parseFunctionTypeAnnotation("T.() => void")).toEqual({
+      receiverTypeName: "T",
+      parameters: [],
+      returnTypeName: "void"
+    });
+    expect(parseFunctionTypeAnnotation("Point.(scale: number) => Point")).toEqual({
+      receiverTypeName: "Point",
+      parameters: [{ name: "scale", typeName: "number" }],
+      returnTypeName: "Point"
+    });
+    expect(parseFunctionTypeAnnotation("(A, B) -> void")).toEqual({
+      parameters: [
+        { name: "arg1", typeName: "A" },
+        { name: "arg2", typeName: "B" }
+      ],
+      returnTypeName: "void"
+    });
+  });
+
   it("parses a simple function type with named parameters", () => {
     const result = parseFunctionTypeAnnotation("(x: string, y: number) => boolean");
     expect(result).toEqual({

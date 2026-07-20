@@ -100,6 +100,8 @@ export class NamedType extends AnalysisTypeBase {
 export interface FunctionTypeParameter {
   name: string;
   type: AnalysisType;
+  /** Hidden leading receiver argument declared by `Receiver.(...) => Result`. */
+  receiver?: boolean;
   optional?: boolean;
   rest?: boolean;
 }
@@ -327,11 +329,13 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
         : typeToStringInternal(functionType.returnType, seen);
       const renderedParameters: string[] = [];
       for (const functionParameter of functionType.parameters) {
+        if (functionParameter.receiver) continue;
         renderedParameters.push(
           `${functionParameter.rest ? "..." : ""}${functionParameter.name}: ${typeToStringInternal(functionParameter.type, seen)}`
         );
       }
-      result = `${typeParameterPrefix}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
+      const receiver = functionType.parameters.find((parameter) => parameter.receiver);
+      result = `${typeParameterPrefix}${receiver ? `${typeToStringInternal(receiver.type, seen)}.` : ""}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
       break;
     }
     case AnalysisTypeKind.Array:

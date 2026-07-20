@@ -3630,10 +3630,16 @@ export async function collectAllImportedDeclarations(
     if (targetSession?.analysis && wantedNames.size > 0) {
       for (const specifier of importStatement.specifiers) {
         const localName = (specifier.local ?? specifier.imported).name;
-        const importedType = targetSession.analysis.getTopLevelSymbolType(specifier.imported.name);
+        const declaration = declarationByExportedName.get(specifier.imported.name);
+        const extensionType = declaration?.kind === NodeKind.FunctionStatement && (declaration as FunctionStatement).receiverType
+          ? targetSession.analysis.getExtensionMethodType(
+            (declaration as FunctionStatement).receiverType!.name,
+            (declaration as FunctionStatement).name.name
+          )
+          : undefined;
+        const importedType = targetSession.analysis.getTopLevelSymbolType(specifier.imported.name) ?? extensionType;
         if (importedType) {
           setImportedSymbolType(importedSymbols, localName, importedType);
-          const declaration = declarationByExportedName.get(specifier.imported.name);
           if (declaration) {
             setImportedSymbolDeclarationOrigin(
               importedSymbols,

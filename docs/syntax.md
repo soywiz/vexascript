@@ -644,6 +644,58 @@ transform({ value -> value + 1 })
 consumeOptions({ options })
 ```
 
+### Receiver function types
+
+A function type may declare a receiver before the parameter list. Inside a contextually typed lambda, unqualified members and `this` refer to that receiver:
+
+```vexa
+fun <T> T.apply(block: T.() -> void): T {
+  block(this)
+  return this
+}
+
+class Point(var x: number, var y: number)
+
+val point = Point(10, 20).apply {
+  x = y * 2
+  y = this.x * 3
+}
+```
+
+The receiver is the function's first runtime argument. Consequently, receiver and ordinary function types with the same ordered arguments are structurally compatible:
+
+```vexa
+fun useReceiver(block: A.(B) -> void)
+fun usePlain(block: (A, B) -> void)
+
+fun A.test(b: B)
+fun test(a: A, b: B)
+```
+
+The receiver is hidden only from the receiver-lambda parameter list. Calling the value directly still passes it first, as in `block(a, b)`.
+
+The postfix receiver-block shorthand `value. { ... }` is an intrinsic receiver-in/receiver-out expression. It evaluates `value` once, runs the block with that value as its receiver, and returns the same value. It neither requires nor calls a member or extension named `apply`:
+
+```vexa
+Point(10, 20). {
+  x *= 2
+  y += x / 2
+}
+```
+
+Conceptually the compiler-generated function has type `T.() -> T` and is immediately invoked with `value` as its first argument. JavaScript and C++ emit it directly at the use site, so no helper function is required at runtime.
+
+Nested receiver lambdas select the nearest receiver for unqualified access. Use `this@functionName` to select the receiver introduced by a particular call:
+
+```vexa
+apply {
+  demo {
+    this@demo.x = 20
+    this@apply.z = 30
+  }
+}
+```
+
 ## Imports
 
 VexaScript supports ES module imports at top level, including named imports, aliases, default imports, namespace imports, side-effect imports, and type-only imports:

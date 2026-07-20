@@ -47,7 +47,7 @@ import {
   unionType,
   BUILTIN_TYPE_NAMES
 } from "./types";
-import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitArraySuffixTypeName, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, tupleElementTypeText } from "./typeNames";
+import { parseFunctionTypeAnnotation, parseTypeNameShape, splitArraySuffixTypeName, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, tupleElementTypeText } from "./typeNames";
 import type { AnalysisType, BuiltinTypeName, FunctionTypeParameter } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import type { AnalysisIssue } from "./model";
@@ -1498,72 +1498,22 @@ export class Binder {
   }
 
   private functionTypeFromAnnotationText(typeName: string): AnalysisType | null {
-    const parsed = this.parseFunctionTypeAnnotation(typeName);
+    const parsed = parseFunctionTypeAnnotation(typeName);
     if (!parsed) {
       return null;
     }
-    return functionType(
-      parsed.parameters.map((parameter) => ({
+    const parameters: FunctionTypeParameter[] = parsed.receiverTypeName
+      ? [{ name: "this", type: this.typeFromTypeNameLoose(parsed.receiverTypeName), receiver: true }]
+      : [];
+    parameters.push(...parsed.parameters.map((parameter) => ({
         name: parameter.name,
         type: this.typeFromTypeNameLoose(parameter.typeName),
         ...(parameter.optional ? { optional: true } : {}),
         ...(parameter.rest ? { rest: true } : {})
-      })),
+      })));
+    return functionType(
+      parameters,
       this.typeFromTypeNameLoose(parsed.returnTypeName)
     );
-  }
-
-  private parseFunctionTypeAnnotation(typeName: string): {
-    parameters: Array<{ name: string; typeName: string; optional?: boolean; rest?: boolean }>;
-    returnTypeName: string;
-  } | null {
-    const trimmed = typeName.trim();
-    if (!trimmed.startsWith("(")) {
-      return null;
-    }
-    const closeParenIndex = findMatchingTypeDelimiter(trimmed, 0, "(", ")");
-    if (closeParenIndex < 0) {
-      return null;
-    }
-    const afterParameters = trimmed.slice(closeParenIndex + 1).trimStart();
-    if (!afterParameters.startsWith("=>")) {
-      return null;
-    }
-    const parameterBody = trimmed.slice(1, closeParenIndex).trim();
-    const parameters: Array<{ name: string; typeName: string; optional?: boolean; rest?: boolean }> = [];
-    if (parameterBody.length > 0) {
-      const parts = splitTopLevelDelimitedTypeText(parameterBody);
-      for (let index = 0; index < parts.length; index += 1) {
-        let text = parts[index]!.trim();
-        let rest = false;
-        if (text.startsWith("...")) {
-          rest = true;
-          text = text.slice(3).trim();
-        }
-        const colonIndex = findTopLevelTypeCharacter(text, ":");
-        if (colonIndex < 0) {
-          parameters.push({
-            name: `arg${index + 1}`,
-            typeName: text.length > 0 ? text : "unknown",
-            ...(rest ? { rest: true } : {})
-          });
-          continue;
-        }
-        let name = text.slice(0, colonIndex).trim();
-        const nestedTypeName = text.slice(colonIndex + 1).trim();
-        let optional = false;
-        if (name.endsWith("?")) {
-          optional = true;
-          name = name.slice(0, -1).trim();
-        }
-        parameters.push({
-          name: name.length > 0 ? name : `arg${index + 1}`,
-          typeName: nestedTypeName.length > 0 ? nestedTypeName : "unknown",
-          ...(optional ? { optional: true } : {}),
-          ...(rest ? { rest: true } : {})
-        });
-      }
-    }
-    return { parameters, returnTypeName: afterParameters.slice(2).trim() };
   }
 }

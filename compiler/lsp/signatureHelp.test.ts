@@ -72,6 +72,29 @@ describe("signature help", () => {
     });
   });
 
+  it("includes a receiver function's first argument in call signature help", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun <T> T.apply(block: T.(a: int) -> void): T {
+        block(this, ^^^10)
+        return this
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "block(this: T, a: int): void",
+          parameters: [{ label: "this: T" }, { label: "a: int" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 1
+    });
+  });
+
   it("does not provide signature help before the opening parenthesis", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun greet(name: string): void {

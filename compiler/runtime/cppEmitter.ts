@@ -78,6 +78,7 @@ import type { AnalysisSymbol } from "compiler/analysis/model";
 import type { ExtensionPropertyResolution } from "compiler/analysis/model";
 import { parseFunctionTypeAnnotation, parseObjectTypeAnnotation, parseTypeNameShape, splitArraySuffixTypeName, splitTopLevelTypeText, substituteTypeNameText } from "compiler/analysis/typeNames";
 import type { ArraySuffixTypeName } from "compiler/analysis/typeNames";
+import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import { operatorMethodRuntimeName } from "./operatorNames";
 
 export class CppEmitError extends Error {
@@ -205,6 +206,9 @@ let activeStringLiteralNames: Map<string, string> = new Map();
 let activeThisExpression = "this";
 let activeDefaultArgumentExpressions: ReadonlyMap<string, Expr> = new Map();
 let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
+let activeReceiverLambdas: ReadonlyMap<Node, ReceiverLambdaInfo> = new Map();
+let activeReceiverLabels: ReadonlyMap<string, string> = new Map();
+let activeReceiverSymbolCounter = 0;
 let activeImplicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string> = new Map();
 let activeStaticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map();
 let activeAutoAwaitExpressions: ReadonlySet<Node> = new Set();
@@ -339,7 +343,11 @@ function usesPooledFunctionTypeof(unary: UnaryExpression): boolean {
 }
 
 function emitIdentifier(identifier: Identifier): string {
-  if (identifier.name === "this") return activeThisExpression;
+  if (identifier.name === "this") {
+    return identifier.receiverLabel
+      ? activeReceiverLabels.get(identifier.receiverLabel) ?? activeThisExpression
+      : activeThisExpression;
+  }
   const defaultArgument = resolvedDefaultArgument(identifier.name);
   if (defaultArgument) return emitExpression(defaultArgument);
   if (identifier.name === "process") return "vexa::process";
@@ -436,7 +444,8 @@ class MemberParts {
   constructor(
     public object: Expr,
     public objectName: string | null,
-    public propertyName: string
+    public propertyName: string,
+    public property?: Identifier
   ) {}
 }
 
@@ -451,7 +460,8 @@ function memberParts(expression: Expr): MemberParts | null {
   return new MemberParts(
     member.object,
     identifierName(member.object),
-    (member.property as Identifier).name
+    (member.property as Identifier).name,
+    member.property as Identifier
   );
 }
 
@@ -753,8 +763,11 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
     const functionType = parseFunctionTypeAnnotation(typeName);
     if (!functionType) return "vexa::Value";
     const result = cppTypeForDeclaredName(functionType.returnTypeName, new Set(visitedAliases));
-    const parameters = functionType.parameters.map((parameter) =>
-      cppTypeForDeclaredNameOr(parameter.typeName, "vexa::Value", new Set(visitedAliases)));
+    const parameters = [
+      ...(functionType.receiverTypeName ? [functionType.receiverTypeName] : []),
+      ...functionType.parameters.map((parameter) => parameter.typeName)
+    ].map((parameterTypeName) =>
+      cppTypeForDeclaredNameOr(parameterTypeName, "vexa::Value", new Set(visitedAliases)));
     return result ? `std::function<${result}(${parameters.join(", ")})>` : "vexa::Value";
   }
   if (splitTopLevelTypeText(typeName, "&").length > 1) return "vexa::Value";
@@ -3086,6 +3099,31 @@ function dynamicStructuralCastSource(expression: Expr): Expr | null {
 }
 
 function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | null {
+  if (expression.kind === NodeKind.Identifier) {
+    const identifier = expression as Identifier;
+    const receiverName = activeImplicitReceiverExtensionIdentifiers.get(identifier as Node);
+    const declaration = receiverName
+      ? activeExtensionProperties.get(`${receiverName}.${identifier.name}`)
+      : undefined;
+    if (declaration) {
+      let getter = Boolean(declaration.initializer);
+      let setter = false;
+      for (const accessor of declaration.accessors ?? []) {
+        if (accessor.accessorKind === "get") getter = true;
+        if (accessor.accessorKind === "set") setter = true;
+      }
+      return new NativePropertyMember(
+        "extension",
+        expression,
+        expression,
+        true,
+        identifier.name,
+        getter ? extensionPropertyCppName(declaration) : null,
+        setter ? extensionPropertyCppName(declaration, true) : null,
+        declaration.typeAnnotation ? cppTypeForDeclaredName(declaration.typeAnnotation.name) : null
+      );
+    }
+  }
   if (expression.kind === NodeKind.Identifier && activeImplicitReceiverIdentifiers.has(expression as Node)) {
     const propertyName = (expression as Identifier).name;
     const statement = activeCurrentClassStatement ?? (activeCurrentClassName
@@ -3643,7 +3681,7 @@ function nativeLambdaCapture(
       captures.push(`${name} = vexa::StoredValue(${name})`);
     }
   }
-  const rootThis = activeCurrentClassName !== null && !activeCurrentMethodStatic &&
+  const rootThis = activeThisExpression === "this" && activeCurrentClassName !== null && !activeCurrentMethodStatic &&
     (!captureNames || captureNames.has("this")) &&
     (!activeFunctionObjectCaptureNames || activeFunctionObjectCaptureNames.has("this"));
   if (rootThis) {
@@ -3694,7 +3732,12 @@ function nativeFunctionCaptureNames(expression: Expr): ReadonlySet<string> {
       }
     }
     if (node.kind === NodeKind.Identifier) {
-      used.add((node as Identifier).name);
+      const identifier = node as Identifier;
+      used.add(identifier.name);
+      if (identifier.name === "this" && identifier.receiverLabel) {
+        const labeledReceiver = activeReceiverLabels.get(identifier.receiverLabel);
+        if (labeledReceiver) used.add(labeledReceiver);
+      }
       if (activeImplicitReceiverIdentifiers.has(node)) used.add("this");
     }
     for (const child of childNodes(node)) pending.push(child);
@@ -3754,8 +3797,19 @@ function emitNativeLambda(
   parametersList: readonly FunctionParameter[],
   body: Expr | BlockStatement
 ): string {
+  const receiverInfo = activeReceiverLambdas.get(expression as Node);
+  const receiverParameterName = receiverInfo
+    ? `__vexa_receiver_${cppName(receiverInfo.label)}_${activeReceiverSymbolCounter++}`
+    : null;
+  const receiverParameter = receiverParameterName
+    ? new FunctionParameter(new Identifier(receiverParameterName))
+    : null;
+  const valueParameters = receiverInfo?.implicitParameter ? parametersList.slice(1) : parametersList;
+  const effectiveParameters = receiverParameter
+    ? [receiverParameter, ...valueParameters]
+    : parametersList;
   const capture = nativeLambdaCapture("__vexa_callback_self", true, nativeFunctionCaptureNames(expression));
-  const parameters = callableParameters(parametersList, undefined, false, true);
+  const parameters = callableParameters(effectiveParameters, undefined, false, true);
   const expectedLambdaResult = activeExpectedLambdaResultCppType;
   const expectedLambdaParameters = activeExpectedLambdaParameterCppTypes;
   const expectedLambdaExpression = activeExpectedExpressionCppType;
@@ -3769,6 +3823,10 @@ function emitNativeLambda(
   const previousSharedBindingNames = activeSharedBindingNames;
   const previousSharedBindingCandidates = activeSharedBindingCandidates;
   const previousThisExpression = activeThisExpression;
+  const previousReceiverLabels = activeReceiverLabels;
+  const previousCurrentClassName = activeCurrentClassName;
+  const previousCurrentClassStatement = activeCurrentClassStatement;
+  const previousCurrentMethodStatic = activeCurrentMethodStatic;
   const previousCallableResultType = activeCallableResultType;
   const previousCallableUsesReturnSignal = activeCallableUsesReturnSignal;
   const previousFinallyProtectedDepth = activeFinallyProtectedDepth;
@@ -3785,7 +3843,7 @@ function emitNativeLambda(
     ...nestedClosureCaptureNames(callableExpressionBody(expression)),
   ]);
   for (const name of parameters.names) activeSharedBindingNames.delete(name);
-  parametersList.forEach((parameter, index) => {
+  effectiveParameters.forEach((parameter, index) => {
     if (parameter.name.kind !== NodeKind.Identifier) return;
     const expected = expectedLambdaParameters?.[index];
     if (expected) {
@@ -3793,7 +3851,23 @@ function emitNativeLambda(
       if (expected === "vexa::Value") activeDynamicValueNames.add(parameter.name.name);
     }
   });
-  activeThisExpression = capture.thisExpression;
+  activeThisExpression = receiverParameterName ?? capture.thisExpression;
+  let labeledReceiverName: string | null = null;
+  if (receiverInfo && receiverParameterName) {
+    labeledReceiverName = `__vexa_labeled_receiver_${cppName(receiverInfo.label)}_${activeReceiverSymbolCounter++}`;
+    activeReceiverLabels = new Map(previousReceiverLabels).set(receiverInfo.label, labeledReceiverName);
+    const receiverCppType = cppTypeForAnalysisType(receiverInfo.receiverType) ?? "vexa::Value";
+    activeLocalNames.add(labeledReceiverName);
+    activeLocalCppTypes.set(labeledReceiverName, receiverCppType);
+    if (receiverCppType.endsWith("*") && receiverInfo.receiverType.kind === AnalysisTypeKind.Named) {
+      activeGcObjectTypes.set(labeledReceiverName, receiverInfo.receiverType.name);
+    }
+    if (receiverInfo.receiverType.kind === AnalysisTypeKind.Named) {
+      activeCurrentClassName = receiverInfo.receiverType.name;
+      activeCurrentClassStatement = activeClassStatements.get(receiverInfo.receiverType.name) ?? null;
+      activeCurrentMethodStatic = false;
+    }
+  }
   activeCallableResultType = expectedResultType;
   activeCallableUsesReturnSignal = false;
   activeFinallyProtectedDepth = 0;
@@ -3805,7 +3879,11 @@ function emitNativeLambda(
   clearExpressionTypeCaches();
   try {
     const prefix = `${capture.text}(${parameters.text})${activeRuntimeName === "runtime" ? "" : " mutable"}${expectedResultType ? ` -> ${expectedResultType}` : ""}`;
-    const preamble = emitParameterDestructuring(parameters, "  ");
+    const receiverPreamble = labeledReceiverName && receiverParameterName
+      ? [`  auto ${labeledReceiverName} = ${receiverParameterName};`]
+      : [];
+    const destructuringPreamble = emitParameterDestructuring(parameters, "  ");
+    const preamble = [...receiverPreamble, ...destructuringPreamble];
     const rawBody = body.kind === NodeKind.BlockStatement
       ? emitBlock(
           body as BlockStatement,
@@ -3832,6 +3910,10 @@ function emitNativeLambda(
     activeSharedBindingNames = previousSharedBindingNames;
     activeSharedBindingCandidates = previousSharedBindingCandidates;
     activeThisExpression = previousThisExpression;
+    activeReceiverLabels = previousReceiverLabels;
+    activeCurrentClassName = previousCurrentClassName;
+    activeCurrentClassStatement = previousCurrentClassStatement;
+    activeCurrentMethodStatic = previousCurrentMethodStatic;
     activeCallableResultType = previousCallableResultType;
     activeCallableUsesReturnSignal = previousCallableUsesReturnSignal;
     activeFinallyProtectedDepth = previousFinallyProtectedDepth;
@@ -4151,6 +4233,17 @@ function extensionFunctionForCall(member: ReturnType<typeof memberParts>): Funct
       if (candidate.name.name === member.propertyName) return candidate;
     }
   }
+  const resolvedAsExtension = member.property !== undefined &&
+    activeImplicitReceiverExtensionIdentifiers.has(member.property as Node);
+  if (!resolvedAsExtension) return null;
+  for (const candidates of activeExtensionFunctions.values()) {
+    for (const candidate of candidates) {
+      const universal = (candidate.typeParameters ?? []).some(
+        (parameter) => parameter.name.name === candidate.receiverType?.name
+      );
+      if (universal && candidate.name.name === member.propertyName) return candidate;
+    }
+  }
   return null;
 }
 
@@ -4172,6 +4265,12 @@ function extensionTemplateArguments(
   const emittedReceiverElement = managedArrayElementType(
     emittedCppTypeForExpression(receiver) ?? cppTypeForExpression(receiver)
   );
+  if ((statement.typeParameters ?? []).some((parameter) => parameter.name.name === statement.receiverType?.name)) {
+    const receiverCppType = emittedCppTypeForExpression(receiver) ?? cppTypeForExpression(receiver);
+    if (statement.receiverType && receiverCppType !== "auto") {
+      bindings.set(statement.receiverType.name, receiverCppType);
+    }
+  }
   receiverParameters.forEach((parameter, index) => {
     const mapped = receiverArguments[index]
       ? (receiverType?.kind === AnalysisTypeKind.Array || receiverType?.kind === AnalysisTypeKind.Tuple
@@ -4206,14 +4305,7 @@ function emitExtensionFunctionCall(call: CallExpression, member: NonNullable<Ret
     ? emitManagedArrayPointer(member.object)
     : emitExpression(member.object);
   const bindings = extensionTemplateArguments(statement, member.object, call.args);
-  const orderedArguments = orderedCallArguments(call.args, statement.parameters);
-  const argumentsText: string = orderedArguments.map((argument, index): string => {
-    const parameterType = statement.parameters[index]?.typeAnnotation?.name;
-    const boundType = parameterType ? bindings.get(parameterType) : null;
-    return boundType
-      ? emitConvertedValue(argument, boundType)
-      : emitExpression(argument);
-  }).join(", ");
+  const argumentsText = emitArguments(call.args, statement.parameters, bindings);
   const explicitTemplateArguments = cppCallTemplateArguments(call);
   const templateArguments = explicitTemplateArguments || (statement.typeParameters?.length &&
     statement.typeParameters.every((parameter) => bindings.has(parameter.name.name))
@@ -4400,6 +4492,26 @@ function primitiveRuntimeMethodName(name: string): string | null {
 }
 
 function emitCall(call: CallExpression, resultUsed = true): string {
+  if (
+    call.receiverBlockShorthand === true &&
+    call.args[0]?.kind === NodeKind.ArrowFunctionExpression
+  ) {
+    const receiver = call.callee;
+    const receiverCppType = emittedCppTypeForExpression(receiver) ?? cppTypeForExpression(receiver);
+    const previousResult = activeExpectedLambdaResultCppType;
+    const previousParameters = activeExpectedLambdaParameterCppTypes;
+    activeExpectedLambdaResultCppType = "void";
+    activeExpectedLambdaParameterCppTypes = [receiverCppType];
+    let blockText: string;
+    try {
+      blockText = emitExpression(call.args[0]!);
+    } finally {
+      activeExpectedLambdaResultCppType = previousResult;
+      activeExpectedLambdaParameterCppTypes = previousParameters;
+    }
+    const receiverText = emitExpression(receiver);
+    return `([&](auto __vexa_receiver_block) { (${blockText})(__vexa_receiver_block); return __vexa_receiver_block; })(${receiverText})`;
+  }
   const calleeName = identifierName(call.callee);
   if (calleeName === "Promise") return emitPromiseCall(call);
   if (calleeName === "Map" || calleeName === "Set" || calleeName === "WeakMap" || calleeName === "WeakSet") {
@@ -8687,6 +8799,7 @@ export interface CppEmitSemantics {
   callableTypes?: ReadonlyMap<Node, AnalysisType>;
   operatorResolutions?: ReadonlyMap<Node, AnalysisSymbol>;
   extensionPropertyResolutions?: ReadonlyMap<Node, ExtensionPropertyResolution>;
+  receiverLambdas?: ReadonlyMap<Node, ReceiverLambdaInfo>;
 }
 
 function interfacesInDependencyOrder(interfaces: readonly InterfaceStatement[]): InterfaceStatement[] {
@@ -8893,6 +9006,9 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeExpressionTypes = semantics.expressionTypes ?? new Map();
   activeHasExpressionTypes = activeExpressionTypes.size > 0;
   activeImplicitReceiverIdentifiers = semantics.implicitReceiverIdentifiers ?? new Set();
+  activeReceiverLambdas = semantics.receiverLambdas ?? new Map();
+  activeReceiverLabels = new Map();
+  activeReceiverSymbolCounter = 0;
   activeImplicitReceiverExtensionIdentifiers = semantics.implicitReceiverExtensionIdentifiers ?? new Map();
   activeStaticImplicitReceiverIdentifiers = semantics.staticImplicitReceiverIdentifiers ?? new Map();
   activeAutoAwaitExpressions = semantics.autoAwaitExpressions ?? new Set();

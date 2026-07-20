@@ -47,6 +47,7 @@ export interface FlowContext {
   expectedReturnType?: AnalysisType;
   inAsync?: boolean;
   inGenerator?: boolean;
+  contextualVoidReturn?: boolean;
 }
 
 export interface BoundAnalysis {
@@ -102,6 +103,12 @@ export interface SelectedCallResolution {
   overloadIndex: number;
 }
 
+export interface ReceiverLambdaInfo {
+  receiverType: AnalysisType;
+  label: string;
+  implicitParameter: boolean;
+}
+
 export interface CheckedAnalysis {
   issues: AnalysisIssue[];
   identifierResolutions: IdentifierResolution[];
@@ -110,6 +117,8 @@ export interface CheckedAnalysis {
   extensionPropertyResolutions: ExtensionPropertyResolution[];
   expressionTypes: Map<Node, AnalysisType>;
   selectedCallResolutions: SelectedCallResolution[];
+  receiverLambdas: ReadonlyMap<Node, ReceiverLambdaInfo>;
+  extensionMethodsByReceiver: ReadonlyMap<string, ReadonlyMap<string, AnalysisType>>;
   // Expressions that receive an implicit `await` because they evaluate to a Promise inside a
   // `sync` function body (and were not opted out via the `go` operator or `.then`-style usage).
   autoAwaitExpressions: Set<Node>;

@@ -737,3 +737,61 @@ val dynamicallySelected: any = true ? [2, 3] : [9]
 var dynamicIterationTotal: number = 0
 for (dynamicValue of dynamicallySelected) dynamicIterationTotal += Number(dynamicValue)
 console.log("dynamic array iteration", dynamicIterationTotal)
+
+fun <T> T.apply(block: T.() -> void): T {
+  block(this)
+  return this
+}
+
+class ReceiverPoint(var x: number, var y: number)
+class ReceiverDelta(val value: number)
+class ReceiverShortcutPoint(var x: number, var applyCalls: int = 0) {
+  apply(block: ReceiverShortcutPoint.() -> void): ReceiverShortcutPoint {
+    applyCalls += 1
+    block(this)
+    return this
+  }
+}
+
+fun ReceiverPoint.demo(block: ReceiverPoint.() -> void): ReceiverPoint {
+  block(this)
+  return this
+}
+
+fun invokeReceiver(a: ReceiverPoint, b: ReceiverDelta, block: ReceiverPoint.(ReceiverDelta) -> void): void {
+  block(a, b)
+}
+
+fun invokePlain(a: ReceiverPoint, b: ReceiverDelta, block: (ReceiverPoint, ReceiverDelta) -> void): void {
+  block(a, b)
+}
+
+val receiverFirst = ReceiverPoint(10, 20).apply {
+  x = y * 2
+  y = this.x * 3
+}
+val receiverSecond = ReceiverPoint(4, 6). {
+  x *= 2
+  demo {
+    this@demo.x += 1
+    this@apply.y += this@demo.x / 2
+  }
+}
+val receiverShortcut = ReceiverShortcutPoint(2). {
+  x *= 4
+}
+class ReceiverBase(var receiverValue: int)
+class ReceiverDerived extends ReceiverBase {
+  constructor(initialValue: int) { super(initialValue) }
+}
+fun ReceiverBase.increment(amount: int): void { receiverValue += amount }
+val inheritedReceiver = ReceiverDerived(3). { increment(4) }
+val receiverCallback: ReceiverPoint.(ReceiverDelta) -> void = (delta: ReceiverDelta) => {
+  x += delta.value
+}
+val plainCallback: (ReceiverPoint, ReceiverDelta) -> void = (point: ReceiverPoint, delta: ReceiverDelta) => {
+  point.y += delta.value
+}
+invokePlain(receiverSecond, ReceiverDelta(1), receiverCallback)
+invokeReceiver(receiverSecond, ReceiverDelta(2), plainCallback)
+console.log("receiver functions", receiverFirst.x, receiverFirst.y, receiverSecond.x, receiverSecond.y, receiverShortcut.x, receiverShortcut.applyCalls, inheritedReceiver.receiverValue)

@@ -2571,7 +2571,7 @@ class AstFormatter {
         break;
       }
       case NodeKind.Identifier:
-        this.write((expr as Identifier).name);
+        this.write(`${(expr as Identifier).name}${(expr as Identifier).receiverLabel ? `@${(expr as Identifier).receiverLabel}` : ""}`);
         break;
       case NodeKind.MissingExpression: break;
       case NodeKind.ArrayHole: break;

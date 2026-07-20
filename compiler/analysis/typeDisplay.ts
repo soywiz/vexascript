@@ -58,9 +58,11 @@ export function typeToDiagnosticLabel(type: AnalysisType): string {
   const functionType = type as FunctionType;
   const parameters: string[] = [];
   for (const functionParameter of functionType.parameters) {
+    if (functionParameter.receiver) continue;
     parameters.push(
       `${functionParameter.name}${functionParameter.optional === true ? "?" : ""}: ${typeToDiagnosticLabel(functionParameter.type)}`
     );
   }
-  return `(${parameters.join(", ")}) => ${typeToDiagnosticLabel(functionType.returnType)}`;
+  const receiver = functionType.parameters.find((parameter) => parameter.receiver);
+  return `${receiver ? `${typeToDiagnosticLabel(receiver.type)}.` : ""}(${parameters.join(", ")}) => ${typeToDiagnosticLabel(functionType.returnType)}`;
 }

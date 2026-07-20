@@ -671,6 +671,7 @@ export interface FunctionTypeAnnotationParameter {
 }
 
 export interface FunctionTypeAnnotationShape {
+  receiverTypeName?: string;
   parameters: FunctionTypeAnnotationParameter[];
   returnTypeName: string;
   typeParameters?: string[];
@@ -763,6 +764,13 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
     working = working.slice(closeTypeParameterIndex + 1).trimStart();
   }
 
+  let receiverTypeName: string | undefined;
+  const receiverParametersIndex = working.indexOf(".(");
+  if (!constructor && receiverParametersIndex > 0) {
+    receiverTypeName = working.slice(0, receiverParametersIndex).trim();
+    working = working.slice(receiverParametersIndex + 1);
+  }
+
   if (!working.startsWith("(")) {
     return null;
   }
@@ -772,7 +780,8 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
     return null;
   }
   const afterParameters = working.slice(closeParenIndex + 1).trimStart();
-  if (!afterParameters.startsWith("=>")) {
+  const arrowLength = afterParameters.startsWith("=>") || afterParameters.startsWith("->") ? 2 : 0;
+  if (arrowLength === 0) {
     return null;
   }
 
@@ -816,8 +825,9 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
   }
 
   return {
+    ...(receiverTypeName ? { receiverTypeName } : {}),
     parameters,
-    returnTypeName: afterParameters.slice(2).trim(),
+    returnTypeName: afterParameters.slice(arrowLength).trim(),
     ...(typeParameters.length > 0 ? { typeParameters } : {}),
     ...(Object.keys(typeParameterConstraints).length > 0 ? { typeParameterConstraints } : {}),
     ...(Object.keys(typeParameterDefaults).length > 0 ? { typeParameterDefaults } : {}),

@@ -236,6 +236,7 @@ export class TypeChecker {
   private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly extensionPropertyResolutions: Map<MemberExpression, ExtensionPropertyResolution> = new Map();
   private readonly selectedCallResolutions: SelectedCallResolution[] = [];
+  private readonly receiverLambdas: Map<Node, import("./model").ReceiverLambdaInfo> = new Map();
   private readonly assertionCallEffects: WeakMap<CallExpression, { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> }> = new WeakMap<CallExpression, { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> }>();
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private readonly autoAwaitExpressions: Set<Node> = new Set();
@@ -244,6 +245,7 @@ export class TypeChecker {
   private readonly functionStatementsByName: Map<string, FunctionStatement> = new Map();
   private readonly extensionOperatorsByReceiver: Map<string, FunctionStatement[]> = new Map();
   private readonly extensionMethodsByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
+  private readonly genericReceiverExtensionMethods: Map<string, Array<{ receiverTypeParameter: string; type: AnalysisType; declaration: FunctionStatement }>> = new Map();
   private readonly extensionPropertiesByReceiver: Map<string, Map<string, ExtensionPropertyInfo>> = new Map();
   private readonly extensionReceiverNamesByNamedType: Map<string, string[]> = new Map();
   private readonly importedExtensionPropertyNames: Set<string> = new Set();
@@ -538,6 +540,8 @@ export class TypeChecker {
       extensionPropertyResolutions: [...this.extensionPropertyResolutions.values()],
       expressionTypes: this.expressionTypes,
       selectedCallResolutions: [...this.selectedCallResolutions],
+      receiverLambdas: this.receiverLambdas,
+      extensionMethodsByReceiver: this.extensionMethodsByReceiver,
       autoAwaitExpressions: this.autoAwaitExpressions,
       asyncForStatements: this.asyncForStatements
     };
@@ -793,6 +797,7 @@ export class TypeChecker {
           );
           if (
             expectedReturnType &&
+            flow.contextualVoidReturn !== true &&
             !preservesInferredReturnType &&
             !isUnknownType(expectedReturnType) &&
             !isUnknownType(actualReturnType) &&
@@ -1739,11 +1744,23 @@ export class TypeChecker {
           statement.generator === true
         );
         if ((statement.missingBody !== true || statement.declared === true) && existingSymbolType?.kind !== AnalysisTypeKind.Union) {
+          const resolvedFunctionType = this.buildFunctionType(
+            statement.parameters,
+            resolvedReturnType,
+            scope,
+            statement.typeParameters ?? [],
+            statement.returnType?.name
+          );
           this.updateSymbolType(
             scope,
             statement.name.name,
-            this.buildFunctionType(statement.parameters, resolvedReturnType, scope, statement.typeParameters ?? [], statement.returnType?.name)
+            resolvedFunctionType
           );
+          if (statement.receiverType) {
+            const methods = this.extensionMethodsByReceiver.get(statement.receiverType.name) ?? new Map<string, AnalysisType>();
+            methods.set(statement.name.name, resolvedFunctionType);
+            this.extensionMethodsByReceiver.set(statement.receiverType.name, methods);
+          }
         }
         if (this.validateTypes && statement.missingBody !== true) {
           this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, asyncLike, statement.generator === true);
@@ -2764,6 +2781,26 @@ export class TypeChecker {
       }
       case NodeKind.CallExpression: {
         const call = expression as CallExpression;
+        if (
+          call.receiverBlockShorthand === true &&
+          call.args[0]?.kind === NodeKind.ArrowFunctionExpression
+        ) {
+          const receiver = call.callee;
+          const receiverType = this.visitExpression(receiver, scope);
+          const block = call.args[0] as ArrowFunctionExpression;
+          this.receiverLambdas.set(block, {
+            receiverType,
+            label: "apply",
+            implicitParameter: this.hasImplicitBraceLambdaParameter(block)
+          });
+          const blockType = functionType(
+            [{ name: "this", type: receiverType, receiver: true }],
+            builtinType("void")
+          );
+          this.visitExpression(block, scope, blockType);
+          result = receiverType;
+          break;
+        }
         const calleeType = this.visitExpression(call.callee, scope);
         const argumentTypes: AnalysisType[] = [];
         const initialArgumentIssueRanges: Array<IssueRange | null> = [];
@@ -3301,6 +3338,16 @@ export class TypeChecker {
             this.contextualFunctionExpectedType(expectedType),
             scope
           );
+          const contextualReceiver = expectedFunctionType?.parameters.find(
+            (parameter) => parameter.receiver === true
+          );
+          if (contextualReceiver && !this.receiverLambdas.has(arrow)) {
+            this.receiverLambdas.set(arrow, {
+              receiverType: contextualReceiver.type,
+              label: "lambda",
+              implicitParameter: this.hasImplicitBraceLambdaParameter(arrow)
+            });
+          }
           if (arrow.contextualObjectLiteral && expectedType && !expectedFunctionType) {
             return this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
           }
@@ -3316,6 +3363,9 @@ export class TypeChecker {
               inAsync: arrowIsAsyncLike,
               inGenerator: false
             };
+            if (expectedReturnType.kind === AnalysisTypeKind.Builtin && expectedReturnType.name === "void") {
+              arrowFlow.contextualVoidReturn = true;
+            }
             for (const bodyStatement of (arrow.body as BlockStatement).body) {
               this.visitStatement(bodyStatement, arrowScope, arrowFlow);
             }
@@ -3351,13 +3401,23 @@ export class TypeChecker {
               returnType = expectedFunctionType.returnType;
             }
           }
-          return this.buildFunctionType(
-            arrow.parameters,
+          const receiverInfo = this.receiverLambdas.get(arrow);
+          const valueParameters = receiverInfo?.implicitParameter ? arrow.parameters.slice(1) : arrow.parameters;
+          const inferredFunction = this.buildFunctionType(
+            valueParameters,
             returnType,
             arrowScope,
             [] as TypeParameter[],
             arrow.returnType?.name
           );
+          if (receiverInfo && inferredFunction.kind === AnalysisTypeKind.Function) {
+            (inferredFunction as FunctionType).parameters.unshift({
+              name: "this",
+              type: receiverInfo.receiverType,
+              receiver: true
+            });
+          }
+          return inferredFunction;
             })
           )
         );
@@ -5132,6 +5192,19 @@ export class TypeChecker {
         continue;
       }
 
+      if (argument.kind === NodeKind.ArrowFunctionExpression) {
+        const expectedFunction = this.contextualFunctionExpectedType(contextualExpectedType);
+        const receiver = expectedFunction?.parameters.find((parameter) => parameter.receiver === true);
+        if (receiver) {
+          const arrow = argument as ArrowFunctionExpression;
+          this.receiverLambdas.set(arrow, {
+            receiverType: receiver.type,
+            label: this.receiverLabelForCall(call),
+            implicitParameter: this.hasImplicitBraceLambdaParameter(arrow)
+          });
+        }
+      }
+
       const contextualArgumentType = this.visitExpression(argument, scope, contextualExpectedType);
       if (!contextualArgumentTypes) {
         contextualArgumentTypes = [...argumentTypes];
@@ -5140,6 +5213,26 @@ export class TypeChecker {
     }
 
     return contextualArgumentTypes ?? argumentTypes;
+  }
+
+  private receiverLabelForCall(call: CallExpression): string {
+    if (call.callee.kind === NodeKind.Identifier) {
+      return (call.callee as Identifier).name;
+    }
+    if (call.callee.kind === NodeKind.MemberExpression) {
+      const property = (call.callee as MemberExpression).property;
+      if (property.kind === NodeKind.Identifier) return (property as Identifier).name;
+    }
+    return "receiver";
+  }
+
+  private hasImplicitBraceLambdaParameter(arrow: ArrowFunctionExpression): boolean {
+    if (arrow.parameters.length !== 1) return false;
+    const parameter = arrow.parameters[0];
+    return parameter?.name.kind === NodeKind.Identifier &&
+      (parameter.name as Identifier).name === "it" &&
+      parameter.firstToken?.type === "symbol" &&
+      parameter.firstToken.value === "{";
   }
 
   private contextualExpectedTypeForCallArgument(
@@ -5460,6 +5553,7 @@ export class TypeChecker {
       substituted.parameters.map((parameter) => ({
         name: parameter.name,
         type: parameter.type,
+        ...(parameter.receiver ? { receiver: true } : {}),
         ...(parameter.optional !== undefined ? { optional: parameter.optional } : {}),
         ...(parameter.rest ? { rest: true } : {})
       })),
@@ -9433,7 +9527,10 @@ export class TypeChecker {
     scope: Scope
   ): AnalysisType {
     const usageOffset = identifier.firstToken?.range.start.offset;
-    const symbol = this.resolve(identifier.name, scope, usageOffset);
+    const lookupName = identifier.receiverLabel
+      ? `${identifier.name}@${identifier.receiverLabel}`
+      : identifier.name;
+    const symbol = this.resolve(lookupName, scope, usageOffset);
     if (symbol) {
       this.identifierResolutions.push({ identifier, symbol });
       return symbol.type ?? UNKNOWN_TYPE;
@@ -9555,10 +9652,19 @@ export class TypeChecker {
       parentScope.children.push(functionScope);
       this.bound.scopeByNode.set(node, functionScope);
     }
-    for (let index = 0; index < parameters.length; index += 1) {
-      const parameter = parameters[index]!;
-      const expectedParameterType = expectedFunctionType && index < expectedFunctionType.parameters.length
-        ? expectedFunctionType.parameters[index]?.type
+    const receiverInfo = this.receiverLambdas.get(node);
+    const receiverParameter = receiverInfo
+      ? expectedFunctionType?.parameters.find((parameter) => parameter.receiver === true)
+      : undefined;
+    if (receiverInfo && receiverParameter) {
+      this.declareReceiverLambdaSymbols(functionScope, node, parameters, receiverInfo);
+    }
+    const valueParameters = receiverInfo?.implicitParameter ? parameters.slice(1) : parameters;
+    const expectedValueParameters = expectedFunctionType?.parameters.filter((parameter) => parameter.receiver !== true) ?? [];
+    for (let index = 0; index < valueParameters.length; index += 1) {
+      const parameter = valueParameters[index]!;
+      const expectedParameterType = index < expectedValueParameters.length
+        ? expectedValueParameters[index]?.type
         : undefined;
       const parameterType =
         this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
@@ -9571,6 +9677,116 @@ export class TypeChecker {
       this.defineBindingParameterSymbols(functionScope, parameter.name, parameterType);
     }
     return functionScope;
+  }
+
+  private declareReceiverLambdaSymbols(
+    scope: Scope,
+    node: Node,
+    parameters: FunctionParameter[],
+    info: import("./model").ReceiverLambdaInfo
+  ): void {
+    const receiverType = this.expandTypeAliases(this.normalizeLooseNamedType(info.receiverType));
+    const receiverName = receiverType.kind === AnalysisTypeKind.Named
+      ? receiverType.name
+      : receiverType.kind === AnalysisTypeKind.Array
+        ? "Array"
+        : typeToString(receiverType);
+    const receiverNames = this.extensionReceiverNames(receiverType);
+    const members = receiverType.kind === AnalysisTypeKind.Named
+      ? this.resolveNamedTypeMembers(receiverType as NamedType)
+      : null;
+    for (const [name, type] of members ?? []) {
+      const extensionReceiver = this.extensionMethodsByReceiver.get(receiverName)?.has(name) === true
+        ? receiverName
+        : undefined;
+      scope.symbols.set(name, {
+        name,
+        kind: type.kind === AnalysisTypeKind.Function ? "method" : "variable",
+        node,
+        declaredOffset: -1,
+        implicitReceiver: true,
+        ...(extensionReceiver ? { implicitReceiverExtensionReceiver: extensionReceiver } : {}),
+        type,
+        valueType: typeToString(type)
+      });
+    }
+    const declaredExtensionNames = new Set<string>();
+    for (const extensionReceiverName of receiverNames) {
+      for (const [name, type] of this.extensionMethodsByReceiver.get(extensionReceiverName) ?? []) {
+        if (declaredExtensionNames.has(name)) continue;
+        declaredExtensionNames.add(name);
+        const importedType = scope.parent
+          ? this.resolve(name, scope.parent, undefined)?.type
+          : undefined;
+        const resolvedType = importedType?.kind === AnalysisTypeKind.Function
+          ? importedType
+          : type;
+        scope.symbols.set(name, {
+          name,
+          kind: "method",
+          node,
+          declaredOffset: -1,
+          implicitReceiver: true,
+          implicitReceiverExtensionReceiver: extensionReceiverName,
+          type: resolvedType,
+          valueType: typeToString(resolvedType)
+        });
+      }
+      for (const [name, property] of this.extensionPropertiesByReceiver.get(extensionReceiverName) ?? []) {
+        if (declaredExtensionNames.has(name)) continue;
+        declaredExtensionNames.add(name);
+        const type = this.specializeExtensionPropertyType(receiverType, extensionReceiverName, property);
+        scope.symbols.set(name, {
+          name,
+          kind: "variable",
+          node: property.declaration.name,
+          declaredOffset: -1,
+          implicitReceiver: true,
+          implicitReceiverExtensionReceiver: extensionReceiverName,
+          type,
+          valueType: typeToString(type)
+        });
+      }
+    }
+    for (const [name, methods] of this.genericReceiverExtensionMethods) {
+      const method = methods[0];
+      if (!method || scope.symbols.has(name)) continue;
+      const type = this.substituteTypeParameters(
+        method.type,
+        new Map([[method.receiverTypeParameter, receiverType]])
+      );
+      scope.symbols.set(name, {
+        name,
+        kind: "method",
+        node,
+        declaredOffset: -1,
+        implicitReceiver: true,
+        implicitReceiverExtensionReceiver: method.receiverTypeParameter,
+        type,
+        valueType: typeToString(type)
+      });
+    }
+    const receiverSymbol: AnalysisSymbol = {
+      name: "this",
+      kind: "variable",
+      node,
+      declaredOffset: -1,
+      type: receiverType,
+      valueType: typeToString(receiverType)
+    };
+    scope.symbols.set("this", receiverSymbol);
+    scope.symbols.set(`this@${info.label}`, { ...receiverSymbol, name: `this@${info.label}` });
+    if (info.implicitParameter && parameters[0]?.name.kind === NodeKind.Identifier) {
+      const identifier = parameters[0]!.name as Identifier;
+      scope.symbols.set(identifier.name, {
+        name: identifier.name,
+        kind: "parameter",
+        node: identifier,
+        declaredOffset: -1,
+        type: receiverType,
+        valueType: typeToString(receiverType)
+      });
+    }
   }
 
   private validateRestParameterType(parameter: FunctionParameter, parameterType: AnalysisType): void {
@@ -10363,12 +10579,19 @@ export class TypeChecker {
     return null;
   }
 
+  private resolveGenericReceiverExtensionMemberType(objectType: AnalysisType, memberName: string): AnalysisType | null {
+    const method = this.genericReceiverExtensionMethods.get(memberName)?.[0];
+    return method
+      ? this.substituteTypeParameters(method.type, new Map([[method.receiverTypeParameter, objectType]]))
+      : null;
+  }
+
   private collectExtensionMethods(statements: readonly Statement[] | Program): void {
     const body = "body" in statements ? statements.body : statements;
     for (const extension of declarationIndexForStatements(body).functions) {
       if (!extension.receiverType || extension.operator) continue;
       const methods = this.extensionMethodsByReceiver.get(extension.receiverType.name) ?? new Map<string, AnalysisType>();
-      methods.set(extension.name.name, functionType(
+      const methodType = functionType(
         extension.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
           name: bindingNameText(parameter.name),
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
@@ -10377,8 +10600,14 @@ export class TypeChecker {
         })),
         this.typeFromAnnotationLoose(extension.returnType, extension.receiverType.name) ?? UNKNOWN_TYPE,
         extension.typeParameters ? typeParameterNameList(extension.typeParameters) : undefined
-      ));
+      );
+      methods.set(extension.name.name, methodType);
       this.extensionMethodsByReceiver.set(extension.receiverType.name, methods);
+      if ((extension.typeParameters ?? []).some((parameter) => parameter.name.name === extension.receiverType!.name)) {
+        const genericMethods = this.genericReceiverExtensionMethods.get(extension.name.name) ?? [];
+        genericMethods.push({ receiverTypeParameter: extension.receiverType.name, type: methodType, declaration: extension });
+        this.genericReceiverExtensionMethods.set(extension.name.name, genericMethods);
+      }
     }
   }
 
@@ -10618,7 +10847,11 @@ export class TypeChecker {
       return;
     }
 
-    if (this.resolveExtensionMemberType(resolvedObjectType, propertyName) || this.importedExtensionPropertyNames.has(propertyName)) {
+    if (
+      this.resolveExtensionMemberType(resolvedObjectType, propertyName) ||
+      this.resolveGenericReceiverExtensionMemberType(resolvedObjectType, propertyName) ||
+      this.importedExtensionPropertyNames.has(propertyName)
+    ) {
       return;
     }
 
@@ -10862,7 +11095,8 @@ export class TypeChecker {
       }
       return null;
     };
-    const fallbackExtensionType = importedExtensionType;
+    const fallbackExtensionType = (): AnalysisType | null =>
+      importedExtensionType() ?? this.resolveGenericReceiverExtensionMemberType(resolvedObjectType, memberName);
     if (this.enumValueMemberAccessType(member, resolvedObjectType) !== null) {
       return null;
     }
@@ -10959,6 +11193,49 @@ export class TypeChecker {
 
     const resolvedObjectType = this.resolveConstrainedNamedExpressionType(member.object, objectType) ?? objectType;
     const memberName = (member.property as Identifier).name;
+    if (
+      resolvedObjectType.kind === AnalysisTypeKind.Builtin &&
+      (resolvedObjectType.name === "any" || resolvedObjectType.name === "unknown")
+    ) {
+      return null;
+    }
+    if (
+      resolvedObjectType.kind === AnalysisTypeKind.Object &&
+      (resolvedObjectType as ObjectType).properties.has(memberName)
+    ) {
+      return null;
+    }
+    for (const receiverName of this.extensionReceiverNames(resolvedObjectType)) {
+      const type = this.extensionMethodsByReceiver.get(receiverName)?.get(memberName);
+      if (type) {
+        return {
+          name: memberName,
+          kind: "method",
+          node: member.property,
+          declaredOffset: -1,
+          implicitReceiverExtensionReceiver: receiverName,
+          type,
+          valueType: typeToString(type)
+        };
+      }
+    }
+    const genericExtensionSymbol = (): AnalysisSymbol | null => {
+      const method = this.genericReceiverExtensionMethods.get(memberName)?.[0];
+      if (!method) return null;
+      const type = this.substituteTypeParameters(
+        method.type,
+        new Map([[method.receiverTypeParameter, resolvedObjectType]])
+      );
+      return {
+        name: memberName,
+        kind: "method",
+        node: method.declaration.name,
+        declaredOffset: -1,
+        implicitReceiverExtensionReceiver: method.receiverTypeParameter,
+        type,
+        valueType: typeToString(type)
+      };
+    };
 
     if (resolvedObjectType.kind === AnalysisTypeKind.Union) {
       for (const type of resolvedObjectType.types) {
@@ -10986,16 +11263,28 @@ export class TypeChecker {
     if (resolvedObjectType.kind !== AnalysisTypeKind.Named) {
       if (resolvedObjectType.kind === AnalysisTypeKind.Builtin) {
         const boxedName = boxedInterfaceNameForBuiltin(resolvedObjectType.name);
-        return boxedName ? this.findNamedTypeMemberSymbol(boxedName, memberName) : null;
+        const symbol = boxedName ? this.findNamedTypeMemberSymbol(boxedName, memberName) : null;
+        if (symbol || this.membersForType(resolvedObjectType)?.has(memberName)) {
+          return symbol;
+        }
+        return genericExtensionSymbol();
       }
       if (resolvedObjectType.kind === AnalysisTypeKind.Literal) {
         const boxedName = boxedInterfaceNameForBuiltin(resolvedObjectType.base);
-        return boxedName ? this.findNamedTypeMemberSymbol(boxedName, memberName) : null;
+        const symbol = boxedName ? this.findNamedTypeMemberSymbol(boxedName, memberName) : null;
+        if (symbol || this.membersForType(resolvedObjectType)?.has(memberName)) {
+          return symbol;
+        }
+        return genericExtensionSymbol();
       }
-      return null;
+      return genericExtensionSymbol();
     }
 
-    return this.findNamedTypeMemberSymbol(resolvedObjectType.name, memberName);
+    const symbol = this.findNamedTypeMemberSymbol(resolvedObjectType.name, memberName);
+    if (symbol || this.membersForType(resolvedObjectType)?.has(memberName)) {
+      return symbol;
+    }
+    return genericExtensionSymbol();
   }
 
   private findNamedTypeMemberSymbol(typeName: string, memberName: string, visited = new Set<string>()): AnalysisSymbol | null {
@@ -13377,6 +13666,7 @@ export class TypeChecker {
         parameters.push({
           name: parameter.name,
           type: this.expandTypeAliases(parameter.type),
+          ...(parameter.receiver ? { receiver: true } : {}),
           ...(parameter.optional !== undefined ? { optional: parameter.optional } : {})
         });
       }
@@ -13505,6 +13795,7 @@ export class TypeChecker {
         parameters.push({
           name: parameter.name,
           type: this.substituteTypeParameters(parameter.type, substitutions),
+          ...(parameter.receiver ? { receiver: true } : {}),
           ...(parameter.optional !== undefined ? { optional: parameter.optional } : {}),
           ...(parameter.rest ? { rest: true } : {})
         });
@@ -13581,13 +13872,21 @@ export class TypeChecker {
     if (!parsed) {
       return null;
     }
+    const parameters: FunctionTypeParameter[] = parsed.receiverTypeName
+      ? [{
+          name: "this",
+          type: this.resolveTypeNameText(parsed.receiverTypeName, node, scope, false),
+          receiver: true
+        }]
+      : [];
+    parameters.push(...parsed.parameters.map((parameter) => ({
+      name: parameter.name,
+      type: this.resolveTypeNameText(parameter.typeName, node, scope, false),
+      ...(parameter.optional ? { optional: true } : {}),
+      ...(parameter.rest ? { rest: true } : {})
+    })));
     return functionType(
-      parsed.parameters.map((parameter) => ({
-        name: parameter.name,
-        type: this.resolveTypeNameText(parameter.typeName, node, scope, false),
-        ...(parameter.optional ? { optional: true } : {}),
-        ...(parameter.rest ? { rest: true } : {})
-      })),
+      parameters,
       this.resolveTypeNameText(parsed.returnTypeName, node, scope, false),
       undefined,
       undefined,
@@ -13619,6 +13918,13 @@ export class TypeChecker {
     }
     const parsedAssertion = parseAssertionTypePredicateText(parsed.returnTypeName) as AssertionTypePredicateText | null;
     const parameters: FunctionTypeParameter[] = [];
+    if (parsed.receiverTypeName) {
+      parameters.push({
+        name: "this",
+        type: this.typeFromTypeNameLoose(parsed.receiverTypeName),
+        receiver: true
+      });
+    }
     for (const parameter of parsed.parameters) {
       parameters.push({
         name: parameter.name,

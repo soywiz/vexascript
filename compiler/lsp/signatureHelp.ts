@@ -20,7 +20,7 @@ import type {
 import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
 import { programAnnotationApplications } from "compiler/ast/annotations";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
-import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, splitTopLevelDelimitedTypeText, splitTopLevelTypeText } from "compiler/analysis/typeNames";
+import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseFunctionTypeAnnotation, splitTopLevelDelimitedTypeText, splitTopLevelTypeText } from "compiler/analysis/typeNames";
 import type { SignatureHelp, SignatureInformation } from "vscode-languageserver/node.js";
 import {
   getEcmaScriptRuntimeProgram,
@@ -417,6 +417,10 @@ function parseDisplayFunctionSignatureText(
   const parameterText = trimmed.slice(parameterStart + 1, parameterEnd).trim();
   const returnTypeName = trimmed.slice(arrowIndex + 2).trim();
   const parameterLabels = parameterText.length === 0 ? [] : splitTopLevelDelimitedTypeText(parameterText, new Set([","]));
+  const receiverTypeName = parseFunctionTypeAnnotation(trimmed)?.receiverTypeName;
+  if (receiverTypeName) {
+    parameterLabels.unshift(`this: ${receiverTypeName}`);
+  }
   const parameters = parameterLabels.map((label) => ({ label }));
   const label = `${name}(${parameterLabels.join(", ")}): ${returnTypeName}`;
   return { label, parameters, ...(documentation ? { documentation } : {}) };

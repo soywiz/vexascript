@@ -45,6 +45,29 @@ describe("lsp analysis session", () => {
     expect(session.tokenizeError).toBeNull();
   });
 
+  it("accepts receiver-block shorthand through the VS Code analysis session", () => {
+    const source = dedent`
+      class Graphics {
+        var position: number
+        circle(x: number, y: number, radius: number): Graphics { return this }
+        fill(color: number): Graphics { return this }
+        addTo(stage: unknown): void {}
+      }
+      val center = 1
+      val stage: unknown = undefined
+      val orb = Graphics(). {
+        circle(0, 0, 28)
+        fill(0x004e89)
+        position = center
+        addTo(stage)
+      }
+    `;
+    const session = createAnalysisSession(source);
+
+    expect(session.parserErrors).toEqual([]);
+    expect(session.semanticIssues).toEqual([]);
+  });
+
   it("keeps imported symbol details in the shared importedSymbols map", () => {
     const importedSymbols = new Map<string, ImportedSymbolResolution>([
       ["readFile", { type: namedType("ReadFileFn"), displayType: 'typeof import("node:fs").readFile' }],
