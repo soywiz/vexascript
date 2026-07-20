@@ -155,6 +155,12 @@ development loop.
   warnings from 15 to 7 and the translation unit by 1,577 bytes. The next two
   checked native generations took 18.63 and 18.66 seconds; their `-O1` builds
   took 104.22 and 109.16 seconds.
+  The next profile found normal returns through `typeToStringInternal`'s
+  `try/finally` producing exception-based native control flow. Computing one
+  result, removing the type from the cycle set, and returning once reduced the
+  next checked native generations to 14.73 and 14.75 seconds. Type inference
+  fell from about 10.44 to 7.49 seconds, while the `-O1` builds took 97.87 and
+  98.90 seconds.
 * [ ] Make strict native object mode the final self-host target so compiler
   migration diagnostics identify every remaining dynamic object operation.
 * [x] Emit the complete 44-module compiler as one C++ translation unit. Optional
@@ -198,9 +204,9 @@ development loop.
   seconds. Native execution remained comfortably below two minutes.
 * [x] Compare Node, the previous native host, and the rebuilt native host. All
   three latest outputs have SHA-256
-  `69080e315436126ef199b0247bafd8c8c3f76938d471370dfc9591110860380d`.
-  All three 7,897,385-byte outputs were byte-identical.
-* [x] Run `pnpm test` (2308 tests passed on 2026-07-19).
+  `6f277f403cd0a4d71001f1ab8b250e179a5af19d19535abd99633643d3589d20`.
+  All three 7,895,932-byte outputs were byte-identical.
+* [x] Run `pnpm test` (2309 tests passed on 2026-07-19).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 
 ## Related Files

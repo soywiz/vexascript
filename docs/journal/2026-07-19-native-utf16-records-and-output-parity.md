@@ -420,3 +420,26 @@ The first and rebuilt `-O1` hosts compiled in 104.22 and 109.16 seconds and
 generated checked C++ in 18.63 and 18.66 seconds. Node and both native hosts
 emitted byte-identical 7,897,385-byte translation units with SHA-256
 `69080e315436126ef199b0247bafd8c8c3f76938d471370dfc9591110860380d`.
+
+## Normal returns through finally became native exceptions
+
+The next profile made `typeToString` the leading named stack entry, with 673
+samples, alongside more than 400 C++ throw/rethrow and unwind samples. Its
+recursive helper wrapped a switch containing many early returns in
+`try/finally` so the active-cycle set was always cleaned. Native lowering had
+to preserve those JavaScript semantics by throwing a return signal through the
+finally block, turning ordinary type rendering into exception-heavy control
+flow.
+
+The helper now assigns one result in its switch, removes the tracked object,
+and returns once. A focused regression builds a self-referential named type and
+renders it twice, proving both cycle termination and cleanup between calls.
+This is a source-level optimization that benefits every backend and avoids a
+native-only special case.
+
+The two rebuilt `-O1` hosts compiled in 97.87 and 98.90 seconds. Checked native
+generation fell from 18.63–18.66 seconds to 14.73–14.75 seconds, with merged
+type inference falling from about 10.44 seconds to 7.47–7.50 seconds. Node and
+both native hosts emitted byte-identical 7,895,932-byte translation units with
+SHA-256
+`6f277f403cd0a4d71001f1ab8b250e179a5af19d19535abd99633643d3589d20`.

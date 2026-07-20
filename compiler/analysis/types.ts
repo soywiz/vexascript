@@ -275,74 +275,82 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
     trackedObject = type as object;
     seen.add(trackedObject);
   }
-  try {
-    switch (type.kind) {
-      case "unknown":
-        return "unknown";
-      case "builtin":
-        return type.name;
-      case "named":
-        if (!type.typeArguments || type.typeArguments.length === 0) {
-          return type.name;
-        }
-        return `${type.name}<${type.typeArguments.map((argument) => typeToStringInternal(argument, seen)).join(", ")}>`;
-      case "function": {
-        const functionType = type as FunctionType;
-        const renderedTypeParameters: string[] = [];
-        for (const parameter of functionType.typeParameters ?? []) {
-          const constraint = functionType.typeParameterConstraints?.[parameter];
-          renderedTypeParameters.push(
-            constraint ? `${parameter} extends ${typeToStringInternal(constraint, seen)}` : parameter
-          );
-        }
-        const typeParameterPrefix = renderedTypeParameters.length > 0
-          ? `<${renderedTypeParameters.join(", ")}>`
-          : "";
-        const renderedReturnType = functionType.assertion
-          ? `asserts ${functionType.assertion.target}${functionType.assertion.type ? ` is ${typeToStringInternal(functionType.assertion.type, seen)}` : ""}`
-          : typeToStringInternal(functionType.returnType, seen);
-        const renderedParameters: string[] = [];
-        for (const functionParameter of functionType.parameters) {
-          renderedParameters.push(
-            `${functionParameter.rest ? "..." : ""}${functionParameter.name}: ${typeToStringInternal(functionParameter.type, seen)}`
-          );
-        }
-        return `${typeParameterPrefix}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
+  let result: string;
+  switch (type.kind) {
+    case "unknown":
+      result = "unknown";
+      break;
+    case "builtin":
+      result = type.name;
+      break;
+    case "named":
+      result = !type.typeArguments || type.typeArguments.length === 0
+        ? type.name
+        : `${type.name}<${type.typeArguments.map((argument) => typeToStringInternal(argument, seen)).join(", ")}>`;
+      break;
+    case "function": {
+      const functionType = type as FunctionType;
+      const renderedTypeParameters: string[] = [];
+      for (const parameter of functionType.typeParameters ?? []) {
+        const constraint = functionType.typeParameterConstraints?.[parameter];
+        renderedTypeParameters.push(
+          constraint ? `${parameter} extends ${typeToStringInternal(constraint, seen)}` : parameter
+        );
       }
-      case "array":
-        return `${type.isReadonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;
-      case "object":
-        if (Object.keys(type.properties).length === 0) {
-          return "object";
-        }
-        return `{ ${Object.entries(type.properties)
+      const typeParameterPrefix = renderedTypeParameters.length > 0
+        ? `<${renderedTypeParameters.join(", ")}>`
+        : "";
+      const renderedReturnType = functionType.assertion
+        ? `asserts ${functionType.assertion.target}${functionType.assertion.type ? ` is ${typeToStringInternal(functionType.assertion.type, seen)}` : ""}`
+        : typeToStringInternal(functionType.returnType, seen);
+      const renderedParameters: string[] = [];
+      for (const functionParameter of functionType.parameters) {
+        renderedParameters.push(
+          `${functionParameter.rest ? "..." : ""}${functionParameter.name}: ${typeToStringInternal(functionParameter.type, seen)}`
+        );
+      }
+      result = `${typeParameterPrefix}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
+      break;
+    }
+    case "array":
+      result = `${type.isReadonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;
+      break;
+    case "object":
+      result = Object.keys(type.properties).length === 0
+        ? "object"
+        : `{ ${Object.entries(type.properties)
           .map(([name, propertyType]) => `${name}: ${typeToStringInternal(propertyType, seen)}`)
           .join(", ")} }`;
-      case "range":
-        return `range<${typeToStringInternal(type.elementType, seen)}>`;
-      case "union": {
-        const members = dedupeUnionDisplayMembers(flattenUnionDisplayMembers(type));
-        const optionalMember = optionalTypeMember(members);
-        if (optionalMember) {
-          const rendered = typeToStringInternal(optionalMember, seen);
-          return needsParensForOptionalType(optionalMember) ? `(${rendered})?` : `${rendered}?`;
-        }
-        return members.map((member) => typeToStringInternal(member, seen)).join(" | ");
+      break;
+    case "range":
+      result = `range<${typeToStringInternal(type.elementType, seen)}>`;
+      break;
+    case "union": {
+      const members = dedupeUnionDisplayMembers(flattenUnionDisplayMembers(type));
+      const optionalMember = optionalTypeMember(members);
+      if (optionalMember) {
+        const rendered = typeToStringInternal(optionalMember, seen);
+        result = needsParensForOptionalType(optionalMember) ? `(${rendered})?` : `${rendered}?`;
+      } else {
+        result = members.map((member) => typeToStringInternal(member, seen)).join(" | ");
       }
-      case "intersection":
-        return type.types.map((member) => typeToStringInternal(member, seen)).join(" & ");
-      case "literal":
-        return type.base === "string" ? JSON.stringify(type.value) : String(type.value);
-      case "tuple":
-        return `${type.isReadonly === true ? "readonly " : ""}[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
-      default:
-        return "unknown";
+      break;
     }
-  } finally {
-    if (trackedObject) {
-      seen.delete(trackedObject);
-    }
+    case "intersection":
+      result = type.types.map((member) => typeToStringInternal(member, seen)).join(" & ");
+      break;
+    case "literal":
+      result = type.base === "string" ? JSON.stringify(type.value) : String(type.value);
+      break;
+    case "tuple":
+      result = `${type.isReadonly === true ? "readonly " : ""}[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
+      break;
+    default:
+      result = "unknown";
+      break;
   }
+  if (trackedObject) seen.delete(trackedObject);
+  return result;
 }
 
 function flattenUnionDisplayMembers(type: AnalysisType): AnalysisType[] {

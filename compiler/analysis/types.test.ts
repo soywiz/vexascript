@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { AnalysisType } from "./types";
-import { builtinType, isSameType, UNKNOWN_TYPE, unionType } from "./types";
+import { builtinType, isSameType, namedType, typeToString, UNKNOWN_TYPE, unionType } from "./types";
 
 describe("analysis type factories", () => {
+  it("renders recursive type graphs without leaking cycle state between calls", () => {
+    const recursive = namedType("Node");
+    recursive.typeArguments = [recursive];
+
+    assert.equal(typeToString(recursive), "Node<Node>");
+    assert.equal(typeToString(recursive), "Node<Node>");
+  });
+
   it("keeps missing runtime values out of union members", () => {
     const union = unionType([undefined as unknown as AnalysisType]);
 
