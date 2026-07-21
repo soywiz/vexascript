@@ -59,9 +59,17 @@ describe("native package contents", () => {
     const windowsHeaders = await readOilpanArchiveFile("gc/src/base/win32-headers.h");
     const windowsStackTrace = await readOilpanArchiveFile("gc/src/base/debug/stack_trace_win.cc");
     const windowsRegisters = await readOilpanArchiveFile("gc/src/heap/base/asm/x64/push_registers_mingw.S");
+    const bits = await readOilpanArchiveFile("gc/src/base/bits.h");
+    const time = await readOilpanArchiveFile("gc/src/base/platform/time.cc");
+    expect(cmake).toContain("_CRT_RAND_S");
+    expect(cmake).toContain("UNICODE");
     expect(windowsPlatform).toContain("namespace v8");
+    expect(windowsPlatform).toContain("#ifndef __MINGW64_VERSION_MAJOR");
+    expect(windowsPlatform).not.toContain("Stack::GetCommittedStackLimit");
     expect(windowsHeaders).toContain("V8_BASE_WIN32_HEADERS_H_");
     expect(windowsStackTrace).toContain("StackTrace::StackTrace()");
     expect(windowsRegisters).toContain("PushAllRegistersAndIterateStack");
+    expect(bits).toContain("#undef RotateRight32");
+    expect(time).toContain("!V8_OS_WIN");
   });
 });

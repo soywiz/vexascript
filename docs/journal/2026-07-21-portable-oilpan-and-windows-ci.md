@@ -33,7 +33,7 @@ normalizes explicit executable outputs to `.exe`. Archive extraction uses
 The vendored archive includes the required V8 Win32 sources and a GNU-assembler
 implementation of V8's Windows x64 register-preservation contract. The platform
 sources are pinned to V8 commit
-`3e43c9325fcb17b30c435fd8b7b6e4e8c4ebd55b`.
+`43d4c25ffe50ab241be2ce2557eb0ec4aa3a31c3`.
 
 The Windows Actions job runs the native toolchain and package regressions plus
 the complete compiled language smoke. This ensures a clean runner compiles,
@@ -89,6 +89,16 @@ Drive-rooted paths are now preserved as absolute by the same shared resolver,
 including the `D:/` dirname boundary. The path regression is host-independent,
 and platform-specific native build assertions now select their intended
 platform explicitly instead of inheriting the test runner OS.
+
+Once MinGW compiled the archive, it revealed that the initially imported V8
+Win32 sources were newer than the vendored base headers: they defined stack
+APIs introduced after the header snapshot. The Win32 platform, stack-trace,
+and helper header were replaced together from the last compatible official V8
+revision. Modern MinGW-w64 also exposes secure CRT functions and POSIX feature
+macros differently from V8's legacy MinGW assumptions. The standalone build
+now selects Unicode Win32 APIs and `rand_s`, avoids redefining available secure
+CRT functions, prevents Windows bit-helper macro collisions, and ensures the
+Windows thread-clock path wins over MinGW's POSIX feature declarations.
 
 ## Investigation notes
 
