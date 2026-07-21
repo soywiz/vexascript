@@ -216,6 +216,7 @@ This section is the fast onboarding map for agents and contributors.
 - Engineering journal notes, regression history, recurring failure patterns, and noteworthy failed investigation branches captured after completed tasks: `docs/journal/` (index: `docs/journal/README.md`)
 - Processed journal notes that have already been ingested into actionable architecture or follow-up tasks: `docs/journal/processed/`
 - Repo-local Codex skills: `.codex/skills/`
+  - Website validation and production deployment workflow, including real-browser playground checks and the guarded `HEAD:web` push: `.codex/skills/deploy-vexascript-website/SKILL.md`
   - Sample/library stress workflow skill for intentionally exposing compiler, parser, type checker, emitter, and LSP hover/go-to-definition gaps with realistic samples or package typings: `.codex/skills/break-vexascript-with-samples/SKILL.md`
   - Sample-creation workflow skill for browser and Node samples: `.codex/skills/create-vexascript-samples/SKILL.md`
   - Destructive subtractive-refactor workflow skill for negative-net cleanup, dead-code deletion, and removal of internal compatibility layers when compiler/CLI behavior remains stable: `.codex/skills/destructive-negative-net-refactor/SKILL.md`

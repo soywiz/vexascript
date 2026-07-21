@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy VexaScript Website"
+  short_description: "Validate and deploy the VexaScript website"
+  default_prompt: "Use $deploy-vexascript-website to validate the playground and deploy the current commit to the web branch."
