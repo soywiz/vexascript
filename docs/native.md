@@ -29,11 +29,11 @@ generated translation unit is compiled and linked with `g++ -std=c++20`.
 
 - `g++` with C++20 support
 - CMake 3.20 or later
-- `unzip`
 - Make or another CMake-supported build tool
 
 The vendored Oilpan source is prepared for macOS and Linux on arm64/aarch64 and
-x86_64.
+x86_64, and for 64-bit Windows with MinGW-w64. On Windows, `g++` and
+`mingw32-make` must be available on `PATH`.
 
 The end-to-end regression lives in `samples/native-language-smoke/`. It is a
 multi-file program covering functions, classes, interfaces, operators, managed

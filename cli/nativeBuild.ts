@@ -1,4 +1,4 @@
-import { access, mkdir, stat } from "node:fs/promises";
+import { access, mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, extname, resolve } from "../compiler/utils/path";
 import { LANGUAGE_FILE_EXTENSION } from "../compiler/language";
@@ -21,21 +21,25 @@ export function nativeProgramPaths(
   input: string,
   out: string | undefined,
   buildDir: string | undefined,
-  cwd = process.cwd()
+  cwd = process.cwd(),
+  platform: NodeJS.Platform = process.platform
 ): NativeProgramPaths {
   const sourcePath = resolve(cwd, input);
   if (extname(sourcePath).toLowerCase() !== LANGUAGE_FILE_EXTENSION) {
     throw new Error(`Native compilation expects a ${LANGUAGE_FILE_EXTENSION} input file: ${sourcePath}`);
   }
   const buildRoot = buildDir ? resolve(cwd, buildDir) : `${sourcePath}.build`;
-  const executableSuffix = process.platform === "win32" ? ".exe" : "";
+  const selectedExecutablePath = out
+    ? resolve(cwd, out)
+    : sourcePath.replace(/\.[^.]+$/, "");
+  const executablePath = platform === "win32" && extname(selectedExecutablePath) === ""
+    ? `${selectedExecutablePath}.exe`
+    : selectedExecutablePath;
   return {
     sourcePath,
     buildRoot,
     cppPath: resolve(buildRoot, "main.cpp"),
-    executablePath: out
-      ? resolve(cwd, out)
-      : sourcePath.replace(/\.[^.]+$/, executableSuffix),
+    executablePath,
   };
 }
 
@@ -52,7 +56,53 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-async function ensureOilpanSources(root: string): Promise<string> {
+function errnoCode(error: unknown): string | undefined {
+  return (error as NodeJS.ErrnoException).code;
+}
+
+export async function withNativeBuildLock<T>(
+  lockRoot: string,
+  action: () => Promise<T>
+): Promise<T> {
+  const startedAt = Date.now();
+  const staleAfterMs = 10 * 60 * 1000;
+  const timeoutMs = 15 * 60 * 1000;
+
+  while (true) {
+    try {
+      await mkdir(lockRoot);
+      break;
+    } catch (error) {
+      if (errnoCode(error) !== "EEXIST") throw error;
+      try {
+        const lockInfo = await stat(lockRoot);
+        if (Date.now() - lockInfo.mtimeMs > staleAfterMs) {
+          await rm(lockRoot, { recursive: true, force: true });
+          continue;
+        }
+      } catch (statError) {
+        if (errnoCode(statError) !== "ENOENT") throw statError;
+        continue;
+      }
+      if (Date.now() - startedAt > timeoutMs) {
+        throw new Error(`Timed out waiting for native build cache lock: ${lockRoot}`);
+      }
+      await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 100));
+    }
+  }
+
+  try {
+    return await action();
+  } finally {
+    await rm(lockRoot, { recursive: true, force: true });
+  }
+}
+
+async function oilpanCachePaths(root: string): Promise<{
+  archive: string;
+  cacheRoot: string;
+  extractedRoot: string;
+}> {
   const archive = resolve(root, "oilpan-standalone-main.zip");
   if (!(await exists(archive))) {
     throw new Error(`Oilpan source archive was not found: ${archive}`);
@@ -64,29 +114,51 @@ async function ensureOilpanSources(root: string): Promise<string> {
     `oilpan-${archiveInfo.size}-${Math.trunc(archiveInfo.mtimeMs)}`
   );
   const extractedRoot = resolve(cacheRoot, "oilpan-standalone-main");
+  return { archive, cacheRoot, extractedRoot };
+}
+
+async function ensureOilpanSources(
+  archive: string,
+  cacheRoot: string,
+  extractedRoot: string
+): Promise<void> {
   if (await exists(resolve(extractedRoot, "gc", "CMakeLists.txt"))) {
-    return extractedRoot;
+    return;
   }
 
   await mkdir(cacheRoot, { recursive: true });
-  await runCommand("unzip", ["-q", archive, "-d", cacheRoot]);
-  return extractedRoot;
+  await runCommand("cmake", ["-E", "tar", "xf", archive], { cwd: cacheRoot });
+}
+
+export function nativeCmakeConfigureArguments(
+  gcRoot: string,
+  buildRoot: string,
+  platform: NodeJS.Platform = process.platform
+): string[] {
+  return [
+    ...(platform === "win32" ? ["-G", "MinGW Makefiles"] : []),
+    "-S", gcRoot,
+    "-B", buildRoot,
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DCMAKE_CXX_COMPILER=g++",
+  ];
 }
 
 async function ensureOilpanLibrary(root: string): Promise<{ gcRoot: string; libraryPath: string }> {
-  const extractedRoot = await ensureOilpanSources(root);
+  const { archive, cacheRoot, extractedRoot } = await oilpanCachePaths(root);
   const gcRoot = resolve(extractedRoot, "gc");
   const buildRoot = resolve(gcRoot, "build-vexa");
   const libraryPath = resolve(buildRoot, "liboilpan_gc.a");
-  if (!(await exists(libraryPath))) {
-    await runCommand("cmake", [
-      "-S", gcRoot,
-      "-B", buildRoot,
-      "-DCMAKE_BUILD_TYPE=Release",
-      "-DCMAKE_CXX_COMPILER=g++",
-    ]);
-    await runCommand("cmake", ["--build", buildRoot, "--parallel"]);
+  if (await exists(libraryPath)) {
+    return { gcRoot, libraryPath };
   }
+
+  await withNativeBuildLock(`${cacheRoot}.lock`, async () => {
+    await ensureOilpanSources(archive, cacheRoot, extractedRoot);
+    if (await exists(libraryPath)) return;
+    await runCommand("cmake", nativeCmakeConfigureArguments(gcRoot, buildRoot));
+    await runCommand("cmake", ["--build", buildRoot, "--parallel"]);
+  });
   return { gcRoot, libraryPath };
 }
 
@@ -115,7 +187,8 @@ export function nativeCompilerArguments(
     ...(platform === "darwin" ? ["-Wno-inconsistent-missing-override", "-Wno-trigraphs"] : []),
     "-fno-rtti",
     "-DCPPGC_IS_STANDALONE=1",
-    "-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO",
+    ...(platform === "darwin" ? ["-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO"] : []),
+    ...(platform === "win32" ? ["-D_WIN32_WINNT=0x0A00"] : []),
     "-DV8_LOGGING_LEVEL=0",
     ...(options.debug || instrumented ? ["-DVEXA_NATIVE_DEBUG=1"] : []),
     ...(options.gcStress ? ["-DVEXA_NATIVE_GC_STRESS=1"] : []),
@@ -124,8 +197,12 @@ export function nativeCompilerArguments(
     `-I${gcRoot}`,
     `-I${resolve(gcRoot, "include")}`,
     libraryPath,
-    "-pthread",
-    ...(platform === "darwin" ? ["-framework", "CoreFoundation"] : ["-ldl"]),
+    ...(platform === "win32" ? [] : ["-pthread"]),
+    ...(platform === "darwin"
+      ? ["-framework", "CoreFoundation"]
+      : platform === "win32"
+        ? ["-ldbghelp", "-lshlwapi", "-lwinmm"]
+        : ["-ldl"]),
     "-o",
     executablePath,
   ];

@@ -119,7 +119,7 @@ This section is the fast onboarding map for agents and contributors.
   - Node-only local disk implementation of the shared VFS contract for CLI/LSP/test flows: `cli/localVfs.ts`
   - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `cli/cli-bin.ts`
   - CLI entrypoint and command implementation, including direct `cpp` source emission, `executable` native linking (`native` remains a compatibility alias), single-file transpilation, and directory-based static site builds that materialize the `serve` bundle and mapped assets into `dist`/`outDir`: `cli/cli.ts`
-  - Node-only native build adapter that plans `<input>.vx.build/main.cpp` intermediates, extracts the vendored Oilpan archive into an OS temporary cache, configures its dedicated CMake cache with `g++`, builds `liboilpan_gc.a`, and links generated C++: `cli/nativeBuild.ts`
+  - Node-only native build adapter that plans `<input>.vx.build/main.cpp` intermediates, extracts the vendored Oilpan archive through CMake into an OS temporary cache, configures its dedicated CMake cache with `g++` (using MinGW Makefiles on Windows), builds `liboilpan_gc.a`, and links generated C++ with platform system libraries: `cli/nativeBuild.ts`
   - Reproducible native production benchmark runner and its thin script entrypoint, covering compile time, binary size, startup, arrays, bigint, the event loop, and forced-GC execution: `cli/nativeBenchmark.ts`, `scripts/nativeBenchmark.ts`, baselines: `docs/native-benchmarks.md`
   - Compiler self-hosting orchestrator and script entrypoint: `cli/selfHost.ts` builds the TypeScript compiler with the source CLI, executes generated compilers from an isolated directory for two more roundtrips, and requires byte-stable output; `scripts/selfHostCompiler.ts` exposes it through `pnpm self-host`, `cli/selfHost.test.ts` verifies the third compiler against a normal fixture, and `docs/self-hosting.md` documents the contract.
   - Node-only dependency installer helpers used by CLI bundle/run/serve flows: `cli/deps.ts`
@@ -205,7 +205,7 @@ This section is the fast onboarding map for agents and contributors.
   - VS Code extension manifest/config and checked-in language configuration generated from the compiler's shared syntax source: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
   - Syntax tests: `validation/vscodeext-syntax.test.ts`
 - GitHub automation:
-  - Continuous-integration workflow that installs dependencies and runs the repository `pnpm test` suite on pushes to `main`/`master` and on pull requests: `.github/workflows/tests.yml`
+  - Continuous-integration workflow that installs dependencies and runs the repository `pnpm test` suite on Ubuntu and Windows, plus native smoke and GC-stress validation on macOS, on pushes to `main` and relevant pull requests: `.github/workflows/tests.yml`
 
 ### Docs and Specs
 

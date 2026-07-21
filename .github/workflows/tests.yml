@@ -6,7 +6,12 @@ on:
       - main
   pull_request:
     paths:
+      - ".github/workflows/**"
+      - "cli/**"
       - "compiler/**"
+      - "native/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
       - "plugins/**"
       - "samples/**"
       - "testFixtures/**"
@@ -114,3 +119,40 @@ jobs:
 
       - name: Run sanitized Oilpan stress smoke
         run: pnpm test:native:stress
+
+  test-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Print native toolchain versions
+        run: |
+          g++ --version
+          cmake --version
+          mingw32-make --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run test suite
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run testFixture/sample.vx
+        run: pnpm cli testFixtures/sample.vx

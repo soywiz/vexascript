@@ -1,8 +1,13 @@
-import { describe, expect, it } from "../compiler/test/expect";
-import { nativeCompilerArguments, nativeProgramPaths } from "./nativeBuild";
+import { describe, expect, it, join, mkdtemp, rm, tmpdir } from "../compiler/test/expect";
+import {
+  nativeCmakeConfigureArguments,
+  nativeCompilerArguments,
+  nativeProgramPaths,
+  withNativeBuildLock,
+} from "./nativeBuild";
 
 describe("native build", () => {
-  it("compiles consumers with Oilpan's public cppgc definitions", () => {
+  it("uses Oilpan's portable GC info table on Linux", () => {
     const args = nativeCompilerArguments(
       "/tmp/main.cpp",
       "/tmp/main",
@@ -13,7 +18,7 @@ describe("native build", () => {
     );
 
     expect(args).toContain("-DCPPGC_IS_STANDALONE=1");
-    expect(args).toContain("-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO");
+    expect(args).not.toContain("-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO");
     expect(args).toContain("-DV8_LOGGING_LEVEL=0");
     expect(args).toContain("-O3");
     expect(args).toContain("-DNDEBUG");
@@ -62,8 +67,31 @@ describe("native build", () => {
       "/repo/native/oilpan/gc/build/liboilpan_gc.a",
       "darwin"
     );
+    expect(args).toContain("-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO");
     expect(args).toContain("-Wno-inconsistent-missing-override");
     expect(args).toContain("-Wno-trigraphs");
+  });
+
+  it("uses the MinGW toolchain and Windows system libraries on Windows", () => {
+    const cmakeArgs = nativeCmakeConfigureArguments("C:/oilpan/gc", "C:/oilpan/build", "win32");
+    expect(cmakeArgs).toContain("MinGW Makefiles");
+    expect(cmakeArgs).toContain("-DCMAKE_CXX_COMPILER=g++");
+
+    const args = nativeCompilerArguments(
+      "C:/project/main.cpp",
+      "C:/project/main.exe",
+      "C:/project/native",
+      "C:/oilpan/gc",
+      "C:/oilpan/build/liboilpan_gc.a",
+      "win32"
+    );
+    expect(args).not.toContain("-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO");
+    expect(args).not.toContain("-pthread");
+    expect(args).not.toContain("-ldl");
+    expect(args).toContain("-D_WIN32_WINNT=0x0A00");
+    expect(args).toContain("-ldbghelp");
+    expect(args).toContain("-lshlwapi");
+    expect(args).toContain("-lwinmm");
   });
 
   it("keeps generated C++ in a source-specific build directory", () => {
@@ -81,9 +109,46 @@ describe("native build", () => {
     });
   });
 
+  it("uses an executable suffix for default and explicit Windows outputs", () => {
+    expect(nativeProgramPaths("src/main.vx", undefined, undefined, "/project", "win32").executablePath)
+      .toBe("/project/src/main.exe");
+    expect(nativeProgramPaths("src/main.vx", "bin/app", undefined, "/project", "win32").executablePath)
+      .toBe("/project/bin/app.exe");
+    expect(nativeProgramPaths("src/main.vx", "bin/app.exe", undefined, "/project", "win32").executablePath)
+      .toBe("/project/bin/app.exe");
+  });
+
   it("rejects non-VexaScript inputs before choosing an executable path", () => {
     expect(() => nativeProgramPaths("src/main.ts", undefined, undefined, "/project")).toThrow(
       "Native compilation expects a .vx input file"
     );
+  });
+
+  it("serializes native cache builders across concurrent callers", async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-lock-"));
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+    let markFirstEntered!: () => void;
+    const firstEntered = new Promise<void>((resolvePromise) => { markFirstEntered = resolvePromise; });
+    const firstGate = new Promise<void>((resolvePromise) => { releaseFirst = resolvePromise; });
+
+    try {
+      const first = withNativeBuildLock(join(outputRoot, "build.lock"), async () => {
+        events.push("first:start");
+        markFirstEntered();
+        await firstGate;
+        events.push("first:end");
+      });
+      await firstEntered;
+      const second = withNativeBuildLock(join(outputRoot, "build.lock"), async () => {
+        events.push("second");
+      });
+      releaseFirst();
+      await Promise.all([first, second]);
+
+      expect(events).toEqual(["first:start", "first:end", "second"]);
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true });
+    }
   });
 });
