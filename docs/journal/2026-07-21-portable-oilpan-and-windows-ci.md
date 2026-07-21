@@ -106,6 +106,18 @@ intrinsics were present. The guard now uses the same `V8_OS_WIN` platform macro
 as the rest of this vendored revision, and the archive regression rejects the
 obsolete spelling.
 
+After MinGW finally compiled and linked the full executable, the smoke still
+returned one without exposing its captured output. The smoke used `/tmp` for
+its native filesystem round-trip, which is not a valid clean-runner temporary
+directory on Windows. It now writes beneath its current directory, while the
+test runs the executable in the same disposable output directory as its build.
+Its subprocess check also used the Unix-only `printf` executable, while the
+runtime built every shell command with POSIX single-quote and `cd` syntax.
+Native command capture now applies Windows command-line quoting and `cd /d`,
+and the smoke invokes Node, which is already the CLI host on every supported
+runner. Failed executable assertions now include captured stdout and stderr so
+future platform-only runtime failures identify their stopping point directly.
+
 ## Investigation notes
 
 - A local macOS run could validate the Apple path but could not compile the

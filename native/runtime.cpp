@@ -4294,6 +4294,30 @@ struct NativeCommandResult final {
   std::string output;
 };
 
+#if defined(_WIN32)
+inline std::string shellQuote(std::string_view value) {
+  std::string quoted("\"");
+  std::size_t backslashes = 0;
+  for (const char character : value) {
+    if (character == '\\') {
+      ++backslashes;
+      continue;
+    }
+    if (character == '"') {
+      quoted.append(backslashes * 2 + 1, '\\');
+      quoted += character;
+      backslashes = 0;
+      continue;
+    }
+    quoted.append(backslashes, '\\');
+    backslashes = 0;
+    quoted += character;
+  }
+  quoted.append(backslashes * 2, '\\');
+  quoted += '"';
+  return quoted;
+}
+#else
 inline std::string shellQuote(std::string_view value) {
   std::string quoted("'");
   for (const char character : value) {
@@ -4303,6 +4327,7 @@ inline std::string shellQuote(std::string_view value) {
   quoted += '\'';
   return quoted;
 }
+#endif
 
 inline Task<Value> nativeRunCommandCapture(
     Runtime& runtime,
@@ -4321,7 +4346,11 @@ inline Task<Value> nativeRunCommandCapture(
       arguments = std::move(copiedArguments),
       workingDirectory = std::move(workingDirectory)] {
     std::string shellCommand;
+#if defined(_WIN32)
+    if (!workingDirectory.empty()) shellCommand = "cd /d " + shellQuote(workingDirectory) + " && ";
+#else
     if (!workingDirectory.empty()) shellCommand = "cd " + shellQuote(workingDirectory) + " && ";
+#endif
     shellCommand += shellQuote(command);
     for (const auto& argument : arguments) shellCommand += " " + shellQuote(argument);
     shellCommand += " 2>&1";

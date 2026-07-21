@@ -33,10 +33,13 @@ describe("native language smoke", () => {
         buildRoot,
       ]);
 
-      const result = await runCommandCapture(executablePath, [], { cwd: root });
+      const result = await runCommandCapture(executablePath, [], { cwd: outputRoot });
       const expected = await readFile(expectedPath, "utf8");
 
-      expect(result.code).toBe(0);
+      expect(
+        result.code,
+        `Native executable failed.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+      ).toBe(0);
       expect(result.stderr).toBe("");
       expect(result.stdout.trim()).toBe(expected.trim());
     } finally {

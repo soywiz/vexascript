@@ -47,6 +47,14 @@ describe("native package contents", () => {
     );
   });
 
+  it("packages platform-specific native command quoting", async () => {
+    const runtime = await readFile(join(process.cwd(), "native/runtime.cpp"), "utf8");
+
+    expect(runtime).toContain("#if defined(_WIN32)\ninline std::string shellQuote");
+    expect(runtime).toContain('shellCommand = "cd /d " + shellQuote(workingDirectory) + " && "');
+    expect(runtime).toContain('#else\n    if (!workingDirectory.empty()) shellCommand = "cd "');
+  });
+
   it("packages the portable Linux GC table and the required Windows sources", async () => {
     const cmake = await readOilpanArchiveFile("gc/CMakeLists.txt");
     expect(cmake).toContain("if(APPLE)\n  target_compile_definitions(oilpan_gc PUBLIC CPPGC_ENABLE_OBJECT_SECTION_GCINFO)");

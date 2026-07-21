@@ -326,7 +326,7 @@ async fun asyncValue(): Promise<int> {
 }
 
 sync fun ioRoundtrip(): string {
-  val path = "/tmp/vexa-native-language-smoke.txt"
+  val path = `${process.cwd()}/vexa-native-language-smoke.txt`
   await writeTextFile(path, "native io works")
   return await readTextFile(path)
 }
@@ -714,7 +714,7 @@ console.log("async rooted array", await rootedArrayAcrossAwait())
 console.log("async rooted parameter", await rootedParameterAcrossAwait(Leaf(23)))
 if (typeof writeTextFile == "function") console.log("async io", await ioRoundtrip())
 if (typeof nativeRunCommandCapture == "function") {
-  val commandResult = await nativeRunCommandCapture("printf", ["native subprocess"], process.cwd())
+  val commandResult = await nativeRunCommandCapture("node", ["-e", "process.stdout.write('native subprocess')"], process.cwd())
   console.log("native command", commandResult.code, commandResult.stdout, commandResult.stderr.length)
 }
 
