@@ -63,6 +63,24 @@ lock helper now creates only its parent hierarchy before performing the atomic
 non-recursive lock-directory creation, and the focused regression starts from a
 missing parent.
 
+The next Windows run failed before reaching native validation because the root
+`build` script was a chain of POSIX shell utilities and invoked esbuild through
+a slash-separated `node_modules/.bin` path. Windows `cmd.exe` consequently
+treated `node_modules` as the command name. Distribution assembly now runs in a
+tested asynchronous Node script: the esbuild API creates the bundle and Node's
+filesystem API replaces `rm`, `cp`, and `chmod`. This keeps one build path for
+all hosts instead of teaching the workflow to bypass the package build.
+
+Ubuntu then exposed a separate cross-compiler semantic bug in the native smoke:
+GCC evaluated `console.log` arguments in a different order from AppleClang.
+That changed a counter before an earlier argument rendered it and deleted weak
+collection entries before preceding reads. C++ does not guarantee left-to-right
+evaluation of ordinary function arguments. Console lowering now passes its
+converted values through a braced initializer list, whose elements are
+sequenced left to right, and the runtime consumes that list in order. A small
+emitter regression covers the ordering mechanism independently of the large
+native smoke.
+
 ## Investigation notes
 
 - A local macOS run could validate the Apple path but could not compile the

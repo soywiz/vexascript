@@ -110,6 +110,7 @@ This section is the fast onboarding map for agents and contributors.
 
 ### Tooling and Integration Pieces
 
+- Distribution build: `scripts/build.ts` bundles the Node CLI with esbuild and copies its runtime declarations through asynchronous Node APIs so `pnpm build` behaves consistently on Unix and Windows; `scripts/build.test.ts` validates the emitted package layout.
 - Compilation pipeline (separate shared parse and parse + analysis artifacts):
   - Parse phase: `compiler/pipeline/parse.ts`
   - Parse phase tests: `compiler/pipeline/parse.test.ts`

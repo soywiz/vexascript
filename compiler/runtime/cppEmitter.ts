@@ -4551,7 +4551,10 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       throw new CppEmitError(`C++ emission does not support console.${member.propertyName} yet`);
     }
     const consoleArguments = call.args.map((argument) => emitConvertedValue(argument, "vexa::Value")).join(", ");
-    return `vexa::console.${member.propertyName}(${consoleArguments})`;
+    // Braced initializer elements are evaluated left to right. Plain C++
+    // function arguments have no corresponding order guarantee, which can
+    // reverse observable VexaScript side effects on GCC.
+    return `vexa::console.${member.propertyName}({${consoleArguments}})`;
   }
   if (member?.objectName === "Math") {
     return `vexa::Math::${cppName(member.propertyName)}(${argumentsText()})`;

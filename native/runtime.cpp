@@ -6937,6 +6937,22 @@ struct Math final {
 
 class Console final {
  public:
+  void log(std::initializer_list<Value> arguments) const {
+    write(std::cout, arguments);
+  }
+
+  void info(std::initializer_list<Value> arguments) const {
+    write(std::cout, arguments);
+  }
+
+  void warn(std::initializer_list<Value> arguments) const {
+    write(std::cerr, arguments);
+  }
+
+  void error(std::initializer_list<Value> arguments) const {
+    write(std::cerr, arguments);
+  }
+
   template <typename... Arguments>
   void log(const Arguments&... arguments) const {
     write(std::cout, arguments...);
@@ -6958,6 +6974,16 @@ class Console final {
   }
 
  private:
+  static void write(std::ostream& output, std::initializer_list<Value> arguments) {
+    bool first = true;
+    for (const auto& argument : arguments) {
+      if (!first) output << ' ';
+      first = false;
+      print(output, argument);
+    }
+    output << '\n';
+  }
+
   static void print(std::ostream& output, const Value& value) { output << toString(value); }
   static void print(std::ostream& output, const std::string& value) { output << value; }
   static void print(std::ostream& output, const char* value) { output << value; }
