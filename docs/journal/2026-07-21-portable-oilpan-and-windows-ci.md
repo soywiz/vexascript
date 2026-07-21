@@ -117,6 +117,9 @@ Native command capture now applies Windows command-line quoting and `cd /d`,
 and the smoke invokes Node, which is already the CLI host on every supported
 runner. Failed executable assertions now include captured stdout and stderr so
 future platform-only runtime failures identify their stopping point directly.
+The first source-level packaging assertion itself assumed LF checkouts; it now
+normalizes CRLF before inspecting multiline C++ guards, matching the existing
+Windows checkout policy without weakening the assertion.
 
 ## Investigation notes
 

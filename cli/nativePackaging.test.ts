@@ -48,7 +48,8 @@ describe("native package contents", () => {
   });
 
   it("packages platform-specific native command quoting", async () => {
-    const runtime = await readFile(join(process.cwd(), "native/runtime.cpp"), "utf8");
+    const runtime = (await readFile(join(process.cwd(), "native/runtime.cpp"), "utf8"))
+      .replace(/\r\n/g, "\n");
 
     expect(runtime).toContain("#if defined(_WIN32)\ninline std::string shellQuote");
     expect(runtime).toContain('shellCommand = "cd /d " + shellQuote(workingDirectory) + " && "');
