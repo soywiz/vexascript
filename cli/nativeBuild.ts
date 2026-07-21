@@ -1,6 +1,6 @@
 import { access, mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, extname, resolve } from "../compiler/utils/path";
+import { dirname, extname, posix, resolve, win32 } from "node:path";
 import { LANGUAGE_FILE_EXTENSION } from "../compiler/language";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "./io";
@@ -24,21 +24,22 @@ export function nativeProgramPaths(
   cwd = process.cwd(),
   platform: NodeJS.Platform = process.platform
 ): NativeProgramPaths {
-  const sourcePath = resolve(cwd, input);
-  if (extname(sourcePath).toLowerCase() !== LANGUAGE_FILE_EXTENSION) {
+  const path = platform === "win32" ? win32 : posix;
+  const sourcePath = path.resolve(cwd, input);
+  if (path.extname(sourcePath).toLowerCase() !== LANGUAGE_FILE_EXTENSION) {
     throw new Error(`Native compilation expects a ${LANGUAGE_FILE_EXTENSION} input file: ${sourcePath}`);
   }
-  const buildRoot = buildDir ? resolve(cwd, buildDir) : `${sourcePath}.build`;
+  const buildRoot = buildDir ? path.resolve(cwd, buildDir) : `${sourcePath}.build`;
   const selectedExecutablePath = out
-    ? resolve(cwd, out)
+    ? path.resolve(cwd, out)
     : sourcePath.replace(/\.[^.]+$/, "");
-  const executablePath = platform === "win32" && extname(selectedExecutablePath) === ""
+  const executablePath = platform === "win32" && path.extname(selectedExecutablePath) === ""
     ? `${selectedExecutablePath}.exe`
     : selectedExecutablePath;
   return {
     sourcePath,
     buildRoot,
-    cppPath: resolve(buildRoot, "main.cpp"),
+    cppPath: path.resolve(buildRoot, "main.cpp"),
     executablePath,
   };
 }
@@ -64,6 +65,7 @@ export async function withNativeBuildLock<T>(
   lockRoot: string,
   action: () => Promise<T>
 ): Promise<T> {
+  await mkdir(dirname(lockRoot), { recursive: true });
   const startedAt = Date.now();
   const staleAfterMs = 10 * 60 * 1000;
   const timeoutMs = 15 * 60 * 1000;
@@ -178,6 +180,7 @@ export function nativeCompilerArguments(
   options: { sanitizers?: boolean; debug?: boolean; gcStress?: boolean } = {}
 ): string[] {
   const instrumented = options.sanitizers === true;
+  const path = platform === "win32" ? win32 : posix;
   return [
     "-std=c++20",
     instrumented ? "-O1" : "-O3",
@@ -195,7 +198,7 @@ export function nativeCompilerArguments(
     cppPath,
     `-I${root}`,
     `-I${gcRoot}`,
-    `-I${resolve(gcRoot, "include")}`,
+    `-I${path.resolve(gcRoot, "include")}`,
     libraryPath,
     ...(platform === "win32" ? [] : ["-pthread"]),
     ...(platform === "darwin"

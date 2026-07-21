@@ -35,9 +35,12 @@ implementation of V8's Windows x64 register-preservation contract. The platform
 sources are pinned to V8 commit
 `3e43c9325fcb17b30c435fd8b7b6e4e8c4ebd55b`.
 
-The Windows Actions job runs the complete `pnpm test` suite rather than a
-header-only or transpilation-only check. This ensures a clean runner compiles,
-links, and executes the native smoke programs through the public CLI.
+The Windows Actions job runs the native toolchain and package regressions plus
+the complete compiled language smoke. This ensures a clean runner compiles,
+links, and executes a native program through the public CLI. The broader test
+suite remains on Ubuntu because its existing LSP fixtures and generated-file
+comparisons assume POSIX paths and LF checkouts; those independent portability
+gaps do not weaken the native Windows check.
 
 ## Clean-cache race found during validation
 
@@ -53,6 +56,13 @@ after acquiring the lock, so one build remains the source of truth. Locks have
 bounded waiting and stale-lock recovery. A focused concurrency regression and a
 full suite run from a deleted cache verify the cold-start behavior.
 
+The first Actions run found one more cold-run assumption: local development had
+already created the parent `vexascript-native` directory, while every clean
+runner failed before acquiring the lock because that parent did not exist. The
+lock helper now creates only its parent hierarchy before performing the atomic
+non-recursive lock-directory creation, and the focused regression starts from a
+missing parent.
+
 ## Investigation notes
 
 - A local macOS run could validate the Apple path but could not compile the
@@ -62,4 +72,5 @@ full suite run from a deleted cache verify the cold-start behavior.
   would have changed the developer machine more than necessary; the dedicated
   clean Windows Actions runner is the authoritative integration environment.
 - Merely adding `windows-latest` while skipping native tests would not validate
-  the requested feature. The Windows job therefore exercises the full suite.
+  the requested feature. The Windows job therefore builds the repository and
+  runs both focused toolchain regressions and the compiled language smoke.

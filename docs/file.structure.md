@@ -205,7 +205,7 @@ This section is the fast onboarding map for agents and contributors.
   - VS Code extension manifest/config and checked-in language configuration generated from the compiler's shared syntax source: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
   - Syntax tests: `validation/vscodeext-syntax.test.ts`
 - GitHub automation:
-  - Continuous-integration workflow that installs dependencies and runs the repository `pnpm test` suite on Ubuntu and Windows, plus native smoke and GC-stress validation on macOS, on pushes to `main` and relevant pull requests: `.github/workflows/tests.yml`
+  - Continuous-integration workflow that runs the complete repository suite on Ubuntu and performs compiled native validation on macOS and Windows, including Windows-specific toolchain/package regressions, on pushes to `main` and relevant pull requests: `.github/workflows/tests.yml`
 
 ### Docs and Specs
 

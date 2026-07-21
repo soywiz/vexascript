@@ -110,12 +110,12 @@ describe("native build", () => {
   });
 
   it("uses an executable suffix for default and explicit Windows outputs", () => {
-    expect(nativeProgramPaths("src/main.vx", undefined, undefined, "/project", "win32").executablePath)
-      .toBe("/project/src/main.exe");
-    expect(nativeProgramPaths("src/main.vx", "bin/app", undefined, "/project", "win32").executablePath)
-      .toBe("/project/bin/app.exe");
-    expect(nativeProgramPaths("src/main.vx", "bin/app.exe", undefined, "/project", "win32").executablePath)
-      .toBe("/project/bin/app.exe");
+    expect(nativeProgramPaths("src\\main.vx", undefined, undefined, "C:\\project", "win32").executablePath)
+      .toBe("C:\\project\\src\\main.exe");
+    expect(nativeProgramPaths("src\\main.vx", "bin\\app", undefined, "C:\\project", "win32").executablePath)
+      .toBe("C:\\project\\bin\\app.exe");
+    expect(nativeProgramPaths("src\\main.vx", "bin\\app.exe", undefined, "C:\\project", "win32").executablePath)
+      .toBe("C:\\project\\bin\\app.exe");
   });
 
   it("rejects non-VexaScript inputs before choosing an executable path", () => {
@@ -133,14 +133,15 @@ describe("native build", () => {
     const firstGate = new Promise<void>((resolvePromise) => { releaseFirst = resolvePromise; });
 
     try {
-      const first = withNativeBuildLock(join(outputRoot, "build.lock"), async () => {
+      const lockRoot = join(outputRoot, "missing-parent", "build.lock");
+      const first = withNativeBuildLock(lockRoot, async () => {
         events.push("first:start");
         markFirstEntered();
         await firstGate;
         events.push("first:end");
       });
       await firstEntered;
-      const second = withNativeBuildLock(join(outputRoot, "build.lock"), async () => {
+      const second = withNativeBuildLock(lockRoot, async () => {
         events.push("second");
       });
       releaseFirst();
