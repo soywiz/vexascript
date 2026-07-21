@@ -22,6 +22,13 @@ test("resolve normalizes dot segments and absolute roots using strings only", ()
   assert.equal(resolve("/workspace/project", "../shared", "file.vx"), "/workspace/shared/file.vx");
 });
 
+test("Windows drive paths remain absolute after slash normalization", () => {
+  assert.equal(resolve("D:/workspace", "D:\\repo\\src\\main.vx"), "D:/repo/src/main.vx");
+  assert.equal(dirname("D:\\repo\\src\\main.vx"), "D:/repo/src");
+  assert.equal(dirname("D:\\main.vx"), "D:/");
+  assert.equal(basename("D:\\repo\\src\\main.vx"), "main.vx");
+});
+
 test("relative computes sibling and ancestor traversal", () => {
   assert.equal(relative("/workspace/src", "/workspace/src/utils/path.ts"), "utils/path.ts");
   assert.equal(relative("/workspace/src/utils", "/workspace/tests/path.test.ts"), "../../tests/path.test.ts");

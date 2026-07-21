@@ -10,13 +10,14 @@ function currentWorkingDirectory(): string {
 }
 
 function isAbsolutePath(path: string): boolean {
-  return path.startsWith("/");
+  return path.startsWith("/") || /^[A-Za-z]:\//.test(path);
 }
 
 function normalizePath(path: string): string {
   const normalized = normalizeSlashes(path);
+  const drive = normalized.match(/^([A-Za-z]:)\//)?.[1];
   const absolute = isAbsolutePath(normalized);
-  const parts = normalized.split("/");
+  const parts = (drive ? normalized.slice(drive.length) : normalized).split("/");
   const output: string[] = [];
 
   for (const part of parts) {
@@ -34,6 +35,9 @@ function normalizePath(path: string): string {
     output.push(part);
   }
 
+  if (drive) {
+    return output.length > 0 ? `${drive}/${output.join("/")}` : `${drive}/`;
+  }
   if (absolute) {
     return output.length > 0 ? `/${output.join("/")}` : "/";
   }
@@ -50,8 +54,8 @@ function pathParts(path: string): string[] {
 
 export function dirname(path: string): string {
   const normalized = normalizePath(path);
-  if (normalized === "/") {
-    return "/";
+  if (normalized === "/" || /^[A-Za-z]:\/$/.test(normalized)) {
+    return normalized;
   }
   if (normalized === ".") {
     return ".";
@@ -63,12 +67,15 @@ export function dirname(path: string): string {
   if (index === 0) {
     return "/";
   }
+  if (index === 2 && /^[A-Za-z]:\//.test(normalized)) {
+    return normalized.slice(0, 3);
+  }
   return normalized.slice(0, index);
 }
 
 export function basename(path: string): string {
   const normalized = normalizePath(path);
-  if (normalized === "/" || normalized === ".") {
+  if (normalized === "/" || /^[A-Za-z]:\/$/.test(normalized) || normalized === ".") {
     return normalized === "/" ? "" : ".";
   }
   const index = normalized.lastIndexOf("/");

@@ -81,6 +81,15 @@ sequenced left to right, and the runtime consumes that list in order. A small
 emitter regression covers the ordering mechanism independently of the large
 native smoke.
 
+The first run that reached Windows native validation still stopped before the
+compiler toolchain. The browser-compatible shared path helper normalized
+backslashes but recognized only a leading slash as absolute, so resolving an
+already absolute `D:\\...` path repeatedly prepended the working directory.
+Drive-rooted paths are now preserved as absolute by the same shared resolver,
+including the `D:/` dirname boundary. The path regression is host-independent,
+and platform-specific native build assertions now select their intended
+platform explicitly instead of inheriting the test runner OS.
+
 ## Investigation notes
 
 - A local macOS run could validate the Apple path but could not compile the

@@ -95,13 +95,13 @@ describe("native build", () => {
   });
 
   it("keeps generated C++ in a source-specific build directory", () => {
-    expect(nativeProgramPaths("src/main.vx", undefined, undefined, "/project")).toEqual({
+    expect(nativeProgramPaths("src/main.vx", undefined, undefined, "/project", "linux")).toEqual({
       sourcePath: "/project/src/main.vx",
       buildRoot: "/project/src/main.vx.build",
       cppPath: "/project/src/main.vx.build/main.cpp",
       executablePath: "/project/src/main",
     });
-    expect(nativeProgramPaths("src/main.vx", "bin/app", "tmp/native", "/project")).toEqual({
+    expect(nativeProgramPaths("src/main.vx", "bin/app", "tmp/native", "/project", "linux")).toEqual({
       sourcePath: "/project/src/main.vx",
       buildRoot: "/project/tmp/native",
       cppPath: "/project/tmp/native/main.cpp",
@@ -119,7 +119,7 @@ describe("native build", () => {
   });
 
   it("rejects non-VexaScript inputs before choosing an executable path", () => {
-    expect(() => nativeProgramPaths("src/main.ts", undefined, undefined, "/project")).toThrow(
+    expect(() => nativeProgramPaths("src/main.ts", undefined, undefined, "/project", "linux")).toThrow(
       "Native compilation expects a .vx input file"
     );
   });
