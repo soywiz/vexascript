@@ -100,6 +100,12 @@ now selects Unicode Win32 APIs and `rand_s`, avoids redefining available secure
 CRT functions, prevents Windows bit-helper macro collisions, and ensures the
 Windows thread-clock path wins over MinGW's POSIX feature declarations.
 
+The first macro-collision guard used V8's obsolete `V8_OS_WIN32` spelling, so
+it was silently excluded even though the Windows headers and colliding MinGW
+intrinsics were present. The guard now uses the same `V8_OS_WIN` platform macro
+as the rest of this vendored revision, and the archive regression rejects the
+obsolete spelling.
+
 ## Investigation notes
 
 - A local macOS run could validate the Apple path but could not compile the

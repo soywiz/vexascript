@@ -69,6 +69,8 @@ describe("native package contents", () => {
     expect(windowsHeaders).toContain("V8_BASE_WIN32_HEADERS_H_");
     expect(windowsStackTrace).toContain("StackTrace::StackTrace()");
     expect(windowsRegisters).toContain("PushAllRegistersAndIterateStack");
+    expect(bits).toContain('#if V8_OS_WIN\n#include "src/base/win32-headers.h"');
+    expect(bits).not.toContain("#if V8_OS_WIN32");
     expect(bits).toContain("#undef RotateRight32");
     expect(time).toContain("!V8_OS_WIN");
   });
