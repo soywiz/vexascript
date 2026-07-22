@@ -75,7 +75,7 @@ uri utf16 %C3%A1%20%F0%9F%98%80 á 😀
 enum 0 3
 switch compiled
 strings VEXA true
-typed static access true true it missing ok:1:0:7 true value-changed
+typed static access true true it missing ok:1:0:7 true value-changed true true false base guarded
 string index e 4
 utf16 string 4 55357 56832 é
 utf16 operations 2 2 3 true 55357

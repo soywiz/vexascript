@@ -73,6 +73,14 @@ class SmokeFunctionParameter(val name: SmokeNodeName)
 
 class SmokeCallableShape(val parameters: SmokeFunctionParameter[])
 
+class SmokeAnalysisType
+
+class SmokeNamedType extends SmokeAnalysisType {
+  constructor(public name: string) {
+    super()
+  }
+}
+
 class SmokeCompileResult(
   val code: string,
   val warnings: string[],
@@ -107,6 +115,15 @@ fun smokeOptionalParameterFind(expected?: SmokeCallableShape): string {
 
 fun smokeCompileResult(result: SmokeCompileResult): string {
   return `${result.code}:${result.warnings.length}:${result.errors.length}:${result.diagnostics[0].value}`
+}
+
+fun smokeNegativeInstanceOr(type: SmokeAnalysisType): boolean {
+  return !(type instanceof SmokeNamedType) || type.name === "named"
+}
+
+fun smokeNegativeInstanceGuard(type: SmokeAnalysisType): string {
+  if (!(type instanceof SmokeNamedType)) return "base"
+  return type.name
 }
 
 fun smokeBorrowedString(value: string): boolean => value === "const"
@@ -766,7 +783,12 @@ console.log(
   smokeOptionalParameterFind(),
   smokeCompileResult(SmokeCompileResult("ok", ["warning"], [], [Leaf(7)])),
   smokeBorrowedString("const"),
-  smokeMutableString("value")
+  smokeMutableString("value"),
+  smokeNegativeInstanceOr(SmokeAnalysisType()),
+  smokeNegativeInstanceOr(SmokeNamedType("named")),
+  smokeNegativeInstanceOr(SmokeNamedType("other")),
+  smokeNegativeInstanceGuard(SmokeAnalysisType()),
+  smokeNegativeInstanceGuard(SmokeNamedType("guarded"))
 )
 val indexedString: string = "Vexa"
 console.log("string index", indexedString[1], indexedString.length)

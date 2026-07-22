@@ -3,6 +3,7 @@ import { ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, 
 
 import { bindingElementPropertyName, bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { childNodes } from "compiler/ast/traversal";
+import { statementAlwaysExits } from "compiler/analysis/controlFlow";
 import {
   ArrayType,
   BuiltinType,
@@ -3734,9 +3735,12 @@ function nativeLambdaCapture(
       continue;
     }
     if (activeGcArrayTypes.has(sourceName)) continue;
+    const narrowed = activeNarrowedIdentifierExpressions.get(sourceName);
     captures.push(activeFunctionObjectCapture
-      ? `${name} = vexa::rawPointer(${name})`
-      : `${name} = cppgc::Persistent<${cppName(className)}>(${name})`);
+      ? `${name} = vexa::rawPointer(${narrowed ?? name})`
+      : narrowed
+        ? `${name} = cppgc::Persistent<${cppName(className)}>(vexa::rawPointer(${narrowed}))`
+        : `${name} = cppgc::Persistent<${cppName(className)}>(${name})`);
   }
   for (const [sourceName, pointeeType] of activeGcArrayTypes) {
     if (activeSharedBindingNames.has(sourceName)) continue;
@@ -5624,11 +5628,13 @@ function emitBinary(expression: BinaryExpression): string {
       const left = emitCondition(expression.left);
       const right = expression.operator === "&&"
         ? emitWithPositiveInstanceofNarrowing(expression.left, () => emitCondition(expression.right))
-        : emitCondition(expression.right);
+        : emitWithNegativeInstanceofNarrowing(expression.left, () => emitCondition(expression.right));
       return `(${left} ${expression.operator} ${right})`;
     }
     const left = emitConvertedValue(expression.left, "vexa::Value");
-    const right = emitConvertedValue(expression.right, "vexa::Value");
+    const right = expression.operator === "&&"
+      ? emitWithPositiveInstanceofNarrowing(expression.left, () => emitConvertedValue(expression.right, "vexa::Value"))
+      : emitWithNegativeInstanceofNarrowing(expression.left, () => emitConvertedValue(expression.right, "vexa::Value"));
     const selectRight = expression.operator === "&&" ? "" : "!";
     const selected = `([&]() { auto __vexa_logical_left = ${left}; return ${selectRight}vexa::Boolean(__vexa_logical_left) ? ${right} : __vexa_logical_left; }())`;
     const logicalResultType = resultType === "bool"
@@ -5751,12 +5757,43 @@ function positiveInstanceofNarrowings(test: Expr): PositiveInstanceofNarrowing[]
     : [];
 }
 
-function emitWithPositiveInstanceofNarrowing(
-  test: Expr,
+function negativeInstanceofNarrowings(test: Expr): PositiveInstanceofNarrowing[] {
+  if (test instanceof UnaryExpression && test.operator === "!") {
+    return positiveInstanceofNarrowings(test.argument);
+  }
+  if (test instanceof BinaryExpression && test.operator === "||") {
+    return [
+      ...negativeInstanceofNarrowings(test.left),
+      ...negativeInstanceofNarrowings(test.right),
+    ];
+  }
+  return [];
+}
+
+function applyInstanceofNarrowings(
+  narrowings: readonly PositiveInstanceofNarrowing[],
+  useNarrowedLocal: boolean
+): void {
+  for (const narrowing of narrowings) {
+    activeLocalCppTypes.set(narrowing.sourceName, narrowing.targetType);
+    activeGcObjectTypes.set(narrowing.sourceName, narrowing.targetName);
+    activeDynamicValueNames.delete(narrowing.sourceName);
+    activeNarrowedIdentifierExpressions.set(
+      narrowing.sourceName,
+      useNarrowedLocal
+        ? cppName(narrowing.sourceName)
+        : `vexa::toInstance<${narrowing.targetType}>(${cppName(narrowing.sourceName)})`
+    );
+  }
+  activeCppExpressionTypeCache = new Map();
+  activeEmittedExpressionTypeCache = new Map();
+}
+
+function emitWithInstanceofNarrowings(
+  narrowings: readonly PositiveInstanceofNarrowing[],
   emit: () => string,
   useNarrowedLocal = false
 ): string {
-  const narrowings = positiveInstanceofNarrowings(test);
   if (narrowings.length === 0) return emit();
 
   const previousLocalCppTypes = activeLocalCppTypes;
@@ -5771,17 +5808,7 @@ function emitWithPositiveInstanceofNarrowing(
   activeNarrowedIdentifierExpressions = new Map(activeNarrowedIdentifierExpressions);
   activeCppExpressionTypeCache = new Map();
   activeEmittedExpressionTypeCache = new Map();
-  for (const narrowing of narrowings) {
-    activeLocalCppTypes.set(narrowing.sourceName, narrowing.targetType);
-    activeGcObjectTypes.set(narrowing.sourceName, narrowing.targetName);
-    activeDynamicValueNames.delete(narrowing.sourceName);
-    activeNarrowedIdentifierExpressions.set(
-      narrowing.sourceName,
-      useNarrowedLocal
-        ? cppName(narrowing.sourceName)
-        : `vexa::toInstance<${narrowing.targetType}>(${cppName(narrowing.sourceName)})`
-    );
-  }
+  applyInstanceofNarrowings(narrowings, useNarrowedLocal);
   try {
     return emit();
   } finally {
@@ -5792,6 +5819,18 @@ function emitWithPositiveInstanceofNarrowing(
     activeCppExpressionTypeCache = previousCppExpressionTypeCache;
     activeEmittedExpressionTypeCache = previousEmittedExpressionTypeCache;
   }
+}
+
+function emitWithPositiveInstanceofNarrowing(
+  test: Expr,
+  emit: () => string,
+  useNarrowedLocal = false
+): string {
+  return emitWithInstanceofNarrowings(positiveInstanceofNarrowings(test), emit, useNarrowedLocal);
+}
+
+function emitWithNegativeInstanceofNarrowing(test: Expr, emit: () => string): string {
+  return emitWithInstanceofNarrowings(negativeInstanceofNarrowings(test), emit);
 }
 
 function emitParenthesizedCondition(expression: Expr): string {
@@ -6736,16 +6775,29 @@ function emitBlock(block: BlockStatement, indent: string, trailingStatement?: st
   const previousGcArrayTypes = new Map(activeGcArrayTypes);
   const previousDynamicValueNames = new Set(activeDynamicValueNames);
   const previousSharedBindingNames = new Set(activeSharedBindingNames);
+  const previousNarrowedExpressions = activeNarrowedIdentifierExpressions;
+  const previousCppExpressionTypeCache = activeCppExpressionTypeCache;
+  const previousEmittedExpressionTypeCache = activeEmittedExpressionTypeCache;
+  activeNarrowedIdentifierExpressions = new Map(activeNarrowedIdentifierExpressions);
   try {
     const childIndent = `${indent}  `;
     const lines: string[] = [];
-    for (const statement of block.body) {
+    for (let index = 0; index < block.body.length; index += 1) {
+      const statement = block.body[index]!;
       const emitted = emitStatement(statement, childIndent);
       if (!emitted) continue;
       for (const preambleLine of emitStatementPreamble(statement, childIndent)) {
         lines.push(preambleLine);
       }
       lines.push(emitted);
+      if (statement instanceof IfStatement && !statement.elseBranch &&
+          statementAlwaysExits(statement.thenBranch)) {
+        const remaining = block.body.slice(index + 1);
+        const stableNarrowings = negativeInstanceofNarrowings(statement.condition).filter(
+          (narrowing) => !remaining.some((child) => nodeReassignsIdentifier(child, narrowing.sourceName))
+        );
+        applyInstanceofNarrowings(stableNarrowings, false);
+      }
     }
     if (trailingStatement) lines.push(`${childIndent}${trailingStatement}`);
     return lines.length > 0 ? `{\n${lines.join("\n")}\n${indent}}` : "{}";
@@ -6757,6 +6809,9 @@ function emitBlock(block: BlockStatement, indent: string, trailingStatement?: st
     activeGcArrayTypes = previousGcArrayTypes;
     activeDynamicValueNames = previousDynamicValueNames;
     activeSharedBindingNames = previousSharedBindingNames;
+    activeNarrowedIdentifierExpressions = previousNarrowedExpressions;
+    activeCppExpressionTypeCache = previousCppExpressionTypeCache;
+    activeEmittedExpressionTypeCache = previousEmittedExpressionTypeCache;
   }
 }
 
