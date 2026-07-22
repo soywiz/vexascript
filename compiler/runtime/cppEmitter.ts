@@ -5369,6 +5369,51 @@ function emitManagedArrayEmptyComparison(expression: BinaryExpression): string |
   return null;
 }
 
+function isStableStaticComparisonOperand(expression: Expr): boolean {
+  if (expression instanceof Identifier ||
+      expression instanceof IntLiteral ||
+      expression instanceof LongLiteral ||
+      expression instanceof FloatLiteral ||
+      expression instanceof BooleanLiteral ||
+      expression instanceof StringLiteral) {
+    return true;
+  }
+  if (!(expression instanceof MemberExpression)) return false;
+  const member = expression;
+  const enumName = !member.computed ? identifierName(member.object) : null;
+  return enumName !== null && activeEnumNames.has(enumName);
+}
+
+function emitOptionalStoredPropertyComparison(expression: BinaryExpression): string | null {
+  if (expression.operator !== "==" && expression.operator !== "!=" &&
+      expression.operator !== "===" && expression.operator !== "!==") return null;
+  const leftMember = expression.left instanceof MemberExpression ? expression.left : null;
+  const rightMember = expression.right instanceof MemberExpression ? expression.right : null;
+  const member = leftMember?.optional ? leftMember : rightMember?.optional ? rightMember : null;
+  if (!member || member.computed || !(member.property instanceof Identifier) ||
+      !(member.object instanceof Identifier) || isOptionalChainExpression(member.object)) return null;
+  const receiverType = emittedCppTypeForExpression(member.object) ?? cppTypeForExpression(member.object);
+  if (!receiverType.endsWith("*")) return null;
+  const property = classStoredPropertyInfoForMember(member);
+  if (!property || property.valueType === "vexa::Value") return null;
+  const other = member === leftMember ? expression.right : expression.left;
+  if (!isStableStaticComparisonOperand(other)) return null;
+  const otherType = directlyEmittedCppType(other) ??
+    emittedCppTypeForExpression(other) ?? cppTypeForExpression(other);
+  const compatible = property.valueType === otherType ||
+    (isNativeNumericCppType(property.valueType) && isNativeNumericCppType(otherType));
+  if (!compatible) return null;
+
+  const receiver = emitExpression(member.object);
+  const pointer = `vexa::rawPointer(${receiver})`;
+  const access = `${receiver}->${cppName((member.property as Identifier).name)}`;
+  const compared = emitExpression(other);
+  const unequal = expression.operator === "!=" || expression.operator === "!==";
+  return unequal
+    ? `(${pointer} == nullptr || (${access} != ${compared}))`
+    : `(${pointer} != nullptr && (${access} == ${compared}))`;
+}
+
 function dynamicBinaryHelper(operator: string): string | null {
   switch (operator) {
     case "+": return "add";
@@ -5482,6 +5527,8 @@ function emitBinary(expression: BinaryExpression): string {
   if (pointerNullishEquality) return pointerNullishEquality;
   const managedArrayEmptyComparison = emitManagedArrayEmptyComparison(expression);
   if (managedArrayEmptyComparison) return managedArrayEmptyComparison;
+  const optionalStoredPropertyComparison = emitOptionalStoredPropertyComparison(expression);
+  if (optionalStoredPropertyComparison) return optionalStoredPropertyComparison;
   const staticPrimitiveOperands = hasStaticPrimitiveOperands(expression);
   if (expression.operator === "+" &&
       isDirectNativeTextExpression(expression.left) &&

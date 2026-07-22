@@ -135,3 +135,9 @@ The Node-emitted and native-emitted files still differ by 353 bytes in redundant
 The literal pool originally stored pointers to boxed `Value` instances, even though every pooled entry was known to be a string. Statically typed string expressions separately constructed temporary `std::u16string` values from the same literals. The pool now roots `StringObject` instances directly. Typed expressions use the pooled object's UTF-16 value, while dynamic boundaries construct a `Value` only when required.
 
 For the semantic self-host workload, the generated translation unit falls from 6,911,468 to 6,393,705 bytes. Its `-O0` compile/link time falls from 24.08 to 23.15 seconds, and native generation falls from 71.35 to 69.48 seconds. The two executed native roundtrips take 69.48 and 69.49 seconds and produce byte-identical C++. Node and native output still differ by 416 bytes in the existing nullish and pointer-conversion choices.
+
+## Follow-up: static optional-property comparisons
+
+An `-O0` native sample taken during semantic analysis spent about 85% of the sampled window in the type checker. Its low-level stacks were dominated by `Value` copy/destruction and the `cppgc::Persistent<BaseObject>` alternative inside each dynamic value. Optional expressions such as `token?.type === TokenType.SYMBOL` amplified that cost by constructing an optional-result `Value`, boxing the enum, and calling `strictEquals` even though analysis already knew the receiver field and comparison type.
+
+Safe optional comparisons with stable receivers and operands now emit a direct null check followed by a typed field comparison. This removes 1,523 `toValue` calls, 510 `strictEquals` calls, and 1,298 `Value` references from the self-hosted compiler. Generated size falls again from 6,393,705 to 6,306,470 bytes. The `-O0` build takes 23.18 seconds, and the two native generation runs take 66.89 and 62.22 seconds while producing byte-identical C++.
