@@ -81,19 +81,26 @@ export class UnknownType extends AnalysisType {
   }
 }
 
-export class BuiltinType extends AnalysisType {
-  declare kind: AnalysisTypeKind.Builtin;
-
-  constructor(public name: BuiltinTypeName) {
-    super(AnalysisTypeKind.Builtin);
+export abstract class NamedAnalysisType extends AnalysisType {
+  protected constructor(kind: AnalysisTypeKind, public name: string) {
+    super(kind);
   }
 }
 
-export class NamedType extends AnalysisType {
+export class BuiltinType extends NamedAnalysisType {
+  declare kind: AnalysisTypeKind.Builtin;
+  declare name: BuiltinTypeName;
+
+  constructor(name: BuiltinTypeName) {
+    super(AnalysisTypeKind.Builtin, name);
+  }
+}
+
+export class NamedType extends NamedAnalysisType {
   declare kind: AnalysisTypeKind.Named;
 
-  constructor(public name: string, public typeArguments?: AnalysisType[]) {
-    super(AnalysisTypeKind.Named);
+  constructor(name: string, public typeArguments?: AnalysisType[]) {
+    super(AnalysisTypeKind.Named, name);
   }
 }
 

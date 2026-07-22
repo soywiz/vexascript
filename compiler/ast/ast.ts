@@ -578,11 +578,16 @@ export class ImportStatement extends Statement {
 }
 
 export type FunctionDeclarationKind = "fun" | "function";
-export class FunctionParameter extends Node {
+export abstract class CallableParameterNode extends Node {
+    protected constructor(kind: NodeKind, public typeAnnotation?: Identifier, public defaultValue?: Expr) {
+        super(kind)
+    }
+}
+export class FunctionParameter extends CallableParameterNode {
     declare kind: NodeKind.FunctionParameter
 
-    constructor(public name: BindingName, public accessModifier?: ClassMemberAccessModifier, public isReadonly?: boolean, public thisParameter?: boolean, public rest?: boolean, public optional?: boolean, public typeAnnotation?: Identifier, public defaultValue?: Expr) {
-        super(NodeKind.FunctionParameter)
+    constructor(public name: BindingName, public accessModifier?: ClassMemberAccessModifier, public isReadonly?: boolean, public thisParameter?: boolean, public rest?: boolean, public optional?: boolean, typeAnnotation?: Identifier, defaultValue?: Expr) {
+        super(NodeKind.FunctionParameter, typeAnnotation, defaultValue)
     }
 }
 export class BindingElement extends Node {
@@ -662,17 +667,22 @@ export interface ClassMemberModifiers {
     // `@Annotation(...)` applications written immediately before the member.
     annotations?: AnnotationApplication[]
 }
-export abstract class CallableMember extends Node {
-
-    protected constructor(kind: NodeKind, public name: Identifier, public parameters: FunctionParameter[], public returnType?: Identifier, public typeParameters?: TypeParameter[], public optional?: boolean) {
+export abstract class NamedNode extends Node {
+    protected constructor(kind: NodeKind, public name: Identifier) {
         super(kind)
     }
 }
-export class ClassFieldMember extends Node {
+export abstract class CallableMember extends NamedNode {
+
+    protected constructor(kind: NodeKind, name: Identifier, public parameters: FunctionParameter[], public returnType?: Identifier, public typeParameters?: TypeParameter[], public optional?: boolean) {
+        super(kind, name)
+    }
+}
+export class ClassFieldMember extends NamedNode {
     declare kind: NodeKind.ClassFieldMember
 
-    constructor(public name: Identifier, public declarationKind?: VariableDeclarationKind, public readonlyToken?: Token, public computed?: boolean, public computedKey?: Expr, public override?: boolean, public optional?: boolean, public definiteAssignment?: boolean, public typeAnnotation?: Identifier, public initializer?: Expr, public accessModifier?: ClassMemberAccessModifier, public isReadonly?: boolean, public isStatic?: boolean, public abstract?: boolean, /** TypeScript `declare` member: participates in typing but emits no runtime storage. */ public declared?: boolean, public annotations?: AnnotationApplication[]) {
-        super(NodeKind.ClassFieldMember)
+    constructor(name: Identifier, public declarationKind?: VariableDeclarationKind, public readonlyToken?: Token, public computed?: boolean, public computedKey?: Expr, public override?: boolean, public optional?: boolean, public definiteAssignment?: boolean, public typeAnnotation?: Identifier, public initializer?: Expr, public accessModifier?: ClassMemberAccessModifier, public isReadonly?: boolean, public isStatic?: boolean, public abstract?: boolean, /** TypeScript `declare` member: participates in typing but emits no runtime storage. */ public declared?: boolean, public annotations?: AnnotationApplication[]) {
+        super(NodeKind.ClassFieldMember, name)
     }
 }
 export class ClassMethodMember extends CallableMember {
@@ -684,11 +694,11 @@ export class ClassMethodMember extends CallableMember {
 }
 
 export type ClassMember = ClassFieldMember | ClassMethodMember;
-export class ClassPrimaryConstructorParameter extends Node {
+export class ClassPrimaryConstructorParameter extends CallableParameterNode {
     declare kind: NodeKind.ClassPrimaryConstructorParameter
 
-    constructor(public declarationKind: VariableDeclarationKind, public name: Identifier, public typeAnnotation?: Identifier, public defaultValue?: Expr) {
-        super(NodeKind.ClassPrimaryConstructorParameter)
+    constructor(public declarationKind: VariableDeclarationKind, public name: Identifier, typeAnnotation?: Identifier, defaultValue?: Expr) {
+        super(NodeKind.ClassPrimaryConstructorParameter, typeAnnotation, defaultValue)
     }
 }
 export class ClassDelegate extends Node {
@@ -706,11 +716,11 @@ export class ClassStatement extends Statement {
         super(NodeKind.ClassStatement, annotations, jsName)
     }
 }
-export class InterfacePropertyMember extends Node {
+export class InterfacePropertyMember extends NamedNode {
     declare kind: NodeKind.InterfacePropertyMember
 
-    constructor(public name: Identifier, public typeAnnotation: Identifier, public declarationKind?: VariableDeclarationKind, public optional?: boolean) {
-        super(NodeKind.InterfacePropertyMember)
+    constructor(name: Identifier, public typeAnnotation: Identifier, public declarationKind?: VariableDeclarationKind, public optional?: boolean) {
+        super(NodeKind.InterfacePropertyMember, name)
     }
 }
 export class InterfaceMethodMember extends CallableMember {
