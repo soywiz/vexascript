@@ -46,6 +46,11 @@ console.log(g.greet())
 vexa run hello.vx
 vexa build hello.vx -o dist/hello.js
 {% endhighlightVexaScript %}
+      <p>You can also compile either <code>.vx</code> or <code>.ts</code> entrypoints to an optimized native executable:</p>
+{% highlightVexaScript %}
+vexa executable hello.vx -o dist/hello
+vexa executable cli/cli.ts -o dist/vexa-native
+{% endhighlightVexaScript %}
     </article>
 
     <article class="card getting-started-card">

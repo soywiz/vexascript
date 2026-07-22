@@ -127,6 +127,24 @@ Inside an argument list, `{ name }` remains context-sensitive: it can be interpr
 
 TypeScript uses inline arrow functions: `[1,2,3].map(it => it * 2)`.
 
+## Postfix receiver blocks
+
+The postfix form `value. { ... }` evaluates `value` once, makes it the implicit
+receiver inside the block, and returns the same value. It is useful for grouped
+configuration and mutation without introducing a temporary variable or an
+`apply` helper.
+
+```vexa
+val point = Point(10, 20). {
+  x *= 2
+  y += x / 2
+}
+```
+
+Inside the block, `x` and `y` resolve against the `Point` receiver. The complete
+expression still evaluates to that same `Point` instance. JavaScript and native
+C++ emit the receiver block directly at the use site.
+
 ### `@JsInline` annotation
 
 A bodyless function with `@JsInline` provides a raw JavaScript template inserted at each call site.

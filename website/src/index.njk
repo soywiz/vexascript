@@ -4,7 +4,7 @@ title: VexaScript — Modern language for the JavaScript ecosystem
 ---
 <section class="hero">
   <div class="hero-copy">
-    <p class="eyebrow">TypeScript superset · Compiles to JavaScript</p>
+    <p class="eyebrow">TypeScript superset · JavaScript and native C++</p>
     <h1>VexaScript</h1>
     <div class="lead">
       <p>
@@ -12,6 +12,9 @@ title: VexaScript — Modern language for the JavaScript ecosystem
       </p>
       <p>
         Operator overloading, await-less async, primary-constructor classes, delegated variables, new-less instantiation, and more — without leaving the tools you already use.
+      </p>
+      <p>
+        Compile <code>.vx</code> or <code>.ts</code> to JavaScript or an optimized native C++ executable. The compiler can compile itself in both backends, and one FFI declaration surface connects Deno and native C++ to the same libraries.
       </p>
     </div>
     <div class="actions">
@@ -121,6 +124,33 @@ val buf = Uint8Array(1024)
 val pt = Point(3, 4)
 {% endhighlightVexaScript %}
     </article>
+    <article class="card">
+      <h3>JavaScript and native C++</h3>
+      <p>The same analyzed project can emit JavaScript, a C++ translation unit, or an optimized native executable. TypeScript entrypoints are supported too.</p>
+{% highlightVexaScript %}
+vexa build app.ts -o app.js
+vexa cpp app.ts -o app.cpp
+vexa executable app.ts -o app
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Cross-backend FFI</h3>
+      <p><code>@FFILibrary</code>, ABI-aware structs, pointers, and buffers describe a native API once. Deno uses dynamic FFI while generated C++ calls the same symbols directly.</p>
+{% highlightVexaScript %}
+@FFILibrary("libSDL2.so", "SDL2.framework/SDL2")
+ambient class SDL2 {
+  static fun SDL_Init(flags: int): int
+}
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>A self-hosting compiler</h3>
+      <p>VexaScript compiles the complete TypeScript compiler graph, then runs the generated compiler to produce the next generation in JavaScript or native C++.</p>
+{% highlightVexaScript %}
+pnpm self-host
+vexa executable cli/cli.ts -o vexa-native
+{% endhighlightVexaScript %}
+    </article>
   </div>
 </section>
 
@@ -148,6 +178,7 @@ npm install -g vexascript
 {% highlightVexaScript %}
 vexa run hello.vx
 vexa build hello.vx -o dist/hello.js
+vexa executable hello.vx -o dist/hello
 {% endhighlightVexaScript %}
     </article>
     <article class="card getting-started-card">

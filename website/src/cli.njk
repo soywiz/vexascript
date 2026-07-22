@@ -14,16 +14,16 @@ permalink: /cli.html
       <h3>Core commands</h3>
       <div class="cli-command-list">
         <div>
-          <code>build</code> <code class="command_switch">&lt;input&gt;</code>
-          <p>Compile a VexaScript file to JavaScript, with optional bundling and JSX factory overrides.</p>
+          <code>build</code> <code class="command_switch">&lt;input.vx|input.ts&gt;</code>
+          <p>Compile a VexaScript or TypeScript file to JavaScript, with optional bundling and JSX factory overrides.</p>
         </div>
         <div>
-          <code>cpp</code> <code class="command_switch">&lt;input.vx&gt;</code>
+          <code>cpp</code> <code class="command_switch">&lt;input.vx|input.ts&gt;</code>
           <p>Emit a C++ translation unit without compiling it.</p>
         </div>
         <div>
-          <code>executable</code> <code class="command_switch">&lt;input.vx&gt;</code>
-          <p>Emit C++, build the Oilpan runtime when needed, and link a native executable. <code>native</code> remains a compatibility alias.</p>
+          <code>executable</code> <code class="command_switch">&lt;input.vx|input.ts&gt;</code>
+          <p>Emit C++, build the Oilpan and mimalloc runtime dependencies when needed, and link an optimized native executable. <code>native</code> remains a compatibility alias.</p>
         </div>
         <div>
           <code>bundle</code> <code class="command_switch">&lt;input&gt;</code>
@@ -92,10 +92,26 @@ permalink: /cli.html
   </div>
 {% highlightVexaScript %}
 pnpm tsx cli/cli.ts build src/main.vx --out dist/main.js --target optimized
-pnpm tsx cli/cli.ts cpp src/main.vx --out dist/main.cpp
-pnpm tsx cli/cli.ts executable src/main.vx --out dist/main
+pnpm tsx cli/cli.ts cpp src/main.ts --out dist/main.cpp
+pnpm tsx cli/cli.ts executable src/main.ts --out dist/main
 pnpm tsx cli/cli.ts serve demo/ --bundle demo/main.vx
 pnpm tsx cli/cli.ts syntax --monaco
 pnpm tsx cli/cli.ts test samples/
+{% endhighlightVexaScript %}
+
+  <div class="section-heading">
+    <p class="eyebrow">Native libraries</p>
+    <h2>Declare an ABI once for Deno and C++</h2>
+    <p class="lead"><code>@FFILibrary</code> accepts ordered library candidates, <code>@FFIName</code> maps friendly method names to exported symbols, and <code>@FFIStruct</code>, <code>FFIPointer</code>, and <code>ArrayBuffer</code> cover native memory. A <code>Promise&lt;T&gt;</code> return runs the blocking call on a worker and resumes the main event loop.</p>
+  </div>
+{% highlightVexaScript %}
+@FFILibrary("libSDL2-2.0.so.0", "SDL2.framework/SDL2")
+ambient class SDL2 {
+  @FFIName("SDL_Init")
+  static fun Init(flags: int): int
+
+  @FFIName("SDL_Delay")
+  static fun Delay(milliseconds: int): Promise<void>
+}
 {% endhighlightVexaScript %}
 </section>
