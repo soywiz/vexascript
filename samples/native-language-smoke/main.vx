@@ -832,6 +832,7 @@ val dynamicallySelected: any = true ? [2, 3] : [9]
 var dynamicIterationTotal: number = 0
 for (dynamicValue of dynamicallySelected) dynamicIterationTotal += Number(dynamicValue)
 console.log("dynamic array iteration", dynamicIterationTotal)
+console.log("array length comparisons", ([] as number[]).length === 0, [1].length > 0, [1].length !== 0)
 
 fun <T> T.apply(block: T.() -> void): T {
   block(this)

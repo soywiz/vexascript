@@ -1446,10 +1446,29 @@ function isGeneratorExpression(expression: Expr): boolean {
   return Boolean(classMethod.generator);
 }
 
+function directlyEmittedMemberCppType(member: MemberExpression): string | null {
+  if (member.optional || isOptionalChainExpression(member.object)) return null;
+  const propertyName = !member.computed ? identifierName(member.property) : null;
+  if (propertyName === "length" &&
+      (isManagedArrayExpression(member.object) || isStringExpression(member.object))) {
+    return "double";
+  }
+  if (propertyName === "size" && nativeCollectionKind(member.object)) {
+    return "double";
+  }
+  const binaryKind = nativeBinaryObjectKind(member.object);
+  if (binaryKind &&
+      (propertyName === "byteLength" || propertyName === "byteOffset" ||
+        (binaryKind === "uint8" && propertyName === "length"))) {
+    return "double";
+  }
+  return resolvedNativePropertyMember(member)?.valueType ?? null;
+}
+
 function directlyEmittedCppType(expression: Expr): string | null {
   switch (expression.kind) {
     case NodeKind.MemberExpression:
-      return resolvedNativePropertyMember(expression)?.valueType ?? null;
+      return directlyEmittedMemberCppType(expression as MemberExpression);
     case NodeKind.IntLiteral:
       return "std::int32_t";
     case NodeKind.FloatLiteral:
@@ -1600,11 +1619,7 @@ function emitArrayElements(elements: readonly Expr[], elementType: string): stri
   const emitTypedElement = (element: Expr): string =>
     interfaceStatementForCppType(elementType) !== null
       ? emitConvertedValue(element, elementType)
-      : elementType.startsWith("vexa::Task<")
-        ? emitExpressionWithExpectedCppType(element, elementType)
-      : emittedCppTypeForExpression(element) !== elementType
-        ? emitConvertedValue(element, elementType)
-        : emitExpression(element);
+      : emitExpressionWithExpectedCppType(element, elementType);
   const hasExpandedElements = elements.some((element) =>
     element instanceof ArrayHole || element instanceof SpreadExpression);
   if (hasExpandedElements) {
@@ -5274,6 +5289,25 @@ function emitPointerNullishEquality(expression: BinaryExpression): string | null
   return `(vexa::rawPointer(${emitExpression(pointer)}) ${comparison} nullptr)`;
 }
 
+function emitManagedArrayEmptyComparison(expression: BinaryExpression): string | null {
+  const member = expression.left instanceof MemberExpression
+    ? expression.left as MemberExpression
+    : null;
+  if (!member || member.computed || member.optional || identifierName(member.property) !== "length" ||
+      !isManagedArrayExpression(member.object) ||
+      !(expression.right instanceof IntLiteral) || (expression.right as IntLiteral).value !== 0) {
+    return null;
+  }
+  const receiver = emitManagedArrayPointer(member.object);
+  if (expression.operator === "==" || expression.operator === "===") {
+    return `${receiver}->empty()`;
+  }
+  if (expression.operator === "!=" || expression.operator === "!==" || expression.operator === ">") {
+    return `(!${receiver}->empty())`;
+  }
+  return null;
+}
+
 function dynamicBinaryHelper(operator: string): string | null {
   switch (operator) {
     case "+": return "add";
@@ -5356,14 +5390,18 @@ function isDirectNativeTextExpression(expression: Expr): boolean {
 }
 
 function hasStaticPrimitiveOperands(expression: BinaryExpression): boolean {
-  const left = emittedCppTypeForExpression(expression.left) ?? cppTypeForExpression(expression.left);
-  const right = emittedCppTypeForExpression(expression.right) ?? cppTypeForExpression(expression.right);
+  const directlyEmittedLeft = directlyEmittedCppType(expression.left);
+  const directlyEmittedRight = directlyEmittedCppType(expression.right);
+  const left = directlyEmittedLeft ??
+    emittedCppTypeForExpression(expression.left) ?? cppTypeForExpression(expression.left);
+  const right = directlyEmittedRight ??
+    emittedCppTypeForExpression(expression.right) ?? cppTypeForExpression(expression.right);
   const primitiveTypesMatch = (isNativeNumericCppType(left) && isNativeNumericCppType(right)) ||
     (left === "bool" && right === "bool") ||
     (left === "std::u16string" && right === "std::u16string");
   return primitiveTypesMatch &&
-    isDirectNativePrimitiveExpression(expression.left) &&
-    isDirectNativePrimitiveExpression(expression.right);
+    (directlyEmittedLeft !== null || isDirectNativePrimitiveExpression(expression.left)) &&
+    (directlyEmittedRight !== null || isDirectNativePrimitiveExpression(expression.right));
 }
 
 function emitDynamicBinaryText(operator: string, left: string, right: string): string | null {
@@ -5381,6 +5419,9 @@ function emitBinary(expression: BinaryExpression): string {
   if (overloaded) return overloaded;
   const pointerNullishEquality = emitPointerNullishEquality(expression);
   if (pointerNullishEquality) return pointerNullishEquality;
+  const managedArrayEmptyComparison = emitManagedArrayEmptyComparison(expression);
+  if (managedArrayEmptyComparison) return managedArrayEmptyComparison;
+  const staticPrimitiveOperands = hasStaticPrimitiveOperands(expression);
   if (expression.operator === "+" &&
       isDirectNativeTextExpression(expression.left) &&
       isDirectNativeTextExpression(expression.right)) {
@@ -5405,11 +5446,11 @@ function emitBinary(expression: BinaryExpression): string {
       emitExpression(expression.right)
     )!;
   }
-  const dynamicOperands = !activeHasExpressionTypes ||
+  const dynamicOperands = !staticPrimitiveOperands && (!activeHasExpressionTypes ||
     isDynamicValueExpression(expression.left) ||
     isDynamicValueExpression(expression.right) ||
     cppTypeForExpression(expression.left) === "vexa::Value" ||
-    cppTypeForExpression(expression.right) === "vexa::Value";
+    cppTypeForExpression(expression.right) === "vexa::Value");
   if (dynamicOperands && dynamicBinaryHelper(expression.operator)) {
     const dynamic = emitDynamicBinaryText(
       expression.operator,
@@ -5535,7 +5576,7 @@ function emitBinary(expression: BinaryExpression): string {
   if (
     new Set(["<", ">", "<=", ">=", "==", "!="]).has(operator)
   ) {
-    if (hasStaticPrimitiveOperands(expression)) {
+    if (staticPrimitiveOperands) {
       return `(${emitExpression(expression.left)} ${operator} ${emitExpression(expression.right)})`;
     }
     const left = emitConvertedValue(expression.left, "vexa::Value");
@@ -5572,20 +5613,43 @@ function emitCondition(expression: Expr): string {
   return type === "bool" || type === "auto" ? emitted : `vexa::Boolean(${emitted})`;
 }
 
-function emitWithPositiveInstanceofNarrowing(test: Expr, emit: () => string): string {
-  if (!(test instanceof BinaryExpression)) return emit();
+class PositiveInstanceofNarrowing {
+  constructor(
+    public sourceName: string,
+    public targetName: string,
+    public targetType: string
+  ) {}
+}
+
+function positiveInstanceofNarrowings(test: Expr): PositiveInstanceofNarrowing[] {
+  if (!(test instanceof BinaryExpression)) return [];
   const binary = test as BinaryExpression;
+  if (binary.operator === "&&") {
+    return [
+      ...positiveInstanceofNarrowings(binary.left),
+      ...positiveInstanceofNarrowings(binary.right),
+    ];
+  }
   if ((binary.operator !== "instanceof" && binary.operator !== "is") ||
       !(binary.left instanceof Identifier) || !(binary.right instanceof Identifier)) {
-    return emit();
+    return [];
   }
   const sourceName = (binary.left as Identifier).name;
   const targetName = (binary.right as Identifier).name;
-  if (!activeClassNames.has(targetName) && !activeInterfaceNames.has(targetName)) {
-    return emit();
-  }
+  if (!activeClassNames.has(targetName) && !activeInterfaceNames.has(targetName)) return [];
   const targetType = cppTypeForDeclaredName(targetName);
-  if (!targetType?.endsWith("*")) return emit();
+  return targetType?.endsWith("*")
+    ? [new PositiveInstanceofNarrowing(sourceName, targetName, targetType)]
+    : [];
+}
+
+function emitWithPositiveInstanceofNarrowing(
+  test: Expr,
+  emit: () => string,
+  useNarrowedLocal = false
+): string {
+  const narrowings = positiveInstanceofNarrowings(test);
+  if (narrowings.length === 0) return emit();
 
   const previousLocalCppTypes = activeLocalCppTypes;
   const previousGcObjectTypes = activeGcObjectTypes;
@@ -5594,18 +5658,22 @@ function emitWithPositiveInstanceofNarrowing(test: Expr, emit: () => string): st
   const previousCppExpressionTypeCache = activeCppExpressionTypeCache;
   const previousEmittedExpressionTypeCache = activeEmittedExpressionTypeCache;
   activeLocalCppTypes = new Map(activeLocalCppTypes);
-  activeLocalCppTypes.set(sourceName, targetType);
   activeGcObjectTypes = new Map(activeGcObjectTypes);
-  activeGcObjectTypes.set(sourceName, targetName);
   activeDynamicValueNames = new Set(activeDynamicValueNames);
-  activeDynamicValueNames.delete(sourceName);
   activeNarrowedIdentifierExpressions = new Map(activeNarrowedIdentifierExpressions);
   activeCppExpressionTypeCache = new Map();
   activeEmittedExpressionTypeCache = new Map();
-  activeNarrowedIdentifierExpressions.set(
-    sourceName,
-    `vexa::convertValue<${targetType}>(${cppName(sourceName)})`
-  );
+  for (const narrowing of narrowings) {
+    activeLocalCppTypes.set(narrowing.sourceName, narrowing.targetType);
+    activeGcObjectTypes.set(narrowing.sourceName, narrowing.targetName);
+    activeDynamicValueNames.delete(narrowing.sourceName);
+    activeNarrowedIdentifierExpressions.set(
+      narrowing.sourceName,
+      useNarrowedLocal
+        ? cppName(narrowing.sourceName)
+        : `vexa::convertValue<${narrowing.targetType}>(${cppName(narrowing.sourceName)})`
+    );
+  }
   try {
     return emit();
   } finally {
@@ -8804,43 +8872,20 @@ function emitStatement(statement: Statement, indent = ""): string {
       return emitSwitch(statement as SwitchStatement, indent);
     case NodeKind.IfStatement: {
       const branch = statement as IfStatement;
-      let narrowing: { sourceName: string; targetName: string; targetType: string } | null = null;
-      if (branch.condition instanceof BinaryExpression) {
-        const condition = branch.condition as BinaryExpression;
-        const sourceName = condition.left instanceof Identifier ? (condition.left as Identifier).name : null;
-        const targetName = condition.right instanceof Identifier ? (condition.right as Identifier).name : null;
-        if ((condition.operator === "instanceof" || condition.operator === "is") && sourceName && targetName && activeClassNames.has(targetName)) {
-          const targetType = cppTypeForDeclaredName(targetName);
-          if (targetType?.endsWith("*")) {
-            narrowing = { sourceName, targetName, targetType };
-          }
-        }
-      }
-      let thenBody: string;
-      if (narrowing) {
-        const previousLocalCppTypes = activeLocalCppTypes;
-        const previousGcObjectTypes = activeGcObjectTypes;
-        const previousDynamicValueNames = activeDynamicValueNames;
-        activeLocalCppTypes = new Map(activeLocalCppTypes);
-        activeLocalCppTypes.set(narrowing.sourceName, narrowing.targetType);
-        activeGcObjectTypes = new Map(activeGcObjectTypes);
-        activeGcObjectTypes.set(narrowing.sourceName, narrowing.targetName);
-        activeDynamicValueNames = new Set(activeDynamicValueNames);
-        activeDynamicValueNames.delete(narrowing.sourceName);
-        try {
-          thenBody = emitBody(branch.thenBranch, indent);
-        } finally {
-          activeLocalCppTypes = previousLocalCppTypes;
-          activeGcObjectTypes = previousGcObjectTypes;
-          activeDynamicValueNames = previousDynamicValueNames;
-        }
-        const temporary = `__vexa_narrowed_${cppName(narrowing.sourceName)}`;
-        thenBody = injectBlockPreamble(thenBody, [
-          `${indent}  auto* ${temporary} = vexa::convertValue<${narrowing.targetType}>(${cppName(narrowing.sourceName)});`,
-          `${indent}  auto* ${cppName(narrowing.sourceName)} = ${temporary};`,
-        ]);
-      } else {
-        thenBody = emitBody(branch.thenBranch, indent);
+      const narrowings = positiveInstanceofNarrowings(branch.condition);
+      let thenBody = emitWithPositiveInstanceofNarrowing(
+        branch.condition,
+        () => emitBody(branch.thenBranch, indent),
+        true
+      );
+      if (narrowings.length > 0) {
+        thenBody = injectBlockPreamble(thenBody, narrowings.flatMap((narrowing, index) => {
+          const temporary = `__vexa_narrowed_${cppName(narrowing.sourceName)}_${index}`;
+          return [
+            `${indent}  auto* ${temporary} = vexa::convertValue<${narrowing.targetType}>(${cppName(narrowing.sourceName)});`,
+            `${indent}  auto* ${cppName(narrowing.sourceName)} = ${temporary};`,
+          ];
+        }));
       }
       const alternate = branch.elseBranch ? ` else ${emitBody(branch.elseBranch, indent)}` : "";
       return `${indent}if ${emitParenthesizedCondition(branch.condition)} ${thenBody}${alternate}`;
