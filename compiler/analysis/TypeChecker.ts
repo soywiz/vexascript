@@ -2183,6 +2183,14 @@ export class TypeChecker {
     return null;
   }
 
+  private isRuntimeTypeNarrowingCondition(condition: Expr): boolean {
+    if (condition instanceof UnaryExpression && condition.operator === "!") {
+      return this.isRuntimeTypeNarrowingCondition(condition.argument);
+    }
+    return condition instanceof BinaryExpression &&
+      (condition.operator === "instanceof" || condition.operator === "is");
+  }
+
   private narrowedTypeForCheck(originalType: AnalysisType, checkedType: AnalysisType, truthy: boolean): AnalysisType | null {
     if (truthy) return checkedType;
     if (!(originalType instanceof UnionType)) return null;
@@ -2460,7 +2468,21 @@ export class TypeChecker {
         const rightExpectedType = binary.operator === "??" && !isUnknownType(leftType)
           ? removeNullishFromType(leftType)
           : undefined;
-        const rightType = this.visitExpression(binary.right, scope, rightExpectedType);
+        let rightScope = scope;
+        if (this.isRuntimeTypeNarrowingCondition(binary.left) && binary.operator === "&&") {
+          rightScope = this.scopeWithNarrowings(
+            scope,
+            this.conditionNarrowings(binary.left, scope, true),
+            this.conditionExpressionNarrowings(binary.left, scope, true)
+          );
+        } else if (this.isRuntimeTypeNarrowingCondition(binary.left) && binary.operator === "||") {
+          rightScope = this.scopeWithNarrowings(
+            scope,
+            this.conditionNarrowings(binary.left, scope, false),
+            this.conditionExpressionNarrowings(binary.left, scope, false)
+          );
+        }
+        const rightType = this.visitExpression(binary.right, rightScope, rightExpectedType);
         const overload = this.resolveOperatorOverload(binary.operator, leftType, rightType, scope);
         if (overload) {
           this.operatorResolutions.push({
@@ -2625,8 +2647,22 @@ export class TypeChecker {
       case NodeKind.ConditionalExpression: {
         const conditional = expression as ConditionalExpression;
         this.visitExpression(conditional.test, scope);
-        const consequentType = this.visitExpression(conditional.consequent, scope, expectedType);
-        const alternateType = this.visitExpression(conditional.alternate, scope, expectedType);
+        const consequentScope = this.isRuntimeTypeNarrowingCondition(conditional.test)
+          ? this.scopeWithNarrowings(
+              scope,
+              this.conditionNarrowings(conditional.test, scope, true),
+              this.conditionExpressionNarrowings(conditional.test, scope, true)
+            )
+          : scope;
+        const alternateScope = this.isRuntimeTypeNarrowingCondition(conditional.test)
+          ? this.scopeWithNarrowings(
+              scope,
+              this.conditionNarrowings(conditional.test, scope, false),
+              this.conditionExpressionNarrowings(conditional.test, scope, false)
+            )
+          : scope;
+        const consequentType = this.visitExpression(conditional.consequent, consequentScope, expectedType);
+        const alternateType = this.visitExpression(conditional.alternate, alternateScope, expectedType);
         if (this.isTypeAssignable(consequentType, alternateType)) {
           result = alternateType;
           break;

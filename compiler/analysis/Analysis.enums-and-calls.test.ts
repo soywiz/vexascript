@@ -407,6 +407,24 @@ describe("enum semantic analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("smart-casts instanceof operands in logical and conditional expressions", () => {
+    const source = dedent`
+      class Expr {}
+      class Identifier extends Expr {
+        constructor(public name: string) {}
+      }
+      function isNamed(expression: Expr): boolean {
+        return expression instanceof Identifier && expression.name === "value"
+      }
+      function nameOf(expression: Expr): string {
+        return expression instanceof Identifier ? expression.name : ""
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("preserves outer smart-casts inside nested conditional blocks", () => {
     const source = dedent`
       class NumberExpr(val value: number) {

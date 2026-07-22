@@ -37,7 +37,7 @@ operators 10 -6 true 10
 inheritance base!
 conditional base base!
 nullish base base? base!
-type checks true true true base! base! woof woof
+type checks true true true base! base! woof woof true woof
 shared 3 1|2|3
 arrays 6,12 18 0 4 3,2,1
 constructor forwarding 9

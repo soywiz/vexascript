@@ -142,6 +142,7 @@ let activeGlobalDeclaredTypeNames: Map<string, string> = new Map();
 let activeGlobalCppTypes: Map<string, string> = new Map();
 let activeGlobalGcRootTypes: Map<string, string> = new Map();
 let activeLocalCppTypes: Map<string, string> = new Map();
+let activeNarrowedIdentifierExpressions: Map<string, string> = new Map();
 let activeCallableParameterPointerTypes: Map<string, string> = new Map();
 let activeSharedBindingNames: Set<string> = new Set();
 let activeSharedBindingCandidates: ReadonlySet<string> = new Set();
@@ -324,6 +325,8 @@ function emitIdentifier(identifier: Identifier): string {
     return `${activeThisExpression}->${cppName(identifier.name)}`;
   }
   const name = cppName(identifier.name);
+  const narrowed = activeNarrowedIdentifierExpressions.get(identifier.name);
+  if (narrowed) return narrowed;
   return activeSharedBindingNames.has(identifier.name) ? `(*${name})` : name;
 }
 
@@ -1497,7 +1500,11 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
   if (expression instanceof ConditionalExpression) {
     const conditional = expression as ConditionalExpression;
     const branch = (value: Expr): string => emitConvertedValue(value, resultType);
-    return `(${emitCondition(conditional.test)} ? ${branch(conditional.consequent)} : ${branch(conditional.alternate)})`;
+    const consequent = emitWithPositiveInstanceofNarrowing(
+      conditional.test,
+      () => branch(conditional.consequent)
+    );
+    return `(${emitCondition(conditional.test)} ? ${consequent} : ${branch(conditional.alternate)})`;
   }
   const sourceType = activeExpressionTypes.get(expression as Node);
   const alreadyDynamicRecordMember = expression instanceof MemberExpression &&
@@ -5465,7 +5472,11 @@ function emitBinary(expression: BinaryExpression): string {
     const leftType = emittedCppTypeForExpression(expression.left) ?? cppTypeForExpression(expression.left);
     const rightType = emittedCppTypeForExpression(expression.right) ?? cppTypeForExpression(expression.right);
     if (leftType === "bool" && rightType === "bool") {
-      return `(${emitCondition(expression.left)} ${expression.operator} ${emitCondition(expression.right)})`;
+      const left = emitCondition(expression.left);
+      const right = expression.operator === "&&"
+        ? emitWithPositiveInstanceofNarrowing(expression.left, () => emitCondition(expression.right))
+        : emitCondition(expression.right);
+      return `(${left} ${expression.operator} ${right})`;
     }
     const left = emitConvertedValue(expression.left, "vexa::Value");
     const right = emitConvertedValue(expression.right, "vexa::Value");
@@ -5559,6 +5570,52 @@ function emitCondition(expression: Expr): string {
   }
   const type = emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
   return type === "bool" || type === "auto" ? emitted : `vexa::Boolean(${emitted})`;
+}
+
+function emitWithPositiveInstanceofNarrowing(test: Expr, emit: () => string): string {
+  if (!(test instanceof BinaryExpression)) return emit();
+  const binary = test as BinaryExpression;
+  if ((binary.operator !== "instanceof" && binary.operator !== "is") ||
+      !(binary.left instanceof Identifier) || !(binary.right instanceof Identifier)) {
+    return emit();
+  }
+  const sourceName = (binary.left as Identifier).name;
+  const targetName = (binary.right as Identifier).name;
+  if (!activeClassNames.has(targetName) && !activeInterfaceNames.has(targetName)) {
+    return emit();
+  }
+  const targetType = cppTypeForDeclaredName(targetName);
+  if (!targetType?.endsWith("*")) return emit();
+
+  const previousLocalCppTypes = activeLocalCppTypes;
+  const previousGcObjectTypes = activeGcObjectTypes;
+  const previousDynamicValueNames = activeDynamicValueNames;
+  const previousNarrowedExpressions = activeNarrowedIdentifierExpressions;
+  const previousCppExpressionTypeCache = activeCppExpressionTypeCache;
+  const previousEmittedExpressionTypeCache = activeEmittedExpressionTypeCache;
+  activeLocalCppTypes = new Map(activeLocalCppTypes);
+  activeLocalCppTypes.set(sourceName, targetType);
+  activeGcObjectTypes = new Map(activeGcObjectTypes);
+  activeGcObjectTypes.set(sourceName, targetName);
+  activeDynamicValueNames = new Set(activeDynamicValueNames);
+  activeDynamicValueNames.delete(sourceName);
+  activeNarrowedIdentifierExpressions = new Map(activeNarrowedIdentifierExpressions);
+  activeCppExpressionTypeCache = new Map();
+  activeEmittedExpressionTypeCache = new Map();
+  activeNarrowedIdentifierExpressions.set(
+    sourceName,
+    `vexa::convertValue<${targetType}>(${cppName(sourceName)})`
+  );
+  try {
+    return emit();
+  } finally {
+    activeLocalCppTypes = previousLocalCppTypes;
+    activeGcObjectTypes = previousGcObjectTypes;
+    activeDynamicValueNames = previousDynamicValueNames;
+    activeNarrowedIdentifierExpressions = previousNarrowedExpressions;
+    activeCppExpressionTypeCache = previousCppExpressionTypeCache;
+    activeEmittedExpressionTypeCache = previousEmittedExpressionTypeCache;
+  }
 }
 
 function emitParenthesizedCondition(expression: Expr): string {
@@ -5866,7 +5923,11 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         const emitted = emitExpression(value);
         return resultType.endsWith("*") ? `vexa::rawPointer(${emitted})` : emitted;
       };
-      return `(${emitCondition(conditional.test)} ? ${branch(conditional.consequent)} : ${branch(conditional.alternate)})`;
+      const consequent = emitWithPositiveInstanceofNarrowing(
+        conditional.test,
+        () => branch(conditional.consequent)
+      );
+      return `(${emitCondition(conditional.test)} ? ${consequent} : ${branch(conditional.alternate)})`;
     }
     case NodeKind.CallExpression:
       return maybeAutoAwait(expression, emitCall(expression as CallExpression, resultUsed));
@@ -5978,12 +6039,17 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       }
       const messageReceiverIsStoredDynamic = member.object instanceof Identifier &&
         activeDynamicValueNames.has((member.object as Identifier).name);
+      const messageReceiverStorageType = member.object instanceof Identifier
+        ? storedCppTypeForIdentifier((member.object as Identifier).name)
+        : undefined;
       if (!member.computed && !messageReceiverIsStoredDynamic &&
+          messageReceiverStorageType !== "vexa::Value" &&
           emittedCppTypeForExpression(member.object) === "vexa::Error" && identifierName(member.property) === "message") {
-        return `${activeRuntimeName}.string(${emitExpression(member.object)}.messageText())`;
+        return `${activeRuntimeName}.string(vexa::errorMessageText(${emitExpression(member.object)}))`;
       }
       if (!member.computed && identifierName(member.property) === "message" &&
-          (messageReceiverIsStoredDynamic || emittedCppTypeForExpression(member.object) === "vexa::Value" ||
+          (messageReceiverIsStoredDynamic || messageReceiverStorageType === "vexa::Value" ||
+            emittedCppTypeForExpression(member.object) === "vexa::Value" ||
             new Set(["auto", "vexa::Value"]).has(cppTypeForExpression(member.object)))) {
         return `vexa::dynamicGet(vexa::convertValue<vexa::Value>(${emitExpression(member.object)}), u"message")`;
       }
@@ -8519,7 +8585,7 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   }
   const traceStatements: string[] = [];
   if (baseClass && mappedBaseClassType) traceStatements.push(`${mappedBaseClassType}::Trace(visitor);`);
-  else traceStatements.push("vexa::DynamicValueObject::Trace(visitor);");
+  else traceStatements.push("vexa::BaseObject::Trace(visitor);");
   for (const implementedType of implementedInterfaceTypes(statement)) {
     traceStatements.push(`${cppTypeForDeclaredName(implementedType.name)!.slice(0, -1)}::Trace(visitor);`);
   }
@@ -8559,11 +8625,12 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   nativeBases.push(baseClass && mappedBaseClassType
     ? `public ${mappedBaseClassType}`
     : `public cppgc::GarbageCollected<${classType}>`);
-  if (!baseClass) nativeBases.push("public vexa::DynamicValueObject");
+  if (!baseClass) nativeBases.push("public vexa::BaseObject");
   if (nativeErrorBase) nativeBases.push("public vexa::Error");
   for (const implementedInterface of implementedInterfaces) nativeBases.push(implementedInterface);
   const dynamicCastBranches: string[] = [
     `if (__vexa_type == vexa::nativeTypeToken<${classType}>()) return this;`,
+    `if (__vexa_type == vexa::nativeTypeToken<vexa::BaseObject>()) return static_cast<vexa::BaseObject*>(this);`,
   ];
   if (nativeErrorBase) {
     dynamicCastBranches.push(`if (__vexa_type == vexa::nativeTypeToken<vexa::Error>()) return static_cast<vexa::Error*>(this);`);
@@ -8644,13 +8711,13 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   }
   const dynamicGetFallback = baseClass && mappedBaseClassType
     ? `${mappedBaseClassType}::dynamicGet(__vexa_key)`
-    : "vexa::DynamicValueObject::dynamicGet(__vexa_key)";
+    : "vexa::BaseObject::dynamicGet(__vexa_key)";
   const dynamicSetFallback = baseClass && mappedBaseClassType
     ? `${mappedBaseClassType}::dynamicSet(__vexa_key, __vexa_value)`
-    : "vexa::DynamicValueObject::dynamicSet(__vexa_key, __vexa_value)";
+    : "vexa::BaseObject::dynamicSet(__vexa_key, __vexa_value)";
   const dynamicKeysFallback = baseClass && mappedBaseClassType
     ? `${mappedBaseClassType}::dynamicKeys()`
-    : "std::vector<std::u16string>{}";
+    : "vexa::BaseObject::dynamicKeys()";
   const dynamicMethods = [
     `  const void* dynamicTypeToken() const override { return vexa::nativeTypeToken<${classType}>(); }`,
     `  void* dynamicCast(const void* __vexa_type) override { ${dynamicCastBranches.join(" ")} return nullptr; }`,
@@ -9093,6 +9160,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeGcObjectTypes = new Map();
   activeGcArrayTypes = new Map();
   activeDynamicValueNames = new Set();
+  activeNarrowedIdentifierExpressions = new Map();
   activeSharedBindingNames = new Set();
   activeSharedBindingCandidates = new Set();
   activeFunctionObjectCapture = false;
@@ -9137,6 +9205,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeLocalNames = new Set();
   activeLocalDeclaredTypeNames = new Map();
   activeLocalCppTypes = new Map();
+  activeNarrowedIdentifierExpressions = new Map();
   activeCallableParameterPointerTypes = new Map();
   activeGlobalDeclaredTypeNames = new Map();
   activeGlobalCppTypes = new Map();

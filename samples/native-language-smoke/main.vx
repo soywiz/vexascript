@@ -258,6 +258,14 @@ fun instanceofNarrowedMemberSound(holder: AnimalHolder): string {
   return holder.animal.speak()
 }
 
+fun instanceofLogicalNarrowing(animal: Animal): boolean {
+  return animal instanceof Dog && animal.bark() === "woof"
+}
+
+fun instanceofConditionalNarrowing(animal: Animal): string {
+  return animal instanceof Dog ? animal.bark() : animal.speak()
+}
+
 fun render(meter: Meter): string {
   meter.value += 2
   meter.value++
@@ -562,7 +570,7 @@ val checkedDog = Dog()
 val dynamicDog: any = checkedDog
 val animalReference: Animal = checkedDog
 val recastDog = animalReference as Dog
-console.log("type checks", checkedDog is Dog, checkedDog instanceof Animal, dynamicDog is Animal, recastDog.speak(), narrowedAnimalSound(checkedDog), instanceofNarrowedAnimalSound(checkedDog), instanceofNarrowedMemberSound(AnimalHolder(checkedDog)))
+console.log("type checks", checkedDog is Dog, checkedDog instanceof Animal, dynamicDog is Animal, recastDog.speak(), narrowedAnimalSound(checkedDog), instanceofNarrowedAnimalSound(checkedDog), instanceofNarrowedMemberSound(AnimalHolder(checkedDog)), instanceofLogicalNarrowing(checkedDog), instanceofConditionalNarrowing(checkedDog))
 
 val shared: Scores = [1, 2]
 val firstBag = Bag(shared)

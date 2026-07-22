@@ -83,50 +83,6 @@ class OilpanPlatform final : public cppgc::Platform {
   v8::base::PageAllocator allocator_;
 };
 
-class Value;
-
-class StringObject final : public cppgc::GarbageCollected<StringObject> {
- public:
-  explicit StringObject(std::u16string value)
-      : value_(std::move(value)), size_(value_->size()) {}
-  StringObject(StringObject* left, StringObject* right)
-      : left_(left), right_(right), size_(left->size() + right->size()) {}
-
-  void Trace(cppgc::Visitor* visitor) const {
-    visitor->Trace(left_);
-    visitor->Trace(right_);
-  }
-
-  std::size_t size() const { return size_; }
-
-  const std::u16string& value() const {
-    if (value_) return *value_;
-
-    std::u16string flattened;
-    flattened.reserve(size_);
-    std::vector<const StringObject*> pending;
-    pending.push_back(this);
-    while (!pending.empty()) {
-      const StringObject* current = pending.back();
-      pending.pop_back();
-      if (current->value_) {
-        flattened.append(*current->value_);
-        continue;
-      }
-      if (current->right_) pending.push_back(current->right_.Get());
-      if (current->left_) pending.push_back(current->left_.Get());
-    }
-    value_ = std::move(flattened);
-    return *value_;
-  }
-
- private:
-  mutable std::optional<std::u16string> value_;
-  cppgc::Member<StringObject> left_;
-  cppgc::Member<StringObject> right_;
-  std::size_t size_ = 0;
-};
-
 struct Undefined final {};
 struct Null final {};
 class RecordObject;
@@ -134,7 +90,9 @@ class Runtime;
 Runtime& currentRuntime();
 template <typename T, typename... Arguments>
 T* makeManaged(Arguments&&... arguments);
-class DynamicValueObject;
+class BaseObject;
+using DynamicValueObject = BaseObject;
+class StringObject;
 class EnumerableObject;
 class Value;
 std::runtime_error errorAtCurrentSource(std::u16string);
@@ -174,9 +132,17 @@ inline const void* nativeTypeToken() {
   return &token;
 }
 
-class DynamicValueObject : public cppgc::GarbageCollectedMixin {
+class BaseObject : public cppgc::GarbageCollectedMixin {
  public:
-  virtual ~DynamicValueObject() = default;
+  enum class Kind : std::uint8_t {
+    Object,
+    String,
+    Record,
+  };
+
+  explicit BaseObject(Kind kind = Kind::Object) : kind_(kind) {}
+  virtual ~BaseObject() = default;
+  Kind objectKind() const { return kind_; }
   virtual const void* dynamicTypeToken() const = 0;
   virtual void* dynamicCast(const void* type) = 0;
   virtual std::u16string dynamicToString() const = 0;
@@ -199,8 +165,61 @@ class DynamicValueObject : public cppgc::GarbageCollectedMixin {
   void Trace(cppgc::Visitor*) const;
 
  private:
+  Kind kind_;
   cppgc::Member<RecordObject> dynamic_properties_;
   std::unordered_set<std::u16string> non_enumerable_properties_;
+};
+
+class StringObject final
+    : public cppgc::GarbageCollected<StringObject>,
+      public BaseObject {
+ public:
+  explicit StringObject(std::u16string value)
+      : BaseObject(Kind::String), value_(std::move(value)), size_(value_->size()) {}
+  StringObject(StringObject* left, StringObject* right)
+      : BaseObject(Kind::String), left_(left), right_(right), size_(left->size() + right->size()) {}
+
+  const void* dynamicTypeToken() const override { return nativeTypeToken<StringObject>(); }
+  void* dynamicCast(const void* type) override {
+    if (type == nativeTypeToken<StringObject>()) return this;
+    return type == nativeTypeToken<BaseObject>() ? static_cast<BaseObject*>(this) : nullptr;
+  }
+  std::u16string dynamicToString() const override { return value(); }
+
+  void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
+    visitor->Trace(left_);
+    visitor->Trace(right_);
+  }
+
+  std::size_t size() const { return size_; }
+
+  const std::u16string& value() const {
+    if (value_) return *value_;
+
+    std::u16string flattened;
+    flattened.reserve(size_);
+    std::vector<const StringObject*> pending;
+    pending.push_back(this);
+    while (!pending.empty()) {
+      const StringObject* current = pending.back();
+      pending.pop_back();
+      if (current->value_) {
+        flattened.append(*current->value_);
+        continue;
+      }
+      if (current->right_) pending.push_back(current->right_.Get());
+      if (current->left_) pending.push_back(current->left_.Get());
+    }
+    value_ = std::move(flattened);
+    return *value_;
+  }
+
+ private:
+  mutable std::optional<std::u16string> value_;
+  cppgc::Member<StringObject> left_;
+  cppgc::Member<StringObject> right_;
+  std::size_t size_ = 0;
 };
 
 class Value final {
@@ -211,22 +230,20 @@ class Value final {
       bool,
       double,
       BigInt,
-      cppgc::Persistent<StringObject>,
-      cppgc::Persistent<RecordObject>,
-      cppgc::Persistent<DynamicValueObject>>;
+      cppgc::Persistent<BaseObject>>;
 
   Value() : storage_(Undefined{}) {}
   Value(bool value) : storage_(value) {}
   Value(double value) : storage_(value) {}
   Value(int value) : storage_(static_cast<double>(value)) {}
   Value(BigInt value) : storage_(std::move(value)) {}
-  explicit Value(StringObject* value) : storage_(cppgc::Persistent<StringObject>(value)) {}
+  explicit Value(StringObject* value) : storage_(cppgc::Persistent<BaseObject>(value)) {}
   explicit Value(RecordObject* value);
   template <typename T>
     requires std::is_base_of_v<DynamicValueObject, T>
-  Value(T* value) : storage_(cppgc::Persistent<DynamicValueObject>(value)) {}
+  Value(T* value) : storage_(cppgc::Persistent<BaseObject>(value)) {}
   explicit Value(DynamicValueObject* value)
-      : storage_(cppgc::Persistent<DynamicValueObject>(value)) {}
+      : storage_(cppgc::Persistent<BaseObject>(value)) {}
 
   static Value undefined() { return Value(); }
   static Value null() { return Value(Null{}); }
@@ -236,27 +253,31 @@ class Value final {
   bool isBoolean() const { return std::holds_alternative<bool>(storage_); }
   bool isNumber() const { return std::holds_alternative<double>(storage_); }
   bool isBigInt() const { return std::holds_alternative<BigInt>(storage_); }
-  bool isString() const { return std::holds_alternative<cppgc::Persistent<StringObject>>(storage_); }
-  bool isRecord() const { return std::holds_alternative<cppgc::Persistent<RecordObject>>(storage_); }
+  bool isObject() const { return std::holds_alternative<cppgc::Persistent<BaseObject>>(storage_); }
+  bool isString() const { return isObject() && object()->objectKind() == BaseObject::Kind::String; }
+  bool isRecord() const { return isObject() && object()->objectKind() == BaseObject::Kind::Record; }
   bool isDynamicObject() const {
-    return std::holds_alternative<cppgc::Persistent<DynamicValueObject>>(storage_);
+    return isObject() && object()->objectKind() == BaseObject::Kind::Object;
   }
 
   bool boolean() const { return std::get<bool>(storage_); }
   double number() const { return std::get<double>(storage_); }
   const BigInt& bigint() const { return std::get<BigInt>(storage_); }
   const std::u16string& string() const {
-    return std::get<cppgc::Persistent<StringObject>>(storage_)->value();
+    return stringObject()->value();
   }
   const std::u16string& utf16() const {
-    return std::get<cppgc::Persistent<StringObject>>(storage_)->value();
+    return stringObject()->value();
   }
   StringObject* stringObject() const {
-    return std::get<cppgc::Persistent<StringObject>>(storage_).Get();
+    return static_cast<StringObject*>(object());
   }
   RecordObject* record() const;
+  BaseObject* object() const {
+    return std::get<cppgc::Persistent<BaseObject>>(storage_).Get();
+  }
   DynamicValueObject* dynamicObject() const {
-    return std::get<cppgc::Persistent<DynamicValueObject>>(storage_).Get();
+    return object();
   }
 
   explicit operator bool() const {
@@ -327,9 +348,7 @@ class StoredValue final {
       bool,
       double,
       BigInt,
-      StringObject*,
-      RecordObject*,
-      DynamicValueObject*>;
+      BaseObject*>;
 
   StoredValue() : storage_(Undefined{}) {}
   explicit StoredValue(const Value& value) { store(value); }
@@ -366,10 +385,26 @@ inline std::int32_t stringFirstCodeUnit(const std::u16string& value) {
   return value.empty() ? -1 : static_cast<std::uint16_t>(value[0]);
 }
 
-class RecordObject final : public cppgc::GarbageCollected<RecordObject>, public cppgc::GarbageCollectedMixin {
+class RecordObject final
+    : public cppgc::GarbageCollected<RecordObject>,
+      public BaseObject {
  public:
-  RecordObject() = default;
+  RecordObject() : BaseObject(Kind::Record) {}
   explicit RecordObject(DynamicValueObject* dynamicBacking);
+
+  const void* dynamicTypeToken() const override { return nativeTypeToken<RecordObject>(); }
+  void* dynamicCast(const void* type) override {
+    if (type == nativeTypeToken<RecordObject>()) return this;
+    return type == nativeTypeToken<BaseObject>() ? static_cast<BaseObject*>(this) : nullptr;
+  }
+  std::u16string dynamicToString() const override { return u"[object Object]"; }
+  Value dynamicGet(const std::u16string& key) override { return get(key); }
+  Value dynamicSet(const std::u16string& key, const Value& value) override {
+    set(key, value);
+    return value;
+  }
+  std::vector<std::u16string> dynamicKeys() const override { return keys(); }
+  bool dynamicDelete(const std::u16string& key) override { return erase(key); }
 
   Value get(const std::u16string& key) const;
   void set(std::u16string key, const Value& value);
@@ -482,10 +517,10 @@ inline Value enumerableGet(Runtime&, EnumerableObject* object, const std::u16str
 }
 
 inline Value::Value(RecordObject* value)
-    : storage_(cppgc::Persistent<RecordObject>(value)) {}
+    : storage_(cppgc::Persistent<BaseObject>(value)) {}
 
 inline RecordObject* Value::record() const {
-  return std::get<cppgc::Persistent<RecordObject>>(storage_).Get();
+  return static_cast<RecordObject*>(object());
 }
 
 inline bool Value::operator==(const Value& other) const {
@@ -495,8 +530,7 @@ inline bool Value::operator==(const Value& other) const {
   if (isNumber()) return number() == other.number();
   if (isBigInt()) return bigint() == other.bigint();
   if (isString()) return utf16() == other.utf16();
-  if (isRecord()) return record() == other.record();
-  return dynamicObject() == other.dynamicObject();
+  return object() == other.object();
 }
 
 template <typename T, typename Other>
@@ -527,26 +561,26 @@ inline bool operator==(Other&& other, const cppgc::Member<T>& value) {
   return value == std::forward<Other>(other);
 }
 
-inline Value DynamicValueObject::dynamicCall(Runtime&, const std::vector<Value>&) {
+inline Value BaseObject::dynamicCall(Runtime&, const std::vector<Value>&) {
   throw runtimeError(u"VexaScript dynamic value is not callable");
 }
 
-inline Value DynamicValueObject::dynamicGet(const std::u16string& key) {
+inline Value BaseObject::dynamicGet(const std::u16string& key) {
   return dynamic_properties_ ? dynamic_properties_->get(key) : Value::undefined();
 }
 
-inline Value DynamicValueObject::dynamicSet(const std::u16string& key, const Value& value) {
+inline Value BaseObject::dynamicSet(const std::u16string& key, const Value& value) {
   auto& runtime = currentRuntime();
   if (!dynamic_properties_) dynamic_properties_ = makeDynamicPropertyRecord(runtime);
   dynamic_properties_->set(key, value);
   return value;
 }
 
-inline std::vector<std::u16string> DynamicValueObject::dynamicKeys() const {
+inline std::vector<std::u16string> BaseObject::dynamicKeys() const {
   return dynamic_properties_ ? dynamic_properties_->keys() : std::vector<std::u16string>{};
 }
 
-inline void DynamicValueObject::dynamicDefineProperty(
+inline void BaseObject::dynamicDefineProperty(
     const std::u16string& key,
     const Value& value,
     bool enumerable) {
@@ -555,7 +589,7 @@ inline void DynamicValueObject::dynamicDefineProperty(
   else non_enumerable_properties_.insert(key);
 }
 
-inline std::vector<std::u16string> DynamicValueObject::dynamicEnumerableKeys(
+inline std::vector<std::u16string> BaseObject::dynamicEnumerableKeys(
     std::vector<std::u16string> keys) const {
   std::erase_if(keys, [&](const std::u16string& key) {
     return non_enumerable_properties_.contains(key);
@@ -563,17 +597,17 @@ inline std::vector<std::u16string> DynamicValueObject::dynamicEnumerableKeys(
   return keys;
 }
 
-inline bool DynamicValueObject::dynamicDelete(const std::u16string& key) {
+inline bool BaseObject::dynamicDelete(const std::u16string& key) {
   non_enumerable_properties_.erase(key);
   return dynamic_properties_ && dynamic_properties_->erase(key);
 }
 
-inline void DynamicValueObject::Trace(cppgc::Visitor* visitor) const {
+inline void BaseObject::Trace(cppgc::Visitor* visitor) const {
   visitor->Trace(dynamic_properties_);
 }
 
 inline RecordObject::RecordObject(DynamicValueObject* dynamicBacking)
-    : dynamic_backing_(dynamicBacking) {}
+    : BaseObject(Kind::Record), dynamic_backing_(dynamicBacking) {}
 
 inline Value RecordObject::get(const std::u16string& key) const {
   if (dynamic_backing_) return dynamic_backing_->dynamicGet(key);
@@ -649,24 +683,25 @@ inline std::vector<Value> RecordObject::values() const {
 }
 
 inline void RecordObject::Trace(cppgc::Visitor* visitor) const {
+  BaseObject::Trace(visitor);
   visitor->Trace(dynamic_backing_);
   for (const auto& [key, value] : properties_) value.Trace(visitor);
   for (const auto& [key, value] : hidden_properties_) value.Trace(visitor);
 }
 
-inline Value DynamicValueObject::dynamicArrayGet(Runtime&, std::size_t) {
+inline Value BaseObject::dynamicArrayGet(Runtime&, std::size_t) {
   throw runtimeError(u"Dynamic native object is not an array");
 }
 
-inline bool DynamicValueObject::dynamicIsIterable() const {
+inline bool BaseObject::dynamicIsIterable() const {
   return dynamicIsArray();
 }
 
-inline std::size_t DynamicValueObject::dynamicIterableSize() const {
+inline std::size_t BaseObject::dynamicIterableSize() const {
   return dynamicArraySize();
 }
 
-inline Value DynamicValueObject::dynamicIterableGet(Runtime& runtime, std::size_t index) {
+inline Value BaseObject::dynamicIterableGet(Runtime& runtime, std::size_t index) {
   return dynamicArrayGet(runtime, index);
 }
 
@@ -678,13 +713,7 @@ inline Value StoredValue::load() const {
   if (const auto* value = std::get_if<bool>(&storage_)) return Value(*value);
   if (const auto* value = std::get_if<double>(&storage_)) return Value(*value);
   if (const auto* value = std::get_if<BigInt>(&storage_)) return Value(*value);
-  if (const auto* value = std::get_if<StringObject*>(&storage_)) {
-    return Value(*value);
-  }
-  if (const auto* value = std::get_if<RecordObject*>(&storage_)) {
-    return Value(*value);
-  }
-  return Value(std::get<DynamicValueObject*>(storage_));
+  return Value(std::get<BaseObject*>(storage_));
 }
 
 inline StoredValue::operator Value() const { return load(); }
@@ -695,23 +724,12 @@ inline void StoredValue::store(const Value& value) {
   else if (value.isBoolean()) storage_ = value.boolean();
   else if (value.isNumber()) storage_ = value.number();
   else if (value.isBigInt()) storage_ = value.bigint();
-  else if (value.isString()) {
-    storage_ = std::get<cppgc::Persistent<StringObject>>(value.storage_).Get();
-  } else {
-    if (value.isRecord()) storage_ = value.record();
-    else storage_ = value.dynamicObject();
-  }
+  else storage_ = value.object();
 }
 
 inline void StoredValue::Trace(cppgc::Visitor* visitor) const {
-  if (const auto* value = std::get_if<StringObject*>(&storage_)) {
-    const cppgc::Member<StringObject> member(*value);
-    visitor->Trace(member);
-  } else if (const auto* value = std::get_if<RecordObject*>(&storage_)) {
-    const cppgc::Member<RecordObject> member(*value);
-    visitor->Trace(member);
-  } else if (const auto* value = std::get_if<DynamicValueObject*>(&storage_)) {
-    const cppgc::Member<DynamicValueObject> member(*value);
+  if (const auto* value = std::get_if<BaseObject*>(&storage_)) {
+    const cppgc::Member<BaseObject> member(*value);
     visitor->Trace(member);
   }
 }
@@ -974,6 +992,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   Iterator end() const { return Iterator(this, size()); }
 
   void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
     visitor->Trace(dynamic_backing_);
     for (const auto& value : values_) value.Trace(visitor);
   }
@@ -1269,6 +1288,7 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
   }
 
   void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
     for (const auto& value : values_) value.Trace(visitor);
   }
 
@@ -1322,6 +1342,7 @@ class WeakMapObject final : public cppgc::GarbageCollected<WeakMapObject<K, V>>,
   }
   std::u16string dynamicToString() const override { return u"[object WeakMap]"; }
   void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
     for (const auto& entry : entries_) visitor->Trace(entry);
     visitor->RegisterWeakCallbackMethod<
         WeakMapObject, &WeakMapObject::processWeakness>(this);
@@ -1383,6 +1404,7 @@ class WeakSetObject final : public cppgc::GarbageCollected<WeakSetObject<T>>, pu
   }
   std::u16string dynamicToString() const override { return u"[object WeakSet]"; }
   void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
     for (const auto& value : values_) visitor->Trace(value);
     visitor->RegisterWeakCallbackMethod<
         WeakSetObject, &WeakSetObject::processWeakness>(this);
@@ -1487,7 +1509,7 @@ class URLObject final : public cppgc::GarbageCollected<URLObject>, public Dynami
   const void* dynamicTypeToken() const override { return nativeTypeToken<URLObject>(); }
   void* dynamicCast(const void* type) override { return type == nativeTypeToken<URLObject>() ? this : nullptr; }
   std::u16string dynamicToString() const override { return href; }
-  void Trace(cppgc::Visitor*) const override {}
+  void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); }
 
   std::u16string href;
   std::u16string protocol;
@@ -1558,7 +1580,7 @@ class DateObject final : public cppgc::GarbageCollected<DateObject>, public Dyna
   std::optional<std::u16string> dynamicJsonStringify(std::unordered_set<const void*>&) const override {
     return jsonQuoted(toISOString());
   }
-  void Trace(cppgc::Visitor*) const override {}
+  void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); }
 
  private:
   std::tm utcParts() const {
@@ -1599,7 +1621,7 @@ class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject
     return type == nativeTypeToken<ArrayBufferObject>() ? this : nullptr;
   }
   std::u16string dynamicToString() const override { return u"[object ArrayBuffer]"; }
-  void Trace(cppgc::Visitor*) const override {}
+  void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); }
 
  private:
   std::vector<std::uint8_t> bytes_;
@@ -1647,7 +1669,10 @@ class Uint8ArrayObject final : public cppgc::GarbageCollected<Uint8ArrayObject>,
     if (!index) throw runtimeError(u"Invalid Uint8Array index");
     return Value(static_cast<double>(set(*index, Number(value))));
   }
-  void Trace(cppgc::Visitor* visitor) const override { visitor->Trace(buffer_); }
+  void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
+    visitor->Trace(buffer_);
+  }
 
  private:
   cppgc::Member<ArrayBufferObject> buffer_;
@@ -1699,7 +1724,10 @@ class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, pub
     return type == nativeTypeToken<DataViewObject>() ? this : nullptr;
   }
   std::u16string dynamicToString() const override { return u"[object DataView]"; }
-  void Trace(cppgc::Visitor* visitor) const override { visitor->Trace(buffer_); }
+  void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
+    visitor->Trace(buffer_);
+  }
 
  private:
   std::uint32_t readUnsigned(double offsetValue, std::size_t width, bool littleEndian) const {
@@ -2445,7 +2473,11 @@ Result convertValue(Input&& input) {
       return currentRuntime().string(std::forward<Input>(input));
     } else if constexpr (std::is_pointer_v<Source>) {
       if (!input) return Value::null();
-      if constexpr (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Source>>) {
+      if constexpr (std::is_same_v<std::remove_pointer_t<Source>, StringObject>) {
+        return Value(input);
+      } else if constexpr (std::is_same_v<std::remove_pointer_t<Source>, RecordObject>) {
+        return Value(input);
+      } else if constexpr (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Source>>) {
         return Value(static_cast<DynamicValueObject*>(input));
       } else if constexpr (std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>>) {
         auto* enumerable = static_cast<EnumerableObject*>(input);
@@ -3001,6 +3033,7 @@ class FunctionObject final
   }
 
   void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
     for (const auto& root : roots_) root.Trace(visitor);
   }
 
@@ -6479,6 +6512,17 @@ inline bool isErrorLike(const Error&) { return true; }
 inline bool isErrorLike(const Value& value) {
   return value.isString() ||
     (value.isDynamicObject() && value.dynamicObject()->dynamicCast(nativeTypeToken<Error>()) != nullptr);
+}
+inline const std::u16string& errorMessageText(const Error& error) {
+  return error.messageText();
+}
+inline std::u16string errorMessageText(const Value& value) {
+  if (value.isString()) return value.string();
+  if (value.isDynamicObject()) {
+    const Value message = value.dynamicObject()->dynamicGet(u"message");
+    if (!message.isUndefined()) return toString(message);
+  }
+  return toString(value);
 }
 template <typename T>
 inline bool isErrorLike(T* value) {
