@@ -80,3 +80,25 @@ boundary now lives between `Value` and `std::u16string`; it does not introduce a
 third string representation. The complete native language smoke and the full
 CLI C++ syntax check both compile real generated translation units and caught
 these mixed static/dynamic expressions during the migration.
+
+## Empty generic mappings must not erase declared storage
+
+Constructor parameter properties on generic classes can be inspected while
+their type parameter is not active. In that context the preliminary C++ type
+mapping returns an empty string, not `null` or `undefined`. A nullish fallback
+therefore cached the property as absent and later emitted `dynamicGet` even
+after the receiver supplied concrete type arguments.
+
+Treating an empty preliminary mapping as `Value` preserves the declared type
+name until receiver bindings are available. The concrete mapping can then
+recover direct storage such as `ListReader<Token>::items`. Managed-array index
+expressions likewise retain their element type, so optional access to a known
+class field uses a typed pointer check instead of `dynamicGetOptional`.
+
+## Decimal text should stay UTF-16 after formatting
+
+`BigInt::toString()` now produces `std::u16string` directly, and `BigInt` can
+parse both narrow and UTF-16 views. Decimal chunks and integer property keys
+use bounded `std::to_chars` buffers whose ASCII digits are widened directly.
+This removes the UTF-16 to UTF-8 and back conversions from BigInt coercion,
+hashing, equality, and numeric property-key paths.

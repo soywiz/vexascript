@@ -2199,12 +2199,11 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
     if (storageType) return storageType;
     const nativePropertyType = resolvedNativePropertyMember(member)?.valueType;
     if (nativePropertyType) return nativePropertyType;
-    if (usesDynamicClassProperty(member) && !resolvedNativePropertyMember(member)) return "vexa::Value";
-    if (member.computed && member.optional && isManagedArrayExpression(member.object)) {
+    if (member.computed && isManagedArrayExpression(member.object)) {
       const arrayType = managedArrayCppTypeForExpression(member.object);
-      const elementType = arrayType ? managedArrayElementType(arrayType) : null;
-      return elementType?.endsWith("*") ? elementType : "vexa::Value";
+      return arrayType ? managedArrayElementType(arrayType) ?? "vexa::Value" : "vexa::Value";
     }
+    if (usesDynamicClassProperty(member) && !resolvedNativePropertyMember(member)) return "vexa::Value";
     if (member.computed && member.optional) return "vexa::Value";
   }
   if (expression.kind === NodeKind.ConditionalExpression) {
@@ -2851,7 +2850,7 @@ function classStoredPropertyInfo(statement: ClassStatement, propertyName: string
       : undefined;
     const constructorTypeName = constructorProperty?.typeAnnotation?.name;
     const rawConstructorType = constructorProperty
-      ? emittedCallableParameterCppType(constructorProperty, false) ?? "vexa::Value"
+      ? emittedCallableParameterCppType(constructorProperty, false) || "vexa::Value"
       : null;
     const constructorType = constructorProperty?.optional && rawConstructorType && constructorTypeName
       ? optionalCppValueType(rawConstructorType, constructorTypeName)

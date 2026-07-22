@@ -2,14 +2,13 @@
 
 #include <algorithm>
 #include <bit>
+#include <charconv>
 #include <compare>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <iomanip>
 #include <limits>
 #include <ostream>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -27,23 +26,33 @@ class BigInt final {
   BigInt(int value) { assignSigned(value); }
   BigInt(long long value) { assignSigned(value); }
   explicit BigInt(std::string_view text) { parse(text); }
+  explicit BigInt(std::u16string_view text) { parse(text); }
 
   bool isZero() const { return limbs_.empty(); }
   bool isNegative() const { return negative_; }
   bool isOdd() const { return !limbs_.empty() && (limbs_[0] & 1U) != 0; }
 
-  std::string toString() const {
-    if (isZero()) return "0";
+  std::u16string toString() const {
+    if (isZero()) return u"0";
     BigInt remaining = absolute();
     std::vector<std::uint32_t> chunks;
     while (!remaining.isZero()) chunks.push_back(remaining.divideSmall(1'000'000'000U));
-    std::ostringstream output;
-    if (negative_) output << '-';
-    output << chunks.back();
+    std::u16string result;
+    result.reserve(chunks.size() * 9 + (negative_ ? 1 : 0));
+    if (negative_) result += u'-';
+    const auto appendChunk = [&](std::uint32_t chunk, std::size_t minimumWidth) {
+      char buffer[10];
+      const auto [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), chunk);
+      if (error != std::errc()) throw std::runtime_error("Failed to format BigInt");
+      const auto width = static_cast<std::size_t>(end - buffer);
+      result.append(minimumWidth > width ? minimumWidth - width : 0, u'0');
+      result.append(buffer, end);
+    };
+    appendChunk(chunks.back(), 0);
     for (auto iterator = chunks.rbegin() + 1; iterator != chunks.rend(); ++iterator) {
-      output << std::setw(9) << std::setfill('0') << *iterator;
+      appendChunk(*iterator, 9);
     }
-    return output.str();
+    return result;
   }
 
   double toDouble() const {
@@ -162,7 +171,8 @@ class BigInt final {
   }
 
   friend std::ostream& operator<<(std::ostream& output, const BigInt& value) {
-    return output << value.toString();
+    for (const char16_t digit : value.toString()) output.put(static_cast<char>(digit));
+    return output;
   }
 
   friend BigInt pow(BigInt base, BigInt exponent);
@@ -186,9 +196,15 @@ class BigInt final {
     negative_ = negative && !isZero();
   }
 
-  void parse(std::string_view text) {
-    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) text.remove_prefix(1);
-    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.remove_suffix(1);
+  template <typename Character>
+  void parse(std::basic_string_view<Character> text) {
+    const auto isSpace = [](Character character) {
+      return character == static_cast<Character>(' ') || character == static_cast<Character>('\t') ||
+        character == static_cast<Character>('\n') || character == static_cast<Character>('\r') ||
+        character == static_cast<Character>('\f') || character == static_cast<Character>('\v');
+    };
+    while (!text.empty() && isSpace(text.front())) text.remove_prefix(1);
+    while (!text.empty() && isSpace(text.back())) text.remove_suffix(1);
     if (text.empty()) throw std::runtime_error("Invalid BigInt value");
     std::size_t index = 0;
     if (text[index] == '+' || text[index] == '-') {
@@ -197,7 +213,7 @@ class BigInt final {
     }
     std::uint32_t base = 10;
     if (index == 0 && text.size() >= 2 && text[0] == '0') {
-      const char prefix = text[1];
+      const Character prefix = text[1];
       if (prefix == 'x' || prefix == 'X') base = 16;
       else if (prefix == 'o' || prefix == 'O') base = 8;
       else if (prefix == 'b' || prefix == 'B') base = 2;
@@ -205,7 +221,7 @@ class BigInt final {
     }
     if (index == text.size()) throw std::runtime_error("Invalid BigInt value");
     for (; index < text.size(); ++index) {
-      const char character = text[index];
+      const Character character = text[index];
       const std::uint32_t digit = character >= '0' && character <= '9'
           ? static_cast<std::uint32_t>(character - '0')
           : character >= 'a' && character <= 'f'

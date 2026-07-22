@@ -1024,7 +1024,7 @@ struct SameValueZeroHash<Value> final {
       return std::hash<double>{}(normalized) ^ 0x67;
     }
     if (value.isBigInt()) {
-      return std::hash<std::u16string>{}(utf8ToUtf16(value.bigint().toString())) ^ 0x79;
+      return std::hash<std::u16string>{}(value.bigint().toString()) ^ 0x79;
     }
     if (value.isString()) return std::hash<std::u16string>{}(value.utf16()) ^ 0x83;
     if (value.isRecord()) return std::hash<const void*>{}(value.record()) ^ 0x97;
@@ -2476,9 +2476,9 @@ Result convertValue(Input&& input) {
       if (input.isBigInt()) return input.bigint();
       if (input.isBoolean()) return BigInt(input.boolean() ? 1 : 0);
       if (input.isNumber() && std::isfinite(input.number()) && std::trunc(input.number()) == input.number()) {
-        return BigInt(utf16ToUtf8(formatFixedText(input.number(), 0)));
+        return BigInt(formatFixedText(input.number(), 0));
       }
-      if (input.isString()) return BigInt(utf16ToUtf8(input.string()));
+      if (input.isString()) return BigInt(input.string());
       throw runtimeError(u"VexaScript value cannot be converted to bigint");
     } else if constexpr (std::is_same_v<Result, std::u16string>) {
       if (input.isString()) return input.utf16();
@@ -3099,9 +3099,9 @@ inline const std::u16string& propertyKey(const std::u16string& value) { return v
 inline std::u16string propertyKey(double value) {
   return formatNumberText(value);
 }
-inline std::u16string propertyKey(std::int32_t value) { return utf8ToUtf16(std::to_string(value)); }
-inline std::u16string propertyKey(std::int64_t value) { return utf8ToUtf16(std::to_string(value)); }
-inline std::u16string propertyKey(const BigInt& value) { return utf8ToUtf16(value.toString()); }
+inline std::u16string propertyKey(std::int32_t value) { return formatIntegerText(value); }
+inline std::u16string propertyKey(std::int64_t value) { return formatIntegerText(value); }
+inline std::u16string propertyKey(const BigInt& value) { return value.toString(); }
 inline std::u16string propertyKey(bool value) { return value ? u"true" : u"false"; }
 inline std::u16string propertyKey(const Value& value) {
   if (value.isString()) return value.utf16();
@@ -5002,17 +5002,17 @@ inline std::u16string toString(const Value& value) {
   if (value.isNull()) return u"null";
   if (value.isBoolean()) return value.boolean() ? u"true" : u"false";
   if (value.isNumber()) return numberToString(value.number());
-  if (value.isBigInt()) return utf8ToUtf16(value.bigint().toString());
+  if (value.isBigInt()) return value.bigint().toString();
   if (value.isString()) return value.string();
   if (value.isDynamicObject()) return value.dynamicObject()->dynamicToString();
   return u"[object Object]";
 }
 
-inline std::u16string toString(const BigInt& value) { return utf8ToUtf16(value.toString()); }
+inline std::u16string toString(const BigInt& value) { return value.toString(); }
 
 inline std::u16string toString(double value) { return numberToString(value); }
-inline std::u16string toString(int value) { return utf8ToUtf16(std::to_string(value)); }
-inline std::u16string toString(std::int64_t value) { return utf8ToUtf16(std::to_string(value)); }
+inline std::u16string toString(int value) { return formatIntegerText(value); }
+inline std::u16string toString(std::int64_t value) { return formatIntegerText(value); }
 inline std::u16string toString(bool value) { return value ? u"true" : u"false"; }
 inline const std::u16string& toString(const std::u16string& value) { return value; }
 
@@ -5024,9 +5024,9 @@ inline BigInt makeBigInt(double value) {
   if (!std::isfinite(value) || std::trunc(value) != value) {
     throw runtimeError(u"Cannot convert a non-integer number to BigInt");
   }
-  return BigInt(utf16ToUtf8(formatFixedText(value, 0)));
+  return BigInt(formatFixedText(value, 0));
 }
-inline BigInt makeBigInt(const std::u16string& value) { return BigInt(utf16ToUtf8(value)); }
+inline BigInt makeBigInt(const std::u16string& value) { return BigInt(value); }
 inline BigInt makeBigInt(const Value& value) {
   if (value.isBigInt()) return value.bigint();
   if (value.isBoolean()) return makeBigInt(value.boolean());
@@ -5997,7 +5997,7 @@ inline bool looseEqualsString(const std::u16string& text, const Value& value) {
   if (value.isNumber()) return numberFromString(text) == value.number();
   if (value.isBigInt()) {
     try {
-      return BigInt(utf16ToUtf8(text)) == value.bigint();
+      return BigInt(text) == value.bigint();
     } catch (...) {
       return false;
     }

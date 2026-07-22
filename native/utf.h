@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <stdexcept>
+#include <type_traits>
 #include <vector>
 #include <utility>
 
@@ -128,6 +129,15 @@ inline std::u16string formatFixedText(double value, int digits) {
       value,
       std::chars_format::fixed,
       digits);
+  if (error != std::errc()) return {};
+  return std::u16string(buffer, end);
+}
+
+template <typename Integer>
+  requires std::is_integral_v<Integer>
+inline std::u16string formatIntegerText(Integer value) {
+  char buffer[32];
+  const auto [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), value);
   if (error != std::errc()) return {};
   return std::u16string(buffer, end);
 }
