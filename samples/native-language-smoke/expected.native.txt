@@ -30,6 +30,7 @@ imported structural interface 42 42
 interface enumeration label|apply 2 label
 array api 5 3 2 [2, 3] [1, 5, 1, 5]
 array flatten [1, 2, 3] [1, 10, 2, 20]
+array object views node base!
 loop destructuring 21
 interface cpu:4:9 7 1 cpu missing
 typed null pointer true

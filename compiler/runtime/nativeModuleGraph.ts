@@ -78,9 +78,9 @@ function nativeSymbolName(moduleIndex: number, sourceName: string): string {
   return `__vexa_module_${moduleIndex}_${sourceName}`;
 }
 
-interface NativeShadowBinding {
-  name: string;
-  declaredOffset: number;
+class NativeShadowBinding {
+  constructor(public name: string, public declaredOffset: number) {
+  }
 }
 
 function appendNativeBinding(
@@ -89,12 +89,10 @@ function appendNativeBinding(
   declaredOffset = -1
 ): void {
   for (const identifier of bindingIdentifiers(name)) {
-    bindings.push({
-      name: identifier.name,
-      declaredOffset: declaredOffset >= 0
-        ? declaredOffset
-        : nodeStartOffset(identifier) ?? -1,
-    });
+    bindings.push(new NativeShadowBinding(
+      identifier.name,
+      declaredOffset >= 0 ? declaredOffset : nodeStartOffset(identifier) ?? -1
+    ));
   }
 }
 
@@ -111,28 +109,28 @@ function nativeIsolationBindings(node: Node): NativeShadowBinding[] | undefined 
   const bindings: NativeShadowBinding[] = [];
   let parameters: FunctionParameter[] | undefined;
   if (node instanceof FunctionStatement) {
-    parameters = (node as FunctionStatement).parameters;
+    parameters = node.parameters;
   } else if (node instanceof ArrowFunctionExpression) {
-    parameters = (node as ArrowFunctionExpression).parameters;
+    parameters = node.parameters;
   } else if (node instanceof FunctionExpression) {
-    parameters = (node as FunctionExpression).parameters;
+    parameters = node.parameters;
   } else if (node instanceof ClassMethodMember) {
-    parameters = (node as ClassMethodMember).parameters;
+    parameters = node.parameters;
   }
   if (parameters) {
     for (const parameter of parameters) appendNativeBinding(bindings, parameter.name, -1);
   }
   if (node instanceof FunctionExpression) {
     const name = (node as FunctionExpression).name;
-    if (name) bindings.push({ name: name.name, declaredOffset: -1 });
+    if (name) bindings.push(new NativeShadowBinding(name.name, -1));
   }
   if (node instanceof ClassStatement) {
     const classStatement = node as ClassStatement;
     for (const member of classStatement.members) {
-      bindings.push({ name: member.name.name, declaredOffset: -1 });
+      bindings.push(new NativeShadowBinding(member.name.name, -1));
     }
     for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-      bindings.push({ name: parameter.name.name, declaredOffset: -1 });
+      bindings.push(new NativeShadowBinding(parameter.name.name, -1));
     }
   }
   if (node instanceof BlockStatement) {
@@ -151,7 +149,7 @@ function nativeIsolationBindings(node: Node): NativeShadowBinding[] | undefined 
         continue;
       }
       const name = (declaration as unknown as { name?: Identifier }).name;
-      if (name) bindings.push({ name: name.name, declaredOffset: -1 });
+      if (name) bindings.push(new NativeShadowBinding(name.name, -1));
     }
   }
   if (node instanceof ForStatement) {
@@ -165,7 +163,7 @@ function nativeIsolationBindings(node: Node): NativeShadowBinding[] | undefined 
   }
   if (node instanceof CatchClause) {
     const parameter = (node as CatchClause).parameter;
-    if (parameter) bindings.push({ name: parameter.name, declaredOffset: -1 });
+    if (parameter) bindings.push(new NativeShadowBinding(parameter.name, -1));
   }
   return bindings;
 }

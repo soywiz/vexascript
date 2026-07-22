@@ -241,6 +241,10 @@ class Cat extends Animal {
 
 class AnimalHolder(val animal: Animal)
 
+fun dynamicTextArray(value: any): string[] => value
+
+fun widenAnimals(values: Dog[]): Animal[] => values
+
 fun chooseAnimal(dog?: Dog): Animal => dog ?? Cat()
 
 fun dogSound(dog: Dog): string => dog.speak()
@@ -545,6 +549,9 @@ val arrayApiRemoved = arrayApiValues.splice(1, 2, 8, 9)
 arrayApiValues.fill(5, 1, 2).copyWithin(2, 0, 2)
 console.log("array api", arrayApiValues.at(-1), arrayApiValues.lastIndexOf(5), arrayApiFound, arrayApiRemoved, arrayApiValues)
 console.log("array flatten", [[1, 2], [3]].flat(), [1, 2].flatMap((value: int) => [value, value * 10]))
+val dynamicTextValues: any = ["node"]
+val widenedAnimals = widenAnimals([Dog()])
+console.log("array object views", dynamicTextArray(dynamicTextValues)[0], widenedAnimals[0].speak())
 var destructuredLoopTotal = 0
 for (val [left, right] of [[1, 2], [3, 4]]) destructuredLoopTotal += left + right
 for (val { value: int } of [{ value: 5 }, { value: 6 }]) destructuredLoopTotal += value

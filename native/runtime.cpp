@@ -772,6 +772,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
  public:
   ArrayObject() = default;
   explicit ArrayObject(BaseObject* dynamicBacking) : dynamic_backing_(dynamicBacking) {}
+  static ArrayObject* fromDynamicObject(BaseObject* backing);
   explicit ArrayObject(std::initializer_list<T> values) {
     values_.reserve(values.size());
     for (const auto& value : values) values_.emplace_back(value);
@@ -1041,6 +1042,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
  public:
   MapObject() = default;
   explicit MapObject(MapLikeObject* dynamicBacking) : dynamic_backing_(dynamicBacking) {}
+  static MapObject* fromDynamicObject(BaseObject* backing);
 
   std::size_t size() const { return dynamic_backing_ ? dynamic_backing_->dynamicMapSize() : entries_.size(); }
 
@@ -2316,6 +2318,22 @@ inline Value makeDynamicMapEntry(Runtime& runtime, Value key, Value value) {
   return Value(pair);
 }
 
+template <typename T>
+ArrayObject<T>* ArrayObject<T>::fromDynamicObject(BaseObject* backing) {
+  if (!backing || !backing->dynamicIsArray()) {
+    throw errorAtCurrentSource(u"VexaScript value is not a compatible array");
+  }
+  return currentRuntime().make<ArrayObject<T>>(backing);
+}
+
+template <typename K, typename V>
+MapObject<K, V>* MapObject<K, V>::fromDynamicObject(BaseObject* backing) {
+  if (!backing) throw errorAtCurrentSource(u"VexaScript value is not a compatible map");
+  void* converted = backing->dynamicCast(nativeTypeToken<MapLikeObject>());
+  if (!converted) throw errorAtCurrentSource(u"VexaScript value is not a compatible map");
+  return currentRuntime().make<MapObject<K, V>>(static_cast<MapLikeObject*>(converted));
+}
+
 #if defined(VEXA_NATIVE_DEBUG) || defined(VEXA_NATIVE_GC_STRESS)
 #define VEXA_NATIVE_SOURCE(runtime, file, line, column) \
   do {                                                    \
@@ -2341,6 +2359,11 @@ inline ArrayObject<Value>* regexExec(Runtime& runtime, const RegExp& expression,
 template <typename T>
 concept RecordAdaptable = requires(RecordObject* record) {
   { T::fromRecord(record) } -> std::convertible_to<T*>;
+};
+
+template <typename T>
+concept DynamicObjectView = requires(BaseObject* object) {
+  { T::fromDynamicObject(object) } -> std::convertible_to<T*>;
 };
 
 inline std::u16string toText(const std::u16string& value) { return value; }
@@ -2439,6 +2462,11 @@ Result Value::toInstance() const {
     }
     void* converted = object()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
     if (!converted) {
+      if constexpr (DynamicObjectView<std::remove_pointer_t<Result>>) {
+        return std::remove_pointer_t<Result>::fromDynamicObject(object());
+      }
+    }
+    if (!converted) {
       const auto kind = object()->dynamicGet(u"kind");
       throw errorAtCurrentSource(
           std::u16string(u"VexaScript dynamic value has an incompatible native object type: ") +
@@ -2481,6 +2509,9 @@ Result toInstance(Input&& input) {
         std::is_base_of_v<BaseObject, std::remove_pointer_t<Result>>) {
       void* converted = input->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
       if (!converted) {
+        if constexpr (DynamicObjectView<std::remove_pointer_t<Result>>) {
+          return std::remove_pointer_t<Result>::fromDynamicObject(static_cast<BaseObject*>(input));
+        }
         throw errorAtCurrentSource(
             std::u16string(u"VexaScript object has an incompatible native pointer type (dynamic cast): ") +
             utf8ToUtf16(__PRETTY_FUNCTION__));
