@@ -110,3 +110,22 @@ Oilpan's bundled CMake configuration explicitly disabled RTTI, so merely removin
 RTTI also forced complete `FunctionObject<Task<...>>` vtables to instantiate and exposed an invalid dynamic return conversion that the token protocol had left dormant. Dynamic invocation now waits for a task and returns its settled value, or `undefined` for `Task<void>`, instead of trying to construct a `Value` directly from the task object.
 
 The full native language smoke and all 2,340 tests pass with RTTI. The generated compiler source falls from 6,911,468 to 6,818,809 bytes. Initial `-O0` measurements are neutral: compile/link changes from 24.08 to 24.06 seconds and native generation from 71.35 to 72.00 seconds. RTTI therefore simplifies the object model and generated source, but does not by itself improve unoptimized self-host execution.
+
+### RTTI benchmark matrix
+
+Every row uses the same semantic `cpp cli/cli.ts --target optimized` workload. Compile time includes linking against the matching Oilpan library. Generation time is the resulting native executable generating the compiler translation unit once.
+
+| Cast model | Optimization | Compile + link | Executable bytes | Native generation |
+| --- | ---: | ---: | ---: | ---: |
+| Custom tags | `-O0` | 24.08 s | 39,273,376 | 71.35 s |
+| Custom tags | `-O1` | 112.01 s | 18,679,936 | 14.30 s |
+| Custom tags | `-O3` | 143.10 s | 18,587,840 | 13.53 s |
+| RTTI | `-O0` | 24.06 s | 39,496,064 | 72.00 s |
+| RTTI | `-O1` | 109.93 s | 19,134,288 | 14.87 s |
+| RTTI | `-O3` | 141.59 s | 19,046,064 | 14.54 s |
+
+Node generation takes 6.32 seconds before and 6.57 seconds after the RTTI emitter change. The small difference is within normal run-to-run noise; RTTI does not affect the Node execution path. All three native optimization levels produce byte-identical C++ output. Compiling the first native `-O0` output takes 23.98 seconds, and that second native compiler generates an identical second-round output in 71.33 seconds. Both executed native roundtrips therefore stay below the two-minute target.
+
+Custom tags are consistently faster in these single-run native-generation measurements: by 0.9% at `-O0`, 4.0% at `-O1`, and 7.5% at `-O3`. The optimized results are large enough to justify repeated controlled measurements if runtime generation speed becomes the deciding factor. For now, RTTI remains the simpler design and produces less generated source while compile/link time is neutral or slightly better.
+
+The Node-emitted and native-emitted files still differ by 353 bytes in redundant nullish and pointer conversion choices. They compile and behave identically, but byte identity between Node and native emission remains separate follow-up work.
