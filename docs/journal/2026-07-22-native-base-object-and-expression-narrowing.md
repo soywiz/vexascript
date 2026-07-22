@@ -129,3 +129,9 @@ Node generation takes 6.32 seconds before and 6.57 seconds after the RTTI emitte
 Custom tags are consistently faster in these native-generation measurements: by 0.9% at `-O0`, 4.0% at `-O1`, and 7.5% at `-O3`. Runtime generation speed is the deciding factor for the distributed compiler, while compiling the compiler executable is a comparatively infrequent operation. The implementation therefore returned to custom tags and restored `-fno-rtti`. The unrelated task-result invocation fix exposed by the RTTI experiment remains in place.
 
 The Node-emitted and native-emitted files still differ by 353 bytes in redundant nullish and pointer conversion choices. They compile and behave identically, but byte identity between Node and native emission remains separate follow-up work.
+
+## Follow-up: typed string literal pool
+
+The literal pool originally stored pointers to boxed `Value` instances, even though every pooled entry was known to be a string. Statically typed string expressions separately constructed temporary `std::u16string` values from the same literals. The pool now roots `StringObject` instances directly. Typed expressions use the pooled object's UTF-16 value, while dynamic boundaries construct a `Value` only when required.
+
+For the semantic self-host workload, the generated translation unit falls from 6,911,468 to 6,393,705 bytes. Its `-O0` compile/link time falls from 24.08 to 23.15 seconds, and native generation falls from 71.35 to 69.48 seconds. The two executed native roundtrips take 69.48 and 69.49 seconds and produce byte-identical C++. Node and native output still differ by 416 bytes in the existing nullish and pointer-conversion choices.
