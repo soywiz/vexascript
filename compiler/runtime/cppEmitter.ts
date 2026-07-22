@@ -8023,6 +8023,13 @@ function emitInterfaceWithActiveTypeParameters(statement: InterfaceStatement): s
   const trace = traceBody
     ? `  void Trace(cppgc::Visitor* visitor) const override { ${traceBody} }`
     : "  void Trace(cppgc::Visitor*) const override {}";
+  const nativeCastBranches: string[] = [
+    `if (__vexa_type == vexa::nativeTypeToken<${cppName(statement.name.name)}>()) return this;`,
+  ];
+  for (const extendedType of statement.extendsTypes ?? []) {
+    const baseType = cppTypeForDeclaredName(extendedType.name)!.slice(0, -1);
+    nativeCastBranches.push(`if (auto* __vexa_base = ${baseType}::nativeInterfaceCast(__vexa_type)) return __vexa_base;`);
+  }
   const memberLines: string[] = [];
   for (const member of statement.members) {
     if (member instanceof InterfaceMethodMember) memberLines.push(emitInterfaceMethod(member, statement));
@@ -8046,6 +8053,7 @@ function emitInterfaceWithActiveTypeParameters(statement: InterfaceStatement): s
     " public:",
     `  virtual ~${interfaceName}() = default;`,
     trace,
+    `  void* nativeInterfaceCast(const void* __vexa_type) override { ${nativeCastBranches.join(" ")} return nullptr; }`,
     `  std::vector<std::u16string> enumerableKeys() const override { return {${enumerableKeys}}; }`,
     "  vexa::Value enumerableGet(const std::u16string& __vexa_key) override;",
     ...(statement.typeParameters?.length ? [] : [`  static ${interfaceName}* fromRecord(vexa::RecordObject* record);`]),
@@ -8763,6 +8771,20 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   if (!baseClass) nativeBases.push("public vexa::BaseObject");
   if (nativeErrorBase) nativeBases.push("public vexa::Error");
   for (const implementedInterface of implementedInterfaces) nativeBases.push(implementedInterface);
+  const dynamicCastBranches: string[] = [
+    `if (__vexa_type == vexa::nativeTypeToken<${classType}>()) return this;`,
+    `if (__vexa_type == vexa::nativeTypeToken<vexa::BaseObject>()) return static_cast<vexa::BaseObject*>(this);`,
+  ];
+  if (nativeErrorBase) {
+    dynamicCastBranches.push(`if (__vexa_type == vexa::nativeTypeToken<vexa::Error>()) return static_cast<vexa::Error*>(this);`);
+  }
+  for (const implementedType of implementedInterfaceTypes(statement)) {
+    const interfaceType = cppTypeForDeclaredName(implementedType.name)!.slice(0, -1);
+    dynamicCastBranches.push(`if (__vexa_type == vexa::nativeTypeToken<${interfaceType}>()) return static_cast<${interfaceType}*>(this);`);
+  }
+  if (baseClass && mappedBaseClassType) {
+    dynamicCastBranches.push(`if (auto* __vexa_base = ${mappedBaseClassType}::dynamicCast(__vexa_type)) return __vexa_base;`);
+  }
   const dynamicPropertyReads: Array<{ key: string; body: string }> = [];
   const dynamicPropertyWrites: Array<{ key: string; body: string }> = [];
   const dynamicPropertyNames: string[] = [];
@@ -8854,11 +8876,16 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     "}",
   ].filter(Boolean).join("\n"));
   const dynamicMethods = [
+    `  const void* dynamicTypeToken() const override { return vexa::nativeTypeToken<${classType}>(); }`,
+    `  void* dynamicCast(const void* __vexa_type) override { ${dynamicCastBranches.join(" ")} return nullptr; }`,
     '  std::u16string dynamicToString() const override { return u"[object Object]"; }',
     `  std::vector<std::u16string> dynamicKeys() const override { auto __vexa_keys = ${dynamicKeysFallback}; ${dynamicPropertyNames.map((name) => `if (std::find(__vexa_keys.begin(), __vexa_keys.end(), ${name}) == __vexa_keys.end()) __vexa_keys.push_back(${name});`).join(" ")} return __vexa_keys; }`,
     "  vexa::Value dynamicGet(const std::u16string& __vexa_key) override;",
     "  vexa::Value dynamicSet(const std::u16string& __vexa_key, const vexa::Value& __vexa_value) override;",
   ];
+  if (implementedInterfaces.length > 0) {
+    dynamicMethods.push(`  void* nativeInterfaceCast(const void* __vexa_type) override { ${dynamicCastBranches.join(" ")} return nullptr; }`);
+  }
   return [
     `${cppTemplatePrefix(statement.typeParameters)}class ${className}${final} : ${nativeBases.join(", ")} {`,
     " public:",

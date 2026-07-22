@@ -101,7 +101,7 @@ Removing the old named Array/Map converter branches exposed one important distin
 
 The same self-host check found that converting `NativeShadowBinding` from an interface to a class was incomplete because one helper still constructed an anonymous object literal. Constructing `NativeShadowBinding` directly keeps the compiler on the static class path and avoids an invalid record-to-class conversion in generated C++.
 
-## Follow-up: standard RTTI
+## Experiment: standard RTTI and rollback
 
 The custom `nativeTypeToken`, `dynamicTypeToken`, `dynamicCast`, and `nativeInterfaceCast` protocol duplicated the C++ object model in every runtime and generated class. Standard `dynamic_cast` handles ordinary downcasts, generated inheritance, cross-casts to compatible interfaces, and the generated `Error` mixin directly. Removing the protocol deletes generated methods and their inherited delegation branches rather than retaining two cast systems.
 
@@ -126,6 +126,6 @@ Every row uses the same semantic `cpp cli/cli.ts --target optimized` workload. C
 
 Node generation takes 6.32 seconds before and 6.57 seconds after the RTTI emitter change. The small difference is within normal run-to-run noise; RTTI does not affect the Node execution path. All three native optimization levels produce byte-identical C++ output. Compiling the first native `-O0` output takes 23.98 seconds, and that second native compiler generates an identical second-round output in 71.33 seconds. Both executed native roundtrips therefore stay below the two-minute target.
 
-Custom tags are consistently faster in these single-run native-generation measurements: by 0.9% at `-O0`, 4.0% at `-O1`, and 7.5% at `-O3`. The optimized results are large enough to justify repeated controlled measurements if runtime generation speed becomes the deciding factor. For now, RTTI remains the simpler design and produces less generated source while compile/link time is neutral or slightly better.
+Custom tags are consistently faster in these native-generation measurements: by 0.9% at `-O0`, 4.0% at `-O1`, and 7.5% at `-O3`. Runtime generation speed is the deciding factor for the distributed compiler, while compiling the compiler executable is a comparatively infrequent operation. The implementation therefore returned to custom tags and restored `-fno-rtti`. The unrelated task-result invocation fix exposed by the RTTI experiment remains in place.
 
 The Node-emitted and native-emitted files still differ by 353 bytes in redundant nullish and pointer conversion choices. They compile and behave identically, but byte identity between Node and native emission remains separate follow-up work.
