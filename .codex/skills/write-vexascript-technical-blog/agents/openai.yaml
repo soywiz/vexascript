@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write VexaScript Technical Blog"
+  short_description: "Write evidence-based technical VexaScript posts"
+  default_prompt: "Use $write-vexascript-technical-blog to write or revise a detailed VexaScript engineering article from repository evidence."

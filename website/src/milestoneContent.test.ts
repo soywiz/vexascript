@@ -40,9 +40,28 @@ test("the blog records the requested compiler milestones", async () => {
     "The native compiler completes its first self-host",
     "Native VexaScript becomes faster than Node.js",
     "One FFI surface for Deno and native C++",
+    "Oilpan and mimalloc power VexaScript native memory",
     "Pixi serve rebuilds fall from 200 ms to about 50 ms",
     "Engineering journals and repository-local skills",
   ]) {
     assert.match(combined, new RegExp(`title: ${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  }
+});
+
+test("milestone posts include technical subsections and evidence tables", async () => {
+  for (const name of [
+    "typescript-self-hosting.md",
+    "native-cpp-backend.md",
+    "native-self-hosting.md",
+    "native-faster-than-node.md",
+    "pixi-incremental-serve.md",
+    "cross-backend-ffi.md",
+    "engineering-journals-and-skills.md",
+    "oilpan-and-mimalloc.md",
+  ]) {
+    const post = await readWebsiteSource(`blog/${name}`);
+    assert.match(post, /^## \*\*.+\*\*$/m, `${name} should have explicit technical subsections`);
+    assert.match(post, /^\| .+ \|$/m, `${name} should include an evidence table`);
+    assert.ok(post.length >= 3_000, `${name} should be detailed enough to preserve technical context`);
   }
 });

@@ -226,6 +226,7 @@ This section is the fast onboarding map for agents and contributors.
   - Destructive subtractive-refactor workflow skill for negative-net cleanup, dead-code deletion, and removal of internal compatibility layers when compiler/CLI behavior remains stable: `.codex/skills/destructive-negative-net-refactor/SKILL.md`
   - Journal-ingestion workflow skill for turning engineering notes into actionable follow-up tasks and moving processed notes aside: `.codex/skills/ingest-vexascript-journal/SKILL.md`
   - Task-management workflow skill for creating, updating, and completing repository task docs: `.codex/skills/manage-vexascript-tasks/SKILL.md`
+  - Evidence-based technical blog workflow for reconstructing milestones from Git, journals, implementation, and measurements, then validating the rendered result: `.codex/skills/write-vexascript-technical-blog/SKILL.md`
 - LSP services status: `docs/lsp.services.md`
 - Completed LSP unification task list: `docs/tasks/completed/lsp.unifications.md`
 - LSP post-unification cleanup tasks: `docs/tasks/completed/lsp-post-unification-cleanup.md`
