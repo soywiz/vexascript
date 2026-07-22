@@ -230,11 +230,14 @@ class Animal {
 
 class Dog extends Animal {
   override fun speak(): string => super.speak() + "!"
+  fun bark(): string => "woof"
 }
 
 class Cat extends Animal {
   override fun speak(): string => super.speak() + "?"
 }
+
+class AnimalHolder(val animal: Animal)
 
 fun chooseAnimal(dog?: Dog): Animal => dog ?? Cat()
 
@@ -243,6 +246,16 @@ fun dogSound(dog: Dog): string => dog.speak()
 fun narrowedAnimalSound(animal: Animal): string {
   if (animal is Dog) return dogSound(animal)
   return animal.speak()
+}
+
+fun instanceofNarrowedAnimalSound(animal: Animal): string {
+  if (animal instanceof Dog) return animal.bark()
+  return animal.speak()
+}
+
+fun instanceofNarrowedMemberSound(holder: AnimalHolder): string {
+  if (holder.animal instanceof Dog) return holder.animal.bark()
+  return holder.animal.speak()
 }
 
 fun render(meter: Meter): string {
@@ -549,7 +562,7 @@ val checkedDog = Dog()
 val dynamicDog: any = checkedDog
 val animalReference: Animal = checkedDog
 val recastDog = animalReference as Dog
-console.log("type checks", checkedDog is Dog, checkedDog instanceof Animal, dynamicDog is Animal, recastDog.speak(), narrowedAnimalSound(checkedDog))
+console.log("type checks", checkedDog is Dog, checkedDog instanceof Animal, dynamicDog is Animal, recastDog.speak(), narrowedAnimalSound(checkedDog), instanceofNarrowedAnimalSound(checkedDog), instanceofNarrowedMemberSound(AnimalHolder(checkedDog)))
 
 val shared: Scores = [1, 2]
 val firstBag = Bag(shared)

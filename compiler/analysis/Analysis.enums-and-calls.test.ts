@@ -386,6 +386,27 @@ describe("enum semantic analysis", () => {
     expect(messages.some((message) => message === "Property 'operand' does not exist on type 'UnaryExpr'")).toBe(false);
   });
 
+  it("smart-casts stable member expressions for 'instanceof' checks", () => {
+    const source = dedent`
+      class Expr {}
+      class Identifier extends Expr {
+        constructor(public name: string) {}
+      }
+      class Holder {
+        constructor(public expression: Expr) {}
+      }
+      function identifierName(holder: Holder): string {
+        if (holder.expression instanceof Identifier) {
+          return holder.expression.name
+        }
+        return ""
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("preserves outer smart-casts inside nested conditional blocks", () => {
     const source = dedent`
       class NumberExpr(val value: number) {

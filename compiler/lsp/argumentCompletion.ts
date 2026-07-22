@@ -1,4 +1,5 @@
-import { NodeKind } from "compiler/ast/ast";
+import { CallExpression, NewExpression } from "compiler/ast/ast";
+import type { Expr, Program } from "compiler/ast/ast";
 /**
  * Call-argument completion strategy: argument-position detection, named
  * argument (`name:`) suggestions, and expected-type inference used to rank
@@ -11,7 +12,7 @@ import type { CompletionRequestOptions } from "./completionModel";
 import { findBestMatchAtPosition } from "./nodeSearch";
 import { comparePosition, containsPosition, nodeRange, rangeSize } from "./ranges";
 import { Analysis } from "compiler/analysis/Analysis";
-import type { CallExpression, Expr, NewExpression, Program } from "compiler/ast/ast";
+
 import { walkAst } from "compiler/ast/traversal";
 import type { CompletionItem } from "vscode-languageserver/node.js";
 
@@ -27,11 +28,11 @@ export function findArgumentCompletionContext(
   character: number
 ): ArgumentCompletionContext | null {
   return findBestMatchAtPosition(ast, { line, character }, (node) => {
-    if (node.kind !== NodeKind.CallExpression && node.kind !== NodeKind.NewExpression) {
+    if (!(node instanceof CallExpression) && !(node instanceof NewExpression)) {
       return null;
     }
     const callLike = node as CallExpression | NewExpression;
-    const kind = node.kind === NodeKind.CallExpression ? ("call" as const) : ("new" as const);
+    const kind = node instanceof CallExpression ? ("call" as const) : ("new" as const);
     return (callLike.args ?? []).flatMap((argument, argumentIndex) => {
       const argumentRange = nodeRange(argument);
       return argumentRange
@@ -64,7 +65,7 @@ export function findNamedArgumentCallContext(
   let bestSize: number | null = null;
 
   walkAst(ast, (node) => {
-    if (node.kind !== NodeKind.CallExpression && node.kind !== NodeKind.NewExpression) {
+    if (!(node instanceof CallExpression) && !(node instanceof NewExpression)) {
       return;
     }
     const callLike = node as CallExpression | NewExpression;
@@ -78,7 +79,7 @@ export function findNamedArgumentCallContext(
     }
     const size = rangeSize(range);
     if (bestSize === null || size <= bestSize) {
-      best = { callee: callLike.callee, isNew: node.kind === NodeKind.NewExpression };
+      best = { callee: callLike.callee, isNew: node instanceof NewExpression };
       bestSize = size;
     }
   });

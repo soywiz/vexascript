@@ -1,5 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type { ClassStatement, Node, Program } from "compiler/ast/ast";
+import { ClassStatement } from "compiler/ast/ast";
+import type { Node, Program } from "compiler/ast/ast";
+
 import { type CodeAction } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findNodeAtPosition } from "./nodeSearch";
@@ -14,7 +15,7 @@ interface OffsetRangedToken {
 }
 
 function isClassStatement(node: Node): node is ClassStatement {
-  return node.kind === NodeKind.ClassStatement;
+  return node instanceof ClassStatement;
 }
 
 /**

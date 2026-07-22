@@ -1,12 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type {
-  ArrowFunctionExpression,
-  BlockStatement,
-  CallExpression,
-  ExprStatement,
-  NamespaceStatement,
-  Statement
-} from "compiler/ast/ast";
+import { ArrowFunctionExpression, BlockStatement, CallExpression, ExprStatement, Identifier, NamespaceStatement } from "compiler/ast/ast";
+import type { Statement } from "compiler/ast/ast";
+
 import {
   clearDtsModuleGraphCache,
   extractTripleSlashReferencePaths,
@@ -84,7 +78,7 @@ async function parseAndCollect(
   }
 
   for (const stmt of ast.body) {
-    if (stmt.kind === NodeKind.NamespaceStatement) {
+    if (stmt instanceof NamespaceStatement) {
       const ns = stmt as NamespaceStatement;
       if (ns.externalModuleName) {
         const name = ns.externalModuleName.value;
@@ -148,15 +142,15 @@ async function parseAndCollect(
 }
 
 function extractGlobalBlockStatements(statement: Statement): Statement[] | null {
-  if (statement.kind !== NodeKind.ExprStatement) {
+  if (!(statement instanceof ExprStatement)) {
     return null;
   }
   const expression = (statement as ExprStatement).expression;
-  if (expression?.kind !== NodeKind.CallExpression) {
+  if (!(expression instanceof CallExpression)) {
     return null;
   }
   const call = expression as CallExpression;
-  if (call.callee.kind !== NodeKind.Identifier) {
+  if (!(call.callee instanceof Identifier)) {
     return null;
   }
   const callee = call.callee as unknown as { name: string };
@@ -164,11 +158,11 @@ function extractGlobalBlockStatements(statement: Statement): Statement[] | null 
     return null;
   }
   const body = call.args[0];
-  if (body?.kind !== NodeKind.ArrowFunctionExpression) {
+  if (!(body instanceof ArrowFunctionExpression)) {
     return null;
   }
   const block = (body as ArrowFunctionExpression).body;
-  if (block.kind !== NodeKind.BlockStatement) {
+  if (!(block instanceof BlockStatement)) {
     return null;
   }
   return [...(block as BlockStatement).body];

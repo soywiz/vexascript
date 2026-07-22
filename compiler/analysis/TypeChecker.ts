@@ -1,87 +1,10 @@
-import { NodeKind } from "compiler/ast/ast";
-import { TokenType } from "compiler/parser/tokenizer";
-import {
-  ArrowFunctionExpression,
-  AnnotationApplication,
-  AnnotationStatement,
-  ArrayBindingPattern,
-  ArrayLiteral,
-  AsExpression,
-  AssignmentExpression,
-  BinaryExpression,
-  BindingElement,
-  BindingName,
-  BlockStatement,
-  CallExpression,
-  ChainExpression,
-  ClassFieldMember,
-  ClassDelegate,
-  ClassMethodMember,
-  ClassPrimaryConstructorParameter,
-  ClassStatement,
-  ConditionalExpression,
-  CommaExpression,
-  DoWhileStatement,
-  EnumMember,
-  EnumStatement,
-  Expr,
-  ExprStatement,
-  ExportSpecifier,
-  ExportStatement,
-  ForStatement,
-  FunctionParameter,
-  FunctionExpression,
-  TypeParameter,
-  FunctionStatement,
-  InterfaceStatement,
-  InterfaceMethodMember,
-  IfStatement,
-  Identifier,
-  ImportStatement,
-  LabeledStatement,
-  IntLiteral,
-  MemberExpression,
-  MissingExpression,
-  NamedArgument,
-  NewExpression,
-  NamespaceStatement,
-  NonNullExpression,
-  ObjectBindingPattern,
-  ObjectLiteral,
-  ObjectProperty,
-  ObjectSpreadProperty,
-  OverloadableOperator,
-  PropertyReferenceExpression,
-  StringLiteral,
-  SpreadExpression,
-  BooleanLiteral,
-  FloatLiteral,
-  Program,
-  RangeExpression,
-  ReturnStatement,
-  SatisfiesExpression,
-  Statement,
-  SwitchStatement,
-  ThrowStatement,
-  TypeAliasStatement,
-  TryStatement,
-  UnaryExpression,
-  UpdateExpression,
-  VariableDeclarationKind,
-  VarStatement,
-  WhileStatement,
-  WithStatement,
-  BreakStatement,
-  ContinueStatement,
-  JsxElement,
-  JsxFragment,
-  JsxExpressionContainer,
-  JsxSpreadAttribute,
-  JsxAttribute
-} from "compiler/ast/ast";
-import { compoundAssignmentBinaryOperator, memberExpressionFromPropertyReference } from "compiler/ast/ast";
-import { bindingElementPropertyName, bindingElements, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
+import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, ClassDelegate, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
+import { TokenType } from "compiler/parser/tokenizer";
+
+
+import { bindingElementPropertyName, bindingElements, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
+
 import type {
   AnalysisIssue,
   AnalysisSymbol,
@@ -380,7 +303,7 @@ export class TypeChecker {
   private markProjectDeclaredTypeNodes(statements: readonly Statement[]): void {
     for (const statement of statements) {
       walkAst(statement, (node) => {
-        if (node.kind !== NodeKind.ClassStatement && node.kind !== NodeKind.InterfaceStatement) {
+        if (!(node instanceof ClassStatement) && !(node instanceof InterfaceStatement)) {
           return;
         }
         if ((node as ClassStatement | InterfaceStatement).declared === true) {
@@ -395,7 +318,7 @@ export class TypeChecker {
     walkAst(program, (node) => {
       const candidate = node as Node & { name?: BindingName; typeAnnotation?: Node };
       const typeAnnotation = candidate.typeAnnotation as (Identifier) | undefined;
-      if (typeAnnotation?.kind !== NodeKind.Identifier || typeAnnotation.name !== "unknown" || !candidate.name) {
+      if (!(typeAnnotation instanceof Identifier) || typeAnnotation.name !== "unknown" || !candidate.name) {
         return;
       }
       for (const identifier of bindingIdentifiers(candidate.name)) {
@@ -406,7 +329,7 @@ export class TypeChecker {
 
   private collectUnresolvedImportedIdentifiers(program: Program): void {
     for (const statement of program.body) {
-      if (statement.kind !== NodeKind.ImportStatement) continue;
+      if (!(statement instanceof ImportStatement)) continue;
       const importStatement = statement as ImportStatement;
       const bindings = [
         ...(importStatement.defaultImport ? [importStatement.defaultImport] : []),
@@ -423,11 +346,11 @@ export class TypeChecker {
   }
 
   private shouldReportUnknownCallable(callee: Expr, scope: Scope): boolean {
-    if (callee.kind !== NodeKind.Identifier) {
+    if (!(callee instanceof Identifier)) {
       return false;
     }
     const identifier = callee as Identifier;
-    const usageOffset = identifier.firstToken?.range.start.offset;
+    const usageOffset = nodeStartOffset(identifier);
     const symbol = this.resolve(identifier.name, scope, usageOffset);
     return !!symbol && this.unresolvedImportedIdentifiers.has(symbol.node);
   }
@@ -492,7 +415,7 @@ export class TypeChecker {
       return null;
     }
 
-    const usageOffset = node.firstToken?.range.start.offset;
+    const usageOffset = nodeStartOffset(node);
     const symbol = this.resolve(path[0]!, scope, usageOffset);
     let currentType: AnalysisType | null = symbol?.type ?? null;
     if (!currentType) {
@@ -891,7 +814,7 @@ export class TypeChecker {
 
   private visitExprStatement(statement: ExprStatement, scope: Scope): void {
     this.visitExpression(statement.expression, scope);
-    if (statement.expression.kind !== NodeKind.CallExpression) {
+    if (!(statement.expression instanceof CallExpression)) {
       return;
     }
     const effect = this.assertionCallEffects.get(statement.expression as CallExpression);
@@ -912,7 +835,7 @@ export class TypeChecker {
   }
 
   private reportMissingParameterType(parameter: FunctionParameter): void {
-    if (this.sourceLanguage === "typescript" || parameter.thisParameter === true || parameter.typeAnnotation || parameter.name.kind !== NodeKind.Identifier) {
+    if (this.sourceLanguage === "typescript" || parameter.thisParameter === true || parameter.typeAnnotation || !(parameter.name instanceof Identifier)) {
       return;
     }
     this.issues.push({
@@ -923,7 +846,7 @@ export class TypeChecker {
   }
 
   private visitAnnotationApplication(annotation: AnnotationApplication, scope: Scope): void {
-    const usageOffset = annotation.name.firstToken?.range.start.offset;
+    const usageOffset = nodeStartOffset(annotation.name);
     const symbol = this.resolve(annotation.name.name, scope, usageOffset);
     if (symbol?.kind === "annotation") {
       this.identifierResolutions.push({ identifier: annotation.name, symbol });
@@ -952,7 +875,7 @@ export class TypeChecker {
     parameterTypes: AnalysisType[],
     argumentTypes: AnalysisType[]
   ): void {
-    const hasNamedArguments = annotation.args.some((arg) => arg.kind === NodeKind.NamedArgument);
+    const hasNamedArguments = annotation.args.some((arg) => arg instanceof NamedArgument);
 
     if (hasNamedArguments) {
       this.validateNamedAnnotationArguments(annotation, declaration, parameterTypes, argumentTypes);
@@ -1013,7 +936,7 @@ export class TypeChecker {
       const arg = annotation.args[argIndex];
       const argType = argumentTypes[argIndex] ?? UNKNOWN_TYPE;
 
-      if (arg?.kind !== NodeKind.NamedArgument) {
+      if (!(arg instanceof NamedArgument)) {
         if (seenNamed) {
           this.issues.push({
             message: "Positional arguments cannot follow named arguments",
@@ -1323,7 +1246,7 @@ export class TypeChecker {
         name: identifier.name,
         kind: "variable",
         node: identifier,
-        declaredOffset: identifier.firstToken?.range.start.offset ?? -1,
+        declaredOffset: nodeStartOffset(identifier) ?? -1,
         isReadonly: declarationKind === "const" || declarationKind === "val",
         type,
         valueType: typeToString(type)
@@ -1441,10 +1364,10 @@ export class TypeChecker {
   }
 
   private validateBindingPatternSource(binding: BindingName, sourceType: AnalysisType): void {
-    if (binding.kind === NodeKind.Identifier) {
+    if (binding instanceof Identifier) {
       return;
     }
-    if (binding.kind === NodeKind.ArrayBindingPattern) {
+    if (binding instanceof ArrayBindingPattern) {
       if (!this.canDestructureArrayBinding(sourceType)) {
         this.issues.push({
           message: `Type '${typeToString(sourceType)}' cannot be destructured with an array binding pattern`,
@@ -1510,12 +1433,12 @@ export class TypeChecker {
   }
 
   private updateBindingSymbolTypes(scope: Scope, binding: BindingName, sourceType: AnalysisType): void {
-    if (binding.kind === NodeKind.Identifier) {
+    if (binding instanceof Identifier) {
       this.updateSymbolType(scope, binding.name, sourceType);
       return;
     }
 
-    if (binding.kind === NodeKind.ArrayBindingPattern) {
+    if (binding instanceof ArrayBindingPattern) {
       this.updateArrayBindingSymbolTypes(scope, binding, sourceType);
       return;
     }
@@ -1529,7 +1452,7 @@ export class TypeChecker {
         name: name.name,
         kind: "parameter",
         node: name,
-        declaredOffset: name.firstToken?.range.start.offset ?? -1,
+        declaredOffset: nodeStartOffset(name) ?? -1,
         type,
         valueType: typeToString(type)
       });
@@ -1540,7 +1463,7 @@ export class TypeChecker {
   private updateArrayBindingSymbolTypes(scope: Scope, binding: ArrayBindingPattern, sourceType: AnalysisType): void {
     for (let index = 0; index < binding.elements.length; index += 1) {
       const candidate = binding.elements[index]!;
-      if (candidate.kind === NodeKind.BindingHole) {
+      if (candidate instanceof BindingHole) {
         continue;
       }
       const element = candidate as BindingElement;
@@ -1577,16 +1500,16 @@ export class TypeChecker {
     sourceType: AnalysisType,
     visit: (identifier: Identifier, type: AnalysisType) => void
   ): void {
-    if (binding.kind === NodeKind.Identifier) {
+    if (binding instanceof Identifier) {
       visit(binding, sourceType);
       return;
     }
 
-    if (binding.kind === NodeKind.ArrayBindingPattern) {
+    if (binding instanceof ArrayBindingPattern) {
       const arrayBinding = binding as ArrayBindingPattern;
       for (let index = 0; index < arrayBinding.elements.length; index += 1) {
         const candidate = arrayBinding.elements[index]!;
-        if (candidate.kind === NodeKind.BindingHole) {
+        if (candidate instanceof BindingHole) {
           continue;
         }
         const element = candidate as BindingElement;
@@ -1820,7 +1743,7 @@ export class TypeChecker {
         this.resolveTypeAnnotation(parentType, interfaceScope);
       }
       for (const member of statement.members) {
-        if (member.kind === NodeKind.InterfacePropertyMember) {
+        if (member instanceof InterfacePropertyMember) {
           this.resolveTypeAnnotation(member.typeAnnotation, interfaceScope);
           continue;
         }
@@ -1915,7 +1838,7 @@ export class TypeChecker {
             this.visitAnnotationApplication(annotation, classScope);
           }
         }
-        if (member.kind === NodeKind.ClassFieldMember) {
+        if (member instanceof ClassFieldMember) {
           const field = member as ClassFieldMember;
           const annotationType = field.typeAnnotation
             ? this.resolveTypeAnnotation(field.typeAnnotation, classScope)
@@ -2083,11 +2006,11 @@ export class TypeChecker {
   }
 
   private classDelegateExpressionType(expression: Expr, scope: Scope, expectedType: AnalysisType | undefined): AnalysisType {
-    if (expression.kind === NodeKind.ObjectLiteral) {
+    if (expression instanceof ObjectLiteral) {
       const objectLiteral = expression as ObjectLiteral;
       if (objectLiteral.properties.length === 1) {
         const property = objectLiteral.properties[0]!;
-        if (property.kind === NodeKind.ObjectProperty && (property as ObjectProperty).shorthand === true) {
+        if (property instanceof ObjectProperty && (property as ObjectProperty).shorthand === true) {
           return this.visitExpression((property as ObjectProperty).value, scope, expectedType);
         }
       }
@@ -2116,7 +2039,7 @@ export class TypeChecker {
     };
 
     if (statement.iterationKind && statement.iterator && statement.iterable) {
-      if (statement.iterator.kind !== NodeKind.VarStatement && statement.iterator.kind !== NodeKind.Identifier) {
+      if (!(statement.iterator instanceof VarStatement) && !(statement.iterator instanceof Identifier)) {
         this.visitExpression(statement.iterator as Expr, loopScope);
       }
 
@@ -2131,7 +2054,7 @@ export class TypeChecker {
     }
 
     if (statement.initializer) {
-      if (statement.initializer.kind === NodeKind.VarStatement) {
+      if (statement.initializer instanceof VarStatement) {
         this.visitVarStatement(statement.initializer as VarStatement, loopScope);
       } else {
         this.visitExpression(statement.initializer as Expr, loopScope);
@@ -2220,19 +2143,19 @@ export class TypeChecker {
   }
 
   private conditionNarrowings(condition: Expr, scope: Scope, truthy: boolean): Map<string, AnalysisType> {
-    if (condition.kind === NodeKind.UnaryExpression && (condition as UnaryExpression).operator === "!") {
+    if (condition instanceof UnaryExpression && (condition as UnaryExpression).operator === "!") {
       return this.conditionNarrowings((condition as UnaryExpression).argument, scope, !truthy);
     }
-    if (condition.kind === NodeKind.Identifier) {
+    if (condition instanceof Identifier) {
       const identifier = condition as Identifier;
-      const originalType = this.resolve(identifier.name, scope, identifier.firstToken?.range.start.offset)?.type ?? UNKNOWN_TYPE;
+      const originalType = this.resolve(identifier.name, scope, nodeStartOffset(identifier))?.type ?? UNKNOWN_TYPE;
       const narrowedType = this.truthinessNarrowedType(originalType, truthy);
       if (!narrowedType || isSameType(narrowedType, originalType)) {
         return new Map();
       }
       return this.singleNarrowing(identifier.name, narrowedType);
     }
-    if (condition.kind !== NodeKind.BinaryExpression) return new Map();
+    if (!(condition instanceof BinaryExpression)) return new Map();
     const binary = condition as BinaryExpression;
     if ((binary.operator === "&&" && truthy) || (binary.operator === "||" && !truthy)) {
       return new Map([
@@ -2240,25 +2163,31 @@ export class TypeChecker {
         ...this.conditionNarrowings(binary.right, scope, truthy)
       ]);
     }
-    if (binary.left.kind !== NodeKind.Identifier) return new Map();
+    if (!(binary.left instanceof Identifier)) return new Map();
     const identifier = binary.left as Identifier;
-    const originalType = this.resolve(identifier.name, scope, identifier.firstToken?.range.start.offset)?.type ?? UNKNOWN_TYPE;
-    let checkedType: AnalysisType | undefined;
-    if ((binary.operator === "instanceof" || binary.operator === "is") && binary.right.kind === NodeKind.Identifier) {
-      checkedType = namedType((binary.right as Identifier).name);
-    } else if (binary.operator === "in") {
-      const range = this.visitExpression(binary.right, scope);
-      if (range instanceof RangeType) checkedType = range.elementType;
-    }
+    const originalType = this.resolve(identifier.name, scope, nodeStartOffset(identifier))?.type ?? UNKNOWN_TYPE;
+    const checkedType = this.checkedTypeForNarrowing(binary, scope);
     if (!checkedType) return new Map();
-    if (truthy) return this.singleNarrowing(identifier.name, checkedType);
-    if (!(originalType instanceof UnionType)) return new Map();
-    const originalUnion = originalType as UnionType;
-    const remaining: AnalysisType[] = [];
-    for (const member of originalUnion.types) {
-      if (!this.isTypeAssignable(member, checkedType)) remaining.push(member);
+    const narrowedType = this.narrowedTypeForCheck(originalType, checkedType, truthy);
+    return narrowedType ? this.singleNarrowing(identifier.name, narrowedType) : new Map();
+  }
+
+  private checkedTypeForNarrowing(binary: BinaryExpression, scope: Scope): AnalysisType | null {
+    if ((binary.operator === "instanceof" || binary.operator === "is") && binary.right instanceof Identifier) {
+      return namedType(binary.right.name);
     }
-    return this.singleNarrowing(identifier.name, remaining.length === 1 ? remaining[0]! : unionType(remaining));
+    if (binary.operator === "in") {
+      const range = this.visitExpression(binary.right, scope);
+      return range instanceof RangeType ? range.elementType : null;
+    }
+    return null;
+  }
+
+  private narrowedTypeForCheck(originalType: AnalysisType, checkedType: AnalysisType, truthy: boolean): AnalysisType | null {
+    if (truthy) return checkedType;
+    if (!(originalType instanceof UnionType)) return null;
+    const remaining = originalType.types.filter((member) => !this.isTypeAssignable(member, checkedType));
+    return remaining.length === 1 ? remaining[0]! : unionType(remaining);
   }
 
   private singleNarrowing(name: string, type: AnalysisType): Map<string, AnalysisType> {
@@ -2268,10 +2197,10 @@ export class TypeChecker {
   }
 
   private conditionExpressionNarrowings(condition: Expr, scope: Scope, truthy: boolean): Map<string, AnalysisType> {
-    if (condition.kind === NodeKind.UnaryExpression && (condition as UnaryExpression).operator === "!") {
+    if (condition instanceof UnaryExpression && (condition as UnaryExpression).operator === "!") {
       return this.conditionExpressionNarrowings((condition as UnaryExpression).argument, scope, !truthy);
     }
-    if (condition.kind === NodeKind.BinaryExpression) {
+    if (condition instanceof BinaryExpression) {
       const binary = condition as BinaryExpression;
       if ((binary.operator === "&&" && truthy) || (binary.operator === "||" && !truthy)) {
         return new Map([
@@ -2279,7 +2208,12 @@ export class TypeChecker {
           ...this.conditionExpressionNarrowings(binary.right, scope, truthy)
         ]);
       }
-      return new Map();
+      const stableKey = this.stableExpressionKey(binary.left);
+      const checkedType = this.checkedTypeForNarrowing(binary, scope);
+      if (!stableKey || !checkedType) return new Map();
+      const originalType = this.expressionTypeForNarrowing(binary.left, scope);
+      const narrowedType = this.narrowedTypeForCheck(originalType, checkedType, truthy);
+      return narrowedType ? this.singleNarrowing(stableKey, narrowedType) : new Map();
     }
 
     const stableKey = this.stableExpressionKey(condition);
@@ -2336,13 +2270,13 @@ export class TypeChecker {
         if (!objectKey) {
           return null;
         }
-        if (member.property.kind === NodeKind.Identifier) {
+        if (member.property instanceof Identifier) {
           return `${objectKey}.${(member.property as Identifier).name}`;
         }
-        if (member.property.kind === NodeKind.StringLiteral) {
+        if (member.property instanceof StringLiteral) {
           return `${objectKey}.${(member.property as StringLiteral).value}`;
         }
-        if (member.property.kind === NodeKind.IntLiteral || member.property.kind === NodeKind.FloatLiteral) {
+        if (member.property instanceof IntLiteral || member.property instanceof FloatLiteral) {
           return `${objectKey}.${String((member.property as IntLiteral | FloatLiteral).value)}`;
         }
         return null;
@@ -2394,7 +2328,7 @@ export class TypeChecker {
 
     const narrowings = new Map<string, AnalysisType>();
     const expressionNarrowings = new Map<string, AnalysisType>();
-    if (targetExpression.kind === NodeKind.Identifier) {
+    if (targetExpression instanceof Identifier) {
       narrowings.set((targetExpression as Identifier).name, narrowedType);
     }
     const stableKey = this.stableExpressionKey(targetExpression);
@@ -2412,7 +2346,7 @@ export class TypeChecker {
     targetName: string
   ): Expr | null {
     if (targetName === "this") {
-      return call.callee.kind === NodeKind.MemberExpression
+      return call.callee instanceof MemberExpression
         ? (call.callee as MemberExpression).object
         : null;
     }
@@ -2423,16 +2357,16 @@ export class TypeChecker {
     }
     const parameter = calleeType.parameters[parameterIndex]!;
     const argument = call.args.find((candidate, index) =>
-      candidate.kind === NodeKind.NamedArgument
+      candidate instanceof NamedArgument
         ? ((candidate as NamedArgument).name.name === targetName)
-        : index === parameterIndex && !call.args.some((other) => other.kind === NodeKind.NamedArgument)
+        : index === parameterIndex && !call.args.some((other) => other instanceof NamedArgument)
     );
     if (!argument) {
       return null;
     }
-    return argument.kind === NodeKind.NamedArgument
+    return argument instanceof NamedArgument
       ? (argument as NamedArgument).value
-      : parameter.rest === true && argument.kind === NodeKind.SpreadExpression
+      : parameter.rest === true && argument instanceof SpreadExpression
         ? (argument as SpreadExpression).argument
         : argument;
   }
@@ -2583,7 +2517,7 @@ export class TypeChecker {
         const readonlyTarget = this.validateTypes
           ? this.validateReadonlyAssignmentTarget(assignment.left, scope)
           : false;
-        if (assignment.operator === "=" && assignment.left.kind === NodeKind.MemberExpression) {
+        if (assignment.operator === "=" && assignment.left instanceof MemberExpression) {
           this.pureWriteTargetNodes.add(assignment.left);
         }
         const leftType = this.visitExpression(assignment.left, scope);
@@ -2605,7 +2539,7 @@ export class TypeChecker {
         }
         const hasIndexSetterCandidates = assignment.operator === "=" &&
           this.hasIndexOperatorCandidates(assignment.left, "[]=");
-        if (!indexSetterOverload && hasIndexSetterCandidates && assignment.left.kind === NodeKind.MemberExpression) {
+        if (!indexSetterOverload && hasIndexSetterCandidates && assignment.left instanceof MemberExpression) {
           const member = assignment.left as MemberExpression;
           const rawObjectType = this.expressionTypes.get(member.object as unknown as Node) ?? UNKNOWN_TYPE;
           const objectType = member.nonNullAsserted === true ? removeNullishFromType(rawObjectType) : rawObjectType;
@@ -2626,7 +2560,7 @@ export class TypeChecker {
             this.reportTypeMismatch(rightType, leftType, assignment.right, assignment.right);
           }
         }
-        if (assignment.left.kind === NodeKind.Identifier && isUnknownType(leftType) && !isUnknownType(rightType)) {
+        if (assignment.left instanceof Identifier && isUnknownType(leftType) && !isUnknownType(rightType)) {
           const identifier = assignment.left as Identifier;
           this.updateResolvedSymbolType(scope, identifier, rightType);
         }
@@ -2710,7 +2644,7 @@ export class TypeChecker {
         // the receiver keeps its Promise type instead of being auto-awaited.
         const suppressObjectAutoAwait =
           !member.computed &&
-          member.property.kind === NodeKind.Identifier &&
+          member.property instanceof Identifier &&
           this.isPromiseMethodName((member.property as Identifier).name);
         const rawObjectType = this.visitExpression(member.object, scope, undefined, suppressObjectAutoAwait);
         this.validateNullableMemberAccess(member, rawObjectType);
@@ -2722,7 +2656,7 @@ export class TypeChecker {
           if (
             objectType instanceof NamedType &&
             computedEnum &&
-            member.property.kind === NodeKind.StringLiteral &&
+            member.property instanceof StringLiteral &&
             computedEnum.members.some(
               (enumMember) => enumMember.name.name === (member.property as StringLiteral).value
             )
@@ -2761,7 +2695,7 @@ export class TypeChecker {
         }
         this.validateKnownMemberAccess(member, objectType, scope);
         const memberSymbol = this.validateTypes ? this.resolveKnownMemberSymbol(member, objectType) : null;
-        if (memberSymbol && member.property.kind === NodeKind.Identifier) {
+        if (memberSymbol && member.property instanceof Identifier) {
           this.identifierResolutions.push({
             identifier: member.property as Identifier,
             symbol: memberSymbol
@@ -2794,7 +2728,7 @@ export class TypeChecker {
         const call = expression as CallExpression;
         if (
           call.receiverBlockShorthand === true &&
-          call.args[0]?.kind === NodeKind.ArrowFunctionExpression
+          call.args[0] instanceof ArrowFunctionExpression
         ) {
           const receiver = call.callee;
           const receiverType = this.visitExpression(receiver, scope);
@@ -2825,7 +2759,7 @@ export class TypeChecker {
         }
         const overloadArgumentTypes = this.preserveCallLiteralArgumentTypes(call.args, argumentTypes);
         const calledClass =
-          call.optional !== true && call.callee.kind === NodeKind.Identifier
+          call.optional !== true && call.callee instanceof Identifier
             ? this.classStatementsByName.get((call.callee as Identifier).name)
             : undefined;
         if (calledClass) {
@@ -2873,7 +2807,7 @@ export class TypeChecker {
               call.callee
             );
           }
-          const hasNamedArguments = call.args.some((argument) => argument.kind === NodeKind.NamedArgument);
+          const hasNamedArguments = call.args.some((argument) => argument instanceof NamedArgument);
           // Named arguments are written in any order; reorder their types into
           // the callee's positional parameter order so generic inference and
           // argument validation operate as if the call were positional.
@@ -2951,7 +2885,7 @@ export class TypeChecker {
           const instantiatedCalleeType = contextualArgumentTypes === argumentTypes
             ? firstPassCalleeType
             : this.instantiateFunctionType(bestCallableType, explicitTypeArguments, contextualArgumentTypes, expectedType);
-          const constraintDiagnosticNode = call.callee.kind === NodeKind.MemberExpression
+          const constraintDiagnosticNode = call.callee instanceof MemberExpression
             ? (call.callee as MemberExpression).property
             : call.callee;
           if (this.validateTypes) {
@@ -2968,10 +2902,10 @@ export class TypeChecker {
             this.assertionCallEffects.set(call, assertionEffect);
           }
           let resolvedReturnType = instantiatedCalleeType.returnType;
-          if (call.callee.kind === NodeKind.MemberExpression) {
+          if (call.callee instanceof MemberExpression) {
             const memberExpression = call.callee as MemberExpression;
             const property = memberExpression.property as Expr;
-            if (property.kind === NodeKind.Identifier && (property as Identifier).name === "parse") {
+            if (property instanceof Identifier && (property as Identifier).name === "parse") {
               const receiverType = this.visitExpression(memberExpression.object, scope);
               const syntheticOutputType = this.syntheticSchemaOutputType(receiverType);
               if (syntheticOutputType) {
@@ -2998,7 +2932,7 @@ export class TypeChecker {
             call.callee
           );
           const isPromiseConstructor =
-            call.callee.kind === NodeKind.Identifier &&
+            call.callee instanceof Identifier &&
             (call.callee as Identifier).name === "Promise";
           if (!isPromiseConstructor) {
             const inferenceArgumentTypes = argumentTypes;
@@ -3107,7 +3041,7 @@ export class TypeChecker {
             }
           }
           const isPromiseConstructor =
-            newExpression.callee.kind === NodeKind.Identifier &&
+            newExpression.callee instanceof Identifier &&
             (newExpression.callee as Identifier).name === "Promise";
           if (isPromiseConstructor) {
             this.inferPromiseConstructorTypeArgumentFromExecutor(
@@ -3185,7 +3119,7 @@ export class TypeChecker {
           break;
         }
 
-        if (newExpression.callee.kind === NodeKind.Identifier) {
+        if (newExpression.callee instanceof Identifier) {
           const calleeIdentifier = newExpression.callee as Identifier;
           this.validateNamedTypeArgumentConstraints(
             calleeIdentifier.name,
@@ -3367,7 +3301,7 @@ export class TypeChecker {
           }
           const arrowScope = this.createFunctionLikeExpressionScope(scope, arrow, arrow.parameters, expectedFunctionType);
           let returnType: AnalysisType;
-          if (arrow.body.kind === NodeKind.BlockStatement) {
+          if (arrow.body instanceof BlockStatement) {
             const expectedReturnType = expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
             const arrowFlow: FlowContext = {
               loopDepth: 0,
@@ -3550,9 +3484,9 @@ export class TypeChecker {
         const callableComponentType = componentType ? this.callableTypeFrom(componentType) : null;
         this.validateJsxComponentAttributes(jsxElement, callableComponentType, scope);
         for (const child of jsxElement.children) {
-          if (child.kind === NodeKind.JsxExpressionContainer) {
+          if (child instanceof JsxExpressionContainer) {
             this.visitExpression((child as JsxExpressionContainer).expression, scope);
-          } else if (child.kind === NodeKind.JsxElement || child.kind === NodeKind.JsxFragment) {
+          } else if (child instanceof JsxElement || child instanceof JsxFragment) {
             this.visitExpression(child, scope);
           }
         }
@@ -3561,9 +3495,9 @@ export class TypeChecker {
       }
       case NodeKind.JsxFragment: {
         for (const child of (expression as JsxFragment).children) {
-          if (child.kind === NodeKind.JsxExpressionContainer) {
+          if (child instanceof JsxExpressionContainer) {
             this.visitExpression((child as JsxExpressionContainer).expression, scope);
-          } else if (child.kind === NodeKind.JsxElement || child.kind === NodeKind.JsxFragment) {
+          } else if (child instanceof JsxElement || child instanceof JsxFragment) {
             this.visitExpression(child, scope);
           }
         }
@@ -3599,7 +3533,7 @@ export class TypeChecker {
   }
 
   private isGoExpression(expression: Expr): boolean {
-    return expression.kind === NodeKind.UnaryExpression && (expression as UnaryExpression).operator === "go";
+    return expression instanceof UnaryExpression && (expression as UnaryExpression).operator === "go";
   }
 
   private resolveJsxResultType(scope: Scope): AnalysisType | null {
@@ -3614,11 +3548,11 @@ export class TypeChecker {
   // been stored in a variable, it keeps its `Promise<T>` type until it is awaited explicitly (or
   // consumed inline). Auto-await only applies to expressions that *produce* a Promise (calls, ...).
   private isLocalValueReference(expression: Expr, scope: Scope): boolean {
-    if (expression.kind !== NodeKind.Identifier) {
+    if (!(expression instanceof Identifier)) {
       return false;
     }
     const identifier = expression as Identifier;
-    const symbol = this.resolve(identifier.name, scope, identifier.firstToken?.range.start.offset);
+    const symbol = this.resolve(identifier.name, scope, nodeStartOffset(identifier));
     return symbol?.kind === "variable" || symbol?.kind === "parameter";
   }
 
@@ -3647,7 +3581,7 @@ export class TypeChecker {
         ? this.typeParameterSubstitutions(classStatement.typeParameters, leftType)
         : new Map<string, AnalysisType>();
       for (const member of classStatement?.members ?? []) {
-        if (member.kind !== NodeKind.ClassMethodMember) {
+        if (!(member instanceof ClassMethodMember)) {
           continue;
         }
         const method = member as ClassMethodMember;
@@ -3683,7 +3617,7 @@ export class TypeChecker {
     valueType: AnalysisType,
     scope: Scope
   ): ResolvedOperatorOverload | null {
-    if (left.kind !== NodeKind.MemberExpression) {
+    if (!(left instanceof MemberExpression)) {
       return null;
     }
     const member = left as MemberExpression;
@@ -3697,7 +3631,7 @@ export class TypeChecker {
   }
 
   private computedMemberIndexArguments(member: MemberExpression): Expr[] {
-    return member.property.kind === NodeKind.CommaExpression
+    return member.property instanceof CommaExpression
       ? (member.property as CommaExpression).expressions
       : [member.property];
   }
@@ -3716,7 +3650,7 @@ export class TypeChecker {
   }
 
   private hasIndexOperatorCandidates(left: Expr, operator: "[]" | "[]="): boolean {
-    if (left.kind !== NodeKind.MemberExpression) {
+    if (!(left instanceof MemberExpression)) {
       return false;
     }
     const member = left as MemberExpression;
@@ -3732,7 +3666,7 @@ export class TypeChecker {
     if (leftType instanceof NamedType) {
       const classStatement = this.classStatementsByName.get(leftType.name);
       if (classStatement && classStatement.members.some((member) =>
-        member.kind === NodeKind.ClassMethodMember && (member as ClassMethodMember).operator === operator
+        member instanceof ClassMethodMember && (member as ClassMethodMember).operator === operator
       )) {
         return true;
       }
@@ -3775,7 +3709,7 @@ export class TypeChecker {
     }
     const classStatement = this.classStatementsByName.get(argumentType.name);
     for (const member of classStatement?.members ?? []) {
-      if (member.kind !== NodeKind.ClassMethodMember) {
+      if (!(member instanceof ClassMethodMember)) {
         continue;
       }
       const method = member as ClassMethodMember;
@@ -3939,7 +3873,7 @@ export class TypeChecker {
         name: method.name.name,
         kind: "variable",
         node: method.name,
-        declaredOffset: method.name.firstToken?.range.start.offset ?? -1,
+        declaredOffset: nodeStartOffset(method.name) ?? -1,
         type: propertyType,
         valueType: typeToString(propertyType)
       };
@@ -3950,7 +3884,7 @@ export class TypeChecker {
         name: method.name.name,
         kind: "variable",
         node: method.name,
-        declaredOffset: method.name.firstToken?.range.start.offset ?? -1,
+        declaredOffset: nodeStartOffset(method.name) ?? -1,
         type: propertyType,
         valueType: typeToString(propertyType)
       };
@@ -3970,7 +3904,7 @@ export class TypeChecker {
       name: method.name.name,
       kind: "method",
       node: method.name,
-      declaredOffset: method.name.firstToken?.range.start.offset ?? -1,
+      declaredOffset: nodeStartOffset(method.name) ?? -1,
       type: symbolType,
       valueType: typeToString(symbolType)
     };
@@ -3991,7 +3925,7 @@ export class TypeChecker {
       name: statement.name.name,
       kind: "function",
       node: statement.name,
-      declaredOffset: statement.name.firstToken?.range.start.offset ?? -1,
+      declaredOffset: nodeStartOffset(statement.name) ?? -1,
       type: symbolType,
       valueType: typeToString(symbolType)
     };
@@ -4006,10 +3940,10 @@ export class TypeChecker {
   }
 
   private bindingPatternAnnotationTypeLoose(binding: BindingName): AnalysisType | null {
-    if (binding.kind === NodeKind.Identifier) {
+    if (binding instanceof Identifier) {
       return null;
     }
-    if (binding.kind === NodeKind.ObjectBindingPattern) {
+    if (binding instanceof ObjectBindingPattern) {
       const objectBinding = binding as ObjectBindingPattern;
       const properties = new Map<string, AnalysisType>();
       let hasTypedProperty = false;
@@ -4038,7 +3972,7 @@ export class TypeChecker {
     let hasTypedElement = false;
     for (let index = 0; index < arrayBinding.elements.length; index += 1) {
       const candidate = arrayBinding.elements[index]!;
-      if (candidate.kind === NodeKind.BindingHole) {
+      if (candidate instanceof BindingHole) {
         elements[index] = UNKNOWN_TYPE;
         continue;
       }
@@ -4912,10 +4846,10 @@ export class TypeChecker {
   }
 
   private bindingPatternAnnotationType(binding: BindingName, scope: Scope): AnalysisType | null {
-    if (binding.kind === NodeKind.Identifier) {
+    if (binding instanceof Identifier) {
       return null;
     }
-    if (binding.kind === NodeKind.ObjectBindingPattern) {
+    if (binding instanceof ObjectBindingPattern) {
       const objectBinding = binding as ObjectBindingPattern;
       const properties = new Map<string, AnalysisType>();
       let hasTypedProperty = false;
@@ -4944,7 +4878,7 @@ export class TypeChecker {
     let hasTypedElement = false;
     for (let index = 0; index < arrayBinding.elements.length; index += 1) {
       const candidate = arrayBinding.elements[index]!;
-      if (candidate.kind === NodeKind.BindingHole) {
+      if (candidate instanceof BindingHole) {
         elements[index] = UNKNOWN_TYPE;
         continue;
       }
@@ -5216,7 +5150,7 @@ export class TypeChecker {
         continue;
       }
 
-      if (argument.kind === NodeKind.ArrowFunctionExpression) {
+      if (argument instanceof ArrowFunctionExpression) {
         const expectedFunction = this.contextualFunctionExpectedType(contextualExpectedType);
         const receiver = expectedFunction
           ? expectedFunction.parameters.find((parameter) => parameter.receiver === true)
@@ -5242,12 +5176,12 @@ export class TypeChecker {
   }
 
   private receiverLabelForCall(call: CallExpression): string {
-    if (call.callee.kind === NodeKind.Identifier) {
+    if (call.callee instanceof Identifier) {
       return (call.callee as Identifier).name;
     }
-    if (call.callee.kind === NodeKind.MemberExpression) {
+    if (call.callee instanceof MemberExpression) {
       const property = (call.callee as MemberExpression).property;
-      if (property.kind === NodeKind.Identifier) return (property as Identifier).name;
+      if (property instanceof Identifier) return (property as Identifier).name;
     }
     return "receiver";
   }
@@ -5256,7 +5190,7 @@ export class TypeChecker {
     if (arrow.parameters.length !== 1) return false;
     const parameter = arrow.parameters[0];
     return parameter !== undefined &&
-      parameter.name.kind === NodeKind.Identifier &&
+      parameter.name instanceof Identifier &&
       (parameter.name as Identifier).name === "it" &&
       parameter.firstToken?.type === TokenType.SYMBOL &&
       parameter.firstToken.value === "{";
@@ -5332,7 +5266,7 @@ export class TypeChecker {
   }
 
   private literalArgumentType(argument: Expr, fallback: AnalysisType): AnalysisType {
-    if (argument.kind === NodeKind.NamedArgument) {
+    if (argument instanceof NamedArgument) {
       return this.literalArgumentType((argument as NamedArgument).value, fallback);
     }
     switch (argument.kind) {
@@ -5348,7 +5282,7 @@ export class TypeChecker {
           }
         }
         for (const property of (argument as ObjectLiteral).properties) {
-          if (property.kind !== NodeKind.ObjectProperty) {
+          if (!(property instanceof ObjectProperty)) {
             continue;
           }
           const objectProperty = property as ObjectProperty;
@@ -5410,24 +5344,24 @@ export class TypeChecker {
   }
 
   private isFunctionLikeExpression(expression: Expr): boolean {
-    return expression.kind === NodeKind.ArrowFunctionExpression || expression.kind === NodeKind.FunctionExpression;
+    return expression instanceof ArrowFunctionExpression || expression instanceof FunctionExpression;
   }
 
   private contextualTypeForExpressionArgument(
     argument: Expr,
     expectedType: AnalysisType
   ): AnalysisType | null {
-    if (argument.kind === NodeKind.CallExpression || argument.kind === NodeKind.NewExpression) {
+    if (argument instanceof CallExpression || argument instanceof NewExpression) {
       return expectedType;
     }
     if (this.isFunctionLikeExpression(argument)) {
-      const arrow = argument.kind === NodeKind.ArrowFunctionExpression ? argument as ArrowFunctionExpression : undefined;
+      const arrow = argument instanceof ArrowFunctionExpression ? argument as ArrowFunctionExpression : undefined;
       return this.contextualFunctionExpectedType(expectedType) ?? (arrow?.contextualObjectLiteral ? expectedType : null);
     }
-    if (argument.kind === NodeKind.ObjectLiteral) {
+    if (argument instanceof ObjectLiteral) {
       return this.contextualObjectLiteralExpectedType(expectedType);
     }
-    if (argument.kind === NodeKind.ArrayLiteral) {
+    if (argument instanceof ArrayLiteral) {
       return expectedType instanceof ArrayType || expectedType instanceof RangeType || expectedType instanceof TupleType ? expectedType : null;
     }
     return null;
@@ -6349,7 +6283,7 @@ export class TypeChecker {
     let best: { candidate: FunctionType; score: number } | null = null;
     for (const candidate of candidates) {
       const baseline = this.issues.length;
-      const hasNamedArguments = call.args.some((argument) => argument.kind === NodeKind.NamedArgument);
+      const hasNamedArguments = call.args.some((argument) => argument instanceof NamedArgument);
       const baseInferenceArgumentTypes = hasNamedArguments
         ? this.reorderNamedArgumentTypes(call.args, preferredArgumentTypes, candidate)
         : preferredArgumentTypes;
@@ -6425,7 +6359,7 @@ export class TypeChecker {
     argumentTypes: AnalysisType[]
   ): number {
     const baseline = this.issues.length;
-    if (call.args.some((argument) => argument.kind === NodeKind.NamedArgument)) {
+    if (call.args.some((argument) => argument instanceof NamedArgument)) {
       this.validateNamedCallArguments(call, calleeType, argumentTypes);
     } else {
       this.validateCallArguments(call, calleeType, argumentTypes);
@@ -6457,7 +6391,7 @@ export class TypeChecker {
     const overloads: FunctionType[] = [];
 
     for (const interfaceMember of interfaceStatement.members) {
-      if (interfaceMember.kind !== NodeKind.InterfaceMethodMember || interfaceMember.name.name !== "call") {
+      if (!(interfaceMember instanceof InterfaceMethodMember) || interfaceMember.name.name !== "call") {
         continue;
       }
       const methodMember = interfaceMember as InterfaceMethodMember;
@@ -6630,7 +6564,7 @@ export class TypeChecker {
     scope: Scope
   ): void {
     for (const attr of jsxElement.attributes) {
-      if (attr.kind === NodeKind.JsxSpreadAttribute) {
+      if (attr instanceof JsxSpreadAttribute) {
         this.visitExpression((attr as JsxSpreadAttribute).expression, scope);
       }
     }
@@ -6660,7 +6594,7 @@ export class TypeChecker {
 
     const provided = new Set<string>();
     for (const attr of jsxElement.attributes) {
-      if (attr.kind !== NodeKind.JsxAttribute) {
+      if (!(attr instanceof JsxAttribute)) {
         continue;
       }
       const attribute = attr as JsxAttribute;
@@ -6687,7 +6621,7 @@ export class TypeChecker {
       }
       provided.add(attribute.name);
 
-      const valueNode = attribute.value?.kind === NodeKind.JsxExpressionContainer
+      const valueNode = attribute.value instanceof JsxExpressionContainer
         ? (attribute.value as JsxExpressionContainer).expression
         : attribute.value ?? attribute;
       const attributeType = this.jsxAttributeValueType(attribute, scope, expectedType);
@@ -6725,7 +6659,7 @@ export class TypeChecker {
     attribute: JsxAttribute,
     expectedType: AnalysisType
   ): AnalysisSymbol | null {
-    if (!jsxElement.reference || jsxElement.reference.kind !== NodeKind.Identifier) {
+    if (!jsxElement.reference || !(jsxElement.reference instanceof Identifier)) {
       return null;
     }
 
@@ -6741,7 +6675,7 @@ export class TypeChecker {
     const propsParameter = functionStatement.parameters.find(
       (parameter) => parameter.thisParameter !== true
     ) as FunctionParameter | undefined;
-    if (!propsParameter || propsParameter.name.kind !== NodeKind.ObjectBindingPattern) {
+    if (!propsParameter || !(propsParameter.name instanceof ObjectBindingPattern)) {
       return null;
     }
 
@@ -6756,7 +6690,7 @@ export class TypeChecker {
       return null;
     }
 
-    const declarationNode = element.propertyName ?? (element.name.kind === NodeKind.Identifier ? element.name : null);
+    const declarationNode = element.propertyName ?? (element.name instanceof Identifier ? element.name : null);
     if (!declarationNode) {
       return null;
     }
@@ -6765,7 +6699,7 @@ export class TypeChecker {
       name: attribute.name,
       kind: "parameter",
       node: declarationNode,
-      declaredOffset: declarationNode.firstToken?.range.start.offset ?? -1,
+      declaredOffset: nodeStartOffset(declarationNode) ?? -1,
       type: expectedType,
       valueType: typeToString(expectedType)
     };
@@ -6773,7 +6707,7 @@ export class TypeChecker {
 
   private visitJsxAttributeValues(jsxElement: JsxElement, scope: Scope): void {
     for (const attr of jsxElement.attributes) {
-      if (attr.kind === NodeKind.JsxAttribute) {
+      if (attr instanceof JsxAttribute) {
         this.jsxAttributeValueType(attr as JsxAttribute, scope);
       }
     }
@@ -6783,7 +6717,7 @@ export class TypeChecker {
     if (!attribute.value) {
       return builtinType("boolean");
     }
-    if (attribute.value.kind === NodeKind.JsxExpressionContainer) {
+    if (attribute.value instanceof JsxExpressionContainer) {
       return this.visitExpression((attribute.value as JsxExpressionContainer).expression, scope, expectedType);
     }
     return this.visitExpression(attribute.value, scope, expectedType);
@@ -6830,9 +6764,9 @@ export class TypeChecker {
     calleeType: FunctionType,
     argumentTypes: AnalysisType[]
   ): void {
-    const diagnosticNode = call.callee.kind === NodeKind.MemberExpression
+    const diagnosticNode = call.callee instanceof MemberExpression
       ? (call.callee as MemberExpression).property
-      : call.kind === NodeKind.CallExpression
+      : call instanceof CallExpression
         ? call
         : call.callee;
     const args = call.args ?? [];
@@ -6872,7 +6806,7 @@ export class TypeChecker {
       const expectedType = restParameter && index >= fixedParameters.length
         ? this.restParameterExpectedTypeAt(restParameter.type, index - fixedParameters.length)
         : parameter.type;
-      const rawComparableArgumentType = argumentExpression?.kind === NodeKind.SpreadExpression
+      const rawComparableArgumentType = argumentExpression instanceof SpreadExpression
         ? spreadArgumentElementType(argumentType)
         : argumentType;
       const comparableArgumentType = this.effectiveArgumentTypeForValidation(
@@ -6916,7 +6850,7 @@ export class TypeChecker {
     for (let index = 0; index < args.length; index += 1) {
       const argument = args[index]!;
       const argumentType = argumentTypes[index] ?? UNKNOWN_TYPE;
-      if (argument.kind === NodeKind.NamedArgument) {
+      if (argument instanceof NamedArgument) {
         const parameterIndex = parameterNames.indexOf((argument as NamedArgument).name.name);
         if (parameterIndex >= 0) {
           ordered[parameterIndex] = argumentType;
@@ -6957,7 +6891,7 @@ export class TypeChecker {
       let parameterIndex: number;
       let parameter: (typeof parameters)[number] | undefined;
 
-      if (argument.kind === NodeKind.NamedArgument) {
+      if (argument instanceof NamedArgument) {
         const name = (argument as NamedArgument).name.name;
         const resolvedIndex = parameterIndexByName.get(name);
         if (resolvedIndex === undefined) {
@@ -6986,8 +6920,8 @@ export class TypeChecker {
       if (!parameter) {
         continue;
       }
-      const valueNode = argument.kind === NodeKind.NamedArgument ? (argument as NamedArgument).value : argument;
-      const comparableArgumentType = valueNode.kind === NodeKind.SpreadExpression
+      const valueNode = argument instanceof NamedArgument ? (argument as NamedArgument).value : argument;
+      const comparableArgumentType = valueNode instanceof SpreadExpression
         ? spreadArgumentElementType(argumentType)
         : argumentType;
       const expectedType = parameter.type;
@@ -7009,7 +6943,7 @@ export class TypeChecker {
       this.reportNestedMismatchContext(effectiveArgumentType, expectedType, valueNode);
     }
 
-    const diagnosticNode = call.callee.kind === NodeKind.MemberExpression
+    const diagnosticNode = call.callee instanceof MemberExpression
       ? (call.callee as MemberExpression).property
       : call;
     for (let index = 0; index < parameters.length; index += 1) {
@@ -7031,7 +6965,7 @@ export class TypeChecker {
         return classStatement;
       }
     }
-    if (newExpression.callee.kind !== NodeKind.Identifier) {
+    if (!(newExpression.callee instanceof Identifier)) {
       return undefined;
     }
     return this.classStatementsByName.get((newExpression.callee as Identifier).name);
@@ -7120,7 +7054,7 @@ export class TypeChecker {
     const typeParameterNames = typeParameterNameList(classStatement.typeParameters ?? []);
     return this.withTypeParametersResult<FunctionType>(typeParameterNames, (): FunctionType => {
       const constructorMember = classStatement.members.find(
-        (member): member is ClassMethodMember => member.kind === NodeKind.ClassMethodMember && member.name.name === "constructor"
+        (member): member is ClassMethodMember => member instanceof ClassMethodMember && member.name.name === "constructor"
       );
       const parameters: FunctionTypeParameter[] = [];
       if (constructorMember) {
@@ -7164,14 +7098,14 @@ export class TypeChecker {
 
     const preferredInterfaceName: string | null = calleeType instanceof NamedType
       ? calleeType.name
-      : newExpression.callee.kind === NodeKind.Identifier
+      : newExpression.callee instanceof Identifier
         ? (newExpression.callee as Identifier).name
         : null;
     if (!preferredInterfaceName) {
       return null;
     }
     const candidateNames: string[] = [preferredInterfaceName];
-    if (newExpression.callee.kind === NodeKind.Identifier) {
+    if (newExpression.callee instanceof Identifier) {
       candidateNames.push(`${(newExpression.callee as Identifier).name}Constructor`);
     }
     let constructorMembers: InterfaceMethodMember[] = [];
@@ -7183,7 +7117,7 @@ export class TypeChecker {
       }
       const candidates = interfaceStatement.members.filter(
         (member): member is InterfaceMethodMember =>
-          member.kind === NodeKind.InterfaceMethodMember && member.name.name === "constructor"
+          member instanceof InterfaceMethodMember && member.name.name === "constructor"
       );
       if (candidates.length > 0) {
         constructorMembers = candidates;
@@ -7324,7 +7258,7 @@ export class TypeChecker {
     scope: Scope,
     constructorType: FunctionType
   ): AnalysisType[] {
-    const args: Expr[] = newExpression.kind === NodeKind.NewExpression
+    const args: Expr[] = newExpression instanceof NewExpression
       ? (newExpression as NewExpression).args ?? []
       : (newExpression as CallExpression).args ?? [];
     return args.map((argument, index): AnalysisType => {
@@ -7387,7 +7321,7 @@ export class TypeChecker {
     switch (expression.kind) {
       case NodeKind.CallExpression: {
         const call = expression as CallExpression;
-        if (call.callee.kind === NodeKind.Identifier && (call.callee as Identifier).name === calleeName && call.args[0]) {
+        if (call.callee instanceof Identifier && (call.callee as Identifier).name === calleeName && call.args[0]) {
           const argument = call.args[0]!;
           collected.push(this.expressionTypes.get(argument) ?? this.visitExpression(argument, this.bound.rootScope));
         }
@@ -7397,7 +7331,7 @@ export class TypeChecker {
       }
       case NodeKind.ArrowFunctionExpression: {
         const arrow = expression as ArrowFunctionExpression;
-        if (arrow.body.kind === NodeKind.BlockStatement) {
+        if (arrow.body instanceof BlockStatement) {
           this.collectCallArgumentTypesFromStatements((arrow.body as BlockStatement).body, calleeName, collected);
         }
         else visitExpression(arrow.body as Expr);
@@ -7555,19 +7489,19 @@ export class TypeChecker {
   }
 
   private collectYieldTypesFromStatement(statement: Statement, collected: AnalysisType[]): void {
-    if (statement.kind === NodeKind.ExprStatement) {
+    if (statement instanceof ExprStatement) {
       this.collectYieldTypesFromExpression((statement as ExprStatement).expression, collected);
-    } else if (statement.kind === NodeKind.BlockStatement) {
+    } else if (statement instanceof BlockStatement) {
       for (const t of this.collectYieldTypesFromStatements((statement as BlockStatement).body)) collected.push(t);
-    } else if (statement.kind === NodeKind.IfStatement) {
+    } else if (statement instanceof IfStatement) {
       const ifStmt = statement as IfStatement;
       this.collectYieldTypesFromStatement(ifStmt.thenBranch, collected);
       if (ifStmt.elseBranch) this.collectYieldTypesFromStatement(ifStmt.elseBranch, collected);
-    } else if (statement.kind === NodeKind.ForStatement) {
+    } else if (statement instanceof ForStatement) {
       this.collectYieldTypesFromStatement((statement as ForStatement).body, collected);
-    } else if (statement.kind === NodeKind.WhileStatement) {
+    } else if (statement instanceof WhileStatement) {
       this.collectYieldTypesFromStatement((statement as WhileStatement).body, collected);
-    } else if (statement.kind === NodeKind.DoWhileStatement) {
+    } else if (statement instanceof DoWhileStatement) {
       this.collectYieldTypesFromStatement((statement as DoWhileStatement).body, collected);
     }
   }
@@ -7610,14 +7544,14 @@ export class TypeChecker {
         return;
       case NodeKind.ArrayLiteral:
         for (const element of (expr as ArrayLiteral).elements) {
-          if (element.kind !== NodeKind.ArrayHole) {
+          if (!(element instanceof ArrayHole)) {
             this.collectYieldTypesFromExpression(element, collected);
           }
         }
         return;
       case NodeKind.ObjectLiteral:
         for (const property of (expr as ObjectLiteral).properties) {
-          if (property.kind === NodeKind.ObjectSpreadProperty) {
+          if (property instanceof ObjectSpreadProperty) {
             this.collectYieldTypesFromExpression((property as ObjectSpreadProperty).argument, collected);
             continue;
           }
@@ -7643,7 +7577,7 @@ export class TypeChecker {
         return;
       case NodeKind.ArrowFunctionExpression: {
         const arrow = expr as ArrowFunctionExpression;
-        if (arrow.body.kind === NodeKind.BlockStatement) {
+        if (arrow.body instanceof BlockStatement) {
           for (const statement of (arrow.body as BlockStatement).body) {
             this.collectYieldTypesFromStatement(statement, collected);
           }
@@ -7662,14 +7596,14 @@ export class TypeChecker {
         return;
       case NodeKind.JsxElement:
         for (const child of (expr as JsxElement).children) {
-          if (child.kind === NodeKind.JsxExpressionContainer || child.kind === NodeKind.JsxElement || child.kind === NodeKind.JsxFragment) {
+          if (child instanceof JsxExpressionContainer || child instanceof JsxElement || child instanceof JsxFragment) {
             this.collectYieldTypesFromExpression(child as Expr, collected);
           }
         }
         return;
       case NodeKind.JsxFragment:
         for (const child of (expr as JsxFragment).children) {
-          if (child.kind === NodeKind.JsxExpressionContainer || child.kind === NodeKind.JsxElement || child.kind === NodeKind.JsxFragment) {
+          if (child instanceof JsxExpressionContainer || child instanceof JsxElement || child instanceof JsxFragment) {
             this.collectYieldTypesFromExpression(child as Expr, collected);
           }
         }
@@ -7697,7 +7631,7 @@ export class TypeChecker {
 
 
   private returnExpressionType(expression: Expr): AnalysisType {
-    if (expression.kind === NodeKind.ArrayLiteral) {
+    if (expression instanceof ArrayLiteral) {
       return this.tupleTypeFromArrayLiteral(expression as ArrayLiteral);
     }
     return this.expressionTypes.get(expression) ?? UNKNOWN_TYPE;
@@ -7706,12 +7640,12 @@ export class TypeChecker {
   private tupleTypeFromArrayLiteral(arrayLiteral: ArrayLiteral): AnalysisType {
     const elementTypes: AnalysisType[] = [];
     for (const element of arrayLiteral.elements) {
-      if (element.kind === NodeKind.ArrayHole) {
+      if (element instanceof ArrayHole) {
         elementTypes.push(builtinType("undefined"));
         continue;
       }
       const elementType = this.expressionTypes.get(element) ?? UNKNOWN_TYPE;
-      elementTypes.push(element.kind === NodeKind.SpreadExpression
+      elementTypes.push(element instanceof SpreadExpression
         ? spreadArgumentElementType(elementType)
         : elementType);
     }
@@ -8043,7 +7977,7 @@ export class TypeChecker {
       const hasKnownNamedType = this.knownNamedTypeExists(parsed.baseName)
         && this.isNameVisibleFromExternalDeclarations(parsed.baseName, node);
       if ((symbol && (symbol.kind === "class" || symbol.kind === "variable")) || hasKnownNamedType) {
-        if (captureResolution && node.kind === NodeKind.Identifier) {
+        if (captureResolution && node instanceof Identifier) {
           if (symbol) {
             this.identifierResolutions.push({
               identifier: node as Identifier,
@@ -8079,7 +8013,7 @@ export class TypeChecker {
     node: Node,
     text: string
   ): { start: { line: number; character: number }; end: { line: number; character: number } } | undefined {
-    if (node.kind !== NodeKind.Identifier || !node.firstToken) {
+    if (!(node instanceof Identifier) || !node.firstToken) {
       return undefined;
     }
 
@@ -8108,10 +8042,10 @@ export class TypeChecker {
     }
 
     for (let current: Scope | undefined = scope; current; current = current.parent) {
-      if (current.node.kind === NodeKind.ClassStatement) {
+      if (current.node instanceof ClassStatement) {
         return namedType((current.node as ClassStatement).name.name);
       }
-      if (current.node.kind === NodeKind.InterfaceStatement) {
+      if (current.node instanceof InterfaceStatement) {
         return namedType((current.node as InterfaceStatement).name.name);
       }
     }
@@ -9330,10 +9264,10 @@ export class TypeChecker {
   }
 
   private isLValueExpression(expression: Expr): boolean {
-    if (expression.kind === NodeKind.Identifier) {
+    if (expression instanceof Identifier) {
       return true;
     }
-    if (expression.kind !== NodeKind.MemberExpression) {
+    if (!(expression instanceof MemberExpression)) {
       return false;
     }
     const member = expression as MemberExpression;
@@ -9344,14 +9278,14 @@ export class TypeChecker {
   }
 
   private isAssignmentTargetExpression(expression: Expr): boolean {
-    if (expression.kind === NodeKind.Identifier) {
+    if (expression instanceof Identifier) {
       return true;
     }
-    return expression.kind === NodeKind.MemberExpression;
+    return expression instanceof MemberExpression;
   }
 
   private hasOptionalAssignmentTarget(expression: Expr): boolean {
-    if (expression.kind !== NodeKind.MemberExpression) {
+    if (!(expression instanceof MemberExpression)) {
       return false;
     }
     const member = expression as MemberExpression;
@@ -9359,9 +9293,9 @@ export class TypeChecker {
   }
 
   private validateReadonlyAssignmentTarget(expression: Expr, scope: Scope): boolean {
-    if (expression.kind === NodeKind.Identifier) {
+    if (expression instanceof Identifier) {
       const identifier = expression as Identifier;
-      const usageOffset = identifier.firstToken?.range.start.offset;
+      const usageOffset = nodeStartOffset(identifier);
       const symbol = this.resolve(identifier.name, scope, usageOffset);
       if (!symbol || symbol.kind !== "variable" || symbol.isReadonly !== true) {
         return false;
@@ -9374,7 +9308,7 @@ export class TypeChecker {
       return true;
     }
 
-    if (expression.kind !== NodeKind.MemberExpression) {
+    if (!(expression instanceof MemberExpression)) {
       return false;
     }
 
@@ -9410,7 +9344,7 @@ export class TypeChecker {
       return false;
     }
 
-    if (member.property.kind !== NodeKind.Identifier) {
+    if (!(member.property instanceof Identifier)) {
       return false;
     }
 
@@ -9432,11 +9366,11 @@ export class TypeChecker {
     if (!classStatement) return false;
     const classField = classStatement.members.find(
       (candidate): candidate is ClassFieldMember =>
-        candidate.kind === NodeKind.ClassFieldMember && candidate.name.name === propertyName
+        candidate instanceof ClassFieldMember && candidate.name.name === propertyName
     );
     let parameterProperty: FunctionParameter | undefined;
     for (const candidate of classStatement.members) {
-      if (candidate.kind !== NodeKind.ClassMethodMember || candidate.name.name !== "constructor") continue;
+      if (!(candidate instanceof ClassMethodMember) || candidate.name.name !== "constructor") continue;
       const constructor = candidate as ClassMethodMember;
       parameterProperty = constructor.parameters.find((parameter) =>
         (parameter.accessModifier !== undefined || parameter.isReadonly === true) &&
@@ -9447,7 +9381,7 @@ export class TypeChecker {
     if (classField?.isReadonly !== true && parameterProperty?.isReadonly !== true) {
       return false;
     }
-    if (member.object.kind === NodeKind.Identifier && (member.object as Identifier).name === "this" && this.enclosingMethodName(scope) === "constructor") {
+    if (member.object instanceof Identifier && (member.object as Identifier).name === "this" && this.enclosingMethodName(scope) === "constructor") {
       return false;
     }
 
@@ -9521,29 +9455,29 @@ export class TypeChecker {
   }
 
   private staticComputedPropertyName(propertyExpression: Expr): string | null {
-    if (propertyExpression.kind === NodeKind.StringLiteral) {
+    if (propertyExpression instanceof StringLiteral) {
       return (propertyExpression as StringLiteral).value;
     }
-    if (propertyExpression.kind === NodeKind.Identifier) {
+    if (propertyExpression instanceof Identifier) {
       return (propertyExpression as Identifier).name;
     }
     return null;
   }
 
   private inferSimpleObjectType(expression: Expr, scope: Scope): AnalysisType | null {
-    if (expression.kind !== NodeKind.Identifier) {
+    if (!(expression instanceof Identifier)) {
       return null;
     }
 
     const identifier = expression as Identifier;
-    const symbol = this.resolve(identifier.name, scope, identifier.firstToken?.range.start.offset);
+    const symbol = this.resolve(identifier.name, scope, nodeStartOffset(identifier));
     return symbol?.type ?? null;
   }
 
   private enclosingMethodName(scope: Scope): string | null {
     let current: Scope | undefined = scope;
     while (current) {
-      if (current.node.kind === NodeKind.ClassMethodMember) {
+      if (current.node instanceof ClassMethodMember) {
         return (current.node as ClassMethodMember).name.name;
       }
       current = current.parent;
@@ -9563,7 +9497,7 @@ export class TypeChecker {
     identifier: Identifier,
     scope: Scope
   ): AnalysisType {
-    const usageOffset = identifier.firstToken?.range.start.offset;
+    const usageOffset = nodeStartOffset(identifier);
     const lookupName = identifier.receiverLabel
       ? `${identifier.name}@${identifier.receiverLabel}`
       : identifier.name;
@@ -9593,7 +9527,7 @@ export class TypeChecker {
     identifier: Identifier,
     type: AnalysisType
   ): void {
-    const usageOffset = identifier.firstToken?.range.start.offset;
+    const usageOffset = nodeStartOffset(identifier);
     const symbol = this.resolve(identifier.name, scope, usageOffset);
     if (!symbol) {
       return;
@@ -9619,14 +9553,14 @@ export class TypeChecker {
       return;
     }
     const callee = call.callee;
-    if (callee.kind !== NodeKind.MemberExpression) {
+    if (!(callee instanceof MemberExpression)) {
       return;
     }
     const member = callee as MemberExpression;
     if (member.computed || member.optional === true) {
       return;
     }
-    if (member.object.kind !== NodeKind.Identifier || member.property.kind !== NodeKind.Identifier) {
+    if (!(member.object instanceof Identifier) || !(member.property instanceof Identifier)) {
       return;
     }
     const methodName = (member.property as Identifier).name;
@@ -9637,7 +9571,7 @@ export class TypeChecker {
       return;
     }
     const identifier = member.object as Identifier;
-    const usageOffset = identifier.firstToken?.range.start.offset;
+    const usageOffset = nodeStartOffset(identifier);
     const symbol = this.resolve(identifier.name, scope, usageOffset);
     if (!symbol || !(symbol.type instanceof ArrayType)) {
       return;
@@ -9791,9 +9725,10 @@ export class TypeChecker {
     for (const [name, methods] of this.genericReceiverExtensionMethods) {
       const method = methods[0];
       if (!method || scope.symbols.has(name)) continue;
-      const type = this.substituteTypeParameters(
+      const type = this.substituteTypeParameter(
         method.type,
-        new Map<string, AnalysisType>([[method.receiverTypeParameter, receiverType]])
+        method.receiverTypeParameter,
+        receiverType
       );
       scope.symbols.set(name, {
         name,
@@ -9816,7 +9751,7 @@ export class TypeChecker {
     };
     scope.symbols.set("this", receiverSymbol);
     scope.symbols.set(`this@${info.label}`, { ...receiverSymbol, name: `this@${info.label}` });
-    if (info.implicitReceiverAlias && parameters[0]?.name.kind === NodeKind.Identifier) {
+    if (info.implicitReceiverAlias && parameters[0]?.name instanceof Identifier) {
       const identifier = parameters[0]!.name as Identifier;
       scope.symbols.set(identifier.name, {
         name: identifier.name,
@@ -9926,13 +9861,13 @@ export class TypeChecker {
     let hasExpectedElementMismatch = false;
 
     for (const element of arrayLiteral.elements) {
-      if (element.kind === NodeKind.ArrayHole) {
+      if (element instanceof ArrayHole) {
         this.expressionTypes.set(element, builtinType("undefined"));
       }
-      const visitedType = element.kind === NodeKind.ArrayHole
+      const visitedType = element instanceof ArrayHole
         ? builtinType("undefined")
         : this.visitExpression(element, scope, expectedElementType);
-      const currentType = element.kind === NodeKind.SpreadExpression
+      const currentType = element instanceof SpreadExpression
         ? spreadArgumentElementType(visitedType)
         : visitedType;
       actualElementTypes.push(currentType);
@@ -9971,7 +9906,7 @@ export class TypeChecker {
     const canReportUnknownProperties = this.canReportUnknownObjectLiteralProperties(expectedType);
     const properties = new Map<string, AnalysisType>();
     for (const property of objectLiteral.properties) {
-      if (property.kind === NodeKind.ObjectSpreadProperty) {
+      if (property instanceof ObjectSpreadProperty) {
         const spreadType = this.visitExpression((property as ObjectSpreadProperty).argument, scope);
         if (spreadType instanceof ObjectType) {
           const spreadObject = spreadType as ObjectType;
@@ -10030,16 +9965,16 @@ export class TypeChecker {
     if (property.computed) {
       return undefined;
     }
-    if (property.key.kind === NodeKind.Identifier) {
+    if (property.key instanceof Identifier) {
       return (property.key as Identifier).name;
     }
-    if (property.key.kind === NodeKind.StringLiteral) {
+    if (property.key instanceof StringLiteral) {
       return (property.key as StringLiteral).value;
     }
-    if (property.key.kind === NodeKind.IntLiteral) {
+    if (property.key instanceof IntLiteral) {
       return String((property.key as IntLiteral | FloatLiteral).value);
     }
-    if (property.key.kind === NodeKind.FloatLiteral) {
+    if (property.key instanceof FloatLiteral) {
       return String((property.key as IntLiteral | FloatLiteral).value);
     }
     return undefined;
@@ -10277,7 +10212,7 @@ export class TypeChecker {
       return;
     }
 
-    if (iterator.kind === NodeKind.Identifier) {
+    if (iterator instanceof Identifier) {
       this.updateResolvedSymbolType(
         scope,
         iterator as Identifier,
@@ -10286,7 +10221,7 @@ export class TypeChecker {
       return;
     }
 
-    if (iterator.kind !== NodeKind.VarStatement) {
+    if (!(iterator instanceof VarStatement)) {
       return;
     }
 
@@ -10305,8 +10240,8 @@ export class TypeChecker {
     const pending: Statement[] = [...statements];
     while (pending.length > 0) {
       const statement = pending.shift()!;
-      const candidate = statement.kind === NodeKind.ExportStatement ? (statement as ExportStatement).declaration : statement;
-      if (candidate?.kind !== NodeKind.NamespaceStatement) continue;
+      const candidate = statement instanceof ExportStatement ? (statement as ExportStatement).declaration : statement;
+      if (!(candidate instanceof NamespaceStatement)) continue;
       const namespaceStatement = candidate as NamespaceStatement;
       if (!namespaceStatement.globalAugmentation) {
         const name = namespaceStatement.names?.[0]?.name;
@@ -10361,13 +10296,13 @@ export class TypeChecker {
     namespacePrefix = ""
   ): void {
     for (const statement of statements) {
-      const candidate = statement.kind === NodeKind.ExportStatement
+      const candidate = statement instanceof ExportStatement
         ? (statement as ExportStatement).declaration
         : statement;
       if (!candidate) {
         continue;
       }
-      if (candidate.kind === NodeKind.NamespaceStatement) {
+      if (candidate instanceof NamespaceStatement) {
         const namespaceStatement = candidate as NamespaceStatement;
         const namespaceName = namespaceStatement.names?.[0]?.name;
         this.collectClassStatements(
@@ -10381,7 +10316,7 @@ export class TypeChecker {
         );
         continue;
       }
-      if (candidate.kind !== NodeKind.ClassStatement) {
+      if (!(candidate instanceof ClassStatement)) {
         continue;
       }
       const classStatement = candidate as ClassStatement;
@@ -10396,7 +10331,7 @@ export class TypeChecker {
 
   private collectImportedExtensionPropertyNames(program: Program): void {
     for (const statement of program.body) {
-      if (statement.kind !== NodeKind.ImportStatement) continue;
+      if (!(statement instanceof ImportStatement)) continue;
       for (const specifier of (statement as ImportStatement).specifiers) {
         const localName = (specifier.local ?? specifier.imported).name;
         this.importedExtensionPropertyNames.add(localName);
@@ -10410,7 +10345,7 @@ export class TypeChecker {
 
   private collectImportedBindingNames(program: Program): void {
     for (const statement of program.body) {
-      if (statement.kind !== NodeKind.ImportStatement) continue;
+      if (!(statement instanceof ImportStatement)) continue;
       const importStatement = statement as ImportStatement;
       if (importStatement.defaultImport) {
         this.importedBindingNames.add(importStatement.defaultImport.name);
@@ -10472,9 +10407,9 @@ export class TypeChecker {
     if (!initializer) {
       return UNKNOWN_TYPE;
     }
-    if (initializer.kind === NodeKind.CallExpression) {
+    if (initializer instanceof CallExpression) {
       const call = initializer as CallExpression;
-      if (call.callee.kind === NodeKind.Identifier) {
+      if (call.callee instanceof Identifier) {
         return this.typeFromTypeNameLoose((call.callee as Identifier).name);
       }
     }
@@ -10622,7 +10557,7 @@ export class TypeChecker {
   private resolveGenericReceiverExtensionMemberType(objectType: AnalysisType, memberName: string): AnalysisType | null {
     const method = this.genericReceiverExtensionMethods.get(memberName)?.[0];
     return method
-      ? this.substituteTypeParameters(method.type, new Map([[method.receiverTypeParameter, objectType]]))
+      ? this.substituteTypeParameter(method.type, method.receiverTypeParameter, objectType)
       : null;
   }
 
@@ -10682,13 +10617,13 @@ export class TypeChecker {
     namespacePrefix = ""
   ): void {
     for (const statement of statements) {
-      const candidate = statement.kind === NodeKind.ExportStatement
+      const candidate = statement instanceof ExportStatement
         ? (statement as ExportStatement).declaration
         : statement;
       if (!candidate) {
         continue;
       }
-      if (candidate.kind === NodeKind.NamespaceStatement) {
+      if (candidate instanceof NamespaceStatement) {
         const namespaceStatement = candidate as NamespaceStatement;
         const namespaceName = namespaceStatement.names?.[0]?.name;
         this.collectInterfaceStatements(
@@ -10702,7 +10637,7 @@ export class TypeChecker {
         );
         continue;
       }
-      if (candidate.kind !== NodeKind.InterfaceStatement) {
+      if (!(candidate instanceof InterfaceStatement)) {
         continue;
       }
       const interfaceStatement = candidate as InterfaceStatement;
@@ -10759,13 +10694,13 @@ export class TypeChecker {
     namespacePrefix = ""
   ): void {
     for (const statement of statements) {
-      const candidate = statement.kind === NodeKind.ExportStatement
+      const candidate = statement instanceof ExportStatement
         ? (statement as ExportStatement).declaration
         : statement;
       if (!candidate) {
         continue;
       }
-      if (candidate.kind === NodeKind.NamespaceStatement) {
+      if (candidate instanceof NamespaceStatement) {
         const namespaceStatement = candidate as NamespaceStatement;
         const namespaceName = namespaceStatement.names?.[0]?.name;
         this.collectVarStatements(
@@ -10779,7 +10714,7 @@ export class TypeChecker {
         );
         continue;
       }
-      if (candidate.kind !== NodeKind.VarStatement || (candidate as VarStatement).receiverType) {
+      if (!(candidate instanceof VarStatement) || (candidate as VarStatement).receiverType) {
         continue;
       }
       const varStatement = candidate as VarStatement;
@@ -10796,7 +10731,7 @@ export class TypeChecker {
 
   private removeRuntimeDeclarationsShadowedByImports(program: Program): void {
     for (const statement of program.body) {
-      if (statement.kind !== NodeKind.ImportStatement) {
+      if (!(statement instanceof ImportStatement)) {
         continue;
       }
       const importStatement = statement as ImportStatement;
@@ -10870,16 +10805,16 @@ export class TypeChecker {
     if (!this.validateTypes) {
       return;
     }
-    if (member.computed || member.property.kind !== NodeKind.Identifier) {
+    if (member.computed || !(member.property instanceof Identifier)) {
       return;
     }
 
     const propertyName = (member.property as Identifier).name;
     const resolvedObjectType = this.resolveConstrainedNamedExpressionType(member.object, objectType) ?? objectType;
     if (isUnknownType(resolvedObjectType) || (resolvedObjectType instanceof BuiltinType && resolvedObjectType.name === "unknown")) {
-      if (member.object.kind === NodeKind.Identifier) {
+      if (member.object instanceof Identifier) {
         const baseIdentifier = member.object as Identifier;
-        const usageOffset = baseIdentifier.firstToken?.range.start.offset;
+        const usageOffset = nodeStartOffset(baseIdentifier);
         const symbol = this.resolve(baseIdentifier.name, scope, usageOffset);
         if (!symbol || !this.explicitlyUnknownIdentifiers.has(symbol.node)) {
           return;
@@ -11050,7 +10985,7 @@ export class TypeChecker {
       if (member.name.name === memberName) {
         return { member, declaringClassName: className };
       }
-      if (member.kind === NodeKind.ClassMethodMember && member.name.name === "constructor") {
+      if (member instanceof ClassMethodMember && member.name.name === "constructor") {
         const constructorMember = member as ClassMethodMember;
         let parameterProperty: FunctionParameter | null = null;
         for (const parameter of constructorMember.parameters) {
@@ -11077,7 +11012,7 @@ export class TypeChecker {
   private enclosingClassName(scope: Scope): string | null {
     let current: Scope | undefined = scope;
     while (current) {
-      if (current.node.kind === NodeKind.ClassStatement) {
+      if (current.node instanceof ClassStatement) {
         return (current.node as ClassStatement).name.name;
       }
       current = current.parent;
@@ -11113,7 +11048,7 @@ export class TypeChecker {
   }
 
   private resolveKnownMemberType(member: MemberExpression, objectType: AnalysisType): AnalysisType | null {
-    if (member.computed || member.property.kind !== NodeKind.Identifier) {
+    if (member.computed || !(member.property instanceof Identifier)) {
       return null;
     }
 
@@ -11211,28 +11146,29 @@ export class TypeChecker {
   }
 
   private enumValueMemberAccessType(member: MemberExpression, objectType: AnalysisType): AnalysisType | null {
-    if (!(objectType instanceof NamedType) || member.computed || member.property.kind !== NodeKind.Identifier) {
+    if (!(objectType instanceof NamedType) || member.computed || !(member.property instanceof Identifier)) {
       return null;
     }
     if (!this.enumStatementsByName.has(objectType.name)) {
       return null;
     }
-    if (member.object.kind !== NodeKind.Identifier) {
+    const object = member.object;
+    if (!(object instanceof Identifier)) {
       return objectType;
     }
     const symbol = this.resolve(
-      (member.object as Identifier).name,
+      object.name,
       this.bound.rootScope,
-      (member.object as Identifier).firstToken?.range.start.offset
+      nodeStartOffset(object)
     );
-    if (this.importedBindingNames.has((member.object as Identifier).name)) {
+    if (this.importedBindingNames.has(object.name)) {
       return null;
     }
     return symbol?.kind === "class" ? null : objectType;
   }
 
   private resolveKnownMemberSymbol(member: MemberExpression, objectType: AnalysisType): AnalysisSymbol | null {
-    if (member.computed || member.property.kind !== NodeKind.Identifier) {
+    if (member.computed || !(member.property instanceof Identifier)) {
       return null;
     }
 
@@ -11267,9 +11203,10 @@ export class TypeChecker {
     const genericExtensionSymbol = (): AnalysisSymbol | null => {
       const method = this.genericReceiverExtensionMethods.get(memberName)?.[0];
       if (!method) return null;
-      const type = this.substituteTypeParameters(
+      const type = this.substituteTypeParameter(
         method.type,
-        new Map([[method.receiverTypeParameter, resolvedObjectType]])
+        method.receiverTypeParameter,
+        resolvedObjectType
       );
       return {
         name: memberName,
@@ -11355,7 +11292,7 @@ export class TypeChecker {
           isReadonly: true,
           type: enumType,
           valueType: typeToString(enumType),
-          declaredOffset: enumStatement.name.firstToken?.range.start.offset ?? -1
+          declaredOffset: nodeStartOffset(enumStatement.name) ?? -1
         };
       }
     }
@@ -11415,9 +11352,9 @@ export class TypeChecker {
       }
       return {
         name: memberName,
-        kind: member.kind === NodeKind.InterfaceMethodMember ? "method" : "variable",
+        kind: member instanceof InterfaceMethodMember ? "method" : "variable",
         node: member.name,
-        declaredOffset: member.name.firstToken?.range.start.offset ?? -1
+        declaredOffset: nodeStartOffset(member.name) ?? -1
       };
     }
 
@@ -11487,10 +11424,10 @@ export class TypeChecker {
     propertyExpression: Expr | undefined,
     propertyType: AnalysisType
   ): AnalysisType {
-    if (propertyExpression?.kind === NodeKind.IntLiteral) {
+    if (propertyExpression instanceof IntLiteral) {
       return unionType([namedType(enumStatement.name.name), builtinType("undefined")]);
     }
-    if (propertyExpression?.kind === NodeKind.StringLiteral) {
+    if (propertyExpression instanceof StringLiteral) {
       const value = (propertyExpression as StringLiteral).value;
       if (enumStatement.members.some((member) => member.name.name === value)) {
         return namedType(enumStatement.name.name);
@@ -11644,7 +11581,7 @@ export class TypeChecker {
       }
       case NodeKind.MemberExpression: {
         const memberExpression = expression as MemberExpression;
-        if (memberExpression.computed || memberExpression.object.kind !== NodeKind.Identifier || memberExpression.property.kind !== NodeKind.Identifier) {
+        if (memberExpression.computed || !(memberExpression.object instanceof Identifier) || !(memberExpression.property instanceof Identifier)) {
           return this.enumComputedValueFromExpression(expression);
         }
         const targetEnum = this.enumStatementsByName.get((memberExpression.object as Identifier).name);
@@ -11813,8 +11750,12 @@ export class TypeChecker {
 
   /** Returns the declared name of a statement, or null if it has none. */
   private declarationMemberName(statement: Statement): string | null {
-    if (statement.kind === NodeKind.FunctionStatement) return (statement as FunctionStatement).name?.name ?? null;
-    if (statement.kind === NodeKind.VarStatement) {
+    if (statement instanceof FunctionStatement) {
+      const name = statement.name;
+      if (!name) return null;
+      return name.name;
+    }
+    if (statement instanceof VarStatement) {
       const v = statement as VarStatement;
       const ids: Identifier[] = [];
       if (v.declarations?.length) {
@@ -11824,10 +11765,16 @@ export class TypeChecker {
       }
       return ids.length > 0 ? ids[0]!.name : null;
     }
-    if (statement.kind === NodeKind.ClassStatement) return (statement as ClassStatement).name.name;
-    if (statement.kind === NodeKind.EnumStatement) return (statement as EnumStatement).name.name;
-    if (statement.kind === NodeKind.NamespaceStatement) return (statement as NamespaceStatement).names?.[0]?.name ?? null;
-    if (statement.kind === NodeKind.InterfaceStatement) return (statement as InterfaceStatement).name.name;
+    if (statement instanceof ClassStatement) return (statement as ClassStatement).name.name;
+    if (statement instanceof EnumStatement) return (statement as EnumStatement).name.name;
+    if (statement instanceof NamespaceStatement) {
+      const names = statement.names;
+      if (!names) return null;
+      const name = names[0];
+      if (!name) return null;
+      return name.name;
+    }
+    if (statement instanceof InterfaceStatement) return (statement as InterfaceStatement).name.name;
     return null;
   }
 
@@ -11838,18 +11785,18 @@ export class TypeChecker {
    */
   private memberTypeFromExternalDeclaration(declaration: Statement, memberName: string): AnalysisType {
     const candidate =
-      declaration.kind === NodeKind.ExportStatement
+      declaration instanceof ExportStatement
         ? (declaration as ExportStatement).declaration
         : declaration;
     if (!candidate) return UNKNOWN_TYPE;
 
-    if (candidate.kind === NodeKind.FunctionStatement) {
+    if (candidate instanceof FunctionStatement) {
       const fn = candidate as FunctionStatement;
       const typeParameterNames = typeParameterNameList(fn.typeParameters ?? []);
       const availableTypeParameterNames: string[] = [...typeParameterNames];
       const functionMemberType = this.withTypeParametersResult<FunctionType>(typeParameterNames, (): FunctionType => {
         const params = (fn.parameters ?? []).filter((parameter) => parameter.thisParameter !== true).map((p) => ({
-          name: p.name.kind === NodeKind.Identifier ? (p.name as Identifier).name : memberName,
+          name: p.name instanceof Identifier ? (p.name as Identifier).name : memberName,
           type: this.typeFromAnnotationLooseWithTypeParameters(
             p.typeAnnotation,
             availableTypeParameterNames,
@@ -11872,22 +11819,22 @@ export class TypeChecker {
       });
       return functionMemberType;
     }
-    if (candidate.kind === NodeKind.VarStatement) {
+    if (candidate instanceof VarStatement) {
       const v = candidate as VarStatement;
       if (v.declarations?.length) {
         return this.typeFromAnnotationLoose(v.declarations[0]?.typeAnnotation) ?? this.typeFromAnnotationLoose(v.typeAnnotation) ?? UNKNOWN_TYPE;
       }
       return this.typeFromAnnotationLoose(v.typeAnnotation) ?? UNKNOWN_TYPE;
     }
-    if (candidate.kind === NodeKind.ClassStatement) {
+    if (candidate instanceof ClassStatement) {
       return namedType((candidate as ClassStatement).name.name);
     }
-    if (candidate.kind === NodeKind.NamespaceStatement) {
+    if (candidate instanceof NamespaceStatement) {
       const ns = candidate as NamespaceStatement;
       const name = ns.names?.[0]?.name;
       return name ? namedType(name) : UNKNOWN_TYPE;
     }
-    if (candidate.kind === NodeKind.EnumStatement) {
+    if (candidate instanceof EnumStatement) {
       return namedType((candidate as EnumStatement).name.name);
     }
     return UNKNOWN_TYPE;
@@ -11897,11 +11844,11 @@ export class TypeChecker {
     if (!initializer) {
       return null;
     }
-    if (initializer.kind === NodeKind.NewExpression || initializer.kind === NodeKind.CallExpression) {
-      const callee = initializer.kind === NodeKind.NewExpression
+    if (initializer instanceof NewExpression || initializer instanceof CallExpression) {
+      const callee = initializer instanceof NewExpression
         ? (initializer as NewExpression).callee
         : (initializer as CallExpression).callee;
-      if (callee.kind === NodeKind.Identifier) {
+      if (callee instanceof Identifier) {
         const className = (callee as Identifier).name;
         if (this.classStatementsByName.has(className)) {
           return namedType(className);
@@ -11973,10 +11920,10 @@ export class TypeChecker {
     contextualThisTypeName: string
   ): void {
     for (const interfaceMember of interfaceStatement.members) {
-      if (interfaceMember.kind === NodeKind.InterfaceMethodMember && interfaceMember.computed) {
+      if (interfaceMember instanceof InterfaceMethodMember && interfaceMember.computed) {
         continue;
       }
-      if (interfaceMember.kind === NodeKind.InterfacePropertyMember) {
+      if (interfaceMember instanceof InterfacePropertyMember) {
         const rawMemberType = this.typeFromAnnotationLoose(interfaceMember.typeAnnotation) ?? UNKNOWN_TYPE;
         const memberType = interfaceMember.optional === true
           ? unionType([rawMemberType, builtinType("undefined")])
@@ -12083,19 +12030,19 @@ export class TypeChecker {
       for (const child of namespaceStatement.body.body) {
         if (scope) {
           // Local namespace with a bound scope: only exported members are visible.
-          if (child.kind !== NodeKind.ExportStatement) continue;
+          if (!(child instanceof ExportStatement)) continue;
           const exported = child as ExportStatement;
           const names: string[] = [];
-          if (exported.declaration?.kind === NodeKind.VarStatement) {
+          if (exported.declaration instanceof VarStatement) {
             const variable = exported.declaration as VarStatement;
             if (variable.declarations?.length) {
               for (const declaration of variable.declarations) names.push(...bindingIdentifiers(declaration.name).map((identifier) => identifier.name));
             } else {
               names.push(...bindingIdentifiers(variable.name).map((identifier) => identifier.name));
             }
-          } else if (exported.declaration?.kind === NodeKind.FunctionStatement || exported.declaration?.kind === NodeKind.ClassStatement || exported.declaration?.kind === NodeKind.EnumStatement || exported.declaration?.kind === NodeKind.NamespaceStatement) {
+          } else if (exported.declaration instanceof FunctionStatement || exported.declaration instanceof ClassStatement || exported.declaration instanceof EnumStatement || exported.declaration instanceof NamespaceStatement) {
             const declaration = exported.declaration as FunctionStatement | ClassStatement | EnumStatement | NamespaceStatement;
-            names.push(declaration.kind === NodeKind.NamespaceStatement ? declaration.names?.[0]?.name ?? "" : declaration.name.name);
+            names.push(declaration instanceof NamespaceStatement ? declaration.names?.[0]?.name ?? "" : declaration.name.name);
           }
           for (const specifier of exported.specifiers ?? []) names.push(specifier.exported.name);
           for (const name of names.filter(Boolean)) members.set(name, scope.symbols.get(name)?.type ?? UNKNOWN_TYPE);
@@ -12105,12 +12052,12 @@ export class TypeChecker {
           // accessible, so process both ExportStatement children and bare
           // declarations without requiring an explicit export keyword.
           const declaration =
-            child.kind === NodeKind.ExportStatement ? (child as ExportStatement).declaration ?? child : child;
+            child instanceof ExportStatement ? (child as ExportStatement).declaration ?? child : child;
           const memberType = this.memberTypeFromExternalDeclaration(declaration, "");
           if (memberType instanceof UnknownType) continue;
           const name = this.declarationMemberName(declaration);
           if (name) this.addResolvedMemberType(members, name, memberType);
-          if (child.kind === NodeKind.ExportStatement) {
+          if (child instanceof ExportStatement) {
             for (const specifier of (child as ExportStatement).specifiers ?? []) {
               this.addResolvedMemberType(members, specifier.exported.name, UNKNOWN_TYPE);
             }
@@ -12140,7 +12087,7 @@ export class TypeChecker {
         members.set(bindingNameText(parameter.name), this.substituteTypeParameters(parameterType, substitutions));
       }
       for (const candidate of classStatement.members) {
-        if (candidate.kind !== NodeKind.ClassMethodMember || candidate.name.name !== "constructor") continue;
+        if (!(candidate instanceof ClassMethodMember) || candidate.name.name !== "constructor") continue;
         const constructor = candidate as ClassMethodMember;
         for (const parameter of constructor.parameters) {
           if (parameter.accessModifier === undefined && parameter.isReadonly !== true) continue;
@@ -12150,10 +12097,10 @@ export class TypeChecker {
       }
 
       for (const classMember of classStatement.members) {
-        if (classMember.kind === NodeKind.ClassMethodMember && classMember.computed) {
+        if (classMember instanceof ClassMethodMember && classMember.computed) {
           continue;
         }
-        if (classMember.kind === NodeKind.ClassFieldMember) {
+        if (classMember instanceof ClassFieldMember) {
           readableNames.add(classMember.name.name);
           let fieldType = this.typeFromAnnotationLoose(classMember.typeAnnotation);
           if (!fieldType) {
@@ -12597,7 +12544,7 @@ export class TypeChecker {
         continue;
       }
 
-      if (classMember.kind === NodeKind.ClassFieldMember) {
+      if (classMember instanceof ClassFieldMember) {
         const fieldType = this.typeFromAnnotationLoose(classMember.typeAnnotation) ?? UNKNOWN_TYPE;
         return this.substituteTypeParameters(fieldType, substitutions);
       }
@@ -12833,7 +12780,7 @@ export class TypeChecker {
       if (member.override === true || member.isStatic === true || member.abstract === true) {
         continue;
       }
-      if (member.kind === NodeKind.ClassMethodMember && (member.name.name === "constructor" || member.operator)) {
+      if (member instanceof ClassMethodMember && (member.name.name === "constructor" || member.operator)) {
         continue;
       }
       if (projectMemberNames.has(member.name.name)) {
@@ -13587,7 +13534,7 @@ export class TypeChecker {
       const systemClass = this.classStatementsByName.get(systemClassName);
       const defaultOptionsMember = systemClass ? systemClass.members.find((member): member is ClassFieldMember =>
         member.isStatic === true &&
-        member.kind === NodeKind.ClassFieldMember &&
+        member instanceof ClassFieldMember &&
         member.name.name === "defaultOptions"
       ) : undefined;
       const defaultOptionsType = defaultOptionsMember
@@ -13762,6 +13709,12 @@ export class TypeChecker {
       );
     }
     return substitutions;
+  }
+
+  private substituteTypeParameter(sourceType: AnalysisType, name: string, type: AnalysisType): AnalysisType {
+    const substitutions = new Map<string, AnalysisType>();
+    substitutions.set(name, type);
+    return this.substituteTypeParameters(sourceType, substitutions);
   }
 
   private substituteTypeParameters(

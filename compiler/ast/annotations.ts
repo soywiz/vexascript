@@ -1,5 +1,5 @@
-import { NodeKind } from "compiler/ast/ast";
-import type { AnnotationApplication, Program } from "./ast";
+import { AnnotationApplication } from "compiler/ast/ast";
+import type { Program } from "./ast";
 import { walkAst } from "./traversal";
 
 /**
@@ -16,8 +16,8 @@ import { walkAst } from "./traversal";
 export function programAnnotationApplications(program: Program): AnnotationApplication[] {
   const applications: AnnotationApplication[] = [];
   walkAst(program, (node) => {
-    if (node.kind === NodeKind.AnnotationApplication) {
-      applications.push(node as AnnotationApplication);
+    if (node instanceof AnnotationApplication) {
+      applications.push(node);
     }
   });
   return applications;

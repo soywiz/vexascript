@@ -1,6 +1,7 @@
-import { NodeKind } from "compiler/ast/ast";
+import { EnumStatement } from "compiler/ast/ast";
+import type { Program } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
-import type { EnumStatement, Program } from "compiler/ast/ast";
+
 import { fileURLToPath } from "compiler/utils/path";
 import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import type { CompletionRequestOptions, MemberAccessTarget } from "./completionModel";
@@ -54,7 +55,7 @@ export async function buildTargetPathMemberAccessCompletions(
       ast,
       name: pathSegments[0],
       currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
-      predicate: (statement): statement is EnumStatement => statement.kind === NodeKind.EnumStatement,
+      predicate: (statement): statement is EnumStatement => statement instanceof EnumStatement,
       includeRuntime: true,
       sourceRoots: resolverOptions.sourceRoots ?? [],
       ...(resolverOptions.vfs ? { vfs: resolverOptions.vfs } : {}),

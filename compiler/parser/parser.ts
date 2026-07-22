@@ -1,110 +1,8 @@
-import { NodeKind } from "compiler/ast/ast";
+import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, CatchClause, ChainExpression, ClassDelegate, ClassExpression, ClassFieldMember, ClassMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, ConditionalExpression, ContinueStatement, DebuggerStatement, DeferStatement, DoWhileStatement, EmptyStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionDeclarationKind, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportSpecifier, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MemberExpression, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, Node, NodeKind, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectLiteralProperty, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchCase, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarDeclarator, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import { ListReader } from "compiler/utils/ListReader";
 import { SourcePosition, SourceRange, Token, TokenType } from "./tokenizer";
 import { hasLineBreakBetween, isClassMemberModifier, isEofToken, isLikelyStatementStart, typeTokenText } from "./tokenHelpers";
-import {
-    AnnotationApplication,
-    AnnotationStatement,
-    ArrowFunctionExpression,
-    ArrayHole,
-    ArrayLiteral,
-    AsExpression,
-    AssignmentExpression,
-    BigIntLiteral,
-    BindingElement,
-    BindingHole,
-    BindingName,
-    BinaryExpression,
-    BooleanLiteral,
-    BlockStatement,
-    BreakStatement,
-    CallExpression,
-    CatchClause,
-    ChainExpression,
-    ClassDelegate,
-    ClassExpression,
-    ClassFieldMember,
-    ClassMember,
-    ClassMethodMember,
-    ClassPrimaryConstructorParameter,
-    ClassStatement,
-    ConditionalExpression,
-    CommaExpression,
-    ContinueStatement,
-    DebuggerStatement,
-    DeferStatement,
-    DoWhileStatement,
-    Expr,
-    ExprStatement,
-    EnumMember,
-    EnumStatement,
-    ExportSpecifier,
-    ExportStatement,
-    EmptyStatement,
-    ForStatement,
-    FloatLiteral,
-    FunctionDeclarationKind,
-    FunctionExpression,
-    FunctionParameter,
-    FunctionStatement,
-    Identifier,
-    JsxElement,
-    JsxFragment,
-    JsxAttribute,
-    JsxAttributeLike,
-    JsxSpreadAttribute,
-    JsxExpressionContainer,
-    JsxChild,
-    JsxText,
-    InterfaceMember,
-    InterfaceMethodMember,
-    InterfacePropertyMember,
-    InterfaceStatement,
-    IfStatement,
-    ImportSpecifier,
-    ImportStatement,
-    IntLiteral,
-    LongLiteral,
-    LabeledStatement,
-    MemberExpression,
-    MissingExpression,
-    NewExpression,
-    NamespaceStatement,
-    NonNullExpression,
-    NullLiteral,
-    ObjectBindingPattern,
-    ArrayBindingPattern,
-    Node,
-    ObjectLiteral,
-    ObjectLiteralProperty,
-    ObjectProperty,
-    ObjectSpreadProperty,
-    NamedArgument,
-    OverloadableOperator,
-    Program,
-    PropertyReferenceExpression,
-    RangeExpression,
-    ReturnStatement,
-    RegExpLiteral,
-    SatisfiesExpression,
-    Statement,
-    StringLiteral,
-    SpreadExpression,
-    SwitchCase,
-    SwitchStatement,
-    ThrowStatement,
-    TypeAliasStatement,
-    TypeParameter,
-    TryStatement,
-    UndefinedLiteral,
-    UnaryExpression,
-    UpdateExpression,
-    VarDeclarator,
-    VariableDeclarationKind,
-    VarStatement,
-    WhileStatement,
-    WithStatement
-} from "compiler/ast/ast";
+
 
 type BinaryOperator = BinaryExpression["operator"];
 type AssignmentOperator = AssignmentExpression["operator"];
@@ -485,11 +383,11 @@ export class Parser {
             return;
         }
         const argument = annotation.args[0];
-        if (annotation.args.length !== 1 || argument?.kind !== NodeKind.StringLiteral) {
+        if (annotation.args.length !== 1 || !(argument instanceof StringLiteral)) {
             this.fail(`Expected a single string argument in '@${name}'`, this.tokenAt(argument?.firstToken));
         }
         if (name === "JsInline") {
-            if (statement.kind !== NodeKind.FunctionStatement) {
+            if (!(statement instanceof FunctionStatement)) {
                 this.fail("'@JsInline' can only be applied to a function declaration", this.tokenAt(annotation.name.firstToken));
             }
             (statement as FunctionStatement).jsInline = (argument as StringLiteral).value;
@@ -785,8 +683,8 @@ export class Parser {
                 const member = key as MemberExpression;
                 if (
                     member.computed ||
-                    member.object.kind !== NodeKind.Identifier ||
-                    member.property.kind !== NodeKind.Identifier
+                    !(member.object instanceof Identifier) ||
+                    !(member.property instanceof Identifier)
                 ) {
                     return "computed";
                 }
@@ -2170,7 +2068,7 @@ export class Parser {
                 const computed: boolean = parsedKey.computed;
                 let separator = this.tokens.peek();
 
-                if (!computed && key.kind === NodeKind.Identifier && (
+                if (!computed && key instanceof Identifier && (
                     separator?.type === TokenType.SYMBOL && (separator.value === "," || separator.value === "}")
                 )) {
                     properties.push(
@@ -2220,7 +2118,7 @@ export class Parser {
                     if (methodTypeParameters && methodTypeParameters.length > 0) {
                         value.typeParameters = methodTypeParameters;
                     }
-                    if (!computed && key.kind === NodeKind.Identifier) {
+                    if (!computed && key instanceof Identifier) {
                         value.name = this.attachNodeBounds(
                             new Identifier((key as Identifier).name),
                             key.firstToken,
@@ -2709,7 +2607,7 @@ export class Parser {
         } else {
             parameters = [];
         }
-        if (block.body.length === 1 && block.body[0]?.kind === NodeKind.ExprStatement) {
+        if (block.body.length === 1 && block.body[0] instanceof ExprStatement) {
             const expressionBody = (block.body[0] as ExprStatement).expression;
             return this.attachNodeBounds(
                 new ArrowFunctionExpression(expressionBody, parameters),
@@ -2729,7 +2627,7 @@ export class Parser {
             return lambda;
         }
         if (
-            lambda.body.kind !== NodeKind.Identifier
+            !(lambda.body instanceof Identifier)
         ) {
             return lambda;
         }
@@ -2737,7 +2635,7 @@ export class Parser {
         if (
             lambda.parameters.length > 1 ||
             (lambda.parameters.length === 1 && (
-                firstParameter.name.kind !== NodeKind.Identifier ||
+                !(firstParameter.name instanceof Identifier) ||
                 (firstParameter.name as Identifier).name !== "it"
             ))
         ) {
@@ -2786,9 +2684,9 @@ export class Parser {
                     this.language === "vexa" &&
                     !objectLiteral.trailingComma &&
                     objectLiteral.properties.length === 1 &&
-                    objectLiteral.properties[0]?.kind === NodeKind.ObjectProperty &&
+                    objectLiteral.properties[0] instanceof ObjectProperty &&
                     (objectLiteral.properties[0] as ObjectProperty).shorthand &&
-                    (objectLiteral.properties[0] as ObjectProperty).key.kind === NodeKind.Identifier
+                    (objectLiteral.properties[0] as ObjectProperty).key instanceof Identifier
                 ) {
                     this.restoreTokenCheckpoint(checkpoint);
                     const lambda = this.parseBraceLambdaExpressionFromConsumedOpen(openBrace, null);
@@ -2813,7 +2711,7 @@ export class Parser {
             return statements;
         }
         const lastStatement = statements[statements.length - 1];
-        if (lastStatement?.kind !== NodeKind.ExprStatement) {
+        if (!(lastStatement instanceof ExprStatement)) {
             return statements;
         }
         const returnStatement = this.attachNodeBounds(
@@ -3242,7 +3140,7 @@ export class Parser {
                     break;
                 }
                 const tailLambda = this.parseTailLambdaArgument();
-                if (expr.kind === NodeKind.NewExpression) {
+                if (expr instanceof NewExpression) {
                     const newExpression = expr as NewExpression;
                     expr = this.attachNodeBounds(
                         new NewExpression(
@@ -3255,7 +3153,7 @@ export class Parser {
                     );
                     continue;
                 }
-                if (expr.kind === NodeKind.CallExpression) {
+                if (expr instanceof CallExpression) {
                     const call = expr as CallExpression;
                     const newCall = this.attachNodeBounds(
                         new CallExpression(
@@ -4245,7 +4143,7 @@ export class Parser {
             const nextToken = this.tokens.peek();
             if (nextToken?.type === TokenType.SYMBOL && nextToken.value === "=>") {
                 const initializer: ReturnStatement | undefined = this.parseExpressionBodyAsBlock().body[0] as ReturnStatement | undefined;
-                if (initializer?.kind !== NodeKind.ReturnStatement || !initializer.expression) {
+                if (!(initializer instanceof ReturnStatement) || !initializer.expression) {
                     this.fail("Expected expression body after '=>'", this.tokenAt(nextToken));
                 }
                 statement.initializer = (initializer as ReturnStatement).expression!;
@@ -4386,15 +4284,15 @@ export class Parser {
             const firstName = this.parseBindingName();
             name = firstName;
             const nextToken = this.tokens.peek();
-            if (allowPropertyName && firstName.kind === NodeKind.Identifier && nextToken?.type === TokenType.SYMBOL && nextToken.value === "::") {
+            if (allowPropertyName && firstName instanceof Identifier && nextToken?.type === TokenType.SYMBOL && nextToken.value === "::") {
                 this.tokens.skip();
                 propertyName = firstName;
                 name = this.parseBindingName();
-            } else if (allowPropertyName && firstName.kind === NodeKind.Identifier && nextToken?.type === TokenType.SYMBOL && nextToken.value === ":" && this.language === "typescript") {
+            } else if (allowPropertyName && firstName instanceof Identifier && nextToken?.type === TokenType.SYMBOL && nextToken.value === ":" && this.language === "typescript") {
                 this.tokens.skip();
                 propertyName = firstName;
                 name = this.parseBindingName();
-            } else if (allowPropertyName && firstName.kind === NodeKind.Identifier) {
+            } else if (allowPropertyName && firstName instanceof Identifier) {
                 shorthand = true;
             }
         }
@@ -5331,7 +5229,7 @@ export class Parser {
         const nestedParser = new Parser(new ListReader(bodyTokens), { language: this.language });
         const parsed = nestedParser.parseStatement();
         const parsedBlock: BlockStatement | undefined = parsed as BlockStatement | undefined;
-        if (parsedBlock?.kind === NodeKind.BlockStatement) {
+        if (parsedBlock instanceof BlockStatement) {
             return parsedBlock;
         }
         return this.attachNodeBounds(new BlockStatement([]), openBrace, closeBrace);
@@ -5339,15 +5237,15 @@ export class Parser {
 
     private markAmbientDeclarations(statements: Statement[]): void {
         for (const statement of statements) {
-            const declaration = statement.kind === NodeKind.ExportStatement
+            const declaration = statement instanceof ExportStatement
                 ? (statement as ExportStatement).declaration
                 : statement;
             if (!declaration) continue;
-            if (declaration.kind === NodeKind.VarStatement || declaration.kind === NodeKind.FunctionStatement ||
-                declaration.kind === NodeKind.ClassStatement || declaration.kind === NodeKind.InterfaceStatement ||
-                declaration.kind === NodeKind.TypeAliasStatement || declaration.kind === NodeKind.EnumStatement ||
-                declaration.kind === NodeKind.AnnotationStatement ||
-                declaration.kind === NodeKind.NamespaceStatement) {
+            if (declaration instanceof VarStatement || declaration instanceof FunctionStatement ||
+                declaration instanceof ClassStatement || declaration instanceof InterfaceStatement ||
+                declaration instanceof TypeAliasStatement || declaration instanceof EnumStatement ||
+                declaration instanceof AnnotationStatement ||
+                declaration instanceof NamespaceStatement) {
                 (declaration as { declared?: boolean }).declared = true;
             }
         }
@@ -5437,7 +5335,7 @@ export class Parser {
 
             const parameterNameToken = this.tokens.peek();
             const parameterName = this.parseBindingName();
-            if (propertyModifierToken && parameterName.kind !== NodeKind.Identifier) {
+            if (propertyModifierToken && !(parameterName instanceof Identifier)) {
                 this.fail("A parameter property must use an identifier name", this.tokenAt(parameterNameToken));
             }
 
@@ -5469,7 +5367,7 @@ export class Parser {
             if (parameterReadonly) {
                 parameter.isReadonly = true;
             }
-            if (parameterName.kind === NodeKind.Identifier && parameterName.name === "this") {
+            if (parameterName instanceof Identifier && parameterName.name === "this") {
                 if (propertyModifierToken) {
                     this.fail("A this parameter cannot be a parameter property", this.tokenAt(propertyModifierToken));
                 }
@@ -6669,7 +6567,7 @@ export class Parser {
                 );
             }
 
-            if (initializer.kind === NodeKind.VarStatement) {
+            if (initializer instanceof VarStatement) {
                 const iteratorDeclaration = initializer as VarStatement;
                 if (iteratorDeclaration.declarations && iteratorDeclaration.declarations.length > 1) {
                     this.fail("for-in/of supports a single iterator declaration", iteratorDeclaration.firstToken);
@@ -6678,7 +6576,7 @@ export class Parser {
                     this.fail("for-in/of iterator declaration cannot have an initializer", iteratorDeclaration.firstToken);
                 }
             } else {
-                if (this.language === "vexa" && initializer.kind !== NodeKind.Identifier) {
+                if (this.language === "vexa" && !(initializer instanceof Identifier)) {
                     this.fail("Expected identifier iterator in VexaScript for-in/of statement", initializer.firstToken);
                 }
             }

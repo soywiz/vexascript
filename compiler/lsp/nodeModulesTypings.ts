@@ -1,21 +1,5 @@
-import { NodeKind } from "compiler/ast/ast";
-import {
-  BlockStatement,
-  ClassStatement,
-  EnumStatement,
-  ExportSpecifier,
-  ExprStatement,
-  ExportStatement,
-  FunctionStatement,
-  Identifier,
-  ImportStatement,
-  InterfaceStatement,
-  NamespaceStatement,
-  Program,
-  Statement,
-  TypeAliasStatement,
-  VarStatement
-} from "compiler/ast/ast";
+import { BlockStatement, ClassStatement, EnumStatement, ExportSpecifier, ExportStatement, ExprStatement, FunctionStatement, Identifier, ImportStatement, InterfaceStatement, NamespaceStatement, NodeKind, Program, Statement, TypeAliasStatement, VarStatement } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import {
   clearNodeModulesTypingsPathCache,
@@ -91,7 +75,7 @@ function extractImportedTypingsSpecifiers(ast: Program): string[] {
   const specifiers = new Set<string>();
 
   for (const statement of ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -105,7 +89,7 @@ function extractImportedTypingsSpecifiers(ast: Program): string[] {
 }
 
 function asExportedTypingsEntry(entry: NodeModuleDeclarationEntry): NodeModuleDeclarationEntry {
-  return entry.statement.kind === NodeKind.ExportStatement
+  return entry.statement instanceof ExportStatement
     ? entry
     : {
         statement: new ExportStatement(entry.statement),
@@ -114,7 +98,7 @@ function asExportedTypingsEntry(entry: NodeModuleDeclarationEntry): NodeModuleDe
 }
 
 function reexportedDeclaration(entry: NodeModuleDeclarationEntry): Statement {
-  return entry.statement.kind === NodeKind.ExportStatement
+  return entry.statement instanceof ExportStatement
     ? (entry.statement as ExportStatement).declaration ?? entry.statement
     : entry.statement;
 }
@@ -151,14 +135,14 @@ function asNamespaceReexportedTypingsEntry(
 }
 
 function declarationNameFromStatement(statement: Statement): string | null {
-  const declaration = statement.kind === NodeKind.ExportStatement
+  const declaration = statement instanceof ExportStatement
     ? (statement as ExportStatement).declaration ?? statement
     : statement;
-  if (declaration.kind === NodeKind.NamespaceStatement) {
+  if (declaration instanceof NamespaceStatement) {
     return (declaration as NamespaceStatement).names?.[0]?.name ?? null;
   }
   const named = declaration as { name?: Identifier };
-  return named.name?.kind === NodeKind.Identifier ? named.name.name ?? null : null;
+  return named.name instanceof Identifier ? named.name.name ?? null : null;
 }
 
 function nodeModuleDeclarationName(entry: NodeModuleDeclarationEntry): string | null {
@@ -170,7 +154,7 @@ export function nodeModuleExportedNamesForStatement(statement: Statement): strin
   if (directName) {
     return [directName];
   }
-  if (statement.kind !== NodeKind.ExportStatement) {
+  if (!(statement instanceof ExportStatement)) {
     return [];
   }
   const exportStatement = statement as ExportStatement;
@@ -216,7 +200,7 @@ async function collectTypingsDeclarations(
     declarations.push(...await collectTypingsDeclarations(targetTypingsPath, options, visited));
   }
   for (const statement of ast.body) {
-    if (statement.kind !== NodeKind.ExportStatement) {
+    if (!(statement instanceof ExportStatement)) {
       continue;
     }
     const exportStatement = statement as ExportStatement;
@@ -322,7 +306,7 @@ async function collectSelectiveTypingsDeclarations(
   }
 
   for (const statement of ast.body) {
-    if (statement.kind !== NodeKind.ExportStatement) {
+    if (!(statement instanceof ExportStatement)) {
       continue;
     }
     const exportStatement = statement as ExportStatement;
@@ -396,16 +380,16 @@ async function collectSelectiveTypingsDeclarations(
  */
 function detectExportEqualsName(ast: Program): string | null {
   for (const stmt of ast.body) {
-    if (stmt.kind === NodeKind.ExportStatement) {
+    if (stmt instanceof ExportStatement) {
       const exportStatement = stmt as ExportStatement;
       const declaration = exportStatement.declaration;
-      if (exportStatement.isDefault === true && declaration?.kind === NodeKind.FunctionStatement) {
+      if (exportStatement.isDefault === true && declaration instanceof FunctionStatement) {
         return (declaration as FunctionStatement).name.name;
       }
     }
-    if (stmt.kind === NodeKind.ExprStatement) {
+    if (stmt instanceof ExprStatement) {
       const expr = (stmt as ExprStatement).expression;
-      if (expr && expr.kind === NodeKind.Identifier) {
+      if (expr && expr instanceof Identifier) {
         return (expr as Identifier).name;
       }
     }
@@ -421,13 +405,13 @@ function detectExportEqualsName(ast: Program): string | null {
 function detectNamespaceName(ast: Program): string | null {
   const functionNames = new Set<string>();
   for (const stmt of ast.body) {
-    if (stmt.kind === NodeKind.FunctionStatement) {
+    if (stmt instanceof FunctionStatement) {
       const name = (stmt as FunctionStatement).name?.name;
       if (name) functionNames.add(name);
     }
   }
   for (const stmt of ast.body) {
-    if (stmt.kind === NodeKind.NamespaceStatement) {
+    if (stmt instanceof NamespaceStatement) {
       const ns = stmt as { names?: { name: string }[] };
       const name = ns.names?.[0]?.name;
       if (name && functionNames.has(name)) return name;
@@ -595,11 +579,11 @@ function findQualifiedMemberLocationInDeclarationEntries(
 
     for (const entry of entries) {
       const candidate =
-        entry.statement.kind === NodeKind.ExportStatement
+        entry.statement instanceof ExportStatement
           ? (entry.statement as { declaration?: Statement }).declaration ?? entry.statement
           : entry.statement;
 
-      if (candidate.kind === NodeKind.NamespaceStatement) {
+      if (candidate instanceof NamespaceStatement) {
         const namespace = candidate as NamespaceStatement;
         const name = namespace.names?.[0]?.name;
         const childEntries = namespace.body.body.map((statement) => ({ statement, typingsPath: entry.typingsPath }));
@@ -630,7 +614,7 @@ function findQualifiedMemberLocationInDeclarationEntries(
         continue;
       }
 
-      if (candidate.kind === NodeKind.InterfaceStatement) {
+      if (candidate instanceof InterfaceStatement) {
         const iface = candidate as InterfaceStatement;
         if (iface.name.name !== targetPart) {
           continue;
@@ -659,7 +643,7 @@ function findQualifiedMemberLocationInDeclarationEntries(
         }
       }
 
-      if (candidate.kind === NodeKind.ClassStatement) {
+      if (candidate instanceof ClassStatement) {
         const klass = candidate as ClassStatement;
         if (klass.name.name !== targetPart) {
           continue;
@@ -674,7 +658,7 @@ function findQualifiedMemberLocationInDeclarationEntries(
         }
       }
 
-      if (candidate.kind === NodeKind.TypeAliasStatement) {
+      if (candidate instanceof TypeAliasStatement) {
         const typeAlias = candidate as TypeAliasStatement;
         if (typeAlias.name.name !== targetPart) {
           continue;
@@ -726,11 +710,11 @@ function findMemberLocationInDeclarationEntries(
   for (const candidateTypeName of candidateTypeNames(typeName)) {
     for (const entry of declarationEntries) {
       const candidate =
-        entry.statement.kind === NodeKind.ExportStatement
+        entry.statement instanceof ExportStatement
           ? (entry.statement as { declaration?: Statement }).declaration ?? entry.statement
           : entry.statement;
 
-      if (candidate.kind === NodeKind.NamespaceStatement) {
+      if (candidate instanceof NamespaceStatement) {
         const namespace = candidate as NamespaceStatement;
         const name = namespace.names?.[0]?.name;
         if (name === candidateTypeName) {
@@ -751,7 +735,7 @@ function findMemberLocationInDeclarationEntries(
         }
       }
 
-      if (candidate.kind === NodeKind.InterfaceStatement) {
+      if (candidate instanceof InterfaceStatement) {
         const iface = candidate as InterfaceStatement;
         if (iface.name.name === candidateTypeName) {
           if (visitedTypeNames.has(candidateTypeName)) {
@@ -781,7 +765,7 @@ function findMemberLocationInDeclarationEntries(
         }
       }
 
-      if (candidate.kind === NodeKind.ClassStatement) {
+      if (candidate instanceof ClassStatement) {
         const klass = candidate as ClassStatement;
         if (klass.name.name === candidateTypeName) {
           if (visitedTypeNames.has(candidateTypeName)) {
@@ -823,7 +807,7 @@ function findMemberLocationInDeclarationEntries(
         }
       }
 
-      if (candidate.kind === NodeKind.TypeAliasStatement) {
+      if (candidate instanceof TypeAliasStatement) {
         const typeAlias = candidate as TypeAliasStatement;
         if (typeAlias.name.name !== candidateTypeName) {
           continue;
@@ -860,11 +844,11 @@ function findStructuralMemberLocationInDeclarationEntries(
   for (let index = declarationEntries.length - 1; index >= 0; index -= 1) {
     const entry = declarationEntries[index]!;
     const candidate =
-      entry.statement.kind === NodeKind.ExportStatement
+      entry.statement instanceof ExportStatement
         ? (entry.statement as { declaration?: Statement }).declaration ?? entry.statement
         : entry.statement;
 
-    if (candidate.kind === NodeKind.NamespaceStatement) {
+    if (candidate instanceof NamespaceStatement) {
       if (visitedNamespaces.has(candidate)) {
         continue;
       }
@@ -889,9 +873,9 @@ function findStructuralMemberLocationInDeclarationEntries(
       continue;
     }
 
-    const members = candidate.kind === NodeKind.InterfaceStatement
+    const members = candidate instanceof InterfaceStatement
       ? (candidate as InterfaceStatement).members
-      : candidate.kind === NodeKind.ClassStatement
+      : candidate instanceof ClassStatement
         ? (candidate as ClassStatement).members
         : [];
     for (const member of members) {
@@ -957,11 +941,11 @@ function findQualifiedMemberRangeInStatements(
 
     for (const statement of entries) {
       const candidate =
-        statement.kind === NodeKind.ExportStatement
+        statement instanceof ExportStatement
           ? (statement as { declaration?: Statement }).declaration ?? statement
           : statement;
 
-      if (candidate.kind === NodeKind.NamespaceStatement) {
+      if (candidate instanceof NamespaceStatement) {
         const namespace = candidate as NamespaceStatement;
         const name = namespace.names?.[0]?.name;
 
@@ -991,7 +975,7 @@ function findQualifiedMemberRangeInStatements(
         continue;
       }
 
-      if (candidate.kind === NodeKind.InterfaceStatement) {
+      if (candidate instanceof InterfaceStatement) {
         const iface = candidate as InterfaceStatement;
         if (iface.name.name !== targetPart) {
           continue;
@@ -1020,7 +1004,7 @@ function findQualifiedMemberRangeInStatements(
         }
       }
 
-      if (candidate.kind === NodeKind.ClassStatement) {
+      if (candidate instanceof ClassStatement) {
         const klass = candidate as ClassStatement;
         if (klass.name.name !== targetPart) {
           continue;
@@ -1035,7 +1019,7 @@ function findQualifiedMemberRangeInStatements(
         }
       }
 
-      if (candidate.kind === NodeKind.TypeAliasStatement) {
+      if (candidate instanceof TypeAliasStatement) {
         const typeAlias = candidate as TypeAliasStatement;
         if (typeAlias.name.name !== targetPart) {
           continue;
@@ -1078,11 +1062,11 @@ function findMemberRangeInStatements(
   for (const candidateTypeName of candidateTypeNames(typeName)) {
     for (const stmt of statements) {
       const candidate =
-        stmt.kind === NodeKind.ExportStatement
+        stmt instanceof ExportStatement
           ? (stmt as { declaration?: Statement }).declaration ?? stmt
           : stmt;
 
-      if (candidate.kind === NodeKind.NamespaceStatement) {
+      if (candidate instanceof NamespaceStatement) {
         const ns = candidate as NamespaceStatement;
         const name = ns.names?.[0]?.name;
         if (name === candidateTypeName) {
@@ -1103,7 +1087,7 @@ function findMemberRangeInStatements(
         }
       }
 
-      if (candidate.kind === NodeKind.InterfaceStatement) {
+      if (candidate instanceof InterfaceStatement) {
         const iface = candidate as InterfaceStatement;
         if (iface.name.name === candidateTypeName) {
           if (visitedTypeNames.has(candidateTypeName)) {
@@ -1133,7 +1117,7 @@ function findMemberRangeInStatements(
         }
       }
 
-      if (candidate.kind === NodeKind.ClassStatement) {
+      if (candidate instanceof ClassStatement) {
         const klass = candidate as ClassStatement;
         if (klass.name.name === candidateTypeName) {
           if (visitedTypeNames.has(candidateTypeName)) {
@@ -1175,7 +1159,7 @@ function findMemberRangeInStatements(
         }
       }
 
-      if (candidate.kind === NodeKind.TypeAliasStatement) {
+      if (candidate instanceof TypeAliasStatement) {
         const typeAlias = candidate as TypeAliasStatement;
         if (typeAlias.name.name !== candidateTypeName) {
           continue;
@@ -1239,23 +1223,23 @@ function findMemberInNamespaceBody(
 ): Range | null {
   for (const child of body) {
     const decl =
-      child.kind === NodeKind.ExportStatement
+      child instanceof ExportStatement
         ? (child as { declaration?: Statement }).declaration ?? child
         : child;
 
-    if (decl.kind === NodeKind.FunctionStatement) {
+    if (decl instanceof FunctionStatement) {
       const fn = decl as FunctionStatement;
       if (fn.name?.name === memberName) {
         const range = nodeRange(fn.name);
         if (range) return range;
       }
-    } else if (decl.kind === NodeKind.InterfaceStatement) {
+    } else if (decl instanceof InterfaceStatement) {
       const iface = decl as InterfaceStatement;
       if (iface.name.name === memberName) {
         const range = nodeRange(iface.name);
         if (range) return range;
       }
-    } else if (decl.kind === NodeKind.NamespaceStatement) {
+    } else if (decl instanceof NamespaceStatement) {
       const ns = decl as NamespaceStatement;
       const name = ns.names?.[0]?.name;
       if (name === memberName) {
@@ -1301,7 +1285,7 @@ function declarationNameRange(declaration: Statement): Range | null {
 
 function topLevelBindingRangeFromStatement(statement: Statement, bindingName: string): Range | null {
   const declaration =
-    statement.kind === NodeKind.ExportStatement
+    statement instanceof ExportStatement
       ? (statement as { declaration?: Statement }).declaration ?? statement
       : statement;
 
@@ -1365,7 +1349,7 @@ function namedExportRangeFromStatement(
   declarationEntries: readonly NodeModuleDeclarationEntry[],
   typingsPath: string
 ): Range | null {
-  if (statement.kind === NodeKind.ExportStatement) {
+  if (statement instanceof ExportStatement) {
     const exportStatement = statement as ExportStatement;
     if (exportName === "default" && exportStatement.isDefault && exportStatement.declaration) {
       return declarationNameRange(exportStatement.declaration);

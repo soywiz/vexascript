@@ -1,4 +1,5 @@
-import { NodeKind } from "compiler/ast/ast";
+import { ExportStatement, FunctionStatement, ImportStatement, VarStatement } from "compiler/ast/ast";
+import type { Program, Statement } from "compiler/ast/ast";
 import { buildExtensionAutoImportSuggestions } from "./importFixes";
 import { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
@@ -8,14 +9,7 @@ import {
   resolveInterfaceStatementAcrossFiles,
   type ClassResolverCache
 } from "./classResolver";
-import type {
-  ExportStatement,
-  FunctionStatement,
-  ImportStatement,
-  Program,
-  Statement,
-  VarStatement
-} from "compiler/ast/ast";
+
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { fileURLToPath } from "compiler/utils/path";
 import type { CompletionItem } from "vscode-languageserver/node.js";
@@ -124,13 +118,13 @@ export async function collectAvailableExtensionMembers(
     statementAnalysis: Analysis | null,
     visibleImportedNames?: ReadonlySet<string>
   ): Promise<void> => {
-    const candidate = statement.kind === NodeKind.ExportStatement
+    const candidate = statement instanceof ExportStatement
       ? (statement as ExportStatement).declaration
       : statement;
     if (!candidate) {
       return;
     }
-    if (candidate.kind === NodeKind.VarStatement) {
+    if (candidate instanceof VarStatement) {
       const variable = candidate as VarStatement;
       const receiverType = variable.receiverType?.name;
       if (!receiverType || !(await extensionReceiverMatchesResolvedType(ast, receiverType, objectTypeName, options, resolverCache))) {
@@ -153,7 +147,7 @@ export async function collectAvailableExtensionMembers(
       }
       return;
     }
-    if (candidate.kind === NodeKind.FunctionStatement) {
+    if (candidate instanceof FunctionStatement) {
       const fn = candidate as FunctionStatement;
       const receiverType = fn.receiverType?.name;
       if (
@@ -181,7 +175,7 @@ export async function collectAvailableExtensionMembers(
 
   for (const statement of ast.body) {
     await maybePushStatement(statement, analysis);
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -195,7 +189,7 @@ export async function collectAvailableExtensionMembers(
   }
 
   for (const statement of ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;

@@ -1,21 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type {
-  ClassStatement,
-  EnumStatement,
-  ExportStatement,
-  FunctionParameter,
-  FunctionStatement,
-  Identifier,
-  ImportStatement,
-  InterfaceMember,
-  InterfaceMethodMember,
-  InterfaceStatement,
-  NamespaceStatement,
-  Program,
-  Statement,
-  TypeAliasStatement,
-  VarStatement
-} from "compiler/ast/ast";
+import { ClassMethodMember, ClassStatement, EnumStatement, ExportStatement, FunctionStatement, Identifier, ImportStatement, InterfaceMethodMember, InterfaceStatement, NamespaceStatement, NodeKind, TypeAliasStatement, VarStatement } from "compiler/ast/ast";
+import type { FunctionParameter, InterfaceMember, Program, Statement } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
@@ -189,7 +174,7 @@ function getNodeModuleDeclarationIndex(declarations: readonly Statement[]): Node
       }
     }
 
-    if (declaration.kind === NodeKind.ExportStatement) {
+    if (declaration instanceof ExportStatement) {
       const exportStatement = declaration as { specifiers?: Array<{ exported: Identifier; local?: Identifier }> };
       for (const specifier of exportStatement.specifiers ?? []) {
         const existing = localExportBindingNamesByExportedName.get(specifier.exported.name) ?? [];
@@ -562,20 +547,20 @@ function resolveNodeModuleTypeQueryReference(
     for (const candidate of candidates) {
       const declaration = unwrapExportedDeclaration(candidate);
       let resolved: AnalysisType | null = null;
-      if (declaration?.kind === NodeKind.FunctionStatement) {
+      if (declaration instanceof FunctionStatement) {
         resolved = buildFunctionTypeFromStatement(
           declaration as FunctionStatement,
           declarations,
           resolvingImportTypes
         );
-      } else if (declaration?.kind === NodeKind.VarStatement) {
+      } else if (declaration instanceof VarStatement) {
         const variable = declaration as VarStatement;
         resolved = typeFromAnnotationText(
           variable.declarations?.[0]?.typeAnnotation?.name ?? variable.typeAnnotation?.name,
           declarations,
           resolvingImportTypes
         );
-      } else if (declaration?.kind === NodeKind.ClassStatement) {
+      } else if (declaration instanceof ClassStatement) {
         resolved = namedType((declaration as ClassStatement).name.name);
       }
       if (!resolved) {
@@ -608,7 +593,7 @@ function externalFunctionOverloads(
       }
       seenStatements.add(statement);
       const declaration = unwrapExportedDeclaration(statement);
-      if (declaration?.kind !== NodeKind.FunctionStatement) {
+      if (!(declaration instanceof FunctionStatement)) {
         continue;
       }
       const fn = declaration as FunctionStatement;
@@ -688,27 +673,27 @@ function resolveNodeModuleNamedImportType(
       }
       seenStatements.add(statement);
       const declaration = unwrapExportedDeclaration(statement) ?? statement;
-      if (declaration.kind === NodeKind.ClassStatement) {
+      if (declaration instanceof ClassStatement) {
         const resolved = namedType(importedName);
         resolutionCache.namedImportTypes.set(importedName, resolved);
         return resolved;
       }
-      if (declaration.kind === NodeKind.InterfaceStatement) {
+      if (declaration instanceof InterfaceStatement) {
         const resolved = namedType(importedName);
         resolutionCache.namedImportTypes.set(importedName, resolved);
         return resolved;
       }
-      if (declaration.kind === NodeKind.EnumStatement) {
+      if (declaration instanceof EnumStatement) {
         const resolved = namedType(importedName);
         resolutionCache.namedImportTypes.set(importedName, resolved);
         return resolved;
       }
-      if (declaration.kind === NodeKind.TypeAliasStatement) {
+      if (declaration instanceof TypeAliasStatement) {
         const resolved = namedType(importedName);
         resolutionCache.namedImportTypes.set(importedName, resolved);
         return resolved;
       }
-      if (declaration.kind === NodeKind.NamespaceStatement) {
+      if (declaration instanceof NamespaceStatement) {
         const namespaceName = (declaration as NamespaceStatement).names?.[0]?.name;
         if (namespaceName === candidateName) {
           const resolved = nodeModuleNamespaceStatementType(declaration as NamespaceStatement);
@@ -716,9 +701,9 @@ function resolveNodeModuleNamedImportType(
           return resolved;
         }
       }
-      if (declaration.kind === NodeKind.VarStatement) {
+      if (declaration instanceof VarStatement) {
         const varStatement = declaration as VarStatement;
-        if (varStatement.name.kind === NodeKind.Identifier) {
+        if (varStatement.name instanceof Identifier) {
           const resolved = typeFromAnnotationText(varStatement.typeAnnotation?.name, declarations, resolvingImportTypes);
           resolutionCache.namedImportTypes.set(importedName, resolved);
           return resolved;
@@ -729,10 +714,10 @@ function resolveNodeModuleNamedImportType(
 
   for (const statement of declarations) {
     const importStatement = (
-      statement.kind === NodeKind.ImportStatement
+      statement instanceof ImportStatement
         ? statement
-        : statement.kind === NodeKind.ExportStatement && (statement as { declaration?: Statement }).declaration?.kind === NodeKind.ImportStatement
-          ? (statement as { declaration?: ImportStatement }).declaration!
+        : statement instanceof ExportStatement && statement.declaration instanceof ImportStatement
+          ? statement.declaration
           : null
     ) as ImportStatement | null;
     if (!importStatement) {
@@ -778,7 +763,7 @@ function mapFunctionParameters(
       const isRest = parameter.rest === true;
       const type = isRest && rawType instanceof ArrayType ? (rawType as ArrayType).elementType : rawType;
       return {
-        name: parameter.name.kind === NodeKind.Identifier ? (parameter.name as Identifier).name : "arg",
+        name: parameter.name instanceof Identifier ? (parameter.name as Identifier).name : "arg",
         type,
         optional: parameter.optional === true || parameter.defaultValue !== undefined || isRest,
         rest: isRest
@@ -1513,7 +1498,7 @@ function ambientConstructSignatureForUtility(
     }
     const constructorMember = classStatement.members.find(
       (member): member is ClassStatement["members"][number] & { kind: NodeKind.ClassMethodMember } =>
-        member.kind === NodeKind.ClassMethodMember && member.name.name === "constructor"
+        member instanceof ClassMethodMember && member.name.name === "constructor"
     );
     const parameters = constructorMember
       ? constructorMember.parameters
@@ -1541,7 +1526,7 @@ function ambientConstructSignatureForUtility(
         );
         const isRest = parameter.rest === true;
         return {
-          name: parameter.name.kind === NodeKind.Identifier ? parameter.name.name : "arg",
+          name: parameter.name instanceof Identifier ? parameter.name.name : "arg",
           type: isRest && rawType instanceof ArrayType ? (rawType as ArrayType).elementType : rawType,
           optional: parameter.optional === true || isRest,
           rest: isRest
@@ -1580,7 +1565,7 @@ function findAmbientClassStatement(
 ): ClassStatement | null {
   for (const statement of declarations) {
     const declaration = unwrapExportedDeclaration(statement) ?? statement;
-    if (declaration.kind === NodeKind.ClassStatement && (declaration as ClassStatement).name.name === name) {
+    if (declaration instanceof ClassStatement && (declaration as ClassStatement).name.name === name) {
       return declaration as ClassStatement;
     }
   }
@@ -1594,9 +1579,9 @@ function hasAmbientNamedTypeDeclaration(
   for (const statement of declarations) {
     const declaration = unwrapExportedDeclaration(statement) ?? statement;
     if (
-      (declaration.kind === NodeKind.ClassStatement ||
-        declaration.kind === NodeKind.InterfaceStatement ||
-        declaration.kind === NodeKind.EnumStatement) &&
+      (declaration instanceof ClassStatement ||
+        declaration instanceof InterfaceStatement ||
+        declaration instanceof EnumStatement) &&
       (declaration as { name?: { name?: string } }).name?.name === typeName
     ) {
       return true;
@@ -2379,7 +2364,7 @@ function typeFromAmbientInterfaceMember(
   ambientGlobalDeclarations: readonly Statement[],
   visited: Set<string>
 ): AnalysisType {
-  if (member.kind === NodeKind.InterfaceMethodMember) {
+  if (member instanceof InterfaceMethodMember) {
     return buildAmbientFunctionTypeFromInterfaceMember(
       member as InterfaceMethodMember,
       declarations,
@@ -2401,26 +2386,26 @@ function extractDirectTypeForName(stmts: Statement[], symbolName: string): Analy
   for (const stmt of stmts) {
     const decl = unwrapExportedDeclaration(stmt) ?? stmt;
 
-    if (decl.kind === NodeKind.FunctionStatement) {
+    if (decl instanceof FunctionStatement) {
       const fn = decl as FunctionStatement;
       if (fn.name?.name === symbolName) {
         return buildFunctionTypeFromStatement(fn);
       }
     }
 
-    if (decl.kind === NodeKind.VarStatement) {
+    if (decl instanceof VarStatement) {
       const v = decl as VarStatement;
-      const varName = v.name?.kind === NodeKind.Identifier ? (v.name as Identifier).name : null;
+      const varName = v.name instanceof Identifier ? (v.name as Identifier).name : null;
       if (varName === symbolName && (v as { typeAnnotation?: { name?: string } }).typeAnnotation?.name) {
         return typeFromAnnotationText((v as { typeAnnotation?: { name?: string } }).typeAnnotation?.name);
       }
     }
 
     if (
-      decl.kind === NodeKind.ClassStatement ||
-      decl.kind === NodeKind.InterfaceStatement ||
-      decl.kind === NodeKind.EnumStatement ||
-      decl.kind === NodeKind.TypeAliasStatement
+      decl instanceof ClassStatement ||
+      decl instanceof InterfaceStatement ||
+      decl instanceof EnumStatement ||
+      decl instanceof TypeAliasStatement
     ) {
       const named = decl as unknown as { name: { name: string } };
       if (named.name?.name === symbolName) {
@@ -2440,7 +2425,7 @@ function collectAmbientNamespaceExportedProperties(
   for (const statement of statements) {
     const declaration = unwrapExportedDeclaration(statement) ?? statement;
 
-    if (statement.kind === NodeKind.ExportStatement) {
+    if (statement instanceof ExportStatement) {
       const exportStatement = statement as ExportStatement;
       for (const specifier of exportStatement.specifiers ?? []) {
         const localName = specifier.local?.name ?? specifier.exported.name;
@@ -2454,7 +2439,7 @@ function collectAmbientNamespaceExportedProperties(
       }
     }
 
-    if (declaration.kind === NodeKind.FunctionStatement) {
+    if (declaration instanceof FunctionStatement) {
       const fn = declaration as FunctionStatement;
       properties[fn.name.name] = buildAmbientFunctionTypeFromStatement(
         fn,
@@ -2464,7 +2449,7 @@ function collectAmbientNamespaceExportedProperties(
       );
       continue;
     }
-    if (declaration.kind === NodeKind.VarStatement) {
+    if (declaration instanceof VarStatement) {
       const variable = declaration as VarStatement;
       const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
       for (const binding of bindings) {
@@ -2477,19 +2462,19 @@ function collectAmbientNamespaceExportedProperties(
       }
       continue;
     }
-    if (declaration.kind === NodeKind.ClassStatement) {
+    if (declaration instanceof ClassStatement) {
       properties[(declaration as ClassStatement).name.name] = namedType((declaration as ClassStatement).name.name);
       continue;
     }
-    if (declaration.kind === NodeKind.InterfaceStatement) {
+    if (declaration instanceof InterfaceStatement) {
       properties[(declaration as InterfaceStatement).name.name] = namedType((declaration as InterfaceStatement).name.name);
       continue;
     }
-    if (declaration.kind === NodeKind.TypeAliasStatement) {
+    if (declaration instanceof TypeAliasStatement) {
       properties[(declaration as TypeAliasStatement).name.name] = namedType((declaration as TypeAliasStatement).name.name);
       continue;
     }
-    if (declaration.kind === NodeKind.NamespaceStatement) {
+    if (declaration instanceof NamespaceStatement) {
       const namespaceName = (declaration as NamespaceStatement).names?.[0]?.name;
       if (namespaceName) {
         properties[namespaceName] = namedType(namespaceName);
@@ -2515,7 +2500,7 @@ function collectNodeModuleNamespaceExportedProperties(
   for (const statement of statements) {
     const declaration = unwrapExportedDeclaration(statement) ?? statement;
 
-    if (statement.kind === NodeKind.ExportStatement) {
+    if (statement instanceof ExportStatement) {
       const exportStatement = statement as ExportStatement;
       for (const specifier of exportStatement.specifiers ?? []) {
         const localName = specifier.local?.name ?? specifier.exported.name;
@@ -2529,14 +2514,14 @@ function collectNodeModuleNamespaceExportedProperties(
       }
     }
 
-    if (declaration.kind === NodeKind.FunctionStatement) {
+    if (declaration instanceof FunctionStatement) {
       const fn = declaration as FunctionStatement;
       const overloads = functionOverloads.get(fn.name.name) ?? [];
       overloads.push(buildFunctionTypeFromStatement(fn) as FunctionType);
       functionOverloads.set(fn.name.name, overloads);
       continue;
     }
-    if (declaration.kind === NodeKind.VarStatement) {
+    if (declaration instanceof VarStatement) {
       const variable = declaration as VarStatement;
       const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
       for (const binding of bindings) {
@@ -2544,23 +2529,23 @@ function collectNodeModuleNamespaceExportedProperties(
       }
       continue;
     }
-    if (declaration.kind === NodeKind.ClassStatement) {
+    if (declaration instanceof ClassStatement) {
       properties[(declaration as ClassStatement).name.name] = namedType((declaration as ClassStatement).name.name);
       continue;
     }
-    if (declaration.kind === NodeKind.InterfaceStatement) {
+    if (declaration instanceof InterfaceStatement) {
       properties[(declaration as InterfaceStatement).name.name] = namedType((declaration as InterfaceStatement).name.name);
       continue;
     }
-    if (declaration.kind === NodeKind.EnumStatement) {
+    if (declaration instanceof EnumStatement) {
       properties[(declaration as EnumStatement).name.name] = namedType((declaration as EnumStatement).name.name);
       continue;
     }
-    if (declaration.kind === NodeKind.TypeAliasStatement) {
+    if (declaration instanceof TypeAliasStatement) {
       properties[(declaration as TypeAliasStatement).name.name] = namedType((declaration as TypeAliasStatement).name.name);
       continue;
     }
-    if (declaration.kind === NodeKind.NamespaceStatement) {
+    if (declaration instanceof NamespaceStatement) {
       const namespace = declaration as NamespaceStatement;
       const namespaceName = namespace.names?.[0]?.name;
       if (namespaceName) {
@@ -2626,11 +2611,11 @@ function resolveAmbientDefaultImportType(
     const exportEqualsName = detectAmbientExportEqualsName(decls);
 
     for (const statement of decls) {
-      if (statement.kind !== NodeKind.ExportStatement || !(statement as ExportStatement).isDefault) {
+      if (!(statement instanceof ExportStatement) || !(statement as ExportStatement).isDefault) {
         continue;
       }
       const declaration = (statement as ExportStatement).declaration;
-      if (declaration?.kind === NodeKind.FunctionStatement) {
+      if (declaration instanceof FunctionStatement) {
         const resolved = buildAmbientFunctionTypeFromStatement(
           declaration as FunctionStatement,
           decls,
@@ -2679,11 +2664,11 @@ function resolveAmbientDefaultImportType(
     }
 
     for (const statement of decls) {
-      if (statement.kind !== NodeKind.VarStatement) {
+      if (!(statement instanceof VarStatement)) {
         continue;
       }
       const variable = statement as VarStatement;
-      const varName = variable.name?.kind === NodeKind.Identifier ? (variable.name as Identifier).name : null;
+      const varName = variable.name instanceof Identifier ? (variable.name as Identifier).name : null;
       if (varName !== exportEqualsName) {
         continue;
       }
@@ -2729,9 +2714,9 @@ function* ambientExportEqualsInterfaceMembers(
   symbolName: string
 ): Generator<{ member: InterfaceMember; searchNsBody: readonly Statement[] }> {
   for (const statement of decls) {
-    if (statement.kind !== NodeKind.VarStatement) continue;
+    if (!(statement instanceof VarStatement)) continue;
     const variable = statement as VarStatement;
-    const varName = variable.name?.kind === NodeKind.Identifier ? (variable.name as Identifier).name : null;
+    const varName = variable.name instanceof Identifier ? (variable.name as Identifier).name : null;
     const typeName = variable.typeAnnotation?.name;
     if (varName !== exportEqualsName || !typeName) continue;
 
@@ -2744,7 +2729,7 @@ function* ambientExportEqualsInterfaceMembers(
 
     for (const nsStatement of searchNsBody) {
       const declaration = unwrapExportedDeclaration(nsStatement) ?? nsStatement;
-      if (declaration.kind !== NodeKind.InterfaceStatement) continue;
+      if (!(declaration instanceof InterfaceStatement)) continue;
       const iface = declaration as InterfaceStatement;
       if (iface.name?.name !== ifaceName) continue;
       for (const member of iface.members ?? []) {
@@ -2769,13 +2754,13 @@ function* ambientDirectExportMatches(
 ): Generator<{ kind: "function"; fn: FunctionStatement } | { kind: "var"; variable: VarStatement }> {
   for (const statement of decls) {
     const declaration = unwrapExportedDeclaration(statement) ?? statement;
-    if (declaration.kind === NodeKind.FunctionStatement && (declaration as FunctionStatement).name?.name === symbolName) {
+    if (declaration instanceof FunctionStatement && (declaration as FunctionStatement).name?.name === symbolName) {
       yield { kind: "function", fn: declaration as FunctionStatement };
       continue;
     }
-    if (declaration.kind === NodeKind.VarStatement) {
+    if (declaration instanceof VarStatement) {
       const variable = declaration as VarStatement;
-      const varName = variable.name?.kind === NodeKind.Identifier ? (variable.name as Identifier).name : null;
+      const varName = variable.name instanceof Identifier ? (variable.name as Identifier).name : null;
       if (varName === symbolName) {
         yield { kind: "var", variable };
       }
@@ -2932,7 +2917,7 @@ function resolveAmbientNamedImportDisplayType(
     if (nsBody) {
       for (const statement of nsBody) {
         const declaration = unwrapExportedDeclaration(statement) ?? statement;
-        if (declaration.kind === NodeKind.FunctionStatement && (declaration as FunctionStatement).name?.name === symbolName) {
+        if (declaration instanceof FunctionStatement && (declaration as FunctionStatement).name?.name === symbolName) {
           return renderAmbientFunctionDisplayFromStatement(declaration as FunctionStatement);
         }
       }
@@ -3017,13 +3002,13 @@ async function resolveImportTargetInContext(
 }
 
 function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
-  if (statement.kind === NodeKind.VarStatement) {
+  if (statement instanceof VarStatement) {
     const varStatement = statement as VarStatement;
     if (varStatement.receiverType) {
       return varStatement;
     }
   }
-  if (statement.kind === NodeKind.FunctionStatement) {
+  if (statement instanceof FunctionStatement) {
     const functionStatement = statement as FunctionStatement;
     if (functionStatement.receiverType) {
       return functionStatement;
@@ -3036,7 +3021,7 @@ function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
   if (TYPE_DECLARATION_KINDS.has(candidate.kind)) {
     return candidate as NamedTypeDeclaration;
   }
-  if (candidate.kind === NodeKind.VarStatement) {
+  if (candidate instanceof VarStatement) {
     const varStatement = candidate as VarStatement;
     if (varStatement.receiverType) {
       return varStatement;
@@ -3045,7 +3030,7 @@ function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
   // Extension members can be imported from .vx modules without an explicit
   // export so their runtime side effects and type information are available
   // cross-file.
-  if (candidate.kind === NodeKind.FunctionStatement) {
+  if (candidate instanceof FunctionStatement) {
     const functionStatement = candidate as FunctionStatement;
     if (functionStatement.receiverType) {
       return functionStatement;
@@ -3087,7 +3072,7 @@ function importableDeclarationName(statement: Statement): string | null {
     if (name) {
       return name;
     }
-    if (rawDeclaration.kind === NodeKind.VarStatement && (rawDeclaration as VarStatement).name.kind === NodeKind.Identifier) {
+    if (rawDeclaration instanceof VarStatement && (rawDeclaration as VarStatement).name instanceof Identifier) {
       return ((rawDeclaration as VarStatement).name as Identifier).name;
     }
     return null;
@@ -3096,7 +3081,7 @@ function importableDeclarationName(statement: Statement): string | null {
   if (name) {
     return name;
   }
-  if (declaration.kind === NodeKind.VarStatement && declaration.name.kind === NodeKind.Identifier) {
+  if (declaration instanceof VarStatement && declaration.name instanceof Identifier) {
     return declaration.name.name;
   }
   return null;
@@ -3150,10 +3135,10 @@ function shouldIncludeNodeModuleExternalDeclaration(
   wantedNames: ReadonlySet<string>
 ): boolean {
   const rawDeclaration = unwrapExportedDeclaration(statement) ?? statement;
-  if (rawDeclaration.kind === NodeKind.ImportStatement) {
+  if (rawDeclaration instanceof ImportStatement) {
     return true;
   }
-  if (rawDeclaration.kind === NodeKind.NamespaceStatement) {
+  if (rawDeclaration instanceof NamespaceStatement) {
     return true;
   }
   const declaration = unwrapDeclaration(statement);
@@ -3270,7 +3255,7 @@ function collectTypeQueryDependencyNames(statement: Statement, collected: Set<st
     }
 
     const typeName = (next as { kind?: unknown; name?: unknown }).name;
-    if ((next as { kind?: unknown }).kind === NodeKind.Identifier && typeof typeName === "string") {
+    if ((next as { kind?: unknown }) instanceof Identifier && typeof typeName === "string") {
       collectTypeQueryDependencyNamesFromText(typeName, collected);
     }
 
@@ -3326,7 +3311,7 @@ export async function collectAllImportedDeclarations(
   const seen = new Set<ImportableDeclaration>();
 
   for (const statement of ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -3639,7 +3624,7 @@ export async function collectAllImportedDeclarations(
       for (const specifier of importStatement.specifiers) {
         const localName = (specifier.local ?? specifier.imported).name;
         const declaration = declarationByExportedName.get(specifier.imported.name);
-        const extensionType = declaration?.kind === NodeKind.FunctionStatement && (declaration as FunctionStatement).receiverType
+        const extensionType = declaration instanceof FunctionStatement && (declaration as FunctionStatement).receiverType
           ? targetSession.analysis.getExtensionMethodType(
             (declaration as FunctionStatement).receiverType!.name,
             (declaration as FunctionStatement).name.name

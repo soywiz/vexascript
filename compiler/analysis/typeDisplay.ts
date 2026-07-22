@@ -1,7 +1,8 @@
-import { NodeKind, nodeKindName } from "compiler/ast/ast";
+import { Identifier, nodeKindName } from "compiler/ast/ast";
+import type { Expr } from "compiler/ast/ast";
 import { type AnalysisType, FunctionType, BuiltinType, LiteralType } from "./types";
 import { typeToString } from "./types";
-import type { Expr } from "compiler/ast/ast";
+
 
 export function isNumberLikeType(type: AnalysisType): boolean {
   return (
@@ -34,7 +35,7 @@ export function boxedInterfaceNameForBuiltin(name: string): string | null {
  * visible in the surrounding message).
  */
 export function expressionSnippet(expression: Expr): string | null {
-  if (expression.kind === NodeKind.Identifier) {
+  if (expression instanceof Identifier) {
     return null;
   }
   const first = expression.firstToken?.value;

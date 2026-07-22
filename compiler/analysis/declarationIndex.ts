@@ -1,16 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type {
-  AnnotationStatement,
-  ClassStatement,
-  EnumStatement,
-  ExportStatement,
-  FunctionStatement,
-  InterfaceStatement,
-  NamespaceStatement,
-  Statement,
-  TypeAliasStatement,
-  VarStatement
-} from "compiler/ast/ast";
+import { ExportStatement, NamespaceStatement, NodeKind } from "compiler/ast/ast";
+import type { AnnotationStatement, ClassStatement, EnumStatement, FunctionStatement, InterfaceStatement, Statement, TypeAliasStatement, VarStatement } from "compiler/ast/ast";
+
 
 export interface DeclarationIndex {
   annotations: AnnotationStatement[];
@@ -28,7 +18,7 @@ export interface DeclarationIndex {
 const declarationIndexCache = new WeakMap<object, DeclarationIndex>();
 
 function unwrapExportedDeclaration(statement: Statement): Statement | undefined {
-  return statement.kind === NodeKind.ExportStatement
+  return statement instanceof ExportStatement
     ? (statement as ExportStatement).declaration
     : statement;
 }
@@ -57,7 +47,7 @@ export function declarationIndexForStatements(statements: readonly Statement[]):
     while (pendingItems.length > 0) {
       const statement = pendingItems.pop()!;
       const candidate: Statement | undefined = unwrapExportedDeclaration(statement);
-      if (candidate?.kind !== NodeKind.NamespaceStatement) {
+      if (!(candidate instanceof NamespaceStatement)) {
         continue;
       }
       const namespaceStatement = candidate as NamespaceStatement;

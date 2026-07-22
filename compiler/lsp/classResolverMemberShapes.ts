@@ -1,12 +1,7 @@
-import { NodeKind } from "compiler/ast/ast";
+import { ClassFieldMember, InterfacePropertyMember, ReturnStatement } from "compiler/ast/ast";
+import type { ClassPrimaryConstructorParameter, ClassStatement, FunctionParameter, InterfaceStatement } from "compiler/ast/ast";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
-import type {
-  ClassStatement,
-  ClassPrimaryConstructorParameter,
-  FunctionParameter,
-  InterfaceStatement,
-  ReturnStatement
-} from "compiler/ast/ast";
+
 import { substituteTypeNameText } from "compiler/analysis/typeNames";
 import { readDocumentationInfoFromNamedNode, readDocumentationInfoFromParameterLike } from "./documentation";
 import { formatFunctionTypeLabel } from "./functionTypeDisplay";
@@ -57,7 +52,7 @@ export function resolveClassOwnMember(
     if (member.name.name !== memberName) {
       continue;
     }
-    if (member.kind === NodeKind.ClassFieldMember) {
+    if (member instanceof ClassFieldMember) {
       const inferredTypeName = !member.typeAnnotation && member.initializer && context?.analysis
         ? typeNameFromAnalysisType(context.analysis.getExpressionTypes().get(member.initializer))
         : null;
@@ -74,7 +69,7 @@ export function resolveClassOwnMember(
 
     if (member.accessorKind === "get") {
       const getterStatement = member.body.body[0];
-      const getterExpression = getterStatement?.kind === NodeKind.ReturnStatement
+      const getterExpression = getterStatement instanceof ReturnStatement
         ? (getterStatement as ReturnStatement).expression
         : null;
       const inferredTypeName = !member.returnType && getterExpression && context?.analysis
@@ -144,7 +139,7 @@ export function classOwnMemberKind(
     if (member.name.name !== memberName) {
       continue;
     }
-    return member.kind === NodeKind.ClassFieldMember || member.accessorKind ? "field" : "method";
+    return member instanceof ClassFieldMember || member.accessorKind ? "field" : "method";
   }
   return null;
 }
@@ -168,7 +163,7 @@ export function resolveInterfaceOwnSignatures(
       continue;
     }
 
-    if (member.kind === NodeKind.InterfacePropertyMember) {
+    if (member instanceof InterfacePropertyMember) {
       const documentation = readDocumentationInfoFromNamedNode(member);
       const resolved: ResolvedClassMember = {
         className: interfaceStatement.name.name,

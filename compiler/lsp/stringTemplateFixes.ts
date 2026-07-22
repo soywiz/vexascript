@@ -1,10 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type {
-  BinaryExpression,
-  Expr,
-  Program,
-  StringLiteral
-} from "compiler/ast/ast";
+import { BinaryExpression, StringLiteral } from "compiler/ast/ast";
+import type { Expr, Program } from "compiler/ast/ast";
+
 import { type CodeAction, type Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { nodeRange, type Position } from "./ranges";
@@ -29,7 +25,7 @@ function sourceText(text: string, node: Expr): string | null {
 }
 
 function flattenConcatenation(expression: Expr): Expr[] | null {
-  if (expression.kind !== NodeKind.BinaryExpression) {
+  if (!(expression instanceof BinaryExpression)) {
     return null;
   }
   const binary = expression as BinaryExpression;
@@ -53,7 +49,7 @@ function buildTemplateLiteral(text: string, expression: BinaryExpression): strin
   let result = "`";
 
   for (const segment of segments) {
-    if (segment.kind === NodeKind.StringLiteral) {
+    if (segment instanceof StringLiteral) {
       hasStringLiteral = true;
       result += escapeTemplateText((segment as StringLiteral).value);
       continue;
@@ -76,7 +72,7 @@ function buildTemplateLiteral(text: string, expression: BinaryExpression): strin
 }
 
 function isTemplateConvertibleConcatenation(node: import("compiler/ast/ast").Node): node is BinaryExpression {
-  if (node.kind !== NodeKind.BinaryExpression) {
+  if (!(node instanceof BinaryExpression)) {
     return false;
   }
   const expression = node as BinaryExpression;
@@ -87,8 +83,8 @@ function isTemplateConvertibleConcatenation(node: import("compiler/ast/ast").Nod
   if (!segments || segments.length < 2) {
     return false;
   }
-  const hasStringLiteral = segments.some((segment) => segment.kind === NodeKind.StringLiteral);
-  const hasInterpolation = segments.some((segment) => segment.kind !== NodeKind.StringLiteral);
+  const hasStringLiteral = segments.some((segment) => segment instanceof StringLiteral);
+  const hasInterpolation = segments.some((segment) => !(segment instanceof StringLiteral));
   return hasStringLiteral && hasInterpolation;
 }
 

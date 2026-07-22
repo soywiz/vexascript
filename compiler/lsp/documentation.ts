@@ -1,15 +1,5 @@
-import { NodeKind } from "compiler/ast/ast";
-import {
-  ClassStatement,
-  ExportStatement,
-  FunctionStatement,
-  FunctionParameter,
-  Identifier,
-  InterfaceStatement,
-  NamespaceStatement,
-  Program,
-  Statement
-} from "compiler/ast/ast";
+import { BlockStatement, ClassMethodMember, ClassStatement, ExportStatement, FunctionParameter, FunctionStatement, Identifier, ImportStatement, InterfaceMethodMember, InterfaceStatement, NamespaceStatement, Program, Statement } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { TokenCommentKind, type TokenComment, type SourcePosition, type SourceRange } from "compiler/parser/tokenizer";
 import { nodeBuiltinSpecifierCandidates } from "compiler/moduleResolution";
@@ -112,7 +102,7 @@ export function readDocumentationFromFunctionParameter(parameter: FunctionParame
 }
 
 export function readDocumentationInfoFromFunctionParameter(parameter: FunctionParameter): DocumentationInfo | undefined {
-  if (parameter.name.kind === NodeKind.Identifier) {
+  if (parameter.name instanceof Identifier) {
     return readDocumentationInfoFromNamedNode({
       firstToken: parameter.firstToken,
       name: parameter.name
@@ -132,7 +122,7 @@ export function readDocumentationInfoFromParameterLike(parameter: {
   firstToken?: Identifier["firstToken"];
   name: FunctionParameter["name"] | Identifier;
 }): DocumentationInfo | undefined {
-  if (parameter.name.kind === NodeKind.Identifier) {
+  if (parameter.name instanceof Identifier) {
     return readDocumentationInfoFromNamedNode({
       firstToken: parameter.firstToken,
       name: parameter.name
@@ -184,11 +174,11 @@ function readDocumentationInfoFromStatement(
   statement: Statement,
   identifier: Identifier
 ): DocumentationInfo | undefined {
-  if (statement.kind === NodeKind.FunctionStatement && identifiersMatch((statement as FunctionStatement).name, identifier)) {
+  if (statement instanceof FunctionStatement && identifiersMatch((statement as FunctionStatement).name, identifier)) {
     return readDocumentationInfoFromNodeFirstToken(statement) ?? readDocumentationInfoFromIdentifier((statement as FunctionStatement).name);
   }
 
-  if (statement.kind === NodeKind.ClassStatement) {
+  if (statement instanceof ClassStatement) {
     const classStatement = statement as ClassStatement;
     if (identifiersMatch(classStatement.name, identifier)) {
       return readDocumentationInfoFromNodeFirstToken(classStatement) ?? readDocumentationInfoFromIdentifier(classStatement.name);
@@ -200,7 +190,7 @@ function readDocumentationInfoFromStatement(
     }
   }
 
-  if (statement.kind === NodeKind.InterfaceStatement) {
+  if (statement instanceof InterfaceStatement) {
     const interfaceStatement = statement as InterfaceStatement;
     if (identifiersMatch(interfaceStatement.name, identifier)) {
       return readDocumentationInfoFromNodeFirstToken(interfaceStatement) ?? readDocumentationInfoFromIdentifier(interfaceStatement.name);
@@ -212,9 +202,9 @@ function readDocumentationInfoFromStatement(
     }
   }
 
-  if (statement.kind === NodeKind.NamespaceStatement) {
+  if (statement instanceof NamespaceStatement) {
     const namespaceStatement = statement as NamespaceStatement;
-    if (namespaceStatement.body.kind === NodeKind.BlockStatement) {
+    if (namespaceStatement.body instanceof BlockStatement) {
       for (const child of namespaceStatement.body.body) {
         const documentation = readDocumentationInfoFromStatement(child, identifier);
         if (documentation) {
@@ -226,7 +216,7 @@ function readDocumentationInfoFromStatement(
     return readDocumentationInfoFromStatement(namespaceStatement.body, identifier);
   }
 
-  if (statement.kind === NodeKind.ExportStatement) {
+  if (statement instanceof ExportStatement) {
     const exported = statement as ExportStatement;
     if (exported.declaration) {
       const declarationDocumentation = readDocumentationInfoFromStatement(exported.declaration, identifier);
@@ -234,21 +224,21 @@ function readDocumentationInfoFromStatement(
         return declarationDocumentation;
       }
 
-      if (exported.declaration.kind === NodeKind.FunctionStatement) {
+      if (exported.declaration instanceof FunctionStatement) {
         const functionStatement = exported.declaration as FunctionStatement;
         if (identifiersMatch(functionStatement.name, identifier)) {
           return readDocumentationInfoFromNodeFirstToken(exported);
         }
       }
 
-      if (exported.declaration.kind === NodeKind.ClassStatement) {
+      if (exported.declaration instanceof ClassStatement) {
         const classStatement = exported.declaration as ClassStatement;
         if (identifiersMatch(classStatement.name, identifier)) {
           return readDocumentationInfoFromNodeFirstToken(exported);
         }
       }
 
-      if (exported.declaration.kind === NodeKind.InterfaceStatement) {
+      if (exported.declaration instanceof InterfaceStatement) {
         const interfaceStatement = exported.declaration as InterfaceStatement;
         if (identifiersMatch(interfaceStatement.name, identifier)) {
           return readDocumentationInfoFromNodeFirstToken(exported);
@@ -286,7 +276,7 @@ function importedDocumentationCandidates(
 ): { importPath: string; importedName: string }[] {
   const matches: { importPath: string; importedName: string }[] = [];
   for (const statement of program.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as Statement & {
@@ -510,14 +500,14 @@ function findParameterReferenceInStatement(
   line: number,
   character: number
 ): DocumentationParameterReference | null {
-  if (statement.kind === NodeKind.FunctionStatement) {
+  if (statement instanceof FunctionStatement) {
     return findParameterReferenceInComments(statement.firstToken?.leadingComments, (statement as FunctionStatement).parameters, line, character);
   }
 
-  if (statement.kind === NodeKind.ClassStatement) {
+  if (statement instanceof ClassStatement) {
     const classStatement = statement as ClassStatement;
     for (const member of classStatement.members) {
-      if (member.kind !== NodeKind.ClassMethodMember) {
+      if (!(member instanceof ClassMethodMember)) {
         continue;
       }
       const reference = findParameterReferenceInComments(member.firstToken?.leadingComments, member.parameters, line, character);
@@ -527,10 +517,10 @@ function findParameterReferenceInStatement(
     }
   }
 
-  if (statement.kind === NodeKind.InterfaceStatement) {
+  if (statement instanceof InterfaceStatement) {
     const interfaceStatement = statement as InterfaceStatement;
     for (const member of interfaceStatement.members) {
-      if (member.kind !== NodeKind.InterfaceMethodMember) {
+      if (!(member instanceof InterfaceMethodMember)) {
         continue;
       }
       const reference = findParameterReferenceInComments(member.firstToken?.leadingComments, member.parameters, line, character);
@@ -540,9 +530,9 @@ function findParameterReferenceInStatement(
     }
   }
 
-  if (statement.kind === NodeKind.NamespaceStatement) {
+  if (statement instanceof NamespaceStatement) {
     const namespaceStatement = statement as NamespaceStatement;
-    if (namespaceStatement.body.kind === NodeKind.BlockStatement) {
+    if (namespaceStatement.body instanceof BlockStatement) {
       for (const child of namespaceStatement.body.body) {
         const reference = findParameterReferenceInStatement(child, line, character);
         if (reference) {
@@ -554,7 +544,7 @@ function findParameterReferenceInStatement(
     return findParameterReferenceInStatement(namespaceStatement.body, line, character);
   }
 
-  if (statement.kind === NodeKind.ExportStatement) {
+  if (statement instanceof ExportStatement) {
     const exported = statement as ExportStatement;
     if (exported.declaration) {
       return findParameterReferenceInStatement(exported.declaration, line, character);
@@ -568,7 +558,7 @@ function findParameterDocumentationContextInStatement(
   statement: Statement,
   identifier: Identifier
 ): ParameterDocumentationContext | null {
-  if (statement.kind === NodeKind.FunctionStatement) {
+  if (statement instanceof FunctionStatement) {
     for (const parameter of (statement as FunctionStatement).parameters) {
       const matchingIdentifier = parameterIdentifierMatches(parameter, identifier);
       if (matchingIdentifier) {
@@ -582,10 +572,10 @@ function findParameterDocumentationContextInStatement(
     return null;
   }
 
-  if (statement.kind === NodeKind.ClassStatement) {
+  if (statement instanceof ClassStatement) {
     const classStatement = statement as ClassStatement;
     for (const member of classStatement.members) {
-      if (member.kind !== NodeKind.ClassMethodMember) {
+      if (!(member instanceof ClassMethodMember)) {
         continue;
       }
       for (const parameter of member.parameters) {
@@ -602,10 +592,10 @@ function findParameterDocumentationContextInStatement(
     return null;
   }
 
-  if (statement.kind === NodeKind.InterfaceStatement) {
+  if (statement instanceof InterfaceStatement) {
     const interfaceStatement = statement as InterfaceStatement;
     for (const member of interfaceStatement.members) {
-      if (member.kind !== NodeKind.InterfaceMethodMember) {
+      if (!(member instanceof InterfaceMethodMember)) {
         continue;
       }
       for (const parameter of member.parameters) {
@@ -622,9 +612,9 @@ function findParameterDocumentationContextInStatement(
     return null;
   }
 
-  if (statement.kind === NodeKind.NamespaceStatement) {
+  if (statement instanceof NamespaceStatement) {
     const namespaceStatement = statement as NamespaceStatement;
-    if (namespaceStatement.body.kind === NodeKind.BlockStatement) {
+    if (namespaceStatement.body instanceof BlockStatement) {
       for (const child of namespaceStatement.body.body) {
         const context = findParameterDocumentationContextInStatement(child, identifier);
         if (context) {
@@ -636,7 +626,7 @@ function findParameterDocumentationContextInStatement(
     return findParameterDocumentationContextInStatement(namespaceStatement.body, identifier);
   }
 
-  if (statement.kind === NodeKind.ExportStatement) {
+  if (statement instanceof ExportStatement) {
     const exported = statement as ExportStatement;
     if (exported.declaration) {
       return findParameterDocumentationContextInStatement(exported.declaration, identifier);

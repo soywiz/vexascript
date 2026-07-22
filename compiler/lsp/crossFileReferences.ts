@@ -1,6 +1,6 @@
 import { NamedType, ArrayType } from "../analysis/types";
-import { NodeKind } from "compiler/ast/ast";
-import type { Identifier } from "compiler/ast/ast";
+import { Identifier } from "compiler/ast/ast";
+
 import type { Location } from "vscode-languageserver/node.js";
 import { resolve } from "compiler/utils/path";
 import type { ResolveContext } from "./crossFileContext";
@@ -60,7 +60,7 @@ export async function resolveMemberReferencesAcrossFiles(
 
     const expressionTypes = session.analysis.getExpressionTypes();
     for (const member of collectMemberExpressions(session.ast)) {
-      if (member.computed || member.property.kind !== NodeKind.Identifier) {
+      if (member.computed || !(member.property instanceof Identifier)) {
         continue;
       }
       const memberName = (member.property as Identifier).name;

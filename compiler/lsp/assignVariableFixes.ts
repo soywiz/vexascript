@@ -1,12 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type {
-  AssignmentExpression,
-  Expr,
-  ExprStatement,
-  Node,
-  Program,
-  UpdateExpression
-} from "compiler/ast/ast";
+import { AssignmentExpression, ExprStatement, UpdateExpression } from "compiler/ast/ast";
+import type { Expr, Node, Program } from "compiler/ast/ast";
+
 import type { CodeAction } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findNodeAtPosition } from "./nodeSearch";
@@ -29,11 +23,11 @@ function positionToOffset(text: string, position: Position): number {
 }
 
 function isExprStatement(node: Node): node is ExprStatement {
-  return node.kind === NodeKind.ExprStatement;
+  return node instanceof ExprStatement;
 }
 
 function isAssignmentLikeExpression(expression: Expr): expression is AssignmentExpression | UpdateExpression {
-  return expression.kind === NodeKind.AssignmentExpression || expression.kind === NodeKind.UpdateExpression;
+  return expression instanceof AssignmentExpression || expression instanceof UpdateExpression;
 }
 
 export function createAssignVariableCodeActions(params: {

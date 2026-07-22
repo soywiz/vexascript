@@ -1,6 +1,7 @@
-import { NodeKind } from "compiler/ast/ast";
+import { AssignmentExpression, Identifier, UpdateExpression, VarStatement } from "compiler/ast/ast";
+import type { Program } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
-import type { AssignmentExpression, Identifier, Program, UpdateExpression, VarStatement } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { walkAst } from "compiler/ast/traversal";
 import { findNodeAtPosition } from "./nodeSearch";
@@ -63,16 +64,16 @@ function isReassigned(ast: Program, names: Set<string>): boolean {
   let found = false;
   walkAst(ast, (node) => {
     if (found) return false;
-    if (node.kind === NodeKind.AssignmentExpression) {
+    if (node instanceof AssignmentExpression) {
       const left = (node as AssignmentExpression).left;
-      if (left.kind === NodeKind.Identifier && names.has((left as Identifier).name)) {
+      if (left instanceof Identifier && names.has((left as Identifier).name)) {
         found = true;
         return false;
       }
     }
-    if (node.kind === NodeKind.UpdateExpression) {
+    if (node instanceof UpdateExpression) {
       const arg = (node as UpdateExpression).argument;
-      if (arg.kind === NodeKind.Identifier && names.has((arg as Identifier).name)) {
+      if (arg instanceof Identifier && names.has((arg as Identifier).name)) {
         found = true;
         return false;
       }
@@ -90,7 +91,7 @@ export function findDeclarationKeywordReplacementsAtPosition(
   const variableStatement = findNodeAtPosition(
     ast,
     { line, character },
-    (node): node is VarStatement => node.kind === NodeKind.VarStatement
+    (node): node is VarStatement => node instanceof VarStatement
   );
   if (!variableStatement) {
     return [];

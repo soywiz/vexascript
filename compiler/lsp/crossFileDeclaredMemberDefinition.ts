@@ -1,13 +1,8 @@
 import { ArrayType, NamedType, BuiltinType, UnionType, IntersectionType } from "../analysis/types";
-import { NodeKind } from "compiler/ast/ast";
+import { ClassStatement, ImportStatement, InterfaceStatement, NodeKind, TypeAliasStatement } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString, type AnalysisType } from "compiler/analysis/types";
-import type {
-  ClassStatement,
-  ImportStatement,
-  InterfaceStatement,
-  TypeAliasStatement
-} from "compiler/ast/ast";
+
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { Location } from "vscode-languageserver/node.js";
 import {
@@ -82,7 +77,7 @@ async function resolveImportedNodeModuleMemberDefinition(
   }
 
   for (const statement of context.session.ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -149,7 +144,7 @@ async function resolveDeclaredMemberDefinitionForReceiverType(
       analysis: context.session.analysis!,
       cache: resolverCache
     };
-    const fallbackClassResolution = primaryResolution.declaration.kind === NodeKind.ClassStatement
+    const fallbackClassResolution = primaryResolution.declaration instanceof ClassStatement
       ? null
       : await resolveClassStatementAcrossFiles(
         context.session.ast!,
@@ -164,7 +159,7 @@ async function resolveDeclaredMemberDefinitionForReceiverType(
       ).then((resolved) => resolved
         ? { classStatement: resolved.declaration as ClassStatement, filePath: resolved.filePath }
         : null);
-    const fallbackInterfaceResolution = primaryResolution.declaration.kind === NodeKind.InterfaceStatement
+    const fallbackInterfaceResolution = primaryResolution.declaration instanceof InterfaceStatement
       ? null
       : await resolveInterfaceStatementAcrossFiles(
         context.session.ast!,
@@ -179,7 +174,7 @@ async function resolveDeclaredMemberDefinitionForReceiverType(
       ).then((resolved) => resolved
         ? { interfaceStatement: resolved.declaration as InterfaceStatement, filePath: resolved.filePath }
         : null);
-    const classMemberDeclaration = primaryResolution.declaration.kind === NodeKind.ClassStatement
+    const classMemberDeclaration = primaryResolution.declaration instanceof ClassStatement
       ? await resolveClassMemberDeclaration(
         {
           classStatement: primaryResolution.declaration,
@@ -205,7 +200,7 @@ async function resolveDeclaredMemberDefinitionForReceiverType(
       const range = classMemberDeclarationRangeByName(
         classMemberDeclaration.declaration,
         memberName
-      ) ?? (classMemberDeclaration.declaration.kind === NodeKind.InterfaceStatement
+      ) ?? (classMemberDeclaration.declaration instanceof InterfaceStatement
         ? await fallbackInterfaceMemberRangeInFile(
           context,
           memberFilePath,
@@ -221,7 +216,7 @@ async function resolveDeclaredMemberDefinitionForReceiverType(
       }
     }
 
-    const interfaceMemberDeclaration = primaryResolution.declaration.kind === NodeKind.InterfaceStatement
+    const interfaceMemberDeclaration = primaryResolution.declaration instanceof InterfaceStatement
       ? await resolveInterfaceMemberDeclaration(
         {
           interfaceStatement: primaryResolution.declaration,
@@ -324,7 +319,7 @@ export async function resolveDeclaredMemberDefinitionAcrossFiles(
 
   if (structuralMember && context.session.ast) {
     for (const statement of context.session.ast.body) {
-      if (statement.kind !== NodeKind.ImportStatement) {
+      if (!(statement instanceof ImportStatement)) {
         continue;
       }
       const importStatement = statement as ImportStatement;
@@ -342,7 +337,7 @@ export async function resolveDeclaredMemberDefinitionAcrossFiles(
       }
       for (const targetStatement of targetSession.ast.body) {
         const declaration = unwrapExportedDeclaration(targetStatement);
-        if (!declaration || declaration.kind !== NodeKind.TypeAliasStatement) {
+        if (!declaration || !(declaration instanceof TypeAliasStatement)) {
           continue;
         }
         const candidateRange = await fallbackTypeAliasMemberRangeInFile(

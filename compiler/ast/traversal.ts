@@ -1,4 +1,4 @@
-import { NodeKind } from "compiler/ast/ast";
+import { ExportStatement, NodeKind } from "compiler/ast/ast";
 import type {
   AnnotationApplication,
   AnnotationStatement,
@@ -31,7 +31,6 @@ import type {
   EnumStatement,
   EmptyStatement,
   ExportSpecifier,
-  ExportStatement,
   ExprStatement,
   ForStatement,
   FunctionExpression,
@@ -89,7 +88,7 @@ import type {
  * inline declaration.
  */
 export function unwrapExportedDeclaration(statement: Statement): Statement | undefined {
-  return statement.kind === NodeKind.ExportStatement
+  return statement instanceof ExportStatement
     ? (statement as ExportStatement).declaration
     : statement;
 }

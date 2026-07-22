@@ -1,5 +1,5 @@
 import { ArrayType, NamedType, BuiltinType, UnionType, IntersectionType } from "../analysis/types";
-import { NodeKind } from "compiler/ast/ast";
+import { ClassStatement, Identifier } from "compiler/ast/ast";
 export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
 
 /**
@@ -10,9 +10,7 @@ export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
  * crossFileTypeResolution.ts — so each operation here stays focused on
  * orchestrating those helpers into an LSP response.
  */
-import type {
-  Identifier,
-} from "compiler/ast/ast";
+
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type { Hover, Location } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
@@ -334,7 +332,7 @@ async function resolveTypeIdentifierHover(context: ResolveContext): Promise<Hove
       return {
         contents: {
           kind: "plaintext",
-          value: `${typeDefinition.declaration.kind === NodeKind.ClassStatement ? "class" : "interface"} ${typeIdentifier.name}`
+          value: `${typeDefinition.declaration instanceof ClassStatement ? "class" : "interface"} ${typeIdentifier.name}`
         },
         range
       };
@@ -387,7 +385,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     context.line,
     context.character
   );
-  if (!memberExpression || memberExpression.property.kind !== NodeKind.Identifier) {
+  if (!memberExpression || !(memberExpression.property instanceof Identifier)) {
     return null;
   }
 
@@ -406,7 +404,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     return ambientModuleObjectDefinition;
   }
   const nodeModulesModuleObjectDefinition =
-    memberExpression.object.kind === NodeKind.Identifier
+    memberExpression.object instanceof Identifier
       ? await resolveNodeModulesModuleObjectMemberDefinition(
         context,
         (memberExpression.object as Identifier).name,
@@ -417,7 +415,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     return nodeModulesModuleObjectDefinition;
   }
   const receiverSymbol =
-    memberExpression.object.kind === NodeKind.Identifier
+    memberExpression.object instanceof Identifier
       ? context.session.analysis.getSymbolAt(
         memberExpression.object.firstToken?.range.start.line ?? context.line,
         memberExpression.object.firstToken?.range.start.column ?? context.character

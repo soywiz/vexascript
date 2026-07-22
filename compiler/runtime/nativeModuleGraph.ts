@@ -1,26 +1,6 @@
-import {
-  ArrowFunctionExpression,
-  BlockStatement,
-  CatchClause,
-  ClassMethodMember,
-  ClassStatement,
-  ForStatement,
-  FunctionExpression,
-  FunctionStatement,
-  Identifier,
-  MemberExpression,
-  Node,
-  NodeKind,
-  ObjectProperty,
-  Program,
-} from "compiler/ast/ast";
-import type {
-  ExportStatement,
-  FunctionParameter,
-  ImportStatement,
-  Statement,
-  VarStatement,
-} from "compiler/ast/ast";
+import { ArrowFunctionExpression, BlockStatement, CatchClause, ClassMethodMember, ClassStatement, ExportStatement, ExprStatement, ForStatement, FunctionExpression, FunctionStatement, Identifier, ImportStatement, MemberExpression, Node, nodeStartOffset, ObjectProperty, Program, PropertyReferenceExpression, VarStatement } from "compiler/ast/ast";
+import type { FunctionParameter, Statement } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { childNodes, unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { AnalysisProfileEvent } from "compiler/analysis/Analysis";
@@ -46,10 +26,10 @@ function formatNativeParseIssue(filePath: string, issue: ParseIssue): string {
 
 function nativeModuleStatements(program: Program): Statement[] {
   return program.body.flatMap((statement) => {
-    if (statement.kind === NodeKind.ImportStatement) return [];
-    if (statement.kind === NodeKind.ExportStatement) {
+    if (statement instanceof ImportStatement) return [];
+    if (statement instanceof ExportStatement) {
       const exported = statement as ExportStatement;
-      if (exported.isDefault && exported.declaration?.kind === NodeKind.ExprStatement) return [];
+      if (exported.isDefault && exported.declaration instanceof ExprStatement) return [];
     }
     const declaration = unwrapExportedDeclaration(statement);
     return declaration ? [declaration] : [];
@@ -87,11 +67,11 @@ function markNativeSourcePath(node: Node, path: string): void {
 function declarationIdentifiers(statement: Statement): Identifier[] {
   const declaration = unwrapExportedDeclaration(statement);
   if (!declaration) return [];
-  if (declaration.kind === NodeKind.VarStatement) {
+  if (declaration instanceof VarStatement) {
     return bindingIdentifiers((declaration as VarStatement).name);
   }
   const name = (declaration as { name?: Identifier }).name;
-  return name?.kind === NodeKind.Identifier ? [name] : [];
+  return name instanceof Identifier ? [name] : [];
 }
 
 function nativeSymbolName(moduleIndex: number, sourceName: string): string {
@@ -113,40 +93,40 @@ function appendNativeBinding(
       name: identifier.name,
       declaredOffset: declaredOffset >= 0
         ? declaredOffset
-        : identifier.firstToken?.range.start.offset ?? -1,
+        : nodeStartOffset(identifier) ?? -1,
     });
   }
 }
 
 function nativeIsolationBindings(node: Node): NativeShadowBinding[] | undefined {
-  const createsScope = node.kind === NodeKind.FunctionStatement ||
-    node.kind === NodeKind.ArrowFunctionExpression ||
-    node.kind === NodeKind.FunctionExpression ||
-    node.kind === NodeKind.ClassMethodMember ||
-    node.kind === NodeKind.ClassStatement ||
-    node.kind === NodeKind.BlockStatement ||
-    node.kind === NodeKind.ForStatement ||
-    node.kind === NodeKind.CatchClause;
+  const createsScope = node instanceof FunctionStatement ||
+    node instanceof ArrowFunctionExpression ||
+    node instanceof FunctionExpression ||
+    node instanceof ClassMethodMember ||
+    node instanceof ClassStatement ||
+    node instanceof BlockStatement ||
+    node instanceof ForStatement ||
+    node instanceof CatchClause;
   if (!createsScope) return undefined;
   const bindings: NativeShadowBinding[] = [];
   let parameters: FunctionParameter[] | undefined;
-  if (node.kind === NodeKind.FunctionStatement) {
+  if (node instanceof FunctionStatement) {
     parameters = (node as FunctionStatement).parameters;
-  } else if (node.kind === NodeKind.ArrowFunctionExpression) {
+  } else if (node instanceof ArrowFunctionExpression) {
     parameters = (node as ArrowFunctionExpression).parameters;
-  } else if (node.kind === NodeKind.FunctionExpression) {
+  } else if (node instanceof FunctionExpression) {
     parameters = (node as FunctionExpression).parameters;
-  } else if (node.kind === NodeKind.ClassMethodMember) {
+  } else if (node instanceof ClassMethodMember) {
     parameters = (node as ClassMethodMember).parameters;
   }
   if (parameters) {
     for (const parameter of parameters) appendNativeBinding(bindings, parameter.name, -1);
   }
-  if (node.kind === NodeKind.FunctionExpression) {
+  if (node instanceof FunctionExpression) {
     const name = (node as FunctionExpression).name;
     if (name) bindings.push({ name: name.name, declaredOffset: -1 });
   }
-  if (node.kind === NodeKind.ClassStatement) {
+  if (node instanceof ClassStatement) {
     const classStatement = node as ClassStatement;
     for (const member of classStatement.members) {
       bindings.push({ name: member.name.name, declaredOffset: -1 });
@@ -155,18 +135,18 @@ function nativeIsolationBindings(node: Node): NativeShadowBinding[] | undefined 
       bindings.push({ name: parameter.name.name, declaredOffset: -1 });
     }
   }
-  if (node.kind === NodeKind.BlockStatement) {
+  if (node instanceof BlockStatement) {
     for (const statement of (node as BlockStatement).body) {
       const declaration = unwrapExportedDeclaration(statement);
       if (!declaration) continue;
-      if (declaration.kind === NodeKind.VarStatement) {
+      if (declaration instanceof VarStatement) {
         const variable = declaration as VarStatement;
         if (variable.declarations?.length) {
           for (const declarator of variable.declarations) {
-            appendNativeBinding(bindings, declarator.name, declarator.firstToken?.range.start.offset ?? -1);
+            appendNativeBinding(bindings, declarator.name, nodeStartOffset(declarator) ?? -1);
           }
         } else {
-          appendNativeBinding(bindings, variable.name, variable.firstToken?.range.start.offset ?? -1);
+          appendNativeBinding(bindings, variable.name, nodeStartOffset(variable) ?? -1);
         }
         continue;
       }
@@ -174,16 +154,16 @@ function nativeIsolationBindings(node: Node): NativeShadowBinding[] | undefined 
       if (name) bindings.push({ name: name.name, declaredOffset: -1 });
     }
   }
-  if (node.kind === NodeKind.ForStatement) {
+  if (node instanceof ForStatement) {
     const loop = node as ForStatement;
-    if (loop.iterator?.kind === NodeKind.VarStatement) {
+    if (loop.iterator instanceof VarStatement) {
       appendNativeBinding(bindings, (loop.iterator as VarStatement).name, -1);
     }
-    if (loop.initializer?.kind === NodeKind.VarStatement) {
+    if (loop.initializer instanceof VarStatement) {
       appendNativeBinding(bindings, (loop.initializer as VarStatement).name, -1);
     }
   }
-  if (node.kind === NodeKind.CatchClause) {
+  if (node instanceof CatchClause) {
     const parameter = (node as CatchClause).parameter;
     if (parameter) bindings.push({ name: parameter.name, declaredOffset: -1 });
   }
@@ -202,11 +182,11 @@ function isNativeIdentifierReference(parent: Node, key: string): boolean {
   if (key === "name" || key === "local" || key === "imported" || key === "exported" ||
       key === "defaultImport" || key === "namespaceImport" || key === "propertyName" ||
       key === "label" || key === "names") return false;
-  if (parent.kind === NodeKind.MemberExpression && key === "property") {
+  if (parent instanceof MemberExpression && key === "property") {
     return (parent as MemberExpression).computed;
   }
-  if (parent.kind === NodeKind.PropertyReferenceExpression && key === "property") return false;
-  if (parent.kind === NodeKind.ObjectProperty && key === "key") {
+  if (parent instanceof PropertyReferenceExpression && key === "property") return false;
+  if (parent instanceof ObjectProperty && key === "key") {
     return (parent as ObjectProperty).computed === true;
   }
   return true;
@@ -336,7 +316,7 @@ function moduleInfo(program: Program, path: string, moduleIndex: number): Native
   for (const statement of program.body) {
     for (const identifier of declarationIdentifiers(statement)) {
       const declaration = unwrapExportedDeclaration(statement);
-      if ((declaration?.kind === NodeKind.FunctionStatement || declaration?.kind === NodeKind.VarStatement) &&
+      if ((declaration instanceof FunctionStatement || declaration instanceof VarStatement) &&
         (declaration as { receiverType?: Identifier }).receiverType) {
         // Extension members are imported by their source-level member name, but
         // native calls are selected from the analyzer's declaration resolution
@@ -351,14 +331,14 @@ function moduleInfo(program: Program, path: string, moduleIndex: number): Native
   }
   const exports = new Map<string, string>([...localSymbols, ...extensionSymbols]);
   for (const statement of program.body) {
-    if (statement.kind !== NodeKind.ExportStatement) continue;
+    if (!(statement instanceof ExportStatement)) continue;
     const exported = statement as ExportStatement;
     const declarationNames = declarationIdentifiers(statement);
     if (exported.isDefault && declarationNames[0]) {
       exports.set("default", localSymbols.get(declarationNames[0].name)!);
-    } else if (exported.isDefault && exported.declaration?.kind === NodeKind.ExprStatement) {
+    } else if (exported.isDefault && exported.declaration instanceof ExprStatement) {
       const expression = (exported.declaration as { expression?: Node }).expression;
-      if (expression?.kind === NodeKind.Identifier) {
+      if (expression instanceof Identifier) {
         const target = localSymbols.get((expression as Identifier).name);
         if (target) exports.set("default", target);
       }
@@ -443,7 +423,7 @@ export async function compileNativeModuleGraph(
     importsByPath.set(filePath, imports);
     const reexports: NativeReexportDependency[] = [];
     for (const statement of parsed.ast.body) {
-      if (statement.kind !== NodeKind.ExportStatement || !(statement as ExportStatement).from) continue;
+      if (!(statement instanceof ExportStatement) || !(statement as ExportStatement).from) continue;
       const exported = statement as ExportStatement;
       const targetPath = await resolveImportTargetFilePath(filePath, exported.from!.value, {
         vfs: activeVfs,
@@ -461,7 +441,7 @@ export async function compileNativeModuleGraph(
     reexportsByPath.set(filePath, reexports);
     const resolvedImportStatements = new Set(imports.map((entry) => entry.statement));
     for (const statement of parsed.ast.body) {
-      if (statement.kind !== NodeKind.ImportStatement || resolvedImportStatements.has(statement as ImportStatement)) {
+      if (!(statement instanceof ImportStatement) || resolvedImportStatements.has(statement as ImportStatement)) {
         continue;
       }
       const specifier = (statement as ImportStatement).from.value;
@@ -552,7 +532,7 @@ export async function compileNativeModuleGraph(
         const renamed = info.localSymbols.get(identifier.name);
         if (renamed) symbolNames.set(identifier as Node, renamed);
       }
-      if (statement.kind !== NodeKind.ImportStatement) continue;
+      if (!(statement instanceof ImportStatement)) continue;
       const imported = statement as ImportStatement;
       const targetPath = info.importTargets.get(imported);
       const target = targetPath ? moduleInfos.get(targetPath) : undefined;
@@ -596,7 +576,7 @@ export async function compileNativeModuleGraph(
     }
     for (const [identifierNode, symbolNode] of resolvedSymbols) {
       const renamed = symbolNames.get(symbolNode);
-      if (renamed && identifierNode.kind === NodeKind.Identifier) {
+      if (renamed && identifierNode instanceof Identifier) {
         const identifier = identifierNode as Identifier;
         identifier.__vexaNativeOriginalName ??= identifier.name;
         identifier.name = typeNameWithRenamedBase(
@@ -606,7 +586,7 @@ export async function compileNativeModuleGraph(
       }
     }
     for (const [symbolNode, renamed] of symbolNames) {
-      if (symbolNode.kind === NodeKind.Identifier) {
+      if (symbolNode instanceof Identifier) {
         const identifier = symbolNode as Identifier;
         identifier.__vexaNativeOriginalName ??= identifier.name;
         identifier.name = renamed;

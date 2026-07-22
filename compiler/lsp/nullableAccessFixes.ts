@@ -1,5 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type { MemberExpression, Program } from "compiler/ast/ast";
+import { MemberExpression } from "compiler/ast/ast";
+import type { Program } from "compiler/ast/ast";
+
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findBestMatch } from "./nodeSearch";
@@ -38,7 +39,7 @@ function memberAccessDotRange(member: MemberExpression): Range | null {
 
 function findNullableMemberTarget(ast: Program, diagnostic: Diagnostic): NullableMemberTarget | null {
   return findBestMatch(ast, (node) => {
-    if (node.kind !== NodeKind.MemberExpression) {
+    if (!(node instanceof MemberExpression)) {
       return null;
     }
 

@@ -1,5 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type { ClassFieldMember, ClassMethodMember, Program } from "compiler/ast/ast";
+import { ClassFieldMember, ClassMethodMember } from "compiler/ast/ast";
+import type { Program } from "compiler/ast/ast";
+
 import type { CodeAction, Diagnostic } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findBestMatchAtPosition } from "./nodeSearch";
@@ -25,7 +26,7 @@ function findClassMemberAtPosition(
   position: { line: number; character: number }
 ): ClassFieldMember | ClassMethodMember | null {
   return findBestMatchAtPosition(ast, position, (node) => {
-    if (node.kind !== NodeKind.ClassFieldMember && node.kind !== NodeKind.ClassMethodMember) {
+    if (!(node instanceof ClassFieldMember) && !(node instanceof ClassMethodMember)) {
       return null;
     }
     const member = node as ClassFieldMember | ClassMethodMember;

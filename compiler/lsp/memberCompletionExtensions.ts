@@ -1,9 +1,10 @@
-import { NodeKind } from "compiler/ast/ast";
+import { CallExpression, FunctionStatement, Identifier, NewExpression, VarStatement } from "compiler/ast/ast";
+import type { Statement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { parseTypeNameShape } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import type { Analysis } from "compiler/analysis/Analysis";
-import type { CallExpression, FunctionStatement, Identifier, NewExpression, Statement, VarStatement } from "compiler/ast/ast";
+
 
 export function extensionReceiverMatches(receiverType: string, objectTypeName: string): boolean {
   // Array-shaped types (`int[]`, `Array<int>`) resolve their extension members
@@ -21,7 +22,7 @@ export function inferExtensionReturnTypeName(
   statement: Statement,
   analysis: Analysis | null
 ): string | null {
-  if (statement.kind === NodeKind.VarStatement) {
+  if (statement instanceof VarStatement) {
     const variable = statement as VarStatement;
     if (variable.typeAnnotation?.name) {
       return variable.typeAnnotation.name;
@@ -34,21 +35,21 @@ export function inferExtensionReturnTypeName(
       }
     }
     const initializer = variable.initializer;
-    if (initializer?.kind === NodeKind.CallExpression) {
+    if (initializer instanceof CallExpression) {
       const call = initializer as CallExpression;
-      if (call.callee.kind === NodeKind.Identifier) {
+      if (call.callee instanceof Identifier) {
         return (call.callee as Identifier).name;
       }
     }
-    if (initializer?.kind === NodeKind.NewExpression) {
+    if (initializer instanceof NewExpression) {
       const newExpression = initializer as NewExpression;
-      if (newExpression.callee.kind === NodeKind.Identifier) {
+      if (newExpression.callee instanceof Identifier) {
         return (newExpression.callee as Identifier).name;
       }
     }
     return null;
   }
-  if (statement.kind === NodeKind.FunctionStatement) {
+  if (statement instanceof FunctionStatement) {
     return (statement as FunctionStatement).returnType?.name ?? null;
   }
   return null;

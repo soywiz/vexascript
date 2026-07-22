@@ -1,5 +1,6 @@
 import { NamedType, ArrayType } from "../analysis/types";
-import { isNodeKind, NodeKind } from "compiler/ast/ast";
+import { ClassFieldMember, ClassStatement, Identifier, ImportStatement, InterfacePropertyMember, InterfaceStatement, isNodeKind, MemberExpression, memberExpressionFromPropertyReference, nodeStartOffset, PropertyReferenceExpression, TypeAliasStatement } from "compiler/ast/ast";
+import type { FunctionParameter, NodeKind, Program, Statement } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 /**
  * Shared cross-file member/type resolution helpers: class/interface/type-alias
@@ -24,8 +25,8 @@ import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { containsPosition, nodeRange } from "./ranges";
 import { formatFunctionTypeLabel } from "./functionTypeDisplay";
 import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens } from "compiler/analysis/typeNames";
-import { memberExpressionFromPropertyReference } from "compiler/ast/ast";
-import type { ClassStatement, FunctionParameter, Identifier, ImportStatement, InterfaceStatement, MemberExpression, Program, PropertyReferenceExpression, Statement, TypeAliasStatement } from "compiler/ast/ast";
+
+
 import { bindingNameText } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 import { getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
@@ -78,7 +79,7 @@ export function classMemberDeclarationRangeByName(
   classStatement: TypeLikeDeclaration,
   memberName: string
 ): { start: { line: number; character: number }; end: { line: number; character: number } } | null {
-  if (classStatement.kind === NodeKind.InterfaceStatement) {
+  if (classStatement instanceof InterfaceStatement) {
     for (const member of classStatement.members) {
       if (member.name.name !== memberName) {
         continue;
@@ -237,7 +238,7 @@ export function classMemberInfoByName(
   classStatement: TypeLikeDeclaration,
   memberName: string
 ): ClassMemberInfo | null {
-  if (classStatement.kind === NodeKind.InterfaceStatement) {
+  if (classStatement instanceof InterfaceStatement) {
     for (const member of classStatement.members) {
       if (member.name.name !== memberName) {
         continue;
@@ -246,7 +247,7 @@ export function classMemberInfoByName(
       if (!range) {
         return null;
       }
-      if (member.kind === NodeKind.InterfacePropertyMember) {
+      if (member instanceof InterfacePropertyMember) {
         return {
           memberName,
           range,
@@ -288,7 +289,7 @@ export function classMemberInfoByName(
     if (!range) {
       return null;
     }
-    if (member.kind === NodeKind.ClassFieldMember) {
+    if (member instanceof ClassFieldMember) {
       return {
         memberName,
         range,
@@ -379,7 +380,7 @@ export async function resolveTypeDefinitionAcrossFiles(
     name: typeName,
     currentFilePath,
     predicate: (statement): statement is TypeLikeDeclaration =>
-      statement.kind === NodeKind.ClassStatement || statement.kind === NodeKind.InterfaceStatement,
+      statement instanceof ClassStatement || statement instanceof InterfaceStatement,
     includeRuntime: true,
     sourceRoots: roots,
     ...(context.getSessionForFilePath
@@ -435,7 +436,7 @@ async function resolveImportedNodeModuleTypeDefinition(
   }
 
   for (const statement of context.session.ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
 
@@ -452,7 +453,7 @@ async function resolveImportedNodeModuleTypeDefinition(
 
     for (const entry of typings.declarationEntries) {
       const declaration = unwrapExportedDeclaration(entry.statement) ?? entry.statement;
-      if (declaration.kind === NodeKind.ClassStatement) {
+      if (declaration instanceof ClassStatement) {
         const classDeclaration = declaration as ClassStatement;
         if (classDeclaration.name.name !== typeName) {
           continue;
@@ -462,7 +463,7 @@ async function resolveImportedNodeModuleTypeDefinition(
           filePath: entry.typingsPath
         };
       }
-      if (declaration.kind === NodeKind.InterfaceStatement) {
+      if (declaration instanceof InterfaceStatement) {
         const interfaceDeclaration = declaration as InterfaceStatement;
         if (interfaceDeclaration.name.name !== typeName) {
           continue;
@@ -488,7 +489,7 @@ export function findAmbientTypeDeclaration(
   let bestPreferredMatch: { declaration: TypeLikeDeclaration; score: number } | null = null;
   for (const statement of declarations) {
     const unwrapped = unwrapExportedDeclaration(statement) ?? statement;
-    if (unwrapped.kind === NodeKind.ClassStatement || unwrapped.kind === NodeKind.InterfaceStatement) {
+    if (unwrapped instanceof ClassStatement || unwrapped instanceof InterfaceStatement) {
       const declaration = unwrapped as TypeLikeDeclaration;
       if (declaration.name.name === typeName) {
         if (preferredFilePath) {
@@ -614,7 +615,7 @@ export async function resolveTypeAliasDefinitionAcrossFiles(
     ast: context.session.ast,
     name: typeName,
     currentFilePath,
-    predicate: (statement): statement is TypeAliasStatement => statement.kind === NodeKind.TypeAliasStatement,
+    predicate: (statement): statement is TypeAliasStatement => statement instanceof TypeAliasStatement,
     includeRuntime: true,
     sourceRoots: roots,
     ...(context.getSessionForFilePath
@@ -697,7 +698,7 @@ function makeSyntheticTypeIdentifier(
   const sourceRange = nodeRange(source)!;
   const start = positionAtTypeTextOffset(source.name, sourceRange, startOffset);
   const end = positionAtTypeTextOffset(source.name, sourceRange, endOffset);
-  const baseOffset = source.firstToken?.range.start.offset ?? 0;
+  const baseOffset = nodeStartOffset(source) ?? 0;
   const token: NonNullable<Identifier["firstToken"]> = {
     type: TokenType.IDENTIFIER,
     value: name,
@@ -901,7 +902,7 @@ export function findTypeIdentifierAtPosition(
     if (!isAstNode(entry)) {
       return;
     }
-    if (entry.kind === NodeKind.Identifier) {
+    if (entry instanceof Identifier) {
       considerIdentifier(entry as Identifier);
     }
     for (const [key, child] of Object.entries(entry)) {
@@ -944,7 +945,7 @@ export function findMemberExpressionAtPosition(
   character: number
 ): MemberExpression | null {
   return findBestMatchAtPosition(program, { line, character }, (node) => {
-    if (node.kind === NodeKind.PropertyReferenceExpression) {
+    if (node instanceof PropertyReferenceExpression) {
       const propertyReference = node as PropertyReferenceExpression;
       const propertyRange = nodeRange(propertyReference.property);
       return propertyRange
@@ -954,9 +955,9 @@ export function findMemberExpressionAtPosition(
           }
         : null;
     }
-    if (node.kind === NodeKind.MemberExpression) {
+    if (node instanceof MemberExpression) {
       const member = node as MemberExpression;
-      if (member.computed || member.property.kind !== NodeKind.Identifier) {
+      if (member.computed || !(member.property instanceof Identifier)) {
         return null;
       }
       const propertyRange = nodeRange(member.property);
@@ -972,7 +973,7 @@ export function findClassMemberDeclarationAtPosition(
   character: number
 ): { className: string; member: ClassMemberInfo } | null {
   for (const statement of program.body) {
-    if (statement.kind !== NodeKind.ClassStatement) {
+    if (!(statement instanceof ClassStatement)) {
       continue;
     }
     const classStatement = statement as ClassStatement;
@@ -1030,7 +1031,7 @@ export async function resolveCanonicalMemberSymbol(context: ResolveContext): Pro
     context.line,
     context.character
   );
-  if (!memberExpression || memberExpression.property.kind !== NodeKind.Identifier) {
+  if (!memberExpression || !(memberExpression.property instanceof Identifier)) {
     return null;
   }
 
@@ -1081,7 +1082,7 @@ export async function resolveCanonicalMemberSymbol(context: ResolveContext): Pro
 export function collectMemberExpressions(program: Program): MemberExpression[] {
   const expressions: MemberExpression[] = [];
   walkAst(program, (node) => {
-    if (node.kind === NodeKind.MemberExpression) {
+    if (node instanceof MemberExpression) {
       expressions.push(node as MemberExpression);
     }
   });

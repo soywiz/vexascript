@@ -1,13 +1,7 @@
-import { NodeKind } from "compiler/ast/ast";
+import { ClassMethodMember, FunctionStatement, nodeStartOffset, ReturnStatement } from "compiler/ast/ast";
+import type { BlockStatement, Expr, Program } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
-import type {
-  BlockStatement,
-  ClassMethodMember,
-  Expr,
-  FunctionStatement,
-  Program,
-  ReturnStatement
-} from "compiler/ast/ast";
+
 import { type CodeAction, type Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findBestMatchAtPosition } from "./nodeSearch";
@@ -20,11 +14,11 @@ interface FunctionLikeTarget {
 }
 
 function isGetterShorthand(node: FunctionStatement | ClassMethodMember): node is ClassMethodMember {
-  return node.kind === NodeKind.ClassMethodMember && node.accessorKind === "get" && node.getterShorthand === true;
+  return node instanceof ClassMethodMember && node.accessorKind === "get" && node.getterShorthand === true;
 }
 
 function isRegularGetterAccessor(node: FunctionStatement | ClassMethodMember): node is ClassMethodMember {
-  return node.kind === NodeKind.ClassMethodMember &&
+  return node instanceof ClassMethodMember &&
     node.accessorKind === "get" &&
     node.parameters.length === 0 &&
     node.getterShorthand !== true;
@@ -32,7 +26,7 @@ function isRegularGetterAccessor(node: FunctionStatement | ClassMethodMember): n
 
 function findFunctionLikeAtPosition(ast: Program, position: Position): FunctionLikeTarget | null {
   return findBestMatchAtPosition(ast, position, (candidate) => {
-    if (candidate.kind !== NodeKind.FunctionStatement && candidate.kind !== NodeKind.ClassMethodMember) {
+    if (!(candidate instanceof FunctionStatement) && !(candidate instanceof ClassMethodMember)) {
       return null;
     }
     const node = candidate as FunctionStatement | ClassMethodMember;
@@ -42,7 +36,7 @@ function findFunctionLikeAtPosition(ast: Program, position: Position): FunctionL
     }
 
     const onlyStatement = body.body[0];
-    if (!onlyStatement || onlyStatement.kind !== NodeKind.ReturnStatement) {
+    if (!onlyStatement || !(onlyStatement instanceof ReturnStatement)) {
       return null;
     }
 
@@ -213,7 +207,7 @@ export function createFunctionShorthandCodeActions(params: {
         return [];
       }
 
-      const baseIndent = lineIndent(params.text, target.node.firstToken?.range.start.offset ?? 0);
+      const baseIndent = lineIndent(params.text, nodeStartOffset(target.node) ?? 0);
       const bodyIndent = `${baseIndent}  `;
       return [
         {
@@ -238,7 +232,7 @@ export function createFunctionShorthandCodeActions(params: {
       return [];
     }
 
-    const baseIndent = lineIndent(params.text, target.node.firstToken?.range.start.offset ?? 0);
+    const baseIndent = lineIndent(params.text, nodeStartOffset(target.node) ?? 0);
     const bodyIndent = `${baseIndent}  `;
     return [
       {

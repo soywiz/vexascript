@@ -1,8 +1,8 @@
 import { ArrayType, NamedType, BuiltinType } from "../analysis/types";
-import { NodeKind } from "compiler/ast/ast";
+import { ClassStatement, Identifier, InterfaceStatement, NodeKind, VarStatement } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
-import type { ClassStatement, Identifier, InterfaceStatement } from "compiler/ast/ast";
+
 import type { Hover } from "vscode-languageserver/node.js";
 import { readDocumentationFromNamedNode } from "./documentation";
 import {
@@ -57,8 +57,8 @@ function extensionDocumentationValue(extensionMember: Awaited<ReturnType<typeof 
   if (!extensionMember) {
     return undefined;
   }
-  if (extensionMember.declaration.kind === NodeKind.VarStatement) {
-    return extensionMember.declaration.name.kind === NodeKind.Identifier
+  if (extensionMember.declaration instanceof VarStatement) {
+    return extensionMember.declaration.name instanceof Identifier
       ? readDocumentationFromNamedNode({
         firstToken: extensionMember.declaration.firstToken,
         name: extensionMember.declaration.name
@@ -98,7 +98,7 @@ export async function resolveMemberHoverAcrossFiles(
     context.line,
     context.character
   );
-  if (!memberExpression || memberExpression.property.kind !== NodeKind.Identifier) {
+  if (!memberExpression || !(memberExpression.property instanceof Identifier)) {
     return null;
   }
 
@@ -172,7 +172,7 @@ export async function resolveMemberHoverAcrossFiles(
     analysis: context.session.analysis,
     cache: resolverCache
   };
-  const fallbackClassResolution = primaryResolution.declaration.kind === NodeKind.ClassStatement || !resolvedClassName
+  const fallbackClassResolution = primaryResolution.declaration instanceof ClassStatement || !resolvedClassName
     ? null
     : await resolveClassStatementAcrossFiles(
       context.session.ast,
@@ -187,7 +187,7 @@ export async function resolveMemberHoverAcrossFiles(
     ).then((resolved) => resolved
       ? { classStatement: resolved.declaration as ClassStatement, filePath: resolved.filePath }
       : null);
-  const fallbackInterfaceResolution = primaryResolution.declaration.kind === NodeKind.InterfaceStatement || !resolvedClassName
+  const fallbackInterfaceResolution = primaryResolution.declaration instanceof InterfaceStatement || !resolvedClassName
     ? null
     : await resolveInterfaceStatementAcrossFiles(
       context.session.ast,
@@ -203,7 +203,7 @@ export async function resolveMemberHoverAcrossFiles(
       ? { interfaceStatement: resolved.declaration as InterfaceStatement, filePath: resolved.filePath }
       : null);
 
-  const resolvedClassMember = primaryResolution.declaration.kind === NodeKind.ClassStatement
+  const resolvedClassMember = primaryResolution.declaration instanceof ClassStatement
     ? await resolveClassMember(
       primaryResolution.declaration,
       memberName,
@@ -218,7 +218,7 @@ export async function resolveMemberHoverAcrossFiles(
         resolverContext
       )
     : null;
-  const resolvedInterfaceMember = primaryResolution.declaration.kind === NodeKind.InterfaceStatement
+  const resolvedInterfaceMember = primaryResolution.declaration instanceof InterfaceStatement
     ? await resolveInterfaceMember(
       primaryResolution.declaration,
       memberName,

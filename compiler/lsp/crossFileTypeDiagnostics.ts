@@ -1,15 +1,7 @@
 import { ArrayType, NamedType, BuiltinType } from "../analysis/types";
-import { NodeKind } from "compiler/ast/ast";
-import type {
-  AssignmentExpression,
-  CallExpression,
-  Expr,
-  ImportStatement,
-  Identifier,
-  MemberExpression,
-  NewExpression,
-  Program
-} from "compiler/ast/ast";
+import { AssignmentExpression, CallExpression, Identifier, ImportStatement, MemberExpression, NewExpression } from "compiler/ast/ast";
+import type { Expr, Program } from "compiler/ast/ast";
+
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { walkAst } from "compiler/ast/traversal";
 import type { Diagnostic } from "vscode-languageserver/node.js";
@@ -118,17 +110,17 @@ function diagnosticForNode(
 }
 
 function callDiagnosticNode(call: CallExpression) {
-  return call.callee.kind === NodeKind.MemberExpression ? (call.callee as MemberExpression).property : call;
+  return call.callee instanceof MemberExpression ? (call.callee as MemberExpression).property : call;
 }
 
 function constructorDiagnosticNode(node: CallExpression | NewExpression) {
-  return node.callee.kind === NodeKind.MemberExpression ? (node.callee as MemberExpression).property : node.callee;
+  return node.callee instanceof MemberExpression ? (node.callee as MemberExpression).property : node.callee;
 }
 
 function collectCallExpressions(program: Program): CallExpression[] {
   const calls: CallExpression[] = [];
   walkAst(program, (node) => {
-    if (node.kind === NodeKind.CallExpression) {
+    if (node instanceof CallExpression) {
       calls.push(node as CallExpression);
     }
   });
@@ -138,7 +130,7 @@ function collectCallExpressions(program: Program): CallExpression[] {
 function collectAssignmentExpressions(program: Program): AssignmentExpression[] {
   const assignments: AssignmentExpression[] = [];
   walkAst(program, (node) => {
-    if (node.kind === NodeKind.AssignmentExpression) {
+    if (node instanceof AssignmentExpression) {
       assignments.push(node as AssignmentExpression);
     }
   });
@@ -146,7 +138,7 @@ function collectAssignmentExpressions(program: Program): AssignmentExpression[] 
 }
 
 function collectImportStatements(program: Program): ImportStatement[] {
-  return program.body.filter((statement): statement is ImportStatement => statement.kind === NodeKind.ImportStatement);
+  return program.body.filter((statement): statement is ImportStatement => statement instanceof ImportStatement);
 }
 
 export async function collectCrossFileTypeDiagnostics(
@@ -407,11 +399,11 @@ export async function collectCrossFileTypeDiagnostics(
       }
     }
 
-    if (call.callee.kind !== NodeKind.MemberExpression) {
+    if (!(call.callee instanceof MemberExpression)) {
       continue;
     }
     const callee = call.callee as MemberExpression;
-    if (callee.computed || callee.property.kind !== NodeKind.Identifier) {
+    if (callee.computed || !(callee.property instanceof Identifier)) {
       continue;
     }
 
@@ -558,11 +550,11 @@ export async function collectCrossFileTypeDiagnostics(
   }
 
   for (const assignment of collectAssignmentExpressions(session.ast)) {
-    if (assignment.left.kind !== NodeKind.MemberExpression) {
+    if (!(assignment.left instanceof MemberExpression)) {
       continue;
     }
     const leftMember = assignment.left as MemberExpression;
-    if (leftMember.computed || leftMember.property.kind !== NodeKind.Identifier) {
+    if (leftMember.computed || !(leftMember.property instanceof Identifier)) {
       continue;
     }
 
@@ -628,7 +620,7 @@ export async function collectCrossFileTypeDiagnostics(
 function walkCallLikeNewExpressions(program: Program): NewExpression[] {
   const nodes: NewExpression[] = [];
   walkAst(program, (node) => {
-    if (node.kind === NodeKind.NewExpression) {
+    if (node instanceof NewExpression) {
       nodes.push(node as NewExpression);
     }
   });

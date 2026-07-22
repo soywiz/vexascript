@@ -6,6 +6,7 @@ import {
   Identifier,
   IntLiteral,
   NodeKind,
+  nodeStartOffset,
   Program,
 } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
@@ -14,6 +15,21 @@ import type { Node } from "./ast";
 import { childNodes, findNode, unwrapExportedDeclaration, walkAst } from "./traversal";
 
 describe("AST traversal", () => {
+  it("reads source offsets through the typed token graph", () => {
+    const identifier = new Identifier("value");
+    expect(nodeStartOffset(identifier)).toBeUndefined();
+    identifier.firstToken = {
+      type: TokenType.IDENTIFIER,
+      value: "value",
+      index: 0,
+      range: {
+        start: { offset: 12, line: 1, column: 3 },
+        end: { offset: 17, line: 1, column: 8 }
+      }
+    };
+    expect(nodeStartOffset(identifier)).toBe(12);
+  });
+
   it("walks structural child nodes in source property order without visiting token metadata", () => {
     const token = {
       type: TokenType.IDENTIFIER,

@@ -1,5 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type { ClassStatement, ExportStatement, FunctionStatement, ImportStatement, NamespaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
+import { ClassStatement, ExportStatement, FunctionStatement, ImportStatement, NamespaceStatement, VarStatement } from "compiler/ast/ast";
+import type { Program, Statement } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { CompletionItemKind, matchesCompletionPrefix, type CompletionRequestOptions } from "./completionModel";
@@ -12,18 +13,18 @@ export async function findNodeModuleNamespaceForTypeName(
   options: CompletionRequestOptions
 ): Promise<NamespaceStatement | null> {
   for (const statement of ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) continue;
+    if (!(statement instanceof ImportStatement)) continue;
     const importStatement = statement as ImportStatement;
     if (importStatement.from.value.startsWith(".")) continue;
     const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value, { vfs: options.vfs });
     if (!typings || typings.defaultExportName !== typeName) continue;
     for (const decl of typings.declarations) {
       const candidate =
-        decl.kind === NodeKind.ExportStatement
+        decl instanceof ExportStatement
           ? (decl as { declaration?: Statement }).declaration ?? decl
           : decl;
       if (
-        candidate.kind === NodeKind.NamespaceStatement &&
+        candidate instanceof NamespaceStatement &&
         (candidate as NamespaceStatement).names?.[0]?.name === typeName
       ) {
         return candidate as NamespaceStatement;
@@ -39,8 +40,8 @@ export function findNamespaceByPath(ast: Program, path: string[]): NamespaceStat
   for (const segment of path) {
     found = null;
     for (const statement of statements) {
-      const candidate = statement.kind === NodeKind.ExportStatement ? (statement as ExportStatement).declaration : statement;
-      if (candidate?.kind === NodeKind.NamespaceStatement && (candidate as NamespaceStatement).names?.[0]?.name === segment) {
+      const candidate = statement instanceof ExportStatement ? (statement as ExportStatement).declaration : statement;
+      if (candidate instanceof NamespaceStatement && (candidate as NamespaceStatement).names?.[0]?.name === segment) {
         found = candidate as NamespaceStatement;
         break;
       }
@@ -60,18 +61,18 @@ export function buildNamespaceMemberCompletionItems(namespaceStatement: Namespac
     items.push({ label, kind, detail });
   };
   for (const statement of namespaceStatement.body.body) {
-    if (statement.kind !== NodeKind.ExportStatement) continue;
+    if (!(statement instanceof ExportStatement)) continue;
     const exported = statement as ExportStatement;
     const declaration = exported.declaration;
-    if (declaration?.kind === NodeKind.VarStatement) {
+    if (declaration instanceof VarStatement) {
       const variable = declaration as VarStatement;
       const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
       for (const binding of bindings) push(binding.name, CompletionItemKind.Variable, "Namespace variable");
-    } else if (declaration?.kind === NodeKind.FunctionStatement) {
+    } else if (declaration instanceof FunctionStatement) {
       push((declaration as FunctionStatement).name.name, CompletionItemKind.Function, "Namespace function");
-    } else if (declaration?.kind === NodeKind.ClassStatement) {
+    } else if (declaration instanceof ClassStatement) {
       push((declaration as ClassStatement).name.name, CompletionItemKind.Class, "Namespace class");
-    } else if (declaration?.kind === NodeKind.NamespaceStatement) {
+    } else if (declaration instanceof NamespaceStatement) {
       const name = (declaration as NamespaceStatement).names?.[0]?.name;
       if (name) push(name, CompletionItemKind.Module, "Namespace");
     }

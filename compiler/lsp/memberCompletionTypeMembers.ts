@@ -1,10 +1,11 @@
-import { NodeKind } from "compiler/ast/ast";
+import { EnumStatement, TypeAliasStatement } from "compiler/ast/ast";
+import type { Program } from "compiler/ast/ast";
 import { resolveInterfaceMember, resolveInterfaceMemberNames, resolveInterfaceStatementAcrossFiles } from "./classResolver";
 import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import { CompletionItemKind, type CompletionRequestOptions, type InterfaceCompletionMember } from "./completionModel";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { baseTypeName } from "compiler/analysis/typeNames";
-import type { EnumStatement, Program, TypeAliasStatement } from "compiler/ast/ast";
+
 import { fileURLToPath } from "compiler/utils/path";
 import type { CompletionItem } from "vscode-languageserver/node.js";
 import {
@@ -79,7 +80,7 @@ export async function buildNonClassMemberCompletionItems(
     ast,
     name: baseTypeName(resolvedClassName),
     currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
-    predicate: (statement): statement is EnumStatement => statement.kind === NodeKind.EnumStatement,
+    predicate: (statement): statement is EnumStatement => statement instanceof EnumStatement,
     includeRuntime: true,
     sourceRoots: resolverOptions.sourceRoots ?? [],
     ...(resolverOptions.vfs ? { vfs: resolverOptions.vfs } : {}),
@@ -112,7 +113,7 @@ export async function buildNonClassMemberCompletionItems(
     ast,
     name: baseTypeName(resolvedClassName),
     currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
-    predicate: (statement): statement is TypeAliasStatement => statement.kind === NodeKind.TypeAliasStatement,
+    predicate: (statement): statement is TypeAliasStatement => statement instanceof TypeAliasStatement,
     includeRuntime: true,
     sourceRoots: resolverOptions.sourceRoots ?? [],
     ...(resolverOptions.vfs ? { vfs: resolverOptions.vfs } : {}),

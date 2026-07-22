@@ -1,11 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type {
-  ArrowFunctionExpression,
-  CallExpression,
-  Node,
-  NewExpression,
-  Program
-} from "compiler/ast/ast";
+import { ArrowFunctionExpression, CallExpression, NewExpression } from "compiler/ast/ast";
+import type { Node, Program } from "compiler/ast/ast";
+
 import { type CodeAction, type TextEdit } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findNodeAtPosition } from "./nodeSearch";
@@ -25,7 +20,7 @@ type TrailingLambdaCall = (CallExpression | NewExpression) & {
 };
 
 function isBraceLambda(node: Node | undefined): node is ArrowFunctionExpression {
-  if (!node || node.kind !== NodeKind.ArrowFunctionExpression) {
+  if (!node || !(node instanceof ArrowFunctionExpression)) {
     return false;
   }
   const firstToken = (node as { firstToken?: RangedToken }).firstToken;
@@ -41,7 +36,7 @@ function isBraceLambda(node: Node | undefined): node is ArrowFunctionExpression 
  * after the lambda) rather than on the lambda's closing `}`.
  */
 function isTrailingLambdaCandidate(node: Node): node is TrailingLambdaCall {
-  if (node.kind !== NodeKind.CallExpression && node.kind !== NodeKind.NewExpression) {
+  if (!(node instanceof CallExpression) && !(node instanceof NewExpression)) {
     return false;
   }
   const args = (node as CallExpression | NewExpression).args;

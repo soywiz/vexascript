@@ -1,13 +1,9 @@
-import { NodeKind, type Node } from "compiler/ast/ast";
+import { ExportStatement, FunctionStatement, InterfaceStatement, nodeStartOffset, VarStatement } from "compiler/ast/ast";
+import type { Node, Program } from "compiler/ast/ast";
 import { namedType, NamedType, BuiltinType, ArrayType, TupleType } from "compiler/analysis/types";
 import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
-import type {
-  ExportStatement,
-  FunctionStatement,
-  Program,
-  VarStatement
-} from "compiler/ast/ast";
+
 import type { Location } from "vscode-languageserver/node.js";
 import {
   createClassResolverCache,
@@ -52,7 +48,7 @@ export function findEnclosingReceiverTypeName(
         : null;
     if (!name) continue;
     const width = (node.lastToken?.range.end.offset ?? Number.MAX_SAFE_INTEGER) -
-      (node.firstToken?.range.start.offset ?? 0);
+      (nodeStartOffset(node) ?? 0);
     if (!nearestReceiver || width < nearestReceiver.width) {
       nearestReceiver = { name, width };
     }
@@ -61,11 +57,11 @@ export function findEnclosingReceiverTypeName(
 
   for (const statement of ast.body) {
     let candidate: (FunctionStatement | VarStatement) | null = null;
-    if (statement.kind === NodeKind.FunctionStatement || statement.kind === NodeKind.VarStatement) {
+    if (statement instanceof FunctionStatement || statement instanceof VarStatement) {
       candidate = statement as FunctionStatement | VarStatement;
-    } else if (statement.kind === NodeKind.ExportStatement) {
+    } else if (statement instanceof ExportStatement) {
       const decl = (statement as ExportStatement).declaration;
-      if (decl && (decl.kind === NodeKind.FunctionStatement || decl.kind === NodeKind.VarStatement)) {
+      if (decl && (decl instanceof FunctionStatement || decl instanceof VarStatement)) {
         candidate = decl as FunctionStatement | VarStatement;
       }
     }
@@ -141,7 +137,7 @@ export async function resolveImplicitReceiverMemberDefinition(
     cache: createClassResolverCache()
   };
 
-  const interfaceMemberDeclaration = classResolution.declaration.kind === NodeKind.InterfaceStatement
+  const interfaceMemberDeclaration = classResolution.declaration instanceof InterfaceStatement
     ? await resolveInterfaceMemberDeclaration(
       { interfaceStatement: classResolution.declaration, filePath: classResolution.filePath },
       memberName,
@@ -158,7 +154,7 @@ export async function resolveImplicitReceiverMemberDefinition(
 
   const range = classMemberDeclarationRangeByName(memberOwner, memberName)
     ?? (
-      memberOwner.kind === NodeKind.InterfaceStatement
+      memberOwner instanceof InterfaceStatement
         ? await fallbackInterfaceMemberRangeInFile(context, memberFilePath, memberOwner.name.name, memberName)
         : null
     );

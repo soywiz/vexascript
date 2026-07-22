@@ -1,18 +1,10 @@
-import { NodeKind } from "compiler/ast/ast";
+import { BreakStatement, ContinueStatement, DoWhileStatement, ForStatement, LabeledStatement, NodeKind, WhileStatement } from "compiler/ast/ast";
+import type { BlockStatement, IfStatement, Statement, SwitchStatement, TryStatement, WithStatement } from "compiler/ast/ast";
 /**
  * Pure control-flow predicates over AST statement nodes. These helpers have
  * no dependency on checker state and can be used by any analysis pass.
  */
-import type {
-  BlockStatement,
-  DoWhileStatement,
-  IfStatement,
-  LabeledStatement,
-  Statement,
-  SwitchStatement,
-  TryStatement,
-  WithStatement,
-} from "compiler/ast/ast";
+
 
 export function isAsyncLike(asyncValue?: boolean, syncValue?: boolean): boolean {
   return asyncValue === true || syncValue === true;
@@ -20,13 +12,13 @@ export function isAsyncLike(asyncValue?: boolean, syncValue?: boolean): boolean 
 
 export function statementAllowsLabeledContinue(statement: Statement): boolean {
   if (
-    statement.kind === NodeKind.WhileStatement ||
-    statement.kind === NodeKind.DoWhileStatement ||
-    statement.kind === NodeKind.ForStatement
+    statement instanceof WhileStatement ||
+    statement instanceof DoWhileStatement ||
+    statement instanceof ForStatement
   ) {
     return true;
   }
-  if (statement.kind === NodeKind.LabeledStatement) {
+  if (statement instanceof LabeledStatement) {
     return statementAllowsLabeledContinue((statement as LabeledStatement).body);
   }
   return false;
@@ -83,7 +75,7 @@ export function statementListAlwaysExits(statements: Statement[]): boolean {
     if (statementAlwaysExits(statement)) {
       return true;
     }
-    if (statement.kind === NodeKind.BreakStatement || statement.kind === NodeKind.ContinueStatement) {
+    if (statement instanceof BreakStatement || statement instanceof ContinueStatement) {
       return false;
     }
   }

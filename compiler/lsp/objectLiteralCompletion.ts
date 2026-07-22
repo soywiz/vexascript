@@ -1,23 +1,11 @@
-import { NodeKind } from "compiler/ast/ast";
+import { EnumStatement, FloatLiteral, Identifier, ImportStatement, InterfaceStatement, IntLiteral, ObjectLiteral, ObjectProperty, StringLiteral, TypeAliasStatement } from "compiler/ast/ast";
+import type { Expr, Program, Statement } from "compiler/ast/ast";
 import type {
   CompletionItem
 } from "vscode-languageserver/node.js";
 import type { Hover } from "vscode-languageserver/node.js";
 import type { Location } from "vscode-languageserver/node.js";
-import type {
-  EnumStatement,
-  FloatLiteral,
-  Identifier,
-  ImportStatement,
-  IntLiteral,
-  Expr,
-  ObjectLiteral,
-  ObjectProperty,
-  Program,
-  Statement,
-  StringLiteral,
-  TypeAliasStatement
-} from "compiler/ast/ast";
+
 import { typeToString } from "compiler/analysis/types";
 import { baseTypeName, findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { Analysis } from "compiler/analysis/Analysis";
@@ -109,7 +97,7 @@ function nodeModulePackageNameForFilePath(filePath: string): string | null {
 }
 
 function isTypeAliasStatement(statement: Statement | undefined | null): statement is TypeAliasStatement {
-  return statement?.kind === NodeKind.TypeAliasStatement;
+  return statement instanceof TypeAliasStatement;
 }
 
 function formatResolvedFunctionSignature(signature: ResolvedFunctionSignature): string {
@@ -120,13 +108,13 @@ function staticObjectPropertyName(property: ObjectProperty): string | null {
   if (property.computed) {
     return null;
   }
-  if (property.key.kind === NodeKind.Identifier) {
+  if (property.key instanceof Identifier) {
     return (property.key as Identifier).name;
   }
-  if (property.key.kind === NodeKind.StringLiteral) {
+  if (property.key instanceof StringLiteral) {
     return (property.key as StringLiteral).value;
   }
-  if (property.key.kind === NodeKind.IntLiteral || property.key.kind === NodeKind.FloatLiteral) {
+  if (property.key instanceof IntLiteral || property.key instanceof FloatLiteral) {
     return String((property.key as IntLiteral | FloatLiteral).value);
   }
   return null;
@@ -146,7 +134,7 @@ function findObjectLiteralCompletionContext(
   const usedPropertyNames = new Set<string>();
   let activePropertyName: string | null = null;
   for (const property of objectLiteral.properties) {
-    if (property.kind !== NodeKind.ObjectProperty) {
+    if (!(property instanceof ObjectProperty)) {
       continue;
     }
     const objectProperty = property as ObjectProperty;
@@ -197,7 +185,7 @@ function findInnermostObjectLiteralCompletionContext(
   let best: ObjectLiteral | null = null;
   let bestSize = Number.POSITIVE_INFINITY;
   walkAst(ast, (node) => {
-    if (node.kind === NodeKind.ObjectLiteral) {
+    if (node instanceof ObjectLiteral) {
       const objectLiteral = node as ObjectLiteral;
       const range = nodeRange(objectLiteral);
       if (range && containsPosition(range, position)) {
@@ -228,7 +216,7 @@ function findContextualObjectLiteralPropertyDefinitionContext(
 
   const position = { line, character };
   for (const property of completionContext.objectLiteral.properties) {
-    if (property.kind !== NodeKind.ObjectProperty) {
+    if (!(property instanceof ObjectProperty)) {
       continue;
     }
     const objectProperty = property as ObjectProperty;
@@ -306,7 +294,7 @@ function findContextualObjectLiteralPropertyValueContext(
   };
 
   for (const property of completionContext.objectLiteral.properties) {
-    if (property.kind !== NodeKind.ObjectProperty) {
+    if (!(property instanceof ObjectProperty)) {
       continue;
     }
     const objectProperty = property as ObjectProperty;
@@ -639,7 +627,7 @@ async function enumValueCandidatesFromTypeText(
     ast,
     name: baseTypeName(typeName),
     currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
-    predicate: (statement): statement is EnumStatement => statement.kind === NodeKind.EnumStatement,
+    predicate: (statement): statement is EnumStatement => statement instanceof EnumStatement,
     includeRuntime: true,
     sourceRoots: options.sourceRoots ?? [],
     ...(options.vfs ? { vfs: options.vfs } : {}),
@@ -752,7 +740,7 @@ async function resolveTypeAliasTargetTypeText(
     ast: resolutionAst,
     name: parsedType.baseName,
     currentFilePath,
-    predicate: (statement): statement is TypeAliasStatement => statement.kind === NodeKind.TypeAliasStatement,
+    predicate: (statement): statement is TypeAliasStatement => statement instanceof TypeAliasStatement,
     includeRuntime: true,
     ...(options.sourceRoots ? { sourceRoots: options.sourceRoots } : {}),
     ...(options.vfs ? { vfs: options.vfs } : {}),
@@ -855,7 +843,7 @@ async function resolveImportedNodeModuleObjectLiteralPropertyDefinition(
   }
 
   for (const statement of context.session.ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -891,7 +879,7 @@ async function resolveImportedNodeModuleStructuralObjectLiteralPropertyDefinitio
   }
 
   for (const statement of context.session.ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -1046,7 +1034,7 @@ async function resolveDeclaredObjectLiteralPropertyDefinitionFromTypeName(
     );
     if (memberDeclaration) {
       const range = classMemberDeclarationRangeByName(memberDeclaration.declaration, propertyName)
-        ?? (memberDeclaration.declaration.kind === NodeKind.InterfaceStatement
+        ?? (memberDeclaration.declaration instanceof InterfaceStatement
           ? await fallbackInterfaceMemberRangeInFile(
             context,
             memberDeclaration.filePath,
@@ -1185,7 +1173,7 @@ export async function resolveContextualObjectLiteralPropertyHover(
   }
 
   const property = propertyContext.completionContext.objectLiteral.properties.find((candidate) =>
-    candidate.kind === NodeKind.ObjectProperty
+    candidate instanceof ObjectProperty
     && staticObjectPropertyName(candidate as ObjectProperty) === propertyContext.propertyName
   ) as ObjectProperty | undefined;
   const keyRange = property ? nodeRange(property.key) : null;

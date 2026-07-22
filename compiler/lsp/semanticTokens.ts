@@ -1,56 +1,7 @@
-import { NodeKind } from "compiler/ast/ast";
+import { BlockStatement, ClassFieldMember, FunctionExpression, Identifier, MemberExpression, NodeKind, ObjectSpreadProperty, VarStatement } from "compiler/ast/ast";
+import type { AnnotationApplication, AnnotationStatement, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, CallExpression, CatchClause, ChainExpression, ClassMethodMember, ClassStatement, CommaExpression, ConditionalExpression, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, ForStatement, FunctionParameter, FunctionStatement, IfStatement, ImportStatement, LabeledStatement, NamespaceStatement, NewExpression, NonNullExpression, ObjectLiteral, ObjectProperty, Program, RangeExpression, ReturnStatement, SatisfiesExpression, Statement, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, VarDeclarator, WhileStatement, WithStatement } from "compiler/ast/ast";
 import { bindingElements, bindingIdentifiers } from "compiler/ast/bindingPatterns";
-import type {
-  ArrayLiteral,
-  AsExpression,
-  AnnotationApplication,
-  AnnotationStatement,
-  ArrowFunctionExpression,
-  AssignmentExpression,
-  BinaryExpression,
-  BlockStatement,
-  CallExpression,
-  CatchClause,
-  ChainExpression,
-  ClassFieldMember,
-  ClassMethodMember,
-  ClassStatement,
-  ConditionalExpression,
-  CommaExpression,
-  DoWhileStatement,
-  EnumStatement,
-  Expr,
-  ExprStatement,
-  ExportStatement,
-  ForStatement,
-  FunctionExpression,
-  FunctionParameter,
-  FunctionStatement,
-  Identifier,
-  IfStatement,
-  LabeledStatement,
-  ImportStatement,
-  MemberExpression,
-  NamespaceStatement,
-  NewExpression,
-  NonNullExpression,
-  ObjectLiteral,
-  ObjectProperty,
-  Program,
-  RangeExpression,
-  ReturnStatement,
-  SatisfiesExpression,
-  Statement,
-  SwitchStatement,
-  ThrowStatement,
-  TryStatement,
-  UnaryExpression,
-  UpdateExpression,
-  VarDeclarator,
-  VarStatement,
-  WhileStatement,
-  WithStatement
-} from "compiler/ast/ast";
+
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { SourceRange, Token } from "compiler/parser/tokenizer";
 import { tokenize, TokenType } from "compiler/parser/tokenizer";
@@ -321,7 +272,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   const visitVarDeclarator = (declaration: VarDeclarator): void => {
     for (const identifier of bindingIdentifiers(declaration.name)) markIdentifier(kinds, identifier, "variable");
     for (const element of bindingElements(declaration.name)) {
-      if (element.propertyName?.kind === NodeKind.Identifier) {
+      if (element.propertyName instanceof Identifier) {
         markIdentifier(kinds, element.propertyName, "property");
       }
       if (element.initializer) visitExpression(element.initializer);
@@ -335,7 +286,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   const visitParameter = (parameter: FunctionParameter): void => {
     for (const identifier of bindingIdentifiers(parameter.name)) markIdentifier(kinds, identifier, "parameter");
     for (const element of bindingElements(parameter.name)) {
-      if (element.propertyName?.kind === NodeKind.Identifier) {
+      if (element.propertyName instanceof Identifier) {
         markIdentifier(kinds, element.propertyName, "property");
       }
       if (element.initializer) visitExpression(element.initializer);
@@ -348,7 +299,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
 
   const visitClassMember = (member: ClassFieldMember | ClassMethodMember): void => {
     visitAnnotations(member.annotations);
-    if (member.kind === NodeKind.ClassFieldMember) {
+    if (member instanceof ClassFieldMember) {
       markIdentifier(kinds, member.name, "property");
       markTypeAnnotation(kinds, member.typeAnnotation);
       if (member.initializer) {
@@ -360,7 +311,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
     markIdentifier(kinds, member.name, "method");
     for (const parameter of member.parameters) {
       if (member.name.name === "constructor" && (parameter.accessModifier !== undefined || parameter.isReadonly === true)) {
-        if (parameter.name.kind === NodeKind.Identifier) markIdentifier(kinds, parameter.name, "property");
+        if (parameter.name instanceof Identifier) markIdentifier(kinds, parameter.name, "property");
         markTypeAnnotation(kinds, parameter.typeAnnotation);
         if (parameter.defaultValue) {
           visitExpression(parameter.defaultValue);
@@ -443,7 +394,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         } else {
           for (const identifier of bindingIdentifiers(variableStatement.name)) markIdentifier(kinds, identifier, "variable");
           for (const element of bindingElements(variableStatement.name)) {
-            if (element.propertyName?.kind === NodeKind.Identifier) {
+            if (element.propertyName instanceof Identifier) {
               markIdentifier(kinds, element.propertyName, "property");
             }
             if (element.initializer) visitExpression(element.initializer);
@@ -469,7 +420,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         const classStatement = statement as ClassStatement;
         markIdentifier(kinds, classStatement.name, "class");
         for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-          if (parameter.name.kind === NodeKind.Identifier) markIdentifier(kinds, parameter.name, "property");
+          if (parameter.name instanceof Identifier) markIdentifier(kinds, parameter.name, "property");
           markTypeAnnotation(kinds, parameter.typeAnnotation);
           if (parameter.defaultValue) {
             visitExpression(parameter.defaultValue);
@@ -532,9 +483,9 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
       case NodeKind.ForStatement: {
         const forStatement = statement as ForStatement;
         if (forStatement.iterationKind && forStatement.iterator && forStatement.iterable) {
-          if (forStatement.iterator.kind === NodeKind.VarStatement) {
+          if (forStatement.iterator instanceof VarStatement) {
             visitStatement(forStatement.iterator as VarStatement);
-          } else if (forStatement.iterator.kind === NodeKind.Identifier) {
+          } else if (forStatement.iterator instanceof Identifier) {
             markIdentifier(kinds, forStatement.iterator as Identifier, "variable");
           } else {
             visitExpression(forStatement.iterator as Expr);
@@ -545,7 +496,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
 
         if (forStatement.initializer) {
-          if (forStatement.initializer.kind === NodeKind.VarStatement) {
+          if (forStatement.initializer instanceof VarStatement) {
             visitStatement(forStatement.initializer as VarStatement);
           } else {
             visitExpression(forStatement.initializer as Expr);
@@ -625,12 +576,12 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   };
 
   const visitObjectProperty = (property: ObjectProperty): void => {
-    if (!property.computed && property.key.kind === NodeKind.Identifier) {
+    if (!property.computed && property.key instanceof Identifier) {
       markIdentifier(kinds, property.key as Identifier, property.method ? "method" : "property");
     } else {
       visitExpression(property.key);
     }
-    if (property.method && property.value.kind === NodeKind.FunctionExpression) {
+    if (property.method && property.value instanceof FunctionExpression) {
       const fn = property.value as FunctionExpression;
       for (const parameter of fn.parameters) {
         visitParameter(parameter);
@@ -643,17 +594,17 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   };
 
   const visitCallCallee = (callee: Expr, identifierType: TokenTypeName): void => {
-    if (callee.kind === NodeKind.Identifier) {
+    if (callee instanceof Identifier) {
       const identifier = callee as Identifier;
       markIdentifier(kinds, identifier, isPascalCaseIdentifier(identifier) ? "class" : identifierType);
       return;
     }
-    if (callee.kind === NodeKind.MemberExpression) {
+    if (callee instanceof MemberExpression) {
       const member = callee as MemberExpression;
       visitExpression(member.object);
       if (member.computed) {
         visitExpression(member.property);
-      } else if (member.property.kind === NodeKind.Identifier) {
+      } else if (member.property instanceof Identifier) {
         markIdentifier(kinds, member.property as Identifier, "method");
       } else {
         visitExpression(member.property);
@@ -730,7 +681,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         visitExpression(member.object);
         if (member.computed) {
           visitExpression(member.property);
-        } else if (member.property.kind === NodeKind.Identifier) {
+        } else if (member.property instanceof Identifier) {
           markIdentifier(kinds, member.property as Identifier, "property");
         } else {
           visitExpression(member.property);
@@ -766,7 +717,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         return;
       case NodeKind.ObjectLiteral:
         for (const property of (expression as ObjectLiteral).properties) {
-          if (property.kind === NodeKind.ObjectSpreadProperty) {
+          if (property instanceof ObjectSpreadProperty) {
             visitExpression(property.argument);
           } else {
             visitObjectProperty(property);
@@ -790,7 +741,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         for (const parameter of arrow.parameters) {
           visitParameter(parameter);
         }
-        if (arrow.body.kind === NodeKind.BlockStatement) {
+        if (arrow.body instanceof BlockStatement) {
           visitBlock(arrow.body as BlockStatement);
         } else {
           visitExpression(arrow.body as Expr);

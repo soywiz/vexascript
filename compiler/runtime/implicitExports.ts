@@ -1,12 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type {
-  FunctionParameter,
-  FunctionStatement,
-  Identifier,
-  Program,
-  Statement,
-  VarStatement
-} from "compiler/ast/ast";
+import { ClassStatement, EnumStatement, ExportStatement, FunctionStatement, Identifier, NamespaceStatement, NodeKind, VarStatement } from "compiler/ast/ast";
+import type { FunctionParameter, Program, Statement } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { extname } from "compiler/utils/path";
 import { operatorBaseRuntimeName, sanitizeManglePart } from "./operatorNames";
@@ -50,7 +44,7 @@ function implicitRuntimeExportNames(statement: Statement): string[] {
       if (variable.declared) {
         return [];
       }
-      if (variable.receiverType && variable.name.kind === NodeKind.Identifier) {
+      if (variable.receiverType && variable.name instanceof Identifier) {
         const names = [extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name)];
         if (variable.accessors?.some((accessor) => accessor.accessorKind === "set")) {
           names.push(extensionPropertySetterRuntimeExportName(variable.receiverType.name, variable.name.name));
@@ -85,7 +79,7 @@ function implicitRuntimeExportNames(statement: Statement): string[] {
       if ((statement as { declared?: boolean }).declared) {
         return [];
       }
-      if (statement.kind === NodeKind.NamespaceStatement) {
+      if (statement instanceof NamespaceStatement) {
         const names = (statement as { names?: Identifier[] }).names;
         return names && names.length > 0 ? [names[0]!.name] : [];
       }
@@ -103,7 +97,7 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
 
   const overloadCounts = new Map<string, number>();
   for (const statement of ast.body) {
-    if (statement.kind === NodeKind.FunctionStatement && !(statement as FunctionStatement).declared) {
+    if (statement instanceof FunctionStatement && !(statement as FunctionStatement).declared) {
       const fn = statement as FunctionStatement;
       overloadCounts.set(fn.name.name, (overloadCounts.get(fn.name.name) ?? 0) + 1);
     }
@@ -113,15 +107,15 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
   const commonJsLines = new Set<string>();
 
   for (const statement of ast.body) {
-    if (statement.kind === NodeKind.ExportStatement) {
+    if (statement instanceof ExportStatement) {
       continue;
     }
-    if (statement.kind === NodeKind.VarStatement) {
+    if (statement instanceof VarStatement) {
       const variable = statement as VarStatement;
       if (variable.declared) {
         continue;
       }
-      if (variable.receiverType && variable.name.kind === NodeKind.Identifier) {
+      if (variable.receiverType && variable.name instanceof Identifier) {
         const runtimeName = extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name);
         esmSpecifiers.add(runtimeName);
         commonJsLines.add(`exports.${runtimeName} = ${runtimeName};`);
@@ -136,7 +130,7 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
         ? variable.declarations
         : [{ name: variable.name, delegate: variable.delegate }];
       for (const declaration of declarations) {
-        if (declaration.name.kind !== NodeKind.Identifier || declaration.delegate) {
+        if (!(declaration.name instanceof Identifier) || declaration.delegate) {
           continue;
         }
         const sourceName = declaration.name.name;
@@ -146,7 +140,7 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
       }
       continue;
     }
-    if (statement.kind === NodeKind.FunctionStatement) {
+    if (statement instanceof FunctionStatement) {
       const fn = statement as FunctionStatement;
       if (fn.declared || fn.missingBody) {
         continue;
@@ -167,7 +161,7 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
       commonJsLines.add(`exports.${exportName} = ${runtimeName};`);
       continue;
     }
-    if (statement.kind === NodeKind.ClassStatement || statement.kind === NodeKind.EnumStatement) {
+    if (statement instanceof ClassStatement || statement instanceof EnumStatement) {
       if ((statement as { declared?: boolean }).declared) {
         continue;
       }
@@ -180,7 +174,7 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
       commonJsLines.add(`exports.${sourceName} = ${runtimeName};`);
       continue;
     }
-    if (statement.kind === NodeKind.NamespaceStatement) {
+    if (statement instanceof NamespaceStatement) {
       if ((statement as { declared?: boolean }).declared) {
         continue;
       }

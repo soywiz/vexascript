@@ -1,8 +1,9 @@
-import { NodeKind } from "compiler/ast/ast";
+import { ClassFieldMember, Identifier } from "compiler/ast/ast";
+import type { ClassMember, ClassStatement, EnumStatement, Program } from "compiler/ast/ast";
 import { classPropertyParameters, resolveClassMember, resolveClassMemberNames } from "./classResolver";
 import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import { Analysis } from "compiler/analysis/Analysis";
-import type { ClassMember, ClassStatement, EnumStatement, Program } from "compiler/ast/ast";
+
 import type { CompletionItem } from "vscode-languageserver/node.js";
 import { CompletionItemKind, matchesCompletionPrefix } from "./completionModel";
 import type { InterfaceCompletionMember, TypeAliasCompletionMember } from "./completionModel";
@@ -12,11 +13,11 @@ export function operatorSymbolFromMemberName(name: string): string | null {
 }
 
 export function memberSortGroup(memberName: string, classStatement: ClassStatement, membersByName: Map<string, ClassMember>): string {
-  if (classPropertyParameters(classStatement).some((parameter) => parameter.name.kind === NodeKind.Identifier && parameter.name.name === memberName)) {
+  if (classPropertyParameters(classStatement).some((parameter) => parameter.name instanceof Identifier && parameter.name.name === memberName)) {
     return "0";
   }
   const member = membersByName.get(memberName);
-  if (member?.kind === NodeKind.ClassFieldMember) {
+  if (member instanceof ClassFieldMember) {
     return "1";
   }
   return "2";

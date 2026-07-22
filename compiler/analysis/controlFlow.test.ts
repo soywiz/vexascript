@@ -1,4 +1,14 @@
-import { NodeKind } from "compiler/ast/ast";
+import {
+  BreakStatement,
+  ContinueStatement,
+  DoWhileStatement,
+  EmptyStatement,
+  ForStatement,
+  Identifier,
+  LabeledStatement,
+  NodeKind,
+  WhileStatement,
+} from "compiler/ast/ast";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Statement } from "compiler/ast/ast";
@@ -35,15 +45,15 @@ describe("isAsyncLike", () => {
 
 describe("statementAllowsLabeledContinue", () => {
   it("returns true for WhileStatement", () => {
-    assert.equal(statementAllowsLabeledContinue(stmt(NodeKind.WhileStatement)), true);
+    assert.equal(statementAllowsLabeledContinue(new WhileStatement(new Identifier("condition"), new EmptyStatement())), true);
   });
 
   it("returns true for DoWhileStatement", () => {
-    assert.equal(statementAllowsLabeledContinue(stmt(NodeKind.DoWhileStatement)), true);
+    assert.equal(statementAllowsLabeledContinue(new DoWhileStatement(new EmptyStatement(), new Identifier("condition"))), true);
   });
 
   it("returns true for ForStatement", () => {
-    assert.equal(statementAllowsLabeledContinue(stmt(NodeKind.ForStatement)), true);
+    assert.equal(statementAllowsLabeledContinue(new ForStatement(new EmptyStatement())), true);
   });
 
   it("returns false for non-loop statements", () => {
@@ -53,7 +63,10 @@ describe("statementAllowsLabeledContinue", () => {
   });
 
   it("returns true for LabeledStatement wrapping a loop", () => {
-    const labeled = stmt(NodeKind.LabeledStatement, { body: stmt(NodeKind.WhileStatement) });
+    const labeled = new LabeledStatement(
+      new Identifier("loop"),
+      new WhileStatement(new Identifier("condition"), new EmptyStatement())
+    );
     assert.equal(statementAllowsLabeledContinue(labeled), true);
   });
 
@@ -293,14 +306,14 @@ describe("statementListAlwaysExits", () => {
 
   it("stops scanning after BreakStatement", () => {
     assert.equal(
-      statementListAlwaysExits([stmt(NodeKind.BreakStatement), stmt(NodeKind.ReturnStatement)]),
+      statementListAlwaysExits([new BreakStatement(), stmt(NodeKind.ReturnStatement)]),
       false
     );
   });
 
   it("stops scanning after ContinueStatement", () => {
     assert.equal(
-      statementListAlwaysExits([stmt(NodeKind.ContinueStatement), stmt(NodeKind.ReturnStatement)]),
+      statementListAlwaysExits([new ContinueStatement(), stmt(NodeKind.ReturnStatement)]),
       false
     );
   });

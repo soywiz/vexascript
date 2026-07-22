@@ -1,16 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type {
-  AnnotationStatement,
-  ClassStatement,
-  EnumStatement,
-  FunctionStatement,
-  ImportStatement,
-  InterfaceStatement,
-  Program,
-  Statement,
-  TypeAliasStatement,
-  VarStatement
-} from "compiler/ast/ast";
+import { ClassStatement, FunctionStatement, ImportStatement, InterfaceStatement, NodeKind, VarStatement } from "compiler/ast/ast";
+import type { AnnotationStatement, EnumStatement, Program, Statement, TypeAliasStatement } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
@@ -54,21 +44,21 @@ export interface ResolveTopLevelDeclarationOptions<T extends Statement> extends 
 }
 
 export function isClassStatement(statement: Statement): statement is ClassStatement {
-  return statement.kind === NodeKind.ClassStatement;
+  return statement instanceof ClassStatement;
 }
 
 export function isInterfaceStatement(statement: Statement): statement is InterfaceStatement {
-  return statement.kind === NodeKind.InterfaceStatement;
+  return statement instanceof InterfaceStatement;
 }
 
 export function topLevelDeclarationNames(statement: Statement): string[] {
-  if (statement.kind === NodeKind.VarStatement) {
+  if (statement instanceof VarStatement) {
     const varStatement = statement as VarStatement;
     if (varStatement.receiverType) {
       return bindingIdentifiers(varStatement.name).map((identifier) => identifier.name);
     }
   }
-  if (statement.kind === NodeKind.FunctionStatement) {
+  if (statement instanceof FunctionStatement) {
     const functionStatement = statement as FunctionStatement;
     if (functionStatement.receiverType) {
       return [functionStatement.name.name];
@@ -137,13 +127,13 @@ export function findTopLevelDeclarationInProgram<T extends Statement>(
   predicate: TopLevelDeclarationPredicate<T>
 ): T | null {
   for (const statement of ast.body) {
-    const directExtensionProperty = statement.kind === NodeKind.VarStatement
+    const directExtensionProperty = statement instanceof VarStatement
       ? statement as VarStatement
       : null;
     if (directExtensionProperty?.receiverType && predicate(directExtensionProperty) && topLevelDeclarationNames(directExtensionProperty).includes(name)) {
       return directExtensionProperty;
     }
-    const directMatch = statement.kind === NodeKind.FunctionStatement
+    const directMatch = statement instanceof FunctionStatement
       ? statement as FunctionStatement
       : null;
     if (directMatch?.receiverType && predicate(directMatch) && topLevelDeclarationNames(directMatch).includes(name)) {
@@ -245,7 +235,7 @@ export async function resolveTopLevelDeclarationAcrossFiles<T extends Statement>
 
   if (options.currentFilePath) {
     for (const statement of options.ast.body) {
-      if (statement.kind !== NodeKind.ImportStatement) {
+      if (!(statement instanceof ImportStatement)) {
         continue;
       }
       const importStatement = statement as ImportStatement;

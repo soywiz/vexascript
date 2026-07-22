@@ -1,32 +1,5 @@
-import { NodeKind } from "compiler/ast/ast";
-import {
-  BlockStatement,
-  BinaryExpression,
-  CatchClause,
-  ClassMethodMember,
-  ClassStatement,
-  DeferStatement,
-  DoWhileStatement,
-  ExprStatement,
-  Expr,
-  ExportStatement,
-  ForStatement,
-  FunctionParameter,
-  FunctionStatement,
-  Identifier,
-  IfStatement,
-  Node,
-  Program,
-  RangeExpression,
-  Statement,
-  SwitchStatement,
-  SwitchCase,
-  TryStatement,
-  UpdateExpression,
-  VarStatement,
-  VarDeclarator,
-  WhileStatement
-} from "compiler/ast/ast";
+import { BinaryExpression, BlockStatement, CatchClause, ClassMethodMember, ClassStatement, DeferStatement, DoWhileStatement, ExportStatement, Expr, ExprStatement, ForStatement, FunctionParameter, FunctionStatement, Identifier, IfStatement, Node, NodeKind, Program, RangeExpression, Statement, SwitchCase, SwitchStatement, TryStatement, UpdateExpression, VarDeclarator, VarStatement, WhileStatement } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 
 export interface LoweringOptions {
@@ -164,11 +137,11 @@ function lowerForStatement(statement: ForStatement, options: LoweringOptions): F
     ), statement);
   }
 
-  if (options.lowerRangeForLoops !== false && statement.iterationKind === "of" && statement.iterable.kind === NodeKind.RangeExpression) {
+  if (options.lowerRangeForLoops !== false && statement.iterationKind === "of" && statement.iterable instanceof RangeExpression) {
     const iteratorName =
-      statement.iterator.kind === NodeKind.Identifier
+      statement.iterator instanceof Identifier
         ? (statement.iterator as Identifier).name
-        : statement.iterator.kind === NodeKind.VarStatement
+        : statement.iterator instanceof VarStatement
           ? (bindingIdentifiers((statement.iterator as VarStatement).declarations?.[0]?.name ?? (statement.iterator as VarStatement).name)[0]?.name)
           : null;
 
@@ -216,7 +189,7 @@ function lowerBlockStatement(statement: BlockStatement, options: LoweringOptions
   const loweredBody: Statement[] = [];
   for (let index = statement.body.length - 1; index >= 0; index -= 1) {
     const child = statement.body[index]!;
-    if (child.kind === NodeKind.DeferStatement) {
+    if (child instanceof DeferStatement) {
       const deferred = child as DeferStatement;
       const tryBlock = copyNodeBounds(new BlockStatement([...loweredBody]), statement);
       const finallyStatement = copyNodeBounds(new ExprStatement(cloneExpression(deferred.expression)), deferred);

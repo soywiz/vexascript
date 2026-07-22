@@ -1,10 +1,5 @@
-import { NodeKind } from "compiler/ast/ast";
-import {
-  Identifier,
-  ImportSpecifier,
-  ImportStatement,
-  Program
-} from "compiler/ast/ast";
+import { Identifier, ImportSpecifier, ImportStatement, Program } from "compiler/ast/ast";
+
 import type { CodeAction, Diagnostic } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { offsetToPosition, nodeRange, positionToOffset } from "./ranges";
@@ -54,7 +49,7 @@ function importStatementAtRange(ast: Program, diagnostic: Diagnostic): {
   binding: Identifier;
 } | null {
   for (const statement of ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;

@@ -1,4 +1,4 @@
-import { NodeKind } from "compiler/ast/ast";
+import { Identifier, NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { boxedInterfaceNameForBuiltin, expressionSnippet, isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
 import { builtinType, functionType, literalType, namedType } from "./types";
@@ -41,7 +41,7 @@ describe("boxedInterfaceNameForBuiltin", () => {
 
 describe("expressionSnippet", () => {
   it("returns null for identifiers", () => {
-    expect(expressionSnippet(expr(NodeKind.Identifier))).toBeNull();
+    expect(expressionSnippet(new Identifier("value"))).toBeNull();
   });
 
   it("returns kind when no token values are present", () => {

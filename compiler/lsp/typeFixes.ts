@@ -1,14 +1,9 @@
-import { NodeKind } from "compiler/ast/ast";
+import { AssignmentExpression, ClassFieldMember, FunctionParameter, Identifier, MemberExpression } from "compiler/ast/ast";
+import type { ClassStatement, Program } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { findBestMatch } from "./nodeSearch";
-import type {
-  AssignmentExpression,
-  ClassStatement,
-  Identifier,
-  MemberExpression,
-  Program
-} from "compiler/ast/ast";
+
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import {
@@ -23,11 +18,11 @@ import { diagnosticHasCode, parseTypeMismatchDiagnostic, VEXA_DIAGNOSTIC_CODES }
 import { findNodeContainingRange } from "./nodeSearch";
 import { buildParameterTypeEdit } from "./parameterTypeEdits";
 import { nodeRange, rangeContains, rangeSize } from "./ranges";
-import type { FunctionParameter } from "compiler/ast/ast";
+
 
 function findAssignmentForDiagnosticRange(ast: Program, diagnosticRange: Range): AssignmentExpression | null {
   return findBestMatch(ast, (node) => {
-    if (node.kind !== NodeKind.AssignmentExpression) {
+    if (!(node instanceof AssignmentExpression)) {
       return null;
     }
 
@@ -79,7 +74,7 @@ function buildMemberTypeEdit(
   }
 
   for (const member of classStatement.members) {
-    if (member.name.name !== memberName || member.kind !== NodeKind.ClassFieldMember) {
+    if (member.name.name !== memberName || !(member instanceof ClassFieldMember)) {
       continue;
     }
     if (member.typeAnnotation) {
@@ -115,9 +110,9 @@ function findMissingTypeParameter(ast: Program, diagnosticRange: Range): Functio
     ast,
     diagnosticRange,
     (node): node is FunctionParameter =>
-      node.kind === NodeKind.FunctionParameter &&
+      node instanceof FunctionParameter &&
       (node as FunctionParameter).thisParameter !== true &&
-      (node as FunctionParameter).name.kind === NodeKind.Identifier &&
+      (node as FunctionParameter).name instanceof Identifier &&
       !(node as FunctionParameter).typeAnnotation
   );
 }
@@ -187,11 +182,11 @@ export async function createTypeFixCodeActions(params: {
     const sourceType = mismatch.sourceType;
 
     const assignment = findAssignmentForDiagnosticRange(params.ast, diagnostic.range);
-    if (!assignment || assignment.left.kind !== NodeKind.MemberExpression) {
+    if (!assignment || !(assignment.left instanceof MemberExpression)) {
       continue;
     }
     const leftMember = assignment.left as MemberExpression;
-    if (leftMember.computed || leftMember.property.kind !== NodeKind.Identifier) {
+    if (leftMember.computed || !(leftMember.property instanceof Identifier)) {
       continue;
     }
 

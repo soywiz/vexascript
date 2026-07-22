@@ -1,15 +1,9 @@
-import { NodeKind } from "compiler/ast/ast";
+import { AssignmentExpression, CallExpression, Identifier, MemberExpression } from "compiler/ast/ast";
+import type { ClassStatement, Program } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { walkAst } from "compiler/ast/traversal";
-import type {
-  AssignmentExpression,
-  CallExpression,
-  ClassStatement,
-  Identifier,
-  MemberExpression,
-  Program
-} from "compiler/ast/ast";
+
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type { CodeAction, Diagnostic } from "vscode-languageserver/node.js";
@@ -132,11 +126,11 @@ function inferMissingMemberTypeFromDiagnostic(
   };
 
   walkAst(ast, (node) => {
-    if (node.kind === NodeKind.AssignmentExpression) {
+    if (node instanceof AssignmentExpression) {
       const assignment = node as AssignmentExpression;
       if (
-        assignment.left.kind === NodeKind.MemberExpression &&
-        (assignment.left as MemberExpression).property.kind === NodeKind.Identifier
+        assignment.left instanceof MemberExpression &&
+        (assignment.left as MemberExpression).property instanceof Identifier
       ) {
         const leftMember = assignment.left as MemberExpression;
         const property = leftMember.property as Identifier;
@@ -147,11 +141,11 @@ function inferMissingMemberTypeFromDiagnostic(
       return;
     }
 
-    if (node.kind === NodeKind.CallExpression) {
+    if (node instanceof CallExpression) {
       const call = node as CallExpression;
       if (
-        call.callee.kind === NodeKind.MemberExpression &&
-        (call.callee as MemberExpression).property.kind === NodeKind.Identifier
+        call.callee instanceof MemberExpression &&
+        (call.callee as MemberExpression).property instanceof Identifier
       ) {
         const calleeMember = call.callee as MemberExpression;
         const property = calleeMember.property as Identifier;

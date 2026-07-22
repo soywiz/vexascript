@@ -1,7 +1,7 @@
-import { NodeKind } from "compiler/ast/ast";
+import { EnumStatement, Identifier } from "compiler/ast/ast";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { arrayType, builtinType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
-import type { EnumStatement, Identifier } from "compiler/ast/ast";
+
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "./diagnosticSeverity";
 import type { AnalysisSession } from "./analysisSession";
@@ -61,7 +61,7 @@ export async function collectCrossFileMemberDiagnostics(
   const currentFilePath = uriToFilePath(uri);
 
   for (const member of collectMemberExpressions(session.ast)) {
-    if (member.computed || member.property.kind !== NodeKind.Identifier) {
+    if (member.computed || !(member.property instanceof Identifier)) {
       continue;
     }
     const objectTypeName = await resolveCrossFileExpressionTypeName(
@@ -78,7 +78,7 @@ export async function collectCrossFileMemberDiagnostics(
     const localEnum = findTopLevelDeclarationInProgram(
       session.ast,
       baseTypeName(resolvedObjectTypeName),
-      (statement): statement is EnumStatement => statement.kind === NodeKind.EnumStatement
+      (statement): statement is EnumStatement => statement instanceof EnumStatement
     );
     if (localEnum) {
       continue;

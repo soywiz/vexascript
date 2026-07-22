@@ -1,4 +1,5 @@
-import { NodeKind } from "compiler/ast/ast";
+import { Identifier } from "compiler/ast/ast";
+import type { AnnotationStatement, FunctionParameter, Program } from "compiler/ast/ast";
 import type {
   Hover,
   Location,
@@ -6,7 +7,7 @@ import type {
   PrepareRenameResult,
   WorkspaceEdit
 } from "vscode-languageserver/node.js";
-import type { AnnotationStatement, FunctionParameter, Identifier, Program } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { Analysis, AnalysisRange } from "compiler/analysis/Analysis";
 import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
@@ -213,7 +214,7 @@ function parameterIdentifierFromCursor(
   }
 
   const symbolAt = analysis.getSymbolAt(line, character);
-  if (!program || !symbolAt || symbolAt.symbol.kind !== "parameter" || symbolAt.symbol.node.kind !== NodeKind.Identifier) {
+  if (!program || !symbolAt || symbolAt.symbol.kind !== "parameter" || !(symbolAt.symbol.node instanceof Identifier)) {
     return null;
   }
   return symbolAt.symbol.node as Identifier;
@@ -369,7 +370,7 @@ export function createHover(
   const hoverTypeText = target.hover.contents;
   const symbolNode = target.symbolAt?.symbol.node;
   const documentation =
-    program && symbolNode?.kind === NodeKind.Identifier
+    program && symbolNode instanceof Identifier
       ? readDocumentationForSymbol(program, symbolNode as Identifier, options)
       : undefined;
   const hoverValue = documentation ? `${hoverTypeText}\n\n${documentation}` : hoverTypeText;

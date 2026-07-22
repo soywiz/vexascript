@@ -209,6 +209,12 @@ export abstract class Node {
     protected constructor(public kind: NodeKind) {
     }
 }
+
+export function nodeStartOffset(node: Node): number | undefined {
+    const token = node.firstToken
+    return token ? token.range.start.offset : undefined
+}
+
 export abstract class Expr extends Node {
     protected constructor(kind: NodeKind) {
         super(kind)

@@ -1,46 +1,11 @@
 import { NamedType } from "../analysis/types";
-import { NodeKind } from "compiler/ast/ast";
+import { CallExpression, ClassFieldMember, ClassMethodMember, Identifier, NamedArgument, NodeKind, ObjectSpreadProperty, VarStatement } from "compiler/ast/ast";
+import type { ArrayLiteral, AsExpression, AssignmentExpression, BinaryExpression, BlockStatement, ChainExpression, ClassStatement, CommaExpression, ConditionalExpression, DoWhileStatement, Expr, ExprStatement, ForStatement, FunctionParameter, FunctionStatement, IfStatement, LabeledStatement, MemberExpression, NewExpression, NonNullExpression, ObjectLiteral, Program, RangeExpression, ReturnStatement, SatisfiesExpression, Statement, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisType } from "compiler/analysis/types";
 import { typeToString } from "compiler/analysis/types";
 import { parseTypeNameShape, splitTopLevelTypeText } from "compiler/analysis/typeNames";
-import type {
-  ArrayLiteral,
-  AsExpression,
-  AssignmentExpression,
-  BinaryExpression,
-  BlockStatement,
-  CallExpression,
-  ChainExpression,
-  ClassStatement,
-  ConditionalExpression,
-  CommaExpression,
-  DoWhileStatement,
-  Expr,
-  ExprStatement,
-  ForStatement,
-  FunctionParameter,
-  FunctionStatement,
-  IfStatement,
-  LabeledStatement,
-  MemberExpression,
-  NewExpression,
-  NonNullExpression,
-  ObjectLiteral,
-  Program,
-  SatisfiesExpression,
-  RangeExpression,
-  ReturnStatement,
-  Statement,
-  SwitchStatement,
-  ThrowStatement,
-  TryStatement,
-  UnaryExpression,
-  UpdateExpression,
-  VarStatement,
-  WhileStatement,
-  WithStatement
-} from "compiler/ast/ast";
+
 import type { InlayHint, Range } from "vscode-languageserver/node.js";
 import {
   createClassResolverCache,
@@ -149,7 +114,7 @@ async function resolveVariableInlayTypeName(
   ast: Program,
   options: ClassResolverOptions
 ): Promise<string | null> {
-  if (expression.kind === NodeKind.CallExpression) {
+  if (expression instanceof CallExpression) {
     const callExpression = expression as CallExpression;
     const calleeToken = callExpression.callee.firstToken;
     if (calleeToken) {
@@ -200,7 +165,7 @@ async function resolveVariableInlayTypeName(
         return resolvedReturnTypeName;
       }
     }
-    if (callExpression.callee.kind === NodeKind.Identifier && callExpression.callee.firstToken) {
+    if (callExpression.callee instanceof Identifier && callExpression.callee.firstToken) {
       const symbol = analysis.getSymbolAt(
         callExpression.callee.firstToken.range.start.line,
         callExpression.callee.firstToken.range.start.column
@@ -230,7 +195,7 @@ async function resolveVariableInlayTypeName(
     }
     return await resolveExpressionTypeName(expression, analysis, ast, options);
   }
-  if (expression.kind === NodeKind.Identifier && expression.firstToken) {
+  if (expression instanceof Identifier && expression.firstToken) {
     const symbol = analysis.getSymbolAt(
       expression.firstToken.range.start.line,
       expression.firstToken.range.start.column
@@ -532,7 +497,7 @@ function pushArgumentParameterHints(
 ): void {
   let positionalIndex = 0;
   for (const argument of args) {
-    if (argument.kind === NodeKind.NamedArgument) {
+    if (argument instanceof NamedArgument) {
       continue;
     }
     const parameter = parameters[positionalIndex];
@@ -661,7 +626,7 @@ export async function createInlayHints(
         return;
       case NodeKind.ObjectLiteral:
         for (const property of (expression as ObjectLiteral).properties) {
-          if (property.kind === NodeKind.ObjectSpreadProperty) {
+          if (property instanceof ObjectSpreadProperty) {
             await visitExpression(property.argument);
           } else {
             await visitExpression(property.value);
@@ -733,9 +698,9 @@ export async function createInlayHints(
         return;
       case NodeKind.ClassStatement:
         for (const member of (statement as ClassStatement).members) {
-          if (member.kind === NodeKind.ClassFieldMember && member.initializer) {
+          if (member instanceof ClassFieldMember && member.initializer) {
             await visitExpression(member.initializer);
-          } else if (member.kind === NodeKind.ClassMethodMember) {
+          } else if (member instanceof ClassMethodMember) {
             if (showTypes) {
               await pushParameterTypeHints(
                 member.parameters,
@@ -786,12 +751,12 @@ export async function createInlayHints(
         await visitExpression((statement as DoWhileStatement).condition);
         return;
       case NodeKind.ForStatement:
-        if ((statement as ForStatement).initializer && (statement as ForStatement).initializer!.kind === NodeKind.VarStatement) {
+        if ((statement as ForStatement).initializer && (statement as ForStatement).initializer! instanceof VarStatement) {
           await visitStatement((statement as ForStatement).initializer as Statement);
         } else if ((statement as ForStatement).initializer) {
           await visitExpression((statement as ForStatement).initializer as Expr);
         }
-        if ((statement as ForStatement).iterator && (statement as ForStatement).iterator!.kind === NodeKind.VarStatement) {
+        if ((statement as ForStatement).iterator && (statement as ForStatement).iterator! instanceof VarStatement) {
           await visitStatement((statement as ForStatement).iterator as Statement);
         } else if ((statement as ForStatement).iterator) {
           await visitExpression((statement as ForStatement).iterator as Expr);

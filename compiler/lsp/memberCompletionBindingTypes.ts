@@ -1,5 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type { Expr, FunctionParameter, Identifier, Program, TypeAnnotation, VarStatement } from "compiler/ast/ast";
+import { FunctionParameter, Identifier, NewExpression, NodeKind, TypeReference, VarStatement } from "compiler/ast/ast";
+import type { Expr, Program, TypeAnnotation } from "compiler/ast/ast";
+
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { walkAst } from "compiler/ast/traversal";
 import { containsPosition, nodeRange, rangeSize } from "./ranges";
@@ -11,7 +12,7 @@ export function findIdentifierAtPosition(
 ): Identifier | null {
   let best: { identifier: Identifier; size: number } | undefined;
   walkAst(ast, (node) => {
-    if (node.kind !== NodeKind.Identifier) {
+    if (!(node instanceof Identifier)) {
       return;
     }
     const identifier = node as Identifier;
@@ -36,11 +37,11 @@ export function inferClassNameFromAstVariableInitializer(
   let bestClassName: string | null = null;
 
   const maybeClassNameFromInitializer = (initializer: Expr | undefined): string | null => {
-    if (!initializer || initializer.kind !== NodeKind.NewExpression) {
+    if (!initializer || !(initializer instanceof NewExpression)) {
       return null;
     }
     const newExpression = initializer as Expr & { kind: NodeKind.NewExpression; callee: Expr };
-    if (newExpression.callee.kind === NodeKind.Identifier) {
+    if (newExpression.callee instanceof Identifier) {
       return (newExpression.callee as Expr & { kind: NodeKind.Identifier; name: string }).name;
     }
     return null;
@@ -65,7 +66,7 @@ export function inferClassNameFromAstVariableInitializer(
   };
 
   walkAst(ast, (node) => {
-    if (node.kind !== NodeKind.VarStatement) {
+    if (!(node instanceof VarStatement)) {
       return;
     }
     const varStatement = node as VarStatement;
@@ -99,10 +100,10 @@ export function inferTypeNameFromAstBindingAnnotation(
     if (!typeAnnotation) {
       return null;
     }
-    if (typeAnnotation.kind === NodeKind.Identifier) {
+    if (typeAnnotation instanceof Identifier) {
       return typeAnnotation.name;
     }
-    if (typeAnnotation.kind === NodeKind.TypeReference) {
+    if (typeAnnotation instanceof TypeReference) {
       return typeAnnotation.name.name;
     }
     return null;
@@ -127,7 +128,7 @@ export function inferTypeNameFromAstBindingAnnotation(
   };
 
   walkAst(ast, (node) => {
-    if (node.kind === NodeKind.FunctionParameter) {
+    if (node instanceof FunctionParameter) {
       const parameter = node as FunctionParameter;
       for (const identifier of bindingIdentifiers(parameter.name)) {
         const declarationLine = identifier.firstToken?.range.start.line ?? -1;
@@ -135,7 +136,7 @@ export function inferTypeNameFromAstBindingAnnotation(
       }
       return;
     }
-    if (node.kind !== NodeKind.VarStatement) {
+    if (!(node instanceof VarStatement)) {
       return;
     }
     const varStatement = node as VarStatement;

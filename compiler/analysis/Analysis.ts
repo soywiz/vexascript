@@ -1,5 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
-import type { BinaryExpression, Identifier, ImportStatement, JsxAttribute, MemberExpression, Node, Program, Statement } from "compiler/ast/ast";
+import { BinaryExpression, Identifier, ImportStatement, MemberExpression, nodeStartOffset, UnaryExpression } from "compiler/ast/ast";
+import type { JsxAttribute, Node, Program, Statement } from "compiler/ast/ast";
+
 import { childNodes, walkAst } from "compiler/ast/traversal";
 import { Binder } from "./Binder";
 import type {
@@ -106,9 +107,9 @@ function collectBoundImplicitReceiverResolutions(
   resolutions: IdentifierResolution[]
 ): void {
   const scope = bound.scopeByNode.get(node) ?? inheritedScope;
-  if (node.kind === NodeKind.Identifier) {
+  if (node instanceof Identifier) {
     const identifier = node as Identifier;
-    const symbol = resolveScopeSymbol(identifier.name, scope, identifier.firstToken?.range.start.offset);
+    const symbol = resolveScopeSymbol(identifier.name, scope, nodeStartOffset(identifier));
     if (symbol?.implicitReceiver === true) resolutions.push({ identifier, symbol });
   }
   for (const child of childNodes(node)) {
@@ -247,18 +248,20 @@ export class Analysis {
     }
     const memberPropertyNames = new Set<string>();
     walkAst(this.program, (node) => {
-      if (node.kind !== NodeKind.MemberExpression) {
+      if (!(node instanceof MemberExpression)) {
         return;
       }
-      const member = node as MemberExpression;
-      if (!member.computed && member.property.kind === NodeKind.Identifier) {
-        memberPropertyNames.add((member.property as Identifier).name);
+      const member: MemberExpression = node;
+      const property = member.property;
+      if (!member.computed && property instanceof Identifier) {
+        const identifierProperty: Identifier = property;
+        memberPropertyNames.add(identifierProperty.name);
       }
     });
 
     const unused: Identifier[] = [];
     for (const statement of this.program.body) {
-      if (statement.kind !== NodeKind.ImportStatement) {
+      if (!(statement instanceof ImportStatement)) {
         continue;
       }
       const importStatement = statement as ImportStatement;
@@ -396,7 +399,7 @@ export class Analysis {
       if (symbol.declaredOffset < 0) {
         continue;
       }
-      if (symbol.node.kind !== NodeKind.Identifier) {
+      if (!(symbol.node instanceof Identifier)) {
         continue;
       }
       const range = this.nodeToRange(symbol.node);
@@ -608,9 +611,9 @@ export class Analysis {
   }
 
   private operatorRange(expression: Node): AnalysisRange | null {
-    const token = expression.kind === NodeKind.BinaryExpression
+    const token = expression instanceof BinaryExpression
       ? (expression as BinaryExpression).operatorToken
-      : expression.kind === NodeKind.UnaryExpression
+      : expression instanceof UnaryExpression
         ? expression.firstToken
         : undefined;
     if (!token) {

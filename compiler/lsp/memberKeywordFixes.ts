@@ -1,6 +1,7 @@
-import { NodeKind } from "compiler/ast/ast";
+import { ClassFieldMember, ClassMethodMember } from "compiler/ast/ast";
+import type { Program } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
-import type { ClassFieldMember, ClassMethodMember, Program } from "compiler/ast/ast";
+
 import type { CodeAction, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findBestMatchAtPosition } from "./nodeSearch";
@@ -16,7 +17,7 @@ interface MemberKeywordFix {
 
 function findClassMemberKeywordFix(ast: Program, position: Position): MemberKeywordFix | null {
   return findBestMatchAtPosition(ast, position, (node) => {
-    if (node.kind !== NodeKind.ClassFieldMember && node.kind !== NodeKind.ClassMethodMember) {
+    if (!(node instanceof ClassFieldMember) && !(node instanceof ClassMethodMember)) {
       return null;
     }
 
@@ -29,7 +30,7 @@ function findClassMemberKeywordFix(ast: Program, position: Position): MemberKeyw
     return {
       range,
       build: () => {
-        if (member.kind === NodeKind.ClassMethodMember) {
+        if (member instanceof ClassMethodMember) {
           return buildMethodKeywordFix(member);
         }
         return buildFieldKeywordFix(member);

@@ -1,22 +1,9 @@
-import { NodeKind } from "compiler/ast/ast";
+import { CallExpression, ExportStatement, Identifier, ImportStatement, MemberExpression, NewExpression } from "compiler/ast/ast";
+import type { AnnotationApplication, AnnotationStatement, Expr, FunctionStatement, Node, Program, Statement } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType, FunctionType, typeToString, UnionType } from "compiler/analysis/types";
-import type {
-  AnnotationApplication,
-  AnnotationStatement,
-  CallExpression,
-  Expr,
-  ExportStatement,
-  FunctionStatement,
-  Identifier,
-  ImportStatement,
-  MemberExpression,
-  NewExpression,
-  Node,
-  Program,
-  Statement
-} from "compiler/ast/ast";
+
 import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
 import { programAnnotationApplications } from "compiler/ast/annotations";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
@@ -146,7 +133,7 @@ function invocationContextForNode(
 function findInvocationContext(program: Program, line: number, character: number): InvocationContext | null {
   const position: Position = { line, character };
   return findBestMatch(program, (node) => {
-    if (node.kind !== NodeKind.CallExpression && node.kind !== NodeKind.NewExpression) {
+    if (!(node instanceof CallExpression) && !(node instanceof NewExpression)) {
       return null;
     }
     const callLike = node as CallExpression | NewExpression;
@@ -155,7 +142,7 @@ function findInvocationContext(program: Program, line: number, character: number
       callLike.callee,
       callLike.args ?? [],
       node,
-      node.kind === NodeKind.NewExpression
+      node instanceof NewExpression
     );
     return context ? { size: rangeSize(context.range), value: context } : null;
   });
@@ -234,7 +221,7 @@ function ambientFunctionSignatureInfo(
     .filter((parameter) => parameter.thisParameter !== true)
     .map((parameter) => ({
       label: formatParameterLabel({
-        name: parameter.name.kind === NodeKind.Identifier ? parameter.name.name : "arg",
+        name: parameter.name instanceof Identifier ? parameter.name.name : "arg",
         typeName: parameter.typeAnnotation?.name ?? "unknown",
         optional: parameter.optional === true || parameter.defaultValue !== undefined,
         rest: parameter.rest === true
@@ -261,7 +248,7 @@ function collectAmbientFunctionOverloads(
   // from the export wrapper's first token.
   return collectAmbientFunctionStatements(statements, memberName).map((fn) => {
     const ownerStatement = statements.find((s) => {
-      const candidate = s.kind === NodeKind.ExportStatement
+      const candidate = s instanceof ExportStatement
         ? (s as ExportStatement).declaration ?? s
         : s;
       return candidate === fn;
@@ -275,7 +262,7 @@ function ambientDefaultImportMemberSignatures(
   callee: MemberExpression,
   options: ClassResolverOptions
 ): SignatureInformation[] {
-  if (callee.object.kind !== NodeKind.Identifier || callee.property.kind !== NodeKind.Identifier) {
+  if (!(callee.object instanceof Identifier) || !(callee.property instanceof Identifier)) {
     return [];
   }
   const ambientModuleDeclarations = options.ambientModuleDeclarations;
@@ -323,7 +310,7 @@ async function nodeModuleDefaultImportMemberSignatures(
   callee: MemberExpression,
   options: ClassResolverOptions
 ): Promise<SignatureInformation[]> {
-  if (callee.object.kind !== NodeKind.Identifier || callee.property.kind !== NodeKind.Identifier) {
+  if (!(callee.object instanceof Identifier) || !(callee.property instanceof Identifier)) {
     return [];
   }
   const currentFilePath = options.uri ? uriToFilePath(options.uri) : null;
@@ -334,7 +321,7 @@ async function nodeModuleDefaultImportMemberSignatures(
   const receiverName = (callee.object as Identifier).name;
   const memberName = (callee.property as Identifier).name;
   const importStatement = program.body.find((statement) =>
-    statement.kind === NodeKind.ImportStatement
+    statement instanceof ImportStatement
     && (statement as ImportStatement).defaultImport?.name === receiverName
   ) as ImportStatement | undefined;
   if (!importStatement) {
@@ -480,9 +467,9 @@ async function buildSignaturesFromSymbol(
   // it preserves the original type alias names from ambient declarations
   // (e.g. `PathLike | FileHandle` rather than the expanded `string | Buffer | URL`).
   // When no display string is available, fall through to structured resolution.
-  if (context.callee.kind === NodeKind.Identifier && symbolMatch?.symbol.valueType) {
+  if (context.callee instanceof Identifier && symbolMatch?.symbol.valueType) {
     const documentation =
-      symbolMatch.symbol.node.kind === NodeKind.Identifier
+      symbolMatch.symbol.node instanceof Identifier
         ? readDocumentationForSymbol(program, symbolMatch.symbol.node as Identifier, {
             ambientModuleDeclarations: options.ambientModuleDeclarations
           })
@@ -497,7 +484,7 @@ async function buildSignaturesFromSymbol(
     }
   }
 
-  if (context.callee.kind === NodeKind.MemberExpression) {
+  if (context.callee instanceof MemberExpression) {
     const nodeModuleSignatures = await nodeModuleDefaultImportMemberSignatures(
       program,
       context.callee as MemberExpression,
@@ -512,9 +499,9 @@ async function buildSignaturesFromSymbol(
   // type checker resolves the extension), so prefer the extension's signature —
   // taken from the analysis-inferred member type — before the class-member
   // resolution below. Keeps signature help consistent with the other surfaces.
-  if (context.callee.kind === NodeKind.MemberExpression && options.uri) {
+  if (context.callee instanceof MemberExpression && options.uri) {
     const member = context.callee as MemberExpression;
-    if (!member.computed && member.property.kind === NodeKind.Identifier) {
+    if (!member.computed && member.property instanceof Identifier) {
       const objectType = analysis.getExpressionTypes().get(member.object);
       if (objectType) {
         const memberName = (member.property as Identifier).name;
@@ -548,7 +535,7 @@ async function buildSignaturesFromSymbol(
   }
 
   // Ambient default-import member signatures (e.g. `util.format`).
-  if (context.callee.kind === NodeKind.MemberExpression) {
+  if (context.callee instanceof MemberExpression) {
     const ambientSignatures = ambientDefaultImportMemberSignatures(
       program,
       context.callee as MemberExpression,
@@ -560,9 +547,9 @@ async function buildSignaturesFromSymbol(
   }
 
   if (!symbolMatch) {
-    if (context.callee.kind === NodeKind.MemberExpression) {
+    if (context.callee instanceof MemberExpression) {
       const member = context.callee as MemberExpression;
-      if (!member.computed && member.property.kind === NodeKind.Identifier) {
+      if (!member.computed && member.property instanceof Identifier) {
         const memberName = (member.property as Identifier).name;
         const memberType = analysis.getExpressionTypes().get(context.callee);
         const signatures = signatureInfosFromAnalysisType(memberName, memberType);
@@ -581,7 +568,7 @@ async function buildSignaturesFromSymbol(
   }
 
   const documentation =
-    symbolMatch.symbol.node.kind === NodeKind.Identifier
+    symbolMatch.symbol.node instanceof Identifier
       ? readDocumentationForSymbol(program, symbolMatch.symbol.node as Identifier, {
           ambientModuleDeclarations: options.ambientModuleDeclarations
         })
@@ -605,9 +592,9 @@ async function buildSignaturesFromSymbol(
     return displaySignatures;
   }
 
-  if (context.callee.kind === NodeKind.MemberExpression) {
+  if (context.callee instanceof MemberExpression) {
     const member = context.callee as MemberExpression;
-    if (!member.computed && member.property.kind === NodeKind.Identifier) {
+    if (!member.computed && member.property instanceof Identifier) {
       const memberName = (member.property as Identifier).name;
       const memberType = analysis.getExpressionTypes().get(context.callee);
       const signatures = signatureInfosFromAnalysisType(memberName, memberType);

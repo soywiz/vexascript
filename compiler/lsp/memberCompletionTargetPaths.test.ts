@@ -1,8 +1,8 @@
-import { NodeKind } from "compiler/ast/ast";
+import { BlockStatement, ExportStatement, FunctionStatement, Identifier, NamespaceStatement, Program } from "compiler/ast/ast";
+import type { Statement } from "compiler/ast/ast";
 import { describe, expect, it, pathToFileURL } from "../test/expect";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
-import type { NamespaceStatement, Program } from "compiler/ast/ast";
 import { createAnalysisSession } from "./analysisSession";
 import { createClassResolverCache } from "./classResolver";
 import { parseMemberAccessTarget } from "./memberCompletionParsing";
@@ -10,16 +10,8 @@ import { buildTargetPathMemberAccessCompletions } from "./memberCompletionTarget
 import { resolveExtensionMemberTypeName } from "./memberCompletionExtensionMembers";
 import { buildMemberCompletionItemsForType } from "./memberCompletion";
 
-function makeNamespaceStatement(name: string, body: any[]): NamespaceStatement {
-  return {
-    kind: NodeKind.NamespaceStatement,
-    declarationKind: "namespace",
-    names: [{ kind: NodeKind.Identifier, name }],
-    body: {
-      kind: NodeKind.Program,
-      body
-    }
-  } as unknown as NamespaceStatement;
+function makeNamespaceStatement(name: string, body: Statement[]): NamespaceStatement {
+  return new NamespaceStatement("namespace", new BlockStatement(body), undefined, undefined, [new Identifier(name)]);
 }
 
 describe("memberCompletionTargetPaths", () => {
@@ -52,25 +44,18 @@ describe("memberCompletionTargetPaths", () => {
 
   it("builds namespace member completions for parsed object paths", async () => {
     const session = createAnalysisSession("");
-    const ast = {
-      kind: NodeKind.Program,
-      body: [
+    const ast = new Program([
         makeNamespaceStatement("pkg", [
-          {
-            kind: NodeKind.ExportStatement,
-            declaration: makeNamespaceStatement("tools", [
-              {
-                kind: NodeKind.ExportStatement,
-                declaration: {
-                  kind: NodeKind.FunctionStatement,
-                  name: { kind: NodeKind.Identifier, name: "helper" }
-                }
-              }
-            ])
-          }
+          new ExportStatement(makeNamespaceStatement("tools", [
+            new ExportStatement(new FunctionStatement(
+              "function",
+              new Identifier("helper"),
+              [],
+              new BlockStatement([])
+            ))
+          ]))
         ])
-      ]
-    } as Program;
+      ]);
 
     const result = await buildTargetPathMemberAccessCompletions(
       ast,

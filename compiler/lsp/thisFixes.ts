@@ -1,7 +1,8 @@
-import { NodeKind } from "compiler/ast/ast";
+import { Identifier, MemberExpression } from "compiler/ast/ast";
+import type { Program } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/model";
-import type { Identifier, MemberExpression, Program } from "compiler/ast/ast";
+
 import type { CodeAction } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findBestMatchAtPosition } from "./nodeSearch";
@@ -31,7 +32,7 @@ function findImplicitReceiverIdentifierAtPosition(
   position: Position
 ): ImplicitReceiverTarget | null {
   return findBestMatchAtPosition(ast, position, (node) => {
-    if (node.kind !== NodeKind.Identifier) {
+    if (!(node instanceof Identifier)) {
       return null;
     }
 
@@ -58,16 +59,16 @@ function findThisMemberAtPosition(
   position: Position
 ): ThisMemberTarget | null {
   return findBestMatchAtPosition(ast, position, (node) => {
-    if (node.kind !== NodeKind.MemberExpression) {
+    if (!(node instanceof MemberExpression)) {
       return null;
     }
 
     const member = node as MemberExpression;
     if (
       member.computed ||
-      member.object.kind !== NodeKind.Identifier ||
+      !(member.object instanceof Identifier) ||
       (member.object as Identifier).name !== "this" ||
-      member.property.kind !== NodeKind.Identifier
+      !(member.property instanceof Identifier)
     ) {
       return null;
     }

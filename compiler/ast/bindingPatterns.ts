@@ -1,13 +1,13 @@
-import { NodeKind } from "compiler/ast/ast";
-import type { BindingElement, BindingName, Identifier, Node } from "./ast";
+import { BindingHole, Identifier, ObjectBindingPattern, StringLiteral } from "compiler/ast/ast";
+import type { BindingElement, BindingName, Node } from "./ast";
 
 export function bindingIdentifiers(binding: BindingName): Identifier[] {
-  if (binding.kind === NodeKind.Identifier) {
+  if (binding instanceof Identifier) {
     return [binding];
   }
   const identifiers: Identifier[] = [];
   for (const rawElement of binding.elements) {
-    if ((rawElement as Node).kind === NodeKind.BindingHole) continue;
+    if ((rawElement as Node) instanceof BindingHole) continue;
     const element = rawElement as BindingElement;
     for (const identifier of bindingIdentifiers(element.name)) identifiers.push(identifier);
   }
@@ -15,12 +15,12 @@ export function bindingIdentifiers(binding: BindingName): Identifier[] {
 }
 
 export function bindingElements(binding: BindingName): BindingElement[] {
-  if (binding.kind === NodeKind.Identifier) {
+  if (binding instanceof Identifier) {
     return [];
   }
   const elements: BindingElement[] = [];
   for (const rawElement of binding.elements) {
-    if ((rawElement as Node).kind === NodeKind.BindingHole) continue;
+    if ((rawElement as Node) instanceof BindingHole) continue;
     const element = rawElement as BindingElement;
     elements.push(element);
     for (const nested of bindingElements(element.name)) elements.push(nested);
@@ -29,20 +29,20 @@ export function bindingElements(binding: BindingName): BindingElement[] {
 }
 
 export function bindingElementPropertyName(element: BindingElement): string | undefined {
-  if (element.propertyName?.kind === NodeKind.Identifier) {
+  if (element.propertyName instanceof Identifier) {
     return element.propertyName.name;
   }
-  if (element.propertyName?.kind === NodeKind.StringLiteral) {
+  if (element.propertyName instanceof StringLiteral) {
     return element.propertyName.value;
   }
-  if (element.name.kind === NodeKind.Identifier) {
+  if (element.name instanceof Identifier) {
     return element.name.__vexaNativeOriginalName ?? element.name.name;
   }
   return undefined;
 }
 
 export function bindingNameText(binding: BindingName): string {
-  if (binding.kind === NodeKind.Identifier) return binding.name;
+  if (binding instanceof Identifier) return binding.name;
   const names = bindingIdentifiers(binding).map((identifier) => identifier.name).join(", ");
-  return binding.kind === NodeKind.ObjectBindingPattern ? `{ ${names} }` : `[${names}]`;
+  return binding instanceof ObjectBindingPattern ? `{ ${names} }` : `[${names}]`;
 }

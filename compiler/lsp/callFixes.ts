@@ -1,24 +1,12 @@
 import { BuiltinType, NamedType } from "../analysis/types";
-import { NodeKind } from "compiler/ast/ast";
+import { ArrowFunctionExpression, CallExpression, FunctionExpression, FunctionStatement, Identifier, InterfacePropertyMember, InterfaceStatement, JsxAttribute, JsxElement, nodeStartOffset, ObjectBindingPattern, VarStatement } from "compiler/ast/ast";
+import type { InterfaceMethodMember, Program } from "compiler/ast/ast";
 import { bindingElementPropertyName, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import { splitOptionalTypeSuffix, splitTopLevelTypeText } from "compiler/analysis/typeNames";
 import { findNode } from "compiler/ast/traversal";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType } from "compiler/analysis/types";
-import type {
-  ArrowFunctionExpression,
-  CallExpression,
-  FunctionExpression,
-  FunctionStatement,
-  Identifier,
-  InterfaceMethodMember,
-  InterfacePropertyMember,
-  InterfaceStatement,
-  JsxAttribute,
-  JsxElement,
-  ObjectBindingPattern,
-  Program
-} from "compiler/ast/ast";
+
 import { tokenize, TokenType } from "compiler/parser/tokenizer";
 import { type CodeAction, type Diagnostic, type Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
@@ -47,7 +35,7 @@ const MISSING_REQUIRED_ARGUMENT_PATTERN = /^Missing required argument for parame
 
 function findCallArgumentAtPosition(program: Program, position: Position): CallArgumentMatch | null {
   return findBestMatchAtPosition(program, position, (node) => {
-    if (node.kind !== NodeKind.CallExpression) {
+    if (!(node instanceof CallExpression)) {
       return null;
     }
 
@@ -71,13 +59,13 @@ function findFunctionDeclarationByNameNode(
   return findNode(
     program,
     (node): node is FunctionStatement =>
-      node.kind === NodeKind.FunctionStatement && (node as FunctionStatement).name === nameNode
+      node instanceof FunctionStatement && (node as FunctionStatement).name === nameNode
   );
 }
 
 function findJsxElementByReferencePosition(program: Program, position: Position): JsxElement | null {
   return findBestMatchAtPosition(program, position, (node) => {
-    if (node.kind !== NodeKind.JsxElement) {
+    if (!(node instanceof JsxElement)) {
       return null;
     }
     const jsxElement = node as JsxElement;
@@ -94,16 +82,16 @@ function resolveVariableFunctionInitializer(
   nameNode: Identifier
 ): ArrowFunctionExpression | FunctionExpression | null {
   const fromStatement = findNode(program, (node): node is import("compiler/ast/ast").VarStatement => {
-    if (node.kind !== NodeKind.VarStatement) {
+    if (!(node instanceof VarStatement)) {
       return false;
     }
     const statement = node as import("compiler/ast/ast").VarStatement;
     if (bindingIdentifiers(statement.name).some((identifier) => identifier === nameNode)) {
-      return statement.initializer?.kind === NodeKind.ArrowFunctionExpression || statement.initializer?.kind === NodeKind.FunctionExpression;
+      return statement.initializer instanceof ArrowFunctionExpression || statement.initializer instanceof FunctionExpression;
     }
     return !!statement.declarations?.some((declaration) =>
       bindingIdentifiers(declaration.name).some((identifier) => identifier === nameNode) &&
-      (declaration.initializer?.kind === NodeKind.ArrowFunctionExpression || declaration.initializer?.kind === NodeKind.FunctionExpression)
+      (declaration.initializer instanceof ArrowFunctionExpression || declaration.initializer instanceof FunctionExpression)
     );
   });
   if (!fromStatement) {
@@ -128,7 +116,7 @@ function resolveJsxComponentPropsParameter(
   }
   const token = jsxElement.reference.firstToken;
   const symbolMatch = analysis.getSymbolAt(token.range.start.line, token.range.start.column);
-  if (!symbolMatch || symbolMatch.symbol.node.kind !== NodeKind.Identifier) {
+  if (!symbolMatch || !(symbolMatch.symbol.node instanceof Identifier)) {
     return null;
   }
   const nameNode = symbolMatch.symbol.node as Identifier;
@@ -144,7 +132,7 @@ function resolveJsxComponentPropsParameter(
 function findInterfaceStatementByName(program: Program, name: string): InterfaceStatement | null {
   return findNode(
     program,
-    (node): node is InterfaceStatement => node.kind === NodeKind.InterfaceStatement && (node as InterfaceStatement).name.name === name
+    (node): node is InterfaceStatement => node instanceof InterfaceStatement && (node as InterfaceStatement).name.name === name
   );
 }
 
@@ -199,7 +187,7 @@ function requiredPropsFromInterface(program: Program, typeName: string): Require
     if (member.name.name === "children") {
       continue;
     }
-    if (member.kind === NodeKind.InterfacePropertyMember) {
+    if (member instanceof InterfacePropertyMember) {
       const property = member as InterfacePropertyMember;
       if (property.optional || typeNameIsOptional(property.typeAnnotation?.name)) {
         continue;
@@ -223,7 +211,7 @@ function requiredPropsForParameter(
   if (!parameter || parameter.thisParameter === true || parameter.rest === true) {
     return [];
   }
-  if (parameter.name.kind === NodeKind.ObjectBindingPattern) {
+  if (parameter.name instanceof ObjectBindingPattern) {
     return requiredPropsFromObjectBinding(parameter.name as ObjectBindingPattern);
   }
   if (parameter.typeAnnotation) {
@@ -279,7 +267,7 @@ function missingJsxPropsQuickFix(params: {
     if (!jsxElement) {
       continue;
     }
-    const jsxKey = String(jsxElement.firstToken?.range.start.offset ?? `${position.line}:${position.character}`);
+    const jsxKey = String(nodeStartOffset(jsxElement) ?? `${position.line}:${position.character}`);
     if (seen.has(jsxKey)) {
       continue;
     }
@@ -292,7 +280,7 @@ function missingJsxPropsQuickFix(params: {
     }
     const provided = new Set<string>();
     for (const attribute of jsxElement.attributes) {
-      if (attribute.kind !== NodeKind.JsxAttribute) {
+      if (!(attribute instanceof JsxAttribute)) {
         continue;
       }
       provided.add((attribute as JsxAttribute).name);
@@ -355,7 +343,7 @@ function resolveCallFixContext(
     return null;
   }
   const symbolMatch = analysis.getSymbolAt(calleeToken.range.start.line, calleeToken.range.start.column);
-  if (!symbolMatch || symbolMatch.symbol.kind !== "function" || symbolMatch.symbol.node.kind !== NodeKind.Identifier) {
+  if (!symbolMatch || symbolMatch.symbol.kind !== "function" || !(symbolMatch.symbol.node instanceof Identifier)) {
     return null;
   }
 
@@ -406,7 +394,7 @@ function findFunctionParens(functionStatement: FunctionStatement, text: string):
     return null;
   }
 
-  const bodyStart = functionStatement.body.firstToken?.range.start.offset ?? text.length;
+  const bodyStart = nodeStartOffset(functionStatement.body) ?? text.length;
   const tokens = tokenize(text);
   const startIndex = tokens.findIndex(
     (token) =>
@@ -482,7 +470,7 @@ function extraArgumentQuickFix(params: {
     const argument = call.args[index]!;
     const inferredType = toTypeAnnotation(expressionTypes.get(argument));
     const rawName =
-      argument.kind === NodeKind.Identifier
+      argument instanceof Identifier
         ? (argument as Identifier).name
         : `arg${index + 1}`;
     const parameterName = uniqueParameterName(rawName, usedNames);
@@ -667,7 +655,7 @@ function changeSignatureQuickFix(params: {
       const additions: string[] = [];
       for (let index = existing.length; index < provided.length; index += 1) {
         const argument = provided[index]!;
-        const rawName = argument.kind === NodeKind.Identifier ? (argument as Identifier).name : `arg${index + 1}`;
+        const rawName = argument instanceof Identifier ? (argument as Identifier).name : `arg${index + 1}`;
         const parameterName = uniqueParameterName(rawName, usedNames);
         const inferred = toTypeAnnotation(expressionTypes.get(argument));
         additions.push(inferred ? `${parameterName}?: ${inferred}` : `${parameterName}?`);
@@ -757,7 +745,7 @@ export function createCallFixCodeActions(params: {
       continue;
     }
 
-    const callStartOffset = context.call.firstToken?.range.start.offset ?? -1;
+    const callStartOffset = nodeStartOffset(context.call) ?? -1;
     const functionName = context.functionDeclaration.name.name;
     const signatureKey = `${callStartOffset}:${functionName}`;
     if (!producedChangeSignatureKeys.has(signatureKey)) {

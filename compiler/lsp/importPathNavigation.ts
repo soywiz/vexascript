@@ -1,6 +1,6 @@
-import { NodeKind } from "compiler/ast/ast";
+import { ImportStatement } from "compiler/ast/ast";
 import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
-import type { ImportStatement } from "compiler/ast/ast";
+
 import type { Hover, Location } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
 import { nodeRange } from "./ranges";
@@ -96,7 +96,7 @@ export async function resolveImportSpecifierDefinition(context: ResolveContext):
     return null;
   }
   for (const statement of context.session.ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;

@@ -1,5 +1,5 @@
 import { FunctionType, UnionType } from "../analysis/types";
-import { NodeKind } from "compiler/ast/ast";
+import { AsExpression, AssignmentExpression, BinaryExpression, CallExpression, ClassFieldMember, ClassMethodMember, ClassStatement, ConditionalExpression, ExportStatement, Expr, FunctionParameter, FunctionStatement, Identifier, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, MemberExpression, NamespaceStatement, NewExpression, NonNullExpression, Program, RangeExpression, SatisfiesExpression, Statement, UnaryExpression, UpdateExpression } from "compiler/ast/ast";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Analysis } from "compiler/analysis/Analysis";
 import {
@@ -12,31 +12,7 @@ import {
   substituteTypeNameText
 } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
-import {
-  AsExpression,
-  AssignmentExpression,
-  BinaryExpression,
-  CallExpression,
-  ClassStatement,
-  ExportStatement,
-  FunctionStatement,
-  ImportStatement,
-  InterfaceStatement,
-  InterfaceMethodMember,
-  NamespaceStatement,
-  ConditionalExpression,
-  Expr,
-  FunctionParameter,
-  Identifier,
-  MemberExpression,
-  NewExpression,
-  NonNullExpression,
-  SatisfiesExpression,
-  Statement,
-  UnaryExpression,
-  UpdateExpression,
-  Program,
-} from "compiler/ast/ast";
+
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { uriToFilePath } from "./importFixes";
 import { readDocumentationForSymbol } from "./documentation";
@@ -312,7 +288,7 @@ async function specializeInheritedParentTypeFromChild(
   const inferred = new Map<string, string>();
   const ownFieldNames = new Set<string>(classPropertyParameters(childClassStatement).map((parameter) => bindingNameText(parameter.name)));
   for (const member of childClassStatement.members) {
-    if (member.kind === NodeKind.ClassFieldMember) {
+    if (member instanceof ClassFieldMember) {
       ownFieldNames.add(member.name.name);
     }
   }
@@ -419,10 +395,10 @@ function mergeInterfaceStatements(interfaceStatements: InterfaceStatement[]): In
 function findMergedInterfaceStatementInProgram(ast: Program, interfaceName: string): InterfaceStatement | null {
   const matches: InterfaceStatement[] = [];
   for (const statement of ast.body) {
-    const declaration = statement.kind === NodeKind.ExportStatement
+    const declaration = statement instanceof ExportStatement
       ? (statement as ExportStatement).declaration
       : statement;
-    if (!declaration || declaration.kind !== NodeKind.InterfaceStatement) {
+    if (!declaration || !(declaration instanceof InterfaceStatement)) {
       continue;
     }
     const interfaceStatement = declaration as InterfaceStatement;
@@ -455,10 +431,10 @@ function findMergedQualifiedInterfaceStatementInStatements(
   if (path.length === 1) {
     return mergeInterfaceStatements(
       statements.flatMap((statement) => {
-        const declaration = statement.kind === NodeKind.ExportStatement
+        const declaration = statement instanceof ExportStatement
           ? (statement as ExportStatement).declaration
           : statement;
-        if (!declaration || declaration.kind !== NodeKind.InterfaceStatement) {
+        if (!declaration || !(declaration instanceof InterfaceStatement)) {
           return [];
         }
         const interfaceStatement = declaration as InterfaceStatement;
@@ -469,10 +445,10 @@ function findMergedQualifiedInterfaceStatementInStatements(
 
   const [namespaceName, ...rest] = path;
   const nestedMatches = statements.flatMap((statement) => {
-    const declaration = statement.kind === NodeKind.ExportStatement
+    const declaration = statement instanceof ExportStatement
       ? (statement as ExportStatement).declaration
       : statement;
-    if (!declaration || declaration.kind !== NodeKind.NamespaceStatement) {
+    if (!declaration || !(declaration instanceof NamespaceStatement)) {
       return [];
     }
     const namespaceStatement = declaration as NamespaceStatement;
@@ -502,7 +478,7 @@ async function resolveNodeModuleImportedClassStatement(
   }
 
   for (const statement of ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -515,10 +491,10 @@ async function resolveNodeModuleImportedClassStatement(
     }
 
     for (const entry of typings.declarationEntries) {
-      const declaration = entry.statement.kind === NodeKind.ExportStatement
+      const declaration = entry.statement instanceof ExportStatement
         ? (entry.statement as ExportStatement).declaration
         : entry.statement;
-      if (!declaration || declaration.kind !== NodeKind.ClassStatement) {
+      if (!declaration || !(declaration instanceof ClassStatement)) {
         continue;
       }
       const classStatement = declaration as ClassStatement;
@@ -546,7 +522,7 @@ async function resolveNodeModuleImportedInterfaceStatement(
   }
 
   for (const statement of ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) {
+    if (!(statement instanceof ImportStatement)) {
       continue;
     }
     const importStatement = statement as ImportStatement;
@@ -703,8 +679,8 @@ export async function resolveInterfaceStatementAcrossFiles(
 
 export function constructorParameterProperties(classStatement: ClassStatement): FunctionParameter[] {
   return classStatement.members
-    .filter((member) => member.kind === NodeKind.ClassMethodMember && member.name.name === "constructor")
-    .flatMap((member) => member.kind === NodeKind.ClassMethodMember ? member.parameters : [])
+    .filter((member) => member instanceof ClassMethodMember && member.name.name === "constructor")
+    .flatMap((member) => member instanceof ClassMethodMember ? member.parameters : [])
     .filter((parameter) => parameter.accessModifier !== undefined || parameter.isReadonly === true);
 }
 
@@ -715,9 +691,9 @@ export function classPropertyParameters(classStatement: ClassStatement) {
 function resolvedConstructorParameters(classStatement: ClassStatement): ResolvedParameter[] {
   const constructorMember = classStatement.members.find(
     (member): member is ClassStatement["members"][number] =>
-      member.kind === NodeKind.ClassMethodMember && member.name.name === "constructor"
+      member instanceof ClassMethodMember && member.name.name === "constructor"
   );
-  const parameters = constructorMember?.kind === NodeKind.ClassMethodMember
+  const parameters = constructorMember instanceof ClassMethodMember
     ? constructorMember.parameters
     : (classStatement.primaryConstructorParameters ?? []);
   return parameters.map((parameter) => ({
@@ -750,7 +726,7 @@ async function selectBestInterfaceConstructorSignature(
 ): Promise<ResolvedConstructorSignature | null> {
   const constructorMembers = interfaceStatement.members.filter(
     (member): member is InterfaceMethodMember =>
-      member.kind === NodeKind.InterfaceMethodMember && member.name.name === "constructor"
+      member instanceof InterfaceMethodMember && member.name.name === "constructor"
   );
   if (constructorMembers.length === 0) {
     return null;
@@ -1347,7 +1323,7 @@ async function resolveInterfaceMemberDeclarationRecursive(
         declaration: interfaceStatement,
         filePath: interfaceResolution.filePath,
         memberName,
-        kind: member.kind === NodeKind.InterfacePropertyMember ? "field" : "method"
+        kind: member instanceof InterfacePropertyMember ? "field" : "method"
       };
     }
   }
@@ -1486,30 +1462,30 @@ export async function resolveExpressionTypeName(
   options: ClassResolverOptions
 ): Promise<string | null> {
   const direct = typeNameFromAnalysisType(analysis.getExpressionTypes().get(expression));
-  if (direct && direct !== "unknown" && !(expression.kind === NodeKind.Identifier && inferredTypeNameLosesGenericArguments(direct))) {
+  if (direct && direct !== "unknown" && !(expression instanceof Identifier && inferredTypeNameLosesGenericArguments(direct))) {
     return direct;
   }
 
-  if (expression.kind === NodeKind.AsExpression) {
+  if (expression instanceof AsExpression) {
     const assertion = expression as AsExpression;
     return typeNameFromAnalysisType(analysis.getExpressionTypes().get(assertion))
       ?? assertion.typeAnnotation.name
       ?? await resolveExpressionTypeName(assertion.expression, analysis, ast, options);
   }
 
-  if (expression.kind === NodeKind.SatisfiesExpression) {
+  if (expression instanceof SatisfiesExpression) {
     const satisfies = expression as SatisfiesExpression;
     return typeNameFromAnalysisType(analysis.getExpressionTypes().get(satisfies))
       ?? await resolveExpressionTypeName(satisfies.expression, analysis, ast, options);
   }
 
-  if (expression.kind === NodeKind.NonNullExpression) {
+  if (expression instanceof NonNullExpression) {
     const nonNull = expression as NonNullExpression;
     return typeNameFromAnalysisType(analysis.getExpressionTypes().get(nonNull))
       ?? await resolveExpressionTypeName(nonNull.expression, analysis, ast, options);
   }
 
-  if (expression.kind === NodeKind.Identifier) {
+  if (expression instanceof Identifier) {
     const firstToken = expression.firstToken;
     if (!firstToken) {
       return null;
@@ -1519,27 +1495,27 @@ export async function resolveExpressionTypeName(
     if (!inferredTypeNameLosesGenericArguments(symbolTypeName)) {
       return symbolTypeName;
     }
-    if (symbol?.node.kind === NodeKind.Identifier) {
+    if (symbol?.node instanceof Identifier) {
       return declaredInitializerTypeName(symbol.node as Identifier, ast) ?? symbolTypeName;
     }
     return symbolTypeName;
   }
 
-  if (expression.kind === NodeKind.NewExpression) {
+  if (expression instanceof NewExpression) {
     return explicitTypeNameFromNewExpression(expression as NewExpression);
   }
 
-  if (expression.kind === NodeKind.CallExpression) {
+  if (expression instanceof CallExpression) {
     const call = expression as CallExpression;
     const callable = await resolveCallableSignature(call.callee, analysis, ast, options);
     return callable?.returnTypeName ?? null;
   }
 
-  if (expression.kind === NodeKind.AssignmentExpression) {
+  if (expression instanceof AssignmentExpression) {
     return await resolveExpressionTypeName((expression as AssignmentExpression).right, analysis, ast, options);
   }
 
-  if (expression.kind === NodeKind.UnaryExpression) {
+  if (expression instanceof UnaryExpression) {
     const unary = expression as UnaryExpression;
     if (unary.operator === "!") {
       return "boolean";
@@ -1559,7 +1535,7 @@ export async function resolveExpressionTypeName(
     return await resolveExpressionTypeName(unary.argument, analysis, ast, options);
   }
 
-  if (expression.kind === NodeKind.UpdateExpression) {
+  if (expression instanceof UpdateExpression) {
     const argumentType = await resolveExpressionTypeName(
       (expression as UpdateExpression).argument,
       analysis,
@@ -1569,7 +1545,7 @@ export async function resolveExpressionTypeName(
     return argumentType ?? "int";
   }
 
-  if (expression.kind === NodeKind.ConditionalExpression) {
+  if (expression instanceof ConditionalExpression) {
     const conditional = expression as ConditionalExpression;
     const consequentType = await resolveExpressionTypeName(conditional.consequent, analysis, ast, options);
     const alternateType = await resolveExpressionTypeName(conditional.alternate, analysis, ast, options);
@@ -1579,11 +1555,11 @@ export async function resolveExpressionTypeName(
     return consequentType ?? alternateType ?? null;
   }
 
-  if (expression.kind === NodeKind.RangeExpression) {
+  if (expression instanceof RangeExpression) {
     return "range<int>";
   }
 
-  if (expression.kind === NodeKind.BinaryExpression) {
+  if (expression instanceof BinaryExpression) {
     const binary = expression as BinaryExpression;
     const left = await resolveExpressionTypeName(binary.left, analysis, ast, options);
     const right = await resolveExpressionTypeName(binary.right, analysis, ast, options);
@@ -1610,12 +1586,12 @@ export async function resolveExpressionTypeName(
     }
   }
 
-  if (expression.kind !== NodeKind.MemberExpression) {
+  if (!(expression instanceof MemberExpression)) {
     return null;
   }
 
   const member = expression as MemberExpression;
-  if (member.computed || member.property.kind !== NodeKind.Identifier) {
+  if (member.computed || !(member.property instanceof Identifier)) {
     return null;
   }
 
@@ -1661,18 +1637,18 @@ async function findNodeModuleNamespaceBody(
   options: ClassResolverOptions
 ): Promise<Statement[] | null> {
   for (const statement of ast.body) {
-    if (statement.kind !== NodeKind.ImportStatement) continue;
+    if (!(statement instanceof ImportStatement)) continue;
     const importStatement = statement as ImportStatement;
     if (importStatement.from.value.startsWith(".")) continue;
     const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value, { vfs: options.vfs });
     if (!typings || typings.defaultExportName !== typeName) continue;
     for (const decl of typings.declarations) {
       const candidate =
-        decl.kind === NodeKind.ExportStatement
+        decl instanceof ExportStatement
           ? (decl as { declaration?: Statement }).declaration ?? decl
           : decl;
       if (
-        candidate.kind === NodeKind.NamespaceStatement &&
+        candidate instanceof NamespaceStatement &&
         (candidate as NamespaceStatement).names?.[0]?.name === typeName
       ) {
         return (candidate as NamespaceStatement).body.body;
@@ -1694,10 +1670,10 @@ async function resolveNodeModuleNamespaceFunctionSignature(
 
   for (const bodyStmt of nsBody) {
     const candidate =
-      bodyStmt.kind === NodeKind.ExportStatement
+      bodyStmt instanceof ExportStatement
         ? (bodyStmt as { declaration?: Statement }).declaration ?? bodyStmt
         : bodyStmt;
-    if (candidate.kind !== NodeKind.FunctionStatement) continue;
+    if (!(candidate instanceof FunctionStatement)) continue;
     const fn = candidate as FunctionStatement;
     if (fn.name?.name !== memberName) continue;
     const parameters: ResolvedParameter[] = fn.parameters
@@ -1723,7 +1699,7 @@ export async function resolveCallableSignature(
   ast: Program,
   options: ClassResolverOptions
 ): Promise<ResolvedFunctionSignature | null> {
-  if (callee.kind === NodeKind.Identifier) {
+  if (callee instanceof Identifier) {
     const identifier = callee as Identifier;
     if (!identifier.firstToken) {
       return null;
@@ -1737,7 +1713,7 @@ export async function resolveCallableSignature(
     }
     if (symbol.type instanceof FunctionType) {
       const documentation =
-        symbol.node.kind === NodeKind.Identifier
+        symbol.node instanceof Identifier
           ? readDocumentationForSymbol(ast, symbol.node as Identifier, {
             ambientModuleDeclarations: options.ambientModuleDeclarations
             })
@@ -1770,12 +1746,12 @@ export async function resolveCallableSignature(
     return null;
   }
 
-  if (callee.kind !== NodeKind.MemberExpression) {
+  if (!(callee instanceof MemberExpression)) {
     return null;
   }
 
   const member = callee as MemberExpression;
-  if (member.computed || member.property.kind !== NodeKind.Identifier) {
+  if (member.computed || !(member.property instanceof Identifier)) {
     return null;
   }
 
@@ -1852,7 +1828,7 @@ export async function resolveCallableSignatures(
   ast: Program,
   options: ClassResolverOptions
 ): Promise<ResolvedFunctionSignature[]> {
-  if (callee.kind === NodeKind.Identifier) {
+  if (callee instanceof Identifier) {
     const identifier = callee as Identifier;
     if (!identifier.firstToken) return [];
     const symbol = analysis.getSymbolAt(
@@ -1861,7 +1837,7 @@ export async function resolveCallableSignatures(
     )?.symbol;
     if (!symbol) return [];
     const documentation =
-      symbol.node.kind === NodeKind.Identifier
+      symbol.node instanceof Identifier
         ? readDocumentationForSymbol(ast, symbol.node as Identifier, {
             ambientModuleDeclarations: options.ambientModuleDeclarations
           })
@@ -1913,9 +1889,9 @@ export async function resolveCallableSignatures(
     return [];
   }
 
-  if (callee.kind !== NodeKind.MemberExpression) return [];
+  if (!(callee instanceof MemberExpression)) return [];
   const member = callee as MemberExpression;
-  if (member.computed || member.property.kind !== NodeKind.Identifier) return [];
+  if (member.computed || !(member.property instanceof Identifier)) return [];
 
   const objectTypeName = await resolveExpressionTypeName(member.object, analysis, ast, options);
   const parsedObjectType = objectTypeName ? parseTypeNameShape(objectTypeName) : null;
@@ -1970,7 +1946,7 @@ export async function resolveConstructorSignature(
   options: ClassResolverOptions,
   callExpression?: CallExpression | NewExpression
 ): Promise<ResolvedConstructorSignature | null> {
-  if (callee.kind !== NodeKind.Identifier) {
+  if (!(callee instanceof Identifier)) {
     return null;
   }
 

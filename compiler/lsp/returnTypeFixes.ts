@@ -1,10 +1,7 @@
-import { NodeKind } from "compiler/ast/ast";
+import { ClassMethodMember, FunctionStatement } from "compiler/ast/ast";
+import type { Program } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
-import type {
-  ClassMethodMember,
-  FunctionStatement,
-  Program
-} from "compiler/ast/ast";
+
 import { type CodeAction } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import type { ClassResolverOptions } from "./classResolver";
@@ -28,14 +25,14 @@ interface ReturnTypeTarget {
  */
 function findReturnTypeTargetAtPosition(ast: Program, position: Position): ReturnTypeTarget | null {
   return findBestMatchAtPosition(ast, position, (candidate) => {
-    if (candidate.kind !== NodeKind.FunctionStatement && candidate.kind !== NodeKind.ClassMethodMember) {
+    if (!(candidate instanceof FunctionStatement) && !(candidate instanceof ClassMethodMember)) {
       return null;
     }
     const node = candidate as FunctionLikeNode;
     if (node.returnType) {
       return null;
     }
-    if (node.kind === NodeKind.ClassMethodMember && node.accessorKind === "set") {
+    if (node instanceof ClassMethodMember && node.accessorKind === "set") {
       return null;
     }
     if (!node.parametersCloseParen) {

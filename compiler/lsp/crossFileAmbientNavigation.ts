@@ -1,6 +1,7 @@
 import { FunctionType } from "../analysis/types";
-import { NodeKind } from "compiler/ast/ast";
-import type { Identifier, MemberExpression, Statement } from "compiler/ast/ast";
+import { Identifier } from "compiler/ast/ast";
+import type { MemberExpression, Statement } from "compiler/ast/ast";
+
 import { typeToString } from "compiler/analysis/types";
 import { nodeRange } from "./ranges";
 import { pathToUri } from "./importFixes";
@@ -106,7 +107,7 @@ export async function resolveAmbientModuleObjectMemberDefinition(
   memberExpression: MemberExpression,
   memberName: string
 ): Promise<Location | null> {
-  if (memberExpression.object.kind !== NodeKind.Identifier || !context.session.ast) {
+  if (!(memberExpression.object instanceof Identifier) || !context.session.ast) {
     return null;
   }
 
