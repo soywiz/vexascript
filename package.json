@@ -11,6 +11,7 @@
     "dist",
     "native/runtime.cpp",
     "native/bigint.h",
+    "native/utf.h",
     "native/oilpan-standalone-main.zip"
   ],
   "scripts": {

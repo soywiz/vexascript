@@ -644,6 +644,16 @@ function extensionReceiverTypeName(type: AnalysisType | undefined): string | nul
   return null;
 }
 
+function universalExtensionMethods(): RuntimeExtensionMethodInfo[] {
+  const methods: RuntimeExtensionMethodInfo[] = [];
+  for (const candidates of activeState.extensionMethods.values()) {
+    for (const candidate of candidates) {
+      if (candidate.universal === true) methods.push(candidate);
+    }
+  }
+  return methods;
+}
+
 function resolveExtensionMethodCall(call: CallExpression): string | null {
   if (call.optional === true || call.callee.kind !== NodeKind.MemberExpression) {
     return null;
@@ -661,8 +671,7 @@ function resolveExtensionMethodCall(call: CallExpression): string | null {
   const methods = [
     ...(activeState.extensionMethods.get(receiverType) ?? []),
     ...(resolvedAsExtension
-      ? [...activeState.extensionMethods.values()].flatMap((candidates) =>
-          candidates.filter((candidate) => candidate.universal === true))
+      ? universalExtensionMethods()
       : [])
   ].filter((candidate) => candidate.name === methodName);
   if (!methods || methods.length === 0) {
@@ -1559,8 +1568,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           const resolvedReceiverType = activeState.implicitReceiverExtensionIdentifiers.get(call.callee as Node)!;
           const receiverMethods = [
             ...(activeState.extensionMethods.get(resolvedReceiverType) ?? []),
-            ...[...activeState.extensionMethods.values()].flatMap((candidates) =>
-              candidates.filter((candidate) => candidate.universal === true))
+            ...universalExtensionMethods()
           ];
           const candidates = receiverMethods?.filter((m) => m.name === methodName);
           if (candidates && candidates.length > 0) {
@@ -1678,9 +1686,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const receiverName = receiverInfo
           ? `__vexa_receiver_${sanitizeManglePart(receiverInfo.label)}_${activeState.generatedSymbolCounter++}`
           : null;
+        const valueParameterText = emitFunctionParameters(valueParameters);
         const emittedParameters = receiverName
-          ? [receiverName, emitFunctionParameters(valueParameters)].filter(Boolean).join(", ")
-          : emitFunctionParameters(valueParameters);
+          ? valueParameterText.length > 0 ? `${receiverName}, ${valueParameterText}` : receiverName
+          : valueParameterText;
         const parameters = `(${emittedParameters})`;
         const shadowNames = receiverName
           ? [receiverName, ...functionParameterBindingNames(valueParameters)]

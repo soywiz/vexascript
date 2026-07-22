@@ -22,7 +22,7 @@ class FinalizationProbe final
   void* dynamicCast(const void* type) override {
     return type == vexa::nativeTypeToken<FinalizationProbe>() ? this : nullptr;
   }
-  std::string dynamicToString() const override { return "probe"; }
+  std::u16string dynamicToString() const override { return u"probe"; }
   void Trace(cppgc::Visitor*) const override {}
   static inline int finalized = 0;
 };
@@ -38,14 +38,14 @@ VEXA_NOINLINE void createCycle(vexa::Runtime& runtime) {
   cppgc::Persistent<vexa::RecordObject> root(record);
   auto* array = runtime.array<vexa::Value>();
   auto* probe = runtime.make<FinalizationProbe>();
-  record->set("array", vexa::Value(array));
-  record->set("probe", vexa::Value(probe));
+  record->set(u"array", vexa::Value(array));
+  record->set(u"probe", vexa::Value(probe));
   array->append(vexa::Value(record));
   auto* closure = vexa::makeFunction<vexa::Value>(
       runtime,
       [record]() { return vexa::Value(record); },
       {vexa::Value(record)});
-  record->set("closure", vexa::Value(closure));
+  record->set(u"closure", vexa::Value(closure));
 }
 
 int main() {

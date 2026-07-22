@@ -170,20 +170,25 @@ function defaultExecutablePath(cppPath: string): string {
     : `${cppPath}.native`;
 }
 
-export function nativeCompilerArguments(
+interface NativeCompilerOptions {
+  sanitizers?: boolean;
+  debug?: boolean;
+  gcStress?: boolean;
+}
+
+function nativeCompilerFrontendArguments(
   cppPath: string,
-  executablePath: string,
   root: string,
   gcRoot: string,
-  libraryPath: string,
-  platform: NodeJS.Platform = process.platform,
-  options: { sanitizers?: boolean; debug?: boolean; gcStress?: boolean } = {}
+  platform: NodeJS.Platform,
+  options: NativeCompilerOptions,
+  optimization: "-O0" | "-O1" | "-O3"
 ): string[] {
   const instrumented = options.sanitizers === true;
   const path = platform === "win32" ? win32 : posix;
   return [
     "-std=c++20",
-    instrumented ? "-O1" : "-O3",
+    optimization,
     ...(!instrumented && !options.debug ? ["-DNDEBUG"] : []),
     ...(options.debug || instrumented ? ["-g"] : []),
     ...(instrumented ? ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] : []),
@@ -199,6 +204,28 @@ export function nativeCompilerArguments(
     `-I${root}`,
     `-I${gcRoot}`,
     `-I${path.resolve(gcRoot, "include")}`,
+  ];
+}
+
+export function nativeCompilerArguments(
+  cppPath: string,
+  executablePath: string,
+  root: string,
+  gcRoot: string,
+  libraryPath: string,
+  platform: NodeJS.Platform = process.platform,
+  options: NativeCompilerOptions = {}
+): string[] {
+  const instrumented = options.sanitizers === true;
+  return [
+    ...nativeCompilerFrontendArguments(
+      cppPath,
+      root,
+      gcRoot,
+      platform,
+      options,
+      instrumented ? "-O1" : "-O3"
+    ),
     libraryPath,
     ...(platform === "win32" ? [] : ["-pthread"]),
     ...(platform === "darwin"
@@ -209,6 +236,18 @@ export function nativeCompilerArguments(
     "-o",
     executablePath,
   ];
+}
+
+export async function validateNativeCppSyntax(
+  cppPath: string,
+  options: NativeCompilerOptions = {}
+): Promise<void> {
+  const root = nativeRoot();
+  const { gcRoot } = await ensureOilpanLibrary(root);
+  await runCommand("g++", [
+    ...nativeCompilerFrontendArguments(cppPath, root, gcRoot, process.platform, options, "-O0"),
+    "-fsyntax-only",
+  ]);
 }
 
 export async function compileNativeExecutable(

@@ -652,6 +652,7 @@ console.log("record", record.name, record.score, record.nested.active, hadName, 
 val unicodeRecord = {} as any
 unicodeRecord["á😀"] = "utf16"
 console.log("unicode record", unicodeRecord["á😀"], Object.keys(unicodeRecord).join("|"), "á😀" in unicodeRecord)
+console.log("uri utf16", encodeURIComponent("á 😀"), decodeURIComponent("%C3%A1%20%F0%9F%98%80"))
 
 console.log("enum", Permission.None, Permission.All)
 switch (Permission.All) {

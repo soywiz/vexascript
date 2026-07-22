@@ -443,7 +443,6 @@ inline BigInt pow(BigInt base, BigInt exponent) {
   return result;
 }
 
-inline std::string toString(const BigInt& value) { return value.toString(); }
 inline BigInt remainder(BigInt left, const BigInt& right) { return left %= right; }
 inline bool Boolean(const BigInt& value) { return !value.isZero(); }
 

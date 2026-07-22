@@ -15,9 +15,9 @@ function isAbsolutePath(path: string): boolean {
 
 function normalizePath(path: string): string {
   const normalized = normalizeSlashes(path);
-  const drive = normalized.match(/^([A-Za-z]:)\//)?.[1];
+  const drive = /^[A-Za-z]:\//.test(normalized) ? normalized.slice(0, 2) : undefined;
   const absolute = isAbsolutePath(normalized);
-  const parts = (drive ? normalized.slice(drive.length) : normalized).split("/");
+  const parts = (drive ? normalized.slice(2) : normalized).split("/");
   const output: string[] = [];
 
   for (const part of parts) {

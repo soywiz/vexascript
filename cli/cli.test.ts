@@ -5,6 +5,7 @@ import { ensureLspTransportArg, runCli } from "./cli";
 import { startServeSession } from "./cliServe";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
 import { runCommandCapture } from "./io";
+import { validateNativeCppSyntax } from "./nativeBuild";
 
 async function buildBundledCli(): Promise<{
   code: number | null;
@@ -183,6 +184,25 @@ describe("CLI", () => {
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });
 
+  it("cpp command accepts the complete TypeScript CLI", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-self-host-"));
+    const output = join(dir, "vexa-cli.cpp");
+
+    await runCli([
+      "node",
+      "vexa",
+      "cpp",
+      join(process.cwd(), "cli", "cli.ts"),
+      "--target",
+      "optimized",
+      "--out",
+      output,
+    ]);
+
+    expect((await readFile(output, "utf8")).length).toBeGreaterThan(0);
+    await validateNativeCppSyntax(output);
+  });
+
   it("uses TypeScript semantic analysis for JavaScript and C++ emission without transpile-only", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-typescript-semantics-"));
     const validInput = join(dir, "valid.ts");
@@ -221,6 +241,7 @@ describe("CLI", () => {
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).toContain("VEXA_NATIVE_SOURCE(runtime,");
+    await validateNativeCppSyntax(output, { debug: true });
   });
 
   it("executable command routes inputs through native executable validation", async () => {

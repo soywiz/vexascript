@@ -136,7 +136,7 @@ This section is the fast onboarding map for agents and contributors.
   - `cpp` emits one `.vx` file as C++ without compiling it. `executable` compiles one `.vx` file directly to an executable while isolating generated C++ in `<input>.build/`; `native`, `build --emit cpp`, and `build --native` remain compatible forms of those workflows.
   - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
 - Native C++ support:
-  - Oilpan runtime, including reference-semantic traced `ArrayObject<T>` storage, a dependency-free arbitrary-precision integer implementation, and the vendored standalone Oilpan source archive used by generated C++ builds: `native/runtime.cpp`, `native/bigint.h`, `native/oilpan-standalone-main.zip`
+  - Oilpan runtime, including reference-semantic traced `ArrayObject<T>` storage, a dependency-free arbitrary-precision integer implementation, UTF-16/UTF-8 operating-system boundary adapters, and the vendored standalone Oilpan source archive used by generated C++ builds: `native/runtime.cpp`, `native/bigint.h`, `native/utf.h`, `native/oilpan-standalone-main.zip`
   - Native backend usage, requirements, supported surface, and module limitations: `docs/native.md`
   - Informational native performance baselines and reproduction command: `docs/native-benchmarks.md`
 - Monaco editor support for the website embeds (project folder: `website/src/assets/monaco/`):

@@ -3851,7 +3851,7 @@ function emitNativeLambda(
       if (expected === "vexa::Value") activeDynamicValueNames.add(parameter.name.name);
     }
   });
-  activeThisExpression = receiverParameterName ?? capture.thisExpression;
+  activeThisExpression = receiverParameterName !== null ? receiverParameterName : capture.thisExpression;
   let labeledReceiverName: string | null = null;
   const implicitReceiverAlias = receiverInfo?.implicitReceiverAlias === true &&
     parametersList[0]?.name.kind === NodeKind.Identifier
@@ -4595,7 +4595,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
   }
   if (member?.objectName === "Date" && member.propertyName === "parse") {
     if (call.args.length !== 1) throw new CppEmitError("C++ Date.parse expects one string", call);
-    return `vexa::dateParse(vexa::convertValue<std::string>(${emitExpression(call.args[0]!)}))`;
+    return `vexa::dateParse(vexa::convertValue<std::u16string>(${emitExpression(call.args[0]!)}))`;
   }
   if (member?.objectName === "Object" &&
       (member.propertyName === "keys" || member.propertyName === "values")) {
@@ -5046,13 +5046,13 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     if (call.args.length !== 1) {
       throw new CppEmitError("C++ readTextFile expects one path");
     }
-    return `vexa::readTextFile(${activeRuntimeName}, vexa::convertValue<std::string>(${emitExpression(call.args[0]!)}))`;
+    return `vexa::readTextFile(${activeRuntimeName}, vexa::convertValue<std::u16string>(${emitExpression(call.args[0]!)}))`;
   }
   if (calleeName === "writeTextFile") {
     if (call.args.length !== 2) {
       throw new CppEmitError("C++ writeTextFile expects a path and contents");
     }
-    return `vexa::writeTextFile(${activeRuntimeName}, vexa::convertValue<std::string>(${emitExpression(call.args[0]!)}), vexa::convertValue<std::string>(${emitExpression(call.args[1]!)}))`;
+    return `vexa::writeTextFile(${activeRuntimeName}, vexa::convertValue<std::u16string>(${emitExpression(call.args[0]!)}), vexa::convertValue<std::u16string>(${emitExpression(call.args[1]!)}))`;
   }
   if (calleeName === "commandLineArguments") {
     if (call.args.length !== 0) {
@@ -5070,19 +5070,19 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     if (call.args.length !== 1) {
       throw new CppEmitError(`C++ ${calleeName} expects one path`);
     }
-    return `vexa::${calleeName}(${activeRuntimeName}, vexa::convertValue<std::string>(${emitExpression(call.args[0]!)}))`;
+    return `vexa::${calleeName}(${activeRuntimeName}, vexa::convertValue<std::u16string>(${emitExpression(call.args[0]!)}))`;
   }
   if (calleeName === "nativeCreateDirectory" || calleeName === "nativeRemovePath") {
     if (call.args.length !== 2) {
       throw new CppEmitError(`C++ ${calleeName} expects a path and a recursive flag`);
     }
-    return `vexa::${calleeName}(${activeRuntimeName}, vexa::convertValue<std::string>(${emitExpression(call.args[0]!)}), vexa::convertValue<bool>(${emitExpression(call.args[1]!)}))`;
+    return `vexa::${calleeName}(${activeRuntimeName}, vexa::convertValue<std::u16string>(${emitExpression(call.args[0]!)}), vexa::convertValue<bool>(${emitExpression(call.args[1]!)}))`;
   }
   if (calleeName === "nativeCopyFile") {
     if (call.args.length !== 2) {
       throw new CppEmitError("C++ nativeCopyFile expects source and target paths");
     }
-    return `vexa::nativeCopyFile(${activeRuntimeName}, vexa::convertValue<std::string>(${emitExpression(call.args[0]!)}), vexa::convertValue<std::string>(${emitExpression(call.args[1]!)}))`;
+    return `vexa::nativeCopyFile(${activeRuntimeName}, vexa::convertValue<std::u16string>(${emitExpression(call.args[0]!)}), vexa::convertValue<std::u16string>(${emitExpression(call.args[1]!)}))`;
   }
   if (calleeName === "nativeRunCommandCapture") {
     if (call.args.length !== 3) {
@@ -5572,7 +5572,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       return cppText((expression as StringLiteral).value);
     case NodeKind.RegExpLiteral: {
       const literal = expression as RegExpLiteral;
-      return `vexa::RegExp(${cppString(literal.pattern)}, ${cppString(literal.flags)})`;
+      return `vexa::RegExp(${cppUtf16String(literal.pattern)}, ${cppUtf16String(literal.flags)})`;
     }
     case NodeKind.ArrayLiteral:
       return emitArrayLiteral(expression as unknown as ArrayLiteral);
@@ -5864,25 +5864,25 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         const argument = construction.args?.[0];
         const emittedArgument = argument
           ? cppTypeForExpression(argument) === "vexa::Value"
-            ? `vexa::convertValue<std::string>(${emitExpression(argument)})`
+            ? `vexa::convertValue<std::u16string>(${emitExpression(argument)})`
             : emitExpression(argument)
           : "";
         return `${activeRuntimeName}.make<vexa::DateObject>(${emittedArgument})`;
       }
       if (collectionName === "URL") {
         if ((construction.args?.length ?? 0) !== 1) throw new CppEmitError("C++ URL construction expects one URL string", construction);
-        return `${activeRuntimeName}.make<vexa::URLObject>(vexa::convertValue<std::string>(${emitExpression(construction.args![0] as Expr)}))`;
+        return `${activeRuntimeName}.make<vexa::URLObject>(vexa::convertValue<std::u16string>(${emitExpression(construction.args![0] as Expr)}))`;
       }
       if (collectionName && isNativeErrorTypeName(collectionName)) {
         if ((construction.args?.length ?? 0) > 1) throw new CppEmitError(`C++ ${collectionName} construction expects zero or one message`, construction);
         const argument = construction.args?.[0];
-        return argument ? `vexa::Error(${emitConvertedValue(argument, "vexa::Value")})` : `vexa::Error(std::string("Error"))`;
+        return argument ? `vexa::Error(${emitConvertedValue(argument, "vexa::Value")})` : `vexa::Error(std::u16string(u"Error"))`;
       }
       if (collectionName === "RegExp") {
         const args = construction.args ?? [];
         if (args.length < 1 || args.length > 2) throw new CppEmitError("C++ RegExp construction expects a pattern and optional flags", construction);
         const pattern = `vexa::toString(${emitExpression(args[0] as Expr)})`;
-        const flags = args[1] ? `vexa::toString(${emitExpression(args[1] as Expr)})` : 'std::string("")';
+        const flags = args[1] ? `vexa::toString(${emitExpression(args[1] as Expr)})` : 'std::u16string(u"")';
         return `vexa::RegExp(${pattern}, ${flags})`;
       }
       if (collectionName === "ArrayBuffer") {
@@ -6103,7 +6103,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       const enumerableInterface = objectAnalysisType?.kind === AnalysisTypeKind.Named &&
         activeInterfaceNames.has(parseTypeNameShape(objectAnalysisType.name).baseName);
       if (member.computed && (enumerableInterface || objectAnalysisType?.kind === AnalysisTypeKind.Object)) {
-        return `vexa::enumerableGet(${activeRuntimeName}, vexa::rawPointer(${emitExpression(member.object)}), vexa::toString(${emitExpression(member.property)}))`;
+        return `vexa::enumerableGet(${activeRuntimeName}, vexa::rawPointer(${emitExpression(member.object)}), vexa::propertyKey(${emitExpression(member.property)}))`;
       }
       const declaredObjectType = declaredTypeNameForExpression(member.object);
       const nativeObjectName = classNameForExpression(member.object);
@@ -6113,7 +6113,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         (nativeObjectName && activeInterfaceStatements.has(nativeObjectName)) ||
         mappedInterface
       )) {
-        return `vexa::enumerableGet(${activeRuntimeName}, vexa::rawPointer(${emitExpression(member.object)}), ${cppString((member.property as Identifier).name)})`;
+        return `vexa::enumerableGet(${activeRuntimeName}, vexa::rawPointer(${emitExpression(member.object)}), ${cppUtf16String((member.property as Identifier).name)})`;
       }
       if (nativeObjectName && activeClassStatements.has(nativeObjectName) && !isClassStoredPropertyMember(member)) {
         const key = member.computed
@@ -6248,7 +6248,7 @@ function emitDestructuredBindings(
     if (element.rest) {
       emitDestructuredBindings(
         element.name,
-        `vexa::recordRest(${activeRuntimeName}, ${source}, {${excludedKeys.map(cppString).join(", ")}})`,
+        `vexa::recordRest(${activeRuntimeName}, ${source}, {${excludedKeys.map(cppUtf16String).join(", ")}})`,
         lines,
         "vexa::RecordObject*"
       );
@@ -6265,7 +6265,7 @@ function emitDestructuredBindings(
     const propertyValue = sourceType === "vexa::Value"
       ? `vexa::dynamicGet(${source}, ${cppUtf16String(propertyName)})`
       : interfaceStatementForCppType(sourceType) !== null
-        ? `vexa::enumerableGet(${activeRuntimeName}, vexa::rawPointer(${source}), ${cppString(propertyName)})`
+        ? `vexa::enumerableGet(${activeRuntimeName}, vexa::rawPointer(${source}), ${cppUtf16String(propertyName)})`
         : `vexa::recordGet<vexa::Value>(${activeRuntimeName}, ${source}, ${cppUtf16String(propertyName)})`;
     const value = element.initializer
       ? `vexa::convertValue<${type}>(vexa::destructureDefault(${activeRuntimeName}, ${propertyValue}, [&]() { return ${emitExpression(element.initializer)}; }))`
@@ -6501,7 +6501,7 @@ function emitStatementPreamble(statement: Statement, indent: string): string[] {
   const position = statement.firstToken?.range.start;
   const statementSourcePath = statement.__vexaNativeSourcePath;
   const sourcePath = typeof statementSourcePath === "string" ? statementSourcePath : activeSourceFilePath;
-  const file = sourcePath ? cppString(sourcePath) : '""';
+  const file = sourcePath ? cppUtf16String(sourcePath) : 'u""';
   let line = 0.0;
   let column = 0.0;
   if (position) {
@@ -6535,8 +6535,8 @@ function emitLoopBody(statement: Statement, indent: string, label?: string): str
         ? [`${indent}  catch (const vexa::BreakSignal&) { break; }`]
         : []),
       ...(label ? [
-        `${indent}  catch (const vexa::LabeledContinueSignal& __vexa_signal) { if (__vexa_signal.label() == ${cppString(label)}) continue; throw; }`,
-        `${indent}  catch (const vexa::LabeledBreakSignal& __vexa_signal) { if (__vexa_signal.label() == ${cppString(label)}) break; throw; }`,
+        `${indent}  catch (const vexa::LabeledContinueSignal& __vexa_signal) { if (__vexa_signal.label() == ${cppUtf16String(label)}) continue; throw; }`,
+        `${indent}  catch (const vexa::LabeledBreakSignal& __vexa_signal) { if (__vexa_signal.label() == ${cppUtf16String(label)}) break; throw; }`,
       ] : []),
       `${indent}}`,
     ].join("\n");
@@ -6793,7 +6793,7 @@ function emitTryCatch(statement: TryStatement, indent: string, temporaryIndex: n
       };
       const rejectedBinding = parameter ? `auto ${cppName(parameter.name)} = ${caughtName}.reason();` : "";
       const nativeBinding = parameter
-        ? `auto ${cppName(parameter.name)} = ${activeRuntimeName}.string(${caughtName}.what());`
+        ? `auto ${cppName(parameter.name)} = ${activeRuntimeName}.string(vexa::exceptionText(${caughtName}));`
         : "";
       lines.push(`${indent}catch (const vexa::RejectedValue& ${caughtName}) ${catchBody(rejectedBinding)}`);
       lines.push(`${indent}catch (const std::exception& ${caughtName}) ${catchBody(nativeBinding)}`);
@@ -7776,9 +7776,9 @@ function emitInterfaceWithActiveTypeParameters(statement: InterfaceStatement): s
     else memberLines.push(...emitInterfaceProperty(member, statement));
   }
   const enumerableProperties = interfaceProperties(statement);
-  const enumerableKeys = enumerableProperties.map((property) => cppString(property.name.name)).join(", ");
+  const enumerableKeys = enumerableProperties.map((property) => cppUtf16String(property.name.name)).join(", ");
   const enumerableGetBranches = enumerableProperties.map((property) =>
-    `if (__vexa_key == ${cppString(property.name.name)}) return vexa::convertValue<vexa::Value>(this->${interfacePropertyGetterName(property.name.name)}());`
+    `if (__vexa_key == ${cppUtf16String(property.name.name)}) return vexa::convertValue<vexa::Value>(this->${interfacePropertyGetterName(property.name.name)}());`
   );
   return [
     `${cppTemplatePrefix(statement.typeParameters)}class ${cppName(statement.name.name)}${inheritance} {`,
@@ -7786,8 +7786,8 @@ function emitInterfaceWithActiveTypeParameters(statement: InterfaceStatement): s
     `  virtual ~${cppName(statement.name.name)}() = default;`,
     trace,
     `  void* nativeInterfaceCast(const void* __vexa_type) override { ${nativeCastBranches.join(" ")} return nullptr; }`,
-    `  std::vector<std::string> enumerableKeys() const override { return {${enumerableKeys}}; }`,
-    `  vexa::Value enumerableGet(const std::string& __vexa_key) override { ${enumerableGetBranches.join(" ")} return vexa::Value::undefined(); }`,
+    `  std::vector<std::u16string> enumerableKeys() const override { return {${enumerableKeys}}; }`,
+    `  vexa::Value enumerableGet(const std::u16string& __vexa_key) override { ${enumerableGetBranches.join(" ")} return vexa::Value::undefined(); }`,
     ...(statement.typeParameters?.length ? [] : [`  static ${cppName(statement.name.name)}* fromRecord(vexa::RecordObject* record);`]),
     ...memberLines,
     "};",
@@ -7919,10 +7919,10 @@ function emitRecordInterfaceAdapter(statement: InterfaceStatement): string | nul
     " public:",
     `  explicit ${adapterName}(vexa::RecordObject* record) : record_(record) {}`,
     `  void Trace(cppgc::Visitor* visitor) const override { ${interfaceName}::Trace(visitor); visitor->Trace(record_); }`,
-    "  std::vector<std::string> enumerableKeys() const override { return record_->keys(); }",
-    "  vexa::Value enumerableGet(const std::string& key) override { return record_->get(key); }",
+    "  std::vector<std::u16string> enumerableKeys() const override { return record_->keys(); }",
+    "  vexa::Value enumerableGet(const std::u16string& key) override { return record_->get(key); }",
     "  vexa::RecordObject* enumerableBackingRecord() override { return record_; }",
-    "  void defineProperty(const vexa::PropertyKey& key, const vexa::Value& value, bool enumerable) override { if (enumerable) record_->set(key, value); else record_->setHidden(key, value); }",
+    "  void defineProperty(const std::u16string& key, const vexa::Value& value, bool enumerable) override { if (enumerable) record_->set(key, value); else record_->setHidden(key, value); }",
     ...properties,
     ...methods,
     " private:",
@@ -8316,7 +8316,7 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
           if (superCall && superCall.args[0]) {
             nativeInitializers.push(`vexa::Error(${emitConvertedValue(superCall.args[0], "vexa::Value")})`);
           } else {
-            nativeInitializers.push(`vexa::Error(std::string("Error"))`);
+            nativeInitializers.push(`vexa::Error(std::u16string(u"Error"))`);
           }
         }
         for (const rawProperty of typedConstructorProperties) {
@@ -8502,7 +8502,7 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   const dynamicPropertyWrites: Array<{ key: string; body: string }> = [];
   const dynamicPropertyNames: string[] = [];
   const addDynamicProperty = (name: string, valueType: string, immutable: boolean): void => {
-    dynamicPropertyNames.push(cppString(name));
+    dynamicPropertyNames.push(cppUtf16String(name));
     const storedValue = valueType.endsWith("*") ? `vexa::rawPointer(${name})` : name;
     dynamicPropertyReads.push({
       key: name,
@@ -8573,12 +8573,12 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     : "vexa::DynamicValueObject::dynamicSet(__vexa_key, __vexa_value)";
   const dynamicKeysFallback = baseClass && mappedBaseClassType
     ? `${mappedBaseClassType}::dynamicKeys()`
-    : "std::vector<std::string>{}";
+    : "std::vector<std::u16string>{}";
   const dynamicMethods = [
     `  const void* dynamicTypeToken() const override { return vexa::nativeTypeToken<${classType}>(); }`,
     `  void* dynamicCast(const void* __vexa_type) override { ${dynamicCastBranches.join(" ")} return nullptr; }`,
-    '  std::string dynamicToString() const override { return "[object Object]"; }',
-    `  std::vector<std::string> dynamicKeys() const override { auto __vexa_keys = ${dynamicKeysFallback}; ${dynamicPropertyNames.map((name) => `if (std::find(__vexa_keys.begin(), __vexa_keys.end(), ${name}) == __vexa_keys.end()) __vexa_keys.push_back(${name});`).join(" ")} return __vexa_keys; }`,
+    '  std::u16string dynamicToString() const override { return u"[object Object]"; }',
+    `  std::vector<std::u16string> dynamicKeys() const override { auto __vexa_keys = ${dynamicKeysFallback}; ${dynamicPropertyNames.map((name) => `if (std::find(__vexa_keys.begin(), __vexa_keys.end(), ${name}) == __vexa_keys.end()) __vexa_keys.push_back(${name});`).join(" ")} return __vexa_keys; }`,
     [
       "  vexa::Value dynamicGet(const std::u16string& __vexa_key) override {",
       emitDynamicKeyDispatch([...dynamicPropertyReads, ...dynamicMethodReads], "    "),
@@ -8625,7 +8625,7 @@ function emitLabeledStatement(statement: LabeledStatement, indent: string): stri
     `${indent}try {`,
     body,
     `${indent}} catch (const vexa::LabeledBreakSignal& __vexa_signal) {`,
-    `${indent}  if (__vexa_signal.label() != ${cppString(label)}) throw;`,
+    `${indent}  if (__vexa_signal.label() != ${cppUtf16String(label)}) throw;`,
     `${indent}}`,
   ].join("\n");
 }
@@ -8755,7 +8755,7 @@ function emitStatement(statement: Statement, indent = ""): string {
     case NodeKind.BreakStatement: {
       const control = statement as BreakStatement;
       if (control.label) {
-        return `${indent}throw vexa::LabeledBreakSignal(${cppString(control.label.name)});`;
+        return `${indent}throw vexa::LabeledBreakSignal(${cppUtf16String(control.label.name)});`;
       }
       const boundary = activeBreakBoundaries.at(-1);
       if (boundary && activeFinallyProtectedDepth > boundary.finallyDepth) {
@@ -8767,7 +8767,7 @@ function emitStatement(statement: Statement, indent = ""): string {
     case NodeKind.ContinueStatement: {
       const control = statement as ContinueStatement;
       if (control.label) {
-        return `${indent}throw vexa::LabeledContinueSignal(${cppString(control.label.name)});`;
+        return `${indent}throw vexa::LabeledContinueSignal(${cppUtf16String(control.label.name)});`;
       }
       const boundary = activeContinueBoundaries.at(-1);
       if (boundary && activeFinallyProtectedDepth > boundary.finallyDepth) {
@@ -9125,8 +9125,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   const stringLiteralInitializers: string[] = [];
   for (const [value, name] of activeStringLiteralNames) {
     stringLiteralDeclarations.push(`static vexa::Value* ${name} = nullptr;`);
-    const literal = cppString(value);
-    stringLiteralInitializers.push(`  ${name} = runtime.retainLiteralValue(std::string(${literal}, sizeof(${literal}) - 1));`);
+    stringLiteralInitializers.push(`  ${name} = __VEXA_STRING_LITERAL(${cppUtf16String(value)});`);
   }
 
   const forwardInterfaces: string[] = [];
@@ -9251,13 +9250,15 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   outputLines.push(...declarations);
   if (declarations.length > 0) outputLines.push("");
   outputLines.push(
+    "#define __VEXA_STRING_LITERAL(str) runtime.retainLiteralValue(std::u16string((str), sizeof(str) / sizeof(char16_t) - 1))",
     "int main(int argc, char** argv) {",
     "  vexa::Runtime runtime;",
     `  runtime.reserveLiterals(${activeStringLiteralNames.size});`
   );
   outputLines.push(...stringLiteralInitializers);
   outputLines.push(
-    "  vexa::Process process(runtime, argc, argv);",
+    "#undef __VEXA_STRING_LITERAL",
+    "  vexa::Process process(runtime, vexa::platformArguments(argc, argv), vexa::platformEnvironment());",
     "  vexa::process = &process;",
     "  try {"
   );
@@ -9267,7 +9268,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
     "  } catch (const std::exception& error) {",
     '    std::cerr << "Uncaught " << error.what();',
     "    const auto location = runtime.sourceLocation();",
-    '    if (!location.empty()) std::cerr << " at " << location;',
+    '    if (!location.empty()) std::cerr << " at " << vexa::utf16ToUtf8(location);',
     "    std::cerr << std::endl;",
     "    return 1;",
     "  }",

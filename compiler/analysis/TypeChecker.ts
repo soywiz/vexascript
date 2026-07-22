@@ -91,6 +91,7 @@ import type {
   IdentifierResolution,
   JsxAttributeResolution,
   OperatorResolution,
+  ReceiverLambdaInfo,
   SelectedCallResolution,
   Scope
 } from "./model";
@@ -236,7 +237,7 @@ export class TypeChecker {
   private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly extensionPropertyResolutions: Map<MemberExpression, ExtensionPropertyResolution> = new Map();
   private readonly selectedCallResolutions: SelectedCallResolution[] = [];
-  private readonly receiverLambdas: Map<Node, import("./model").ReceiverLambdaInfo> = new Map();
+  private readonly receiverLambdas: Map<Node, ReceiverLambdaInfo> = new Map();
   private readonly assertionCallEffects: WeakMap<CallExpression, { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> }> = new WeakMap<CallExpression, { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> }>();
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private readonly autoAwaitExpressions: Set<Node> = new Set();
@@ -9691,7 +9692,7 @@ export class TypeChecker {
     scope: Scope,
     node: Node,
     parameters: FunctionParameter[],
-    info: import("./model").ReceiverLambdaInfo
+    info: ReceiverLambdaInfo
   ): void {
     const receiverType = this.expandTypeAliases(this.normalizeLooseNamedType(info.receiverType));
     const receiverName = receiverType.kind === AnalysisTypeKind.Named

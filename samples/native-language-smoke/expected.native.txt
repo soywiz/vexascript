@@ -68,6 +68,7 @@ builtin shadows number:4 string:5
 define property 7 visible 4 visible 4 undefined
 record Ada 42 false true true Ada
 unicode record utf16 á😀 true
+uri utf16 %C3%A1%20%F0%9F%98%80 á 😀
 enum 0 3
 switch compiled
 strings VEXA true

@@ -30,6 +30,7 @@ describe("native package contents", () => {
     const required = [
       "native/runtime.cpp",
       "native/bigint.h",
+      "native/utf.h",
       "native/oilpan-standalone-main.zip",
     ];
     for (const path of required) {
@@ -51,9 +52,11 @@ describe("native package contents", () => {
     const runtime = (await readFile(join(process.cwd(), "native/runtime.cpp"), "utf8"))
       .replace(/\r\n/g, "\n");
 
-    expect(runtime).toContain("#if defined(_WIN32)\ninline std::string shellQuote");
-    expect(runtime).toContain('shellCommand = "cd /d " + shellQuote(workingDirectory) + " && "');
-    expect(runtime).toContain('#else\n    if (!workingDirectory.empty()) shellCommand = "cd "');
+    expect(runtime).toContain("#if defined(_WIN32)\ninline std::u16string shellQuote");
+    expect(runtime).toContain('shellCommand = u"cd /d " + shellQuote(workingDirectory) + u" && "');
+    expect(runtime).toContain('#else\n    if (!workingDirectory.empty()) shellCommand = u"cd "');
+    expect(runtime).not.toContain("std::string");
+    expect(/\b(?:const\s+)?char\s*\*/.test(runtime)).toBe(false);
   });
 
   it("packages the portable Linux GC table and the required Windows sources", async () => {
