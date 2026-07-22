@@ -6104,6 +6104,9 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         const targetType = emittedCppTypeForExpression(assignment.left) ?? cppTypeForExpression(assignment.left);
         if (targetType === "std::u16string") {
           const target = emitExpression(assignment.left);
+          if (assignment.operator === "+=" && isStringExpression(assignment.right)) {
+            return `(${target} += ${emitExpressionWithExpectedCppType(assignment.right, "std::u16string")})`;
+          }
           const value = emitDynamicBinaryText(
             compoundOperator,
             "__vexa_compound_current",

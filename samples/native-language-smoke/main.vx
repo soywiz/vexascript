@@ -780,6 +780,11 @@ fun concatenationPart(value: string): string {
 }
 val concatenated = "a" + concatenationPart("b") + concatenationPart("c") + concatenationPart("d")
 console.log("string concatenation", concatenated, concatenationOrder.join(""))
+let builtString = ""
+builtString += "a"
+builtString += "b"
+builtString += "c"
+console.log("string builder", builtString)
 val smokeParameter = SmokeFunctionParameter(SmokeNodeName(SmokeNodeKind.ExprStatement, "it"))
 val smokeCallable = SmokeCallableShape([smokeParameter])
 console.log(

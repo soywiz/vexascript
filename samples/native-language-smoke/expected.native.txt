@@ -76,6 +76,7 @@ enum 0 3
 switch compiled
 strings VEXA true
 string concatenation abcd bcd
+string builder abc
 typed static access true true it missing ok:1:0:7 true value-changed true true false base guarded
 string index e 4
 utf16 string 4 55357 56832 é
