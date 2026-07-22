@@ -60,6 +60,60 @@ class NumberBox(var value: int) {
 
 class Bag(val values: int[])
 
+enum SmokeNodeKind {
+  Other,
+  ExprStatement
+}
+
+class SmokeNodeName(val kind: SmokeNodeKind, val name: string)
+
+class SmokeFunctionParameter(val name: SmokeNodeName)
+
+class SmokeCallableShape(val parameters: SmokeFunctionParameter[])
+
+class SmokeCompileResult(
+  val code: string,
+  val warnings: string[],
+  val errors: string[],
+  val diagnostics: Leaf[]
+)
+
+fun smokeLastStatementKind(statements: SmokeNodeName[]): boolean {
+  val lastStatement = statements[statements.length - 1]
+  return lastStatement?.kind === SmokeNodeKind.ExprStatement
+}
+
+fun smokeImplicitParameterShape(lambda: SmokeCallableShape): boolean {
+  if (
+    lambda.parameters.length > 1 ||
+    (lambda.parameters.length === 1 && (
+      lambda.parameters[0]?.name.kind !== SmokeNodeKind.ExprStatement ||
+      lambda.parameters[0].name.name !== "it"
+    ))
+  ) {
+    return false
+  }
+  return true
+}
+
+fun smokeOptionalParameterFind(expected?: SmokeCallableShape): string {
+  val parameter = expected
+    ? expected.parameters.find((candidate: SmokeFunctionParameter) => candidate.name.name === "it")
+    : undefined
+  return parameter?.name.name ?? "missing"
+}
+
+fun smokeCompileResult(result: SmokeCompileResult): string {
+  return `${result.code}:${result.warnings.length}:${result.errors.length}:${result.diagnostics[0].value}`
+}
+
+fun smokeBorrowedString(value: string): boolean => value === "const"
+
+fun smokeMutableString(value: string): string {
+  value += "-changed"
+  return value
+}
+
 class AsyncCallbackHolder {
   private val callback: () => Promise<void> = async (): Promise<void> => {}
 
@@ -313,6 +367,12 @@ fun nullishCollectionConstruction(
   val map = new Map<string, int>(mapSource)
   val set = new Set<int>(setSource)
   return `${map.size}:${set.size}`
+}
+
+fun nullishTypedSet(source?: Set<string>): string {
+  val values = source ?? new Set()
+  values.add("fallback")
+  return `${values.size}:${values.has("fallback")}`
 }
 
 fun * sequence(limit: int): int {
@@ -596,6 +656,7 @@ nativeWeakSet.add(nativeWeakKey)
 console.log("weak collections", nativeWeakMap.get(nativeWeakKey), nativeWeakMap.has(nativeWeakKey), nativeWeakSet.has(nativeWeakKey), nativeWeakMap.delete(nativeWeakKey), nativeWeakSet.delete(nativeWeakKey))
 console.log("optional collections", optionalCollectionCalls())
 console.log("nullish collection construction", nullishCollectionConstruction())
+console.log("nullish typed set", nullishTypedSet())
 val nativeLeafMap = new Map<string, Leaf>()
 nativeLeafMap.set("leaf", Leaf(31))
 console.log("typed map object", nativeLeafMap.get("leaf")?.value, nativeLeafMap.get("missing")?.value)
@@ -664,6 +725,18 @@ switch (Permission.All) {
 }
 
 console.log("strings", "  Vexa  ".trim().toUpperCase(), "language".includes("gua"))
+val smokeParameter = SmokeFunctionParameter(SmokeNodeName(SmokeNodeKind.ExprStatement, "it"))
+val smokeCallable = SmokeCallableShape([smokeParameter])
+console.log(
+  "typed static access",
+  smokeLastStatementKind([smokeParameter.name]),
+  smokeImplicitParameterShape(smokeCallable),
+  smokeOptionalParameterFind(smokeCallable),
+  smokeOptionalParameterFind(),
+  smokeCompileResult(SmokeCompileResult("ok", ["warning"], [], [Leaf(7)])),
+  smokeBorrowedString("const"),
+  smokeMutableString("value")
+)
 val indexedString: string = "Vexa"
 console.log("string index", indexedString[1], indexedString.length)
 val utf16String: string = "A😀é"

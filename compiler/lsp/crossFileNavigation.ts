@@ -1,4 +1,4 @@
-import { AnalysisTypeKind } from "../analysis/types";
+import { ArrayType, NamedType, BuiltinType, UnionType, IntersectionType } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
 
@@ -354,20 +354,20 @@ function collectNodeModulesReceiverTypeNames(objectType: AnalysisType): string[]
     names.push(name);
   };
   const visit = (type: AnalysisType) => {
-    if (type.kind === AnalysisTypeKind.Array) {
+    if (type instanceof ArrayType) {
       push("Array");
       return;
     }
-    if ((type.kind === AnalysisTypeKind.Named || type.kind === AnalysisTypeKind.Builtin) && type.name === "int") {
+    if ((type instanceof NamedType || type instanceof BuiltinType) && type.name === "int") {
       push("int");
       push("number");
       return;
     }
-    if (type.kind === AnalysisTypeKind.Named || type.kind === AnalysisTypeKind.Builtin) {
+    if (type instanceof NamedType || type instanceof BuiltinType) {
       push(type.name);
       return;
     }
-    if (type.kind === AnalysisTypeKind.Union || type.kind === AnalysisTypeKind.Intersection) {
+    if (type instanceof UnionType || type instanceof IntersectionType) {
       for (const memberType of type.types) {
         visit(memberType);
       }

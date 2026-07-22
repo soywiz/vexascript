@@ -1,4 +1,5 @@
 import { assert, describe, it } from "../test/expect";
+import { TokenType } from "compiler/parser/tokenizer";
 import {
   bodyEndInsertRange,
   comparePosition,
@@ -62,7 +63,7 @@ describe("LSP range helpers", () => {
   it("computes member insertion points before a closing brace", () => {
     const range = bodyEndInsertRange({
       lastToken: {
-        type: "symbol",
+        type: TokenType.SYMBOL,
         value: "}",
         range: {
           start: { line: 4, column: 0 },
@@ -80,7 +81,7 @@ describe("LSP range helpers", () => {
   it("computes member insertion points after brace-less declarations", () => {
     const range = bodyEndInsertRange({
       lastToken: {
-        type: "symbol",
+        type: TokenType.SYMBOL,
         value: ")",
         range: {
           start: { line: 1, column: 30 },

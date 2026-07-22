@@ -1,4 +1,5 @@
 import { NodeKind } from "compiler/ast/ast";
+import { TokenType } from "compiler/parser/tokenizer";
 import type { AssignmentExpression, Identifier, Program, UpdateExpression, VarStatement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { walkAst } from "compiler/ast/traversal";
@@ -96,7 +97,7 @@ export function findDeclarationKeywordReplacementsAtPosition(
   }
 
   const declarationToken = variableStatement.firstToken;
-  if (!declarationToken || declarationToken.type !== "identifier") {
+  if (!declarationToken || declarationToken.type !== TokenType.IDENTIFIER) {
     return [];
   }
 

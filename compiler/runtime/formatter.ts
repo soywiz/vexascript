@@ -27,7 +27,7 @@ import type {
   UnaryExpression, UpdateExpression, VarStatement, WhileStatement,
   WithStatement
 } from "../ast/ast";
-import type { Token } from "../parser/tokenizer";
+import { TokenCommentKind, type Token } from "../parser/tokenizer";
 
 // === LEGACY TOKEN-BASED FORMATTER (all renamed with Legacy suffix) ===
 
@@ -1532,7 +1532,7 @@ class AstFormatter {
       if (!this.atLineStart) this.nl();
       this.applyIndent();
       this.write(c.value);
-      if (c.kind === "line") this.nl();
+      if (c.kind === TokenCommentKind.LINE) this.nl();
     }
   }
 

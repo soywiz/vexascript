@@ -9,13 +9,14 @@ import {
   Program,
 } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
+import { TokenCommentKind, TokenType } from "../parser/tokenizer";
 import type { Node } from "./ast";
 import { childNodes, findNode, unwrapExportedDeclaration, walkAst } from "./traversal";
 
 describe("AST traversal", () => {
   it("walks structural child nodes in source property order without visiting token metadata", () => {
     const token = {
-      type: "identifier" as const,
+      type: TokenType.IDENTIFIER,
       value: "value",
       index: 0,
       range: {
@@ -24,7 +25,7 @@ describe("AST traversal", () => {
       },
       leadingComments: [
         {
-          kind: "line" as const,
+          kind: TokenCommentKind.LINE,
           value: "comment",
           range: {
             start: { offset: 0, line: 0, column: 0 },

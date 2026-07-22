@@ -1,4 +1,5 @@
 import type { Range } from "vscode-languageserver/node.js";
+import { TokenType } from "compiler/parser/tokenizer";
 
 export interface Position {
   line: number;
@@ -88,7 +89,7 @@ export function rangeSize(range: NodeRange): number {
 }
 
 export interface TypedRangedToken extends RangedToken {
-  type: string;
+  type: TokenType;
   value: string;
 }
 
@@ -103,7 +104,7 @@ export function bodyEndInsertRange(node: { lastToken?: TypedRangedToken }): Rang
     return null;
   }
   const position =
-    last.type === "symbol" && last.value === "}"
+    last.type === TokenType.SYMBOL && last.value === "}"
       ? tokenStartPosition(last)
       : tokenEndPosition(last);
   return { start: position, end: { ...position } };

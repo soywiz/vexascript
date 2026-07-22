@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { AnalysisType } from "./types";
-import { builtinType, isSameType, namedType, typeToString, UNKNOWN_TYPE, unionType } from "./types";
+import { AnalysisType, builtinType, isSameType, namedType, typeToString, UNKNOWN_TYPE, unionType } from "./types";
 
 describe("analysis type factories", () => {
+  it("uses AnalysisType as the runtime base class", () => {
+    assert.equal(namedType("Node") instanceof AnalysisType, true);
+  });
+
   it("renders recursive type graphs without leaking cycle state between calls", () => {
     const recursive = namedType("Node");
     recursive.typeArguments = [recursive];

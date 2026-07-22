@@ -1,4 +1,5 @@
 import { NodeKind } from "compiler/ast/ast";
+import { TokenType } from "compiler/parser/tokenizer";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { walkAst } from "compiler/ast/traversal";
 import type {
@@ -84,7 +85,7 @@ async function resolveClassTarget(params: {
 
 function newMemberText(classStatement: ClassStatement, memberName: string): string {
   const last = classStatement.lastToken;
-  if (last?.type === "symbol" && last.value === "}") {
+  if (last?.type === TokenType.SYMBOL && last.value === "}") {
     if (classStatement.members.length === 0) {
       return `\n  ${memberName}: unknown\n`;
     }

@@ -1,5 +1,6 @@
-import { AnalysisTypeKind } from "../analysis/types";
+import { NamedType, ArrayType } from "../analysis/types";
 import { isNodeKind, NodeKind } from "compiler/ast/ast";
+import { TokenType } from "compiler/parser/tokenizer";
 /**
  * Shared cross-file member/type resolution helpers: class/interface/type-alias
  * member shape extraction, cross-file type-declaration resolution, and
@@ -698,7 +699,7 @@ function makeSyntheticTypeIdentifier(
   const end = positionAtTypeTextOffset(source.name, sourceRange, endOffset);
   const baseOffset = source.firstToken?.range.start.offset ?? 0;
   const token: NonNullable<Identifier["firstToken"]> = {
-    type: "identifier",
+    type: TokenType.IDENTIFIER,
     value: name,
     index: source.firstToken?.index ?? 0,
     range: {
@@ -1034,11 +1035,11 @@ export async function resolveCanonicalMemberSymbol(context: ResolveContext): Pro
   }
 
   const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
-  if (!objectType || (objectType.kind !== AnalysisTypeKind.Named && objectType.kind !== AnalysisTypeKind.Array)) {
+  if (!objectType || (!(objectType instanceof NamedType) && !(objectType instanceof ArrayType))) {
     return null;
   }
 
-  const resolvedClassName = objectType.kind === AnalysisTypeKind.Array ? "Array" : objectType.name;
+  const resolvedClassName = objectType instanceof ArrayType ? "Array" : objectType.name;
   const memberName = (memberExpression.property as Identifier).name;
 
   // An in-scope extension member shadows the class member of the same name (the

@@ -1,12 +1,12 @@
 import { NodeKind, nodeKindName } from "compiler/ast/ast";
-import type { AnalysisType, FunctionType } from "./types";
-import { AnalysisTypeKind, typeToString } from "./types";
+import { type AnalysisType, FunctionType, BuiltinType, LiteralType } from "./types";
+import { typeToString } from "./types";
 import type { Expr } from "compiler/ast/ast";
 
 export function isNumberLikeType(type: AnalysisType): boolean {
   return (
-    (type.kind === AnalysisTypeKind.Builtin && type.name === "number") ||
-    (type.kind === AnalysisTypeKind.Literal && type.base === "number")
+    (type instanceof BuiltinType && type.name === "number") ||
+    (type instanceof LiteralType && type.base === "number")
   );
 }
 
@@ -52,7 +52,7 @@ export function expressionSnippet(expression: Expr): string | null {
 }
 
 export function typeToDiagnosticLabel(type: AnalysisType): string {
-  if (type.kind !== AnalysisTypeKind.Function) {
+  if (!(type instanceof FunctionType)) {
     return typeToString(type);
   }
   const functionType = type as FunctionType;

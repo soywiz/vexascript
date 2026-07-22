@@ -1904,6 +1904,10 @@ inline T* rawPointer(const cppgc::Persistent<T>& value) {
   return value.Get();
 }
 
+inline DynamicValueObject* rawPointer(const Value& value) {
+  return value.isDynamicObject() ? value.dynamicObject() : nullptr;
+}
+
 template <typename Target, typename Callback>
 inline Value optionalCall(Runtime& runtime, Target* target, Callback&& callback) {
   if (!target) return Value::undefined();
@@ -2953,6 +2957,11 @@ bool isInstance(Source* value) {
 
 template <typename Target, typename Source>
 bool isInstance(const cppgc::Member<Source>& value) {
+  return isInstance<Target>(value.Get());
+}
+
+template <typename Target, typename Source>
+bool isInstance(const cppgc::Persistent<Source>& value) {
   return isInstance<Target>(value.Get());
 }
 

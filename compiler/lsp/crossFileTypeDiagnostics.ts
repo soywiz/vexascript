@@ -1,4 +1,4 @@
-import { AnalysisTypeKind } from "../analysis/types";
+import { ArrayType, NamedType, BuiltinType } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import type {
   AssignmentExpression,
@@ -418,9 +418,9 @@ export async function collectCrossFileTypeDiagnostics(
     const objectType = session.analysis.getExpressionTypes().get(callee.object);
     if (
       objectType &&
-      objectType.kind !== AnalysisTypeKind.Array &&
-      objectType.kind !== AnalysisTypeKind.Named &&
-      objectType.kind !== AnalysisTypeKind.Builtin
+      !(objectType instanceof ArrayType) &&
+      !(objectType instanceof NamedType) &&
+      !(objectType instanceof BuiltinType)
     ) {
       continue;
     }
@@ -569,9 +569,9 @@ export async function collectCrossFileTypeDiagnostics(
     const objectType = session.analysis.getExpressionTypes().get(leftMember.object);
     if (
       objectType &&
-      objectType.kind !== AnalysisTypeKind.Array &&
-      objectType.kind !== AnalysisTypeKind.Named &&
-      objectType.kind !== AnalysisTypeKind.Builtin
+      !(objectType instanceof ArrayType) &&
+      !(objectType instanceof NamedType) &&
+      !(objectType instanceof BuiltinType)
     ) {
       continue;
     }

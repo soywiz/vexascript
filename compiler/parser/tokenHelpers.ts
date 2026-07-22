@@ -2,11 +2,11 @@
  * Pure token classification helpers. All functions are stateless and depend
  * only on the Token value passed to them — no parser instance state.
  */
-import type { Token } from "./tokenizer";
+import { TokenType, type Token } from "./tokenizer";
 
 /** Returns true when the token represents the end-of-file sentinel. */
 export function isEofToken(token?: Token): boolean {
-  return token?.type === "eof";
+  return token?.type === TokenType.END_OF_FILE;
 }
 
 /**
@@ -25,7 +25,7 @@ export function hasLineBreakBetween(a: Token | undefined, b: Token | undefined):
  * tokens are JSON-escaped; all other tokens use their raw value.
  */
 export function typeTokenText(token: Token): string {
-  if (token.type === "string") {
+  if (token.type === TokenType.STRING) {
     return JSON.stringify(token.value);
   }
   return token.value;
@@ -39,10 +39,10 @@ export function isLikelyStatementStart(token: Token | undefined): boolean {
   if (!token) {
     return false;
   }
-  if (token.type === "symbol" && (token.value === "}" || token.value === "{")) {
+  if (token.type === TokenType.SYMBOL && (token.value === "}" || token.value === "{")) {
     return true;
   }
-  if (token.type !== "identifier") {
+  if (token.type !== TokenType.IDENTIFIER) {
     return false;
   }
   return (

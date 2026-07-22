@@ -1,6 +1,6 @@
 import { NodeKind } from "compiler/ast/ast";
 import { ListReader } from "compiler/utils/ListReader";
-import { SourcePosition, SourceRange, Token } from "./tokenizer";
+import { SourcePosition, SourceRange, Token, TokenType } from "./tokenizer";
 import { hasLineBreakBetween, isClassMemberModifier, isEofToken, isLikelyStatementStart, typeTokenText } from "./tokenHelpers";
 import {
     AnnotationApplication,
@@ -321,28 +321,28 @@ export class Parser {
 
     parseStatementOrThrow(): Statement {
         const token = this.tokens.peek();
-        if (token?.type === "symbol" && token.value === "@") {
+        if (token?.type === TokenType.SYMBOL && token.value === "@") {
             return this.parseAnnotatedStatement();
         }
         if (this.isTypeScriptExportAssignmentStart()) {
             return this.parseTypeScriptExportAssignmentStatement();
         }
-        if (token?.type === "identifier" && token.value === "export") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "export") {
             return this.parseExportStatement();
         }
-        if (token?.type === "identifier" && (token.value === "enum" || this.isConstEnumStart())) {
+        if (token?.type === TokenType.IDENTIFIER && (token.value === "enum" || this.isConstEnumStart())) {
             return this.parseEnumStatement();
         }
-        if (token?.type === "identifier" && token.value === "annotation") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "annotation") {
             return this.parseAnnotationStatement();
         }
-        if (token?.type === "identifier" && this.isVariableDeclarationKeyword(token.value)) {
+        if (token?.type === TokenType.IDENTIFIER && this.isVariableDeclarationKeyword(token.value)) {
             return this.parseVarStatement();
         }
-        if (token?.type === "identifier" && token.value === "import") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "import") {
             return this.parseImportStatement();
         }
-        if (token?.type === "identifier" && (this.isFunctionDeclarationKeyword(token.value) || this.isAsyncFunctionDeclarationStart() || this.isSyncFunctionDeclarationStart())) {
+        if (token?.type === TokenType.IDENTIFIER && (this.isFunctionDeclarationKeyword(token.value) || this.isAsyncFunctionDeclarationStart() || this.isSyncFunctionDeclarationStart())) {
             return this.parseFunctionStatement();
         }
         if (this.isTypeAliasStatementStart()) {
@@ -369,59 +369,59 @@ export class Parser {
         if (this.isDeclareNamespaceStart()) {
             return this.parseNamespaceStatement(true);
         }
-        if (token?.type === "identifier" && (token.value === "namespace" || token.value === "module")) {
+        if (token?.type === TokenType.IDENTIFIER && (token.value === "namespace" || token.value === "module")) {
             return this.parseNamespaceStatement(false);
         }
-        if (token?.type === "identifier" && (token.value === "class" || this.isAbstractClassStart())) {
+        if (token?.type === TokenType.IDENTIFIER && (token.value === "class" || this.isAbstractClassStart())) {
             return this.parseClassStatement();
         }
-        if (token?.type === "identifier" && token.value === "interface") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "interface") {
             return this.parseInterfaceStatement();
         }
-        if (token?.type === "identifier" && token.value === "do") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "do") {
             return this.parseDoWhileStatement();
         }
-        if (token?.type === "identifier" && token.value === "for") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "for") {
             return this.parseForStatement();
         }
-        if (token?.type === "identifier" && token.value === "if") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "if") {
             return this.parseIfStatement();
         }
-        if (token?.type === "identifier" && token.value === "switch") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "switch") {
             return this.parseSwitchStatement();
         }
-        if (token?.type === "identifier" && token.value === "while") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "while") {
             return this.parseWhileStatement();
         }
-        if (token?.type === "identifier" && token.value === "with") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "with") {
             return this.parseWithStatement();
         }
-        if (token?.type === "identifier" && token.value === "return") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "return") {
             return this.parseReturnStatement();
         }
-        if (token?.type === "identifier" && token.value === "throw") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "throw") {
             return this.parseThrowStatement();
         }
-        if (token?.type === "identifier" && token.value === "defer") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "defer") {
             return this.parseDeferStatement();
         }
-        if (token?.type === "identifier" && token.value === "continue") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "continue") {
             return this.parseContinueStatement();
         }
-        if (token?.type === "identifier" && token.value === "break") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "break") {
             return this.parseBreakStatement();
         }
-        if (token?.type === "identifier" && token.value === "debugger") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "debugger") {
             return this.parseDebuggerStatement();
         }
-        if (token?.type === "symbol" && token.value === ";") {
+        if (token?.type === TokenType.SYMBOL && token.value === ";") {
             const semicolon = this.tokens.read();
             return this.attachNodeBounds(new EmptyStatement(), semicolon, semicolon);
         }
-        if (token?.type === "identifier" && token.value === "try") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "try") {
             return this.parseTryStatement();
         }
-        if (token?.type === "symbol" && token.value === "{") {
+        if (token?.type === TokenType.SYMBOL && token.value === "{") {
             return this.parseBlockStatement();
         }
         if (this.isLabeledStatementStart()) {
@@ -438,7 +438,7 @@ export class Parser {
 
     private parseAnnotatedStatement(): Statement {
         const annotations: AnnotationApplication[] = [];
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "@") {
+        while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "@") {
             annotations.push(this.parseAnnotationApplication());
         }
         const statement = this.parseStatementOrThrow();
@@ -452,14 +452,14 @@ export class Parser {
     private parseAnnotationApplication(): AnnotationApplication {
         const atToken = this.tokens.read();
         const annotationName = this.tokens.read();
-        if (atToken?.type !== "symbol" || atToken.value !== "@") {
+        if (atToken?.type !== TokenType.SYMBOL || atToken.value !== "@") {
             this.fail("Expected '@'", this.tokenAt(atToken));
         }
-        if (annotationName?.type !== "identifier") {
+        if (annotationName?.type !== TokenType.IDENTIFIER) {
             this.fail("Expected annotation name after '@'", this.tokenAt(annotationName));
         }
         const openParen = this.tokens.peek();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             return this.attachNodeBounds(
                 new AnnotationApplication(this.buildIdentifierFromToken(annotationName), []),
                 atToken,
@@ -469,7 +469,7 @@ export class Parser {
         this.tokens.read();
         const args = this.parseDelimitedList<Expr>(")", () => this.tryParseNamedArgument() ?? this.parseAssignment(), "annotation argument list");
         const closeParen = this.tokens.read();
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
             this.fail(`Expected ')' after '@${annotationName.value}' arguments`, this.tokenAt(closeParen));
         }
         return this.attachNodeBounds(
@@ -500,22 +500,22 @@ export class Parser {
 
     private parseAnnotationStatement(): AnnotationStatement {
         const annotationKeyword = this.tokens.read();
-        if (annotationKeyword?.type !== "identifier" || annotationKeyword.value !== "annotation") {
+        if (annotationKeyword?.type !== TokenType.IDENTIFIER || annotationKeyword.value !== "annotation") {
             this.fail("Expected annotation declaration statement", this.tokenAt(annotationKeyword));
         }
         const nameToken = this.tokens.read();
-        if (nameToken?.type !== "identifier") {
+        if (nameToken?.type !== TokenType.IDENTIFIER) {
             this.fail("Expected annotation name after 'annotation'", this.tokenAt(nameToken));
         }
         const openParen = this.tokens.peek();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             const statement: AnnotationStatement = new AnnotationStatement(this.buildIdentifierFromToken(nameToken), []);
             return this.attachNodeBounds(statement, annotationKeyword, nameToken);
         }
         this.tokens.read();
         const parameters = this.parseAnnotationParameters();
         const closeParen = this.tokens.read();
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
             this.fail("Expected ')' after annotation parameters", this.tokenAt(closeParen));
         }
         const statement: AnnotationStatement = new AnnotationStatement(this.buildIdentifierFromToken(nameToken), parameters);
@@ -529,17 +529,17 @@ export class Parser {
         contextName: string
     ): T[] {
         const items: T[] = [];
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === closingSymbol) {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === closingSymbol) {
             return items;
         }
         while (this.tokens.hasMore) {
             items.push(parseItem());
             const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                 this.tokens.skip();
                 continue;
             }
-            if (separator?.type === "symbol" && separator.value === closingSymbol) {
+            if (separator?.type === TokenType.SYMBOL && separator.value === closingSymbol) {
                 break;
             }
             this.fail(`Expected ',' or '${closingSymbol}' in ${contextName}`, this.tokenAt(separator));
@@ -592,12 +592,12 @@ export class Parser {
         const allowSwitchCaseLabels = recoveryHint === "switch";
         const localStatementRecovery = recoveryHint === "statement";
 
-        if (originToken?.type === "symbol" && (originToken.value === ";" || originToken.value === "}")) {
+        if (originToken?.type === TokenType.SYMBOL && (originToken.value === ";" || originToken.value === "}")) {
             return;
         }
         if (
             allowSwitchCaseLabels &&
-            originToken?.type === "identifier" &&
+            originToken?.type === TokenType.IDENTIFIER &&
             (originToken.value === "case" || originToken.value === "default")
         ) {
             return;
@@ -612,7 +612,7 @@ export class Parser {
                 return;
             }
 
-            if (token?.type === "symbol") {
+            if (token?.type === TokenType.SYMBOL) {
                 if (
                     localStatementRecovery &&
                     token.value === "}" &&
@@ -684,7 +684,7 @@ export class Parser {
                 parenDepth === 0 &&
                 bracketDepth === 0 &&
                 braceDepth === 0 &&
-                token?.type === "identifier" &&
+                token?.type === TokenType.IDENTIFIER &&
                 (token.value === "case" || token.value === "default")
             ) {
                 return;
@@ -801,9 +801,9 @@ export class Parser {
         const hash = this.tokens.peek();
         const name = this.peekToken(1);
         if (
-            hash?.type === "symbol" &&
+            hash?.type === TokenType.SYMBOL &&
             hash.value === "#" &&
-            name?.type === "identifier"
+            name?.type === TokenType.IDENTIFIER
         ) {
             this.tokens.skip();
             this.tokens.skip();
@@ -814,7 +814,7 @@ export class Parser {
 
     private parseTypeParameterList(): TypeParameter[] {
         const open = this.tokens.peek();
-        if (!(open?.type === "symbol" && open.value === "<")) {
+        if (!(open?.type === TokenType.SYMBOL && open.value === "<")) {
             return [];
         }
         this.tokens.skip();
@@ -825,15 +825,15 @@ export class Parser {
                 break;
             }
             const token = this.tokens.read();
-            if (token?.type !== "identifier") {
+            if (token?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected type parameter name", this.tokenAt(token));
             }
             const parameter: TypeParameter = new TypeParameter(this.buildIdentifierFromToken(token));
-            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
+            if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "extends") {
                 this.tokens.skip();
                 parameter.constraint = this.parseTypeAnnotationNode();
             }
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=") {
                 this.tokens.skip();
                 parameter.defaultType = this.parseTypeAnnotationNode();
             }
@@ -844,7 +844,7 @@ export class Parser {
             ));
 
             const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                 this.tokens.skip();
                 if (this.consumeGenericCloseAngle()) {
                     break;
@@ -877,9 +877,9 @@ export class Parser {
     private parseReturnTypeAnnotationNode(): Identifier {
         const typeAnnotation = this.parseTypeAnnotationNode();
         if (
-            this.tokens.peek()?.type === "symbol" &&
+            this.tokens.peek()?.type === TokenType.SYMBOL &&
             this.tokens.peek()?.value === "?" &&
-            this.peekToken(1)?.type === "symbol" &&
+            this.peekToken(1)?.type === TokenType.SYMBOL &&
             (this.peekToken(1)?.value === "{" || this.peekToken(1)?.value === "=>")
         ) {
             const questionToken = this.tokens.read()!;
@@ -946,7 +946,7 @@ export class Parser {
 
     private consumeGenericCloseAngle(): boolean {
         const token = this.tokens.peek();
-        if (token?.type !== "symbol" || ![">", ">>", ">>>"].includes(token.value)) {
+        if (token?.type !== TokenType.SYMBOL || ![">", ">>", ">>>"].includes(token.value)) {
             return false;
         }
 
@@ -968,24 +968,24 @@ export class Parser {
     private parseConditionalTypeAnnotationText(): string {
         const checkType = this.parseUnionTypeAnnotationText();
         const isKeyword = this.tokens.peek();
-        if (isKeyword?.type === "identifier" && isKeyword.value === "is") {
+        if (isKeyword?.type === TokenType.IDENTIFIER && isKeyword.value === "is") {
             this.tokens.skip();
             return `${checkType} is ${this.parseUnionTypeAnnotationText()}`;
         }
         const extendsKeyword = this.tokens.peek();
-        if (extendsKeyword?.type !== "identifier" || extendsKeyword.value !== "extends") {
+        if (extendsKeyword?.type !== TokenType.IDENTIFIER || extendsKeyword.value !== "extends") {
             return checkType;
         }
 
         this.tokens.skip();
         const constraintType = this.parseUnionTypeAnnotationText();
         const question = this.tokens.read();
-        if (question?.type !== "symbol" || question.value !== "?") {
+        if (question?.type !== TokenType.SYMBOL || question.value !== "?") {
             this.fail("Expected '?' in conditional type annotation", this.tokenAt(question));
         }
         const trueType = this.parseConditionalTypeAnnotationText();
         const colon = this.tokens.read();
-        if (colon?.type !== "symbol" || colon.value !== ":") {
+        if (colon?.type !== TokenType.SYMBOL || colon.value !== ":") {
             this.fail("Expected ':' in conditional type annotation", this.tokenAt(colon));
         }
         const falseType = this.parseConditionalTypeAnnotationText();
@@ -993,11 +993,11 @@ export class Parser {
     }
 
     private parseUnionTypeAnnotationText(): string {
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "|") {
+        while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "|") {
             this.tokens.skip();
         }
         let typeName = this.parseIntersectionTypeAnnotationText();
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "|") {
+        while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "|") {
             this.tokens.skip();
             typeName += ` | ${this.parseIntersectionTypeAnnotationText()}`;
         }
@@ -1006,7 +1006,7 @@ export class Parser {
 
     private parseIntersectionTypeAnnotationText(): string {
         let typeName = this.parsePrimaryTypeAnnotationText();
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "&") {
+        while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "&") {
             this.tokens.skip();
             typeName += ` & ${this.parsePrimaryTypeAnnotationText()}`;
         }
@@ -1021,27 +1021,27 @@ export class Parser {
             return `${templateLiteralType}${this.parseTypeAnnotationSuffixText()}`;
         }
 
-        if (start?.type === "symbol" && start.value === "<") {
+        if (start?.type === TokenType.SYMBOL && start.value === "<") {
             const typeParameters = this.readAngleBracketTypeText();
             const openParen = this.tokens.read();
-            if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
                 this.fail("Expected '(' after generic function type parameters", this.tokenAt(openParen));
             }
             const parameterText = this.readParenthesizedTypeText(openParen);
             const arrow = this.tokens.read();
-            if (arrow?.type !== "symbol" || (arrow.value !== "=>" && arrow.value !== "->")) {
+            if (arrow?.type !== TokenType.SYMBOL || (arrow.value !== "=>" && arrow.value !== "->")) {
                 this.fail("Expected '=>' or '->' in function type annotation", this.tokenAt(arrow));
             }
             const returnType = this.parseConditionalTypeAnnotationText();
             return `<${typeParameters}>(${parameterText}) => ${returnType}`;
         }
 
-        if (start?.type === "symbol" && start.value === "(") {
+        if (start?.type === TokenType.SYMBOL && start.value === "(") {
             const openParen = this.tokens.read()!;
             if (this.isFunctionTypeAnnotationStart()) {
                 const parameterText = this.readParenthesizedTypeText(openParen);
                 const arrow = this.tokens.read();
-                if (arrow?.type !== "symbol" || (arrow.value !== "=>" && arrow.value !== "->")) {
+                if (arrow?.type !== TokenType.SYMBOL || (arrow.value !== "=>" && arrow.value !== "->")) {
                     this.fail("Expected '=>' or '->' in function type annotation", this.tokenAt(arrow));
                 }
                 const returnType = this.parseConditionalTypeAnnotationText();
@@ -1050,51 +1050,51 @@ export class Parser {
 
             const innerType = this.parseConditionalTypeAnnotationText();
             const closeParen = this.tokens.read();
-            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                 this.fail("Expected ')' to close type annotation", this.tokenAt(closeParen));
             }
             return `(${innerType})${this.parseTypeAnnotationSuffixText()}`;
         }
 
-        if (start?.type === "symbol" && start.value === "[") {
+        if (start?.type === TokenType.SYMBOL && start.value === "[") {
             this.tokens.skip();
             const elements: string[] = [];
             while (this.tokens.hasMore) {
-                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]") {
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "]") {
                     this.tokens.skip();
                     break;
                 }
                 let elementPrefix = "";
-                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "...") {
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "...") {
                     this.tokens.skip();
                     elementPrefix = "...";
                 }
                 let elementType = `${elementPrefix}${this.parseConditionalTypeAnnotationText()}`;
                 const optionalLabel = this.tokens.peek();
-                if (optionalLabel?.type === "symbol" && optionalLabel.value === "?") {
+                if (optionalLabel?.type === TokenType.SYMBOL && optionalLabel.value === "?") {
                     const afterQuestion = this.tokens.items[this.tokens.offset + 1];
-                    if (afterQuestion?.type === "symbol" && afterQuestion.value === ":") {
+                    if (afterQuestion?.type === TokenType.SYMBOL && afterQuestion.value === ":") {
                         this.tokens.skip();
                         this.tokens.skip();
                         elementType += `?: ${this.parseConditionalTypeAnnotationText()}`;
                     } else if (
-                        afterQuestion?.type === "symbol" &&
+                        afterQuestion?.type === TokenType.SYMBOL &&
                         (afterQuestion.value === "," || afterQuestion.value === "]")
                     ) {
                         this.tokens.skip();
                         elementType += "?";
                     }
-                } else if (optionalLabel?.type === "symbol" && optionalLabel.value === ":") {
+                } else if (optionalLabel?.type === TokenType.SYMBOL && optionalLabel.value === ":") {
                     this.tokens.skip();
                     elementType += `: ${this.parseConditionalTypeAnnotationText()}`;
                 }
                 elements.push(elementType);
                 const separator = this.tokens.peek();
-                if (separator?.type === "symbol" && separator.value === ",") {
+                if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                     this.tokens.skip();
                     continue;
                 }
-                if (separator?.type === "symbol" && separator.value === "]") {
+                if (separator?.type === TokenType.SYMBOL && separator.value === "]") {
                     this.tokens.skip();
                     break;
                 }
@@ -1103,11 +1103,11 @@ export class Parser {
             return `[${elements.join(", ")}]${this.parseTypeAnnotationSuffixText()}`;
         }
 
-        if (start?.type === "symbol" && start.value === "{") {
+        if (start?.type === TokenType.SYMBOL && start.value === "{") {
             this.tokens.skip();
             const properties: string[] = [];
             while (this.tokens.hasMore) {
-                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}") {
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "}") {
                     this.tokens.skip();
                     break;
                 }
@@ -1115,11 +1115,11 @@ export class Parser {
                 if (this.isMappedTypeMemberStart()) {
                     properties.push(this.parseMappedTypeMemberText());
                     const separator = this.tokens.peek();
-                    if (separator?.type === "symbol" && (separator.value === "," || separator.value === ";")) {
+                    if (separator?.type === TokenType.SYMBOL && (separator.value === "," || separator.value === ";")) {
                         this.tokens.skip();
                         continue;
                     }
-                    if (separator?.type === "symbol" && separator.value === "}") {
+                    if (separator?.type === TokenType.SYMBOL && separator.value === "}") {
                         this.tokens.skip();
                         break;
                     }
@@ -1129,11 +1129,11 @@ export class Parser {
                 if (this.isOpaqueTypeLiteralMemberStart()) {
                     properties.push(this.parseOpaqueTypeLiteralMemberText());
                     const separator = this.tokens.peek();
-                    if (separator?.type === "symbol" && (separator.value === "," || separator.value === ";")) {
+                    if (separator?.type === TokenType.SYMBOL && (separator.value === "," || separator.value === ";")) {
                         this.tokens.skip();
                         continue;
                     }
-                    if (separator?.type === "symbol" && separator.value === "}") {
+                    if (separator?.type === TokenType.SYMBOL && separator.value === "}") {
                         this.tokens.skip();
                         break;
                     }
@@ -1142,10 +1142,10 @@ export class Parser {
 
                 let readonlyText = "";
                 if (
-                    this.tokens.peek()?.type === "identifier" &&
+                    this.tokens.peek()?.type === TokenType.IDENTIFIER &&
                     this.tokens.peek()?.value === "readonly" &&
                     this.peekToken(1) &&
-                    ["identifier", "string", "number"].includes(this.peekToken(1)!.type)
+                    [TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER].includes(this.peekToken(1)!.type)
                 ) {
                     readonlyText = `${this.tokens.read()!.value} `;
                 }
@@ -1153,11 +1153,11 @@ export class Parser {
                 if (this.isTypeLiteralMethodSignatureStart()) {
                     properties.push(`${readonlyText}${this.parseTypeLiteralMethodSignatureText()}`);
                     const separator = this.tokens.peek();
-                    if (separator?.type === "symbol" && (separator.value === "," || separator.value === ";")) {
+                    if (separator?.type === TokenType.SYMBOL && (separator.value === "," || separator.value === ";")) {
                         this.tokens.skip();
                         continue;
                     }
-                    if (separator?.type === "symbol" && separator.value === "}") {
+                    if (separator?.type === TokenType.SYMBOL && separator.value === "}") {
                         this.tokens.skip();
                         break;
                     }
@@ -1165,28 +1165,28 @@ export class Parser {
                 }
 
                 const propertyName = this.tokens.read();
-                if (!propertyName || !["identifier", "string", "number"].includes(propertyName.type)) {
+                if (!propertyName || ![TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER].includes(propertyName.type)) {
                     this.fail("Expected property name in type literal", this.tokenAt(propertyName));
                 }
 
                 let nameText = `${readonlyText}${typeTokenText(propertyName)}`;
-                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
                     this.tokens.skip();
                     nameText += "?";
                 }
 
                 const colon = this.tokens.read();
-                if (colon?.type !== "symbol" || colon.value !== ":") {
+                if (colon?.type !== TokenType.SYMBOL || colon.value !== ":") {
                     this.fail("Expected ':' after type literal property name", this.tokenAt(colon));
                 }
 
                 properties.push(`${nameText}: ${this.parseConditionalTypeAnnotationText()}`);
                 const separator = this.tokens.peek();
-                if (separator?.type === "symbol" && (separator.value === "," || separator.value === ";")) {
+                if (separator?.type === TokenType.SYMBOL && (separator.value === "," || separator.value === ";")) {
                     this.tokens.skip();
                     continue;
                 }
-                if (separator?.type === "symbol" && separator.value === "}") {
+                if (separator?.type === TokenType.SYMBOL && separator.value === "}") {
                     this.tokens.skip();
                     break;
                 }
@@ -1195,17 +1195,17 @@ export class Parser {
             return `{ ${properties.join(", ")} }${this.parseTypeAnnotationSuffixText()}`;
         }
 
-        if (start?.type === "identifier" && start.value === "infer") {
+        if (start?.type === TokenType.IDENTIFIER && start.value === "infer") {
             this.tokens.skip();
             let inferredType = `infer ${this.parsePrimaryTypeAnnotationText()}`;
-            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
+            if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "extends") {
                 this.tokens.skip();
                 inferredType += ` extends ${this.parseUnionTypeAnnotationText()}`;
             }
             return inferredType;
         }
 
-        if (start?.type === "identifier" && (start.value === "keyof" || start.value === "typeof")) {
+        if (start?.type === TokenType.IDENTIFIER && (start.value === "keyof" || start.value === "typeof")) {
             this.tokens.skip();
             const operand = start.value === "typeof"
                 ? this.parseTypeQueryOperandText()
@@ -1213,26 +1213,26 @@ export class Parser {
             return `${start.value} ${operand}${this.parseTypeAnnotationSuffixText()}`;
         }
 
-        if (start?.type === "identifier" && start.value === "import") {
+        if (start?.type === TokenType.IDENTIFIER && start.value === "import") {
             this.tokens.skip();
             const openParen = this.tokens.read();
-            if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
                 this.fail("Expected '(' after 'import' in type annotation", this.tokenAt(openParen));
             }
             const importPath = this.tokens.read();
-            if (importPath?.type !== "string") {
+            if (importPath?.type !== TokenType.STRING) {
                 this.fail("Expected string literal inside import() type annotation", this.tokenAt(importPath));
             }
             const closeParen = this.tokens.read();
-            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                 this.fail("Expected ')' after import() type annotation", this.tokenAt(closeParen));
             }
             let typeName = `import("${importPath.value}")`;
-            while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "." && this.peekToken(1)?.type === "identifier") {
+            while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "." && this.peekToken(1)?.type === TokenType.IDENTIFIER) {
                 this.tokens.skip();
                 typeName += `.${this.tokens.read()!.value}`;
             }
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "<") {
                 const argumentsText = this.parseTypeArgumentListText();
                 typeName += `<${argumentsText.join(", ")}>`;
             }
@@ -1240,93 +1240,93 @@ export class Parser {
             return typeName;
         }
 
-        if (start?.type === "identifier" && start.value === "unique") {
+        if (start?.type === TokenType.IDENTIFIER && start.value === "unique") {
             this.tokens.skip();
             return `unique ${this.parsePrimaryTypeAnnotationText()}`;
         }
 
-        if (start?.type === "identifier" && start.value === "readonly") {
+        if (start?.type === TokenType.IDENTIFIER && start.value === "readonly") {
             this.tokens.skip();
             return `readonly ${this.parsePrimaryTypeAnnotationText()}`;
         }
 
-        if (start?.type === "identifier" && start.value === "asserts") {
+        if (start?.type === TokenType.IDENTIFIER && start.value === "asserts") {
             this.tokens.skip();
             const assertedTarget = this.parsePrimaryTypeAnnotationText();
-            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "is") {
+            if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "is") {
                 this.tokens.skip();
                 return `asserts ${assertedTarget} is ${this.parseConditionalTypeAnnotationText()}`;
             }
             return `asserts ${assertedTarget}`;
         }
 
-        if (start?.type === "identifier" && (start.value === "abstract" || start.value === "new")) {
+        if (start?.type === TokenType.IDENTIFIER && (start.value === "abstract" || start.value === "new")) {
             let prefix = "";
             if (start.value === "abstract") {
                 this.tokens.skip();
                 prefix = "abstract ";
                 const newToken = this.tokens.read();
-                if (newToken?.type !== "identifier" || newToken.value !== "new") {
+                if (newToken?.type !== TokenType.IDENTIFIER || newToken.value !== "new") {
                     this.fail("Expected 'new' after 'abstract' in construct signature", this.tokenAt(newToken));
                 }
             } else {
                 this.tokens.skip();
             }
             let typeParameters = "";
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "<") {
                 typeParameters = `<${this.readAngleBracketTypeText()}>`;
             }
             const openParen = this.tokens.read();
-            if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
                 this.fail("Expected '(' after construct signature", this.tokenAt(openParen));
             }
             const parameterText = this.readParenthesizedTypeText(openParen);
             const arrow = this.tokens.read();
-            if (arrow?.type !== "symbol" || arrow.value !== "=>") {
+            if (arrow?.type !== TokenType.SYMBOL || arrow.value !== "=>") {
                 this.fail("Expected '=>' in construct signature", this.tokenAt(arrow));
             }
             const returnType = this.parseConditionalTypeAnnotationText();
             return `${prefix}new${typeParameters} (${parameterText}) => ${returnType}`;
         }
 
-        if (start?.type === "symbol" && start.value === "-") {
+        if (start?.type === TokenType.SYMBOL && start.value === "-") {
             this.tokens.skip();
             const literalToken = this.tokens.read();
-            if (!literalToken || literalToken.type !== "number") {
+            if (!literalToken || literalToken.type !== TokenType.NUMBER) {
                 this.fail("Expected numeric literal after '-'", this.tokenAt(literalToken));
             }
             return `-${literalToken.value}${this.parseTypeAnnotationSuffixText()}`;
         }
 
         const token = this.tokens.read();
-        if (!token || !["identifier", "string", "number"].includes(token.type)) {
+        if (!token || ![TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER].includes(token.type)) {
             this.fail("Expected type identifier", this.tokenAt(token));
         }
 
         let typeName = typeTokenText(token);
         while (
-            token.type === "identifier" &&
-            this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "." &&
-            this.peekToken(1)?.type === "identifier"
+            token.type === TokenType.IDENTIFIER &&
+            this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "." &&
+            this.peekToken(1)?.type === TokenType.IDENTIFIER
         ) {
             this.tokens.skip();
             typeName += `.${this.tokens.read()!.value}`;
         }
-        if (token.type === "identifier" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+        if (token.type === TokenType.IDENTIFIER && this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "<") {
             const argumentsText = this.parseTypeArgumentListText();
             typeName += `<${argumentsText.join(", ")}>`;
         }
 
         if (
-            token.type === "identifier" &&
-            this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "." &&
-            this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "("
+            token.type === TokenType.IDENTIFIER &&
+            this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "." &&
+            this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "("
         ) {
             this.tokens.skip();
             const openParen = this.tokens.read()!;
             const parameterText = this.readParenthesizedTypeText(openParen);
             const arrow = this.tokens.read();
-            if (arrow?.type !== "symbol" || (arrow.value !== "->" && arrow.value !== "=>")) {
+            if (arrow?.type !== TokenType.SYMBOL || (arrow.value !== "->" && arrow.value !== "=>")) {
                 this.fail("Expected '->' in receiver function type annotation", this.tokenAt(arrow));
             }
             const returnType = this.parseConditionalTypeAnnotationText();
@@ -1340,14 +1340,14 @@ export class Parser {
     private tryParseTemplateLiteralTypeText(): string | null {
         const checkpoint = this.beginTokenCheckpoint();
         const first = this.tokens.peek();
-        if (first?.type !== "string") {
+        if (first?.type !== TokenType.STRING) {
             this.restoreTokenCheckpoint(checkpoint);
             return null;
         }
 
         const firstPlus = this.peekToken(1);
         const firstInterpolationStart = this.peekToken(2);
-        if (firstPlus?.type !== "symbol" || firstPlus.value !== "+" || !firstInterpolationStart) {
+        if (firstPlus?.type !== TokenType.SYMBOL || firstPlus.value !== "+" || !firstInterpolationStart) {
             this.restoreTokenCheckpoint(checkpoint);
             return null;
         }
@@ -1358,18 +1358,18 @@ export class Parser {
 
         while (this.tokens.hasMore) {
             const plus = this.tokens.peek();
-            if (plus?.type !== "symbol" || plus.value !== "+") {
+            if (plus?.type !== TokenType.SYMBOL || plus.value !== "+") {
                 break;
             }
             this.tokens.skip();
 
             const next = this.tokens.peek();
-            if (next?.type === "symbol" && next.value === "(") {
+            if (next?.type === TokenType.SYMBOL && next.value === "(") {
                 this.tokens.skip();
                 text += "${";
                 text += this.parseConditionalTypeAnnotationText();
                 const closeParen = this.tokens.read();
-                if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                     this.restoreTokenCheckpoint(checkpoint);
                     return null;
                 }
@@ -1378,7 +1378,7 @@ export class Parser {
                 continue;
             }
 
-            if (next?.type === "string") {
+            if (next?.type === TokenType.STRING) {
                 text += next.value;
                 this.tokens.skip();
                 sawTemplateSegment = true;
@@ -1401,20 +1401,20 @@ export class Parser {
 
     private isMappedTypeMemberStart(): boolean {
         const first = this.peekToken(0);
-        if (first?.type === "symbol" && first.value === "[") {
+        if (first?.type === TokenType.SYMBOL && first.value === "[") {
             const second = this.peekToken(1);
             const third = this.peekToken(2);
-            return second?.type === "identifier" && third?.type === "identifier" && third.value === "in";
+            return second?.type === TokenType.IDENTIFIER && third?.type === TokenType.IDENTIFIER && third.value === "in";
         }
-        if (first?.type === "identifier" && first.value === "readonly") {
-            return this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "[";
+        if (first?.type === TokenType.IDENTIFIER && first.value === "readonly") {
+            return this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "[";
         }
         return (
-            first?.type === "symbol" &&
+            first?.type === TokenType.SYMBOL &&
             (first.value === "+" || first.value === "-") &&
-            this.peekToken(1)?.type === "identifier" &&
+            this.peekToken(1)?.type === TokenType.IDENTIFIER &&
             this.peekToken(1)?.value === "readonly" &&
-            this.peekToken(2)?.type === "symbol" &&
+            this.peekToken(2)?.type === TokenType.SYMBOL &&
             this.peekToken(2)?.value === "["
         );
     }
@@ -1422,45 +1422,45 @@ export class Parser {
     private parseMappedTypeMemberText(): string {
         let readonlyModifier = "";
         const first = this.tokens.peek();
-        if (first?.type === "symbol" && (first.value === "+" || first.value === "-")) {
+        if (first?.type === TokenType.SYMBOL && (first.value === "+" || first.value === "-")) {
             readonlyModifier = this.tokens.read()!.value;
         }
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "readonly") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "readonly") {
             this.tokens.skip();
             readonlyModifier += "readonly ";
         }
 
         const openBracket = this.tokens.read();
         const parameter = this.tokens.read();
-        if (parameter?.type !== "identifier") {
+        if (parameter?.type !== TokenType.IDENTIFIER) {
             this.fail("Expected type parameter name in mapped type", this.tokenAt(parameter ?? openBracket));
         }
         const inKeyword = this.tokens.read();
-        if (inKeyword?.type !== "identifier" || inKeyword.value !== "in") {
+        if (inKeyword?.type !== TokenType.IDENTIFIER || inKeyword.value !== "in") {
             this.fail("Expected 'in' in mapped type", this.tokenAt(inKeyword));
         }
         const keyType = this.parseConditionalTypeAnnotationText();
         let remappedKey = "";
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "as") {
             this.tokens.skip();
             remappedKey = ` as ${this.parseConditionalTypeAnnotationText()}`;
         }
         const closeBracket = this.tokens.read();
-        if (closeBracket?.type !== "symbol" || closeBracket.value !== "]") {
+        if (closeBracket?.type !== TokenType.SYMBOL || closeBracket.value !== "]") {
             this.fail("Expected ']' after mapped type key", this.tokenAt(closeBracket));
         }
         let optionalModifier = "";
-        if (this.tokens.peek()?.type === "symbol" && (this.tokens.peek()?.value === "+" || this.tokens.peek()?.value === "-")) {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && (this.tokens.peek()?.value === "+" || this.tokens.peek()?.value === "-")) {
             optionalModifier = this.tokens.read()!.value;
         }
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
             this.tokens.skip();
             optionalModifier += "?";
         } else if (optionalModifier !== "") {
             this.fail("Expected '?' after mapped type optional modifier", this.tokenAt(this.tokens.peek()));
         }
         const colon = this.tokens.read();
-        if (colon?.type !== "symbol" || colon.value !== ":") {
+        if (colon?.type !== TokenType.SYMBOL || colon.value !== ":") {
             this.fail("Expected ':' after mapped type key", this.tokenAt(colon));
         }
         const valueType = this.parseConditionalTypeAnnotationText();
@@ -1469,9 +1469,9 @@ export class Parser {
 
     private parseTypeAnnotationSuffixText(): string {
         let suffix = "";
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "[") {
+        while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "[") {
             this.tokens.skip();
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "]") {
                 this.tokens.skip();
                 suffix += "[]";
                 continue;
@@ -1479,17 +1479,17 @@ export class Parser {
 
             const indexType = this.parseConditionalTypeAnnotationText();
             const close = this.tokens.read();
-            if (close?.type !== "symbol" || close.value !== "]") {
+            if (close?.type !== TokenType.SYMBOL || close.value !== "]") {
                 this.fail("Expected ']' to close indexed access type", this.tokenAt(close));
             }
             suffix += `[${indexType}]`;
         }
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
             const nextToken = this.peekToken(1);
             const canEndOptionalType =
                 !nextToken ||
-                nextToken.type === "eof" ||
-                (nextToken.type === "symbol" && ["|", "&", ")", "]", "}", ",", ";", "="].includes(nextToken.value));
+                nextToken.type === TokenType.END_OF_FILE ||
+                (nextToken.type === TokenType.SYMBOL && ["|", "&", ")", "]", "}", ",", ";", "="].includes(nextToken.value));
             if (canEndOptionalType) {
                 this.tokens.skip();
                 suffix += "?";
@@ -1505,22 +1505,22 @@ export class Parser {
         }
 
         let operand = "";
-        if (first.type === "identifier" && first.value !== "import") {
+        if (first.type === TokenType.IDENTIFIER && first.value !== "import") {
             operand = first.value;
-        } else if (first.type === "identifier" && first.value === "import") {
+        } else if (first.type === TokenType.IDENTIFIER && first.value === "import") {
             operand = "import";
             const openParen = this.tokens.read();
-            if (!openParen || openParen.type !== "symbol" || openParen.value !== "(") {
+            if (!openParen || openParen.type !== TokenType.SYMBOL || openParen.value !== "(") {
                 this.fail("Expected '(' after 'import' in type query", this.tokenAt(openParen));
             }
             operand += "(";
             const moduleName = this.tokens.read();
-            if (!moduleName || moduleName.type !== "string") {
+            if (!moduleName || moduleName.type !== TokenType.STRING) {
                 this.fail("Expected module string in 'import(...)' type query", this.tokenAt(moduleName));
             }
             operand += JSON.stringify(moduleName.value);
             const closeParen = this.tokens.read();
-            if (!closeParen || closeParen.type !== "symbol" || closeParen.value !== ")") {
+            if (!closeParen || closeParen.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                 this.fail("Expected ')' after module string in 'import(...)' type query", this.tokenAt(closeParen));
             }
             operand += ")";
@@ -1528,10 +1528,10 @@ export class Parser {
             this.fail("Expected identifier after 'typeof' in type annotation", this.tokenAt(first));
         }
 
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+        while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ".") {
             this.tokens.skip();
             const property = this.tokens.read();
-            if (!property || property.type !== "identifier") {
+            if (!property || property.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected property name in 'typeof' type query", this.tokenAt(property));
             }
             operand += `.${property.value}`;
@@ -1546,12 +1546,12 @@ export class Parser {
             if (!token) {
                 return false;
             }
-            if (token.type === "symbol" && token.value === "(") {
+            if (token.type === TokenType.SYMBOL && token.value === "(") {
                 depth += 1;
-            } else if (token.type === "symbol" && token.value === ")") {
+            } else if (token.type === TokenType.SYMBOL && token.value === ")") {
                 depth -= 1;
                 if (depth === 0) {
-                    return this.peekToken(offset + 1)?.type === "symbol" &&
+                    return this.peekToken(offset + 1)?.type === TokenType.SYMBOL &&
                         (this.peekToken(offset + 1)?.value === "=>" || this.peekToken(offset + 1)?.value === "->");
                 }
             }
@@ -1567,9 +1567,9 @@ export class Parser {
             if (!token) {
                 break;
             }
-            if (token.type === "symbol" && token.value === "(") {
+            if (token.type === TokenType.SYMBOL && token.value === "(") {
                 depth += 1;
-            } else if (token.type === "symbol" && token.value === ")") {
+            } else if (token.type === TokenType.SYMBOL && token.value === ")") {
                 depth -= 1;
                 if (depth === 0) {
                     break;
@@ -1585,7 +1585,7 @@ export class Parser {
 
     private readAngleBracketTypeText(): string {
         const open = this.tokens.read();
-        if (open?.type !== "symbol" || open.value !== "<") {
+        if (open?.type !== TokenType.SYMBOL || open.value !== "<") {
             this.fail("Expected '<' to start generic type text", this.tokenAt(open));
         }
         let text = "";
@@ -1595,12 +1595,12 @@ export class Parser {
             if (!token) {
                 break;
             }
-            if (token.type === "symbol" && token.value === "<") {
+            if (token.type === TokenType.SYMBOL && token.value === "<") {
                 depth += 1;
                 text += typeTokenText(token);
                 continue;
             }
-            if (token.type === "symbol" && [">", ">>", ">>>"].includes(token.value)) {
+            if (token.type === TokenType.SYMBOL && [">", ">>", ">>>"].includes(token.value)) {
                 let remaining = token.value.length;
                 while (remaining > 0 && depth > 0) {
                     depth -= 1;
@@ -1628,10 +1628,10 @@ export class Parser {
         if (!token) {
             return false;
         }
-        if (token.type === "symbol" && (token.value === "[" || token.value === "<")) {
+        if (token.type === TokenType.SYMBOL && (token.value === "[" || token.value === "<")) {
             return true;
         }
-        if (token.type === "identifier" && token.value === "readonly" && next?.type === "symbol" && next.value === "[") {
+        if (token.type === TokenType.IDENTIFIER && token.value === "readonly" && next?.type === TokenType.SYMBOL && next.value === "[") {
             return true;
         }
         return false;
@@ -1640,39 +1640,39 @@ export class Parser {
     private isTypeLiteralMethodSignatureStart(): boolean {
         let offset = 0;
         const name = this.peekToken(offset);
-        if (!name || !["identifier", "string", "number"].includes(name.type)) {
+        if (!name || ![TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER].includes(name.type)) {
             return false;
         }
         offset += 1;
-        if (this.peekToken(offset)?.type === "symbol" && this.peekToken(offset)?.value === "?") {
+        if (this.peekToken(offset)?.type === TokenType.SYMBOL && this.peekToken(offset)?.value === "?") {
             offset += 1;
         }
-        if (this.peekToken(offset)?.type === "symbol" && this.peekToken(offset)?.value === "<") {
+        if (this.peekToken(offset)?.type === TokenType.SYMBOL && this.peekToken(offset)?.value === "<") {
             return true;
         }
-        return this.peekToken(offset)?.type === "symbol" && this.peekToken(offset)?.value === "(";
+        return this.peekToken(offset)?.type === TokenType.SYMBOL && this.peekToken(offset)?.value === "(";
     }
 
     private parseTypeLiteralMethodSignatureText(): string {
         const nameToken = this.tokens.read();
-        if (!nameToken || !["identifier", "string", "number"].includes(nameToken.type)) {
+        if (!nameToken || ![TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER].includes(nameToken.type)) {
             this.fail("Expected method name in type literal", this.tokenAt(nameToken));
         }
 
         let text = typeTokenText(nameToken);
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
             this.tokens.skip();
             text += "?";
         }
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "<") {
             text += `<${this.readAngleBracketTypeText()}>`;
         }
         const openParen = this.tokens.read();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             this.fail("Expected '(' after type literal method name", this.tokenAt(openParen));
         }
         text += `(${this.readParenthesizedTypeText(openParen)})`;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             text += `: ${this.parseConditionalTypeAnnotationText()}`;
         }
@@ -1690,7 +1690,7 @@ export class Parser {
             if (!token) {
                 break;
             }
-            if (token.type === "symbol") {
+            if (token.type === TokenType.SYMBOL) {
                 if (token.value === "(") parenDepth += 1;
                 else if (token.value === ")") parenDepth -= 1;
                 else if (token.value === "[") bracketDepth += 1;
@@ -1714,7 +1714,7 @@ export class Parser {
 
     private parseTypeArgumentListText(): string[] {
         const open = this.tokens.read();
-        if (open?.type !== "symbol" || open.value !== "<") {
+        if (open?.type !== TokenType.SYMBOL || open.value !== "<") {
             this.fail("Expected '<' to start type argument list", this.tokenAt(open));
         }
 
@@ -1722,7 +1722,7 @@ export class Parser {
         while (this.tokens.hasMore) {
             args.push(this.parseConditionalTypeAnnotationText());
             const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                 this.tokens.skip();
                 continue;
             }
@@ -1739,13 +1739,13 @@ export class Parser {
     }
 
     private canRecoverMissingMemberIdentifier(operator: Token, nextToken?: Token): boolean {
-        if (!nextToken || nextToken.type === "eof") {
+        if (!nextToken || nextToken.type === TokenType.END_OF_FILE) {
             return false;
         }
         if (hasLineBreakBetween(operator, nextToken)) {
             return true;
         }
-        return nextToken.type === "symbol" && (nextToken.value === "}" || nextToken.value === ";");
+        return nextToken.type === TokenType.SYMBOL && (nextToken.value === "}" || nextToken.value === ";");
     }
 
     private isVariableDeclarationKeyword(value: string): boolean {
@@ -1770,9 +1770,9 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "declare" &&
-            second?.type === "identifier" &&
+            second?.type === TokenType.IDENTIFIER &&
             this.isFunctionDeclarationKeyword(second.value)
         );
     }
@@ -1781,9 +1781,9 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "declare" &&
-            second?.type === "identifier" &&
+            second?.type === TokenType.IDENTIFIER &&
             second.value === "type"
         );
     }
@@ -1792,9 +1792,9 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "type" &&
-            second?.type === "identifier"
+            second?.type === TokenType.IDENTIFIER
         );
     }
 
@@ -1802,11 +1802,11 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "declare" &&
-            second?.type === "identifier" &&
+            second?.type === TokenType.IDENTIFIER &&
             this.isVariableDeclarationKeyword(second.value) &&
-            !(second.value === "const" && this.peekToken(2)?.type === "identifier" && this.peekToken(2)?.value === "enum")
+            !(second.value === "const" && this.peekToken(2)?.type === TokenType.IDENTIFIER && this.peekToken(2)?.value === "enum")
         );
     }
 
@@ -1814,9 +1814,9 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "async" &&
-            second?.type === "identifier" &&
+            second?.type === TokenType.IDENTIFIER &&
             this.isFunctionDeclarationKeyword(second.value)
         );
     }
@@ -1825,9 +1825,9 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "sync" &&
-            second?.type === "identifier" &&
+            second?.type === TokenType.IDENTIFIER &&
             this.isFunctionDeclarationKeyword(second.value)
         );
     }
@@ -1836,11 +1836,11 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "declare" &&
-            second?.type === "identifier" &&
+            second?.type === TokenType.IDENTIFIER &&
             (second.value === "class" ||
-                (second.value === "abstract" && this.peekToken(2)?.type === "identifier" && this.peekToken(2)?.value === "class"))
+                (second.value === "abstract" && this.peekToken(2)?.type === TokenType.IDENTIFIER && this.peekToken(2)?.value === "class"))
         );
     }
 
@@ -1848,9 +1848,9 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "declare" &&
-            second?.type === "identifier" &&
+            second?.type === TokenType.IDENTIFIER &&
             second.value === "interface"
         );
     }
@@ -1863,9 +1863,9 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "declare" &&
-            second?.type === "identifier" &&
+            second?.type === TokenType.IDENTIFIER &&
             (second.value === "namespace" || second.value === "module" || second.value === "global")
         );
     }
@@ -1874,9 +1874,9 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "const" &&
-            second?.type === "identifier" &&
+            second?.type === TokenType.IDENTIFIER &&
             second.value === "enum"
         );
     }
@@ -1886,10 +1886,10 @@ export class Parser {
         const second = this.peekToken(1);
         const third = this.peekToken(2);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "declare" &&
-            ((second?.type === "identifier" && second.value === "enum") ||
-                (second?.type === "identifier" && second.value === "const" && third?.type === "identifier" && third.value === "enum"))
+            ((second?.type === TokenType.IDENTIFIER && second.value === "enum") ||
+                (second?.type === TokenType.IDENTIFIER && second.value === "const" && third?.type === TokenType.IDENTIFIER && third.value === "enum"))
         );
     }
 
@@ -1897,9 +1897,9 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "abstract" &&
-            second?.type === "identifier" &&
+            second?.type === TokenType.IDENTIFIER &&
             second.value === "class"
         );
     }
@@ -1907,7 +1907,7 @@ export class Parser {
     private isLabeledStatementStart(): boolean {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
-        return first?.type === "identifier" && second?.type === "symbol" && second.value === ":";
+        return first?.type === TokenType.IDENTIFIER && second?.type === TokenType.SYMBOL && second.value === ":";
     }
 
     private isTypeScriptExportAssignmentStart(): boolean {
@@ -1918,9 +1918,9 @@ export class Parser {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
         return (
-            first?.type === "identifier" &&
+            first?.type === TokenType.IDENTIFIER &&
             first.value === "export" &&
-            second?.type === "symbol" &&
+            second?.type === TokenType.SYMBOL &&
             second.value === "="
         );
     }
@@ -1935,7 +1935,7 @@ export class Parser {
     private getLastNonEofReadToken(): Token | undefined {
         for (let i = this.tokens.offset - 1; i >= 0; i -= 1) {
             const token = this.tokens.items[i];
-            if (token?.type !== "eof") {
+            if (token?.type !== TokenType.END_OF_FILE) {
                 return token;
             }
         }
@@ -1960,12 +1960,12 @@ export class Parser {
             return;
         }
 
-        if (next?.type === "symbol" && next.value === ";") {
+        if (next?.type === TokenType.SYMBOL && next.value === ";") {
             this.tokens.skip();
             return;
         }
 
-        if (context === "block" && next?.type === "symbol" && next.value === "}") {
+        if (context === "block" && next?.type === TokenType.SYMBOL && next.value === "}") {
             return;
         }
 
@@ -1974,7 +1974,7 @@ export class Parser {
         }
 
         if (
-            previousToken?.type === "symbol" &&
+            previousToken?.type === TokenType.SYMBOL &&
             previousToken.value === "}" &&
             isLikelyStatementStart(next)
         ) {
@@ -1991,16 +1991,16 @@ export class Parser {
         }
 
         const next = this.tokens.peek();
-        if (next?.type === "symbol" && next.value === ";") {
+        if (next?.type === TokenType.SYMBOL && next.value === ";") {
             this.tokens.skip();
             return;
         }
 
-        if (next?.type === "symbol" && next.value === "}") {
+        if (next?.type === TokenType.SYMBOL && next.value === "}") {
             return;
         }
 
-        if (next?.type === "identifier" && (next.value === "case" || next.value === "default")) {
+        if (next?.type === TokenType.IDENTIFIER && (next.value === "case" || next.value === "default")) {
             return;
         }
 
@@ -2021,12 +2021,12 @@ export class Parser {
             return undefined;
         }
 
-        if (token.type === "symbol") {
+        if (token.type === TokenType.SYMBOL) {
             const candidate = token.value as InfixOperator;
             return candidate in BINARY_OPERATOR_INFO ? candidate : undefined;
         }
 
-        if (token.type === "identifier" && (token.value === "in" || token.value === "is" || token.value === "instanceof")) {
+        if (token.type === TokenType.IDENTIFIER && (token.value === "in" || token.value === "is" || token.value === "instanceof")) {
             return token.value as BinaryOperator;
         }
 
@@ -2069,14 +2069,14 @@ export class Parser {
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
-            if (token?.type === "symbol" && token.value === "]") {
+            if (token?.type === TokenType.SYMBOL && token.value === "]") {
                 this.tokens.skip();
                 return this.withNodeBounds(startToken, () => {
                     return new ArrayLiteral(elements);
                 });
             }
 
-            if (token?.type === "symbol" && token.value === ",") {
+            if (token?.type === TokenType.SYMBOL && token.value === ",") {
                 const comma = this.tokens.read();
                 elements.push(this.attachNodeBounds(new ArrayHole(), comma, comma));
                 continue;
@@ -2085,15 +2085,15 @@ export class Parser {
             elements.push(this.parseAssignment());
 
             const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                 this.tokens.skip();
-                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]") {
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "]") {
                     continue;
                 }
                 continue;
             }
 
-            if (separator?.type === "symbol" && separator.value === "]") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === "]") {
                 continue;
             }
 
@@ -2105,7 +2105,7 @@ export class Parser {
 
     private parseObjectLiteral(): ObjectLiteral {
         const startToken = this.getLastReadToken();
-        if (!(startToken?.type === "symbol" && startToken.value === "{")) {
+        if (!(startToken?.type === TokenType.SYMBOL && startToken.value === "{")) {
             this.fail("Expected '{' to start object literal", this.tokenAt(startToken));
         }
         return this.parseObjectLiteralFromConsumedOpen(startToken);
@@ -2115,7 +2115,7 @@ export class Parser {
         const properties: ObjectLiteralProperty[] = [];
         let trailingComma = false;
 
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "}") {
             this.tokens.skip();
             return this.withNodeBounds(startToken, () => {
                 return new ObjectLiteral(properties, trailingComma || undefined);
@@ -2124,14 +2124,14 @@ export class Parser {
 
         while (this.tokens.hasMore) {
             const next = this.tokens.peek();
-            if (next?.type === "symbol" && next.value === "}") {
+            if (next?.type === TokenType.SYMBOL && next.value === "}") {
                 this.tokens.skip();
                 return this.withNodeBounds(startToken, () => {
                     return new ObjectLiteral(properties, trailingComma || undefined);
                 });
             }
 
-            if (next?.type === "symbol" && next.value === "...") {
+            if (next?.type === TokenType.SYMBOL && next.value === "...") {
                 const spreadToken = this.tokens.read()!;
                 const argument = this.parseAssignment();
                 properties.push(
@@ -2147,18 +2147,18 @@ export class Parser {
                 let asyncModifier = false;
                 let syncModifier = false;
                 if (
-                    next?.type === "identifier" &&
+                    next?.type === TokenType.IDENTIFIER &&
                     (next.value === "get" || next.value === "set") &&
                     this.peekToken(1) &&
-                    ["identifier", "string", "number"].includes(this.peekToken(1)!.type)
+                    [TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER].includes(this.peekToken(1)!.type)
                 ) {
                     accessorPrefix = next.value as "get" | "set";
                     this.tokens.skip();
                 } else if (
-                    next?.type === "identifier" &&
+                    next?.type === TokenType.IDENTIFIER &&
                     (next.value === "async" || next.value === "sync") &&
                     this.peekToken(1) &&
-                    ["identifier", "string", "number"].includes(this.peekToken(1)!.type)
+                    [TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER].includes(this.peekToken(1)!.type)
                 ) {
                     asyncModifier = next.value === "async";
                     syncModifier = next.value === "sync";
@@ -2171,7 +2171,7 @@ export class Parser {
                 let separator = this.tokens.peek();
 
                 if (!computed && key.kind === NodeKind.Identifier && (
-                    separator?.type === "symbol" && (separator.value === "," || separator.value === "}")
+                    separator?.type === TokenType.SYMBOL && (separator.value === "," || separator.value === "}")
                 )) {
                     properties.push(
                         this.attachNodeBounds(
@@ -2186,23 +2186,23 @@ export class Parser {
                     );
                 } else {
                     let methodTypeParameters: TypeParameter[] | undefined;
-                    if (separator?.type === "symbol" && separator.value === "<") {
+                    if (separator?.type === TokenType.SYMBOL && separator.value === "<") {
                         methodTypeParameters = this.parseTypeParameterList();
                         separator = this.tokens.peek();
                     }
 
-                    if (separator?.type === "symbol" && separator.value === "(") {
+                    if (separator?.type === TokenType.SYMBOL && separator.value === "(") {
                     const openParen = this.tokens.read();
                     const parameters = this.parseFunctionParameters();
                     const closeParen = this.tokens.read();
-                    if (openParen?.type !== "symbol" || openParen.value !== "(") {
+                    if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
                         this.fail("Expected '(' before object method parameters", this.tokenAt(openParen));
                     }
-                    if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                    if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                         this.fail("Expected ')' after object method parameters", this.tokenAt(closeParen));
                     }
                     let returnType: Identifier | undefined;
-                    if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                    if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
                         this.tokens.skip();
                         returnType = this.parseReturnTypeAnnotationNode();
                     }
@@ -2248,7 +2248,7 @@ export class Parser {
                         this.tokens.offset = objectMemberStart;
                     }
                     const colon = this.tokens.read();
-                    if (colon?.type !== "symbol" || colon.value !== ":") {
+                    if (colon?.type !== TokenType.SYMBOL || colon.value !== ":") {
                         this.fail("Expected ':' after object key", colon);
                     }
 
@@ -2265,13 +2265,13 @@ export class Parser {
             }
 
             const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                 this.tokens.skip();
-                trailingComma = this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}";
+                trailingComma = this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "}";
                 continue;
             }
 
-            if (separator?.type === "symbol" && separator.value === "}") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === "}") {
                 this.tokens.skip();
                 return this.withNodeBounds(startToken, () => {
                     return new ObjectLiteral(properties, trailingComma || undefined);
@@ -2287,27 +2287,27 @@ export class Parser {
     private parseObjectLiteralKey(): { key: Expr; computed: boolean } {
         const token = this.tokens.read();
 
-        if (token?.type === "symbol" && token.value === "[") {
+        if (token?.type === TokenType.SYMBOL && token.value === "[") {
             const key = this.parseExpressionOrThrow();
             const close = this.tokens.read();
-            if (close?.type !== "symbol" || close.value !== "]") {
+            if (close?.type !== TokenType.SYMBOL || close.value !== "]") {
                 this.fail("Expected ']' after computed object key", this.tokenAt(close));
             }
             return { key, computed: true };
         }
 
-        if (token?.type === "identifier") {
+        if (token?.type === TokenType.IDENTIFIER) {
             return { key: this.buildIdentifierFromToken(token), computed: false };
         }
 
-        if (token?.type === "string") {
+        if (token?.type === TokenType.STRING) {
             return {
                 key: this.attachNodeBounds(new StringLiteral(token.value), token, token),
                 computed: false
             };
         }
 
-        if (token?.type === "number") {
+        if (token?.type === TokenType.NUMBER) {
             const normalizedNumberText = token.value.replace(/_/g, "");
             const numericValue = Number(normalizedNumberText);
             if (!Number.isFinite(numericValue) || normalizedNumberText.endsWith("n") || normalizedNumberText.endsWith("N") || normalizedNumberText.endsWith("L")) {
@@ -2324,7 +2324,7 @@ export class Parser {
 
     private parseFunctionExpression(functionKeyword: Token, async: boolean = false, sync: boolean = false): FunctionExpression {
         let generator = false;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "*") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "*") {
             this.tokens.skip();
             generator = true;
         }
@@ -2332,8 +2332,8 @@ export class Parser {
         let name: Identifier | undefined;
         const maybeName = this.tokens.peek();
         if (
-            maybeName?.type === "identifier" &&
-            this.peekToken(1)?.type === "symbol" &&
+            maybeName?.type === TokenType.IDENTIFIER &&
+            this.peekToken(1)?.type === TokenType.SYMBOL &&
             this.peekToken(1)?.value === "("
         ) {
             this.tokens.skip();
@@ -2341,17 +2341,17 @@ export class Parser {
         }
 
         const openParen = this.tokens.read();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             this.fail("Expected '(' after function keyword", this.tokenAt(openParen));
         }
         const parameters = this.parseFunctionParameters();
         const closeParen = this.tokens.read();
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
             this.fail("Expected ')' after function parameters", this.tokenAt(closeParen));
         }
         let returnType: Identifier | undefined;
         const maybeColon = this.tokens.peek();
-        if (maybeColon?.type === "symbol" && maybeColon.value === ":") {
+        if (maybeColon?.type === TokenType.SYMBOL && maybeColon.value === ":") {
             this.tokens.skip();
             returnType = this.parseReturnTypeAnnotationNode();
         }
@@ -2390,18 +2390,18 @@ export class Parser {
         let classKeyword: Token | undefined = options.classKeyword ?? this.tokens.read();
         let isAbstractClass = false;
         const startToken = classKeyword;
-        if (!options.classKeyword && classKeyword?.type === "identifier" && classKeyword.value === "abstract") {
+        if (!options.classKeyword && classKeyword?.type === TokenType.IDENTIFIER && classKeyword.value === "abstract") {
             isAbstractClass = true;
             classKeyword = this.tokens.read();
         }
-        if (classKeyword?.type !== "identifier" || classKeyword.value !== "class") {
+        if (classKeyword?.type !== TokenType.IDENTIFIER || classKeyword.value !== "class") {
             this.fail("Expected class declaration statement", this.tokenAt(classKeyword));
         }
 
         let className: Identifier | undefined;
         const classNameToken = this.tokens.peek();
         if (
-            classNameToken?.type === "identifier" &&
+            classNameToken?.type === TokenType.IDENTIFIER &&
             classNameToken.value !== "extends" &&
             classNameToken.value !== "implements"
         ) {
@@ -2414,7 +2414,7 @@ export class Parser {
         const typeParameters = this.parseTypeParameterList();
 
         let primaryConstructorParameters: ClassPrimaryConstructorParameter[] | undefined;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "(") {
             if (this.language !== "vexa") {
                 this.fail("Class primary constructor syntax is only available in VexaScript mode", this.tokenAt());
             }
@@ -2423,7 +2423,7 @@ export class Parser {
             primaryConstructorParameters = this.parseClassPrimaryConstructorParameters();
 
             const closeParen = this.tokens.read();
-            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                 this.fail("Expected ')' after class primary constructor parameters", this.tokenAt(closeParen));
             }
         }
@@ -2432,19 +2432,19 @@ export class Parser {
         let implementsTypes: Identifier[] | undefined;
         const classDelegates: ClassDelegate[] = [];
 
-        if (this.language === "vexa" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+        if (this.language === "vexa" && this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             const colonTypes: Identifier[] = [];
             while (this.tokens.hasMore) {
                 const typeAnnotation = this.parseTypeAnnotationNode();
-                if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
+                if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "by") {
                     const byToken = this.tokens.read()!;
                     const delegateExpression = this.parseClassDelegateExpression();
                     classDelegates.push(this.attachNodeBounds(new ClassDelegate(typeAnnotation, delegateExpression), typeAnnotation.firstToken, delegateExpression.lastToken ?? this.getLastReadToken() ?? byToken));
                 }
                 colonTypes.push(typeAnnotation);
                 const separator = this.tokens.peek();
-                if (separator?.type === "symbol" && separator.value === ",") {
+                if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                     this.tokens.skip();
                     continue;
                 }
@@ -2465,7 +2465,7 @@ export class Parser {
         const extraExtendsTypes: Identifier[] = [];
         const extraImplementsTypes: Identifier[] = [];
         while (
-            this.tokens.peek()?.type === "identifier" &&
+            this.tokens.peek()?.type === TokenType.IDENTIFIER &&
             (this.tokens.peek()?.value === "extends" || this.tokens.peek()?.value === "implements")
         ) {
             const keyword = this.tokens.read()!.value;
@@ -2481,7 +2481,7 @@ export class Parser {
             const clauseTypes: Identifier[] = [];
             while (this.tokens.hasMore) {
                 const typeAnnotation = this.parseHeritageTypeNode();
-                if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
+                if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "by") {
                     const byToken = this.tokens.read()!;
                     const delegateExpression = this.parseClassDelegateExpression();
                     classDelegates.push(this.attachNodeBounds(new ClassDelegate(typeAnnotation, delegateExpression), typeAnnotation.firstToken, delegateExpression.lastToken ?? this.getLastReadToken() ?? byToken));
@@ -2489,7 +2489,7 @@ export class Parser {
                 clauseTypes.push(typeAnnotation);
 
                 const separator = this.tokens.peek();
-                if (separator?.type === "symbol" && separator.value === ",") {
+                if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                     this.tokens.skip();
                     continue;
                 }
@@ -2540,7 +2540,7 @@ export class Parser {
         };
 
         const openBrace = this.tokens.peek();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+        if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
             if (this.language === "vexa" && !expression) {
                 return this.attachNodeBounds(buildClassLike([]), startToken, this.getLastReadToken() ?? classKeyword);
             }
@@ -2555,12 +2555,12 @@ export class Parser {
             if (isEofToken(token)) {
                 this.fail("Expected '}' to close class body", this.tokenAt(openBrace), "block");
             }
-            if (token?.type === "symbol" && token.value === "}") {
+            if (token?.type === TokenType.SYMBOL && token.value === "}") {
                 this.tokens.skip();
                 return this.attachNodeBounds(buildClassLike(members), startToken, this.getLastReadToken() ?? classKeyword);
             }
 
-            if (token?.type === "symbol" && token.value === ";") {
+            if (token?.type === TokenType.SYMBOL && token.value === ";") {
                 this.tokens.skip();
                 continue;
             }
@@ -2579,7 +2579,7 @@ export class Parser {
 
     private parseArrowFunctionBody(): Expr | BlockStatement {
         const maybeBlock = this.tokens.peek();
-        if (maybeBlock?.type === "symbol" && maybeBlock.value === "{") {
+        if (maybeBlock?.type === TokenType.SYMBOL && maybeBlock.value === "{") {
             return this.parseBlockStatement();
         }
         return this.parseAssignment();
@@ -2591,7 +2591,7 @@ export class Parser {
 
     private parseBraceLambdaExpression(implicitParameterName: string | null = "it"): ArrowFunctionExpression {
         const openBrace = this.tokens.peek();
-        if (!(openBrace?.type === "symbol" && openBrace.value === "{")) {
+        if (!(openBrace?.type === TokenType.SYMBOL && openBrace.value === "{")) {
             this.fail("Expected '{' to start tail lambda", this.tokenAt(openBrace));
         }
         this.tokens.skip();
@@ -2602,20 +2602,20 @@ export class Parser {
         const explicitParametersStart = this.tokens.offset;
         const explicitParameters: FunctionParameter[] = [];
         let hasExplicitParameterArrow = false;
-        if (this.tokens.peek()?.type === "identifier") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER) {
             while (this.tokens.hasMore) {
                 const parameterToken = this.tokens.peek();
-                if (parameterToken?.type !== "identifier") {
+                if (parameterToken?.type !== TokenType.IDENTIFIER) {
                     break;
                 }
                 this.tokens.skip();
                 let parameterOptional = false;
-                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
                     this.tokens.skip();
                     parameterOptional = true;
                 }
                 let parameterTypeAnnotation: Identifier | undefined;
-                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
                     this.tokens.skip();
                     parameterTypeAnnotation = this.parseTypeAnnotationNode();
                 }
@@ -2635,14 +2635,14 @@ export class Parser {
                     )
                 );
                 const separator = this.tokens.peek();
-                if (!(separator?.type === "symbol" && separator.value === ",")) {
+                if (!(separator?.type === TokenType.SYMBOL && separator.value === ",")) {
                     break;
                 }
                 this.tokens.skip();
             }
 
             const maybeArrow = this.tokens.peek();
-            if (maybeArrow?.type === "symbol" && maybeArrow.value === "->" && explicitParameters.length > 0) {
+            if (maybeArrow?.type === TokenType.SYMBOL && maybeArrow.value === "->" && explicitParameters.length > 0) {
                 hasExplicitParameterArrow = true;
                 this.tokens.skip();
             } else {
@@ -2657,7 +2657,7 @@ export class Parser {
                 this.fail("Expected '}' to close tail lambda", this.tokenAt(openBrace), "block");
             }
 
-            if (token?.type === "symbol" && token.value === "}") {
+            if (token?.type === TokenType.SYMBOL && token.value === "}") {
                 this.tokens.skip();
                 break;
             }
@@ -2733,11 +2733,12 @@ export class Parser {
         ) {
             return lambda;
         }
+        const firstParameter = lambda.parameters[0]!;
         if (
             lambda.parameters.length > 1 ||
             (lambda.parameters.length === 1 && (
-                lambda.parameters[0]?.name.kind !== NodeKind.Identifier ||
-                lambda.parameters[0].name.name !== "it"
+                firstParameter.name.kind !== NodeKind.Identifier ||
+                (firstParameter.name as Identifier).name !== "it"
             ))
         ) {
             return lambda;
@@ -2752,28 +2753,28 @@ export class Parser {
         if (!first) {
             return false;
         }
-        if (first.type === "symbol") {
+        if (first.type === TokenType.SYMBOL) {
             return first.value === "}" || first.value === "..." || first.value === "[";
         }
-        if (first.type !== "identifier" && first.type !== "string" && first.type !== "number") {
+        if (first.type !== TokenType.IDENTIFIER && first.type !== TokenType.STRING && first.type !== TokenType.NUMBER) {
             return false;
         }
         if (
-            first.type === "identifier" &&
+            first.type === TokenType.IDENTIFIER &&
             (first.value === "get" || first.value === "set" || first.value === "async" || first.value === "sync")
         ) {
             const second = this.peekToken(1);
             if (
-                second?.type === "identifier" ||
-                second?.type === "string" ||
-                second?.type === "number" ||
-                (second?.type === "symbol" && second.value === "[")
+                second?.type === TokenType.IDENTIFIER ||
+                second?.type === TokenType.STRING ||
+                second?.type === TokenType.NUMBER ||
+                (second?.type === TokenType.SYMBOL && second.value === "[")
             ) {
                 return true;
             }
         }
         const second = this.peekToken(1);
-        return second?.type === "symbol" && [":", ",", "(", "<", "}"].includes(second.value);
+        return second?.type === TokenType.SYMBOL && [":", ",", "(", "<", "}"].includes(second.value);
     }
 
     private parseBraceExpressionFromConsumedOpen(openBrace: Token): Expr {
@@ -2829,20 +2830,20 @@ export class Parser {
         let sync = false;
         let first = this.tokens.peek();
         let arrowParameterToken: Token | undefined;
-        if (first?.type === "identifier" && first.value === "async" && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "(") {
+        if (first?.type === TokenType.IDENTIFIER && first.value === "async" && this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "(") {
             async = true;
             this.tokens.skip();
             first = this.tokens.peek();
-        } else if (first?.type === "identifier" && first.value === "sync" && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "(") {
+        } else if (first?.type === TokenType.IDENTIFIER && first.value === "sync" && this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "(") {
             sync = true;
             this.tokens.skip();
             first = this.tokens.peek();
-        } else if (first?.type === "identifier" && first.value === "async" && this.peekToken(1)?.type === "identifier" && this.peekToken(2)?.type === "symbol" && this.peekToken(2)?.value === "=>") {
+        } else if (first?.type === TokenType.IDENTIFIER && first.value === "async" && this.peekToken(1)?.type === TokenType.IDENTIFIER && this.peekToken(2)?.type === TokenType.SYMBOL && this.peekToken(2)?.value === "=>") {
             async = true;
             this.tokens.skip();
             first = this.tokens.peek();
             arrowParameterToken = first;
-        } else if (first?.type === "identifier" && first.value === "sync" && this.peekToken(1)?.type === "identifier" && this.peekToken(2)?.type === "symbol" && this.peekToken(2)?.value === "=>") {
+        } else if (first?.type === TokenType.IDENTIFIER && first.value === "sync" && this.peekToken(1)?.type === TokenType.IDENTIFIER && this.peekToken(2)?.type === TokenType.SYMBOL && this.peekToken(2)?.value === "=>") {
             sync = true;
             this.tokens.skip();
             first = this.tokens.peek();
@@ -2853,8 +2854,8 @@ export class Parser {
         }
 
         if (
-            first.type === "identifier" &&
-            this.peekToken(1)?.type === "symbol" &&
+            first.type === TokenType.IDENTIFIER &&
+            this.peekToken(1)?.type === TokenType.SYMBOL &&
             this.peekToken(1)?.value === "=>"
         ) {
             this.tokens.skip();
@@ -2878,29 +2879,29 @@ export class Parser {
             );
         }
 
-        if (!(first.type === "symbol" && first.value === "(")) {
+        if (!(first.type === TokenType.SYMBOL && first.value === "(")) {
             return null;
         }
 
         try {
             const openParen = this.tokens.read();
-            if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
                 this.tokens.offset = startOffset;
                 return null;
             }
             const parameters = this.parseFunctionParameters();
             const closeParen = this.tokens.read();
-            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                 this.tokens.offset = startOffset;
                 return null;
             }
             let returnType: Identifier | undefined;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
                 this.tokens.skip();
                 returnType = this.parseReturnTypeAnnotationNode();
             }
             const arrow = this.tokens.peek();
-            if (!(arrow?.type === "symbol" && arrow.value === "=>")) {
+            if (!(arrow?.type === TokenType.SYMBOL && arrow.value === "=>")) {
                 this.tokens.offset = startOffset;
                 return null;
             }
@@ -2930,33 +2931,33 @@ export class Parser {
     private parsePrimary(): Expr {
         const token = this.tokens.read();
 
-        if (token?.type === "symbol" && token.value === "...") {
+        if (token?.type === TokenType.SYMBOL && token.value === "...") {
             const argument = this.parseUnary();
             return this.attachNodeBounds(new SpreadExpression(argument), token, argument.lastToken ?? this.getLastReadToken() ?? token);
         }
 
-        if (token?.type === "symbol" && token.value === "(") {
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+        if (token?.type === TokenType.SYMBOL && token.value === "(") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ")") {
                 const close = this.tokens.read();
                 return this.attachNodeBounds(new MissingExpression(), token, close ?? token);
             }
             const expr = this.parseExpressionOrThrow();
             const close = this.tokens.read();
-            if (close?.type !== "symbol" || close.value !== ")") {
+            if (close?.type !== TokenType.SYMBOL || close.value !== ")") {
                 this.fail("Expected ')' after parenthesized expression", this.tokenAt(close));
             }
             return expr;
         }
 
-        if (token?.type === "symbol" && token.value === "[") {
+        if (token?.type === TokenType.SYMBOL && token.value === "[") {
             return this.parseArrayLiteral();
         }
 
-        if (token?.type === "symbol" && token.value === "{") {
+        if (token?.type === TokenType.SYMBOL && token.value === "{") {
             return this.parseBraceExpressionFromConsumedOpen(token);
         }
 
-        if (token?.type === "number") {
+        if (token?.type === TokenType.NUMBER) {
             const normalizedNumberText = token.value.replace(/_/g, "");
             if (normalizedNumberText.endsWith("n") || normalizedNumberText.endsWith("N")) {
                 const raw = normalizedNumberText.slice(0, -1);
@@ -3000,7 +3001,7 @@ export class Parser {
             );
         }
 
-        if (token?.type === "string") {
+        if (token?.type === TokenType.STRING) {
             return this.attachNodeBounds(
                 new StringLiteral(token.value),
                 token,
@@ -3008,7 +3009,7 @@ export class Parser {
             );
         }
 
-        if (token?.type === "regexp") {
+        if (token?.type === TokenType.REGEXP) {
             const lastSlashIndex = token.value.lastIndexOf("/");
             const pattern = token.value.slice(1, lastSlashIndex);
             const flags = token.value.slice(lastSlashIndex + 1);
@@ -3019,13 +3020,13 @@ export class Parser {
             );
         }
 
-        if (token?.type === "identifier") {
+        if (token?.type === TokenType.IDENTIFIER) {
             if (token.value === "function") {
                 return this.parseFunctionExpression(token);
             }
             if (
                 token.value === "async" &&
-                this.tokens.peek()?.type === "identifier" &&
+                this.tokens.peek()?.type === TokenType.IDENTIFIER &&
                 this.tokens.peek()?.value === "function"
             ) {
                 this.tokens.skip();
@@ -3033,7 +3034,7 @@ export class Parser {
             }
             if (
                 token.value === "sync" &&
-                this.tokens.peek()?.type === "identifier" &&
+                this.tokens.peek()?.type === TokenType.IDENTIFIER &&
                 this.tokens.peek()?.value === "function"
             ) {
                 this.tokens.skip();
@@ -3057,9 +3058,9 @@ export class Parser {
             }
             if (
                 token.value === "this" &&
-                this.tokens.peek()?.type === "symbol" &&
+                this.tokens.peek()?.type === TokenType.SYMBOL &&
                 this.tokens.peek()?.value === "@" &&
-                this.peekToken(1)?.type === "identifier"
+                this.peekToken(1)?.type === TokenType.IDENTIFIER
             ) {
                 this.tokens.skip();
                 const label = this.tokens.read()!;
@@ -3082,10 +3083,10 @@ export class Parser {
     private parsePropertyReferencePostfix(receiver: Expr, operator: Token): Expr {
         this.tokens.skip();
         const property = this.tokens.read();
-        if (property?.type !== "identifier") {
+        if (property?.type !== TokenType.IDENTIFIER) {
             this.fail(
                 "Expected identifier after '::'",
-                this.tokenAt(property?.type === "eof" ? operator : property ?? operator)
+                this.tokenAt(property?.type === TokenType.END_OF_FILE ? operator : property ?? operator)
             );
         }
         return this.attachNodeBounds(new PropertyReferenceExpression(receiver, this.buildIdentifierFromToken(property)), receiver.firstToken, property);
@@ -3098,7 +3099,7 @@ export class Parser {
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
 
-            if (token?.type === "symbol" && token.value === "<") {
+            if (token?.type === TokenType.SYMBOL && token.value === "<") {
                 const parsedTypeArguments = this.tryParseInvocationTypeArguments();
                 if (parsedTypeArguments) {
                     pendingTypeArguments = parsedTypeArguments;
@@ -3106,7 +3107,7 @@ export class Parser {
                 }
             }
 
-            if (token?.type === "symbol" && token.value === "?." && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "(") {
+            if (token?.type === TokenType.SYMBOL && token.value === "?." && this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "(") {
                 this.tokens.skip();
                 const parsedArguments = this.parseCallArgumentList();
                 const args = parsedArguments.args;
@@ -3120,12 +3121,12 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && token.value === "?." && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "[") {
+            if (token?.type === TokenType.SYMBOL && token.value === "?." && this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "[") {
                 this.tokens.skip();
                 this.tokens.skip();
                 const property = this.parseExpressionOrThrow();
                 const close = this.tokens.read();
-                if (close?.type !== "symbol" || close.value !== "]") {
+                if (close?.type !== TokenType.SYMBOL || close.value !== "]") {
                     this.fail("Expected ']' after optional computed member access", this.tokenAt(close));
                 }
 
@@ -3134,7 +3135,7 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && token.value === "::") {
+            if (token?.type === TokenType.SYMBOL && token.value === "::") {
                 if (hasLineBreakBetween(expr.lastToken, token)) {
                     break;
                 }
@@ -3143,8 +3144,8 @@ export class Parser {
             }
 
             if (
-                token?.type === "symbol" && token.value === "." &&
-                this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "{"
+                token?.type === TokenType.SYMBOL && token.value === "." &&
+                this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "{"
             ) {
                 this.tokens.skip();
                 const tailLambda = this.parseTailLambdaArgument();
@@ -3158,24 +3159,24 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
+            if (token?.type === TokenType.SYMBOL && (token.value === "." || token.value === "?." || token.value === "!.")) {
                 this.tokens.skip();
                 const property: Token | undefined = this.tryParsePrivateIdentifierToken() ?? this.tokens.read() ?? undefined;
-                if (property?.type !== "identifier") {
+                if (property?.type !== TokenType.IDENTIFIER) {
                     if (this.canRecoverMissingMemberIdentifier(token, property)) {
-                        const errorToken = this.tokenAt(property?.type === "eof" ? token : property ?? token);
+                        const errorToken = this.tokenAt(property?.type === TokenType.END_OF_FILE ? token : property ?? token);
                         this.errors.push({
                             message: `Expected identifier after '${token.value}'`,
                             ...(errorToken ? { token: errorToken } : {})
                         });
-                        if (property && property.type !== "eof") {
+                        if (property && property.type !== TokenType.END_OF_FILE) {
                             this.tokens.offset -= 1;
                         }
                         break;
                     }
                     this.fail(
                         `Expected identifier after '${token.value}'`,
-                        this.tokenAt(property?.type === "eof" ? token : property ?? token)
+                        this.tokenAt(property?.type === TokenType.END_OF_FILE ? token : property ?? token)
                     );
                 }
 
@@ -3184,20 +3185,20 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && token.value === "!" && !hasLineBreakBetween(expr.lastToken, token)) {
+            if (token?.type === TokenType.SYMBOL && token.value === "!" && !hasLineBreakBetween(expr.lastToken, token)) {
                 this.tokens.skip();
                 expr = this.attachNodeBounds(new NonNullExpression(expr), expr.firstToken, token);
                 continue;
             }
 
-            if (token?.type === "symbol" && token.value === "[") {
+            if (token?.type === TokenType.SYMBOL && token.value === "[") {
                 if (hasLineBreakBetween(expr.lastToken, token)) {
                     break;
                 }
                 this.tokens.skip();
                 const property = this.parseExpressionOrThrow();
                 const close = this.tokens.read();
-                if (close?.type !== "symbol" || close.value !== "]") {
+                if (close?.type !== TokenType.SYMBOL || close.value !== "]") {
                     this.fail("Expected ']' after computed member access", this.tokenAt(close));
                 }
 
@@ -3206,7 +3207,7 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && token.value === "(") {
+            if (token?.type === TokenType.SYMBOL && token.value === "(") {
                 const parsedArguments = this.parseCallArgumentList();
                 const args = parsedArguments.args;
                 const close = parsedArguments.close;
@@ -3219,7 +3220,7 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "string" && !hasLineBreakBetween(expr.lastToken, token)) {
+            if (token?.type === TokenType.STRING && !hasLineBreakBetween(expr.lastToken, token)) {
                 this.tokens.skip();
                 expr = this.attachNodeBounds(new CallExpression(
                     expr,
@@ -3236,7 +3237,7 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && token.value === "{") {
+            if (token?.type === TokenType.SYMBOL && token.value === "{") {
                 if (hasLineBreakBetween(expr.lastToken, token)) {
                     break;
                 }
@@ -3276,7 +3277,7 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && (token.value === "++" || token.value === "--")) {
+            if (token?.type === TokenType.SYMBOL && (token.value === "++" || token.value === "--")) {
                 if (hasLineBreakBetween(expr.lastToken, token)) {
                     break;
                 }
@@ -3297,10 +3298,10 @@ export class Parser {
         lastToken?: Token;
     } {
         let expr: Expr;
-        if (newKeyword && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+        if (newKeyword && this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ".") {
             const dotToken = this.tokens.read();
             const propertyToken = this.tokens.read();
-            if (propertyToken?.type !== "identifier" || propertyToken.value !== "target") {
+            if (propertyToken?.type !== TokenType.IDENTIFIER || propertyToken.value !== "target") {
                 this.fail("Expected 'target' after 'new.'", this.tokenAt(propertyToken ?? dotToken));
             }
             const metaObject = this.attachNodeBounds(
@@ -3321,7 +3322,7 @@ export class Parser {
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
 
-            if (token?.type === "symbol" && token.value === "<") {
+            if (token?.type === TokenType.SYMBOL && token.value === "<") {
                 const parsedTypeArguments = this.tryParseInvocationTypeArguments();
                 if (parsedTypeArguments) {
                     pendingTypeArguments = parsedTypeArguments;
@@ -3329,12 +3330,12 @@ export class Parser {
                 }
             }
 
-            if (token?.type === "symbol" && token.value === "?." && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "[") {
+            if (token?.type === TokenType.SYMBOL && token.value === "?." && this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "[") {
                 this.tokens.skip();
                 this.tokens.skip();
                 const property = this.parseExpressionOrThrow();
                 const close = this.tokens.read();
-                if (close?.type !== "symbol" || close.value !== "]") {
+                if (close?.type !== TokenType.SYMBOL || close.value !== "]") {
                     this.fail("Expected ']' after optional computed member access", this.tokenAt(close));
                 }
 
@@ -3343,7 +3344,7 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && token.value === "::") {
+            if (token?.type === TokenType.SYMBOL && token.value === "::") {
                 if (hasLineBreakBetween(expr.lastToken, token)) {
                     break;
                 }
@@ -3351,13 +3352,13 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
+            if (token?.type === TokenType.SYMBOL && (token.value === "." || token.value === "?." || token.value === "!.")) {
                 this.tokens.skip();
                 const property: Token | undefined = this.tryParsePrivateIdentifierToken() ?? this.tokens.read() ?? undefined;
-                if (property?.type !== "identifier") {
+                if (property?.type !== TokenType.IDENTIFIER) {
                     this.fail(
                         `Expected identifier after '${token.value}'`,
-                        this.tokenAt(property?.type === "eof" ? token : property ?? token)
+                        this.tokenAt(property?.type === TokenType.END_OF_FILE ? token : property ?? token)
                     );
                 }
 
@@ -3366,14 +3367,14 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && token.value === "[") {
+            if (token?.type === TokenType.SYMBOL && token.value === "[") {
                 if (hasLineBreakBetween(expr.lastToken, token)) {
                     break;
                 }
                 this.tokens.skip();
                 const property = this.parseExpressionOrThrow();
                 const close = this.tokens.read();
-                if (close?.type !== "symbol" || close.value !== "]") {
+                if (close?.type !== TokenType.SYMBOL || close.value !== "]") {
                     this.fail("Expected ']' after computed member access", this.tokenAt(close));
                 }
 
@@ -3382,7 +3383,7 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && token.value === "(") {
+            if (token?.type === TokenType.SYMBOL && token.value === "(") {
                 const parsedArguments = this.parseCallArgumentList();
                 const args = parsedArguments.args;
                 const close = parsedArguments.close;
@@ -3411,19 +3412,19 @@ export class Parser {
     }
 
     private looksLikeCallLambdaArgument(): boolean {
-        if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{")) {
+        if (!(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "{")) {
             return false;
         }
         const first = this.peekToken(1);
         const second = this.peekToken(2);
-        if (first?.type === "identifier" && second?.type === "symbol" && second.value === "}") {
+        if (first?.type === TokenType.IDENTIFIER && second?.type === TokenType.SYMBOL && second.value === "}") {
             return true;
         }
         let nestedDelimiters = 0;
         for (let index = 1; ; index += 1) {
             const token = this.peekToken(index);
-            if (!token || token.type === "eof") return false;
-            if (token.type !== "symbol") continue;
+            if (!token || token.type === TokenType.END_OF_FILE) return false;
+            if (token.type !== TokenType.SYMBOL) continue;
             if (token.value === "(" || token.value === "[" || token.value === "{") {
                 nestedDelimiters += 1;
                 continue;
@@ -3448,8 +3449,8 @@ export class Parser {
         const nameToken = this.tokens.peek();
         const colonToken = this.peekToken(1);
         if (
-            nameToken?.type !== "identifier" ||
-            colonToken?.type !== "symbol" ||
+            nameToken?.type !== TokenType.IDENTIFIER ||
+            colonToken?.type !== TokenType.SYMBOL ||
             colonToken.value !== ":"
         ) {
             return null;
@@ -3466,17 +3467,17 @@ export class Parser {
 
     private parseCallArgumentList(): { args: Expr[]; close: Token } {
         const open = this.tokens.read();
-        if (open?.type !== "symbol" || open.value !== "(") {
+        if (open?.type !== TokenType.SYMBOL || open.value !== "(") {
             this.fail("Expected '(' before call arguments", this.tokenAt(open));
         }
         const args: Expr[] = [];
 
         while (this.tokens.hasMore) {
             const next = this.tokens.peek();
-            if (next?.type === "symbol" && next.value === ")") {
+            if (next?.type === TokenType.SYMBOL && next.value === ")") {
                 break;
             }
-            if (next?.type === "symbol" && next.value === ",") {
+            if (next?.type === TokenType.SYMBOL && next.value === ",") {
                 const comma = this.tokens.read();
                 const errorToken = this.tokenAt(comma);
                 this.errors.push({
@@ -3487,13 +3488,13 @@ export class Parser {
                 continue;
             }
 
-            if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
+            if (!(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ")")) {
                 const namedArgument = this.tryParseNamedArgument();
                 args.push(namedArgument ?? (this.looksLikeCallLambdaArgument() ? this.parseCallLambdaArgument() : this.parseAssignment()));
                 const separator = this.tokens.peek();
-                if (separator?.type === "symbol" && separator.value === ",") {
+                if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                     this.tokens.skip();
-                    if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+                    if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ")") {
                         break;
                     }
                     continue;
@@ -3503,7 +3504,7 @@ export class Parser {
         }
 
         const close = this.tokens.read();
-        if (close?.type !== "symbol" || close.value !== ")") {
+        if (close?.type !== TokenType.SYMBOL || close.value !== ")") {
             this.fail("Expected ')' after call arguments", this.tokenAt(close));
         }
         return { args, close };
@@ -3512,7 +3513,7 @@ export class Parser {
     private parseUnary(): Expr {
         if (this.jsx) {
             const token = this.tokens.peek();
-            if (token?.type === "symbol" && token.value === "<") {
+            if (token?.type === TokenType.SYMBOL && token.value === "<") {
                 return this.parseJsxElementOrFragment();
             }
         } else {
@@ -3523,7 +3524,7 @@ export class Parser {
         }
 
         const token = this.tokens.peek();
-        if (token?.type === "identifier" && token.value === "new") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "new") {
             const newKeyword = this.tokens.read();
             const constructorTarget = this.parseNewTarget(newKeyword);
 
@@ -3543,41 +3544,41 @@ export class Parser {
             );
             return this.parsePostfixFrom(newExpression);
         }
-        if (token?.type === "symbol" && (token.value === "++" || token.value === "--")) {
+        if (token?.type === TokenType.SYMBOL && (token.value === "++" || token.value === "--")) {
             this.tokens.skip();
             const argument = this.parseUnary();
             return this.attachNodeBounds(new UpdateExpression(token.value, argument, true), token, argument.lastToken ?? this.getLastReadToken());
         }
-        if (token?.type === "symbol" && (token.value === "+" || token.value === "-")) {
+        if (token?.type === TokenType.SYMBOL && (token.value === "+" || token.value === "-")) {
             this.tokens.skip();
             const argument = this.parseUnary();
             return this.attachNodeBounds(new UnaryExpression(token.value, argument), token, argument.lastToken ?? this.getLastReadToken());
         }
-        if (token?.type === "symbol" && (token.value === "!" || token.value === "~")) {
+        if (token?.type === TokenType.SYMBOL && (token.value === "!" || token.value === "~")) {
             this.tokens.skip();
             const argument = this.parseUnary();
             return this.attachNodeBounds(new UnaryExpression(token.value, argument), token, argument.lastToken ?? this.getLastReadToken());
         }
         if (
-            token?.type === "identifier" &&
+            token?.type === TokenType.IDENTIFIER &&
             (token.value === "typeof" || token.value === "void" || token.value === "delete" || token.value === "await" || token.value === "yield")
         ) {
             this.tokens.skip();
             let operator: UnaryExpression["operator"] = token.value;
-            if (token.value === "yield" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "*") {
+            if (token.value === "yield" && this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "*") {
                 this.tokens.skip();
                 operator = "yield*";
             }
             const argument = this.parseUnary();
             return this.attachNodeBounds(new UnaryExpression(operator, argument), token, argument.lastToken ?? this.getLastReadToken());
         }
-        if (token?.type === "identifier" && token.value === "go") {
+        if (token?.type === TokenType.IDENTIFIER && token.value === "go") {
             const next = this.peekToken(1);
             // `go` is a contextual keyword: it only acts as the no-await operator when an operand
             // follows on the same line (a restricted production, like `yield`). Otherwise it is a
             // plain identifier, so existing code using `go` as a variable keeps working.
             const startsExpression =
-                next?.type === "identifier" &&
+                next?.type === TokenType.IDENTIFIER &&
                 next.value !== "in" &&
                 next.value !== "instanceof" &&
                 next.value !== "is" &&
@@ -3596,7 +3597,7 @@ export class Parser {
     private tryParseAngleBracketTypeAssertion(): AsExpression | null {
         const checkpoint = this.beginTokenCheckpoint();
         const open = this.tokens.peek();
-        if (!(open?.type === "symbol" && open.value === "<")) {
+        if (!(open?.type === TokenType.SYMBOL && open.value === "<")) {
             this.commitTokenCheckpoint(checkpoint);
             return null;
         }
@@ -3626,7 +3627,7 @@ export class Parser {
         const open = this.tokens.read(); // '<'
 
         const next = this.tokens.peek();
-        if (next?.type === "symbol" && next.value === ">") {
+        if (next?.type === TokenType.SYMBOL && next.value === ">") {
             this.tokens.skip(); // '>'
             const children = this.parseJsxChildren();
             this.consumeJsxClosingTag(null);
@@ -3644,9 +3645,9 @@ export class Parser {
         const attributes = this.parseJsxAttributes();
 
         const afterAttributes = this.tokens.read();
-        if (afterAttributes?.type === "symbol" && afterAttributes.value === "/") {
+        if (afterAttributes?.type === TokenType.SYMBOL && afterAttributes.value === "/") {
             const gt = this.tokens.read();
-            if (!(gt?.type === "symbol" && gt.value === ">")) {
+            if (!(gt?.type === TokenType.SYMBOL && gt.value === ">")) {
                 this.fail("Expected '>' to close self-closing JSX element", this.tokenAt(gt));
             }
             return this.attachNodeBounds(
@@ -3655,7 +3656,7 @@ export class Parser {
                 gt
             );
         }
-        if (!(afterAttributes?.type === "symbol" && afterAttributes.value === ">")) {
+        if (!(afterAttributes?.type === TokenType.SYMBOL && afterAttributes.value === ">")) {
             this.fail("Expected '>' in JSX opening tag", this.tokenAt(afterAttributes));
         }
 
@@ -3671,11 +3672,11 @@ export class Parser {
 
     private consumeJsxClosingTag(expectedTagName: string | null): void {
         const closeLt = this.tokens.read();
-        if (!(closeLt?.type === "symbol" && closeLt.value === "<")) {
+        if (!(closeLt?.type === TokenType.SYMBOL && closeLt.value === "<")) {
             this.fail("Expected JSX closing tag", this.tokenAt(closeLt));
         }
         const slash = this.tokens.read();
-        if (!(slash?.type === "symbol" && slash.value === "/")) {
+        if (!(slash?.type === TokenType.SYMBOL && slash.value === "/")) {
             this.fail("Expected '/' in JSX closing tag", this.tokenAt(slash));
         }
         if (expectedTagName !== null) {
@@ -3686,23 +3687,23 @@ export class Parser {
             }
         }
         const gt = this.tokens.read();
-        if (!(gt?.type === "symbol" && gt.value === ">")) {
+        if (!(gt?.type === TokenType.SYMBOL && gt.value === ">")) {
             this.fail("Expected '>' to close JSX closing tag", this.tokenAt(gt));
         }
     }
 
     private parseJsxName(): { text: string; reference?: Expr } {
         const first = this.tokens.read();
-        if (first?.type !== "identifier") {
+        if (first?.type !== TokenType.IDENTIFIER) {
             this.fail("Expected JSX tag name", this.tokenAt(first));
         }
         const segments = [first.value];
         let text = first.value;
         let reference: Expr = this.buildIdentifierFromToken(first);
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+        while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ".") {
             this.tokens.skip();
             const part = this.tokens.read();
-            if (part?.type !== "identifier") {
+            if (part?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected identifier after '.' in JSX tag name", this.tokenAt(part));
             }
             segments.push(part.value);
@@ -3722,18 +3723,18 @@ export class Parser {
         const attributes: JsxAttributeLike[] = [];
         while (true) {
             const token = this.tokens.peek();
-            if (token?.type === "symbol" && (token.value === ">" || token.value === "/")) {
+            if (token?.type === TokenType.SYMBOL && (token.value === ">" || token.value === "/")) {
                 break;
             }
-            if (token?.type === "symbol" && token.value === "{") {
+            if (token?.type === TokenType.SYMBOL && token.value === "{") {
                 const openBrace = this.tokens.read();
                 const dots = this.tokens.read();
-                if (!(dots?.type === "symbol" && dots.value === "...")) {
+                if (!(dots?.type === TokenType.SYMBOL && dots.value === "...")) {
                     this.fail("Expected '...' in JSX spread attribute", this.tokenAt(dots));
                 }
                 const expression = this.parseAssignment();
                 const closeBrace = this.tokens.read();
-                if (!(closeBrace?.type === "symbol" && closeBrace.value === "}")) {
+                if (!(closeBrace?.type === TokenType.SYMBOL && closeBrace.value === "}")) {
                     this.fail("Expected '}' to close JSX spread attribute", this.tokenAt(closeBrace));
                 }
                 attributes.push(this.attachNodeBounds(
@@ -3744,15 +3745,15 @@ export class Parser {
                 continue;
             }
             const nameToken = this.tokens.read();
-            if (nameToken?.type !== "identifier") {
+            if (nameToken?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected JSX attribute name", this.tokenAt(nameToken));
             }
             let value: JsxAttribute["value"];
             let lastToken: Token = nameToken;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=") {
                 this.tokens.skip();
                 const valueToken = this.tokens.peek();
-                if (valueToken?.type === "string") {
+                if (valueToken?.type === TokenType.STRING) {
                     this.tokens.skip();
                     value = this.attachNodeBounds(
                         new StringLiteral(valueToken.value),
@@ -3760,7 +3761,7 @@ export class Parser {
                         valueToken
                     );
                     lastToken = valueToken;
-                } else if (valueToken?.type === "symbol" && valueToken.value === "{") {
+                } else if (valueToken?.type === TokenType.SYMBOL && valueToken.value === "{") {
                     const container = this.parseJsxExpressionContainer();
                     value = container;
                     lastToken = container.lastToken ?? valueToken;
@@ -3783,7 +3784,7 @@ export class Parser {
         try {
             const expression = this.parseAssignment();
             const close = this.tokens.read();
-            if (!(close?.type === "symbol" && close.value === "}")) {
+            if (!(close?.type === TokenType.SYMBOL && close.value === "}")) {
                 this.fail("Expected '}' to close JSX expression", this.tokenAt(close));
             }
             this.commitTokenCheckpoint(checkpoint);
@@ -3794,10 +3795,10 @@ export class Parser {
             );
         } catch (error) {
             this.restoreTokenCheckpoint(checkpoint);
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "{") {
                 const expression = this.parseBraceLambdaExpression(null);
                 const close = this.tokens.read();
-                if (!(close?.type === "symbol" && close.value === "}")) {
+                if (!(close?.type === TokenType.SYMBOL && close.value === "}")) {
                     this.fail("Expected '}' to close JSX expression", this.tokenAt(close));
                 }
                 return this.attachNodeBounds(
@@ -3814,10 +3815,10 @@ export class Parser {
         const children: JsxChild[] = [];
         while (true) {
             const token = this.tokens.peek();
-            if (!token || token.type === "eof") {
+            if (!token || token.type === TokenType.END_OF_FILE) {
                 this.fail("Unterminated JSX element", this.tokenAt(token));
             }
-            if (token.type === "jsxText") {
+            if (token.type === TokenType.JSX_TEXT) {
                 this.tokens.skip();
                 const normalized = normalizeJsxText(token.value);
                 if (normalized.length > 0) {
@@ -3829,9 +3830,9 @@ export class Parser {
                 }
                 continue;
             }
-            if (token.type === "symbol" && token.value === "{") {
+            if (token.type === TokenType.SYMBOL && token.value === "{") {
                 const after = this.peekToken(1);
-                if (after?.type === "symbol" && after.value === "}") {
+                if (after?.type === TokenType.SYMBOL && after.value === "}") {
                     // Empty/comment-only expression container: `{}` or `{/* ... */}`.
                     this.tokens.skip();
                     this.tokens.skip();
@@ -3840,9 +3841,9 @@ export class Parser {
                 children.push(this.parseJsxExpressionContainer());
                 continue;
             }
-            if (token.type === "symbol" && token.value === "<") {
+            if (token.type === TokenType.SYMBOL && token.value === "<") {
                 const after = this.peekToken(1);
-                if (after?.type === "symbol" && after.value === "/") {
+                if (after?.type === TokenType.SYMBOL && after.value === "/") {
                     break;
                 }
                 children.push(this.parseJsxElementOrFragment() as JsxChild);
@@ -3865,7 +3866,7 @@ export class Parser {
     private tryParseReceiverTypeArguments(): Identifier[] | null {
         const checkpoint = this.beginTokenCheckpoint();
         const open = this.tokens.peek();
-        if (!(open?.type === "symbol" && open.value === "<")) {
+        if (!(open?.type === TokenType.SYMBOL && open.value === "<")) {
             this.commitTokenCheckpoint(checkpoint);
             return null;
         }
@@ -3876,7 +3877,7 @@ export class Parser {
             while (this.tokens.hasMore) {
                 typeArguments.push(this.parseTypeAnnotationNode());
                 const separator = this.tokens.peek();
-                if (separator?.type === "symbol" && separator.value === ",") {
+                if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                     this.tokens.skip();
                     continue;
                 }
@@ -3895,7 +3896,7 @@ export class Parser {
         }
 
         const next = this.tokens.peek();
-        if (!(next?.type === "symbol" && next.value === ".")) {
+        if (!(next?.type === TokenType.SYMBOL && next.value === ".")) {
             this.restoreTokenCheckpoint(checkpoint);
             return null;
         }
@@ -3907,7 +3908,7 @@ export class Parser {
     private tryParseInvocationTypeArguments(): Identifier[] | null {
         const checkpoint = this.beginTokenCheckpoint();
         const open = this.tokens.peek();
-        if (!(open?.type === "symbol" && open.value === "<")) {
+        if (!(open?.type === TokenType.SYMBOL && open.value === "<")) {
             this.commitTokenCheckpoint(checkpoint);
             return null;
         }
@@ -3920,7 +3921,7 @@ export class Parser {
                 typeArguments.push(this.parseTypeAnnotationNode());
 
                 const separator = this.tokens.peek();
-                if (separator?.type === "symbol" && separator.value === ",") {
+                if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                     this.tokens.skip();
                     continue;
                 }
@@ -3939,7 +3940,7 @@ export class Parser {
         }
 
         const next = this.tokens.peek();
-        if (!(next?.type === "symbol" && next.value === "(")) {
+        if (!(next?.type === TokenType.SYMBOL && next.value === "(")) {
             this.restoreTokenCheckpoint(checkpoint);
             return null;
         }
@@ -3951,7 +3952,7 @@ export class Parser {
     private parseAsExpression(): Expr {
         let expression = this.parseBinaryExpression();
         while (
-            this.tokens.peek()?.type === "identifier"
+            this.tokens.peek()?.type === TokenType.IDENTIFIER
             && (this.tokens.peek()?.value === "as" || this.tokens.peek()?.value === "satisfies")
         ) {
             const operator = this.tokens.peek()?.value;
@@ -3967,14 +3968,14 @@ export class Parser {
     private parseConditional(): Expr {
         const test = this.parseAsExpression();
         const maybeQuestion = this.tokens.peek();
-        if (!(maybeQuestion?.type === "symbol" && maybeQuestion.value === "?")) {
+        if (!(maybeQuestion?.type === TokenType.SYMBOL && maybeQuestion.value === "?")) {
             return test;
         }
 
         this.tokens.skip();
         const consequent = this.parseAssignment();
         const colon = this.tokens.read();
-        if (colon?.type !== "symbol" || colon.value !== ":") {
+        if (colon?.type !== TokenType.SYMBOL || colon.value !== ":") {
             this.fail("Expected ':' in conditional expression", this.tokenAt(colon));
         }
         const alternate = this.parseAssignment();
@@ -3986,7 +3987,7 @@ export class Parser {
         const first = this.parseAssignment();
         const expressions: Expr[] = [first];
 
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",") {
+        while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ",") {
             this.tokens.skip();
             expressions.push(this.parseAssignment());
         }
@@ -4007,11 +4008,11 @@ export class Parser {
         const left = this.parseConditional();
         const token = this.tokens.peek();
 
-        if (allowChain && token?.type === "symbol" && token.value === "..") {
+        if (allowChain && token?.type === TokenType.SYMBOL && token.value === "..") {
             return this.parseChainExpression(left);
         }
 
-        if (token?.type === "symbol" && ASSIGNMENT_OPERATORS.includes(token.value as AssignmentOperator)) {
+        if (token?.type === TokenType.SYMBOL && ASSIGNMENT_OPERATORS.includes(token.value as AssignmentOperator)) {
             this.tokens.skip();
             const right = this.parseAssignment();
             return this.attachNodeBounds(new AssignmentExpression(token.value as AssignmentOperator, left, right), left.firstToken, right.lastToken ?? this.getLastReadToken());
@@ -4022,17 +4023,17 @@ export class Parser {
 
     private parseChainExpression(receiver: Expr): ChainExpression {
         const operations: Expr[] = [];
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "..") {
+        while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "..") {
             const chainToken = this.tokens.read()!;
             const property = this.tryParsePrivateIdentifierToken() ?? this.tokens.read();
-            if (property?.type !== "identifier") {
+            if (property?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected identifier after '..'", this.tokenAt(property ?? chainToken));
             }
             const member = this.attachNodeBounds(new MemberExpression(receiver, this.buildIdentifierFromToken(property), false), chainToken, property);
             let operation = this.parsePostfixFrom(member);
             const assignmentToken = this.tokens.peek();
             if (
-                assignmentToken?.type === "symbol" &&
+                assignmentToken?.type === TokenType.SYMBOL &&
                 ASSIGNMENT_OPERATORS.includes(assignmentToken.value as AssignmentOperator)
             ) {
                 this.tokens.skip();
@@ -4064,14 +4065,14 @@ export class Parser {
         };
 
         const receiverToken = this.tokens.peek();
-        if (receiverToken?.type !== "identifier") {
+        if (receiverToken?.type !== TokenType.IDENTIFIER) {
             this.commitTokenCheckpoint(checkpoint);
             return null;
         }
         this.tokens.skip();
 
         let receiverTypeArguments: Identifier[] | undefined;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "<") {
             const parsed = this.tryParseReceiverTypeArguments();
             if (!parsed) {
                 return restore();
@@ -4080,18 +4081,18 @@ export class Parser {
         }
 
         const dot = this.tokens.peek();
-        if (!(dot?.type === "symbol" && dot.value === ".")) {
+        if (!(dot?.type === TokenType.SYMBOL && dot.value === ".")) {
             return restore();
         }
         this.tokens.skip();
 
         const nameToken = this.tokens.read();
-        if (nameToken?.type !== "identifier") {
+        if (nameToken?.type !== TokenType.IDENTIFIER) {
             return restore();
         }
 
         let typeAnnotation: Identifier | undefined;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             try {
                 typeAnnotation = this.parseTypeAnnotationNode();
@@ -4117,31 +4118,31 @@ export class Parser {
         typeAnnotation: Identifier | undefined
     ): ClassMethodMember[] {
         const openBrace = this.tokens.read();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+        if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
             this.fail("Expected '{' to start extension property accessor block", this.tokenAt(openBrace));
         }
 
         const accessors: ClassMethodMember[] = [];
         while (this.tokens.hasMore) {
             const peekToken = this.tokens.peek();
-            if (peekToken?.type === "symbol" && peekToken.value === "}") {
+            if (peekToken?.type === TokenType.SYMBOL && peekToken.value === "}") {
                 break;
             }
-            if (peekToken?.type === "symbol" && peekToken.value === ";") {
+            if (peekToken?.type === TokenType.SYMBOL && peekToken.value === ";") {
                 this.tokens.skip();
                 continue;
             }
 
             const accessorKeyword = this.tokens.read();
             if (
-                accessorKeyword?.type !== "identifier" ||
+                accessorKeyword?.type !== TokenType.IDENTIFIER ||
                 (accessorKeyword.value !== "get" && accessorKeyword.value !== "set")
             ) {
                 this.fail("Expected 'get' or 'set' inside extension property accessor block", this.tokenAt(accessorKeyword));
             }
 
             if (accessorKeyword.value === "get") {
-                const getterBody = this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>"
+                const getterBody = this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=>"
                     ? this.parseExpressionBodyAsBlock()
                     : this.parseBlockStatement();
                 const getter: ClassMethodMember = new ClassMethodMember(getterBody, propertyName, [], undefined, "get");
@@ -4152,19 +4153,19 @@ export class Parser {
                 accessors.push(this.attachNodeBounds(getter, accessorKeyword, this.getLastReadToken() ?? accessorKeyword));
             } else {
                 let setterParameter: FunctionParameter;
-                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "(") {
                     this.tokens.skip();
                     const parameterToken = this.tokens.read();
-                    if (parameterToken?.type !== "identifier") {
+                    if (parameterToken?.type !== TokenType.IDENTIFIER) {
                         this.fail("Expected setter parameter name", this.tokenAt(parameterToken));
                     }
                     let parameterType: Identifier | undefined = typeAnnotation;
-                    if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                    if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
                         this.tokens.skip();
                         parameterType = this.parseTypeAnnotationNode();
                     }
                     const closeParen = this.tokens.read();
-                    if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                    if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                         this.fail("Expected ')' after setter parameter", this.tokenAt(closeParen));
                     }
                     const parameterName = this.buildIdentifierFromToken(parameterToken);
@@ -4202,7 +4203,7 @@ export class Parser {
         }
 
         const closeBrace = this.tokens.read();
-        if (closeBrace?.type !== "symbol" || closeBrace.value !== "}") {
+        if (closeBrace?.type !== TokenType.SYMBOL || closeBrace.value !== "}") {
             this.fail("Expected '}' to close extension property accessor block", this.tokenAt(this.tokens.peek()));
         }
 
@@ -4216,7 +4217,7 @@ export class Parser {
     private parseVarStatement(): VarStatement {
         const declarationKeyword = this.tokens.read();
         if (
-            declarationKeyword?.type !== "identifier" ||
+            declarationKeyword?.type !== TokenType.IDENTIFIER ||
             !VARIABLE_DECLARATION_KEYWORDS.includes(declarationKeyword.value as VariableDeclarationKind)
         ) {
             this.fail("Expected variable declaration statement", this.tokenAt(declarationKeyword));
@@ -4242,7 +4243,7 @@ export class Parser {
             }
 
             const nextToken = this.tokens.peek();
-            if (nextToken?.type === "symbol" && nextToken.value === "=>") {
+            if (nextToken?.type === TokenType.SYMBOL && nextToken.value === "=>") {
                 const initializer: ReturnStatement | undefined = this.parseExpressionBodyAsBlock().body[0] as ReturnStatement | undefined;
                 if (initializer?.kind !== NodeKind.ReturnStatement || !initializer.expression) {
                     this.fail("Expected expression body after '=>'", this.tokenAt(nextToken));
@@ -4254,7 +4255,7 @@ export class Parser {
                     statement.initializer?.lastToken ?? this.getLastReadToken() ?? declarationKeyword
                 );
             }
-            if (nextToken?.type === "symbol" && nextToken.value === "{") {
+            if (nextToken?.type === TokenType.SYMBOL && nextToken.value === "{") {
                 statement.accessors = this.parseExtensionPropertyAccessorBlock(extensionHead.name, extensionHead.typeAnnotation);
                 return this.attachNodeBounds(
                     statement,
@@ -4274,7 +4275,7 @@ export class Parser {
             declarations.push(this.parseVarDeclarator());
 
             const separator = this.tokens.peek();
-            if (!(separator?.type === "symbol" && separator.value === ",")) {
+            if (!(separator?.type === TokenType.SYMBOL && separator.value === ",")) {
                 break;
             }
             this.tokens.skip();
@@ -4308,7 +4309,7 @@ export class Parser {
 
         let typeAnnotation: Identifier | undefined;
         const maybeColon = this.tokens.peek();
-        if (maybeColon?.type === "symbol" && maybeColon.value === ":") {
+        if (maybeColon?.type === TokenType.SYMBOL && maybeColon.value === ":") {
             this.tokens.skip();
             typeAnnotation = this.parseTypeAnnotationNode();
         }
@@ -4316,10 +4317,10 @@ export class Parser {
         let initializer: Expr | undefined;
         let delegate: Expr | undefined;
         const maybeEqualsOrBy = this.tokens.peek();
-        if (maybeEqualsOrBy?.type === "symbol" && maybeEqualsOrBy.value === "=") {
+        if (maybeEqualsOrBy?.type === TokenType.SYMBOL && maybeEqualsOrBy.value === "=") {
             this.tokens.skip();
             initializer = this.parseAssignment();
-        } else if (maybeEqualsOrBy?.type === "identifier" && maybeEqualsOrBy.value === "by") {
+        } else if (maybeEqualsOrBy?.type === TokenType.IDENTIFIER && maybeEqualsOrBy.value === "by") {
             this.tokens.skip();
             delegate = this.parseAssignment();
         }
@@ -4340,14 +4341,14 @@ export class Parser {
 
     private parseBindingName(): BindingName {
         const token = this.tokens.peek();
-        if (token?.type === "identifier") {
+        if (token?.type === TokenType.IDENTIFIER) {
             this.tokens.skip();
             return this.buildIdentifierFromToken(token);
         }
-        if (token?.type === "symbol" && token.value === "{") {
+        if (token?.type === TokenType.SYMBOL && token.value === "{") {
             return this.parseObjectBindingPattern();
         }
-        if (token?.type === "symbol" && token.value === "[") {
+        if (token?.type === TokenType.SYMBOL && token.value === "[") {
             return this.parseArrayBindingPattern();
         }
         this.fail("Expected identifier in variable declaration", this.tokenAt(token));
@@ -4357,7 +4358,7 @@ export class Parser {
         const firstToken = this.tokens.peek();
         let rest = false;
         let shorthand = false;
-        if (firstToken?.type === "symbol" && firstToken.value === "...") {
+        if (firstToken?.type === TokenType.SYMBOL && firstToken.value === "...") {
             this.tokens.skip();
             rest = true;
         }
@@ -4367,11 +4368,11 @@ export class Parser {
         if (
             allowPropertyName
             && this.language === "typescript"
-            && propertyLiteralToken?.type === "string"
+            && propertyLiteralToken?.type === TokenType.STRING
         ) {
             this.tokens.skip();
             const separatorToken = this.tokens.peek();
-            if (!(separatorToken?.type === "symbol" && separatorToken.value === ":")) {
+            if (!(separatorToken?.type === TokenType.SYMBOL && separatorToken.value === ":")) {
                 this.fail("Expected ':' after string literal property name in binding pattern", this.tokenAt(separatorToken));
             }
             this.tokens.skip();
@@ -4385,11 +4386,11 @@ export class Parser {
             const firstName = this.parseBindingName();
             name = firstName;
             const nextToken = this.tokens.peek();
-            if (allowPropertyName && firstName.kind === NodeKind.Identifier && nextToken?.type === "symbol" && nextToken.value === "::") {
+            if (allowPropertyName && firstName.kind === NodeKind.Identifier && nextToken?.type === TokenType.SYMBOL && nextToken.value === "::") {
                 this.tokens.skip();
                 propertyName = firstName;
                 name = this.parseBindingName();
-            } else if (allowPropertyName && firstName.kind === NodeKind.Identifier && nextToken?.type === "symbol" && nextToken.value === ":" && this.language === "typescript") {
+            } else if (allowPropertyName && firstName.kind === NodeKind.Identifier && nextToken?.type === TokenType.SYMBOL && nextToken.value === ":" && this.language === "typescript") {
                 this.tokens.skip();
                 propertyName = firstName;
                 name = this.parseBindingName();
@@ -4398,12 +4399,12 @@ export class Parser {
             }
         }
         let typeAnnotation: Identifier | undefined;
-        if (!rest && this.language === "vexa" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+        if (!rest && this.language === "vexa" && this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             typeAnnotation = this.parseTypeAnnotationNode();
         }
         let initializer: Expr | undefined;
-        if (!rest && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+        if (!rest && this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=") {
             this.tokens.skip();
             initializer = this.parseAssignment();
         }
@@ -4419,31 +4420,31 @@ export class Parser {
     private parseObjectBindingPattern(): ObjectBindingPattern {
         const open = this.tokens.read();
         const elements: BindingElement[] = [];
-        while (this.tokens.hasMore && !(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}")) {
+        while (this.tokens.hasMore && !(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "}")) {
             elements.push(this.parseBindingElement(true));
-            if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",")) break;
+            if (!(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ",")) break;
             this.tokens.skip();
         }
         const close = this.tokens.read();
-        if (!(close?.type === "symbol" && close.value === "}")) this.fail("Expected '}' after object binding pattern", this.tokenAt(close));
+        if (!(close?.type === TokenType.SYMBOL && close.value === "}")) this.fail("Expected '}' after object binding pattern", this.tokenAt(close));
         return this.attachNodeBounds(new ObjectBindingPattern(elements), open, close);
     }
 
     private parseArrayBindingPattern(): ArrayBindingPattern {
         const open = this.tokens.read();
         const elements: (BindingElement | BindingHole)[] = [];
-        while (this.tokens.hasMore && !(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]")) {
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",") {
+        while (this.tokens.hasMore && !(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "]")) {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ",") {
                 const comma = this.tokens.read();
                 elements.push(this.attachNodeBounds(new BindingHole(), comma, comma));
                 continue;
             }
             elements.push(this.parseBindingElement(false));
-            if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",")) break;
+            if (!(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ",")) break;
             this.tokens.skip();
         }
         const close = this.tokens.read();
-        if (!(close?.type === "symbol" && close.value === "]")) this.fail("Expected ']' after array binding pattern", this.tokenAt(close));
+        if (!(close?.type === TokenType.SYMBOL && close.value === "]")) this.fail("Expected ']' after array binding pattern", this.tokenAt(close));
         return this.attachNodeBounds(new ArrayBindingPattern(elements), open, close);
     }
 
@@ -4451,59 +4452,59 @@ export class Parser {
     private hasNamedDefaultFunctionDeclaration(): boolean {
         let offset = 0;
         const first = this.peekToken(offset);
-        if (first?.type === "identifier" && (first.value === "async" || first.value === "sync")) {
+        if (first?.type === TokenType.IDENTIFIER && (first.value === "async" || first.value === "sync")) {
             offset += 1;
         }
         const functionKeyword = this.peekToken(offset);
-        if (!(functionKeyword?.type === "identifier" && functionKeyword.value === "function")) {
+        if (!(functionKeyword?.type === TokenType.IDENTIFIER && functionKeyword.value === "function")) {
             return false;
         }
         offset += 1;
-        if (this.peekToken(offset)?.type === "symbol" && this.peekToken(offset)?.value === "*") {
+        if (this.peekToken(offset)?.type === TokenType.SYMBOL && this.peekToken(offset)?.value === "*") {
             offset += 1;
         }
-        return this.peekToken(offset)?.type === "identifier";
+        return this.peekToken(offset)?.type === TokenType.IDENTIFIER;
     }
 
     private hasNamedDefaultClassDeclaration(): boolean {
         let offset = 0;
         const first = this.peekToken(offset);
-        if (first?.type === "identifier" && first.value === "abstract") {
+        if (first?.type === TokenType.IDENTIFIER && first.value === "abstract") {
             offset += 1;
         }
         const classKeyword = this.peekToken(offset);
-        if (!(classKeyword?.type === "identifier" && classKeyword.value === "class")) {
+        if (!(classKeyword?.type === TokenType.IDENTIFIER && classKeyword.value === "class")) {
             return false;
         }
         const nameToken = this.peekToken(offset + 1);
-        return nameToken?.type === "identifier"
+        return nameToken?.type === TokenType.IDENTIFIER
             && nameToken.value !== "extends"
             && nameToken.value !== "implements";
     }
 
     private parseExportStatement(): ExportStatement {
         const exportKeyword = this.tokens.read();
-        if (exportKeyword?.type !== "identifier" || exportKeyword.value !== "export") {
+        if (exportKeyword?.type !== TokenType.IDENTIFIER || exportKeyword.value !== "export") {
             this.fail("Expected 'export' statement", this.tokenAt(exportKeyword));
         }
 
         let typeOnly = false;
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "type") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "type") {
             const afterType = this.tokens.items[this.tokens.offset + 1];
-            if (afterType?.type === "symbol" && (afterType.value === "{" || afterType.value === "*")) {
+            if (afterType?.type === TokenType.SYMBOL && (afterType.value === "{" || afterType.value === "*")) {
                 this.tokens.skip();
                 typeOnly = true;
             }
         }
 
-        if (!typeOnly && this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+        if (!typeOnly && this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "as") {
             const asKeyword = this.tokens.read();
             const namespaceKeyword = this.tokens.read();
-            if (namespaceKeyword?.type !== "identifier" || namespaceKeyword.value !== "namespace") {
+            if (namespaceKeyword?.type !== TokenType.IDENTIFIER || namespaceKeyword.value !== "namespace") {
                 this.fail("Expected 'namespace' after 'export as'", this.tokenAt(namespaceKeyword));
             }
             const nameToken = this.tokens.read();
-            if (nameToken?.type !== "identifier") {
+            if (nameToken?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected namespace name after 'export as namespace'", this.tokenAt(nameToken));
             }
             const namespaceExport = this.buildIdentifierFromToken(nameToken);
@@ -4514,18 +4515,18 @@ export class Parser {
             );
         }
 
-        if (!typeOnly && this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "default") {
+        if (!typeOnly && this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "default") {
             this.tokens.skip();
             const next = this.tokens.peek();
             let declaration: Statement | undefined;
             if (
-                next?.type === "identifier" &&
+                next?.type === TokenType.IDENTIFIER &&
                 (this.isFunctionDeclarationKeyword(next.value) || this.isAsyncFunctionDeclarationStart() || this.isSyncFunctionDeclarationStart()) &&
                 this.hasNamedDefaultFunctionDeclaration()
             ) {
                 declaration = this.parseFunctionStatement();
             } else if (
-                next?.type === "identifier" &&
+                next?.type === TokenType.IDENTIFIER &&
                 (next.value === "class" || this.isAbstractClassStart()) &&
                 this.hasNamedDefaultClassDeclaration()
             ) {
@@ -4538,23 +4539,23 @@ export class Parser {
         }
 
         const next = this.tokens.peek();
-        if (next?.type === "symbol" && next.value === "*") {
+        if (next?.type === TokenType.SYMBOL && next.value === "*") {
             this.tokens.skip();
             let namespaceExport: Identifier | undefined;
-            if (!typeOnly && this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+            if (!typeOnly && this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "as") {
                 this.tokens.skip();
                 const nameToken = this.tokens.read();
-                if (nameToken?.type !== "identifier") {
+                if (nameToken?.type !== TokenType.IDENTIFIER) {
                     this.fail("Expected namespace export name after 'export * as'", this.tokenAt(nameToken));
                 }
                 namespaceExport = this.buildIdentifierFromToken(nameToken);
             }
             const fromKeyword = this.tokens.read();
-            if (fromKeyword?.type !== "identifier" || fromKeyword.value !== "from") {
+            if (fromKeyword?.type !== TokenType.IDENTIFIER || fromKeyword.value !== "from") {
                 this.fail("Expected 'from' after export '*'", this.tokenAt(fromKeyword));
             }
             const sourceToken = this.tokens.read();
-            if (sourceToken?.type !== "string") {
+            if (sourceToken?.type !== TokenType.STRING) {
                 this.fail("Expected string literal module path in export statement", this.tokenAt(sourceToken));
             }
             const from = this.attachNodeBounds(new StringLiteral(sourceToken.value), sourceToken, sourceToken);
@@ -4568,13 +4569,13 @@ export class Parser {
             return this.attachNodeBounds(statement, exportKeyword, sourceToken);
         }
 
-        if (next?.type === "symbol" && next.value === "{") {
+        if (next?.type === TokenType.SYMBOL && next.value === "{") {
             const specifiers = this.parseExportSpecifierList();
             let from: StringLiteral | undefined;
-            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "from") {
+            if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "from") {
                 this.tokens.skip();
                 const sourceToken = this.tokens.read();
-                if (sourceToken?.type !== "string") {
+                if (sourceToken?.type !== TokenType.STRING) {
                     this.fail("Expected string literal module path in export statement", this.tokenAt(sourceToken));
                 }
                 from = this.attachNodeBounds(new StringLiteral(sourceToken.value), sourceToken, sourceToken);
@@ -4590,32 +4591,32 @@ export class Parser {
         }
 
         let declaration: Statement;
-        if (!typeOnly && next?.type === "identifier" && next.value === "declare") {
+        if (!typeOnly && next?.type === TokenType.IDENTIFIER && next.value === "declare") {
             declaration = this.parseStatementOrThrow();
             if (!("declared" in declaration) || declaration.declared !== true) {
                 this.fail("Expected ambient declaration after 'export declare'", this.tokenAt(next));
             }
         } else if (typeOnly) {
-            if (next?.type === "identifier" && next.value === "type") {
+            if (next?.type === TokenType.IDENTIFIER && next.value === "type") {
                 declaration = this.parseTypeAliasStatement();
-            } else if (next?.type === "identifier" && next.value === "interface") {
+            } else if (next?.type === TokenType.IDENTIFIER && next.value === "interface") {
                 declaration = this.parseInterfaceStatement();
             } else {
                 this.fail("Expected type alias, interface, or named type export after 'export type'", this.tokenAt(next));
             }
-        } else if (next?.type === "identifier" && (next.value === "enum" || this.isConstEnumStart())) {
+        } else if (next?.type === TokenType.IDENTIFIER && (next.value === "enum" || this.isConstEnumStart())) {
             declaration = this.parseEnumStatement();
-        } else if (next?.type === "identifier" && this.isVariableDeclarationKeyword(next.value)) {
+        } else if (next?.type === TokenType.IDENTIFIER && this.isVariableDeclarationKeyword(next.value)) {
             declaration = this.parseVarStatement();
-        } else if (next?.type === "identifier" && (this.isFunctionDeclarationKeyword(next.value) || this.isAsyncFunctionDeclarationStart() || this.isSyncFunctionDeclarationStart())) {
+        } else if (next?.type === TokenType.IDENTIFIER && (this.isFunctionDeclarationKeyword(next.value) || this.isAsyncFunctionDeclarationStart() || this.isSyncFunctionDeclarationStart())) {
             declaration = this.parseFunctionStatement();
-        } else if (next?.type === "identifier" && next.value === "type") {
+        } else if (next?.type === TokenType.IDENTIFIER && next.value === "type") {
             declaration = this.parseTypeAliasStatement();
-        } else if (next?.type === "identifier" && (next.value === "class" || this.isAbstractClassStart())) {
+        } else if (next?.type === TokenType.IDENTIFIER && (next.value === "class" || this.isAbstractClassStart())) {
             declaration = this.parseClassStatement();
-        } else if (next?.type === "identifier" && next.value === "interface") {
+        } else if (next?.type === TokenType.IDENTIFIER && next.value === "interface") {
             declaration = this.parseInterfaceStatement();
-        } else if (next?.type === "identifier" && (next.value === "namespace" || next.value === "module")) {
+        } else if (next?.type === TokenType.IDENTIFIER && (next.value === "namespace" || next.value === "module")) {
             declaration = this.parseNamespaceStatement(false);
         } else {
             this.fail("Expected declaration or export list after 'export'", this.tokenAt(next));
@@ -4630,34 +4631,34 @@ export class Parser {
 
     private parseExportSpecifierList(): ExportSpecifier[] {
         const openBrace = this.tokens.read();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+        if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
             this.fail("Expected '{' after 'export'", this.tokenAt(openBrace));
         }
 
         const specifiers: ExportSpecifier[] = [];
         while (this.tokens.hasMore) {
             const maybeCloseBrace = this.tokens.peek();
-            if (maybeCloseBrace?.type === "symbol" && maybeCloseBrace.value === "}") {
+            if (maybeCloseBrace?.type === TokenType.SYMBOL && maybeCloseBrace.value === "}") {
                 this.tokens.skip();
                 break;
             }
 
             let typeOnly = false;
-            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "type") {
+            if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "type") {
                 this.tokens.skip();
                 typeOnly = true;
             }
 
             const localToken = this.tokens.read();
-            if (localToken?.type !== "identifier") {
+            if (localToken?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected exported symbol name", this.tokenAt(localToken));
             }
             const local = this.buildIdentifierFromToken(localToken);
             let exported = local;
-            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+            if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "as") {
                 this.tokens.skip();
                 const exportedToken = this.tokens.read();
-                if (exportedToken?.type !== "identifier") {
+                if (exportedToken?.type !== TokenType.IDENTIFIER) {
                     this.fail("Expected exported name after 'as'", this.tokenAt(exportedToken));
                 }
                 exported = this.buildIdentifierFromToken(exportedToken);
@@ -4672,11 +4673,11 @@ export class Parser {
             specifiers.push(this.attachNodeBounds(specifier, localToken, exported.lastToken ?? localToken));
 
             const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                 this.tokens.skip();
                 continue;
             }
-            if (separator?.type === "symbol" && separator.value === "}") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === "}") {
                 continue;
             }
             this.fail("Expected ',' or '}' in export specifier list", this.tokenAt(separator));
@@ -4686,18 +4687,18 @@ export class Parser {
 
     private parseImportStatement(): ImportStatement {
         const importKeyword = this.tokens.read();
-        if (importKeyword?.type !== "identifier" || importKeyword.value !== "import") {
+        if (importKeyword?.type !== TokenType.IDENTIFIER || importKeyword.value !== "import") {
             this.fail("Expected 'import' statement", this.tokenAt(importKeyword));
         }
 
         let typeOnly = false;
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "type") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "type") {
             this.tokens.skip();
             typeOnly = true;
         }
 
         const firstImportToken = this.tokens.peek();
-        if (firstImportToken?.type === "string") {
+        if (firstImportToken?.type === TokenType.STRING) {
             if (typeOnly) {
                 this.fail("Expected imported bindings after 'import type'", this.tokenAt(firstImportToken));
             }
@@ -4715,10 +4716,10 @@ export class Parser {
         let specifiers: ImportSpecifier[] = [];
 
         let hasMoreBindingsAfterDefault = false;
-        if (firstImportToken?.type === "identifier") {
+        if (firstImportToken?.type === TokenType.IDENTIFIER) {
             const defaultToken = this.tokens.read()!;
             defaultImport = this.buildIdentifierFromToken(defaultToken);
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ",") {
                 this.tokens.skip();
                 hasMoreBindingsAfterDefault = true;
             }
@@ -4727,16 +4728,16 @@ export class Parser {
         }
 
         const nextToken = this.tokens.peek();
-        if (hasMoreBindingsAfterDefault && nextToken?.type === "symbol" && nextToken.value === "{") {
+        if (hasMoreBindingsAfterDefault && nextToken?.type === TokenType.SYMBOL && nextToken.value === "{") {
             specifiers = this.parseImportSpecifierList();
-        } else if (hasMoreBindingsAfterDefault && nextToken?.type === "symbol" && nextToken.value === "*") {
+        } else if (hasMoreBindingsAfterDefault && nextToken?.type === TokenType.SYMBOL && nextToken.value === "*") {
             this.tokens.skip();
             const asToken = this.tokens.read();
-            if (asToken?.type !== "identifier" || asToken.value !== "as") {
+            if (asToken?.type !== TokenType.IDENTIFIER || asToken.value !== "as") {
                 this.fail("Expected 'as' after '*' in namespace import", this.tokenAt(asToken));
             }
             const namespaceToken = this.tokens.read();
-            if (namespaceToken?.type !== "identifier") {
+            if (namespaceToken?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected namespace import name", this.tokenAt(namespaceToken));
             }
             namespaceImport = this.buildIdentifierFromToken(namespaceToken);
@@ -4745,12 +4746,12 @@ export class Parser {
         }
 
         const fromKeyword = this.tokens.read();
-        if (fromKeyword?.type !== "identifier" || fromKeyword.value !== "from") {
+        if (fromKeyword?.type !== TokenType.IDENTIFIER || fromKeyword.value !== "from") {
             this.fail("Expected 'from' after import bindings", this.tokenAt(fromKeyword));
         }
 
         const sourceToken = this.tokens.read();
-        if (sourceToken?.type !== "string") {
+        if (sourceToken?.type !== TokenType.STRING) {
             this.fail("Expected string literal module path in import statement", this.tokenAt(sourceToken));
         }
 
@@ -4773,26 +4774,26 @@ export class Parser {
 
     private parseImportSpecifierList(): ImportSpecifier[] {
         const openBrace = this.tokens.read();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+        if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
             this.fail("Expected '{' after 'import'", this.tokenAt(openBrace));
         }
 
         const specifiers: ImportSpecifier[] = [];
         while (this.tokens.hasMore) {
             const maybeCloseBrace = this.tokens.peek();
-            if (maybeCloseBrace?.type === "symbol" && maybeCloseBrace.value === "}") {
+            if (maybeCloseBrace?.type === TokenType.SYMBOL && maybeCloseBrace.value === "}") {
                 this.tokens.skip();
                 break;
             }
 
             let typeOnly = false;
-            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "type") {
+            if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "type") {
                 this.tokens.skip();
                 typeOnly = true;
             }
 
             let nameToken = this.tokens.read();
-            if (nameToken?.type !== "identifier") {
+            if (nameToken?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected imported symbol name", this.tokenAt(nameToken));
             }
             if (nameToken.value === "operator") {
@@ -4808,10 +4809,10 @@ export class Parser {
             }
             const imported = this.buildIdentifierFromToken(nameToken);
             let local: Identifier | undefined;
-            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+            if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "as") {
                 this.tokens.skip();
                 const localToken = this.tokens.read();
-                if (localToken?.type !== "identifier") {
+                if (localToken?.type !== TokenType.IDENTIFIER) {
                     this.fail("Expected local import name after 'as'", this.tokenAt(localToken));
                 }
                 local = this.buildIdentifierFromToken(localToken);
@@ -4832,11 +4833,11 @@ export class Parser {
             );
 
             const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                 this.tokens.skip();
                 continue;
             }
-            if (separator?.type === "symbol" && separator.value === "}") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === "}") {
                 this.tokens.skip();
                 break;
             }
@@ -4853,23 +4854,23 @@ export class Parser {
     private parseEnumStatement(declared: boolean = false): EnumStatement {
         const startToken = this.tokens.peek();
         let isConstEnum = false;
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "const") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "const") {
             isConstEnum = true;
             this.tokens.skip();
         }
 
         const enumKeyword = this.tokens.read();
-        if (enumKeyword?.type !== "identifier" || enumKeyword.value !== "enum") {
+        if (enumKeyword?.type !== TokenType.IDENTIFIER || enumKeyword.value !== "enum") {
             this.fail("Expected enum declaration statement", this.tokenAt(enumKeyword));
         }
 
         const enumNameToken = this.tokens.read();
-        if (enumNameToken?.type !== "identifier") {
+        if (enumNameToken?.type !== TokenType.IDENTIFIER) {
             this.fail("Expected enum name after 'enum'", this.tokenAt(enumNameToken));
         }
 
         const openBrace = this.tokens.read();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+        if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
             this.fail("Expected '{' to start enum body", this.tokenAt(openBrace));
         }
 
@@ -4879,7 +4880,7 @@ export class Parser {
             if (isEofToken(token)) {
                 this.fail("Expected '}' to close enum body", this.tokenAt(openBrace), "block");
             }
-            if (token?.type === "symbol" && token.value === "}") {
+            if (token?.type === TokenType.SYMBOL && token.value === "}") {
                 this.tokens.skip();
                 const statement: EnumStatement = new EnumStatement(this.buildIdentifierFromToken(enumNameToken), members);
                 if (declared) {
@@ -4891,17 +4892,17 @@ export class Parser {
                 return this.attachNodeBounds(statement, startToken ?? enumKeyword, this.getLastReadToken() ?? enumNameToken);
             }
 
-            if (token?.type === "symbol" && (token.value === "," || token.value === ";")) {
+            if (token?.type === TokenType.SYMBOL && (token.value === "," || token.value === ";")) {
                 this.tokens.skip();
                 continue;
             }
 
             const nameToken = this.tokens.read();
-            if (nameToken?.type !== "identifier") {
+            if (nameToken?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected enum member name", this.tokenAt(nameToken));
             }
             let initializer: Expr | undefined;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=") {
                 this.tokens.skip();
                 initializer = this.parseAssignment();
             }
@@ -4912,11 +4913,11 @@ export class Parser {
             members.push(this.attachNodeBounds(member, nameToken, this.getLastReadToken() ?? nameToken));
 
             const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && (separator.value === "," || separator.value === ";")) {
+            if (separator?.type === TokenType.SYMBOL && (separator.value === "," || separator.value === ";")) {
                 this.tokens.skip();
                 continue;
             }
-            if (separator?.type === "symbol" && separator.value === "}") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === "}") {
                 continue;
             }
             this.fail("Expected ',' or '}' after enum member", this.tokenAt(separator));
@@ -4927,7 +4928,7 @@ export class Parser {
 
     private parseDeclareEnumStatement(): EnumStatement {
         const declareKeyword = this.tokens.read();
-        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+        if (declareKeyword?.type !== TokenType.IDENTIFIER || declareKeyword.value !== "declare") {
             this.fail("Expected 'declare' before enum declaration", this.tokenAt(declareKeyword));
         }
         const statement = this.parseEnumStatement(true);
@@ -4937,19 +4938,19 @@ export class Parser {
 
     private parseTypeAliasStatement(declared: boolean = false): TypeAliasStatement {
         const typeKeyword = this.tokens.read();
-        if (typeKeyword?.type !== "identifier" || typeKeyword.value !== "type") {
+        if (typeKeyword?.type !== TokenType.IDENTIFIER || typeKeyword.value !== "type") {
             this.fail("Expected type alias declaration", this.tokenAt(typeKeyword));
         }
 
         const nameToken = this.tokens.read();
-        if (nameToken?.type !== "identifier") {
+        if (nameToken?.type !== TokenType.IDENTIFIER) {
             this.fail("Expected type alias name after 'type'", this.tokenAt(nameToken));
         }
 
         const typeParameters = this.parseTypeParameterList();
 
         const equalsToken = this.tokens.read();
-        if (equalsToken?.type !== "symbol" || equalsToken.value !== "=") {
+        if (equalsToken?.type !== TokenType.SYMBOL || equalsToken.value !== "=") {
             this.fail("Expected '=' in type alias declaration", this.tokenAt(equalsToken));
         }
 
@@ -4969,22 +4970,22 @@ export class Parser {
         let declarationKeyword = firstKeyword;
         let isAsyncFunction = false;
         let isSyncFunction = false;
-        if (firstKeyword?.type === "identifier" && firstKeyword.value === "async") {
+        if (firstKeyword?.type === TokenType.IDENTIFIER && firstKeyword.value === "async") {
             isAsyncFunction = true;
             declarationKeyword = this.tokens.read();
-        } else if (firstKeyword?.type === "identifier" && firstKeyword.value === "sync") {
+        } else if (firstKeyword?.type === TokenType.IDENTIFIER && firstKeyword.value === "sync") {
             isSyncFunction = true;
             declarationKeyword = this.tokens.read();
         }
         if (
-            declarationKeyword?.type !== "identifier" ||
+            declarationKeyword?.type !== TokenType.IDENTIFIER ||
             !FUNCTION_DECLARATION_KEYWORDS.includes(declarationKeyword.value as FunctionDeclarationKind)
         ) {
             this.fail("Expected function declaration statement", this.tokenAt(declarationKeyword));
         }
 
         let isGeneratorFunction = false;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "*") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "*") {
             this.tokens.skip();
             isGeneratorFunction = true;
         }
@@ -4995,7 +4996,7 @@ export class Parser {
         const leadingTypeParameters = this.parseTypeParameterList();
 
         const firstNameToken = this.tokens.read();
-        if (firstNameToken?.type !== "identifier") {
+        if (firstNameToken?.type !== TokenType.IDENTIFIER) {
             this.fail("Expected function name after declaration keyword", this.tokenAt(firstNameToken));
         }
 
@@ -5003,17 +5004,17 @@ export class Parser {
         let receiverTypeArguments: Identifier[] | undefined;
         let overloadedOperator: OverloadableOperator | undefined;
         let nameToken = firstNameToken;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "<") {
             const parsedReceiverTypeArguments = this.tryParseReceiverTypeArguments();
             if (parsedReceiverTypeArguments) {
                 receiverTypeArguments = parsedReceiverTypeArguments;
             }
         }
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ".") {
             this.tokens.skip();
             receiverType = this.buildIdentifierFromToken(firstNameToken);
             nameToken = this.tokens.read()!;
-            if (nameToken.type !== "identifier") {
+            if (nameToken.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected extension method name after receiver type", this.tokenAt(nameToken));
             }
             if (nameToken.value === "operator") {
@@ -5034,7 +5035,7 @@ export class Parser {
         const typeParameters = [...leadingTypeParameters, ...this.parseTypeParameterList()];
 
         const openParen = this.tokens.read();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             this.fail("Expected '(' after function name", this.tokenAt(openParen));
         }
 
@@ -5042,21 +5043,21 @@ export class Parser {
         parameters.push(...this.parseFunctionParameters());
 
         const closeParen = this.tokens.read();
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
             this.fail("Expected ')' after function parameters", this.tokenAt(closeParen));
         }
 
         let returnType: Identifier | undefined;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             returnType = this.parseReturnTypeAnnotationNode();
         }
 
         let missingBody = false;
         let body: BlockStatement;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "{") {
             body = this.parseBlockStatement();
-        } else if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>") {
+        } else if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=>") {
             body = this.parseExpressionBodyAsBlock();
         } else {
             missingBody = true;
@@ -5066,7 +5067,7 @@ export class Parser {
                 this.getLastReadToken() ?? nameToken
             );
             const maybeSemicolon = this.tokens.peek();
-            if (maybeSemicolon?.type === "symbol" && maybeSemicolon.value === ";") {
+            if (maybeSemicolon?.type === TokenType.SYMBOL && maybeSemicolon.value === ";") {
                 this.tokens.skip();
             }
         }
@@ -5106,7 +5107,7 @@ export class Parser {
 
     private parseExpressionBodyAsBlock(): BlockStatement {
         const arrowToken = this.tokens.read();
-        if (arrowToken?.type !== "symbol" || arrowToken.value !== "=>") {
+        if (arrowToken?.type !== TokenType.SYMBOL || arrowToken.value !== "=>") {
             this.fail("Expected '=>' before shorthand function body", this.tokenAt(arrowToken));
         }
 
@@ -5122,7 +5123,7 @@ export class Parser {
             expression.lastToken ?? this.getLastReadToken() ?? arrowToken
         );
 
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ";") {
             this.tokens.skip();
         }
 
@@ -5131,7 +5132,7 @@ export class Parser {
 
     private parseDeclareFunctionStatement(): FunctionStatement {
         const declareKeyword = this.tokens.read();
-        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+        if (declareKeyword?.type !== TokenType.IDENTIFIER || declareKeyword.value !== "declare") {
             this.fail("Expected 'declare' before function declaration", this.tokenAt(declareKeyword));
         }
 
@@ -5142,7 +5143,7 @@ export class Parser {
 
     private parseDeclareTypeAliasStatement(): TypeAliasStatement {
         const declareKeyword = this.tokens.read();
-        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+        if (declareKeyword?.type !== TokenType.IDENTIFIER || declareKeyword.value !== "declare") {
             this.fail("Expected 'declare' before type alias declaration", this.tokenAt(declareKeyword));
         }
 
@@ -5153,12 +5154,12 @@ export class Parser {
 
     private parseDeclareVariableStatement(): VarStatement {
         const declareKeyword = this.tokens.read();
-        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+        if (declareKeyword?.type !== TokenType.IDENTIFIER || declareKeyword.value !== "declare") {
             this.fail("Expected 'declare' before variable declaration", this.tokenAt(declareKeyword));
         }
 
         const variableKeyword = this.tokens.peek();
-        if (variableKeyword?.type !== "identifier" || !this.isVariableDeclarationKeyword(variableKeyword.value)) {
+        if (variableKeyword?.type !== TokenType.IDENTIFIER || !this.isVariableDeclarationKeyword(variableKeyword.value)) {
             this.fail("Expected variable declaration keyword after 'declare'", this.tokenAt(variableKeyword));
         }
 
@@ -5166,7 +5167,7 @@ export class Parser {
         statement.declared = true;
 
         const maybeSemicolon = this.tokens.peek();
-        if (maybeSemicolon?.type === "symbol" && maybeSemicolon.value === ";") {
+        if (maybeSemicolon?.type === TokenType.SYMBOL && maybeSemicolon.value === ";") {
             this.tokens.skip();
         }
 
@@ -5175,12 +5176,12 @@ export class Parser {
 
     private parseDeclareClassStatement(): ClassStatement {
         const declareKeyword = this.tokens.read();
-        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+        if (declareKeyword?.type !== TokenType.IDENTIFIER || declareKeyword.value !== "declare") {
             this.fail("Expected 'declare' before class declaration", this.tokenAt(declareKeyword));
         }
 
         const classKeyword = this.tokens.peek();
-        if (classKeyword?.type !== "identifier" || (classKeyword.value !== "class" && !this.isAbstractClassStart())) {
+        if (classKeyword?.type !== TokenType.IDENTIFIER || (classKeyword.value !== "class" && !this.isAbstractClassStart())) {
             this.fail("Expected 'class' or 'abstract class' after 'declare'", this.tokenAt(classKeyword));
         }
 
@@ -5188,7 +5189,7 @@ export class Parser {
         statement.declared = true;
 
         const maybeSemicolon = this.tokens.peek();
-        if (maybeSemicolon?.type === "symbol" && maybeSemicolon.value === ";") {
+        if (maybeSemicolon?.type === TokenType.SYMBOL && maybeSemicolon.value === ";") {
             this.tokens.skip();
         }
 
@@ -5197,12 +5198,12 @@ export class Parser {
 
     private parseDeclareInterfaceStatement(): InterfaceStatement {
         const declareKeyword = this.tokens.read();
-        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+        if (declareKeyword?.type !== TokenType.IDENTIFIER || declareKeyword.value !== "declare") {
             this.fail("Expected 'declare' before interface declaration", this.tokenAt(declareKeyword));
         }
 
         const interfaceKeyword = this.tokens.peek();
-        if (interfaceKeyword?.type !== "identifier" || interfaceKeyword.value !== "interface") {
+        if (interfaceKeyword?.type !== TokenType.IDENTIFIER || interfaceKeyword.value !== "interface") {
             this.fail("Expected 'interface' after 'declare'", this.tokenAt(interfaceKeyword));
         }
 
@@ -5210,7 +5211,7 @@ export class Parser {
         statement.declared = true;
 
         const maybeSemicolon = this.tokens.peek();
-        if (maybeSemicolon?.type === "symbol" && maybeSemicolon.value === ";") {
+        if (maybeSemicolon?.type === TokenType.SYMBOL && maybeSemicolon.value === ";") {
             this.tokens.skip();
         }
 
@@ -5219,41 +5220,41 @@ export class Parser {
 
     private parseNamespaceStatement(declared: boolean): NamespaceStatement {
         const declareKeyword = declared ? this.tokens.read() : undefined;
-        if (declared && (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare")) {
+        if (declared && (declareKeyword?.type !== TokenType.IDENTIFIER || declareKeyword.value !== "declare")) {
             this.fail("Expected 'declare' before namespace declaration", this.tokenAt(declareKeyword));
         }
 
-        if (declared && this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "global") {
+        if (declared && this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "global") {
             return this.parseDeclareGlobalStatement(declareKeyword);
         }
 
         const namespaceKeyword = this.tokens.read();
         if (
-            namespaceKeyword?.type !== "identifier" ||
+            namespaceKeyword?.type !== TokenType.IDENTIFIER ||
             (namespaceKeyword.value !== "namespace" && namespaceKeyword.value !== "module")
         ) {
             this.fail("Expected 'namespace' or 'module' after 'declare'", this.tokenAt(namespaceKeyword));
         }
 
         const namespaceNameToken = this.tokens.read();
-        const isExternalModuleName = declared && namespaceKeyword.value === "module" && namespaceNameToken?.type === "string";
-        if (namespaceNameToken?.type !== "identifier" && !isExternalModuleName) {
+        const isExternalModuleName = declared && namespaceKeyword.value === "module" && namespaceNameToken?.type === TokenType.STRING;
+        if (namespaceNameToken?.type !== TokenType.IDENTIFIER && !isExternalModuleName) {
             this.fail("Expected namespace or module name after declaration keyword", this.tokenAt(namespaceNameToken));
         }
 
         const names: Identifier[] = [];
         let externalModuleName: StringLiteral | undefined;
-        if (namespaceNameToken?.type === "identifier") {
+        if (namespaceNameToken?.type === TokenType.IDENTIFIER) {
             names.push(this.buildIdentifierFromToken(namespaceNameToken));
-            while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+            while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ".") {
                 this.tokens.skip();
                 const segmentToken = this.tokens.read();
-                if (segmentToken?.type !== "identifier") {
+                if (segmentToken?.type !== TokenType.IDENTIFIER) {
                     this.fail("Expected identifier after '.' in namespace name", this.tokenAt(segmentToken));
                 }
                 names.push(this.buildIdentifierFromToken(segmentToken));
             }
-        } else if (namespaceNameToken?.type === "string") {
+        } else if (namespaceNameToken?.type === TokenType.STRING) {
             externalModuleName = this.attachNodeBounds(
                 new StringLiteral(namespaceNameToken.value),
                 namespaceNameToken,
@@ -5266,7 +5267,7 @@ export class Parser {
             this.markAmbientDeclarations(body.body);
         }
 
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ";") {
             this.tokens.skip();
         }
 
@@ -5284,14 +5285,14 @@ export class Parser {
 
     private parseDeclareGlobalStatement(declareKeyword: Token | undefined): NamespaceStatement {
         const globalKeyword = this.tokens.read();
-        if (globalKeyword?.type !== "identifier" || globalKeyword.value !== "global") {
+        if (globalKeyword?.type !== TokenType.IDENTIFIER || globalKeyword.value !== "global") {
             this.fail("Expected 'global' after 'declare'", this.tokenAt(globalKeyword));
         }
 
         const body = this.parseAmbientNamespaceBody();
         this.markAmbientDeclarations(body.body);
 
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ";") {
             this.tokens.skip();
         }
 
@@ -5302,7 +5303,7 @@ export class Parser {
     private parseAmbientNamespaceBody(): BlockStatement {
         const bodyStartOffset = this.tokens.offset;
         const openBrace = this.tokens.read();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+        if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
             this.fail("Expected '{' to start namespace body", this.tokenAt(openBrace));
         }
 
@@ -5310,7 +5311,7 @@ export class Parser {
         let closeBrace: Token | undefined;
         while (this.tokens.hasMore) {
             const token = this.tokens.read();
-            if (token?.type !== "symbol") continue;
+            if (token?.type !== TokenType.SYMBOL) continue;
             if (token.value === "{") depth += 1;
             if (token.value === "}") {
                 depth -= 1;
@@ -5374,17 +5375,17 @@ export class Parser {
 
     private parseTypeScriptExportAssignmentStatement(): ExprStatement {
         const exportKeyword = this.tokens.read();
-        if (exportKeyword?.type !== "identifier" || exportKeyword.value !== "export") {
+        if (exportKeyword?.type !== TokenType.IDENTIFIER || exportKeyword.value !== "export") {
             this.fail("Expected 'export' in export assignment", this.tokenAt(exportKeyword));
         }
 
         const equalsToken = this.tokens.read();
-        if (equalsToken?.type !== "symbol" || equalsToken.value !== "=") {
+        if (equalsToken?.type !== TokenType.SYMBOL || equalsToken.value !== "=") {
             this.fail("Expected '=' after 'export'", this.tokenAt(equalsToken));
         }
 
         const expression = this.parseExpressionOrThrow();
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ";") {
             this.tokens.skip();
         }
 
@@ -5397,18 +5398,18 @@ export class Parser {
 
     private parseFunctionParameters(allowParameterProperties: boolean = false): FunctionParameter[] {
         const parameters: FunctionParameter[] = [];
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ")") {
             return parameters;
         }
 
         while (this.tokens.hasMore) {
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ")") {
                 break;
             }
             let parameterAccessModifier: FunctionParameter["accessModifier"] | undefined;
             let parameterReadonly = false;
             let propertyModifierToken: Token | undefined;
-            while (this.tokens.peek()?.type === "identifier") {
+            while (this.tokens.peek()?.type === TokenType.IDENTIFIER) {
                 const modifier = this.tokens.peek()!.value;
                 if (modifier === "public" || modifier === "private" || modifier === "protected") {
                     propertyModifierToken ??= this.tokens.peek();
@@ -5429,7 +5430,7 @@ export class Parser {
 
             let parameterRest = false;
             const maybeRestToken = this.tokens.peek();
-            if (maybeRestToken?.type === "symbol" && maybeRestToken.value === "...") {
+            if (maybeRestToken?.type === TokenType.SYMBOL && maybeRestToken.value === "...") {
                 this.tokens.skip();
                 parameterRest = true;
             }
@@ -5441,7 +5442,7 @@ export class Parser {
             }
 
             let parameterOptional = false;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
                 if (parameterRest) {
                     this.fail("Rest parameter cannot be optional", this.tokenAt(this.tokens.peek()));
                 }
@@ -5450,13 +5451,13 @@ export class Parser {
             }
 
             let parameterTypeAnnotation: Identifier | undefined;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
                 this.tokens.skip();
                 parameterTypeAnnotation = this.parseTypeAnnotationNode();
             }
 
             let parameterDefaultValue: Expr | undefined;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=") {
                 this.tokens.skip();
                 parameterDefaultValue = this.parseAssignment();
             }
@@ -5495,14 +5496,14 @@ export class Parser {
             parameters.push(this.attachNodeBounds(parameter, parameterNameToken, this.getLastReadToken() ?? parameterNameToken));
 
             const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                 if (parameterRest) {
                     this.fail("Rest parameter must be last", this.tokenAt(separator));
                 }
                 this.tokens.skip();
                 continue;
             }
-            if (separator?.type === "symbol" && separator.value === ")") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ")") {
                 break;
             }
             this.fail("Expected ',' or ')' in function parameter list", this.tokenAt(separator));
@@ -5512,7 +5513,7 @@ export class Parser {
     }
 
     private operatorOverloadFromToken(token: Token | undefined): BinaryExpression["operator"] | undefined {
-        if (token?.type !== "symbol") {
+        if (token?.type !== TokenType.SYMBOL) {
             return undefined;
         }
         const candidate = token.value as BinaryExpression["operator"];
@@ -5521,16 +5522,16 @@ export class Parser {
 
     private parseOperatorOverload(): ParsedOperatorOverload | undefined {
         const token = this.tokens.peek();
-        if (token?.type !== "symbol") {
+        if (token?.type !== TokenType.SYMBOL) {
             return undefined;
         }
         if (token.value === "[") {
             this.tokens.skip();
             const closeBracket = this.tokens.read();
-            if (closeBracket?.type !== "symbol" || closeBracket.value !== "]") {
+            if (closeBracket?.type !== TokenType.SYMBOL || closeBracket.value !== "]") {
                 this.fail("Expected ']' after 'operator['", this.tokenAt(closeBracket));
             }
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=") {
                 const equalsToken = this.tokens.read()!;
                 return { operator: "[]=", endToken: equalsToken };
             }
@@ -5546,7 +5547,7 @@ export class Parser {
 
     private parseClassMember(allowSignatureOnly: boolean = false): ClassMember[] {
         const annotations: AnnotationApplication[] = [];
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "@") {
+        while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "@") {
             annotations.push(this.parseAnnotationApplication());
         }
         const members = this.parseClassMemberDeclaration(allowSignatureOnly);
@@ -5576,7 +5577,7 @@ export class Parser {
         let isAsyncMember = false;
         let isSyncMember = false;
 
-        while (this.tokens.peek()?.type === "identifier" && isClassMemberModifier(this.tokens.peek()!.value)) {
+        while (this.tokens.peek()?.type === TokenType.IDENTIFIER && isClassMemberModifier(this.tokens.peek()!.value)) {
             const peekValue = this.tokens.peek()!.value;
             // 'async'/'sync' followed by ':' or '?' means it is the member name, not a modifier
             if ((peekValue === "async" || peekValue === "sync") &&
@@ -5610,7 +5611,7 @@ export class Parser {
 
         let fieldDeclarationKind: VariableDeclarationKind | undefined;
         let functionDeclarationKeyword: Token | undefined;
-        if (this.language === "vexa" && this.tokens.peek()?.type === "identifier") {
+        if (this.language === "vexa" && this.tokens.peek()?.type === TokenType.IDENTIFIER) {
             const keywordValue = this.tokens.peek()!.value;
             if (this.isVariableDeclarationKeyword(keywordValue)) {
                 const declarationKeyword = this.tokens.read()!;
@@ -5629,16 +5630,16 @@ export class Parser {
         let accessorKind: ClassMethodMember["accessorKind"] | undefined;
         let accessorKeywordToken: Token | undefined;
         if (
-            this.tokens.peek()?.type === "identifier" &&
+            this.tokens.peek()?.type === TokenType.IDENTIFIER &&
             (this.tokens.peek()?.value === "get" || this.tokens.peek()?.value === "set") &&
-            this.tokens.items[this.tokens.offset + 1]?.type === "identifier"
+            this.tokens.items[this.tokens.offset + 1]?.type === TokenType.IDENTIFIER
         ) {
             accessorKeywordToken = this.tokens.read()!;
             accessorKind = accessorKeywordToken.value as ClassMethodMember["accessorKind"];
         }
 
         let isGeneratorMember = false;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "*") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "*") {
             this.tokens.skip();
             isGeneratorMember = true;
         }
@@ -5646,19 +5647,19 @@ export class Parser {
         let computedMemberKey: Expr | undefined;
         let computedMemberCloseBracket: Token | undefined;
         let memberNameToken = this.tokens.read();
-        if (memberNameToken?.type === "symbol" && memberNameToken.value === "[") {
+        if (memberNameToken?.type === TokenType.SYMBOL && memberNameToken.value === "[") {
             computedMemberKey = this.parseExpressionOrThrow();
             computedMemberCloseBracket = this.tokens.read();
-            if (computedMemberCloseBracket?.type !== "symbol" || computedMemberCloseBracket.value !== "]") {
+            if (computedMemberCloseBracket?.type !== TokenType.SYMBOL || computedMemberCloseBracket.value !== "]") {
                 this.fail("Expected ']' after computed class member name", this.tokenAt(computedMemberCloseBracket));
             }
             memberNameToken = undefined;
         }
-        const privateMemberNameToken = memberNameToken?.type === "symbol" && memberNameToken.value === "#"
+        const privateMemberNameToken = memberNameToken?.type === TokenType.SYMBOL && memberNameToken.value === "#"
             ? this.tokens.read()
             : null;
         const effectiveMemberNameToken: Token | undefined =
-            memberNameToken?.type === "symbol" && memberNameToken.value === "#" && privateMemberNameToken?.type === "identifier"
+            memberNameToken?.type === TokenType.SYMBOL && memberNameToken.value === "#" && privateMemberNameToken?.type === TokenType.IDENTIFIER
                 ? tokenWithValue(
                     privateMemberNameToken,
                     `#${privateMemberNameToken.value}`,
@@ -5666,7 +5667,7 @@ export class Parser {
                     privateMemberNameToken.range.end
                 )
                 : memberNameToken;
-        if (!computedMemberKey && effectiveMemberNameToken?.type !== "identifier") {
+        if (!computedMemberKey && effectiveMemberNameToken?.type !== TokenType.IDENTIFIER) {
             this.fail("Expected class member name", this.tokenAt(memberNameToken));
         }
 
@@ -5700,38 +5701,38 @@ export class Parser {
 
         let optional = false;
         let definiteAssignment = false;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
             this.tokens.skip();
             optional = true;
-        } else if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "!") {
+        } else if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "!") {
             this.tokens.skip();
             definiteAssignment = true;
         }
 
         const methodTypeParameters = this.parseTypeParameterList();
-        if ((methodTypeParameters.length > 0) || (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(")) {
+        if ((methodTypeParameters.length > 0) || (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "(")) {
             if (definiteAssignment) {
                 this.fail("Definite assignment assertions are only allowed on class fields", this.tokenAt(this.getLastReadToken()));
             }
-            if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(")) {
+            if (!(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "(")) {
                 this.fail("Expected '(' after method type parameters", this.tokenAt(this.tokens.peek()));
             }
             this.tokens.skip();
             const parameters = this.parseFunctionParameters(resolvedMemberName.name === "constructor");
 
             const closeParen = this.tokens.read();
-            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                 this.fail("Expected ')' after method parameters", this.tokenAt(closeParen));
             }
 
             let returnType: Identifier | undefined;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
                 this.tokens.skip();
                 returnType = this.parseReturnTypeAnnotationNode();
             }
 
             if (
-                this.tokens.peek()?.type !== "symbol" ||
+                this.tokens.peek()?.type !== TokenType.SYMBOL ||
                 (this.tokens.peek()?.value !== "{" && this.tokens.peek()?.value !== "=>")
             ) {
                 const signatureOnlyBody = this.attachNodeBounds(
@@ -5792,7 +5793,7 @@ export class Parser {
                 return [this.attachNodeBounds(signatureOnlyMethod, memberStartToken, this.getLastReadToken() ?? memberNameToken)];
             }
 
-            const methodMember: ClassMethodMember = new ClassMethodMember(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>"
+            const methodMember: ClassMethodMember = new ClassMethodMember(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=>"
                     ? this.parseExpressionBodyAsBlock()
                     : this.parseBlockStatement(), resolvedMemberName, parameters);
             if (computedMemberKey) {
@@ -5848,12 +5849,12 @@ export class Parser {
         }
 
         let typeAnnotation: Identifier | undefined;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             typeAnnotation = this.parseTypeAnnotationNode();
         }
 
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=>") {
             const getterMember: ClassMethodMember = new ClassMethodMember(this.parseExpressionBodyAsBlock(), resolvedMemberName, [], undefined, "get");
             this.applyClassMemberModifiers(getterMember, {
                 override: isOverrideMember,
@@ -5875,26 +5876,26 @@ export class Parser {
             return [this.attachNodeBounds(getterMember, memberStartToken, this.getLastReadToken() ?? memberNameToken)];
         }
 
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "{") {
             this.tokens.skip(); // consume `{`
             const compoundGetters: ClassMethodMember[] = [];
             const compoundSetters: ClassMethodMember[] = [];
 
             while (this.tokens.hasMore) {
                 const peekToken = this.tokens.peek();
-                if (peekToken?.type === "symbol" && peekToken.value === "}") break;
-                if (peekToken?.type === "symbol" && peekToken.value === ";") {
+                if (peekToken?.type === TokenType.SYMBOL && peekToken.value === "}") break;
+                if (peekToken?.type === TokenType.SYMBOL && peekToken.value === ";") {
                     this.tokens.skip();
                     continue;
                 }
 
                 const subKeyword = this.tokens.read();
-                if (subKeyword?.type !== "identifier" || (subKeyword.value !== "get" && subKeyword.value !== "set")) {
+                if (subKeyword?.type !== TokenType.IDENTIFIER || (subKeyword.value !== "get" && subKeyword.value !== "set")) {
                     this.fail("Expected 'get' or 'set' inside accessor block", this.tokenAt(subKeyword));
                 }
 
                 if (subKeyword.value === "get") {
-                    const getterBody = this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>"
+                    const getterBody = this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=>"
                         ? this.parseExpressionBodyAsBlock()
                         : this.parseBlockStatement();
                     const getterMember: ClassMethodMember = new ClassMethodMember(getterBody, resolvedMemberName, [], undefined, "get");
@@ -5909,19 +5910,19 @@ export class Parser {
                     compoundGetters.push(this.attachNodeBounds(getterMember, subKeyword, this.getLastReadToken() ?? subKeyword));
                 } else {
                     let setterParam: FunctionParameter;
-                    if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+                    if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "(") {
                         this.tokens.skip();
                         const paramNameToken = this.tokens.read();
-                        if (paramNameToken?.type !== "identifier") {
+                        if (paramNameToken?.type !== TokenType.IDENTIFIER) {
                             this.fail("Expected setter parameter name", this.tokenAt(paramNameToken));
                         }
                         let paramType: Identifier | undefined = typeAnnotation;
-                        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
                             this.tokens.skip();
                             paramType = this.parseTypeAnnotationNode();
                         }
                         const closeParen = this.tokens.read();
-                        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                             this.fail("Expected ')' after setter parameter", this.tokenAt(closeParen));
                         }
                         const paramName = this.buildIdentifierFromToken(paramNameToken);
@@ -5959,7 +5960,7 @@ export class Parser {
             }
 
             const closeBrace = this.tokens.read();
-            if (closeBrace?.type !== "symbol" || closeBrace.value !== "}") {
+            if (closeBrace?.type !== TokenType.SYMBOL || closeBrace.value !== "}") {
                 this.fail("Expected '}' to close accessor block", this.tokenAt(this.tokens.peek()));
             }
             const compoundMembers = [...compoundGetters, ...compoundSetters];
@@ -5971,7 +5972,7 @@ export class Parser {
         }
 
         let initializer: Expr | undefined;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=") {
             this.tokens.skip();
             initializer = this.parseAssignment();
         }
@@ -6059,17 +6060,17 @@ export class Parser {
 
     private parseClassPrimaryConstructorParameters(): ClassPrimaryConstructorParameter[] {
         const parameters: ClassPrimaryConstructorParameter[] = [];
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ")") {
             return parameters;
         }
 
         while (this.tokens.hasMore) {
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ")") {
                 break;
             }
 
             const firstToken = this.tokens.read();
-            if (firstToken?.type !== "identifier") {
+            if (firstToken?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected parameter name in class primary constructor", this.tokenAt(firstToken));
             }
 
@@ -6082,18 +6083,18 @@ export class Parser {
                 parameterNameToken = firstToken;
             }
 
-            if (parameterNameToken?.type !== "identifier") {
+            if (parameterNameToken?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected parameter name in class primary constructor", this.tokenAt(parameterNameToken));
             }
 
             let parameterTypeAnnotation: Identifier | undefined;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
                 this.tokens.skip();
                 parameterTypeAnnotation = this.parseTypeAnnotationNode();
             }
 
             let parameterDefaultValue: Expr | undefined;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "=") {
                 this.tokens.skip();
                 parameterDefaultValue = this.parseAssignment();
             }
@@ -6108,11 +6109,11 @@ export class Parser {
             parameters.push(this.attachNodeBounds(parameter, firstToken, this.getLastReadToken() ?? firstToken));
 
             const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                 this.tokens.skip();
                 continue;
             }
-            if (separator?.type === "symbol" && separator.value === ")") {
+            if (separator?.type === TokenType.SYMBOL && separator.value === ")") {
                 break;
             }
             this.fail("Expected ',' or ')' in class primary constructor parameter list", this.tokenAt(separator));
@@ -6122,7 +6123,7 @@ export class Parser {
     }
 
     private parseClassDelegateExpression(): Expr {
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{") {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "{") {
             this.tokens.skip();
             return this.parseObjectLiteral();
         }
@@ -6135,26 +6136,26 @@ export class Parser {
 
     private parseInterfaceStatement(declared: boolean = false): InterfaceStatement {
         const interfaceKeyword = this.tokens.read();
-        if (interfaceKeyword?.type !== "identifier" || interfaceKeyword.value !== "interface") {
+        if (interfaceKeyword?.type !== TokenType.IDENTIFIER || interfaceKeyword.value !== "interface") {
             this.fail("Expected interface declaration statement", this.tokenAt(interfaceKeyword));
         }
 
         const interfaceNameToken = this.tokens.read();
-        if (interfaceNameToken?.type !== "identifier") {
+        if (interfaceNameToken?.type !== TokenType.IDENTIFIER) {
             this.fail("Expected interface name after 'interface'", this.tokenAt(interfaceNameToken));
         }
 
         const typeParameters = this.parseTypeParameterList();
 
         let extendsTypes: Identifier[] | undefined;
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "extends") {
             this.tokens.skip();
             extendsTypes = [];
             while (this.tokens.hasMore) {
                 extendsTypes.push(this.parseTypeAnnotationNode());
 
                 const separator = this.tokens.peek();
-                if (separator?.type === "symbol" && separator.value === ",") {
+                if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                     this.tokens.skip();
                     continue;
                 }
@@ -6177,7 +6178,7 @@ export class Parser {
         };
 
         const openBrace = this.tokens.peek();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+        if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
             if (this.language === "vexa") {
                 return this.attachNodeBounds(buildInterfaceStatement([]), interfaceKeyword, this.getLastReadToken() ?? interfaceKeyword);
             }
@@ -6191,29 +6192,29 @@ export class Parser {
             if (isEofToken(token)) {
                 this.fail("Expected '}' to close interface body", this.tokenAt(openBrace), "block");
             }
-            if (token?.type === "symbol" && token.value === "}") {
+            if (token?.type === TokenType.SYMBOL && token.value === "}") {
                 this.tokens.skip();
                 return this.attachNodeBounds(buildInterfaceStatement(members), interfaceKeyword, this.getLastReadToken() ?? interfaceKeyword);
             }
 
-            if (token?.type === "symbol" && token.value === ";") {
+            if (token?.type === TokenType.SYMBOL && token.value === ";") {
                 this.tokens.skip();
                 continue;
             }
 
-            const anonymousCallTypeParameters = this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<"
+            const anonymousCallTypeParameters = this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "<"
                 ? this.parseTypeParameterList()
                 : [];
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "(") {
                 const openParen = this.tokens.read()!;
                 const parameters = this.parseFunctionParameters();
                 const closeParen = this.tokens.read();
-                if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                     this.fail("Expected ')' after interface call signature parameters", this.tokenAt(closeParen));
                 }
 
                 let returnType: Identifier | undefined;
-                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
                     this.tokens.skip();
                     returnType = this.parseReturnTypeAnnotationNode();
                 }
@@ -6245,12 +6246,12 @@ export class Parser {
             }
 
             if (
-                this.tokens.peek()?.type === "identifier" &&
+                this.tokens.peek()?.type === TokenType.IDENTIFIER &&
                 this.tokens.peek()?.value === "readonly" &&
                 this.peekToken(1) &&
                 (
-                    ["identifier", "string", "number"].includes(this.peekToken(1)!.type)
-                    || (this.peekToken(1)!.type === "symbol" && this.peekToken(1)!.value === "[")
+                    [TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER].includes(this.peekToken(1)!.type)
+                    || (this.peekToken(1)!.type === TokenType.SYMBOL && this.peekToken(1)!.value === "[")
                 )
             ) {
                 this.tokens.skip();
@@ -6258,7 +6259,7 @@ export class Parser {
 
             let propertyDeclarationKind: VariableDeclarationKind | undefined;
             let functionDeclarationKeyword: Token | undefined;
-            if (this.language === "vexa" && this.tokens.peek()?.type === "identifier") {
+            if (this.language === "vexa" && this.tokens.peek()?.type === TokenType.IDENTIFIER) {
                 const keywordValue = this.tokens.peek()!.value;
                 if (this.isVariableDeclarationKeyword(keywordValue)) {
                     propertyDeclarationKind = this.tokens.read()!.value as VariableDeclarationKind;
@@ -6273,35 +6274,35 @@ export class Parser {
             let computedMemberCloseBracket: Token | undefined;
             let interfaceIndexSignatureType: Identifier | undefined;
             const interfaceMemberStartToken = memberNameToken;
-            if (memberNameToken?.type === "symbol" && memberNameToken.value === "[") {
+            if (memberNameToken?.type === TokenType.SYMBOL && memberNameToken.value === "[") {
                 const indexParameterToken = this.tokens.peek();
                 const indexColonToken = this.peekToken(1);
                 if (
-                    indexParameterToken?.type === "identifier" &&
-                    indexColonToken?.type === "symbol" &&
+                    indexParameterToken?.type === TokenType.IDENTIFIER &&
+                    indexColonToken?.type === TokenType.SYMBOL &&
                     indexColonToken.value === ":"
                 ) {
                     this.tokens.skip();
                     this.tokens.skip();
                     interfaceIndexSignatureType = this.parseTypeAnnotationNode();
                     computedMemberCloseBracket = this.tokens.read();
-                    if (computedMemberCloseBracket?.type !== "symbol" || computedMemberCloseBracket.value !== "]") {
+                    if (computedMemberCloseBracket?.type !== TokenType.SYMBOL || computedMemberCloseBracket.value !== "]") {
                         this.fail("Expected ']' after interface index signature", this.tokenAt(computedMemberCloseBracket));
                     }
                 } else {
                     computedMemberKey = this.parseExpressionOrThrow();
                     computedMemberCloseBracket = this.tokens.read();
-                    if (computedMemberCloseBracket?.type !== "symbol" || computedMemberCloseBracket.value !== "]") {
+                    if (computedMemberCloseBracket?.type !== TokenType.SYMBOL || computedMemberCloseBracket.value !== "]") {
                         this.fail("Expected ']' after computed interface member name", this.tokenAt(computedMemberCloseBracket));
                     }
                 }
                 memberNameToken = undefined;
             }
             if (
-                memberNameToken?.type === "identifier" &&
+                memberNameToken?.type === TokenType.IDENTIFIER &&
                 (memberNameToken.value === "get" || memberNameToken.value === "set") &&
                 this.tokens.peek() &&
-                ["identifier", "string", "number"].includes(this.tokens.peek()!.type)
+                [TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER].includes(this.tokens.peek()!.type)
             ) {
                 accessorKind = memberNameToken.value as "get" | "set";
                 memberNameToken = this.tokens.read();
@@ -6309,7 +6310,7 @@ export class Parser {
             if (
                 !computedMemberKey &&
                 !interfaceIndexSignatureType &&
-                (!memberNameToken || !["identifier", "string", "number"].includes(memberNameToken.type))
+                (!memberNameToken || ![TokenType.IDENTIFIER, TokenType.STRING, TokenType.NUMBER].includes(memberNameToken.type))
             ) {
                 this.fail("Expected interface member name", this.tokenAt(memberNameToken));
             }
@@ -6321,33 +6322,33 @@ export class Parser {
             if (
                 !computedMemberKey &&
                 !interfaceIndexSignatureType &&
-                memberNameToken?.type === "identifier" &&
+                memberNameToken?.type === TokenType.IDENTIFIER &&
                 memberNameToken.value === "abstract" &&
-                this.tokens.peek()?.type === "identifier" &&
+                this.tokens.peek()?.type === TokenType.IDENTIFIER &&
                 this.tokens.peek()?.value === "new"
             ) {
                 memberNameToken = this.tokens.read()!;
                 memberName = "constructor";
-            } else if (!computedMemberKey && !interfaceIndexSignatureType && memberNameToken?.type === "identifier" && memberNameToken.value === "new") {
+            } else if (!computedMemberKey && !interfaceIndexSignatureType && memberNameToken?.type === TokenType.IDENTIFIER && memberNameToken.value === "new") {
                 memberName = "constructor";
             }
             let optionalMember = false;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
                 this.tokens.skip();
                 optionalMember = true;
             }
 
             const methodTypeParameters = this.parseTypeParameterList();
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "(") {
                 this.tokens.skip();
                 const parameters = this.parseFunctionParameters();
                 const closeParen = this.tokens.read();
-                if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                     this.fail("Expected ')' after interface method parameters", this.tokenAt(closeParen));
                 }
 
                 let returnType: Identifier | undefined;
-                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
                     this.tokens.skip();
                     returnType = this.parseReturnTypeAnnotationNode();
                 }
@@ -6388,7 +6389,7 @@ export class Parser {
                 this.fail("Expected '(' after interface method type parameters", this.tokenAt(this.tokens.peek()));
             }
 
-            if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":")) {
+            if (!(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":")) {
                 this.fail("Expected ':' after interface property name", this.tokenAt(this.tokens.peek()));
             }
             this.tokens.skip();
@@ -6423,13 +6424,13 @@ export class Parser {
         if (!token) {
             return false;
         }
-        if (token.type === "symbol" && token.value === "<") {
+        if (token.type === TokenType.SYMBOL && token.value === "<") {
             return true;
         }
-        if (token.type === "symbol" && token.value === "[") {
+        if (token.type === TokenType.SYMBOL && token.value === "[") {
             return !(this.isComputedInterfaceMethodStart() || this.isInterfaceIndexSignatureStart(0));
         }
-        if (token.type === "identifier" && token.value === "readonly" && next?.type === "symbol" && next.value === "[") {
+        if (token.type === TokenType.IDENTIFIER && token.value === "readonly" && next?.type === TokenType.SYMBOL && next.value === "[") {
             return !this.isInterfaceIndexSignatureStart(1);
         }
         return false;
@@ -6438,7 +6439,7 @@ export class Parser {
     private isInterfaceIndexSignatureStart(bracketOffset: number): boolean {
         const identifierToken = this.peekToken(bracketOffset + 1);
         const colonToken = this.peekToken(bracketOffset + 2);
-        return identifierToken?.type === "identifier" && colonToken?.type === "symbol" && colonToken.value === ":";
+        return identifierToken?.type === TokenType.IDENTIFIER && colonToken?.type === TokenType.SYMBOL && colonToken.value === ":";
     }
 
     private isComputedInterfaceMethodStart(): boolean {
@@ -6448,13 +6449,13 @@ export class Parser {
             if (!token) {
                 return false;
             }
-            if (token.type === "symbol" && token.value === "[") {
+            if (token.type === TokenType.SYMBOL && token.value === "[") {
                 bracketDepth += 1;
-            } else if (token.type === "symbol" && token.value === "]") {
+            } else if (token.type === TokenType.SYMBOL && token.value === "]") {
                 bracketDepth -= 1;
                 if (bracketDepth === 0) {
                     const after = this.peekToken(offset + 1);
-                    return after?.type === "symbol" && after.value === "(";
+                    return after?.type === TokenType.SYMBOL && after.value === "(";
                 }
             }
         }
@@ -6471,7 +6472,7 @@ export class Parser {
             if (!token) {
                 return;
             }
-            if (token.type === "symbol") {
+            if (token.type === TokenType.SYMBOL) {
                 if (token.value === "(") parenDepth += 1;
                 else if (token.value === ")") parenDepth -= 1;
                 else if (token.value === "[") bracketDepth += 1;
@@ -6493,14 +6494,14 @@ export class Parser {
     }
 
     private consumeOptionalTypeMemberSeparator(): void {
-        if (this.tokens.peek()?.type === "symbol" && (this.tokens.peek()?.value === ";" || this.tokens.peek()?.value === ",")) {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && (this.tokens.peek()?.value === ";" || this.tokens.peek()?.value === ",")) {
             this.tokens.skip();
         }
     }
 
     private parseBlockStatement(): BlockStatement {
         const openBrace = this.tokens.read();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+        if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
             this.fail("Expected '{' to start block statement", this.tokenAt(openBrace));
         }
 
@@ -6512,7 +6513,7 @@ export class Parser {
                 this.fail("Expected '}' to close block statement", this.tokenAt(openBrace), "block");
             }
 
-            if (token?.type === "symbol" && token.value === "}") {
+            if (token?.type === TokenType.SYMBOL && token.value === "}") {
                 this.tokens.skip();
                 return this.attachNodeBounds(new BlockStatement(body), openBrace, this.getLastReadToken() ?? openBrace);
             }
@@ -6545,19 +6546,19 @@ export class Parser {
 
     private parseWhileStatement(): WhileStatement {
         const whileKeyword = this.tokens.read();
-        if (whileKeyword?.type !== "identifier" || whileKeyword.value !== "while") {
+        if (whileKeyword?.type !== TokenType.IDENTIFIER || whileKeyword.value !== "while") {
             this.fail("Expected 'while' statement", this.tokenAt(whileKeyword));
         }
 
         const openParen = this.tokens.read();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             this.fail("Expected '(' after 'while'", this.tokenAt(openParen));
         }
 
         const condition = this.parseExpressionOrThrow();
 
         const closeParen = this.tokens.read();
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
             this.fail("Expected ')' after while condition", this.tokenAt(closeParen));
         }
 
@@ -6567,19 +6568,19 @@ export class Parser {
 
     private parseWithStatement(): WithStatement {
         const withKeyword = this.tokens.read();
-        if (withKeyword?.type !== "identifier" || withKeyword.value !== "with") {
+        if (withKeyword?.type !== TokenType.IDENTIFIER || withKeyword.value !== "with") {
             this.fail("Expected 'with' statement", this.tokenAt(withKeyword));
         }
 
         const openParen = this.tokens.read();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             this.fail("Expected '(' after 'with'", this.tokenAt(openParen));
         }
 
         const object = this.parseExpressionOrThrow();
 
         const closeParen = this.tokens.read();
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
             this.fail("Expected ')' after with object expression", this.tokenAt(closeParen));
         }
 
@@ -6589,26 +6590,26 @@ export class Parser {
 
     private parseDoWhileStatement(): DoWhileStatement {
         const doKeyword = this.tokens.read();
-        if (doKeyword?.type !== "identifier" || doKeyword.value !== "do") {
+        if (doKeyword?.type !== TokenType.IDENTIFIER || doKeyword.value !== "do") {
             this.fail("Expected 'do' statement", this.tokenAt(doKeyword));
         }
 
         const body = this.parseStatementOrThrow();
 
         const whileKeyword = this.tokens.read();
-        if (whileKeyword?.type !== "identifier" || whileKeyword.value !== "while") {
+        if (whileKeyword?.type !== TokenType.IDENTIFIER || whileKeyword.value !== "while") {
             this.fail("Expected 'while' after do-statement body", this.tokenAt(whileKeyword));
         }
 
         const openParen = this.tokens.read();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             this.fail("Expected '(' after 'while'", this.tokenAt(openParen));
         }
 
         const condition = this.parseExpressionOrThrow();
 
         const closeParen = this.tokens.read();
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
             this.fail("Expected ')' after do-while condition", this.tokenAt(closeParen));
         }
 
@@ -6617,37 +6618,37 @@ export class Parser {
 
     private parseForStatement(): ForStatement {
         const forKeyword = this.tokens.read();
-        if (forKeyword?.type !== "identifier" || forKeyword.value !== "for") {
+        if (forKeyword?.type !== TokenType.IDENTIFIER || forKeyword.value !== "for") {
             this.fail("Expected 'for' statement", this.tokenAt(forKeyword));
         }
 
         let awaitModifier = false;
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "await") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "await") {
             awaitModifier = true;
             this.tokens.skip();
         }
 
         const openParen = this.tokens.read();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             this.fail("Expected '(' after 'for'", this.tokenAt(openParen));
         }
 
         let initializer: VarStatement | Expr | undefined;
-        if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";")) {
+        if (!(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ";")) {
             const initialToken = this.tokens.peek();
             const secondToken = this.tokens.items[this.tokens.offset + 1];
             if (
-                initialToken?.type === "identifier" &&
+                initialToken?.type === TokenType.IDENTIFIER &&
                 this.isVariableDeclarationKeyword(initialToken.value)
             ) {
                 initializer = this.parseVarStatement();
             } else if (
-                initialToken?.type === "identifier" &&
-                secondToken?.type === "identifier" &&
+                initialToken?.type === TokenType.IDENTIFIER &&
+                secondToken?.type === TokenType.IDENTIFIER &&
                 (secondToken.value === "in" || secondToken.value === "of")
             ) {
                 const identifierToken = this.tokens.read();
-                if (identifierToken?.type !== "identifier") {
+                if (identifierToken?.type !== TokenType.IDENTIFIER) {
                     this.fail("Expected identifier iterator in VexaScript for-in/of statement", this.tokenAt(identifierToken));
                 }
                 initializer = this.buildIdentifierFromToken(identifierToken);
@@ -6658,7 +6659,7 @@ export class Parser {
 
         const maybeIterationKeyword = this.tokens.peek();
         if (
-            maybeIterationKeyword?.type === "identifier" &&
+            maybeIterationKeyword?.type === TokenType.IDENTIFIER &&
             (maybeIterationKeyword.value === "in" || maybeIterationKeyword.value === "of")
         ) {
             if (!initializer) {
@@ -6686,7 +6687,7 @@ export class Parser {
             const iterable = this.parseExpressionOrThrow();
 
             const closeParen = this.tokens.read();
-            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                 this.fail("Expected ')' after for-in/of iterable expression", this.tokenAt(closeParen));
             }
 
@@ -6701,27 +6702,27 @@ export class Parser {
         }
 
         const firstSemicolon = this.tokens.read();
-        if (firstSemicolon?.type !== "symbol" || firstSemicolon.value !== ";") {
+        if (firstSemicolon?.type !== TokenType.SYMBOL || firstSemicolon.value !== ";") {
             this.fail("Expected ';' after for initializer", this.tokenAt(firstSemicolon));
         }
 
         let condition: Expr | undefined;
-        if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";")) {
+        if (!(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ";")) {
             condition = this.parseExpressionOrThrow();
         }
 
         const secondSemicolon = this.tokens.read();
-        if (secondSemicolon?.type !== "symbol" || secondSemicolon.value !== ";") {
+        if (secondSemicolon?.type !== TokenType.SYMBOL || secondSemicolon.value !== ";") {
             this.fail("Expected ';' after for condition", this.tokenAt(secondSemicolon));
         }
 
         let update: Expr | undefined;
-        if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
+        if (!(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ")")) {
             update = this.parseExpressionOrThrow();
         }
 
         const closeParen = this.tokens.read();
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
             this.fail("Expected ')' after for update", this.tokenAt(closeParen));
         }
 
@@ -6742,33 +6743,33 @@ export class Parser {
 
     private parseIfStatement(): IfStatement {
         const ifKeyword = this.tokens.read();
-        if (ifKeyword?.type !== "identifier" || ifKeyword.value !== "if") {
+        if (ifKeyword?.type !== TokenType.IDENTIFIER || ifKeyword.value !== "if") {
             this.fail("Expected 'if' statement", this.tokenAt(ifKeyword));
         }
 
         const openParen = this.tokens.read();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             this.fail("Expected '(' after 'if'", this.tokenAt(openParen));
         }
 
         const condition = this.parseExpressionOrThrow();
 
         const closeParen = this.tokens.read();
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
             this.fail("Expected ')' after if condition", this.tokenAt(closeParen));
         }
 
         const thenBranch = this.parseStatementOrThrow();
         let elseBranch: Statement | undefined;
         if (
-            this.tokens.peek()?.type === "symbol" &&
+            this.tokens.peek()?.type === TokenType.SYMBOL &&
             this.tokens.peek()?.value === ";" &&
-            this.peekToken(1)?.type === "identifier" &&
+            this.peekToken(1)?.type === TokenType.IDENTIFIER &&
             this.peekToken(1)?.value === "else"
         ) {
             this.tokens.skip();
         }
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "else") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "else") {
             this.tokens.skip();
             elseBranch = this.parseStatementOrThrow();
         }
@@ -6782,24 +6783,24 @@ export class Parser {
 
     private parseSwitchStatement(): SwitchStatement {
         const switchKeyword = this.tokens.read();
-        if (switchKeyword?.type !== "identifier" || switchKeyword.value !== "switch") {
+        if (switchKeyword?.type !== TokenType.IDENTIFIER || switchKeyword.value !== "switch") {
             this.fail("Expected 'switch' statement", this.tokenAt(switchKeyword));
         }
 
         const openParen = this.tokens.read();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        if (openParen?.type !== TokenType.SYMBOL || openParen.value !== "(") {
             this.fail("Expected '(' after 'switch'", this.tokenAt(openParen));
         }
 
         const discriminant = this.parseExpressionOrThrow();
 
         const closeParen = this.tokens.read();
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
             this.fail("Expected ')' after switch discriminant", this.tokenAt(closeParen));
         }
 
         const openBrace = this.tokens.read();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+        if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
             this.fail("Expected '{' to start switch body", this.tokenAt(openBrace));
         }
 
@@ -6812,21 +6813,21 @@ export class Parser {
                 this.fail("Expected '}' to close switch statement", this.tokenAt(openBrace), "switch");
             }
 
-            if (token?.type === "symbol" && token.value === "}") {
+            if (token?.type === TokenType.SYMBOL && token.value === "}") {
                 this.tokens.skip();
                 return this.attachNodeBounds(new SwitchStatement(discriminant, cases), switchKeyword, this.getLastReadToken() ?? switchKeyword);
             }
 
-            if (token?.type === "symbol" && token.value === ";") {
+            if (token?.type === TokenType.SYMBOL && token.value === ";") {
                 this.tokens.skip();
                 continue;
             }
 
-            if (token?.type === "identifier" && token.value === "case") {
+            if (token?.type === TokenType.IDENTIFIER && token.value === "case") {
                 const caseKeyword = this.tokens.read();
                 const test = this.parseExpressionOrThrow();
                 const colon = this.tokens.read();
-                if (colon?.type !== "symbol" || colon.value !== ":") {
+                if (colon?.type !== TokenType.SYMBOL || colon.value !== ":") {
                     this.fail("Expected ':' after switch case expression", this.tokenAt(colon));
                 }
 
@@ -6835,10 +6836,10 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "identifier" && token.value === "default") {
+            if (token?.type === TokenType.IDENTIFIER && token.value === "default") {
                 const defaultKeyword = this.tokens.read();
                 const colon = this.tokens.read();
-                if (colon?.type !== "symbol" || colon.value !== ":") {
+                if (colon?.type !== TokenType.SYMBOL || colon.value !== ":") {
                     this.fail("Expected ':' after switch default", this.tokenAt(colon));
                 }
 
@@ -6879,12 +6880,12 @@ export class Parser {
 
     private parseLabeledStatement(): LabeledStatement {
         const labelToken = this.tokens.read();
-        if (labelToken?.type !== "identifier") {
+        if (labelToken?.type !== TokenType.IDENTIFIER) {
             this.fail("Expected label identifier", this.tokenAt(labelToken));
         }
 
         const colon = this.tokens.read();
-        if (colon?.type !== "symbol" || colon.value !== ":") {
+        if (colon?.type !== TokenType.SYMBOL || colon.value !== ":") {
             this.fail("Expected ':' after statement label", this.tokenAt(colon));
         }
 
@@ -6894,7 +6895,7 @@ export class Parser {
 
     private parseReturnStatement(): ReturnStatement {
         const returnKeyword = this.tokens.read();
-        if (returnKeyword?.type !== "identifier" || returnKeyword.value !== "return") {
+        if (returnKeyword?.type !== TokenType.IDENTIFIER || returnKeyword.value !== "return") {
             this.fail("Expected 'return' statement", this.tokenAt(returnKeyword));
         }
 
@@ -6905,7 +6906,7 @@ export class Parser {
         if (isEofToken(next)) {
             return this.attachNodeBounds(new ReturnStatement(), returnKeyword, returnKeyword);
         }
-        if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
+        if (next.type === TokenType.SYMBOL && (next.value === ";" || next.value === "}")) {
             return this.attachNodeBounds(new ReturnStatement(), returnKeyword, returnKeyword);
         }
         if (hasLineBreakBetween(returnKeyword, next)) {
@@ -6917,11 +6918,11 @@ export class Parser {
 
     private parseContinueStatement(): ContinueStatement {
         const continueKeyword = this.tokens.read();
-        if (continueKeyword?.type !== "identifier" || continueKeyword.value !== "continue") {
+        if (continueKeyword?.type !== TokenType.IDENTIFIER || continueKeyword.value !== "continue") {
             this.fail("Expected 'continue' statement", this.tokenAt(continueKeyword));
         }
         const next = this.tokens.peek();
-        if (next?.type === "identifier" && !hasLineBreakBetween(continueKeyword, next)) {
+        if (next?.type === TokenType.IDENTIFIER && !hasLineBreakBetween(continueKeyword, next)) {
             const labelToken = this.tokens.read()!;
             return this.attachNodeBounds(new ContinueStatement(this.buildIdentifierFromToken(labelToken)), continueKeyword, labelToken);
         }
@@ -6930,11 +6931,11 @@ export class Parser {
 
     private parseBreakStatement(): BreakStatement {
         const breakKeyword = this.tokens.read();
-        if (breakKeyword?.type !== "identifier" || breakKeyword.value !== "break") {
+        if (breakKeyword?.type !== TokenType.IDENTIFIER || breakKeyword.value !== "break") {
             this.fail("Expected 'break' statement", this.tokenAt(breakKeyword));
         }
         const next = this.tokens.peek();
-        if (next?.type === "identifier" && !hasLineBreakBetween(breakKeyword, next)) {
+        if (next?.type === TokenType.IDENTIFIER && !hasLineBreakBetween(breakKeyword, next)) {
             const labelToken = this.tokens.read()!;
             return this.attachNodeBounds(new BreakStatement(this.buildIdentifierFromToken(labelToken)), breakKeyword, labelToken);
         }
@@ -6943,7 +6944,7 @@ export class Parser {
 
     private parseThrowStatement(): ThrowStatement {
         const throwKeyword = this.tokens.read();
-        if (throwKeyword?.type !== "identifier" || throwKeyword.value !== "throw") {
+        if (throwKeyword?.type !== TokenType.IDENTIFIER || throwKeyword.value !== "throw") {
             this.fail("Expected 'throw' statement", this.tokenAt(throwKeyword));
         }
 
@@ -6951,7 +6952,7 @@ export class Parser {
         if (!next || isEofToken(next) || hasLineBreakBetween(throwKeyword, next)) {
             this.fail("Expected expression after 'throw'", this.tokenAt(next));
         }
-        if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
+        if (next.type === TokenType.SYMBOL && (next.value === ";" || next.value === "}")) {
             this.fail("Expected expression after 'throw'", this.tokenAt(next));
         }
 
@@ -6961,7 +6962,7 @@ export class Parser {
 
     private parseDeferStatement(): DeferStatement {
         const deferKeyword = this.tokens.read();
-        if (deferKeyword?.type !== "identifier" || deferKeyword.value !== "defer") {
+        if (deferKeyword?.type !== TokenType.IDENTIFIER || deferKeyword.value !== "defer") {
             this.fail("Expected 'defer' statement", this.tokenAt(deferKeyword));
         }
 
@@ -6969,7 +6970,7 @@ export class Parser {
         if (!next || isEofToken(next) || hasLineBreakBetween(deferKeyword, next)) {
             this.fail("Expected expression after 'defer'", this.tokenAt(next));
         }
-        if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
+        if (next.type === TokenType.SYMBOL && (next.value === ";" || next.value === "}")) {
             this.fail("Expected expression after 'defer'", this.tokenAt(next));
         }
 
@@ -6980,7 +6981,7 @@ export class Parser {
 
     private parseDebuggerStatement(): DebuggerStatement {
         const debuggerKeyword = this.tokens.read();
-        if (debuggerKeyword?.type !== "identifier" || debuggerKeyword.value !== "debugger") {
+        if (debuggerKeyword?.type !== TokenType.IDENTIFIER || debuggerKeyword.value !== "debugger") {
             this.fail("Expected 'debugger' statement", this.tokenAt(debuggerKeyword));
         }
         return this.attachNodeBounds(new DebuggerStatement(), debuggerKeyword, debuggerKeyword);
@@ -6988,26 +6989,26 @@ export class Parser {
 
     private parseTryStatement(): TryStatement {
         const tryKeyword = this.tokens.read();
-        if (tryKeyword?.type !== "identifier" || tryKeyword.value !== "try") {
+        if (tryKeyword?.type !== TokenType.IDENTIFIER || tryKeyword.value !== "try") {
             this.fail("Expected 'try' statement", this.tokenAt(tryKeyword));
         }
 
         const tryBlock = this.parseBlockStatement();
 
         let catchClause: CatchClause | undefined;
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "catch") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "catch") {
             const catchKeyword = this.tokens.read();
             let parameter: Identifier | undefined;
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+            if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "(") {
                 this.tokens.skip();
                 const parameterToken = this.tokens.read();
-                if (parameterToken?.type !== "identifier") {
+                if (parameterToken?.type !== TokenType.IDENTIFIER) {
                     this.fail("Expected catch parameter identifier", this.tokenAt(parameterToken));
                 }
                 parameter = this.buildIdentifierFromToken(parameterToken);
 
                 const closeParen = this.tokens.read();
-                if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
                     this.fail("Expected ')' after catch parameter", this.tokenAt(closeParen));
                 }
             }
@@ -7021,7 +7022,7 @@ export class Parser {
         }
 
         let finallyBlock: BlockStatement | undefined;
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "finally") {
+        if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "finally") {
             this.tokens.skip();
             finallyBlock = this.parseBlockStatement();
         }

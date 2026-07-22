@@ -1,4 +1,4 @@
-import { AnalysisTypeKind } from "../analysis/types";
+import { BuiltinType, NamedType } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import { bindingElementPropertyName, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import { splitOptionalTypeSuffix, splitTopLevelTypeText } from "compiler/analysis/typeNames";
@@ -19,7 +19,7 @@ import type {
   ObjectBindingPattern,
   Program
 } from "compiler/ast/ast";
-import { tokenize } from "compiler/parser/tokenizer";
+import { tokenize, TokenType } from "compiler/parser/tokenizer";
 import { type CodeAction, type Diagnostic, type Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { getCallDiagnosticKind } from "./diagnosticCodes";
@@ -378,7 +378,7 @@ function toTypeAnnotation(type: AnalysisType | undefined): string | null {
   if (!type) {
     return null;
   }
-  if (type.kind === AnalysisTypeKind.Builtin) {
+  if (type instanceof BuiltinType) {
     if (
       type.name === "int" ||
       type.name === "number" ||
@@ -392,7 +392,7 @@ function toTypeAnnotation(type: AnalysisType | undefined): string | null {
     }
     return null;
   }
-  if (type.kind === AnalysisTypeKind.Named) {
+  if (type instanceof NamedType) {
     return type.name;
   }
   return null;
@@ -410,7 +410,7 @@ function findFunctionParens(functionStatement: FunctionStatement, text: string):
   const tokens = tokenize(text);
   const startIndex = tokens.findIndex(
     (token) =>
-      token.type === "symbol" &&
+      token.type === TokenType.SYMBOL &&
       token.value === "(" &&
       token.range.start.offset >= nameEnd &&
       token.range.start.offset <= bodyStart
@@ -422,7 +422,7 @@ function findFunctionParens(functionStatement: FunctionStatement, text: string):
   let depth = 0;
   for (let i = startIndex; i < tokens.length; i += 1) {
     const token = tokens[i]!;
-    if (token.type !== "symbol") {
+    if (token.type !== TokenType.SYMBOL) {
       continue;
     }
     if (token.value === "(") {

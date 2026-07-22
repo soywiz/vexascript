@@ -1,5 +1,5 @@
 import { NodeKind, type Node } from "compiler/ast/ast";
-import { AnalysisTypeKind, namedType } from "compiler/analysis/types";
+import { namedType, NamedType, BuiltinType, ArrayType, TupleType } from "compiler/analysis/types";
 import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import type {
@@ -44,10 +44,10 @@ export function findEnclosingReceiverTypeName(
     const beforeEnd = line < range.end.line ||
       (line === range.end.line && character <= range.end.character);
     if (!afterStart || !beforeEnd) continue;
-    const name = info.receiverType.kind === AnalysisTypeKind.Named ||
-      info.receiverType.kind === AnalysisTypeKind.Builtin
+    const name = info.receiverType instanceof NamedType ||
+      info.receiverType instanceof BuiltinType
       ? info.receiverType.name
-      : info.receiverType.kind === AnalysisTypeKind.Array || info.receiverType.kind === AnalysisTypeKind.Tuple
+      : info.receiverType instanceof ArrayType || info.receiverType instanceof TupleType
         ? "Array"
         : null;
     if (!name) continue;

@@ -4,7 +4,7 @@ import { Parser, parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "./Analysis";
 import type { AnalysisSymbol } from "./Analysis";
-import { AnalysisTypeKind, builtinType, typeToString } from "./types";
+import { builtinType, typeToString, NamedType, BuiltinType } from "./types";
 import type { VarStatement } from "compiler/ast/ast";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import dedent from "compiler/utils/dedent";
@@ -712,7 +712,7 @@ let after = bind`));
       const negType = analysis.getExpressionTypes().get(
         (ast.body[2] as import("../ast/ast.js").VarStatement).initializer!
       );
-      expect(negType?.kind === AnalysisTypeKind.Named && negType.name).toBe("Point");
+      expect(negType instanceof NamedType && negType.name).toBe("Point");
     });
 
     it("reports an error for unary - on a class with no operator- method", () => {
@@ -3077,8 +3077,8 @@ let bad = "Ada" satisfies number
     );
 
     expect(messages.some((message) => message.includes("does not exist on type 'any'"))).toBe(false);
-    expect(directType?.kind === AnalysisTypeKind.Builtin && directType.name).toBe("any");
-    expect(computedType?.kind === AnalysisTypeKind.Builtin && computedType.name).toBe("any");
+    expect(directType instanceof BuiltinType && directType.name).toBe("any");
+    expect(computedType instanceof BuiltinType && computedType.name).toBe("any");
   });
 
   it("allows calling members reached through 'any'", () => {
@@ -3097,7 +3097,7 @@ let bad = "Ada" satisfies number
     );
 
     expect(messages.some((message) => message.includes("not callable"))).toBe(false);
-    expect(callType?.kind === AnalysisTypeKind.Builtin && callType.name).toBe("any");
+    expect(callType instanceof BuiltinType && callType.name).toBe("any");
   });
 
   it("reports call argument type and arity mismatches, with int->number and long->bigint assignability", () => {

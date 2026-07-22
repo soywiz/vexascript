@@ -2,7 +2,7 @@ import { NodeKind } from "compiler/ast/ast";
 import { builtinModules } from "node:module";
 import type { Program, Statement, VarStatement, FunctionStatement, ClassStatement, EnumStatement, ExportStatement } from "../compiler/ast/ast";
 import { parseSource } from "../compiler/pipeline/parse";
-import { tokenize } from "../compiler/parser/tokenizer";
+import { tokenize, TokenType } from "../compiler/parser/tokenizer";
 import { emitProgram } from "../compiler/runtime/emitter";
 import { basename, dirname, extname, relative, resolve } from "../compiler/utils/path";
 import { hasRecognizedModuleFileExtension } from "../compiler/language";
@@ -530,12 +530,12 @@ function collectStaticDynamicImportOccurrences(source: string): StaticDynamicImp
       const specifierToken = tokens[index + 2];
       const closeParenToken = tokens[index + 3];
       if (
-        importToken?.type === "identifier"
+        importToken?.type === TokenType.IDENTIFIER
         && importToken.value === "import"
-        && openParenToken?.type === "symbol"
+        && openParenToken?.type === TokenType.SYMBOL
         && openParenToken.value === "("
-        && specifierToken?.type === "string"
-        && closeParenToken?.type === "symbol"
+        && specifierToken?.type === TokenType.STRING
+        && closeParenToken?.type === TokenType.SYMBOL
         && closeParenToken.value === ")"
       ) {
         occurrences.push({

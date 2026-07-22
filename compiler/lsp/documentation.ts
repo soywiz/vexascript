@@ -11,7 +11,7 @@ import {
   Statement
 } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
-import type { TokenComment, SourcePosition, SourceRange } from "compiler/parser/tokenizer";
+import { TokenCommentKind, type TokenComment, type SourcePosition, type SourceRange } from "compiler/parser/tokenizer";
 import { nodeBuiltinSpecifierCandidates } from "compiler/moduleResolution";
 
 export interface DocumentationInfo {
@@ -58,7 +58,7 @@ export function readDocumentationInfoFromIdentifier(identifier: Identifier): Doc
   const lineDocumentation: string[] = [];
   for (let index = comments.length - 1; index >= 0; index -= 1) {
     const comment = comments[index];
-    if (!comment || comment.kind !== "line" || !comment.value.startsWith("///")) {
+    if (!comment || comment.kind !== TokenCommentKind.LINE || !comment.value.startsWith("///")) {
       if (lineDocumentation.length > 0) {
         break;
       }
@@ -75,7 +75,7 @@ export function readDocumentationInfoFromIdentifier(identifier: Identifier): Doc
 
   for (let index = comments.length - 1; index >= 0; index -= 1) {
     const comment = comments[index];
-    if (!comment || comment.kind !== "block" || !comment.value.startsWith("/**")) {
+    if (!comment || comment.kind !== TokenCommentKind.BLOCK || !comment.value.startsWith("/**")) {
       continue;
     }
 
@@ -449,8 +449,8 @@ function collectDocumentationReferenceRanges(
   const ranges: SourceRange[] = [];
   for (const comment of comments) {
     if (
-      (comment.kind !== "line" || !comment.value.startsWith("///")) &&
-      (comment.kind !== "block" || !comment.value.startsWith("/**"))
+      (comment.kind !== TokenCommentKind.LINE || !comment.value.startsWith("///")) &&
+      (comment.kind !== TokenCommentKind.BLOCK || !comment.value.startsWith("/**"))
     ) {
       continue;
     }
@@ -477,8 +477,8 @@ function findParameterReferenceInComments(
 
   for (const comment of comments) {
     if (
-      (comment.kind !== "line" || !comment.value.startsWith("///")) &&
-      (comment.kind !== "block" || !comment.value.startsWith("/**"))
+      (comment.kind !== TokenCommentKind.LINE || !comment.value.startsWith("///")) &&
+      (comment.kind !== TokenCommentKind.BLOCK || !comment.value.startsWith("/**"))
     ) {
       continue;
     }

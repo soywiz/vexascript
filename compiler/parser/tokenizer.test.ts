@@ -1,24 +1,24 @@
 import { describe, expect, it } from "../test/expect";
-import { tokenize } from "./tokenizer";
+import { TokenCommentKind, TokenType, tokenize, tokenTypeName } from "./tokenizer";
 
 function simplifyTokens(input: string, includeEof: boolean = false) {
     const tokens = tokenize(input);
-    const filteredTokens = includeEof ? tokens : tokens.filter((token) => token.type !== "eof");
-    return filteredTokens.map(({ type, value }) => ({ type, value }));
+    const filteredTokens = includeEof ? tokens : tokens.filter((token) => token.type !== TokenType.END_OF_FILE);
+    return filteredTokens.map(({ type, value }) => ({ type: tokenTypeName(type), value }));
 }
 
 describe("tokenizer", () => {
     it("skips an initial shebang line as trivia", () => {
         const tokens = tokenize("#!/usr/bin/env vexa\nval answer = 42");
 
-        expect(tokens.filter((token) => token.type !== "eof").map(({ type, value }) => ({ type, value }))).toStrictEqual([
+        expect(tokens.filter((token) => token.type !== TokenType.END_OF_FILE).map(({ type, value }) => ({ type: tokenTypeName(type), value }))).toStrictEqual([
             { type: "identifier", value: "val" },
             { type: "identifier", value: "answer" },
             { type: "symbol", value: "=" },
             { type: "number", value: "42" }
         ]);
         expect(tokens[0]?.leadingComments?.[0]).toMatchObject({
-            kind: "line",
+            kind: TokenCommentKind.LINE,
             value: "#!/usr/bin/env vexa",
             range: {
                 start: { offset: 0, line: 0, column: 0 },
@@ -389,15 +389,15 @@ describe("tokenizer", () => {
     it("attaches single-line comments to the next token as leading comments", () => {
         const tokens = tokenize("let a = 1 // trailing\nlet b = 2");
         expect(tokens[4]?.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
-            { kind: "line", value: "// trailing" }
+            { kind: TokenCommentKind.LINE, value: "// trailing" }
         ]);
     });
 
     it("attaches triple-slash documentation comments as leading line comments", () => {
         const tokens = tokenize("/// summary\n/// details\nfun find() { }");
         expect(tokens[0]?.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
-            { kind: "line", value: "/// summary" },
-            { kind: "line", value: "/// details" }
+            { kind: TokenCommentKind.LINE, value: "/// summary" },
+            { kind: TokenCommentKind.LINE, value: "/// details" }
         ]);
     });
 
@@ -417,19 +417,19 @@ describe("tokenizer", () => {
     it("attaches block comments to the next token as leading comments", () => {
         const tokens = tokenize("let a = /* inline */ 1\n/* multi\nline */\nlet b = 2");
         expect(tokens[3]?.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
-            { kind: "block", value: "/* inline */" }
+            { kind: TokenCommentKind.BLOCK, value: "/* inline */" }
         ]);
         expect(tokens[4]?.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
-            { kind: "block", value: "/* multi\nline */" }
+            { kind: TokenCommentKind.BLOCK, value: "/* multi\nline */" }
         ]);
     });
 
     it("attaches trailing comments to the eof token", () => {
         const tokens = tokenize("let a = 1\n// trailing");
         const eof = tokens[tokens.length - 1];
-        expect(eof?.type).toBe("eof");
+        expect(eof?.type).toBe(TokenType.END_OF_FILE);
         expect(eof?.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
-            { kind: "line", value: "// trailing" }
+            { kind: TokenCommentKind.LINE, value: "// trailing" }
         ]);
     });
 
@@ -447,7 +447,7 @@ describe("tokenizer", () => {
     })
 
     it("tracks offset/line/column ranges for tokens", () => {
-        const tokens = tokenize("a\n+ 2").filter((token) => token.type !== "eof");
+        const tokens = tokenize("a\n+ 2").filter((token) => token.type !== TokenType.END_OF_FILE);
         expect(tokens.map((token) => token.range)).toEqual([
             {
                 start: { offset: 0, line: 0, column: 0 },
@@ -467,7 +467,7 @@ describe("tokenizer", () => {
     it("tracks eof token range at the end of input", () => {
         const tokens = tokenize("a\n+ 2");
         const eof = tokens[tokens.length - 1];
-        expect(eof?.type).toBe("eof");
+        expect(eof?.type).toBe(TokenType.END_OF_FILE);
         expect(eof?.range).toEqual({
             start: { offset: 5, line: 1, column: 3 },
             end: { offset: 5, line: 1, column: 3 }
@@ -500,8 +500,8 @@ describe("tokenizer", () => {
     describe("embedded XML / JSX", () => {
         function jsxTokens(input: string) {
             return tokenize(input, { jsx: true })
-                .filter((token) => token.type !== "eof")
-                .map(({ type, value }) => ({ type, value }));
+                .filter((token) => token.type !== TokenType.END_OF_FILE)
+                .map(({ type, value }) => ({ type: tokenTypeName(type), value }));
         }
 
         it("tokenizes a self-closing element with attributes", () => {
@@ -577,8 +577,8 @@ describe("tokenizer", () => {
         it("keeps less-than as a plain symbol when JSX is disabled", () => {
             expect(
                 tokenize("return <div>", { jsx: false })
-                    .filter((token) => token.type !== "eof")
-                    .map(({ type, value }) => ({ type, value }))
+                    .filter((token) => token.type !== TokenType.END_OF_FILE)
+                    .map(({ type, value }) => ({ type: tokenTypeName(type), value }))
             ).toStrictEqual([
                 { type: "identifier", value: "return" },
                 { type: "symbol", value: "<" },

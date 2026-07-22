@@ -1,4 +1,3 @@
-import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import {
   ArrayLiteral,
@@ -73,7 +72,22 @@ import {
 import { compoundAssignmentBinaryOperator } from "compiler/ast/ast";
 import { bindingElementPropertyName, bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { childNodes } from "compiler/ast/traversal";
-import { builtinType, type AnalysisType, type BuiltinTypeName, type FunctionType, type NamedType } from "compiler/analysis/types";
+import {
+  ArrayType,
+  BuiltinType,
+  FunctionType,
+  IntersectionType,
+  LiteralType,
+  NamedType,
+  ObjectType,
+  RangeType,
+  TupleType,
+  UnionType,
+  builtinType,
+  namedTypeArgument,
+  type AnalysisType,
+  type BuiltinTypeName
+} from "compiler/analysis/types";
 import type { AnalysisSymbol } from "compiler/analysis/model";
 import type { ExtensionPropertyResolution } from "compiler/analysis/model";
 import { parseFunctionTypeAnnotation, parseObjectTypeAnnotation, parseTypeNameShape, splitArraySuffixTypeName, splitTopLevelTypeText, substituteTypeNameText } from "compiler/analysis/typeNames";
@@ -434,7 +448,7 @@ function maybeAutoAwait(expression: Expr, emitted: string): string {
 
 function emitAsyncResultValue(expression: Expr, resultType: string): string {
   const expressionType = activeExpressionTypes.get(expression as Node);
-  if (expressionType?.kind === AnalysisTypeKind.Named && expressionType.name === "Promise") {
+  if (expressionType instanceof NamedType && expressionType.name === "Promise") {
     return `vexa::convertValue<${resultType}>((co_await ${emitWithoutAutoAwait(expression)}))`;
   }
   return emitConvertedValue(expression, resultType);
@@ -586,7 +600,7 @@ function cppTypeForBuiltin(typeName: BuiltinTypeName): string | null {
 const nativeWeakObjectKeyCppType = "cppgc::GarbageCollectedMixin*";
 
 function cppTypeForWeakAnalysisKey(type: AnalysisType): string | null {
-  return type.kind === AnalysisTypeKind.Builtin && type.name === "object"
+  return type instanceof BuiltinType && type.name === "object"
     ? nativeWeakObjectKeyCppType
     : cppTypeForAnalysisType(type);
 }
@@ -598,28 +612,28 @@ function cppTypeForWeakDeclaredKey(typeName: string): string | null {
 }
 
 function cppTypeForAnalysisType(type: AnalysisType): string | null {
-  if (type.kind === AnalysisTypeKind.Builtin) return cppTypeForBuiltin(type.name);
-  if (type.kind === AnalysisTypeKind.Named && activeCppTypeParameters.has(type.name) && !(type.typeArguments?.length)) {
+  if (type instanceof BuiltinType) return cppTypeForBuiltin(type.name);
+  if (type instanceof NamedType && activeCppTypeParameters.has(type.name) && !(type.typeArguments?.length)) {
     return cppName(type.name);
   }
-  if (type.kind === AnalysisTypeKind.Literal) {
+  if (type instanceof LiteralType) {
     return cppTypeForBuiltin(type.base === "number" ? "number" : type.base);
   }
-  if (type.kind === AnalysisTypeKind.Array) {
+  if (type instanceof ArrayType) {
     const elementType = cppArrayElementType(type.elementType);
     return elementType ? `vexa::ArrayObject<${elementType}>*` : null;
   }
-  if (type.kind === AnalysisTypeKind.Range) {
+  if (type instanceof RangeType) {
     const elementType = cppArrayElementType(type.elementType);
     return elementType ? `std::vector<${elementType}>` : null;
   }
-  if (type.kind === AnalysisTypeKind.Tuple) {
+  if (type instanceof TupleType) {
     const elementTypes = new Set(type.elements.map(cppArrayElementType));
     const elementType = elementTypes.size === 1 ? [...elementTypes][0] : null;
     return elementType ? `vexa::ArrayObject<${elementType}>*` : null;
   }
-  if (type.kind === AnalysisTypeKind.Object) return "vexa::RecordObject*";
-  if (type.kind === AnalysisTypeKind.Function) {
+  if (type instanceof ObjectType) return "vexa::RecordObject*";
+  if (type instanceof FunctionType) {
     const functionType = type as FunctionType;
     const result = cppTypeForAnalysisType(functionType.returnType) ?? "vexa::Value";
     const parameters: string[] = [];
@@ -629,43 +643,43 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
     return `std::function<${result}(${parameters.join(", ")})>`;
   }
   if (
-    type.kind === AnalysisTypeKind.Named &&
+    type instanceof NamedType &&
     (type.name === "Array" || type.name === "ReadonlyArray" || type.name === "ConcatArray")
   ) {
-    const elementType = cppArrayElementType(type.typeArguments?.[0] ?? builtinType("unknown"));
+    const elementType = cppArrayElementType(namedTypeArgument(type, 0) ?? builtinType("unknown"));
     return elementType ? `vexa::ArrayObject<${elementType}>*` : null;
   }
-  if (type.kind === AnalysisTypeKind.Named && type.name === "Promise") {
-    const resultType = cppTypeForAnalysisType(type.typeArguments?.[0] ?? builtinType("unknown"));
+  if (type instanceof NamedType && type.name === "Promise") {
+    const resultType = cppTypeForAnalysisType(namedTypeArgument(type, 0) ?? builtinType("unknown"));
     return `vexa::Task<${resultType ?? "vexa::Value"}>`;
   }
-  if (type.kind === AnalysisTypeKind.Named && type.name === "URL") return "vexa::URLObject*";
-  if (type.kind === AnalysisTypeKind.Named && isNativeErrorTypeName(type.name)) return "vexa::Error";
-  if (type.kind === AnalysisTypeKind.Named && (type.name === "Map" || type.name === "ReadonlyMap")) {
-    const keyType = cppTypeForAnalysisType(type.typeArguments?.[0] ?? builtinType("any")) ?? "vexa::Value";
-    const valueType = cppTypeForAnalysisType(type.typeArguments?.[1] ?? builtinType("any")) ?? "vexa::Value";
+  if (type instanceof NamedType && type.name === "URL") return "vexa::URLObject*";
+  if (type instanceof NamedType && isNativeErrorTypeName(type.name)) return "vexa::Error";
+  if (type instanceof NamedType && (type.name === "Map" || type.name === "ReadonlyMap")) {
+    const keyType = cppTypeForAnalysisType(namedTypeArgument(type, 0) ?? builtinType("any")) ?? "vexa::Value";
+    const valueType = cppTypeForAnalysisType(namedTypeArgument(type, 1) ?? builtinType("any")) ?? "vexa::Value";
     return `vexa::MapObject<${keyType}, ${valueType}>*`;
   }
-  if (type.kind === AnalysisTypeKind.Named && (type.name === "Set" || type.name === "ReadonlySet")) {
-    const valueType = cppTypeForAnalysisType(type.typeArguments?.[0] ?? builtinType("any")) ?? "vexa::Value";
+  if (type instanceof NamedType && (type.name === "Set" || type.name === "ReadonlySet")) {
+    const valueType = cppTypeForAnalysisType(namedTypeArgument(type, 0) ?? builtinType("any")) ?? "vexa::Value";
     return `vexa::SetObject<${valueType}>*`;
   }
-  if (type.kind === AnalysisTypeKind.Named && type.name === "WeakMap") {
-    const keyType = cppTypeForWeakAnalysisKey(type.typeArguments?.[0] ?? builtinType("unknown"));
-    const valueType = cppTypeForAnalysisType(type.typeArguments?.[1] ?? builtinType("any")) ?? "vexa::Value";
+  if (type instanceof NamedType && type.name === "WeakMap") {
+    const keyType = cppTypeForWeakAnalysisKey(namedTypeArgument(type, 0) ?? builtinType("unknown"));
+    const valueType = cppTypeForAnalysisType(namedTypeArgument(type, 1) ?? builtinType("any")) ?? "vexa::Value";
     return keyType?.endsWith("*") ? `vexa::WeakMapObject<${keyType}, ${valueType}>*` : null;
   }
-  if (type.kind === AnalysisTypeKind.Named && type.name === "WeakSet") {
-    const valueType = cppTypeForWeakAnalysisKey(type.typeArguments?.[0] ?? builtinType("unknown"));
+  if (type instanceof NamedType && type.name === "WeakSet") {
+    const valueType = cppTypeForWeakAnalysisKey(namedTypeArgument(type, 0) ?? builtinType("unknown"));
     return valueType?.endsWith("*") ? `vexa::WeakSetObject<${valueType}>*` : null;
   }
-  if (type.kind === AnalysisTypeKind.Named && type.name === "RegExp") return "vexa::RegExp";
-  if (type.kind === AnalysisTypeKind.Named && type.name === "Date") return "vexa::DateObject*";
-  if (type.kind === AnalysisTypeKind.Named && type.name === "ArrayBuffer") return "vexa::ArrayBufferObject*";
-  if (type.kind === AnalysisTypeKind.Named && type.name === "Uint8Array") return "vexa::Uint8ArrayObject*";
-  if (type.kind === AnalysisTypeKind.Named && type.name === "DataView") return "vexa::DataViewObject*";
-  if (type.kind === AnalysisTypeKind.Named && activeEnumNames.has(type.name)) return "std::int32_t";
-  if (type.kind === AnalysisTypeKind.Named && isNativeObjectTypeName(type.name)) {
+  if (type instanceof NamedType && type.name === "RegExp") return "vexa::RegExp";
+  if (type instanceof NamedType && type.name === "Date") return "vexa::DateObject*";
+  if (type instanceof NamedType && type.name === "ArrayBuffer") return "vexa::ArrayBufferObject*";
+  if (type instanceof NamedType && type.name === "Uint8Array") return "vexa::Uint8ArrayObject*";
+  if (type instanceof NamedType && type.name === "DataView") return "vexa::DataViewObject*";
+  if (type instanceof NamedType && activeEnumNames.has(type.name)) return "std::int32_t";
+  if (type instanceof NamedType && isNativeObjectTypeName(type.name)) {
     const statement = activeClassStatements.get(type.name) ?? activeInterfaceStatements.get(type.name);
     const parameters = statement?.typeParameters ?? [];
     const typeArguments: Array<string | null> = (type.typeArguments ?? []).map(cppTypeForAnalysisType);
@@ -901,9 +915,9 @@ function canonicalNativeObjectName(typeName: string): string | null {
 }
 
 function cppArrayElementType(type: AnalysisType): string | null {
-  if (type.kind === AnalysisTypeKind.Builtin && type.name === "string") return "std::u16string";
-  if (type.kind === AnalysisTypeKind.Literal && type.base === "string") return "std::u16string";
-  if (type.kind === AnalysisTypeKind.Union) return "vexa::Value";
+  if (type instanceof BuiltinType && type.name === "string") return "std::u16string";
+  if (type instanceof LiteralType && type.base === "string") return "std::u16string";
+  if (type instanceof UnionType) return "vexa::Value";
   return cppTypeForAnalysisType(type);
 }
 
@@ -1027,10 +1041,10 @@ function computeCppTypeForExpression(expression: Expr): string {
       if (mapTypes?.length === 2) return mapTypes[1]!;
       const receiverAnalysisType = activeExpressionTypes.get(member.object as Node);
       if (
-        receiverAnalysisType?.kind === AnalysisTypeKind.Named &&
+        receiverAnalysisType instanceof NamedType &&
         isNativeMapTypeName(receiverAnalysisType.name)
       ) {
-        const valueType = receiverAnalysisType.typeArguments?.[1];
+        const valueType = namedTypeArgument(receiverAnalysisType, 1);
         const mappedValueType = valueType ? cppTypeForAnalysisType(valueType) : null;
         if (mappedValueType) return mappedValueType;
       }
@@ -1132,7 +1146,7 @@ function managedArrayCppTypeForExpression(expression: Expr): string | null {
     if (managedArrayElementType(result) !== null) return result;
   }
   const type = activeExpressionTypes.get(expression as Node);
-  if (type?.kind === AnalysisTypeKind.Array || type?.kind === AnalysisTypeKind.Tuple) return cppTypeForAnalysisType(type);
+  if (type instanceof ArrayType || type instanceof TupleType) return cppTypeForAnalysisType(type);
   return null;
 }
 
@@ -1141,8 +1155,8 @@ function isManagedArrayExpression(expression: Expr): boolean {
   if (managedArrayElementType(cppTypeForExpression(expression)) !== null) return true;
   if (managedArrayElementType(emittedCppTypeForExpression(expression) ?? "") !== null) return true;
   const type = activeExpressionTypes.get(expression as Node);
-  return type?.kind === AnalysisTypeKind.Array || type?.kind === AnalysisTypeKind.Tuple ||
-    (type?.kind === AnalysisTypeKind.Named && isNativeArrayTypeName(type.name)) ||
+  return type instanceof ArrayType || type instanceof TupleType ||
+    (type instanceof NamedType && isNativeArrayTypeName(type.name)) ||
     expression.kind === NodeKind.ArrayLiteral;
 }
 
@@ -1169,8 +1183,8 @@ function isArrayExpression(expression: Expr): boolean {
   if (managedArrayElementType(cppTypeForExpression(expression)) !== null) return true;
   if (managedArrayElementType(emittedCppTypeForExpression(expression) ?? "") !== null) return true;
   const type = activeExpressionTypes.get(expression as Node);
-  return type?.kind === AnalysisTypeKind.Array || type?.kind === AnalysisTypeKind.Tuple || type?.kind === AnalysisTypeKind.Range ||
-    (type?.kind === AnalysisTypeKind.Named && isNativeArrayTypeName(type.name)) ||
+  return type instanceof ArrayType || type instanceof TupleType || type instanceof RangeType ||
+    (type instanceof NamedType && isNativeArrayTypeName(type.name)) ||
     expression.kind === NodeKind.ArrayLiteral || expression.kind === NodeKind.RangeExpression;
 }
 
@@ -1183,16 +1197,16 @@ function nativeCollectionKind(expression: Expr): "map" | "set" | "weakMap" | "we
   if (mapped.startsWith("vexa::SetObject<")) return "set";
   if (mapped.startsWith("vexa::WeakMapObject<")) return "weakMap";
   if (mapped.startsWith("vexa::WeakSetObject<")) return "weakSet";
-  if (type?.kind === AnalysisTypeKind.Union || type?.kind === AnalysisTypeKind.Intersection) {
+  if (type instanceof UnionType || type instanceof IntersectionType) {
     for (const memberType of type.types) {
-      if (memberType.kind !== AnalysisTypeKind.Named) continue;
+      if (!(memberType instanceof NamedType)) continue;
       if (memberType.name === "Map" || memberType.name === "ReadonlyMap") return "map";
       if (memberType.name === "Set" || memberType.name === "ReadonlySet") return "set";
       if (memberType.name === "WeakMap") return "weakMap";
       if (memberType.name === "WeakSet") return "weakSet";
     }
   }
-  if (type?.kind !== AnalysisTypeKind.Named) return null;
+  if (!(type instanceof NamedType)) return null;
   if (type.name === "Map" || type.name === "ReadonlyMap") return "map";
   if (type.name === "Set" || type.name === "ReadonlySet") return "set";
   if (type.name === "WeakMap") return "weakMap";
@@ -1204,9 +1218,9 @@ function nativeCollectionPointerCppType(expression: Expr): string | null {
   const type = activeExpressionTypes.get(expression as Node);
   if (type) {
     let candidates: AnalysisType[] = [type];
-    if (type.kind === AnalysisTypeKind.Union || type.kind === AnalysisTypeKind.Intersection) candidates = type.types;
+    if (type instanceof UnionType || type instanceof IntersectionType) candidates = type.types;
     for (const candidate of candidates) {
-      if (candidate.kind !== AnalysisTypeKind.Named) continue;
+      if (!(candidate instanceof NamedType)) continue;
       if (!isNativeMapTypeName(candidate.name) && !isNativeSetTypeName(candidate.name) &&
           candidate.name !== "WeakMap" && candidate.name !== "WeakSet") {
         continue;
@@ -1223,7 +1237,7 @@ function nativeCollectionPointerCppType(expression: Expr): string | null {
 
 function isDateExpression(expression: Expr): boolean {
   const type = activeExpressionTypes.get(expression as Node);
-  return type?.kind === AnalysisTypeKind.Named && type.name === "Date";
+  return type instanceof NamedType && type.name === "Date";
 }
 
 function isStringExpression(expression: Expr): boolean {
@@ -1248,8 +1262,8 @@ function isStringExpression(expression: Expr): boolean {
     }
   }
   return localCppType === "std::u16string" ||
-    (type?.kind === AnalysisTypeKind.Builtin && type.name === "string") ||
-    (type?.kind === AnalysisTypeKind.Literal && type.base === "string") ||
+    (type instanceof BuiltinType && type.name === "string") ||
+    (type instanceof LiteralType && type.base === "string") ||
     declaredTypeNameForExpression(expression) === "string" ||
     interfaceProperty?.typeAnnotation.name === "string";
 }
@@ -1260,7 +1274,7 @@ function nativeBinaryObjectKind(expression: Expr): "buffer" | "uint8" | "dataVie
   const mappedType = expression.kind === NodeKind.Identifier
     ? activeLocalCppTypes.get((expression as Identifier).name)
     : null;
-  const name = type?.kind === AnalysisTypeKind.Named
+  const name = type instanceof NamedType
     ? type.name
     : declaredName
       ? parseTypeNameShape(declaredName).baseName
@@ -1365,13 +1379,13 @@ function nativeCollectionCppType(
     const arrayType = managedArrayCppTypeForExpression(argumentsList[0]!);
     const elementType = arrayType ? managedArrayElementType(arrayType) : null;
     const arrayAnalysisType = activeExpressionTypes.get(argumentsList[0]! as Node);
-    const analysisElementType = arrayAnalysisType?.kind === AnalysisTypeKind.Array
+    const analysisElementType = arrayAnalysisType instanceof ArrayType
       ? arrayAnalysisType.elementType
-      : arrayAnalysisType?.kind === AnalysisTypeKind.Named &&
+      : arrayAnalysisType instanceof NamedType &&
           (arrayAnalysisType.name === "Array" || arrayAnalysisType.name === "ReadonlyArray")
-        ? arrayAnalysisType.typeArguments?.[0]
+        ? namedTypeArgument(arrayAnalysisType, 0)
         : null;
-    const inferredElementType = elementType === "vexa::Value" && analysisElementType?.kind === AnalysisTypeKind.Builtin && analysisElementType.name === "object"
+    const inferredElementType = elementType === "vexa::Value" && analysisElementType instanceof BuiltinType && analysisElementType.name === "object"
       ? nativeWeakObjectKeyCppType
       : elementType;
     if (inferredElementType?.endsWith("*")) {
@@ -1412,7 +1426,7 @@ function emitNativeCollectionConstruction(call: CallExpression | NewExpression, 
       );
       const analysisType = activeExpressionTypes.get(call as Node);
       let inferred: string[] = [];
-      if (analysisType?.kind === AnalysisTypeKind.Named) {
+      if (analysisType instanceof NamedType) {
         const namedAnalysisType = analysisType as NamedType;
         inferred = (namedAnalysisType.typeArguments ?? []).map(
           (argument: AnalysisType): string => cppTypeForAnalysisType(argument) ?? "vexa::Value"
@@ -1429,8 +1443,8 @@ function emitNativeCollectionConstruction(call: CallExpression | NewExpression, 
     }
     const mappedTypes = cppTemplateArguments(mapped, `vexa::${name}Object<`);
     const analysisType = activeExpressionTypes.get(call as Node);
-    const inferred: string = analysisType?.kind === AnalysisTypeKind.Named
-      ? cppTypeForAnalysisType(analysisType.typeArguments?.[0] ?? builtinType("any")) ?? "vexa::Value"
+    const inferred: string = analysisType instanceof NamedType
+      ? cppTypeForAnalysisType(namedTypeArgument(analysisType, 0) ?? builtinType("any")) ?? "vexa::Value"
       : "vexa::Value";
     let selectedType: string = inferred;
     if (mappedTypes && mappedTypes.length > 0) selectedType = mappedTypes[0]!;
@@ -1453,7 +1467,7 @@ function emitNativeCollectionConstruction(call: CallExpression | NewExpression, 
 }
 
 function isRecordExpression(expression: Expr): boolean {
-  return activeExpressionTypes.get(expression as Node)?.kind === AnalysisTypeKind.Object || expression.kind === NodeKind.ObjectLiteral;
+  return activeExpressionTypes.get(expression as Node) instanceof ObjectType || expression.kind === NodeKind.ObjectLiteral;
 }
 
 function isGeneratorExpression(expression: Expr): boolean {
@@ -1462,7 +1476,7 @@ function isGeneratorExpression(expression: Expr): boolean {
     : null;
   if (emittedType?.startsWith("vexa::Generator<") || emittedType?.startsWith("vexa::AsyncGenerator<")) return true;
   const type = activeExpressionTypes.get(expression as Node);
-  if (type?.kind === AnalysisTypeKind.Named && (type.name === "Generator" || type.name === "AsyncGenerator")) return true;
+  if (type instanceof NamedType && (type.name === "Generator" || type.name === "AsyncGenerator")) return true;
   if (expression.kind !== NodeKind.CallExpression) return false;
   const call = expression as CallExpression;
   const functionName = identifierName(call.callee);
@@ -1532,14 +1546,14 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
   }
   const sourceType = activeExpressionTypes.get(expression as Node);
   const alreadyDynamicRecordMember = expression.kind === NodeKind.MemberExpression &&
-    activeExpressionTypes.get((expression as MemberExpression).object as Node)?.kind === AnalysisTypeKind.Object;
+    activeExpressionTypes.get((expression as MemberExpression).object as Node) instanceof ObjectType;
   if (resultType === "vexa::Value" &&
-      (sourceType?.kind === AnalysisTypeKind.Function || expression.kind === NodeKind.ArrowFunctionExpression || expression.kind === NodeKind.FunctionExpression) &&
+      (sourceType instanceof FunctionType || expression.kind === NodeKind.ArrowFunctionExpression || expression.kind === NodeKind.FunctionExpression) &&
       !alreadyDynamicRecordMember) {
     const callableExpression = expression.kind === NodeKind.ArrowFunctionExpression || expression.kind === NodeKind.FunctionExpression
       ? expression as ArrowFunctionExpression | FunctionExpression
       : null;
-    const functionType = sourceType?.kind === AnalysisTypeKind.Function ? sourceType as FunctionType : null;
+    const functionType = sourceType instanceof FunctionType ? sourceType as FunctionType : null;
     const callableResult = functionType
       ? cppTypeForAnalysisType(functionType.returnType) ?? "vexa::Value"
       : callableExpression
@@ -1938,7 +1952,7 @@ function callableExpressionResultCppType(
     if (mapped) return mapped;
   }
   const functionType = activeExpressionTypes.get(expression as Node);
-  if (functionType?.kind === AnalysisTypeKind.Function) {
+  if (functionType instanceof FunctionType) {
     const mapped = cppTypeForAnalysisType((functionType as FunctionType).returnType);
     if (mapped) return mapped;
   }
@@ -1980,7 +1994,7 @@ function callableExpressionResultCppType(
 
 function callbackResultCppType(expression: Expr): string | null {
   const analyzed = activeExpressionTypes.get(expression as Node);
-  if (analyzed?.kind === AnalysisTypeKind.Function) {
+  if (analyzed instanceof FunctionType) {
     const mapped = cppTypeForAnalysisType(analyzed.returnType);
     if (mapped) return mapped;
   }
@@ -2252,6 +2266,17 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
       : emittedCppTypeForExpression(binary.left);
     const right = emittedCppTypeForExpression(binary.right);
     const declaredLeft = cppTypeForExpression(binary.left);
+    if (binary.right.kind === NodeKind.NewExpression || binary.right.kind === NodeKind.CallExpression) {
+      const fallbackCall = binary.right as NewExpression | CallExpression;
+      const fallbackName = identifierName(fallbackCall.callee);
+      if (
+        fallbackName &&
+        new Set<NativeCollectionName>(["Map", "Set", "WeakMap", "WeakSet"]).has(fallbackName as NativeCollectionName) &&
+        declaredLeft.startsWith(`vexa::${fallbackName}Object<`)
+      ) {
+        return declaredLeft;
+      }
+    }
     if (binary.right.kind === NodeKind.ArrayLiteral && (binary.right as ArrayLiteral).elements.length === 0) {
       const contextualLeft = declaredLeft !== "auto" && declaredLeft !== "vexa::Value" ? declaredLeft : left;
       if (contextualLeft) return contextualLeft;
@@ -2632,7 +2657,7 @@ function emitAnalyzedCallArguments(call: CallExpression): string {
   const callable = activeExpressionTypes.get(call.callee as Node) ??
     activeCallableTypes.get(call.callee as Node) ??
     activeExpressionTypes.get(call as Node);
-  if (callable?.kind !== AnalysisTypeKind.Function) return emitCallArguments(call);
+  if (!(callable instanceof FunctionType)) return emitCallArguments(call);
   return call.args.map((argument, index) => {
     const value = argument.kind === NodeKind.NamedArgument ? (argument as NamedArgument).value : argument;
     const parameter = callable.parameters[index] ?? callable.parameters.at(-1);
@@ -2706,7 +2731,7 @@ function classNameForExpression(expression: Expr): string | null {
     if (interfaceStatement) return interfaceStatement.name.name;
   }
   const type = activeExpressionTypes.get(expression as Node);
-  return type?.kind === AnalysisTypeKind.Named && isNativeObjectTypeName(type.name)
+  return type instanceof NamedType && isNativeObjectTypeName(type.name)
     ? canonicalNativeObjectName(type.name)
     : null;
 }
@@ -3044,6 +3069,26 @@ function interfaceStatementForCppType(cppType: string | null): InterfaceStatemen
   return activeInterfaceStatementsByCppBase.get(base) ?? null;
 }
 
+function accessorValueCppType(
+  getter: ClassMethodMember | null,
+  setter: ClassMethodMember | null,
+  initialType: string | null
+): string | null {
+  if (initialType) return initialType;
+  if (getter?.returnType) {
+    const mapped = cppTypeForDeclaredName(getter.returnType.name);
+    if (mapped.length > 0) return mapped;
+  }
+  if (setter && setter.parameters.length > 0) {
+    const parameter = setter.parameters[0]!;
+    if (parameter.typeAnnotation) {
+      const mapped = cppTypeForDeclaredName(parameter.typeAnnotation.name);
+      if (mapped.length > 0) return mapped;
+    }
+  }
+  return null;
+}
+
 function classStatementForCppType(cppType: string | null): ClassStatement | null {
   if (!cppType?.endsWith("*")) return null;
   const pointee = cppType.slice(0, -1);
@@ -3145,15 +3190,7 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
     if (!statement || activeCurrentMethodStatic) return null;
     const getter = classGetterForName(statement, propertyName);
     const setter = classSetterForName(statement, propertyName);
-    let valueType = currentClassPropertyCppType(propertyName);
-    if (!valueType && getter?.returnType) {
-      const mapped = cppTypeForDeclaredName(getter.returnType.name);
-      if (mapped.length > 0) valueType = mapped;
-    }
-    if (!valueType && setter?.parameters[0]?.typeAnnotation) {
-      const mapped = cppTypeForDeclaredName(setter.parameters[0].typeAnnotation.name);
-      if (mapped.length > 0) valueType = mapped;
-    }
+    const valueType = accessorValueCppType(getter, setter, currentClassPropertyCppType(propertyName));
     return getter || setter
       ? new NativePropertyMember(
           "method",
@@ -3243,7 +3280,7 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
       member.computed ? member.property : undefined
     );
   }
-  if (activeExpressionTypes.get(member.object as Node)?.kind === AnalysisTypeKind.Object ||
+  if (activeExpressionTypes.get(member.object as Node) instanceof ObjectType ||
     cppTypeForExpression(member.object) === "vexa::RecordObject*" ||
     emittedCppTypeForExpression(member.object) === "vexa::RecordObject*") {
     if (!member.computed && !propertyName) return null;
@@ -3284,15 +3321,7 @@ function resolvedNativePropertyMember(expression: Expr): NativePropertyMember | 
   const getter = classGetterForName(statement, propertyName);
   const setter = classSetterForName(statement, propertyName);
   const storedType = classStoredPropertyInfo(statement, propertyName)?.valueType ?? null;
-  let valueType = storedType;
-  if (!valueType && getter?.returnType) {
-    const mapped = cppTypeForDeclaredName(getter.returnType.name);
-    if (mapped.length > 0) valueType = mapped;
-  }
-  if (!valueType && setter?.parameters[0]?.typeAnnotation) {
-    const mapped = cppTypeForDeclaredName(setter.parameters[0].typeAnnotation.name);
-    if (mapped.length > 0) valueType = mapped;
-  }
+  const valueType = accessorValueCppType(getter, setter, storedType);
   return getter || setter
     ? new NativePropertyMember(
         "method",
@@ -3422,7 +3451,7 @@ function emitPropertyAssignment(
     const assignedValue = expectedType
       ? emitExpressionWithExpectedCppType(assignment.right, expectedType)
       : (property.kind === "dynamic" || property.kind === "record") &&
-          (activeExpressionTypes.get(assignment.right as Node)?.kind === AnalysisTypeKind.Function ||
+          (activeExpressionTypes.get(assignment.right as Node) instanceof FunctionType ||
             assignment.right.kind === NodeKind.ArrowFunctionExpression ||
             assignment.right.kind === NodeKind.FunctionExpression)
         ? emitConvertedValue(assignment.right, "vexa::Value")
@@ -3814,11 +3843,11 @@ function emitNativeLambda(
   const receiverParameterName = receiverInfo
     ? `__vexa_receiver_${cppName(receiverInfo.label)}_${activeReceiverSymbolCounter++}`
     : null;
-  const receiverParameter = receiverParameterName
+  const receiverParameter = receiverParameterName !== null
     ? new FunctionParameter(new Identifier(receiverParameterName))
     : null;
   const valueParameters = receiverInfo?.implicitReceiverAlias ? parametersList.slice(1) : parametersList;
-  const effectiveParameters = receiverParameter
+  const effectiveParameters = receiverParameter !== null
     ? [receiverParameter, ...valueParameters]
     : parametersList;
   const capture = nativeLambdaCapture("__vexa_callback_self", true, nativeFunctionCaptureNames(expression));
@@ -3870,24 +3899,24 @@ function emitNativeLambda(
     parametersList[0]?.name.kind === NodeKind.Identifier
     ? (parametersList[0]!.name as Identifier).name
     : null;
-  if (receiverInfo && receiverParameterName) {
+  if (receiverInfo !== undefined && receiverParameterName !== null) {
     labeledReceiverName = `__vexa_labeled_receiver_${cppName(receiverInfo.label)}_${activeReceiverSymbolCounter++}`;
     activeReceiverLabels = new Map(previousReceiverLabels).set(receiverInfo.label, labeledReceiverName);
     const receiverCppType = cppTypeForAnalysisType(receiverInfo.receiverType) ?? "vexa::Value";
     activeLocalNames.add(labeledReceiverName);
     activeLocalCppTypes.set(labeledReceiverName, receiverCppType);
-    if (receiverCppType.endsWith("*") && receiverInfo.receiverType.kind === AnalysisTypeKind.Named) {
+    if (receiverCppType.endsWith("*") && receiverInfo.receiverType instanceof NamedType) {
       activeGcObjectTypes.set(labeledReceiverName, receiverInfo.receiverType.name);
     }
-    if (receiverInfo.receiverType.kind === AnalysisTypeKind.Named) {
+    if (receiverInfo.receiverType instanceof NamedType) {
       activeCurrentClassName = receiverInfo.receiverType.name;
       activeCurrentClassStatement = activeClassStatements.get(receiverInfo.receiverType.name) ?? null;
       activeCurrentMethodStatic = false;
     }
-    if (implicitReceiverAlias) {
+    if (implicitReceiverAlias !== null) {
       activeLocalNames.add(implicitReceiverAlias);
       activeLocalCppTypes.set(implicitReceiverAlias, receiverCppType);
-      if (receiverCppType.endsWith("*") && receiverInfo.receiverType.kind === AnalysisTypeKind.Named) {
+      if (receiverCppType.endsWith("*") && receiverInfo.receiverType instanceof NamedType) {
         activeGcObjectTypes.set(implicitReceiverAlias, receiverInfo.receiverType.name);
       }
     }
@@ -3903,10 +3932,10 @@ function emitNativeLambda(
   clearExpressionTypeCaches();
   try {
     const prefix = `${capture.text}(${parameters.text})${activeRuntimeName === "runtime" ? "" : " mutable"}${expectedResultType ? ` -> ${expectedResultType}` : ""}`;
-    const receiverPreamble = labeledReceiverName && receiverParameterName
+    const receiverPreamble = labeledReceiverName !== null && receiverParameterName !== null
       ? [`  auto ${labeledReceiverName} = ${receiverParameterName};`]
       : [];
-    if (implicitReceiverAlias && receiverParameterName) {
+    if (implicitReceiverAlias !== null && receiverParameterName !== null) {
       receiverPreamble.push(`  auto ${cppName(implicitReceiverAlias)} = ${receiverParameterName};`);
     }
     const destructuringPreamble = emitParameterDestructuring(parameters, "  ");
@@ -3965,7 +3994,7 @@ function emitAsyncNativeLambda(
     contextualTaskResult = contextualTaskResult.slice("vexa::Task<".length, -1);
   }
   const functionType = activeExpressionTypes.get(expression as Node);
-  const analyzedReturn = functionType?.kind === AnalysisTypeKind.Function ? (functionType as FunctionType).returnType : null;
+  const analyzedReturn = functionType instanceof FunctionType ? (functionType as FunctionType).returnType : null;
   const declaredReturn = expression.returnType ? cppTypeForDeclaredName(expression.returnType.name) : "";
   const taskType = declaredReturn.length > 0
     ? declaredReturn
@@ -4145,7 +4174,7 @@ function emitClassConstruction(
   const className = identifierName(callee);
   if (!className || !activeClassNames.has(className)) {
     throw new CppEmitError(
-      `C++ explicit construction does not support '${className ?? callee.kind}' yet${activeSourceFilePath ? ` in ${activeSourceFilePath}` : ""}`
+      `C++ explicit construction does not support '${className ?? String(callee.kind)}' yet${activeSourceFilePath ? ` in ${activeSourceFilePath}` : ""}`
     );
   }
   const classStatement = activeClassStatements.get(className)!;
@@ -4201,8 +4230,8 @@ function emitPromiseCall(call: CallExpression): string {
   }
 
   const promiseType = activeExpressionTypes.get(call as Node);
-  const valueType = promiseType?.kind === AnalysisTypeKind.Named && promiseType.name === "Promise"
-    ? cppTypeForAnalysisType(promiseType.typeArguments?.[0] ?? builtinType("unknown")) ?? "vexa::Value"
+  const valueType = promiseType instanceof NamedType && promiseType.name === "Promise"
+    ? cppTypeForAnalysisType(namedTypeArgument(promiseType, 0) ?? builtinType("unknown")) ?? "vexa::Value"
     : "vexa::Value";
   const parameterNames = executor.parameters.map((parameter) => (parameter.name as Identifier).name);
   const previousLocalNames = activeLocalNames;
@@ -4232,9 +4261,9 @@ function extensionReceiverNamesForExpression(expression: Expr): string[] {
     const className = classNameForExpression(expression);
     return className ? [className] : [];
   }
-  if (type?.kind === AnalysisTypeKind.Array || type?.kind === AnalysisTypeKind.Tuple) return ["Array"];
-  if (type?.kind === AnalysisTypeKind.Builtin) return type.name === "int" ? ["int", "number"] : [type.name];
-  if (type?.kind !== AnalysisTypeKind.Named) return [];
+  if (type instanceof ArrayType || type instanceof TupleType) return ["Array"];
+  if (type instanceof BuiltinType) return type.name === "int" ? ["int", "number"] : [type.name];
+  if (!(type instanceof NamedType)) return [];
   const names: string[] = [];
   const pending = [type.name];
   while (pending.length > 0) {
@@ -4282,11 +4311,11 @@ function extensionTemplateArguments(
   const bindings = new Map<string, string>();
   const receiverType = activeExpressionTypes.get(receiver as Node);
   const receiverParameters = statement.receiverTypeArguments ?? [];
-  const receiverArguments = receiverType?.kind === AnalysisTypeKind.Array || receiverType?.kind === AnalysisTypeKind.Tuple
-    ? [receiverType.kind === AnalysisTypeKind.Array
+  const receiverArguments = receiverType instanceof ArrayType || receiverType instanceof TupleType
+    ? [receiverType instanceof ArrayType
         ? receiverType.elementType
         : receiverType.elements[0] ?? builtinType("unknown")]
-    : receiverType?.kind === AnalysisTypeKind.Named
+    : receiverType instanceof NamedType
       ? receiverType.typeArguments ?? []
       : [];
   const emittedReceiverElement = managedArrayElementType(
@@ -4300,7 +4329,7 @@ function extensionTemplateArguments(
   }
   receiverParameters.forEach((parameter, index) => {
     const mapped = receiverArguments[index]
-      ? (receiverType?.kind === AnalysisTypeKind.Array || receiverType?.kind === AnalysisTypeKind.Tuple
+      ? (receiverType instanceof ArrayType || receiverType instanceof TupleType
           ? cppArrayElementType(receiverArguments[index]!)
           : cppTypeForAnalysisType(receiverArguments[index]!))
       : index === 0 ? emittedReceiverElement : null;
@@ -4443,13 +4472,13 @@ function methodTemplateBindings(
       : undefined;
     const analyzedArgumentType = activeExpressionTypes.get(argument as Node);
     if (callbackParameter && !bindings.has(callbackParameter.name.name)) {
-      if (analyzedArgumentType?.kind === AnalysisTypeKind.Function) {
+      if (analyzedArgumentType instanceof FunctionType) {
         const declaredResult = declaredTypeNameForExpression(argument);
-        const analyzedResult = analyzedArgumentType.returnType.kind === AnalysisTypeKind.Named
+        const analyzedResult = analyzedArgumentType.returnType instanceof NamedType
           ? analyzedArgumentType.returnType.name
-          : analyzedArgumentType.returnType.kind === AnalysisTypeKind.Builtin
+          : analyzedArgumentType.returnType instanceof BuiltinType
             ? analyzedArgumentType.returnType.name
-            : analyzedArgumentType.returnType.kind === AnalysisTypeKind.Literal
+            : analyzedArgumentType.returnType instanceof LiteralType
               ? analyzedArgumentType.returnType.base
             : null;
         bindings.set(
@@ -4660,8 +4689,8 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       const contextualValueType = activeExpectedExpressionCppType
         ? cppTemplateArguments(activeExpectedExpressionCppType, "vexa::Task<")?.[0]
         : null;
-      const valueType = contextualValueType ?? (promiseType?.kind === AnalysisTypeKind.Named && promiseType.name === "Promise"
-        ? cppTypeForAnalysisType(promiseType.typeArguments?.[0] ?? builtinType("unknown")) ?? "vexa::Value"
+      const valueType = contextualValueType ?? (promiseType instanceof NamedType && promiseType.name === "Promise"
+        ? cppTypeForAnalysisType(namedTypeArgument(promiseType, 0) ?? builtinType("unknown")) ?? "vexa::Value"
         : "vexa::Value");
       return `vexa::rejectedTask<${valueType}>(${activeRuntimeName}, ${emitExpression(call.args[0]!)})`;
     }
@@ -5190,7 +5219,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     return emitClassConstruction(call.callee, call.args, call);
   }
   const dynamicRecordCallable = call.callee.kind === NodeKind.MemberExpression &&
-    activeExpressionTypes.get((call.callee as MemberExpression).object as Node)?.kind === AnalysisTypeKind.Object;
+    activeExpressionTypes.get((call.callee as MemberExpression).object as Node) instanceof ObjectType;
   const resolvedCallableProperty: NativePropertyMember | null = call.callee.kind === NodeKind.MemberExpression
     ? resolvedNativePropertyMember(call.callee)
     : null;
@@ -5438,7 +5467,10 @@ function emitBinary(expression: BinaryExpression): string {
       const convertedLeft = leftType === "vexa::Value"
         ? left
         : emitConvertedValue(expression.left, "vexa::Value");
-      const coalesced = `vexa::nullishCoalesce(${convertedLeft}, [&]() { return ${emitConvertedValue(expression.right, "vexa::Value")}; })`;
+      const fallback = resultType && resultType !== "vexa::Value"
+        ? `vexa::convertValue<vexa::Value>(${emitExpressionWithExpectedCppType(expression.right, resultType)})`
+        : emitConvertedValue(expression.right, "vexa::Value");
+      const coalesced = `vexa::nullishCoalesce(${convertedLeft}, [&]() { return ${fallback}; })`;
       return resultType && resultType !== "vexa::Value"
         ? `vexa::convertValue<${resultType}>(${coalesced})`
         : coalesced;
@@ -6116,9 +6148,9 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         return getter(receiver);
       }
       const objectAnalysisType = activeExpressionTypes.get(member.object as Node);
-      const enumerableInterface = objectAnalysisType?.kind === AnalysisTypeKind.Named &&
+      const enumerableInterface = objectAnalysisType instanceof NamedType &&
         activeInterfaceNames.has(parseTypeNameShape(objectAnalysisType.name).baseName);
-      if (member.computed && (enumerableInterface || objectAnalysisType?.kind === AnalysisTypeKind.Object)) {
+      if (member.computed && (enumerableInterface || objectAnalysisType instanceof ObjectType)) {
         return `vexa::enumerableGet(${activeRuntimeName}, vexa::rawPointer(${emitExpression(member.object)}), vexa::propertyKey(${emitExpression(member.property)}))`;
       }
       const declaredObjectType = declaredTypeNameForExpression(member.object);
@@ -6916,10 +6948,10 @@ function callableReturnType(
   if (!returnType) {
     if (!containsValueReturn(body)) return "void";
     const inferred = activeCallableTypes.get(callableName as Node);
-    if (inferred?.kind === AnalysisTypeKind.Function) {
+    if (inferred instanceof FunctionType) {
       const inferredReturn = inferred.returnType;
-      if (inferredReturn.kind === AnalysisTypeKind.Named && inferredReturn.name === "Promise") {
-        const valueType = inferredReturn.typeArguments?.[0];
+      if (inferredReturn instanceof NamedType && inferredReturn.name === "Promise") {
+        const valueType = namedTypeArgument(inferredReturn, 0);
         return valueType ? cppTypeForAnalysisType(valueType) ?? "vexa::Value" : "vexa::Value";
       }
       const mapped = cppTypeForAnalysisType(inferredReturn);
@@ -6956,7 +6988,7 @@ function callableProducesTask(
 ): boolean {
   if (asyncLike || returnType?.name.startsWith("Promise<") || returnType?.name === "Promise") return true;
   const inferred = activeCallableTypes.get(callableName as Node);
-  if (inferred?.kind === AnalysisTypeKind.Function && inferred.returnType.kind === AnalysisTypeKind.Named && inferred.returnType.name === "Promise") {
+  if (inferred instanceof FunctionType && inferred.returnType instanceof NamedType && inferred.returnType.name === "Promise") {
     return true;
   }
   return Boolean(body && returnExpressions(body).some((expression) =>
@@ -6978,12 +7010,12 @@ function callableGeneratorInfo(
 ): CallableGeneratorInfo | null {
   if (!generator) return null;
   const callableType = activeCallableTypes.get(callableName as Node);
-  const analyzedReturn = callableType?.kind === AnalysisTypeKind.Function ? callableType.returnType : undefined;
+  const analyzedReturn = callableType instanceof FunctionType ? callableType.returnType : undefined;
   if (
-    analyzedReturn?.kind === AnalysisTypeKind.Named &&
+    analyzedReturn instanceof NamedType &&
     (analyzedReturn.name === "Generator" || analyzedReturn.name === "AsyncGenerator")
   ) {
-    const elementType = analyzedReturn.typeArguments?.[0];
+    const elementType = namedTypeArgument(analyzedReturn, 0);
     return {
       resultType: elementType ? cppTypeForAnalysisType(elementType) ?? "vexa::Value" : "vexa::Value",
       async: analyzedReturn.name === "AsyncGenerator",
@@ -7015,7 +7047,8 @@ function callableParameters(
   parameters: readonly FunctionParameter[],
   owner: Statement | undefined,
   allowDefaults = true,
-  allowInferredTypes = false
+  allowInferredTypes = false,
+  borrowedStringParameters: ReadonlySet<string> = new Set()
 ): CallableParameterInfo {
   const names: string[] = [];
   const gcTypes = new Map<string, string>();
@@ -7064,7 +7097,10 @@ function callableParameters(
     if (managedArrayElementType(type) !== null) gcArrayTypes.set(sourceName, type.slice(0, -1));
     if (type.endsWith("*")) pointerTypes.set(sourceName, type.slice(0, -1));
     if (type === "vexa::Value") dynamicNames.add(sourceName);
-    return `${type} ${cppName(sourceName)}`;
+    const declarationType = borrowedStringParameters.has(sourceName) && type === "std::u16string"
+      ? "const std::u16string&"
+      : type;
+    return `${declarationType} ${cppName(sourceName)}`;
   }).join(", ");
   return { text, names, gcTypes, gcArrayTypes, pointerTypes, dynamicNames, destructured };
 }
@@ -7088,6 +7124,24 @@ function injectBlockPreamble(block: string, lines: readonly string[]): string {
   return block.replace("{", `{\n${lines.join("\n")}\n`);
 }
 
+function nodeReassignsIdentifier(node: Node, name: string): boolean {
+  if (
+    node.kind === NodeKind.AssignmentExpression &&
+    (node as AssignmentExpression).left.kind === NodeKind.Identifier &&
+    ((node as AssignmentExpression).left as Identifier).name === name
+  ) {
+    return true;
+  }
+  if (
+    node.kind === NodeKind.UpdateExpression &&
+    (node as UpdateExpression).argument.kind === NodeKind.Identifier &&
+    ((node as UpdateExpression).argument as Identifier).name === name
+  ) {
+    return true;
+  }
+  return childNodes(node).some((child) => nodeReassignsIdentifier(child, name));
+}
+
 function callableSignature(
   name: Identifier,
   parameters: readonly FunctionParameter[],
@@ -7096,10 +7150,26 @@ function callableSignature(
   owner: Statement,
   taskResult: boolean,
   generatorInfo: CallableGeneratorInfo | null,
-  emittedName = name.name
+  emittedName = name.name,
+  borrowStringParameters = false
 ): string {
   const resultType = generatorInfo?.resultType ?? callableReturnType(returnType, body, owner, name, taskResult);
-  const parameterText = callableParameters(parameters, owner).text;
+  const borrowedStringParameterNames = new Set<string>();
+  if (borrowStringParameters && !taskResult && generatorInfo === null) {
+    for (const parameter of parameters) {
+      const parameterName = callableParameterName(parameter);
+      if (parameterName && !nodeReassignsIdentifier(body, parameterName)) {
+        borrowedStringParameterNames.add(parameterName);
+      }
+    }
+  }
+  const parameterText = callableParameters(
+    parameters,
+    owner,
+    true,
+    false,
+    borrowedStringParameterNames
+  ).text;
   const emittedResultType = generatorInfo
     ? `vexa::${generatorInfo.async ? "AsyncGenerator" : "Generator"}<${resultType}>`
     : taskResult
@@ -7427,7 +7497,8 @@ function functionSignature(statement: FunctionStatement): string {
       statement,
       generatorInfo ? false : callableProducesTask(statement.name, statement.returnType, asyncLike, statement.body),
       generatorInfo,
-      extensionCppName(statement)
+      extensionCppName(statement),
+      true
     );
     if (!statement.receiverType) return signature;
     const receiverType = extensionReceiverCppType(statement);
@@ -8101,7 +8172,8 @@ function emitClassMethodWithActiveTypeParameters(
     statement,
     producesTask,
     generatorInfo,
-    method.operator ? operatorMethodRuntimeName(method.operator, method.parameters) : method.name.name
+    method.operator ? operatorMethodRuntimeName(method.operator, method.parameters) : method.name.name,
+    method.accessModifier === "private"
   );
   const overridesBase = inheritedClassMethodForName(statement, method.name.name) !== null;
   const override = classImplementsMethod(statement, method.name.name) || overridesBase ? " override" : "";
@@ -8729,7 +8801,7 @@ function emitStatement(statement: Statement, indent = ""): string {
         }
         const emitted = emitConvertedValue(returned, activeCallableResultType);
         const returnedType = activeExpressionTypes.get(returned as Node);
-        const flattened = activeAsyncResultType && returnedType?.kind === AnalysisTypeKind.Named && returnedType.name === "Promise"
+        const flattened = activeAsyncResultType && returnedType instanceof NamedType && returnedType.name === "Promise"
           ? `(co_await ${emitted})`
           : emitted;
         return `${indent}throw vexa::ReturnSignal<${activeCallableResultType}>(${flattened});`;
@@ -9025,13 +9097,13 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeFunctionObjectCaptureNames = null;
   activeExpressionTypes = semantics.expressionTypes ?? new Map();
   activeHasExpressionTypes = activeExpressionTypes.size > 0;
-  activeImplicitReceiverIdentifiers = semantics.implicitReceiverIdentifiers ?? new Set();
+  activeImplicitReceiverIdentifiers = semantics.implicitReceiverIdentifiers ?? new Set<Node>();
   activeReceiverLambdas = semantics.receiverLambdas ?? new Map();
   activeReceiverLabels = new Map();
   activeReceiverSymbolCounter = 0;
   activeImplicitReceiverExtensionIdentifiers = semantics.implicitReceiverExtensionIdentifiers ?? new Map();
   activeStaticImplicitReceiverIdentifiers = semantics.staticImplicitReceiverIdentifiers ?? new Map();
-  activeAutoAwaitExpressions = semantics.autoAwaitExpressions ?? new Set();
+  activeAutoAwaitExpressions = semantics.autoAwaitExpressions ?? new Set<Node>();
   activeCallableTypes = semantics.callableTypes ?? new Map();
   activeOperatorResolutions = semantics.operatorResolutions ?? new Map();
   activeExtensionPropertyResolutions = semantics.extensionPropertyResolutions ?? new Map();

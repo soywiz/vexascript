@@ -1,4 +1,4 @@
-import { AnalysisTypeKind } from "./types";
+import { BuiltinType, LiteralType } from "./types";
 /**
  * Pure type-predicate helpers that classify AnalysisType values by their
  * built-in name or literal base. These functions have no dependency on
@@ -9,40 +9,40 @@ import type { AnalysisType } from "./types";
 export function isIntType(type: AnalysisType | null | undefined): boolean {
   if (!type) return false;
   return (
-    (type.kind === AnalysisTypeKind.Builtin && type.name === "int") ||
-    (type.kind === AnalysisTypeKind.Literal && type.base === "number" && Number.isInteger(type.value))
+    (type instanceof BuiltinType && type.name === "int") ||
+    (type instanceof LiteralType && type.base === "number" && Number.isInteger(type.value))
   );
 }
 
 export function isStringLikeType(type: AnalysisType | null | undefined): boolean {
   if (!type) return false;
   return (
-    (type.kind === AnalysisTypeKind.Builtin && type.name === "string") ||
-    (type.kind === AnalysisTypeKind.Literal && type.base === "string")
+    (type instanceof BuiltinType && type.name === "string") ||
+    (type instanceof LiteralType && type.base === "string")
   );
 }
 
 export function isBigIntType(type: AnalysisType | null | undefined): boolean {
   if (!type) return false;
-  return type.kind === AnalysisTypeKind.Builtin && type.name === "bigint";
+  return type instanceof BuiltinType && type.name === "bigint";
 }
 
 export function isLongType(type: AnalysisType | null | undefined): boolean {
   if (!type) return false;
-  return type.kind === AnalysisTypeKind.Builtin && type.name === "long";
+  return type instanceof BuiltinType && type.name === "long";
 }
 
 export function isNumberType(type: AnalysisType | null | undefined): boolean {
   if (!type) return false;
   return (
-    (type.kind === AnalysisTypeKind.Builtin && (type.name === "int" || type.name === "number")) ||
-    (type.kind === AnalysisTypeKind.Literal && type.base === "number")
+    (type instanceof BuiltinType && (type.name === "int" || type.name === "number")) ||
+    (type instanceof LiteralType && type.base === "number")
   );
 }
 
 export function isNumericType(type: AnalysisType | null | undefined): boolean {
   if (!type) return false;
-  return type.kind === AnalysisTypeKind.Builtin && type.name === "numeric";
+  return type instanceof BuiltinType && type.name === "numeric";
 }
 
 /**
@@ -56,12 +56,12 @@ export function isNumericFamilyType(type: AnalysisType | null | undefined): bool
 
 export function isNullishType(type: AnalysisType | null | undefined): boolean {
   if (!type) return false;
-  return type.kind === AnalysisTypeKind.Builtin && (type.name === "null" || type.name === "undefined");
+  return type instanceof BuiltinType && (type.name === "null" || type.name === "undefined");
 }
 
 export function isPrimitiveLikeOperatorType(type: AnalysisType | null | undefined): boolean {
   if (!type) return false;
-  if (type.kind === AnalysisTypeKind.Builtin) {
+  if (type instanceof BuiltinType) {
     return (
       type.name === "int" ||
       type.name === "number" ||
@@ -75,7 +75,7 @@ export function isPrimitiveLikeOperatorType(type: AnalysisType | null | undefine
       type.name === "undefined"
     );
   }
-  if (type.kind === AnalysisTypeKind.Literal) {
+  if (type instanceof LiteralType) {
     return true;
   }
   return false;

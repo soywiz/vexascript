@@ -1,4 +1,5 @@
 import { NodeKind } from "compiler/ast/ast";
+import { TokenType } from "compiler/parser/tokenizer";
 import type {
   BlockStatement,
   ClassMethodMember,
@@ -52,7 +53,7 @@ function findFunctionLikeAtPosition(ast: Program, position: Position): FunctionL
 
     const statementRange = nodeRange(returnStatement);
     const functionRange = nodeRange(node);
-    const shorthand = body.firstToken?.type === "symbol" && body.firstToken.value === "=>";
+    const shorthand = body.firstToken?.type === TokenType.SYMBOL && body.firstToken.value === "=>";
     const triggerRange = shorthand ? tokenRange(body.firstToken) : statementRange;
     if (!triggerRange || !functionRange) {
       return null;

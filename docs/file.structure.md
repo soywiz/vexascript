@@ -125,7 +125,7 @@ This section is the fast onboarding map for agents and contributors.
   - Compiler self-hosting orchestrator and script entrypoint: `cli/selfHost.ts` builds the TypeScript compiler with the source CLI, executes generated compilers from an isolated directory for two more roundtrips, and requires byte-stable output; `scripts/selfHostCompiler.ts` exposes it through `pnpm self-host`, `cli/selfHost.test.ts` verifies the third compiler against a normal fixture, and `docs/self-hosting.md` documents the contract.
   - Node-only dependency installer helpers used by CLI bundle/run/serve flows: `cli/deps.ts`
   - Node-only child-process helper used by CLI dependency installation and sample test setup: `cli/io.ts`
-  - Shared CLI build/runtime preparation helpers reused by `build`, `bundle`, `run`, and `serve`: `cli/cliShared.ts`
+  - Shared CLI build/runtime preparation helpers reused by `build`, `bundle`, `run`, and `serve`, with their replacement-safe data contract isolated from Node-only behavior: `cli/cliShared.ts`, `cli/model.ts`
   - Node-side JavaScript/package bundler used by the CLI `build --bundle` / `bundle` commands; transpiles remaining JS/CJS/ESM modules to per-module CommonJS wrappers, resolves local files plus `node_modules`, and emits one final ESM bundle without relying on esbuild: `cli/nodeModuleBundle.ts`
   - Node-only static dev server for the CLI `serve` command, including HTML bundle injection, project-config `serveMappings` file/directory aliases, SSE live reload, and dependency-aware rebundling watch: `cli/cliServe.ts`
   - VexaScript test-file discovery/orchestration and inline test helpers used by the CLI test command: `cli/testRunner.ts`

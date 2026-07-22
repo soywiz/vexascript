@@ -1,4 +1,4 @@
-import { AnalysisTypeKind } from "../analysis/types";
+import { ArrayType, NamedType, BuiltinType, UnionType, IntersectionType } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString, type AnalysisType } from "compiler/analysis/types";
@@ -47,20 +47,20 @@ function receiverTypeNamesForObjectType(objectType: AnalysisType): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
   const visit = (type: AnalysisType) => {
-    if (type.kind === AnalysisTypeKind.Array) {
+    if (type instanceof ArrayType) {
       pushReceiverTypeName(names, seen, "Array");
       return;
     }
-    if ((type.kind === AnalysisTypeKind.Named || type.kind === AnalysisTypeKind.Builtin) && type.name === "int") {
+    if ((type instanceof NamedType || type instanceof BuiltinType) && type.name === "int") {
       pushReceiverTypeName(names, seen, "int");
       pushReceiverTypeName(names, seen, "number");
       return;
     }
-    if (type.kind === AnalysisTypeKind.Named || type.kind === AnalysisTypeKind.Builtin) {
+    if (type instanceof NamedType || type instanceof BuiltinType) {
       pushReceiverTypeName(names, seen, type.name);
       return;
     }
-    if (type.kind === AnalysisTypeKind.Union || type.kind === AnalysisTypeKind.Intersection) {
+    if (type instanceof UnionType || type instanceof IntersectionType) {
       for (const memberType of type.types) {
         visit(memberType);
       }
@@ -287,7 +287,7 @@ export async function resolveDeclaredMemberDefinitionAcrossFiles(
 ): Promise<Location | null> {
   const structuralMember = parseObjectTypeMemberInfo(typeToString(objectType), memberName);
   const receiverTypeNames = receiverTypeNamesForObjectType(objectType);
-  const objectTypeName = objectType.kind === AnalysisTypeKind.Array
+  const objectTypeName = objectType instanceof ArrayType
     ? `Array<${typeToString(objectType.elementType)}>`
     : typeToString(objectType);
 
@@ -304,7 +304,7 @@ export async function resolveDeclaredMemberDefinitionAcrossFiles(
     }
   }
 
-  if (structuralMember && objectType.kind === AnalysisTypeKind.Named) {
+  if (structuralMember && objectType instanceof NamedType) {
     const typeAliasResolution = await resolveTypeAliasDefinitionAcrossFiles(context, objectType.name);
     if (typeAliasResolution) {
       const range = await fallbackTypeAliasMemberRangeInFile(

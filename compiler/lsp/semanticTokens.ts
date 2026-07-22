@@ -53,7 +53,7 @@ import type {
 } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { SourceRange, Token } from "compiler/parser/tokenizer";
-import { tokenize } from "compiler/parser/tokenizer";
+import { tokenize, TokenType } from "compiler/parser/tokenizer";
 import {
   type SemanticTokens,
   type SemanticTokensLegend
@@ -822,7 +822,7 @@ function sameRange(
 }
 
 function tokenTypeFromAnalysis(token: Token, analysis: Analysis): TokenTypeName | null {
-  if (token.type !== "identifier") {
+  if (token.type !== TokenType.IDENTIFIER) {
     return null;
   }
   const length = Math.max(1, token.range.end.column - token.range.start.column);
@@ -887,16 +887,16 @@ function classifyToken(
   identifierKinds: Map<string, TokenTypeName>,
   analysis?: Analysis | null
 ): TokenTypeName | null {
-  if (token.type === "number") {
+  if (token.type === TokenType.NUMBER) {
     return "number";
   }
-  if (token.type === "string" || token.type === "regexp") {
+  if (token.type === TokenType.STRING || token.type === TokenType.REGEXP) {
     return "string";
   }
-  if (token.type === "symbol") {
+  if (token.type === TokenType.SYMBOL) {
     return OPERATOR_SYMBOLS.has(token.value) ? "operator" : null;
   }
-  if (token.type !== "identifier") {
+  if (token.type !== TokenType.IDENTIFIER) {
     return null;
   }
   if (CONTROL_KEYWORDS.has(token.value)) {
@@ -941,7 +941,7 @@ export function createSemanticTokens(params: SemanticTokenParams): SemanticToken
   const builder = new SimpleSemanticTokensBuilder();
 
   for (const token of tokens) {
-    if (token.type === "eof") {
+    if (token.type === TokenType.END_OF_FILE) {
       continue;
     }
     if (!intersectsRange(token.range, params.range)) {

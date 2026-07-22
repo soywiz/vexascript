@@ -2,8 +2,8 @@
  * Pure type-manipulation helpers. All functions are stateless and depend only
  * on their parameters plus the shared AnalysisType algebra.
  */
-import type { AnalysisType } from "./types";
-import { AnalysisTypeKind, UNKNOWN_TYPE, builtinType, isSameType, literalType, unionType } from "./types";
+import { type AnalysisType, NamedType, UnionType, ArrayType, TupleType, RangeType } from "./types";
+import { UNKNOWN_TYPE, builtinType, isSameType, literalType, unionType } from "./types";
 import { isNullishType } from "./typeClassifiers";
 
 const ASYNC_ITERATOR_TYPE_NAMES = new Set([
@@ -34,7 +34,7 @@ export function combineTypes(types: AnalysisType[]): AnalysisType {
 
 /** Extracts `T` from `Promise<T>`, or returns null for non-Promise types. */
 export function unwrapPromiseType(type: AnalysisType): AnalysisType | null {
-  if (type.kind !== AnalysisTypeKind.Named || type.name !== "Promise") {
+  if (!(type instanceof NamedType) || type.name !== "Promise") {
     return null;
   }
   return type.typeArguments?.[0] ?? UNKNOWN_TYPE;
@@ -42,12 +42,12 @@ export function unwrapPromiseType(type: AnalysisType): AnalysisType | null {
 
 /** Returns true when the type is a union that contains at least one null or undefined member. */
 export function hasNullishUnionMember(type: AnalysisType): boolean {
-  return type.kind === AnalysisTypeKind.Union && type.types.some((member) => isNullishType(member));
+  return type instanceof UnionType && type.types.some((member) => isNullishType(member));
 }
 
 /** Strips null and undefined members from a union type, collapsing the result. */
 export function removeNullishFromType(type: AnalysisType): AnalysisType {
-  if (type.kind !== AnalysisTypeKind.Union) {
+  if (!(type instanceof UnionType)) {
     return type;
   }
   const nonNullishTypes = type.types.filter((member) => !isNullishType(member));
@@ -62,13 +62,13 @@ export function removeNullishFromType(type: AnalysisType): AnalysisType {
  * literals, tuples, and `Array<T>` generics; falls back to `unknown`.
  */
 export function spreadArgumentElementType(argumentType: AnalysisType): AnalysisType {
-  if (argumentType.kind === AnalysisTypeKind.Array) {
+  if (argumentType instanceof ArrayType) {
     return argumentType.elementType;
   }
-  if (argumentType.kind === AnalysisTypeKind.Tuple) {
+  if (argumentType instanceof TupleType) {
     return argumentType.elements.length === 1 ? argumentType.elements[0]! : unionType(argumentType.elements);
   }
-  if (argumentType.kind === AnalysisTypeKind.Named && argumentType.name === "Array" && argumentType.typeArguments?.[0]) {
+  if (argumentType instanceof NamedType && argumentType.name === "Array" && argumentType.typeArguments?.[0]) {
     return argumentType.typeArguments[0];
   }
   return UNKNOWN_TYPE;
@@ -76,13 +76,13 @@ export function spreadArgumentElementType(argumentType: AnalysisType): AnalysisT
 
 /** Returns the element type for an iterable type, or `unknown` when not iterable. */
 export function elementTypeFromIterable(type: AnalysisType): AnalysisType {
-  if (type.kind === AnalysisTypeKind.Array) {
+  if (type instanceof ArrayType) {
     return type.elementType;
   }
-  if (type.kind === AnalysisTypeKind.Range) {
+  if (type instanceof RangeType) {
     return type.elementType;
   }
-  if (type.kind === AnalysisTypeKind.Named && ITERABLE_TYPE_NAMES.has(type.name) && (type.typeArguments?.length ?? 0) >= 1) {
+  if (type instanceof NamedType && ITERABLE_TYPE_NAMES.has(type.name) && (type.typeArguments?.length ?? 0) >= 1) {
     return type.typeArguments![0]!;
   }
   return UNKNOWN_TYPE;
@@ -90,7 +90,7 @@ export function elementTypeFromIterable(type: AnalysisType): AnalysisType {
 
 /** Returns true when the type is an async iterator or async generator. */
 export function isAsyncIteratorType(type: AnalysisType): boolean {
-  return type.kind === AnalysisTypeKind.Named && ASYNC_ITERATOR_TYPE_NAMES.has(type.name);
+  return type instanceof NamedType && ASYNC_ITERATOR_TYPE_NAMES.has(type.name);
 }
 
 /**

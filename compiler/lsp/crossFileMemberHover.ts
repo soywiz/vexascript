@@ -1,4 +1,4 @@
-import { AnalysisTypeKind } from "../analysis/types";
+import { ArrayType, NamedType, BuiltinType } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
@@ -123,12 +123,12 @@ export async function resolveMemberHoverAcrossFiles(
     ? inferExtensionReturnTypeName(extensionMember.declaration, extensionMemberAnalysis)
     : null;
   const extensionDocumentation = extensionDocumentationValue(extensionMember);
-  const resolvedClassName = objectType.kind === AnalysisTypeKind.Array
+  const resolvedClassName = objectType instanceof ArrayType
     ? "Array"
-    : objectType.kind === AnalysisTypeKind.Named || objectType.kind === AnalysisTypeKind.Builtin
+    : objectType instanceof NamedType || objectType instanceof BuiltinType
       ? boxedPrimitiveTypeName(objectType.name)
       : null;
-  const objectTypeName = objectType.kind === AnalysisTypeKind.Array
+  const objectTypeName = objectType instanceof ArrayType
     ? `Array<${typeToString(objectType.elementType)}>`
     : typeToString(objectType);
   const primaryResolution = resolvedClassName

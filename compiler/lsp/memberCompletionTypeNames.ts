@@ -1,4 +1,4 @@
-import { AnalysisTypeKind } from "../analysis/types";
+import { UnionType, BuiltinType, NamedType, FunctionType } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName, parseTypeNameShape, splitTopLevelTypeText, stripEnclosingTypeParens } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
@@ -45,9 +45,9 @@ export function normalizeRecoveredReceiverType(
   node: Expr,
   expressionTypes: ReadonlyMap<import("compiler/ast/ast").Node, AnalysisType>
 ): string {
-  if (type.kind === AnalysisTypeKind.Union) {
+  if (type instanceof UnionType) {
     const nonNullish = type.types.filter((member) =>
-      !(member.kind === AnalysisTypeKind.Builtin && (member.name === "null" || member.name === "undefined"))
+      !(member instanceof BuiltinType && (member.name === "null" || member.name === "undefined"))
     );
     const narrowed = nonNullish.length > 0 ? nonNullish : type.types;
     if (narrowed.length === 1) {
@@ -55,7 +55,7 @@ export function normalizeRecoveredReceiverType(
     }
     return narrowed.map((member) => normalizeRecoveredReceiverType(member, node, expressionTypes)).join(" | ");
   }
-  if (type.kind === AnalysisTypeKind.Named && node.kind === NodeKind.CallExpression) {
+  if (type instanceof NamedType && node.kind === NodeKind.CallExpression) {
     const calleeType = expressionTypes.get((node as CallExpression).callee);
     const constraint = constraintForRecoveredTypeParameter(calleeType, type.name);
     if (constraint) {
@@ -72,12 +72,12 @@ function constraintForRecoveredTypeParameter(
   if (!calleeType) {
     return null;
   }
-  if (calleeType.kind === AnalysisTypeKind.Function) {
+  if (calleeType instanceof FunctionType) {
     return calleeType.typeParameterConstraints?.get(typeParameterName) ?? null;
   }
-  if (calleeType.kind === AnalysisTypeKind.Union) {
+  if (calleeType instanceof UnionType) {
     for (const member of calleeType.types) {
-      if (member.kind !== AnalysisTypeKind.Function) {
+      if (!(member instanceof FunctionType)) {
         continue;
       }
       const constraint = member.typeParameterConstraints?.get(typeParameterName);

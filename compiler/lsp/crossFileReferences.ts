@@ -1,4 +1,4 @@
-import { AnalysisTypeKind } from "../analysis/types";
+import { NamedType, ArrayType } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import type { Identifier } from "compiler/ast/ast";
 import type { Location } from "vscode-languageserver/node.js";
@@ -68,10 +68,10 @@ export async function resolveMemberReferencesAcrossFiles(
         continue;
       }
       const objectType = expressionTypes.get(member.object);
-      if (!objectType || (objectType.kind !== AnalysisTypeKind.Named && objectType.kind !== AnalysisTypeKind.Array)) {
+      if (!objectType || (!(objectType instanceof NamedType) && !(objectType instanceof ArrayType))) {
         continue;
       }
-      const objectClassName = objectType.kind === AnalysisTypeKind.Array ? "Array" : objectType.name;
+      const objectClassName = objectType instanceof ArrayType ? "Array" : objectType.name;
       if (objectClassName !== memberSymbol.className) {
         continue;
       }

@@ -1,7 +1,7 @@
-import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
+import { TokenType } from "compiler/parser/tokenizer";
 import type { Analysis } from "compiler/analysis/Analysis";
-import { type AnalysisType, type FunctionType, typeToString } from "compiler/analysis/types";
+import { type AnalysisType, FunctionType, typeToString, UnionType } from "compiler/analysis/types";
 import type {
   AnnotationApplication,
   AnnotationStatement,
@@ -117,14 +117,14 @@ function invocationContextForNode(
   }
 
   const closeToken = node.lastToken as {
-    type?: string;
+    type?: TokenType;
     value?: string;
     range: {
       start: { line: number; column: number };
       end: { line: number; column: number };
     };
   } | undefined;
-  if (closeToken?.type === "symbol" && closeToken.value === ")") {
+  if (closeToken?.type === TokenType.SYMBOL && closeToken.value === ")") {
     const closeParenEnd: Position = {
       line: closeToken.range.end.line,
       character: closeToken.range.end.column
@@ -183,7 +183,7 @@ function findAnnotationInvocationContext(program: Program, line: number, charact
 
 
 function toFunctionType(type: AnalysisType | undefined): FunctionType | null {
-  if (!type || type.kind !== AnalysisTypeKind.Function) {
+  if (!type || !(type instanceof FunctionType)) {
     return null;
   }
   return type;
@@ -198,7 +198,7 @@ function signatureInfosFromAnalysisType(
     return [];
   }
 
-  if (type.kind === AnalysisTypeKind.Function) {
+  if (type instanceof FunctionType) {
     return [signatureInfoFromResolved({
       name,
       parameters: type.parameters.map((parameter) => ({
@@ -212,7 +212,7 @@ function signatureInfosFromAnalysisType(
     })];
   }
 
-  if (type.kind === AnalysisTypeKind.Union) {
+  if (type instanceof UnionType) {
     const signatures = type.types.flatMap((candidate) => signatureInfosFromAnalysisType(name, candidate, documentation));
     return signatures;
   }

@@ -1,4 +1,5 @@
 import type { VexaProject } from "../../compiler/project";
+import type { BundledModuleArtifacts } from "../../cli/model";
 import { resolve } from "../../compiler/utils/path";
 import { vfs } from "../../compiler/vfs";
 import { runCommandCapture } from "./cliIo";
@@ -46,7 +47,7 @@ export async function createBundledModuleArtifacts(
   _project: unknown,
   _jsxOptions: unknown,
   _options?: unknown
-): Promise<any> {
+): Promise<BundledModuleArtifacts> {
   throw new Error("JavaScript bundling is not available in the native VexaScript CLI yet");
 }
 

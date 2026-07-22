@@ -1,4 +1,3 @@
-import { AnalysisTypeKind } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import type {
   ClassStatement,
@@ -29,12 +28,21 @@ import {
   renderAmbientInterfaceMemberDisplay,
   renderAmbientTypeAnnotationText
 } from "./ambientDisplay";
-import type { AnalysisType, ArrayType, ObjectType } from "compiler/analysis/types";
+import type { AnalysisType } from "compiler/analysis/types";
 import {
+  ArrayType,
   BUILTIN_TYPE_NAMES,
+  BuiltinType,
+  FunctionType,
+  IntersectionType,
+  LiteralType,
+  NamedType,
+  ObjectType,
+  TupleType,
+  UnionType,
+  UnknownType,
   arrayType,
   builtinType,
-  FunctionType,
   functionType,
   intersectionType,
   literalType,
@@ -768,7 +776,7 @@ function mapFunctionParameters(
     .map((parameter) => {
       const rawType = resolveType(parameter.typeAnnotation?.name);
       const isRest = parameter.rest === true;
-      const type = isRest && rawType.kind === AnalysisTypeKind.Array ? (rawType as ArrayType).elementType : rawType;
+      const type = isRest && rawType instanceof ArrayType ? (rawType as ArrayType).elementType : rawType;
       return {
         name: parameter.name.kind === NodeKind.Identifier ? (parameter.name as Identifier).name : "arg",
         type,
@@ -865,10 +873,10 @@ function mergeAmbientObjectProperties(
 }
 
 function ambientObjectProperties(type: AnalysisType): Record<string, AnalysisType> | null {
-  if (type.kind === AnalysisTypeKind.Object) {
+  if (type instanceof ObjectType) {
     return Object.fromEntries((type as ObjectType).properties);
   }
-  if (type.kind === AnalysisTypeKind.Intersection) {
+  if (type instanceof IntersectionType) {
     const merged: Record<string, AnalysisType> = {};
     let foundObject = false;
     for (const memberType of type.types) {
@@ -885,27 +893,27 @@ function ambientObjectProperties(type: AnalysisType): Record<string, AnalysisTyp
 }
 
 function ambientStringLiteralKeys(type: AnalysisType): string[] {
-  if (type.kind === AnalysisTypeKind.Literal && type.base === "string") {
+  if (type instanceof LiteralType && type.base === "string") {
     return [String(type.value)];
   }
-  if (type.kind === AnalysisTypeKind.Union) {
+  if (type instanceof UnionType) {
     return type.types.flatMap((member) => ambientStringLiteralKeys(member));
   }
   return [];
 }
 
 function ambientPropertyTypeWithUndefined(type: AnalysisType): AnalysisType {
-  return type.kind === AnalysisTypeKind.Union && type.types.some((member) => member.kind === AnalysisTypeKind.Builtin && member.name === "undefined")
+  return type instanceof UnionType && type.types.some((member) => member instanceof BuiltinType && member.name === "undefined")
     ? type
     : unionType([type, builtinType("undefined")]);
 }
 
 function ambientPropertyTypeWithoutUndefined(type: AnalysisType): AnalysisType {
-  if (type.kind !== AnalysisTypeKind.Union) {
+  if (!(type instanceof UnionType)) {
     return type;
   }
   const definedMembers = type.types.filter(
-    (member) => !(member.kind === AnalysisTypeKind.Builtin && member.name === "undefined")
+    (member) => !(member instanceof BuiltinType && member.name === "undefined")
   );
   if (definedMembers.length === 0 || definedMembers.length === type.types.length) {
     return type;
@@ -1290,30 +1298,30 @@ function ambientTypeAssignableForUtility(sourceType: AnalysisType, targetType: A
   if (typeToString(sourceType) === typeToString(targetType)) {
     return true;
   }
-  if (targetType.kind === AnalysisTypeKind.Builtin && targetType.name === "any") {
+  if (targetType instanceof BuiltinType && targetType.name === "any") {
     return true;
   }
-  if (sourceType.kind === AnalysisTypeKind.Builtin && sourceType.name === "never") {
+  if (sourceType instanceof BuiltinType && sourceType.name === "never") {
     return true;
   }
-  if (targetType.kind === AnalysisTypeKind.Builtin && targetType.name === "unknown") {
+  if (targetType instanceof BuiltinType && targetType.name === "unknown") {
     return true;
   }
-  if (targetType.kind === AnalysisTypeKind.Union) {
+  if (targetType instanceof UnionType) {
     return targetType.types.some((member) => ambientTypeAssignableForUtility(sourceType, member));
   }
-  if (sourceType.kind === AnalysisTypeKind.Union) {
+  if (sourceType instanceof UnionType) {
     return sourceType.types.every((member) => ambientTypeAssignableForUtility(member, targetType));
   }
-  if (sourceType.kind === AnalysisTypeKind.Literal) {
-    if (targetType.kind === AnalysisTypeKind.Literal) {
+  if (sourceType instanceof LiteralType) {
+    if (targetType instanceof LiteralType) {
       return sourceType.base === targetType.base && sourceType.value === targetType.value;
     }
-    if (targetType.kind === AnalysisTypeKind.Builtin && targetType.name === sourceType.base) {
+    if (targetType instanceof BuiltinType && targetType.name === sourceType.base) {
       return true;
     }
     if (
-      targetType.kind === AnalysisTypeKind.Builtin &&
+      targetType instanceof BuiltinType &&
       targetType.name === "int" &&
       sourceType.base === "number" &&
       Number.isInteger(sourceType.value)
@@ -1321,14 +1329,14 @@ function ambientTypeAssignableForUtility(sourceType: AnalysisType, targetType: A
       return true;
     }
   }
-  if (sourceType.kind === AnalysisTypeKind.Named && targetType.kind === AnalysisTypeKind.Named) {
+  if (sourceType instanceof NamedType && targetType instanceof NamedType) {
     return sourceType.name === targetType.name;
   }
   return false;
 }
 
 function ambientFilterUtilityType(sourceType: AnalysisType, targetType: AnalysisType, keepAssignable: boolean): AnalysisType {
-  if (sourceType.kind === AnalysisTypeKind.Union) {
+  if (sourceType instanceof UnionType) {
     const filtered = sourceType.types.filter((member) => ambientTypeAssignableForUtility(member, targetType) === keepAssignable);
     return combineTypes(filtered.length > 0 ? filtered : [builtinType("never")]);
   }
@@ -1338,7 +1346,7 @@ function ambientFilterUtilityType(sourceType: AnalysisType, targetType: Analysis
 }
 
 function ambientNonNullableUtilityType(sourceType: AnalysisType): AnalysisType {
-  if (sourceType.kind === AnalysisTypeKind.Builtin && (sourceType.name === "null" || sourceType.name === "undefined")) {
+  if (sourceType instanceof BuiltinType && (sourceType.name === "null" || sourceType.name === "undefined")) {
     return builtinType("never");
   }
   return removeNullishFromType(sourceType);
@@ -1349,12 +1357,12 @@ function ambientRecordUtilityType(keyType: AnalysisType, valueType: AnalysisType
   for (const key of ambientStringLiteralKeys(keyType)) {
     properties[key] = valueType;
   }
-  if (keyType.kind === AnalysisTypeKind.Builtin && (keyType.name === "string" || keyType.name === "number" || keyType.name === "symbol")) {
+  if (keyType instanceof BuiltinType && (keyType.name === "string" || keyType.name === "number" || keyType.name === "symbol")) {
     properties[`[${keyType.name}]`] = valueType;
   }
-  if (keyType.kind === AnalysisTypeKind.Union) {
+  if (keyType instanceof UnionType) {
     for (const member of keyType.types) {
-      if (member.kind === AnalysisTypeKind.Builtin && (member.name === "string" || member.name === "number" || member.name === "symbol")) {
+      if (member instanceof BuiltinType && (member.name === "string" || member.name === "number" || member.name === "symbol")) {
         properties[`[${member.name}]`] = valueType;
       }
     }
@@ -1363,12 +1371,12 @@ function ambientRecordUtilityType(keyType: AnalysisType, valueType: AnalysisType
 }
 
 function ambientReturnTypeUtility(sourceType: AnalysisType): AnalysisType | null {
-  if (sourceType.kind === AnalysisTypeKind.Function) {
+  if (sourceType instanceof FunctionType) {
     return sourceType.returnType;
   }
-  if (sourceType.kind === AnalysisTypeKind.Union) {
+  if (sourceType instanceof UnionType) {
     const returnTypes = sourceType.types
-      .filter((member): member is AnalysisType & { kind: AnalysisTypeKind.Function } => member.kind === AnalysisTypeKind.Function)
+      .filter((member): member is FunctionType => member instanceof FunctionType)
       .map((member) => member.returnType);
     return returnTypes.length > 0 ? combineTypes(returnTypes) : null;
   }
@@ -1376,12 +1384,12 @@ function ambientReturnTypeUtility(sourceType: AnalysisType): AnalysisType | null
 }
 
 function ambientParametersUtility(sourceType: AnalysisType): AnalysisType | null {
-  if (sourceType.kind === AnalysisTypeKind.Function) {
+  if (sourceType instanceof FunctionType) {
     return tupleType(sourceType.parameters.map((parameter) => parameter.type));
   }
-  if (sourceType.kind === AnalysisTypeKind.Union) {
+  if (sourceType instanceof UnionType) {
     const tuples = sourceType.types
-      .filter((member): member is AnalysisType & { kind: AnalysisTypeKind.Function } => member.kind === AnalysisTypeKind.Function)
+      .filter((member): member is FunctionType => member instanceof FunctionType)
       .map((member) => tupleType(member.parameters.map((parameter) => parameter.type)));
     return tuples.length > 0 ? combineTypes(tuples) : null;
   }
@@ -1389,14 +1397,14 @@ function ambientParametersUtility(sourceType: AnalysisType): AnalysisType | null
 }
 
 function ambientAwaitedUtilityType(sourceType: AnalysisType): AnalysisType {
-  if (sourceType.kind === AnalysisTypeKind.Union) {
+  if (sourceType instanceof UnionType) {
     return combineTypes(sourceType.types.map((member) => ambientAwaitedUtilityType(member)));
   }
-  if (sourceType.kind === AnalysisTypeKind.Builtin && (sourceType.name === "any" || sourceType.name === "unknown" || sourceType.name === "null" || sourceType.name === "undefined")) {
+  if (sourceType instanceof BuiltinType && (sourceType.name === "any" || sourceType.name === "unknown" || sourceType.name === "null" || sourceType.name === "undefined")) {
     return sourceType;
   }
   const unwrapped = unwrapPromiseType(sourceType)
-    ?? (sourceType.kind === AnalysisTypeKind.Named && sourceType.name === "PromiseLike" ? sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE : null);
+    ?? (sourceType instanceof NamedType && sourceType.name === "PromiseLike" ? sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE : null);
   return unwrapped ? ambientAwaitedUtilityType(unwrapped) : sourceType;
 }
 
@@ -1404,13 +1412,13 @@ function ambientStringTransformUtilityType(
   sourceType: AnalysisType,
   transform: (value: string) => string
 ): AnalysisType | null {
-  if (sourceType.kind === AnalysisTypeKind.Literal && sourceType.base === "string") {
+  if (sourceType instanceof LiteralType && sourceType.base === "string") {
     return literalType("string", transform(String(sourceType.value)));
   }
-  if (sourceType.kind === AnalysisTypeKind.Builtin && sourceType.name === "string") {
+  if (sourceType instanceof BuiltinType && sourceType.name === "string") {
     return builtinType("string");
   }
-  if (sourceType.kind === AnalysisTypeKind.Union) {
+  if (sourceType instanceof UnionType) {
     const members = sourceType.types
       .map((member) => ambientStringTransformUtilityType(member, transform))
       .filter((member): member is AnalysisType => member !== null);
@@ -1455,10 +1463,10 @@ function ambientInstanceTypeUtility(
 }
 
 function ambientThisParameterTypeUtility(sourceType: AnalysisType): AnalysisType {
-  if (sourceType.kind === AnalysisTypeKind.Union) {
+  if (sourceType instanceof UnionType) {
     return combineTypes(sourceType.types.map((member) => ambientThisParameterTypeUtility(member)));
   }
-  if (sourceType.kind !== AnalysisTypeKind.Function) {
+  if (!(sourceType instanceof FunctionType)) {
     return UNKNOWN_TYPE;
   }
   return sourceType.parameters[0]?.name === "this"
@@ -1467,13 +1475,13 @@ function ambientThisParameterTypeUtility(sourceType: AnalysisType): AnalysisType
 }
 
 function ambientOmitThisParameterUtility(sourceType: AnalysisType): AnalysisType | null {
-  if (sourceType.kind === AnalysisTypeKind.Union) {
+  if (sourceType instanceof UnionType) {
     const members = sourceType.types
       .map((member) => ambientOmitThisParameterUtility(member))
       .filter((member): member is AnalysisType => member !== null);
     return members.length > 0 ? combineTypes(members) : null;
   }
-  if (sourceType.kind !== AnalysisTypeKind.Function) {
+  if (!(sourceType instanceof FunctionType)) {
     return null;
   }
   if (sourceType.parameters[0]?.name !== "this") {
@@ -1496,7 +1504,7 @@ function ambientConstructSignatureForUtility(
   ambientGlobalDeclarations: readonly Statement[],
   visited: Set<string>
 ): FunctionType | null {
-  if (sourceType.kind === AnalysisTypeKind.Named) {
+  if (sourceType instanceof NamedType) {
     const classStatement =
       findAmbientClassStatement(declarations, sourceType.name)
       ?? findAmbientClassStatement(ambientGlobalDeclarations, sourceType.name);
@@ -1534,7 +1542,7 @@ function ambientConstructSignatureForUtility(
         const isRest = parameter.rest === true;
         return {
           name: parameter.name.kind === NodeKind.Identifier ? parameter.name.name : "arg",
-          type: isRest && rawType.kind === AnalysisTypeKind.Array ? (rawType as ArrayType).elementType : rawType,
+          type: isRest && rawType instanceof ArrayType ? (rawType as ArrayType).elementType : rawType,
           optional: parameter.optional === true || isRest,
           rest: isRest
         };
@@ -1542,14 +1550,14 @@ function ambientConstructSignatureForUtility(
       namedType(classStatement.name.name)
     );
   }
-  if (sourceType.kind === AnalysisTypeKind.Function) {
+  if (sourceType instanceof FunctionType) {
     return sourceType;
   }
-  if (sourceType.kind === AnalysisTypeKind.Object) {
+  if (sourceType instanceof ObjectType) {
     const constructorType = (sourceType as ObjectType).properties.get("constructor");
-    return constructorType?.kind === AnalysisTypeKind.Function ? constructorType : null;
+    return constructorType instanceof FunctionType ? constructorType : null;
   }
-  if (sourceType.kind === AnalysisTypeKind.Union) {
+  if (sourceType instanceof UnionType) {
     for (const member of sourceType.types) {
       const constructorType = ambientConstructSignatureForUtility(
         member,
@@ -1630,7 +1638,7 @@ function resolveAmbientTypeReference(
       ambientGlobalDeclarations,
       visited
     );
-    if (local.kind !== AnalysisTypeKind.Named || local.name !== typeName || (local.typeArguments?.length ?? 0) > 0) {
+    if (!(local instanceof NamedType) || local.name !== typeName || (local.typeArguments?.length ?? 0) > 0) {
       return local;
     }
     if (hasAmbientNamedTypeDeclaration(declarations, typeName)) {
@@ -1653,7 +1661,7 @@ function resolveAmbientTypeReference(
       visited
     );
     if (
-      fromNamespace.kind !== AnalysisTypeKind.Named
+      !(fromNamespace instanceof NamedType)
       || fromNamespace.name !== typeName
       || (fromNamespace.typeArguments?.length ?? 0) > 0
     ) {
@@ -1895,7 +1903,7 @@ function typeFromAmbientAnnotationText(
     );
     if (qualifiedImportedType) {
       resolvedBase = qualifiedImportedType;
-      let resolved: AnalysisType = resolvedBase.kind === AnalysisTypeKind.Named && resolvedTypeArguments.length > 0
+      let resolved: AnalysisType = resolvedBase instanceof NamedType && resolvedTypeArguments.length > 0
         ? namedType(resolvedBase.name, resolvedTypeArguments)
         : resolvedBase;
       for (let depth = 0; depth < parsed.arrayDepth; depth += 1) {
@@ -1971,7 +1979,7 @@ function typeFromAmbientAnnotationText(
     }
   }
 
-  let resolved: AnalysisType = resolvedBase.kind === AnalysisTypeKind.Named && resolvedTypeArguments.length > 0
+  let resolved: AnalysisType = resolvedBase instanceof NamedType && resolvedTypeArguments.length > 0
     ? namedType(resolvedBase.name, resolvedTypeArguments)
     : resolvedBase;
   for (let depth = 0; depth < parsed.arrayDepth; depth += 1) {
@@ -2025,10 +2033,10 @@ function ambientTemplateLiteralTypeFromText(
 }
 
 function ambientStringifiableTemplateLiteralValues(type: AnalysisType): string[] | null {
-  if (type.kind === AnalysisTypeKind.Literal) {
+  if (type instanceof LiteralType) {
     return [String(type.value)];
   }
-  if (type.kind === AnalysisTypeKind.Union) {
+  if (type instanceof UnionType) {
     const values: string[] = [];
     for (const member of type.types) {
       const memberValues = ambientStringifiableTemplateLiteralValues(member);
@@ -2039,7 +2047,7 @@ function ambientStringifiableTemplateLiteralValues(type: AnalysisType): string[]
     }
     return values;
   }
-  if (type.kind === AnalysisTypeKind.Builtin && (type.name === "string" || type.name === "number" || type.name === "boolean" || type.name === "bigint" || type.name === "long")) {
+  if (type instanceof BuiltinType && (type.name === "string" || type.name === "number" || type.name === "boolean" || type.name === "bigint" || type.name === "long")) {
     return null;
   }
   return null;
@@ -2064,7 +2072,7 @@ function ambientConditionalTypeFromText(
     ambientGlobalDeclarations,
     visited
   );
-  if (distributiveSource?.kind === AnalysisTypeKind.Union) {
+  if (distributiveSource instanceof UnionType) {
     return combineTypes(distributiveSource.types.map((member) =>
       ambientResolveConditionalBranch(
         conditional,
@@ -2188,17 +2196,17 @@ function ambientInferConditionalPatternSubstitutions(
   }
 
   const functionArgsInferMatch = /^\(\s*\.\.\.[^:]+:\s*infer\s+([A-Za-z_$][\w$]*)\s*\)\s*=>\s*any$/.exec(trimmed);
-  if (functionArgsInferMatch?.[1] && sourceType.kind === AnalysisTypeKind.Function) {
+  if (functionArgsInferMatch?.[1] && sourceType instanceof FunctionType) {
     return new Map([[functionArgsInferMatch[1], tupleType(sourceType.parameters.map((parameter) => parameter.type))]]);
   }
 
   const functionReturnInferMatch = /^\(\s*\.\.\.[^:]+:\s*any\s*\)\s*=>\s*infer\s+([A-Za-z_$][\w$]*)$/.exec(trimmed);
-  if (functionReturnInferMatch?.[1] && sourceType.kind === AnalysisTypeKind.Function) {
+  if (functionReturnInferMatch?.[1] && sourceType instanceof FunctionType) {
     return new Map([[functionReturnInferMatch[1], sourceType.returnType]]);
   }
 
   const functionInferMatch = parseFunctionTypeAnnotation(trimmed);
-  if (functionInferMatch && sourceType.kind === AnalysisTypeKind.Function) {
+  if (functionInferMatch && sourceType instanceof FunctionType) {
     const result = new Map<string, AnalysisType>();
     if (functionInferMatch.parameters.length === 1 && functionInferMatch.parameters[0]?.rest === true) {
       const parameterTypeName = functionInferMatch.parameters[0].typeName.trim();
@@ -2240,7 +2248,7 @@ function ambientInferConditionalPatternSubstitutions(
 
   const constructorParamsMatch = /^(?:abstract\s+)?new\s*\(\s*\.\.\.[^:]+:\s*infer\s+([A-Za-z_$][\w$]*)\s*\)\s*=>\s*any$/.exec(trimmed);
   if (constructorParamsMatch?.[1]) {
-    const constructorType = sourceType.kind === AnalysisTypeKind.Function ? sourceType : null;
+    const constructorType = sourceType instanceof FunctionType ? sourceType : null;
     return constructorType
       ? new Map([[constructorParamsMatch[1], tupleType(constructorType.parameters.map((parameter) => parameter.type))]])
       : null;
@@ -2248,7 +2256,7 @@ function ambientInferConditionalPatternSubstitutions(
 
   const constructorReturnMatch = /^(?:abstract\s+)?new\s*\(\s*\.\.\.[^:]+:\s*any\s*\)\s*=>\s*infer\s+([A-Za-z_$][\w$]*)$/.exec(trimmed);
   if (constructorReturnMatch?.[1]) {
-    const constructorType = sourceType.kind === AnalysisTypeKind.Function ? sourceType : null;
+    const constructorType = sourceType instanceof FunctionType ? sourceType : null;
     return constructorType
       ? new Map([[constructorReturnMatch[1], constructorType.returnType]])
       : null;
@@ -2272,26 +2280,26 @@ function ambientConstrainedInferSubstitution(
 }
 
 function ambientArrayElementTypeForInferPattern(sourceType: AnalysisType): AnalysisType | null {
-  if (sourceType.kind === AnalysisTypeKind.Array) {
+  if (sourceType instanceof ArrayType) {
     return sourceType.elementType;
   }
-  if (sourceType.kind === AnalysisTypeKind.Tuple) {
+  if (sourceType instanceof TupleType) {
     return sourceType.elements.length === 1 ? sourceType.elements[0]! : unionIfNeeded(sourceType.elements);
   }
-  if (sourceType.kind === AnalysisTypeKind.Named && (sourceType.name === "Array" || sourceType.name === "ReadonlyArray")) {
+  if (sourceType instanceof NamedType && (sourceType.name === "Array" || sourceType.name === "ReadonlyArray")) {
     return sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE;
   }
   return null;
 }
 
 function ambientGenericInferTypeArgument(sourceType: AnalysisType, genericName: string): AnalysisType | null {
-  if (sourceType.kind === AnalysisTypeKind.Array && (genericName === "Array" || genericName === "ReadonlyArray")) {
+  if (sourceType instanceof ArrayType && (genericName === "Array" || genericName === "ReadonlyArray")) {
     return sourceType.elementType;
   }
-  if (sourceType.kind === AnalysisTypeKind.Tuple && (genericName === "Array" || genericName === "ReadonlyArray")) {
+  if (sourceType instanceof TupleType && (genericName === "Array" || genericName === "ReadonlyArray")) {
     return sourceType.elements.length === 1 ? sourceType.elements[0]! : unionIfNeeded(sourceType.elements);
   }
-  if (sourceType.kind !== AnalysisTypeKind.Named || sourceType.name !== genericName) {
+  if (!(sourceType instanceof NamedType) || sourceType.name !== genericName) {
     return null;
   }
   return sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE;
@@ -2664,7 +2672,7 @@ function resolveAmbientDefaultImportType(
         ambientGlobalDeclarations
       );
       if (Object.keys(namespaceExports).length > 0) {
-        return callableExport?.kind === AnalysisTypeKind.Function
+        return callableExport instanceof FunctionType
           ? intersectionType([callableExport, objectTypeWithProperties(namespaceExports)])
           : objectTypeWithProperties(namespaceExports);
       }
@@ -2685,8 +2693,8 @@ function resolveAmbientDefaultImportType(
         ambientModuleDeclarations,
         ambientGlobalDeclarations
       );
-      if (resolvedType.kind !== AnalysisTypeKind.Unknown) {
-        const resolved = callableExport?.kind === AnalysisTypeKind.Function
+      if (!(resolvedType instanceof UnknownType)) {
+        const resolved = callableExport instanceof FunctionType
           ? intersectionType([callableExport, resolvedType])
           : resolvedType;
         resolutionCache.defaultImportTypes.set(importName, resolved);
@@ -2834,7 +2842,7 @@ export function resolveAmbientNamedImportType(
     }
 
     const direct = extractDirectTypeForName(decls, symbolName);
-    if (direct && direct.kind !== AnalysisTypeKind.Function) {
+    if (direct && !(direct instanceof FunctionType)) {
       resolutionCache.namedImportTypes.set(cacheKey, direct);
       return direct;
     }

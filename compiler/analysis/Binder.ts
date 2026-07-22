@@ -34,8 +34,7 @@ import type {
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import {
-  AnalysisTypeKind,
-  arrayType,
+    arrayType,
   builtinType,
   functionType,
   isSameType,
@@ -45,7 +44,7 @@ import {
   typeToString,
   UNKNOWN_TYPE,
   unionType,
-  BUILTIN_TYPE_NAMES
+  BUILTIN_TYPE_NAMES, UnionType, FunctionType, NamedType
 } from "./types";
 import { parseFunctionTypeAnnotation, parseTypeNameShape, splitArraySuffixTypeName, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, tupleElementTypeText } from "./typeNames";
 import type { AnalysisType, BuiltinTypeName, FunctionTypeParameter } from "./types";
@@ -219,9 +218,9 @@ export class Binder {
     }
     if (existing?.kind === "function" && symbol.kind === "function" && existing.type && symbol.type) {
       const existingTypes: AnalysisType[] = [];
-      if (existing.type.kind === AnalysisTypeKind.Union) existingTypes.push(...existing.type.types);
+      if (existing.type instanceof UnionType) existingTypes.push(...existing.type.types);
       else existingTypes.push(existing.type);
-      if (existingTypes.some((existingType) => existingType.kind === AnalysisTypeKind.Function && isSameType(existingType, symbol.type!))) {
+      if (existingTypes.some((existingType) => existingType instanceof FunctionType && isSameType(existingType, symbol.type!))) {
         this.issues.push({
           message: `Duplicate function signature for '${symbol.name}'`,
           node: symbol.node
@@ -236,7 +235,7 @@ export class Binder {
     if (
       existing?.kind === "function" &&
       symbol.kind === "class" &&
-      symbol.type?.kind === AnalysisTypeKind.Named &&
+      symbol.type instanceof NamedType &&
       symbol.type.name === symbol.name
     ) {
       return;
@@ -267,7 +266,7 @@ export class Binder {
     for (const facade of this.collectAmbientNamespaceExportFacades(statements)) {
       this.declare(scope, {
         name: facade.name.name,
-        kind: facade.type.kind === AnalysisTypeKind.Function ? "function" : "variable",
+        kind: facade.type instanceof FunctionType ? "function" : "variable",
         node: facade.name,
         type: facade.type,
         valueType: typeToString(facade.type)
@@ -289,7 +288,7 @@ export class Binder {
           const resolvedType = this.importedSymbolType(importStatement.defaultImport.name);
           this.declare(scope, {
             name: importStatement.defaultImport.name,
-            kind: resolvedType.kind === AnalysisTypeKind.Function ? "function" : "variable",
+            kind: resolvedType instanceof FunctionType ? "function" : "variable",
             node: importStatement.defaultImport,
             type: resolvedType,
             valueType: this.importedSymbolValueType(importStatement.defaultImport.name, resolvedType)
@@ -299,7 +298,7 @@ export class Binder {
           const resolvedType = this.importedSymbolType(importStatement.namespaceImport.name);
           this.declare(scope, {
             name: importStatement.namespaceImport.name,
-            kind: resolvedType.kind === AnalysisTypeKind.Function ? "function" : "variable",
+            kind: resolvedType instanceof FunctionType ? "function" : "variable",
             node: importStatement.namespaceImport,
             type: resolvedType,
             valueType: this.importedSymbolValueType(importStatement.namespaceImport.name, resolvedType)
@@ -313,7 +312,7 @@ export class Binder {
           const resolvedType = this.importedSymbolType(local.name);
           this.declare(scope, {
             name: local.name,
-            kind: resolvedType.kind === AnalysisTypeKind.Function ? "function" : "variable",
+            kind: resolvedType instanceof FunctionType ? "function" : "variable",
             node: local,
             type: resolvedType,
             valueType: this.importedSymbolValueType(local.name, resolvedType)
@@ -1043,9 +1042,9 @@ export class Binder {
         const existingMethod = scope.symbols.get(fn.name.name);
         if (existingMethod?.kind === "method" && existingMethod.type) {
           const existingTypes: AnalysisType[] = [];
-          if (existingMethod.type.kind === AnalysisTypeKind.Union) existingTypes.push(...existingMethod.type.types);
+          if (existingMethod.type instanceof UnionType) existingTypes.push(...existingMethod.type.types);
           else existingTypes.push(existingMethod.type);
-          if (!existingTypes.some((t) => t.kind === AnalysisTypeKind.Function && isSameType(t, methodType))) {
+          if (!existingTypes.some((t) => t instanceof FunctionType && isSameType(t, methodType))) {
             existingMethod.type = unionType([...existingTypes, methodType]);
             existingMethod.valueType = typeToString(existingMethod.type);
           }
@@ -1143,9 +1142,9 @@ export class Binder {
       const existingMethod = scope.symbols.get(method.name.name);
       if (existingMethod?.kind === "method" && existingMethod.type) {
         const existingTypes: AnalysisType[] = [];
-        if (existingMethod.type.kind === AnalysisTypeKind.Union) existingTypes.push(...existingMethod.type.types);
+        if (existingMethod.type instanceof UnionType) existingTypes.push(...existingMethod.type.types);
         else existingTypes.push(existingMethod.type);
-        if (!existingTypes.some((t) => t.kind === AnalysisTypeKind.Function && isSameType(t, methodType))) {
+        if (!existingTypes.some((t) => t instanceof FunctionType && isSameType(t, methodType))) {
           const mergedType = unionType([...existingTypes, methodType]);
           existingMethod.type = mergedType;
           existingMethod.valueType = typeToString(mergedType);
@@ -1385,13 +1384,13 @@ export class Binder {
   private effectiveReturnType(rawReturnType: AnalysisType, isAsyncLike: boolean, isGenerator: boolean = false): AnalysisType {
     if (isGenerator) {
       const wrapperName = isAsyncLike ? "AsyncGenerator" : "Generator";
-      if (rawReturnType.kind === AnalysisTypeKind.Named && (rawReturnType.name === "AsyncGenerator" || rawReturnType.name === "Generator" || rawReturnType.name === "AsyncIterator" || rawReturnType.name === "Iterator")) {
+      if (rawReturnType instanceof NamedType && (rawReturnType.name === "AsyncGenerator" || rawReturnType.name === "Generator" || rawReturnType.name === "AsyncIterator" || rawReturnType.name === "Iterator")) {
         return rawReturnType;
       }
       return namedType(wrapperName, [rawReturnType]);
     }
     if (!isAsyncLike) return rawReturnType;
-    if (rawReturnType.kind === AnalysisTypeKind.Named && rawReturnType.name === "Promise") return rawReturnType;
+    if (rawReturnType instanceof NamedType && rawReturnType.name === "Promise") return rawReturnType;
     return namedType("Promise", [rawReturnType]);
   }
 

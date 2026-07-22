@@ -1,6 +1,7 @@
 import "./localVfs";
 import type { Statement } from "../compiler/ast/ast";
-import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
+import type { TranspileTarget } from "../compiler/runtime/transpile";
+import type { BundledModuleArtifacts } from "./model";
 import { dirname, resolve } from "../compiler/utils/path";
 import { loadProject, type VexaProject } from "../compiler/project";
 import { vfs } from "../compiler/vfs";
@@ -95,14 +96,6 @@ export async function ensureRuntimeDependencies(sourcePath: string, project: Vex
   if (pkgDeps && Object.keys(pkgDeps).length > 0) {
     await ensureDependencies(sourceDir, pkgDeps);
   }
-}
-
-export interface BundledModuleArtifacts {
-  code: string;
-  warnings: string[];
-  errors: string[];
-  diagnostics: TranspileDiagnostic[];
-  watchedFiles: string[];
 }
 
 export async function createBundledModuleArtifacts(

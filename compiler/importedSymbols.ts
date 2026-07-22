@@ -56,7 +56,7 @@ export function normalizeImportedSymbolSources(sources: ImportedSymbolSources = 
     ? new Map(sources.importedSymbols)
     : new Map<string, ImportedSymbolResolution>();
 
-  for (const localName of sources.invalidImportedBindings ?? new Set()) {
+  for (const localName of sources.invalidImportedBindings ?? new Set<string>()) {
     const resolution = getImportedSymbolResolution(importedSymbols, localName);
     if (!resolution.type && !resolution.displayType && !resolution.declarationOrigin) {
       resolution.invalid = true;

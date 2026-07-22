@@ -1,4 +1,5 @@
 import { NodeKind } from "compiler/ast/ast";
+import { TokenType } from "compiler/parser/tokenizer";
 import type { ClassFieldMember, ClassMethodMember, Program } from "compiler/ast/ast";
 import type { CodeAction, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
@@ -38,7 +39,7 @@ function findClassMemberKeywordFix(ast: Program, position: Position): MemberKeyw
 }
 
 function buildMethodKeywordFix(member: ClassMethodMember): MemberKeywordFix | null {
-  const firstTokenValue = member.firstToken?.type === "identifier" ? member.firstToken.value : null;
+  const firstTokenValue = member.firstToken?.type === TokenType.IDENTIFIER ? member.firstToken.value : null;
 
   if (firstTokenValue && VARIABLE_MEMBER_KEYWORDS.has(firstTokenValue)) {
     return null;

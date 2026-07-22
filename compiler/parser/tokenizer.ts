@@ -16,7 +16,26 @@ export class SourceRange {
   ) {}
 }
 
-export type TokenType = "identifier" | "number" | "string" | "regexp" | "symbol" | "jsxText" | "eof";
+export const enum TokenType {
+  IDENTIFIER,
+  NUMBER,
+  STRING,
+  REGEXP,
+  SYMBOL,
+  JSX_TEXT,
+  END_OF_FILE
+}
+
+const TOKEN_TYPE_NAMES = ["identifier", "number", "string", "regexp", "symbol", "jsxText", "eof"] as const;
+
+export function tokenTypeName(type: TokenType): string {
+  return TOKEN_TYPE_NAMES[type];
+}
+
+export const enum TokenCommentKind {
+  LINE,
+  BLOCK
+}
 
 export class Token {
   constructor(
@@ -30,7 +49,7 @@ export class Token {
 
 export class TokenComment {
   constructor(
-    public kind: "line" | "block",
+    public kind: TokenCommentKind,
     public value: string,
     public range: SourceRange
   ) {}
@@ -153,13 +172,13 @@ function readLineComment(reader: StrReader): TokenComment {
   while (reader.hasMore) {
     if (reader.peekCode() === 10) {
       const end = snapshot(reader);
-      return new TokenComment("line", reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
+      return new TokenComment(TokenCommentKind.LINE, reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
     }
     advanceCode(reader);
   }
 
   const end = snapshot(reader);
-  return new TokenComment("line", reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
+  return new TokenComment(TokenCommentKind.LINE, reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
 }
 
 function readShebangLine(reader: StrReader): TokenComment | null {
@@ -172,13 +191,13 @@ function readShebangLine(reader: StrReader): TokenComment | null {
   while (reader.hasMore) {
     if (reader.peekCode() === 10) {
       const end = snapshot(reader);
-      return new TokenComment("line", reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
+      return new TokenComment(TokenCommentKind.LINE, reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
     }
     advanceCode(reader);
   }
 
   const end = snapshot(reader);
-  return new TokenComment("line", reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
+  return new TokenComment(TokenCommentKind.LINE, reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
 }
 
 function readBlockComment(reader: StrReader, start: SourcePosition): TokenComment {
@@ -193,7 +212,7 @@ function readBlockComment(reader: StrReader, start: SourcePosition): TokenCommen
       advanceCode(reader);
       advanceCode(reader);
       const end = snapshot(reader);
-      return new TokenComment("block", reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
+      return new TokenComment(TokenCommentKind.BLOCK, reader.str.slice(startOffset, reader.offset), sourceRange(start, end));
     }
     advanceCode(reader);
   }
@@ -221,10 +240,10 @@ function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
   if (!previousToken) {
     return true;
   }
-  if (previousToken.type === "eof") {
+  if (previousToken.type === TokenType.END_OF_FILE) {
     return true;
   }
-  if (previousToken.type === "identifier") {
+  if (previousToken.type === TokenType.IDENTIFIER) {
     switch (previousToken.value) {
       case "return":
       case "throw":
@@ -245,7 +264,7 @@ function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
         return false;
     }
   }
-  if (previousToken.type === "symbol") {
+  if (previousToken.type === TokenType.SYMBOL) {
     switch (previousToken.value) {
       case "(":
       case "{":
@@ -591,7 +610,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
     fragments.push(fragment);
   };
   const pushSymbol = (value: string, position: SourcePosition): void => {
-    pushFragment(new TokenFragment("symbol", value, syntheticRangeAt(position)));
+    pushFragment(new TokenFragment(TokenType.SYMBOL, value, syntheticRangeAt(position)));
   };
 
   const pushLiteralString = (
@@ -599,7 +618,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
     literalStart: SourcePosition,
     literalEnd: SourcePosition
   ): void => {
-    pushFragment(new TokenFragment("string", value, sourceRange(literalStart, literalEnd)));
+    pushFragment(new TokenFragment(TokenType.STRING, value, sourceRange(literalStart, literalEnd)));
   };
 
   const pushPlusIfNeeded = (position: SourcePosition): void => {
@@ -693,7 +712,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
       pushSymbol("(", interpolationOpen);
 
       let interpolationPendingComments: TokenComment[] = [];
-      let interpolationPreviousToken: Token | undefined = new Token("symbol", "(", -1, syntheticRangeAt(interpolationOpen));
+      let interpolationPreviousToken: Token | undefined = new Token(TokenType.SYMBOL, "(", -1, syntheticRangeAt(interpolationOpen));
       let depth = 1;
       while (reader.hasMore) {
         const interpolationCode = reader.peekCode();
@@ -714,7 +733,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
           depth += 1;
           advanceCode(reader);
           pushFragment(new TokenFragment(
-            "symbol",
+            TokenType.SYMBOL,
             "{",
             sourceRange(tokenStart, snapshot(reader)),
             interpolationPendingComments.length > 0 ? interpolationPendingComments : undefined
@@ -731,7 +750,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
           }
           advanceCode(reader);
           pushFragment(new TokenFragment(
-            "symbol",
+            TokenType.SYMBOL,
             "}",
             sourceRange(tokenStart, snapshot(reader)),
             interpolationPendingComments.length > 0 ? interpolationPendingComments : undefined
@@ -750,10 +769,10 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
           peekNextCode(reader) !== CODE_EQUALS &&
           tokenAllowsRegExpLiteral(interpolationPreviousToken)
         ) {
-          type = "regexp";
+          type = TokenType.REGEXP;
           value = readRegExpLiteral(reader, tokenStart);
         } else if (interpolationCode === CODE_DOUBLE_QUOTE || interpolationCode === CODE_SINGLE_QUOTE) {
-          type = "string";
+          type = TokenType.STRING;
           value = readEscapedString(reader, interpolationCode, tokenStart);
         } else if (interpolationCode === CODE_BACKTICK) {
           const nestedFragments = readTemplateAsConcatenation(reader, tokenStart);
@@ -777,16 +796,16 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
           }
           continue;
         } else if (isIdentifierStartCode(interpolationCode)) {
-          type = "identifier";
+          type = TokenType.IDENTIFIER;
           value = readIdentifier(reader);
         } else if (
           isDigitCode(interpolationCode) ||
           (interpolationCode === CODE_DOT && isDigitCode(peekNextCode(reader)))
         ) {
-          type = "number";
+          type = TokenType.NUMBER;
           value = readNumber(reader);
         } else {
-          type = "symbol";
+          type = TokenType.SYMBOL;
           value = readSymbol(reader);
         }
 
@@ -1006,19 +1025,19 @@ function readNonTemplateCodeFragment(
     peekNextCode(reader) !== CODE_EQUALS &&
     tokenAllowsRegExpLiteral(previousSignificantToken)
   ) {
-    type = "regexp";
+    type = TokenType.REGEXP;
     value = readRegExpLiteral(reader, start);
   } else if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
-    type = "string";
+    type = TokenType.STRING;
     value = readEscapedString(reader, code, start);
   } else if (isIdentifierStartCode(code)) {
-    type = "identifier";
+    type = TokenType.IDENTIFIER;
     value = readIdentifier(reader);
   } else if (isDigitCode(code) || (code === CODE_DOT && isDigitCode(peekNextCode(reader)))) {
-    type = "number";
+    type = TokenType.NUMBER;
     value = readNumber(reader);
   } else {
-    type = "symbol";
+    type = TokenType.SYMBOL;
     value = readSymbol(reader);
   }
   return new TokenFragment(type, value, sourceRange(start, snapshot(reader)));
@@ -1049,7 +1068,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
   };
 
   const pushSymbol = (value: string, start: SourcePosition): void => {
-    pushFragment(new TokenFragment("symbol", value, sourceRange(start, snapshot(reader))));
+    pushFragment(new TokenFragment(TokenType.SYMBOL, value, sourceRange(start, snapshot(reader))));
   };
 
   const skipInlineWhitespace = (): void => {
@@ -1071,7 +1090,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       }
       break;
     }
-    pushFragment(new TokenFragment("identifier", value, sourceRange(start, snapshot(reader))));
+    pushFragment(new TokenFragment(TokenType.IDENTIFIER, value, sourceRange(start, snapshot(reader))));
   };
 
   // Reads a (possibly dotted) JSX tag name such as `div` or `Foo.Bar`.
@@ -1173,7 +1192,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         if (valueCode === CODE_DOUBLE_QUOTE || valueCode === CODE_SINGLE_QUOTE) {
           const stringStart = snapshot(reader);
           const value = readEscapedString(reader, valueCode, stringStart);
-          pushFragment(new TokenFragment("string", value, sourceRange(stringStart, snapshot(reader))));
+          pushFragment(new TokenFragment(TokenType.STRING, value, sourceRange(stringStart, snapshot(reader))));
         } else if (valueCode === CODE_LBRACE) {
           readJsxExpressionContainer();
         } else {
@@ -1216,7 +1235,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         text += String.fromCharCode(advanceCode(reader));
       }
       if (text.length > 0) {
-        pushFragment(new TokenFragment("jsxText", text, sourceRange(textStart, snapshot(reader))));
+        pushFragment(new TokenFragment(TokenType.JSX_TEXT, text, sourceRange(textStart, snapshot(reader))));
       }
       if (!reader.hasMore) {
         throw new TokenizeError("Unterminated JSX element", sourceRange(textStart, snapshot(reader)));
@@ -1315,7 +1334,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
 
   const eofPosition = snapshot(reader);
   tokens.push(new Token(
-    "eof",
+    TokenType.END_OF_FILE,
     "<eof>",
     tokens.length,
     sourceRange(eofPosition, eofPosition),

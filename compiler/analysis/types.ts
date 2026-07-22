@@ -67,13 +67,13 @@ const ANALYSIS_TYPE_KIND_NAMES = [
   "tuple",
 ] as const;
 
-export abstract class AnalysisTypeBase {
+export abstract class AnalysisType {
   declare private readonly __analysisTypeBrand: void;
 
   protected constructor(public kind: AnalysisTypeKind) {}
 }
 
-export class UnknownType extends AnalysisTypeBase {
+export class UnknownType extends AnalysisType {
   declare kind: AnalysisTypeKind.Unknown;
 
   constructor() {
@@ -81,7 +81,7 @@ export class UnknownType extends AnalysisTypeBase {
   }
 }
 
-export class BuiltinType extends AnalysisTypeBase {
+export class BuiltinType extends AnalysisType {
   declare kind: AnalysisTypeKind.Builtin;
 
   constructor(public name: BuiltinTypeName) {
@@ -89,7 +89,7 @@ export class BuiltinType extends AnalysisTypeBase {
   }
 }
 
-export class NamedType extends AnalysisTypeBase {
+export class NamedType extends AnalysisType {
   declare kind: AnalysisTypeKind.Named;
 
   constructor(public name: string, public typeArguments?: AnalysisType[]) {
@@ -106,7 +106,7 @@ export interface FunctionTypeParameter {
   rest?: boolean;
 }
 
-export class FunctionType extends AnalysisTypeBase {
+export class FunctionType extends AnalysisType {
   declare kind: AnalysisTypeKind.Function;
 
   constructor(
@@ -121,7 +121,7 @@ export class FunctionType extends AnalysisTypeBase {
   }
 }
 
-export class ArrayType extends AnalysisTypeBase {
+export class ArrayType extends AnalysisType {
   declare kind: AnalysisTypeKind.Array;
 
   constructor(public elementType: AnalysisType, public isReadonly?: boolean) {
@@ -129,7 +129,7 @@ export class ArrayType extends AnalysisTypeBase {
   }
 }
 
-export class ObjectType extends AnalysisTypeBase {
+export class ObjectType extends AnalysisType {
   declare kind: AnalysisTypeKind.Object;
 
   constructor(public properties: ReadonlyMap<string, AnalysisType>) {
@@ -137,7 +137,7 @@ export class ObjectType extends AnalysisTypeBase {
   }
 }
 
-export class RangeType extends AnalysisTypeBase {
+export class RangeType extends AnalysisType {
   declare kind: AnalysisTypeKind.Range;
 
   constructor(public elementType: AnalysisType) {
@@ -145,7 +145,7 @@ export class RangeType extends AnalysisTypeBase {
   }
 }
 
-export class UnionType extends AnalysisTypeBase {
+export class UnionType extends AnalysisType {
   declare kind: AnalysisTypeKind.Union;
 
   constructor(public types: AnalysisType[]) {
@@ -153,7 +153,7 @@ export class UnionType extends AnalysisTypeBase {
   }
 }
 
-export class IntersectionType extends AnalysisTypeBase {
+export class IntersectionType extends AnalysisType {
   declare kind: AnalysisTypeKind.Intersection;
 
   constructor(public types: AnalysisType[]) {
@@ -161,7 +161,7 @@ export class IntersectionType extends AnalysisTypeBase {
   }
 }
 
-export class LiteralType extends AnalysisTypeBase {
+export class LiteralType extends AnalysisType {
   declare kind: AnalysisTypeKind.Literal;
 
   constructor(public base: "string" | "number" | "boolean", public value: string | number | boolean) {
@@ -169,26 +169,13 @@ export class LiteralType extends AnalysisTypeBase {
   }
 }
 
-export class TupleType extends AnalysisTypeBase {
+export class TupleType extends AnalysisType {
   declare kind: AnalysisTypeKind.Tuple;
 
   constructor(public elements: AnalysisType[], public isReadonly?: boolean) {
     super(AnalysisTypeKind.Tuple);
   }
 }
-
-export type AnalysisType =
-  | UnknownType
-  | BuiltinType
-  | NamedType
-  | FunctionType
-  | ArrayType
-  | ObjectType
-  | RangeType
-  | UnionType
-  | IntersectionType
-  | LiteralType
-  | TupleType;
 
 export const UNKNOWN_TYPE: AnalysisType = new UnknownType();
 
@@ -216,6 +203,11 @@ export function builtinType(name: BuiltinTypeName): BuiltinType {
 
 export function namedType(name: string, typeArguments?: AnalysisType[]): NamedType {
   return new NamedType(name, typeArguments && typeArguments.length > 0 ? typeArguments : undefined);
+}
+
+export function namedTypeArgument(type: NamedType, index: number): AnalysisType | undefined {
+  const typeArguments = type.typeArguments;
+  return typeArguments ? typeArguments[index] : undefined;
 }
 
 export function functionType(
@@ -291,7 +283,7 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
   let trackedObject: object | undefined;
   if (typeof type === "object" && type !== null) {
     if (seen.has(type as object)) {
-      if (type.kind === AnalysisTypeKind.Named) {
+      if (type instanceof NamedType) {
         return type.name;
       }
       return ANALYSIS_TYPE_KIND_NAMES[type.kind] ?? "unknown";
@@ -300,93 +292,75 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
     seen.add(trackedObject);
   }
   let result: string;
-  switch (type.kind) {
-    case AnalysisTypeKind.Unknown:
-      result = "unknown";
-      break;
-    case AnalysisTypeKind.Builtin:
-      result = type.name;
-      break;
-    case AnalysisTypeKind.Named:
-      result = !type.typeArguments || type.typeArguments.length === 0
-        ? type.name
-        : `${type.name}<${type.typeArguments.map((argument) => typeToStringInternal(argument, seen)).join(", ")}>`;
-      break;
-    case AnalysisTypeKind.Function: {
-      const functionType = type as FunctionType;
-      const renderedTypeParameters: string[] = [];
-      for (const parameter of functionType.typeParameters ?? []) {
-        const constraint = functionType.typeParameterConstraints?.get(parameter);
-        renderedTypeParameters.push(
-          constraint ? `${parameter} extends ${typeToStringInternal(constraint, seen)}` : parameter
-        );
-      }
-      const typeParameterPrefix = renderedTypeParameters.length > 0
-        ? `<${renderedTypeParameters.join(", ")}>`
-        : "";
-      const renderedReturnType = functionType.assertion
-        ? `asserts ${functionType.assertion.target}${functionType.assertion.type ? ` is ${typeToStringInternal(functionType.assertion.type, seen)}` : ""}`
-        : typeToStringInternal(functionType.returnType, seen);
-      const renderedParameters: string[] = [];
-      for (const functionParameter of functionType.parameters) {
-        if (functionParameter.receiver) continue;
-        renderedParameters.push(
-          `${functionParameter.rest ? "..." : ""}${functionParameter.name}: ${typeToStringInternal(functionParameter.type, seen)}`
-        );
-      }
-      const receiver = functionType.parameters.find((parameter) => parameter.receiver);
-      result = `${typeParameterPrefix}${receiver ? `${typeToStringInternal(receiver.type, seen)}.` : ""}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
-      break;
+  if (type instanceof UnknownType) {
+    result = "unknown";
+  } else if (type instanceof BuiltinType) {
+    result = type.name;
+  } else if (type instanceof NamedType) {
+    result = !type.typeArguments || type.typeArguments.length === 0
+      ? type.name
+      : `${type.name}<${type.typeArguments.map((argument) => typeToStringInternal(argument, seen)).join(", ")}>`;
+  } else if (type instanceof FunctionType) {
+    const renderedTypeParameters: string[] = [];
+    for (const parameter of type.typeParameters ?? []) {
+      const constraint = type.typeParameterConstraints?.get(parameter);
+      renderedTypeParameters.push(
+        constraint ? `${parameter} extends ${typeToStringInternal(constraint, seen)}` : parameter
+      );
     }
-    case AnalysisTypeKind.Array:
-      result = `${type.isReadonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;
-      break;
-    case AnalysisTypeKind.Object: {
-      const objectSource = type as ObjectType;
-      if (objectSource.properties.size === 0) {
-        result = "object";
-        break;
-      }
+    const typeParameterPrefix = renderedTypeParameters.length > 0
+      ? `<${renderedTypeParameters.join(", ")}>`
+      : "";
+    const renderedReturnType = type.assertion
+      ? `asserts ${type.assertion.target}${type.assertion.type ? ` is ${typeToStringInternal(type.assertion.type, seen)}` : ""}`
+      : typeToStringInternal(type.returnType, seen);
+    const renderedParameters: string[] = [];
+    for (const functionParameter of type.parameters) {
+      if (functionParameter.receiver) continue;
+      renderedParameters.push(
+        `${functionParameter.rest ? "..." : ""}${functionParameter.name}: ${typeToStringInternal(functionParameter.type, seen)}`
+      );
+    }
+    const receiver = type.parameters.find((parameter) => parameter.receiver);
+    result = `${typeParameterPrefix}${receiver ? `${typeToStringInternal(receiver.type, seen)}.` : ""}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
+  } else if (type instanceof ArrayType) {
+    result = `${type.isReadonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;
+  } else if (type instanceof ObjectType) {
+    if (type.properties.size === 0) {
+      result = "object";
+    } else {
       const renderedProperties: string[] = [];
-      for (const name of objectSource.properties.keys()) {
-        renderedProperties.push(`${name}: ${typeToStringInternal(objectSource.properties.get(name)!, seen)}`);
+      for (const name of type.properties.keys()) {
+        renderedProperties.push(`${name}: ${typeToStringInternal(type.properties.get(name)!, seen)}`);
       }
       result = `{ ${renderedProperties.join(", ")} }`;
-      break;
     }
-    case AnalysisTypeKind.Range:
-      result = `range<${typeToStringInternal(type.elementType, seen)}>`;
-      break;
-    case AnalysisTypeKind.Union: {
-      const members = dedupeUnionDisplayMembers(flattenUnionDisplayMembers(type));
-      const optionalMember = optionalTypeMember(members);
-      if (optionalMember) {
-        const rendered = typeToStringInternal(optionalMember, seen);
-        result = needsParensForOptionalType(optionalMember) ? `(${rendered})?` : `${rendered}?`;
-      } else {
-        result = members.map((member) => typeToStringInternal(member, seen)).join(" | ");
-      }
-      break;
+  } else if (type instanceof RangeType) {
+    result = `range<${typeToStringInternal(type.elementType, seen)}>`;
+  } else if (type instanceof UnionType) {
+    const members = dedupeUnionDisplayMembers(flattenUnionDisplayMembers(type));
+    const optionalMember = optionalTypeMember(members);
+    if (optionalMember) {
+      const rendered = typeToStringInternal(optionalMember, seen);
+      result = needsParensForOptionalType(optionalMember) ? `(${rendered})?` : `${rendered}?`;
+    } else {
+      result = members.map((member) => typeToStringInternal(member, seen)).join(" | ");
     }
-    case AnalysisTypeKind.Intersection:
-      result = type.types.map((member) => typeToStringInternal(member, seen)).join(" & ");
-      break;
-    case AnalysisTypeKind.Literal:
-      result = type.base === "string" ? JSON.stringify(type.value) : String(type.value);
-      break;
-    case AnalysisTypeKind.Tuple:
-      result = `${type.isReadonly === true ? "readonly " : ""}[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
-      break;
-    default:
-      result = "unknown";
-      break;
+  } else if (type instanceof IntersectionType) {
+    result = type.types.map((member) => typeToStringInternal(member, seen)).join(" & ");
+  } else if (type instanceof LiteralType) {
+    result = type.base === "string" ? JSON.stringify(type.value) : String(type.value);
+  } else if (type instanceof TupleType) {
+    result = `${type.isReadonly === true ? "readonly " : ""}[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
+  } else {
+    result = "unknown";
   }
   if (trackedObject) seen.delete(trackedObject);
   return result;
 }
 
 function flattenUnionDisplayMembers(type: AnalysisType): AnalysisType[] {
-  if (type.kind !== AnalysisTypeKind.Union) {
+  if (!(type instanceof UnionType)) {
     return [type];
   }
   const members: AnalysisType[] = [];
@@ -411,26 +385,26 @@ function optionalTypeMember(members: AnalysisType[]): AnalysisType | null {
   if (members.length !== 2) {
     return null;
   }
-  const nonUndefinedMembers = members.filter((member) => !(member.kind === AnalysisTypeKind.Builtin && member.name === "undefined"));
+  const nonUndefinedMembers = members.filter((member) => !(member instanceof BuiltinType && member.name === "undefined"));
   if (nonUndefinedMembers.length !== 1) {
     return null;
   }
   const optionalMember = nonUndefinedMembers[0]!;
-  if (optionalMember.kind === AnalysisTypeKind.Union) {
+  if (optionalMember instanceof UnionType) {
     return null;
   }
-  if (optionalMember.kind === AnalysisTypeKind.Builtin && optionalMember.name === "null") {
+  if (optionalMember instanceof BuiltinType && optionalMember.name === "null") {
     return null;
   }
   return optionalMember;
 }
 
 function needsParensForOptionalType(type: AnalysisType): boolean {
-  return type.kind === AnalysisTypeKind.Function || type.kind === AnalysisTypeKind.Intersection || type.kind === AnalysisTypeKind.Union;
+  return type instanceof FunctionType || type instanceof IntersectionType || type instanceof UnionType;
 }
 
 export function isUnknownType(type: AnalysisType | null | undefined): boolean {
-  return !type || type.kind === AnalysisTypeKind.Unknown;
+  return !type || type instanceof UnknownType;
 }
 
 export function isSameType(
@@ -466,11 +440,11 @@ function isSameTypeInternal(
     return false;
   }
 
-  if (a.kind === AnalysisTypeKind.Builtin && b.kind === AnalysisTypeKind.Builtin) {
+  if (a instanceof BuiltinType && b instanceof BuiltinType) {
     return a.name === b.name;
   }
 
-  if (a.kind === AnalysisTypeKind.Named && b.kind === AnalysisTypeKind.Named) {
+  if (a instanceof NamedType && b instanceof NamedType) {
     if (a.name !== b.name) {
       return false;
     }
@@ -487,20 +461,20 @@ function isSameTypeInternal(
     return true;
   }
 
-  if (a.kind === AnalysisTypeKind.Unknown && b.kind === AnalysisTypeKind.Unknown) {
+  if (a instanceof UnknownType && b instanceof UnknownType) {
     return true;
   }
 
-  if (a.kind === AnalysisTypeKind.Array && b.kind === AnalysisTypeKind.Array) {
+  if (a instanceof ArrayType && b instanceof ArrayType) {
     return (a.isReadonly ?? false) === (b.isReadonly ?? false)
       && isSameTypeInternal(a.elementType, b.elementType, seenPairs);
   }
 
-  if (a.kind === AnalysisTypeKind.Range && b.kind === AnalysisTypeKind.Range) {
+  if (a instanceof RangeType && b instanceof RangeType) {
     return isSameTypeInternal(a.elementType, b.elementType, seenPairs);
   }
 
-  if (a.kind === AnalysisTypeKind.Object && b.kind === AnalysisTypeKind.Object) {
+  if (a instanceof ObjectType && b instanceof ObjectType) {
     const aObject = a as ObjectType;
     const bObject = b as ObjectType;
     const aKeys = [...aObject.properties.keys()].sort();
@@ -522,32 +496,32 @@ function isSameTypeInternal(
     return true;
   }
 
-  if (a.kind === AnalysisTypeKind.Union && b.kind === AnalysisTypeKind.Union) {
+  if (a instanceof UnionType && b instanceof UnionType) {
     if (a.types.length !== b.types.length) {
       return false;
     }
     return a.types.every((aType, index) => isSameTypeInternal(aType, b.types[index]!, seenPairs));
   }
 
-  if (a.kind === AnalysisTypeKind.Intersection && b.kind === AnalysisTypeKind.Intersection) {
+  if (a instanceof IntersectionType && b instanceof IntersectionType) {
     if (a.types.length !== b.types.length) {
       return false;
     }
     return a.types.every((aType, index) => isSameTypeInternal(aType, b.types[index]!, seenPairs));
   }
 
-  if (a.kind === AnalysisTypeKind.Literal && b.kind === AnalysisTypeKind.Literal) {
+  if (a instanceof LiteralType && b instanceof LiteralType) {
     return a.base === b.base && a.value === b.value;
   }
 
-  if (a.kind === AnalysisTypeKind.Tuple && b.kind === AnalysisTypeKind.Tuple) {
+  if (a instanceof TupleType && b instanceof TupleType) {
     if ((a.isReadonly ?? false) !== (b.isReadonly ?? false) || a.elements.length !== b.elements.length) {
       return false;
     }
     return a.elements.every((element, index) => isSameTypeInternal(element, b.elements[index]!, seenPairs));
   }
 
-  if (a.kind === AnalysisTypeKind.Function && b.kind === AnalysisTypeKind.Function) {
+  if (a instanceof FunctionType && b instanceof FunctionType) {
     if (a.parameters.length !== b.parameters.length) {
       return false;
     }

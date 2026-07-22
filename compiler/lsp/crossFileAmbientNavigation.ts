@@ -1,4 +1,4 @@
-import { AnalysisTypeKind } from "../analysis/types";
+import { FunctionType } from "../analysis/types";
 import { NodeKind } from "compiler/ast/ast";
 import type { Identifier, MemberExpression, Statement } from "compiler/ast/ast";
 import { typeToString } from "compiler/analysis/types";
@@ -35,7 +35,7 @@ export function findAmbientImportedOverloadRange(
   const selectedSignature = typeToString(selectedResolution.overload);
   for (const declaration of overloadDeclarations) {
     const declarationType = buildFunctionTypeFromStatement(declaration);
-    if (declarationType.kind !== AnalysisTypeKind.Function) {
+    if (!(declarationType instanceof FunctionType)) {
       continue;
     }
     if (typeToString(declarationType) === selectedSignature) {
