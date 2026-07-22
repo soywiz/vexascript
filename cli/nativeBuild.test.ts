@@ -2,6 +2,7 @@ import { describe, expect, it, join, mkdtemp, rm, tmpdir } from "../compiler/tes
 import {
   nativeCmakeConfigureArguments,
   nativeCompilerArguments,
+  nativeMimallocCmakeConfigureArguments,
   nativeProgramPaths,
   withNativeBuildLock,
 } from "./nativeBuild";
@@ -27,6 +28,29 @@ describe("native build", () => {
     expect(args).toContain("-ldl");
   });
 
+  it("links the cached mimalloc override object in release builds", () => {
+    const args = nativeCompilerArguments(
+      "/tmp/main.cpp",
+      "/tmp/main",
+      "/repo/native",
+      "/repo/native/oilpan/gc",
+      "/repo/native/oilpan/gc/build/liboilpan_gc.a",
+      "linux",
+      { mimallocObjectPath: "/cache/mimalloc.o" }
+    );
+
+    expect(args).toContain("/cache/mimalloc.o");
+    expect(args.indexOf("/cache/mimalloc.o")).toBeLessThan(args.indexOf("/repo/native/oilpan/gc/build/liboilpan_gc.a"));
+  });
+
+  it("builds only the portable mimalloc object and static dependency", () => {
+    const args = nativeMimallocCmakeConfigureArguments("/cache/mimalloc", "/cache/mimalloc/build");
+
+    expect(args).toContain("-DMI_BUILD_SHARED=OFF");
+    expect(args).toContain("-DMI_BUILD_TESTS=OFF");
+    expect(args).toContain("-DMI_OVERRIDE=ON");
+  });
+
   it("offers a debug sanitizer mode for native CI and stress runs", () => {
     const args = nativeCompilerArguments(
       "/tmp/main.cpp",
@@ -35,7 +59,7 @@ describe("native build", () => {
       "/repo/native/oilpan/gc",
       "/repo/native/oilpan/gc/build/liboilpan_gc.a",
       "linux",
-      { sanitizers: true }
+      { sanitizers: true, mimallocObjectPath: "/cache/mimalloc.o" }
     );
     expect(args).toContain("-O1");
     expect(args).toContain("-g");
@@ -43,6 +67,7 @@ describe("native build", () => {
     expect(args).toContain("-fsanitize=address,undefined");
     expect(args).toContain("-fno-omit-frame-pointer");
     expect(args).toContain("-DVEXA_NATIVE_DEBUG=1");
+    expect(args).not.toContain("/cache/mimalloc.o");
   });
 
   it("offers an Oilpan collection stress mode independently of sanitizers", () => {

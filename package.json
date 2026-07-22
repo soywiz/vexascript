@@ -12,7 +12,8 @@
     "native/runtime.cpp",
     "native/bigint.h",
     "native/utf.h",
-    "native/oilpan-standalone-main.zip"
+    "native/oilpan-standalone-main.zip",
+    "native/mimalloc-3.4.3.tar.gz"
   ],
   "scripts": {
     "clean": "tsx scripts/clean.ts",

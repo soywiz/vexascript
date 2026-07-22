@@ -20,10 +20,12 @@ The intermediate C++ file is written to `main.vx.build/main.cpp`. Use
 `-o <file>` to select the executable path. `vexa native main.vx` and
 `vexa build main.vx --native` remain compatibility forms of this workflow.
 
-The first native build extracts `native/oilpan-standalone-main.zip` and builds
-`liboilpan_gc.a` under the operating system's temporary directory, with CMake
-configured to use `g++`. Later builds reuse that temporary cache. The final
-generated translation unit is compiled and linked with `g++ -std=c++20`.
+The first native build extracts `native/oilpan-standalone-main.zip` and
+`native/mimalloc-3.4.3.tar.gz` under the operating system's temporary directory.
+CMake builds `liboilpan_gc.a` and mimalloc's portable allocator override object;
+later builds reuse both caches. The final generated translation unit is compiled
+and linked with `g++ -std=c++20`. Sanitizer builds omit mimalloc so ASan can
+observe allocations through the system allocator.
 
 ## Requirements
 
@@ -403,7 +405,7 @@ stable user-defined C ABI annotation. This source-package contract keeps package
 identity, aliases, defaults, namespace imports, re-exports, and project mappings
 on the shared resolver instead of introducing a native-only package map. The
 published package includes `native/runtime.cpp`, `native/bigint.h`, and the
-vendored Oilpan archive required by both `cpp` and `executable`.
+vendored Oilpan and mimalloc archives required by native executable builds.
 
 ## Diagnostics and sanitizer mode
 

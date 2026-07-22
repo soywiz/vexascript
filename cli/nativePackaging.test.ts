@@ -32,6 +32,7 @@ describe("native package contents", () => {
       "native/bigint.h",
       "native/utf.h",
       "native/oilpan-standalone-main.zip",
+      "native/mimalloc-3.4.3.tar.gz",
     ];
     for (const path of required) {
       expect(manifest.files).toContain(path);

@@ -34,8 +34,23 @@ Two attempted shortcuts did not provide valid improvements:
   allocations, so it did not measure the allocator used by the C++ containers.
   A valid allocator comparison must link mimalloc into the same O1 object.
 
-Enabling Apple's nano allocator reduced the median to about 3.34 seconds. This
-is useful evidence that allocation remains material, but it does not justify
-an allocator dependency by itself. The next profiling pass should compare a
-statically linked mimalloc build and then reduce the dominant allocation source
-in the emitter regardless of allocator choice.
+Enabling Apple's nano allocator reduced the median to about 3.34 seconds. A
+subsequent controlled test compiled the generated compiler once to an O1 object
+and linked that exact object with either the system allocator or mimalloc 3.4.3.
+Alternating three hot runs produced stable medians of 4.08 seconds and 3.28
+seconds respectively, a 19.6% reduction. Every generated C++ output was
+byte-identical.
+
+Native executable builds now package the checksum-verified upstream mimalloc
+3.4.3 source archive, compile its override object once in the existing temporary
+dependency cache, and link it before Oilpan. Sanitizer builds intentionally omit
+the override. This keeps the optimization reproducible across supported native
+platforms rather than depending on Homebrew or dynamic-library injection.
+
+For the same generated compiler translation unit, O3 compilation took 129.9
+seconds versus 108.0 seconds at O1. Three hot O3+mimalloc executions had a 3.08
+second median; three freshly measured Node executions had a 4.14 second median.
+O3 therefore made native generation 25.6% faster than Node for this checkpoint.
+The O3 compiler remained self-consistent across its repeated outputs, although
+its output still differs from the current Node compiler around native conversion
+simplification. Cross-runtime byte parity remains separate follow-up work.
