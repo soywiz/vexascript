@@ -12,11 +12,12 @@ import {
   createEmitProgramRuntimeContext,
   emitProgramStatementPairs,
   type EmitOptions,
+  type EmitProgramRuntimeSeed,
   type EmittedProgramStatement
 } from "./emitter";
 import { lowerProgram } from "./lowering";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
-import type { Node, Program, Statement } from "compiler/ast/ast";
+import { Program, type Node, type Statement } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
 import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import type { SourceRange } from "compiler/parser/tokenizer";
@@ -137,6 +138,8 @@ export interface TranspileOptions {
   jsxFragmentFactory?: string;
   /** Top-level module emission format. Defaults to ESM. */
   moduleFormat?: EmitOptions["moduleFormat"];
+  /** Precomputed runtime metadata for ambient and imported declarations. */
+  emitRuntimeSeed?: EmitProgramRuntimeSeed;
   /**
    * When true, rewrite source-language extensions (.vx, .ts, .tsx) in
    * import/export paths to .js in the emitted output. Set for single-file
@@ -147,6 +150,15 @@ export interface TranspileOptions {
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 let cachedEcmaScriptRuntimeEmitSeed: ReturnType<typeof createEmitProgramRuntimeSeed> | null = null;
+
+export function createTranspileRuntimeSeed(declarations: readonly Statement[]): EmitProgramRuntimeSeed {
+  const runtimeProgram = getEcmaScriptRuntimeProgram();
+  cachedEcmaScriptRuntimeEmitSeed ??= createEmitProgramRuntimeSeed(runtimeProgram);
+  return createEmitProgramRuntimeSeed(
+    new Program([...declarations]),
+    cachedEcmaScriptRuntimeEmitSeed
+  );
+}
 
 function toVlqSigned(value: number): number {
   if (value < 0) {
@@ -470,11 +482,13 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   cachedEcmaScriptRuntimeEmitSeed ??= createEmitProgramRuntimeSeed(runtimeProgram);
   const contextProgram: Program = {
     ...programForEmission,
-    body: [
-      ...ambientDeclarations,
-      ...externalDeclarations,
-      ...programForEmission.body
-    ]
+    body: options.emitRuntimeSeed
+      ? programForEmission.body
+      : [
+          ...ambientDeclarations,
+          ...externalDeclarations,
+          ...programForEmission.body
+        ]
   };
   const expressionTypes = artifacts.analysis.getExpressionTypes();
   const implicitReceiverIdentifiers = artifacts.analysis.getImplicitReceiverIdentifiers();
@@ -496,7 +510,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
       ...(options.rewriteImportExtensions ? { rewriteImportExtensions: true } : {})
     },
     staticImplicitReceiverIdentifiers,
-    cachedEcmaScriptRuntimeEmitSeed,
+    options.emitRuntimeSeed ?? cachedEcmaScriptRuntimeEmitSeed,
     implicitReceiverExtensionIdentifiers,
     asyncForStatements,
     artifacts.analysis.getReceiverLambdas()

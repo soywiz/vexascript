@@ -2,6 +2,7 @@ import { describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } fro
 import {
   bundleNodeModuleGraph,
   collectCommonJsExports,
+  createNodeModuleBundleIncrementalCache,
   detectStaticDynamicImports,
   detectStaticRequires,
   rewriteStaticDynamicImports,
@@ -564,6 +565,46 @@ describe("bundleNodeModuleGraph", () => {
           entryPath
         );
         expect(second.code).toContain("exports.value = 2;");
+      }
+    );
+  });
+
+  it("reuses an incremental dependency graph until a dependency is invalidated", async () => {
+    await withTempProject(
+      {
+        "entry.js": 'const value = require("pkg/value"); module.exports.value = value.value;\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: { "./value": "./value.js" }
+        }),
+        "node_modules/pkg/value.js": "exports.value = 1;\n"
+      },
+      async (dir) => {
+        const entryPath = join(dir, "entry.js");
+        const valuePath = join(dir, "node_modules/pkg/value.js");
+        const cache = createNodeModuleBundleIncrementalCache();
+        const first = await bundleNodeModuleGraph(
+          'const value = require("pkg/value"); module.exports.value = value.value;\n',
+          entryPath,
+          { incrementalCache: cache, changedFiles: [entryPath] }
+        );
+        expect(first.code).toContain("exports.value = 1;");
+
+        await writeFile(valuePath, "exports.value = 2;\n", "utf8");
+        const entryOnly = await bundleNodeModuleGraph(
+          'const value = require("pkg/value"); module.exports.value = value.value + 1;\n',
+          entryPath,
+          { incrementalCache: cache, changedFiles: [entryPath] }
+        );
+        expect(entryOnly.code).toContain("exports.value = 1;");
+        expect(entryOnly.code).toContain("value.value + 1");
+
+        const dependencyChanged = await bundleNodeModuleGraph(
+          'const value = require("pkg/value"); module.exports.value = value.value + 1;\n',
+          entryPath,
+          { incrementalCache: cache, changedFiles: [valuePath] }
+        );
+        expect(dependencyChanged.code).toContain("exports.value = 2;");
       }
     );
   });

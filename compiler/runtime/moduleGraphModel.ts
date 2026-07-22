@@ -12,6 +12,9 @@ export interface ModuleGraphProfileEvent {
   moduleCount: number;
 }
 
+/** Opaque state retained by long-running module graph consumers such as `vexa serve`. */
+export interface ModuleGraphIncrementalCache {}
+
 export interface ModuleGraphOptions {
   vfs?: Vfs;
   jsxFactory?: string;
@@ -27,6 +30,10 @@ export interface ModuleGraphOptions {
   baseUrl?: string;
   /** Optional phase timing sink used by benchmarks and Node-only CLI profiling. */
   profile?: (event: ModuleGraphProfileEvent) => void;
+  /** Reuse stable import/type contexts between explicitly invalidated rebuilds. */
+  incrementalCache?: ModuleGraphIncrementalCache;
+  /** Files known to have changed since the previous incremental build. */
+  changedFiles?: readonly string[];
   /** Emit per-statement native source hooks for diagnostic C++ builds. */
   emitNativeSourceLocations?: boolean;
 }

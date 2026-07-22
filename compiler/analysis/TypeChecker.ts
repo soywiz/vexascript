@@ -157,6 +157,38 @@ type ExtensionPropertyInfo = {
   typeParameterNames: string[];
 };
 
+const externalDeclarationNodeSetCache = new WeakMap<readonly Statement[], WeakSet<Node>>();
+const projectDeclaredTypeNodeSetCache = new WeakMap<readonly Statement[], WeakSet<Node>>();
+
+function externalDeclarationNodeSet(statements: readonly Statement[]): WeakSet<Node> {
+  const cached = externalDeclarationNodeSetCache.get(statements);
+  if (cached) return cached;
+  const nodes = new WeakSet<Node>();
+  for (const statement of statements) {
+    walkAst(statement, (node) => nodes.add(node));
+  }
+  externalDeclarationNodeSetCache.set(statements, nodes);
+  return nodes;
+}
+
+function projectDeclaredTypeNodeSet(statements: readonly Statement[]): WeakSet<Node> {
+  const cached = projectDeclaredTypeNodeSetCache.get(statements);
+  if (cached) return cached;
+  const nodes = new WeakSet<Node>();
+  for (const statement of statements) {
+    walkAst(statement, (node) => {
+      if (
+        (node instanceof ClassStatement || node instanceof InterfaceStatement) &&
+        (node as ClassStatement | InterfaceStatement).declared !== true
+      ) {
+        nodes.add(node);
+      }
+    });
+  }
+  projectDeclaredTypeNodeSetCache.set(statements, nodes);
+  return nodes;
+}
+
 export class TypeChecker {
   private readonly issues: AnalysisIssue[] = [];
   private readonly identifierResolutions: IdentifierResolution[] = [];
@@ -181,11 +213,11 @@ export class TypeChecker {
   private readonly importedBindingNames: Set<string> = new Set();
   private readonly externalNamedTypeNames: Set<string> = new Set();
   private readonly nonExternalNamedTypeNames: Set<string> = new Set();
-  private readonly externalDeclarationNodes: WeakSet<Node> = new WeakSet<Node>();
+  private readonly externalDeclarationNodes: WeakSet<Node>;
   // Class/interface declarations that belong to the analyzed file itself (as
   // opposed to imported, ambient, or runtime declarations). Used to scope the
   // `override`-required rule to the project's own VexaScript types.
-  private readonly programDeclaredTypeNodes: WeakSet<Node> = new WeakSet<Node>();
+  private readonly programDeclaredTypeNodeSets: WeakSet<Node>[] = [];
   private readonly enumStatementsByName: Map<string, EnumStatement> = new Map();
   private readonly enumMemberResolutionCache: WeakMap<EnumMember, EnumResolvedValue> = new WeakMap<EnumMember, EnumResolvedValue>();
   private readonly enumStatementMemberMapCache: WeakMap<EnumStatement, Map<string, EnumMember>> = new WeakMap<EnumStatement, Map<string, EnumMember>>();
@@ -226,9 +258,9 @@ export class TypeChecker {
     private readonly projectOwnedExternalDeclarations: boolean = false,
     private readonly validateTypes: boolean = true
   ) {
+    this.externalDeclarationNodes = externalDeclarationNodeSet(externalDeclarations);
     const runtimeProgram = getEcmaScriptRuntimeProgram();
     const vexaRuntimeProgram = getVexaScriptRuntimeProgram();
-    this.collectExternalDeclarationNodes(externalDeclarations);
     this.collectFunctionStatements(runtimeProgram.body);
     this.collectClassStatements(runtimeProgram.body, this.nonExternalNamedTypeNames);
     this.collectClassStatements(vexaRuntimeProgram.body, this.nonExternalNamedTypeNames);
@@ -304,17 +336,11 @@ export class TypeChecker {
   }
 
   private markProjectDeclaredTypeNodes(statements: readonly Statement[]): void {
-    for (const statement of statements) {
-      walkAst(statement, (node) => {
-        if (!(node instanceof ClassStatement) && !(node instanceof InterfaceStatement)) {
-          return;
-        }
-        if ((node as ClassStatement | InterfaceStatement).declared === true) {
-          return;
-        }
-        this.programDeclaredTypeNodes.add(node);
-      });
-    }
+    this.programDeclaredTypeNodeSets.push(projectDeclaredTypeNodeSet(statements));
+  }
+
+  private isProgramDeclaredTypeNode(node: Node): boolean {
+    return this.programDeclaredTypeNodeSets.some((nodes) => nodes.has(node));
   }
 
   private collectExplicitlyUnknownIdentifiers(program: Program): void {
@@ -448,14 +474,6 @@ export class TypeChecker {
       || this.nonExternalNamedTypeNames.has(name)
       || !this.externalNamedTypeNames.has(name)
       || this.externalDeclarationNodes.has(node);
-  }
-
-  private collectExternalDeclarationNodes(statements: readonly Statement[]): void {
-    for (const statement of statements) {
-      walkAst(statement, (node) => {
-        this.externalDeclarationNodes.add(node);
-      });
-    }
   }
 
   check(): CheckedAnalysis {
@@ -12717,7 +12735,7 @@ export class TypeChecker {
     }
     visited.add(interfaceName);
     const interfaceStatement = this.interfaceStatementsByName.get(interfaceName);
-    if (!interfaceStatement || !this.programDeclaredTypeNodes.has(interfaceStatement)) {
+    if (!interfaceStatement || !this.isProgramDeclaredTypeNode(interfaceStatement)) {
       return;
     }
     for (const member of interfaceStatement.members) {
@@ -12744,7 +12762,7 @@ export class TypeChecker {
     let current = this.baseClassStatementOf(classStatement);
     while (current && !visitedClasses.has(current.name.name)) {
       visitedClasses.add(current.name.name);
-      if (this.programDeclaredTypeNodes.has(current)) {
+      if (this.isProgramDeclaredTypeNode(current)) {
         for (const member of current.members) {
           names.add(member.name.name);
         }

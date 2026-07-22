@@ -7,6 +7,8 @@ import { loadProject, type VexaProject } from "../compiler/project";
 import { vfs } from "../compiler/vfs";
 import { ensureDependencies } from "./deps";
 import { runCommandCapture } from "./io";
+import type { NodeModuleBundleIncrementalCache } from "./nodeModuleBundle";
+import type { ModuleGraphIncrementalCache } from "../compiler/runtime/moduleGraph";
 
 export function isTypeScriptSource(path: string): boolean {
   const lowerPath = path.toLowerCase();
@@ -110,6 +112,10 @@ export async function createBundledModuleArtifacts(
   options: {
     externalDependencyStrategy?: "runtime-error" | "node-require";
     typeCheck?: boolean;
+    ambientDeclarations?: Statement[];
+    moduleGraphIncrementalCache?: ModuleGraphIncrementalCache;
+    nodeModuleIncrementalCache?: NodeModuleBundleIncrementalCache;
+    changedFiles?: readonly string[];
   } = {}
 ): Promise<BundledModuleArtifacts> {
   const semanticValidation = vexaTypeCheckForSource(
@@ -120,13 +126,18 @@ export async function createBundledModuleArtifacts(
   const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, options.typeCheck ?? true)
     ? false
     : await semanticValidation;
-  const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
+  const ambientDeclarations = options.ambientDeclarations
+    ?? await ambientDeclarationsForProject(sourcePath, project);
   const { bundleModuleGraphAsModules } = await import("../compiler/runtime/moduleGraph");
   const result = await bundleModuleGraphAsModules(sourcePath, target, {
     ambientDeclarations,
     importMappings: project?.importMappings ?? {},
     moduleFormat: "commonjs",
     typeCheck: vexaTypeCheck,
+    ...(options.moduleGraphIncrementalCache
+      ? { incrementalCache: options.moduleGraphIncrementalCache }
+      : {}),
+    ...(options.changedFiles ? { changedFiles: options.changedFiles } : {}),
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.globalSymbols ? { globalSymbols: project.globalSymbols } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
@@ -150,7 +161,11 @@ export async function createBundledModuleArtifacts(
     virtualSources: result.moduleSources,
     importMappings: project?.importMappings ?? {},
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
-    externalDependencyStrategy: options.externalDependencyStrategy ?? "runtime-error"
+    externalDependencyStrategy: options.externalDependencyStrategy ?? "runtime-error",
+    ...(options.nodeModuleIncrementalCache
+      ? { incrementalCache: options.nodeModuleIncrementalCache }
+      : {}),
+    ...(options.changedFiles ? { changedFiles: options.changedFiles } : {})
   });
   return {
     code: bundled.code,

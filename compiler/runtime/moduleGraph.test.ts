@@ -1,6 +1,10 @@
 import { Script, createContext, describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
-import { bundleModuleGraph, bundleModuleGraphAsModules } from "./moduleGraph";
+import {
+  bundleModuleGraph,
+  bundleModuleGraphAsModules,
+  createModuleGraphIncrementalCache
+} from "./moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 import { ensureDomProgram } from "./domDeclarations.shared";
 
@@ -494,6 +498,45 @@ describe("bundleModuleGraph", () => {
         expect(result.entrySource).toContain("const { View, Vec2, View$$point, View$$point$set } = require(\"./position\");");
         expect(result.entrySource).toContain("View$$point$set(view, new Vec2(3, 4));");
         expect(result.entrySource).toContain("console.log(View$$point(view).x, View$$point(view).y);");
+      }
+    );
+  });
+
+  it("reuses module typing contexts for entry-only incremental rebuilds", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "values.vx": "class Value(val amount: number)\n",
+        "main.vx": "import { Value } from \"./values\"\nconsole.log(Value(1).amount)\n"
+      },
+      async (dir) => {
+        const entryPath = join(dir, "main.vx");
+        const dependencyPath = join(dir, "values.vx");
+        const cache = createModuleGraphIncrementalCache();
+        const first = await bundleModuleGraphAsModules(entryPath, "conservative", {
+          moduleFormat: "commonjs",
+          incrementalCache: cache
+        });
+        expect(first.errors).toEqual([]);
+
+        await writeFile(entryPath, "import { Value } from \"./values\"\nconsole.log(Value(2).amount)\n", "utf8");
+        const entryOnly = await bundleModuleGraphAsModules(entryPath, "conservative", {
+          moduleFormat: "commonjs",
+          incrementalCache: cache,
+          changedFiles: [entryPath]
+        });
+        expect(entryOnly.errors).toEqual([]);
+        expect(entryOnly.entrySource).toContain("new Value(2).amount");
+
+        await writeFile(dependencyPath, "class Value(val amount: number, val label: string)\n", "utf8");
+        await writeFile(entryPath, "import { Value } from \"./values\"\nconsole.log(Value(3, \"fresh\").label)\n", "utf8");
+        const dependencyChanged = await bundleModuleGraphAsModules(entryPath, "conservative", {
+          moduleFormat: "commonjs",
+          incrementalCache: cache,
+          changedFiles: [entryPath, dependencyPath]
+        });
+        expect(dependencyChanged.errors).toEqual([]);
+        expect(dependencyChanged.entrySource).toContain('new Value(3, "fresh").label');
       }
     );
   });

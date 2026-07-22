@@ -20,14 +20,23 @@ import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDecla
 import { extname, resolve } from "compiler/utils/path";
 import { collectImplicitVexaExportPlan } from "./implicitExports";
 import { stripBundledCommonJsImports, stripBundledModuleSyntax } from "./bundlingStripping";
-import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
+import {
+  createTranspileRuntimeSeed,
+  transpile,
+  type TranspileResult,
+  type TranspileTarget
+} from "./transpile";
 import {
   isBundledLocalModulePath,
   localImportSpecifiers,
   parserOptionsForModulePath
 } from "./localModuleResolution";
-import type { ModuleGraphOptions } from "./moduleGraphModel";
-export type { GlobalSymbolSourceOptions, ModuleGraphOptions } from "./moduleGraphModel";
+import type { ModuleGraphIncrementalCache, ModuleGraphOptions } from "./moduleGraphModel";
+export type {
+  GlobalSymbolSourceOptions,
+  ModuleGraphIncrementalCache,
+  ModuleGraphOptions
+} from "./moduleGraphModel";
 
 /**
  * Resolves a project's local module graph and bundles it into a single
@@ -50,6 +59,78 @@ const TYPE_DECLARATION_KINDS = new Set<Statement["kind"]>([
   NodeKind.EnumStatement,
   NodeKind.TypeAliasStatement
 ]);
+const EMPTY_DECLARATIONS: Statement[] = [];
+
+interface CachedModuleTypeContext {
+  importKey: string;
+  externalDeclarations: Statement[];
+  importedSymbols: Map<string, { type?: AnalysisType; displayType?: string }>;
+  emitRuntimeSeed: ReturnType<typeof createTranspileRuntimeSeed>;
+}
+
+interface ModuleGraphIncrementalState {
+  configurationKey: string;
+  ambientDeclarations: readonly Statement[];
+  typeContextByPath: Map<string, CachedModuleTypeContext>;
+}
+
+const incrementalModuleGraphStates = new WeakMap<ModuleGraphIncrementalCache, ModuleGraphIncrementalState>();
+
+export function createModuleGraphIncrementalCache(): ModuleGraphIncrementalCache {
+  return {};
+}
+
+function moduleTypeContextImportKey(ast: Program): string {
+  return JSON.stringify(ast.body
+    .filter((statement): statement is ImportStatement => statement instanceof ImportStatement)
+    .map((statement) => [
+      statement.from.value,
+      statement.defaultImport?.name ?? "",
+      statement.namespaceImport?.name ?? "",
+      statement.typeOnly === true,
+      statement.sideEffectOnly === true,
+      statement.specifiers.map((specifier) => [
+        specifier.imported.name,
+        specifier.local?.name ?? "",
+        specifier.typeOnly === true
+      ])
+    ]));
+}
+
+function incrementalModuleGraphState(
+  entryFilePath: string,
+  importMappings: Readonly<Record<string, string>>,
+  baseUrl: string | undefined,
+  ambientDeclarations: readonly Statement[],
+  options: ModuleGraphOptions
+): ModuleGraphIncrementalState | undefined {
+  const cache = options.incrementalCache;
+  if (!cache) {
+    return undefined;
+  }
+
+  const configurationKey = JSON.stringify([
+    baseUrl ?? "",
+    Object.entries(importMappings).sort(([left], [right]) => left.localeCompare(right)),
+    options.globalSymbols ?? null
+  ]);
+  let state = incrementalModuleGraphStates.get(cache);
+  if (
+    !state ||
+    state.configurationKey !== configurationKey ||
+    state.ambientDeclarations !== ambientDeclarations
+  ) {
+    state = {
+      configurationKey,
+      ambientDeclarations,
+      typeContextByPath: new Map()
+    };
+    incrementalModuleGraphStates.set(cache, state);
+  } else if ((options.changedFiles ?? []).some((filePath) => filePath !== entryFilePath)) {
+    state.typeContextByPath.clear();
+  }
+  return state;
+}
 
 function isInlineAssetModulePath(filePath: string): boolean {
   const extension = extname(filePath).toLowerCase();
@@ -337,7 +418,7 @@ export async function bundleModuleGraph(
   options: ModuleGraphOptions = {}
 ): Promise<TranspileResult> {
   const activeVfs = options.vfs ?? vfs();
-  const ambientDeclarations = options.ambientDeclarations ?? [];
+  const ambientDeclarations = options.ambientDeclarations ?? EMPTY_DECLARATIONS;
   const importMappings = options.importMappings ?? {};
   await ensureEcmaScriptRuntimeProgram();
 
@@ -396,7 +477,9 @@ export async function bundleModuleGraph(
     const ast = parsed?.ast ?? null;
 
     const externalDeclarations: Statement[] = [];
-    const moduleAmbientDeclarations = [...ambientDeclarations, ...globalDeclarations];
+    const moduleAmbientDeclarations = globalDeclarations.length === 0
+      ? ambientDeclarations
+      : [...ambientDeclarations, ...globalDeclarations];
     const importedSymbols = new Map<string, { type?: AnalysisType; displayType?: string }>();
     const bundledSpecifiers = new Set<string>();
     if (ast) {
@@ -571,9 +654,16 @@ export async function bundleModuleGraphAsModules(
   } = {}
 ): Promise<ModuleGraphSourcesResult> {
   const activeVfs = options.vfs ?? vfs();
-  const ambientDeclarations = options.ambientDeclarations ?? [];
+  const ambientDeclarations = options.ambientDeclarations ?? EMPTY_DECLARATIONS;
   const importMappings = options.importMappings ?? {};
   const moduleFormat = options.moduleFormat ?? "esm";
+  const incrementalState = incrementalModuleGraphState(
+    entryFilePath,
+    importMappings,
+    options.baseUrl,
+    ambientDeclarations,
+    options
+  );
   await ensureEcmaScriptRuntimeProgram();
 
   const emittedByPath = new Map<string, string>();
@@ -631,12 +721,26 @@ export async function bundleModuleGraphAsModules(
     const parsed = await loadParsed(filePath, parserOptions);
     const ast = parsed?.ast ?? null;
 
-    const externalDeclarations: Statement[] = [];
-    const moduleAmbientDeclarations = [...ambientDeclarations, ...globalDeclarations];
-    const importedSymbols = new Map<string, { type?: AnalysisType; displayType?: string }>();
+    const importKey = ast ? moduleTypeContextImportKey(ast) : "";
+    const cachedTypeContext = ast
+      ? incrementalState?.typeContextByPath.get(filePath)
+      : undefined;
+    const reusableTypeContext = cachedTypeContext?.importKey === importKey
+      ? cachedTypeContext
+      : undefined;
+    const externalDeclarations: Statement[] = reusableTypeContext?.externalDeclarations ?? [];
+    const moduleAmbientDeclarations = globalDeclarations.length === 0
+      ? ambientDeclarations
+      : [...ambientDeclarations, ...globalDeclarations];
+    const importedSymbols = reusableTypeContext
+      ? new Map(reusableTypeContext.importedSymbols)
+      : new Map<string, { type?: AnalysisType; displayType?: string }>();
+    let emitRuntimeSeed = reusableTypeContext?.emitRuntimeSeed;
     const bundledAssetSpecifiers = new Set<string>();
     if (ast) {
-      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
+      if (!reusableTypeContext) {
+        await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
+      }
       for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
         bundledAssetSpecifiers.add(statement.from.value);
         const assetSource = await loadSource(targetPath);
@@ -646,10 +750,12 @@ export async function bundleModuleGraphAsModules(
         }
         try {
           const { importedType } = emitAssetImportBindings(statement, targetPath, assetSource);
-          for (const bindingName of assetImportBindingNames(statement)) {
-            const existing = importedSymbols.get(bindingName) ?? {};
-            existing.type = importedType;
-            importedSymbols.set(bindingName, existing);
+          if (!reusableTypeContext) {
+            for (const bindingName of assetImportBindingNames(statement)) {
+              const existing = importedSymbols.get(bindingName) ?? {};
+              existing.type = importedType;
+              importedSymbols.set(bindingName, existing);
+            }
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -660,25 +766,39 @@ export async function bundleModuleGraphAsModules(
         if (!globalSourceFileSet.has(targetPath)) {
           await visit(targetPath);
         }
-        const dependencyAst = (await loadParsed(targetPath, parserOptionsForModulePath(targetPath)))?.ast ?? null;
-        if (dependencyAst) {
-          const importedNames = new Set(
-            statement.specifiers.map((specifier) => specifier.imported.name)
-          );
-          externalDeclarations.push(...collectImportedDeclarations(dependencyAst, importedNames));
-        }
-        const dependencyAnalysis = analysisByPath.get(targetPath);
-        if (dependencyAnalysis) {
-          for (const specifier of statement.specifiers) {
-            const importedType = dependencyAnalysis.getTopLevelSymbolType(specifier.imported.name);
-            if (importedType) {
-              const bindingName = (specifier.local ?? specifier.imported).name;
-              const existing = importedSymbols.get(bindingName) ?? {};
-              existing.type = importedType;
-              importedSymbols.set(bindingName, existing);
+        if (!reusableTypeContext) {
+          const dependencyAst = (await loadParsed(targetPath, parserOptionsForModulePath(targetPath)))?.ast ?? null;
+          if (dependencyAst) {
+            const importedNames = new Set(
+              statement.specifiers.map((specifier) => specifier.imported.name)
+            );
+            externalDeclarations.push(...collectImportedDeclarations(dependencyAst, importedNames));
+          }
+          const dependencyAnalysis = analysisByPath.get(targetPath);
+          if (dependencyAnalysis) {
+            for (const specifier of statement.specifiers) {
+              const importedType = dependencyAnalysis.getTopLevelSymbolType(specifier.imported.name);
+              if (importedType) {
+                const bindingName = (specifier.local ?? specifier.imported).name;
+                const existing = importedSymbols.get(bindingName) ?? {};
+                existing.type = importedType;
+                importedSymbols.set(bindingName, existing);
+              }
             }
           }
         }
+      }
+      if (!reusableTypeContext && incrementalState) {
+        emitRuntimeSeed = createTranspileRuntimeSeed([
+          ...moduleAmbientDeclarations,
+          ...externalDeclarations
+        ]);
+        incrementalState.typeContextByPath.set(filePath, {
+          importKey,
+          externalDeclarations,
+          importedSymbols: new Map(importedSymbols),
+          emitRuntimeSeed
+        });
       }
     }
 
@@ -706,6 +826,7 @@ export async function bundleModuleGraphAsModules(
       importedSymbols,
       ambientDeclarations: moduleAmbientDeclarations,
       typeCheck: options.typeCheck ?? true,
+      ...(emitRuntimeSeed ? { emitRuntimeSeed } : {}),
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     });

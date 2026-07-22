@@ -14,6 +14,8 @@ interface BundleNodeModulesOptions {
   importMappings?: Readonly<Record<string, string>>;
   externalDependencyStrategy?: "runtime-error" | "node-require";
   baseUrl?: string;
+  incrementalCache?: NodeModuleBundleIncrementalCache;
+  changedFiles?: readonly string[];
 }
 
 export interface BundleNodeModulesResult {
@@ -32,6 +34,23 @@ interface CachedBundledModuleArtifact {
   mtimeMs: number;
   code: string;
   resolvedDependencies: Record<string, string | null>;
+}
+
+export interface NodeModuleBundleIncrementalCache {}
+
+interface NodeModuleBundleIncrementalState {
+  sourcePath: string;
+  configurationKey: string;
+  entrySpecifiers: string[];
+  virtualSources: Map<string, string>;
+  moduleById: Map<string, BundledModuleRecord>;
+  moduleIdByPath: Map<string, string>;
+  watchedFiles: string[];
+  entryDependencyMap: Record<string, string | null>;
+  bundleRootDir: string;
+  dependencyMapsLiteral: string;
+  moduleFactoriesLiteral: string;
+  nextModuleIndex: number;
 }
 
 type VfsStatResult = Awaited<ReturnType<Vfs["stat"]>> | null;
@@ -63,6 +82,37 @@ const NODE_BUILTIN_SET = new Set([
 const STATIC_REQUIRE_PATTERN = /\brequire\s*\(\s*(['"])([^"'`]+)\1\s*\)/g;
 const STATIC_DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*(['"])([^"'`]+)\1\s*\)/g;
 const bundledModuleArtifactCache = new Map<string, CachedBundledModuleArtifact>();
+const incrementalBundleStates = new WeakMap<NodeModuleBundleIncrementalCache, NodeModuleBundleIncrementalState>();
+
+export function createNodeModuleBundleIncrementalCache(): NodeModuleBundleIncrementalCache {
+  return {};
+}
+
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function dependencyVirtualSources(
+  virtualSources: ReadonlyMap<string, string>,
+  sourcePath: string
+): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const [filePath, source] of virtualSources) {
+    if (filePath !== sourcePath) result.set(filePath, source);
+  }
+  return result;
+}
+
+function sameVirtualSources(
+  left: ReadonlyMap<string, string>,
+  right: ReadonlyMap<string, string>
+): boolean {
+  if (left.size !== right.size) return false;
+  for (const [filePath, source] of left) {
+    if (right.get(filePath) !== source) return false;
+  }
+  return true;
+}
 
 interface StaticDynamicImportOccurrence {
   specifier: string;
@@ -787,10 +837,42 @@ export async function bundleNodeModuleGraph(
   const resolutionContext = createResolutionContext();
   const externalDependencyStrategy = options.externalDependencyStrategy ?? "runtime-error";
   const entryId = "__vexa_entry__";
-  const moduleById = new Map<string, BundledModuleRecord>();
-  const moduleIdByPath = new Map<string, string>();
-  const watchedFiles = new Set<string>([sourcePath]);
-  let nextModuleIndex = 0;
+  const entryTranspiled = virtualSources.has(sourcePath)
+    ? { code: entrySource, exportNames: null }
+    : transpileModuleSource(entrySource, sourcePath);
+  const entryCode = rewriteStaticDynamicImports(entryTranspiled.code);
+  const entrySpecifiers = [
+    ...detectStaticRequires(entryCode),
+    ...detectStaticDynamicImports(entryTranspiled.code)
+  ];
+  const dependencySources = dependencyVirtualSources(virtualSources, sourcePath);
+  const configurationKey = JSON.stringify([
+    baseUrl ?? "",
+    externalDependencyStrategy,
+    Object.entries(importMappings).sort(([left], [right]) => left.localeCompare(right))
+  ]);
+  const cachedState = options.incrementalCache
+    ? incrementalBundleStates.get(options.incrementalCache)
+    : undefined;
+  const dependencyChanged = (options.changedFiles ?? []).some((filePath) => filePath !== sourcePath);
+  const canReuseDependencies = cachedState !== undefined &&
+    !dependencyChanged &&
+    cachedState.sourcePath === sourcePath &&
+    cachedState.configurationKey === configurationKey &&
+    sameStringArray(cachedState.entrySpecifiers, entrySpecifiers) &&
+    sameVirtualSources(cachedState.virtualSources, dependencySources);
+  const reusableState = canReuseDependencies ? cachedState : undefined;
+  const moduleById = reusableState
+    ? new Map(reusableState.moduleById)
+    : new Map<string, BundledModuleRecord>();
+  const moduleIdByPath = reusableState
+    ? new Map(reusableState.moduleIdByPath)
+    : new Map<string, string>();
+  const watchedFiles = new Set<string>(reusableState ? reusableState.watchedFiles : [sourcePath]);
+  const entryDependencyMap: Record<string, string | null> = reusableState
+    ? { ...reusableState.entryDependencyMap }
+    : {};
+  let nextModuleIndex = reusableState?.nextModuleIndex ?? 0;
 
   const visitResolvedFile = async (filePath: string): Promise<string> => {
     const existing = moduleIdByPath.get(filePath);
@@ -823,34 +905,53 @@ export async function bundleNodeModuleGraph(
     return moduleId;
   };
 
-  const entryTranspiled = virtualSources.has(sourcePath)
-    ? { code: entrySource, exportNames: null }
-    : transpileModuleSource(entrySource, sourcePath);
-  const entryCode = rewriteStaticDynamicImports(entryTranspiled.code);
-  const entryDependencyMap: Record<string, string | null> = {};
-  for (const specifier of [...detectStaticRequires(entryCode), ...detectStaticDynamicImports(entryTranspiled.code)]) {
-    const resolved = await resolveDependency(sourcePath, specifier, activeVfs, virtualSources, importMappings, baseUrl, resolutionContext);
-    if (resolved.kind === "bundled") {
-      entryDependencyMap[specifier] = await visitResolvedFile(resolved.filePath);
-    } else {
-      entryDependencyMap[specifier] = null;
+  if (!canReuseDependencies) {
+    for (const specifier of entrySpecifiers) {
+      const resolved = await resolveDependency(sourcePath, specifier, activeVfs, virtualSources, importMappings, baseUrl, resolutionContext);
+      if (resolved.kind === "bundled") {
+        entryDependencyMap[specifier] = await visitResolvedFile(resolved.filePath);
+      } else {
+        entryDependencyMap[specifier] = null;
+      }
     }
   }
-  moduleById.set(entryId, {
-    id: entryId,
-    filePath: sourcePath,
-    code: entryCode,
-    dependencyMap: entryDependencyMap
-  });
 
-  const bundleRootDir = commonAncestorDirectory([...moduleById.values()].map((record) => record.filePath));
+  const bundleRootDir = reusableState?.bundleRootDir
+    ?? commonAncestorDirectory([...moduleById.values()].map((record) => record.filePath).concat(sourcePath));
   const entryExports = entryTranspiled.exportNames ?? collectCommonJsExports(entryCode);
-  const dependencyMapsLiteral = [...moduleById.values()]
-    .map((record) => `${JSON.stringify(record.id)}: ${JSON.stringify(record.dependencyMap)}`)
-    .join(",\n");
-  const moduleFactoriesLiteral = [...moduleById.values()]
-    .map((record) => createModuleFactoryCode(record.id, minimalBundlePath(bundleRootDir, record.filePath), record.code))
-    .join(",\n");
+  const cachedDependencyMapsLiteral = reusableState?.dependencyMapsLiteral
+    ?? [...moduleById.values()]
+      .map((record) => `${JSON.stringify(record.id)}: ${JSON.stringify(record.dependencyMap)}`)
+      .join(",\n");
+  const cachedModuleFactoriesLiteral = reusableState?.moduleFactoriesLiteral
+    ?? [...moduleById.values()]
+      .map((record) => createModuleFactoryCode(record.id, minimalBundlePath(bundleRootDir, record.filePath), record.code))
+      .join(",\n");
+  const dependencyMapsLiteral = [
+    cachedDependencyMapsLiteral,
+    `${JSON.stringify(entryId)}: ${JSON.stringify(entryDependencyMap)}`
+  ].filter((chunk) => chunk.length > 0).join(",\n");
+  const moduleFactoriesLiteral = [
+    cachedModuleFactoriesLiteral,
+    createModuleFactoryCode(entryId, minimalBundlePath(bundleRootDir, sourcePath), entryCode)
+  ].filter((chunk) => chunk.length > 0).join(",\n");
+
+  if (!canReuseDependencies && options.incrementalCache) {
+    incrementalBundleStates.set(options.incrementalCache, {
+      sourcePath,
+      configurationKey,
+      entrySpecifiers: [...entrySpecifiers],
+      virtualSources: dependencySources,
+      moduleById: new Map(moduleById),
+      moduleIdByPath: new Map(moduleIdByPath),
+      watchedFiles: [...watchedFiles],
+      entryDependencyMap: { ...entryDependencyMap },
+      bundleRootDir,
+      dependencyMapsLiteral: cachedDependencyMapsLiteral,
+      moduleFactoriesLiteral: cachedModuleFactoriesLiteral,
+      nextModuleIndex,
+    });
+  }
 
   const exportLines = entryExports
     .filter((name) => name !== "default")

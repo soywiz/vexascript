@@ -19,11 +19,13 @@ document.body
     ..setAttribute("style", "margin:0;display:grid;place-items:center;min-height:100vh;background:#f3efe2;")
     ..appendChild(app.canvas)
 
-val badge = Graphics()
-    ..roundRect(-110, -64, 220, 128, 28)
-    ..fill(0xff6b35)
-    ..position = center + Vec2(0, -16)
-    ..addTo(stage)
+val badge = Graphics(). {
+    roundRect(-110, -64, 220, 128, 28)
+    
+    fill(0xff6b35)
+    position = center + Vec2(0, -16)
+    addTo(stage)
+}
 
 val orb = Graphics(). {
     circle(0, 0, 28)

@@ -5,6 +5,7 @@ import type { VexaServeMapping } from "../compiler/project";
 import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
 import { basename, extname, resolve } from "../compiler/utils/path";
 import {
+  ambientDeclarationsForProject,
   createBundledModuleArtifacts,
   ensureRuntimeDependencies,
   resolveProjectForSource
@@ -28,6 +29,7 @@ export interface RunningServeSession {
 const LIVE_RELOAD_PATH = "/__vexa_live_reload";
 const BUNDLE_PATH = "/__vexa_bundle__.js";
 const LOOPBACK_HOST = "127.0.0.1";
+const REBUILD_DEBOUNCE_MS = 20;
 
 const CONTENT_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -148,12 +150,23 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
 
   const clients = new Set<ServerResponse<IncomingMessage>>();
   const watcherAbortControllers = new Map<string, AbortController>();
+  const watchedFileVersions = new Map<string, string | null>();
+  const pendingChangedFiles = new Set<string>();
+  const forcedChangedFiles = new Set<string>();
   let pendingRebuildTimer: NodeJS.Timeout | null = null;
+  let rebuildInProgress = false;
   let closed = false;
   let bundleCode = "";
   let bundleVersion = 0;
   let pendingInitialBundleDurationMs: number | null = null;
-  let serveMappings: VexaServeMapping[] = [];
+  const project = await resolveProjectForSource(bundleInput);
+  let serveMappings: VexaServeMapping[] = project?.serveMappings ?? [];
+  await ensureRuntimeDependencies(bundleInput, project);
+  const ambientDeclarations = await ambientDeclarationsForProject(bundleInput, project);
+  const { createModuleGraphIncrementalCache } = await import("../compiler/runtime/moduleGraph");
+  const { createNodeModuleBundleIncrementalCache } = await import("./nodeModuleBundle");
+  const moduleGraphIncrementalCache = createModuleGraphIncrementalCache();
+  const nodeModuleIncrementalCache = createNodeModuleBundleIncrementalCache();
 
   const closeWatchers = (): void => {
     for (const controller of watcherAbortControllers.values()) {
@@ -169,27 +182,75 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
     }
   };
 
-  const scheduleRebuild = (reason: string): void => {
-    if (closed) {
-      return;
-    }
+  const fileVersion = async (filePath: string): Promise<string | null> => {
+    const info = await stat(filePath).catch(() => null);
+    return info ? `${info.mtimeMs}:${info.size}` : null;
+  };
+
+  const updateWatchedFileVersions = async (filePaths: readonly string[]): Promise<void> => {
+    const versions = await Promise.all(filePaths.map(async (filePath) => [filePath, await fileVersion(filePath)] as const));
+    watchedFileVersions.clear();
+    for (const [filePath, version] of versions) watchedFileVersions.set(filePath, version);
+  };
+
+  const schedulePendingRebuild = (): void => {
+    if (closed || rebuildInProgress || pendingChangedFiles.size === 0) return;
     if (pendingRebuildTimer) {
       clearTimeout(pendingRebuildTimer);
     }
     pendingRebuildTimer = setTimeout(() => {
       pendingRebuildTimer = null;
-      void rebuildBundle(reason).catch((error) => {
+      void drainPendingRebuild().catch((error) => {
         console.error(error instanceof Error ? error.message : String(error));
       });
-    }, 75);
+    }, REBUILD_DEBOUNCE_MS);
   };
 
-  const rebuildBundle = async (reason: string): Promise<void> => {
+  const scheduleRebuild = (filePath: string): void => {
+    if (closed) return;
+    pendingChangedFiles.add(filePath);
+    schedulePendingRebuild();
+  };
+
+  const syncWatchers = (filePaths: readonly string[]): void => {
+    const nextFiles = new Set(filePaths);
+    for (const [filePath, controller] of watcherAbortControllers) {
+      if (nextFiles.has(filePath)) continue;
+      controller.abort();
+      watcherAbortControllers.delete(filePath);
+    }
+    for (const filePath of nextFiles) {
+      if (watcherAbortControllers.has(filePath)) continue;
+      const controller = new AbortController();
+      watcherAbortControllers.set(filePath, controller);
+      void (async () => {
+        try {
+          for await (const _event of watch(filePath, { signal: controller.signal })) {
+            scheduleRebuild(filePath);
+          }
+        } catch (error) {
+          if ((error as { name?: string } | undefined)?.name !== "AbortError") {
+            scheduleRebuild(filePath);
+          }
+        } finally {
+          if (watcherAbortControllers.get(filePath) === controller) {
+            watcherAbortControllers.delete(filePath);
+          }
+        }
+      })();
+    }
+  };
+
+  const rebuildBundle = async (reason: string, changedFiles: readonly string[]): Promise<void> => {
     const startedAt = Date.now();
-    const project = await resolveProjectForSource(bundleInput);
-    serveMappings = project?.serveMappings ?? [];
-    await ensureRuntimeDependencies(bundleInput, project);
-    const result = await createBundledModuleArtifacts(bundleInput, target, project, jsxOptions);
+    const versionsBeforeBuild = new Map<string, string | null>();
+    for (const filePath of changedFiles) versionsBeforeBuild.set(filePath, await fileVersion(filePath));
+    const result = await createBundledModuleArtifacts(bundleInput, target, project, jsxOptions, {
+      ambientDeclarations,
+      moduleGraphIncrementalCache,
+      nodeModuleIncrementalCache,
+      changedFiles,
+    });
     if (result.errors.length > 0) {
       options.onDiagnosticError?.(result, bundleInput);
       if (reason === "initial") {
@@ -199,21 +260,13 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
     }
     bundleCode = result.code;
     bundleVersion += 1;
-    closeWatchers();
-    for (const filePath of result.watchedFiles) {
-      const controller = new AbortController();
-      watcherAbortControllers.set(filePath, controller);
-      void (async () => {
-        try {
-          for await (const _event of watch(filePath, { signal: controller.signal })) {
-            scheduleRebuild(`change:${basename(filePath)}`);
-          }
-        } catch (error) {
-          if ((error as { name?: string } | undefined)?.name !== "AbortError") {
-            scheduleRebuild(`change:${basename(filePath)}`);
-          }
-        }
-      })();
+    syncWatchers(result.watchedFiles);
+    await updateWatchedFileVersions(result.watchedFiles);
+    for (const [filePath, versionBeforeBuild] of versionsBeforeBuild) {
+      if (watchedFileVersions.get(filePath) !== versionBeforeBuild) {
+        pendingChangedFiles.add(filePath);
+        forcedChangedFiles.add(filePath);
+      }
     }
     const elapsedMs = Date.now() - startedAt;
     if (reason === "initial") {
@@ -224,7 +277,30 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
     }
   };
 
-  await rebuildBundle("initial");
+  const drainPendingRebuild = async (): Promise<void> => {
+    if (closed || rebuildInProgress) return;
+    const candidates = [...pendingChangedFiles];
+    pendingChangedFiles.clear();
+    const changedFiles: string[] = [];
+    for (const filePath of candidates) {
+      if (forcedChangedFiles.delete(filePath) || await fileVersion(filePath) !== watchedFileVersions.get(filePath)) {
+        changedFiles.push(filePath);
+      }
+    }
+    if (changedFiles.length === 0) {
+      schedulePendingRebuild();
+      return;
+    }
+    rebuildInProgress = true;
+    try {
+      await rebuildBundle(`change:${changedFiles.map(basename).join(",")}`, changedFiles);
+    } finally {
+      rebuildInProgress = false;
+      schedulePendingRebuild();
+    }
+  };
+
+  await rebuildBundle("initial", []);
 
   const server = createServer(async (request, response) => {
     const requestUrl = request.url ?? "/";

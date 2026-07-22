@@ -2641,7 +2641,7 @@ interface EmitProgramRuntimeContext {
   jsxFragmentFactory: string;
 }
 
-interface EmitProgramRuntimeSeed {
+export interface EmitProgramRuntimeSeed {
   overloadBuckets: Map<string, FunctionStatement[]>;
   operators: Map<string, RuntimeOperatorInfo[]>;
   extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
@@ -2717,23 +2717,50 @@ function cloneRuntimeSeed(seed: EmitProgramRuntimeSeed): EmitProgramRuntimeSeed 
   };
 }
 
-export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgramRuntimeSeed {
-  const overloadBuckets = new Map<string, FunctionStatement[]>();
-  const operators = new Map<string, RuntimeOperatorInfo[]>();
-  const extensionMethods = new Map<string, RuntimeExtensionMethodInfo[]>();
-  const importedExtensionRuntimeNames = new Map<string, string[]>();
-  const extensionProperties = new Map<string, string>();
-  const extensionPropertySetters = new Map<string, string>();
-  const classNames = new Set<string>();
-  const interfaceNames = new Set<string>();
-  const interfaceMembers = new Map<string, InterfaceStatement["members"]>();
-  const interfaceMethodNames = new Map<string, Set<string>>();
-  const constructableCandidates: Array<{ variableName: string; typeName: string }> = [];
-  const moduleObjectNames = new Set<string>();
-  const parameterNames = new Map<string, string[]>();
-  const javaScriptImplementations = new Map<string, JavaScriptImplementationInfo>();
-  const jsNames = new Map<string, string>();
-  const enumInfos = new Map<string, RuntimeEnumInfo>();
+function emptyEmitProgramRuntimeSeed(): EmitProgramRuntimeSeed {
+  return {
+    overloadBuckets: new Map<string, FunctionStatement[]>(),
+    operators: new Map<string, RuntimeOperatorInfo[]>(),
+    extensionMethods: new Map<string, RuntimeExtensionMethodInfo[]>(),
+    importedExtensionRuntimeNames: new Map<string, string[]>(),
+    extensionProperties: new Map<string, string>(),
+    extensionPropertySetters: new Map<string, string>(),
+    classNames: new Set<string>(),
+    interfaceNames: new Set<string>(),
+    interfaceMembers: new Map<string, InterfaceStatement["members"]>(),
+    interfaceMethodNames: new Map<string, Set<string>>(),
+    constructableCandidates: [],
+    moduleObjectNames: new Set<string>(),
+    parameterNames: new Map<string, string[]>(),
+    javaScriptImplementations: new Map<string, JavaScriptImplementationInfo>(),
+    jsNames: new Map<string, string>(),
+    enumInfos: new Map<string, RuntimeEnumInfo>()
+  };
+}
+
+export function createEmitProgramRuntimeSeed(
+  contextProgram: Program,
+  baseSeed?: EmitProgramRuntimeSeed
+): EmitProgramRuntimeSeed {
+  const seed: EmitProgramRuntimeSeed = baseSeed
+    ? cloneRuntimeSeed(baseSeed)
+    : emptyEmitProgramRuntimeSeed();
+  const overloadBuckets: Map<string, FunctionStatement[]> = seed.overloadBuckets;
+  const operators: Map<string, RuntimeOperatorInfo[]> = seed.operators;
+  const extensionMethods: Map<string, RuntimeExtensionMethodInfo[]> = seed.extensionMethods;
+  const importedExtensionRuntimeNames: Map<string, string[]> = seed.importedExtensionRuntimeNames;
+  const extensionProperties: Map<string, string> = seed.extensionProperties;
+  const extensionPropertySetters: Map<string, string> = seed.extensionPropertySetters;
+  const classNames: Set<string> = seed.classNames;
+  const interfaceNames: Set<string> = seed.interfaceNames;
+  const interfaceMembers: Map<string, InterfaceStatement["members"]> = seed.interfaceMembers;
+  const interfaceMethodNames: Map<string, Set<string>> = seed.interfaceMethodNames;
+  const constructableCandidates: Array<{ variableName: string; typeName: string }> = seed.constructableCandidates;
+  const moduleObjectNames: Set<string> = seed.moduleObjectNames;
+  const parameterNames: Map<string, string[]> = seed.parameterNames;
+  const javaScriptImplementations: Map<string, JavaScriptImplementationInfo> = seed.javaScriptImplementations;
+  const jsNames: Map<string, string> = seed.jsNames;
+  const enumInfos: Map<string, RuntimeEnumInfo> = seed.enumInfos;
 
   for (const statement of contextProgram.body) {
     const candidate = unwrapExportedDeclaration(statement);
