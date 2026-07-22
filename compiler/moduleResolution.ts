@@ -35,7 +35,7 @@ export function candidateImportTargetFilePaths(
   const direct = resolve(baseDir, importPath);
   return hasRecognizedModuleFileExtension(direct)
     ? [direct]
-    : [direct, `${direct}${LANGUAGE_FILE_EXTENSION}`, `${direct}.ts`, `${direct}.tsx`, `${direct}.json`, `${direct}.txt`];
+    : [`${direct}${LANGUAGE_FILE_EXTENSION}`, `${direct}.ts`, `${direct}.tsx`, `${direct}.json`, `${direct}.txt`, direct];
 }
 
 /**
@@ -44,14 +44,14 @@ export function candidateImportTargetFilePaths(
  * module or `null` when it cannot be located.
  *
  * Resolution order:
- *  1. The path resolved directly against the importer's directory, if it exists
- *     in the VFS or in an open editor/LSP session.
- *  2. The same path with a `${LANGUAGE_FILE_EXTENSION}` extension appended, when the import omits an
+ *  1. The path with a `${LANGUAGE_FILE_EXTENSION}` extension appended, when the import omits an
  *     explicit extension.
- *  3. The same path with a `.ts` or `.tsx` extension appended, so VexaScript files can import
+ *  2. The same path with a `.ts` or `.tsx` extension appended, so VexaScript files can import
  *     colocated TypeScript runtime modules without spelling the extension.
- *  4. The same path with a `.json` or `.txt` extension appended for local
+ *  3. The same path with a `.json` or `.txt` extension appended for local
  *     data/text asset imports.
+ *  4. The direct extensionless path as a fallback. Source siblings take priority
+ *     so native executables do not shadow their `.vx` or `.ts` entrypoints.
  *
  * This is the shared resolver used by the semantic project index and the LSP
  * cross-file features so they all agree on how local module paths map to files,
@@ -105,7 +105,7 @@ export async function resolveImportTargetFilePath(
     const mappedPath = resolve(mappedTarget);
     const candidates = hasRecognizedModuleFileExtension(mappedPath)
       ? [mappedPath]
-      : [mappedPath, `${mappedPath}${LANGUAGE_FILE_EXTENSION}`, `${mappedPath}.ts`, `${mappedPath}.tsx`, `${mappedPath}.json`, `${mappedPath}.txt`];
+      : [`${mappedPath}${LANGUAGE_FILE_EXTENSION}`, `${mappedPath}.ts`, `${mappedPath}.tsx`, `${mappedPath}.json`, `${mappedPath}.txt`, mappedPath];
     for (const candidate of candidates) {
       if (await hasImportTarget(candidate, activeVfs, options.getSessionForFilePath)) {
         return candidate;

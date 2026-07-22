@@ -55,6 +55,20 @@ function decodeSourceLinesFromMappings(mappings: string): number[] {
 }
 
 describe("transpile", () => {
+  it("reports parse, analysis, and emission timings for single-file compilation", () => {
+    const events: Array<{ phase: string; elapsedMs: number }> = [];
+
+    const result = transpile("const value = 1", {
+      sourceFilePath: "/tmp/profile.ts",
+      emitSourceMap: false,
+      profile: (event) => events.push(event)
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(events.map((event) => event.phase)).toEqual(["parse", "analysis", "emit"]);
+    expect(events.every((event) => event.elapsedMs >= 0)).toBe(true);
+  });
+
   it("can emit valid TypeScript while retaining semantic diagnostics only when type checking is enabled", () => {
     const source = "const value: MissingType = 1; console.log(value)";
 

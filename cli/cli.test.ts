@@ -140,7 +140,11 @@ describe("CLI", () => {
     expect(sourceMap.file).toBe("output.js");
     expect(sourceMap.sources).toEqual(["input.vx"]);
     expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Compiled:");
+    const compilationLog = String(logSpy.mock.calls[0]?.[0] ?? "");
+    expect(compilationLog).toContain("Compiled:");
+    expect(
+      /\(source-load [\d.]+ms, project-load [\d.]+ms, declarations [\d.]+ms, type-check [\d.]+ms, parse [\d.]+ms, analysis [\d.]+ms, emit [\d.]+ms, write [\d.]+ms, total [\d.]+ms\)$/.test(compilationLog)
+    ).toBe(true);
   });
 
   it("build command supports conservative target mode", async () => {
@@ -162,12 +166,18 @@ describe("CLI", () => {
     const input = join(dir, "input.vx");
     const output = join(dir, "output.cpp");
     await writeFile(input, "for (n of 0 ..< 10) { console.log(n) }", "utf8");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await runCli(["node", "vexa", "build", input, "--emit", "cpp", "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode.length).toBeGreaterThan(0);
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
+    const compilationLog = String(logSpy.mock.calls[0]?.[0] ?? "");
+    expect(compilationLog).toContain("load-and-parse");
+    expect(compilationLog).toContain("cpp-emission");
+    expect(compilationLog).toContain("type-check");
+    expect(compilationLog).toContain("total");
   });
 
   it("cpp command emits a C++ translation unit without compiling it", async () => {
@@ -184,22 +194,27 @@ describe("CLI", () => {
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });
 
-  it("cpp command accepts the complete TypeScript CLI", async () => {
+  it("build --emit cpp accepts the complete TypeScript CLI", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-self-host-"));
     const output = join(dir, "vexa-cli.cpp");
 
     await runCli([
       "node",
       "vexa",
-      "cpp",
+      "build",
       join(process.cwd(), "cli", "cli.ts"),
+      "--emit",
+      "cpp",
       "--target",
       "optimized",
       "--out",
       output,
     ]);
 
-    expect((await readFile(output, "utf8")).length).toBeGreaterThan(0);
+    const generatedCpp = await readFile(output, "utf8");
+    expect(generatedCpp.length).toBeGreaterThan(0);
+    expect(generatedCpp).toContain("auto contextProgram = vexa::Runtime::current().make<");
+    expect(generatedCpp).not.toContain("auto contextProgram = vexa::toInstance<");
     await validateNativeCppSyntax(output);
   });
 
@@ -244,13 +259,13 @@ describe("CLI", () => {
     await validateNativeCppSyntax(output, { debug: true });
   });
 
-  it("executable command routes inputs through native executable validation", async () => {
+  it("executable command rejects unsupported native source inputs", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-executable-command-"));
-    const input = join(dir, "input.ts");
+    const input = join(dir, "input.js");
     await writeFile(input, "console.log('native')", "utf8");
 
     await expect(runCli(["node", "vexa", "executable", input])).rejects.toThrow(
-      "Native compilation expects a .vx input file"
+      "Native compilation expects a .vx or .ts input file"
     );
   });
 
@@ -433,7 +448,7 @@ describe("CLI", () => {
       });
       expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain(`Serving at http://localhost:${session.port} -- `);
       expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain(dir);
-      expect(/^Bundled in \d+ms$/.test(String(logSpy.mock.calls[1]?.[0] ?? ""))).toBe(true);
+      expect(/^Bundled in [\d.]+ms \(parse [\d.]+ms, analysis [\d.]+ms, emit [\d.]+ms\)$/.test(String(logSpy.mock.calls[1]?.[0] ?? ""))).toBe(true);
 
       const baseUrl = `http://127.0.0.1:${session.port}`;
       const htmlText = await fetchText(baseUrl);
@@ -446,7 +461,7 @@ describe("CLI", () => {
       const reloadPromise = readSseEvent(`${baseUrl}/__vexa_live_reload`, "reload", { waitForReady: true });
       await writeFile(entry, 'console.log("updated")\n', "utf8");
       expect(await reloadPromise).toBeTruthy();
-      expect(/^Bundled in \d+ms$/.test(String(logSpy.mock.calls.at(-1)?.[0] ?? ""))).toBe(true);
+      expect(/^Bundled in [\d.]+ms \(parse [\d.]+ms, analysis [\d.]+ms, emit [\d.]+ms\)$/.test(String(logSpy.mock.calls.at(-1)?.[0] ?? ""))).toBe(true);
 
       const updatedBundle = await fetchText(`${baseUrl}/__vexa_bundle__.js`);
       expect(updatedBundle).toContain('console.log("updated");');
@@ -642,6 +657,7 @@ describe("CLI", () => {
     await expect(runCli(["node", "vexa", "executable", "--help"])).rejects.toThrow("process.exit:0");
     const executableHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
     expect(executableHelp).toContain("Usage: vexa executable [options] <input>");
+    expect(executableHelp).toContain("Compile one VexaScript or TypeScript file");
     expect(executableHelp).toContain("--build-dir <dir>");
 
     const helpExecutableStart = stdoutWriteSpy.mock.calls.length;
@@ -744,6 +760,7 @@ describe("CLI", () => {
     const run = await runCommandCapture(process.execPath, ["dist/vexa.js"], { cwd: process.cwd() });
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("Usage: vexa [options] [command]");
+    expect(run.stdout).toContain("Compile a VexaScript or TypeScript file to a native Oilpan executable");
     expect(run.stderr).toBe("");
   });
 

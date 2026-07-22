@@ -54,6 +54,17 @@ describe("resolveImportTargetFilePath", () => {
     expect(await resolveImportTargetFilePath(importer, "./utils")).toBe(target);
   });
 
+  it("prefers a TypeScript source sibling over an extensionless native executable", async () => {
+    const importer = join(root, "main.ts");
+    await writeFile(importer, "");
+    const executable = join(root, "cli");
+    const source = join(root, "cli.ts");
+    await writeFile(executable, "native executable");
+    await writeFile(source, "export const value = 1");
+
+    expect(await resolveImportTargetFilePath(importer, "./cli")).toBe(source);
+  });
+
   it("appends .ts when an extensionless module basename contains a dot", async () => {
     const importer = join(root, "main.ts");
     await writeFile(importer, "");

@@ -530,6 +530,18 @@ let promise = go fetchValue()
     expect(emitted).toContain("super();");
   });
 
+  it("preserves TypeScript extends clauses for ambient interface-instance types", () => {
+    const program = parseFile(
+      tokenizeReader("interface Error { message: string }\nclass DiagnosticError extends Error { constructor() { super() } }"),
+      { language: "typescript" }
+    );
+
+    const emitted = emitProgram(program, undefined, undefined, undefined, { sourceLanguage: "typescript" });
+
+    expect(emitted).toContain("class DiagnosticError extends Error {");
+    expect(emitted).toContain("super();");
+  });
+
   it("emits TypeScript-style lambda and function expressions", () => {
     const program = parseFile(
       tokenizeReader(dedent`

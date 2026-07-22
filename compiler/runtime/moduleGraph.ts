@@ -18,6 +18,7 @@ import { resolveNodeModuleImportsForRuntime } from "compiler/nodeModuleImportRes
 import { vfs, type Vfs } from "compiler/vfs";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { extname, resolve } from "compiler/utils/path";
+import { monotonicNow } from "compiler/utils/time";
 import { collectImplicitVexaExportPlan } from "./implicitExports";
 import { stripBundledCommonJsImports, stripBundledModuleSyntax } from "./bundlingStripping";
 import {
@@ -653,6 +654,7 @@ export async function bundleModuleGraphAsModules(
     moduleFormat?: "esm" | "commonjs";
   } = {}
 ): Promise<ModuleGraphSourcesResult> {
+  const phaseTimings = { parse: 0, analysis: 0, emit: 0 };
   const activeVfs = options.vfs ?? vfs();
   const ambientDeclarations = options.ambientDeclarations ?? EMPTY_DECLARATIONS;
   const importMappings = options.importMappings ?? {};
@@ -698,7 +700,9 @@ export async function bundleModuleGraphAsModules(
     if (source === null) {
       return null;
     }
+    const parseStartedAt = monotonicNow();
     const parsed = parseSource(source, parserOptions);
+    phaseTimings.parse += monotonicNow() - parseStartedAt;
     parsedByPath.set(filePath, parsed);
     return parsed;
   };
@@ -802,6 +806,7 @@ export async function bundleModuleGraphAsModules(
       }
     }
 
+    const analysisStartedAt = monotonicNow();
     const compilationArtifacts = parsed
         ? compileParsedSource(parsed, {
           externalDeclarations,
@@ -813,8 +818,10 @@ export async function bundleModuleGraphAsModules(
           ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         });
+    phaseTimings.analysis += monotonicNow() - analysisStartedAt;
     analysisByPath.set(filePath, compilationArtifacts.analysis);
 
+    const emitStartedAt = monotonicNow();
     const result = transpile(source, {
       compilationArtifacts,
       sourceFilePath: filePath,
@@ -830,6 +837,7 @@ export async function bundleModuleGraphAsModules(
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     });
+    phaseTimings.emit += monotonicNow() - emitStartedAt;
     errors.push(...result.errors);
     diagnostics.push(...result.diagnostics);
     warnings.push(...result.warnings);
@@ -878,11 +886,15 @@ export async function bundleModuleGraphAsModules(
       if (source === null || !parsed) {
         continue;
       }
-      const result = transpile(source, {
-        compilationArtifacts: compileParsedSource(parsed, {
+      const analysisStartedAt = monotonicNow();
+      const compilationArtifacts = compileParsedSource(parsed, {
           externalDeclarations: globalDeclarations,
           ambientDeclarations: [...ambientDeclarations, ...globalDeclarations]
-        }),
+        });
+      phaseTimings.analysis += monotonicNow() - analysisStartedAt;
+      const emitStartedAt = monotonicNow();
+      const result = transpile(source, {
+        compilationArtifacts,
         sourceFilePath: filePath,
         target,
         emitSourceMap: false,
@@ -894,6 +906,7 @@ export async function bundleModuleGraphAsModules(
         ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
         ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
       });
+      phaseTimings.emit += monotonicNow() - emitStartedAt;
       errors.push(...result.errors);
       diagnostics.push(...result.diagnostics);
       warnings.push(...result.warnings);
@@ -904,6 +917,11 @@ export async function bundleModuleGraphAsModules(
       globalChunks.push([code, assignments].filter((chunk) => chunk.trim().length > 0).join("\n"));
     }
   }
+
+  const moduleCount = parsedByPath.size;
+  options.profile?.({ phase: "parse", elapsedMs: phaseTimings.parse, moduleCount });
+  options.profile?.({ phase: "analysis", elapsedMs: phaseTimings.analysis, moduleCount });
+  options.profile?.({ phase: "emit", elapsedMs: phaseTimings.emit, moduleCount });
 
   return {
     entrySource: [...globalChunks, emittedByPath.get(entryFilePath) ?? ""].filter((chunk) => chunk.trim().length > 0).join("\n"),

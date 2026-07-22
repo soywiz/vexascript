@@ -116,6 +116,7 @@ export async function createBundledModuleArtifacts(
     moduleGraphIncrementalCache?: ModuleGraphIncrementalCache;
     nodeModuleIncrementalCache?: NodeModuleBundleIncrementalCache;
     changedFiles?: readonly string[];
+    profile?: (event: { phase: string; elapsedMs: number; moduleCount: number }) => void;
   } = {}
 ): Promise<BundledModuleArtifacts> {
   const semanticValidation = vexaTypeCheckForSource(
@@ -143,7 +144,8 @@ export async function createBundledModuleArtifacts(
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
     ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
-    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
+    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {}),
+    ...(options.profile ? { profile: options.profile } : {})
   });
   await semanticValidation;
   if (result.errors.length > 0) {

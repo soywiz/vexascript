@@ -10,6 +10,7 @@ import { COMPILER_VERSION } from "../compiler/compilerVersion";
 import { basename, dirname, extname, resolve } from "../compiler/utils/path";
 import { vfs } from "../compiler/vfs";
 import { compileNativeModuleGraph } from "../compiler/runtime/nativeModuleGraph";
+import { monotonicNow, roundedMilliseconds } from "../compiler/utils/time";
 import {
   ambientDeclarationsForProject,
   createBundledModuleArtifacts,
@@ -101,6 +102,14 @@ function printDiagnostics(errors: string[], diagnostics: TranspileDiagnostic[] |
   }
 }
 
+function formatPhaseTimings(phaseTimings: Map<string, number>): string {
+  const timingParts: string[] = [];
+  for (const [phase, elapsedMs] of phaseTimings) {
+    timingParts.push(`${phase} ${roundedMilliseconds(elapsedMs)}ms`);
+  }
+  return timingParts.join(", ");
+}
+
 async function runLanguageServer(): Promise<void> {
   await startLanguageServer();
 }
@@ -130,17 +139,33 @@ async function buildFile(
   typeCheck = true,
   emitNativeSourceLocations = false
 ): Promise<void> {
+  const buildStartedAt = monotonicNow();
+  const phaseTimings = new Map<string, number>();
   const sourcePath = resolve(process.cwd(), input);
+  const sourceLoadStartedAt = monotonicNow();
   const source = (await vfs().readFile(sourcePath))!;
+  phaseTimings.set("source-load", monotonicNow() - sourceLoadStartedAt);
+  const projectLoadStartedAt = monotonicNow();
   const project = await loadProject(sourcePath);
-  const semanticValidation = vexaTypeCheckForSource(sourcePath, project, typeCheck);
+  phaseTimings.set("project-load", monotonicNow() - projectLoadStartedAt);
+  const typeCheckStartedAt = monotonicNow();
+  let typeCheckElapsedMs = 0;
+  const semanticValidation = (async (): Promise<boolean> => {
+    try {
+      return await vexaTypeCheckForSource(sourcePath, project, typeCheck);
+    } finally {
+      typeCheckElapsedMs = monotonicNow() - typeCheckStartedAt;
+    }
+  })();
   const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, typeCheck)
     ? false
     : await semanticValidation;
   const outputExtension = emit === "cpp" ? ".cpp" : ".js";
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, outputExtension));
+  const declarationsStartedAt = monotonicNow();
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
+  phaseTimings.set("declarations", monotonicNow() - declarationsStartedAt);
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
@@ -151,6 +176,7 @@ async function buildFile(
     emitSourceMap: emit === "javascript",
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     rewriteImportExtensions: true,
+    profile: (event) => phaseTimings.set(event.phase, event.elapsedMs),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
     ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
@@ -162,6 +188,7 @@ async function buildFile(
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
 
+  const writeStartedAt = monotonicNow();
   let outputCode = result.code;
   if (result.sourceMap) {
     const sourceMapPath = `${outputPath}.map`;
@@ -170,8 +197,23 @@ async function buildFile(
     outputCode = `${outputCode}\n//# sourceMappingURL=${sourceMapFileName}`;
   }
   await vfs().writeFile(outputPath, outputCode);
+  phaseTimings.set("write", monotonicNow() - writeStartedAt);
+  phaseTimings.set("total", monotonicNow() - buildStartedAt);
 
-  console.log(`Compiled: ${sourcePath} -> ${outputPath}`);
+  console.log(
+    `Compiled: ${sourcePath} -> ${outputPath} ` +
+    `(${formatPhaseTimings(new Map([
+      ["source-load", phaseTimings.get("source-load") ?? 0],
+      ["project-load", phaseTimings.get("project-load") ?? 0],
+      ["declarations", phaseTimings.get("declarations") ?? 0],
+      ["type-check", typeCheckElapsedMs],
+      ["parse", phaseTimings.get("parse") ?? 0],
+      ["analysis", phaseTimings.get("analysis") ?? 0],
+      ["emit", phaseTimings.get("emit") ?? 0],
+      ["write", phaseTimings.get("write") ?? 0],
+      ["total", phaseTimings.get("total") ?? 0],
+    ]))})`
+  );
   if (result.warnings.length > 0) {
     for (const warning of result.warnings) {
       console.warn(`warning: ${warning}`);
@@ -187,9 +229,13 @@ async function buildNativeFile(
   typeCheck = true,
   emitNativeSourceLocations = false
 ): Promise<void> {
+  const buildStartedAt = monotonicNow();
+  const phaseTimings = new Map<string, number>();
   const inputPath = resolve(process.cwd(), input);
   const inputStats = await vfs().stat(inputPath).catch((_error) => null);
+  const projectLoadStartedAt = monotonicNow();
   const project = await loadProject(inputPath);
+  phaseTimings.set("project-load", monotonicNow() - projectLoadStartedAt);
   const directoryBuild = inputStats?.isDirectory === true;
   const sourcePath = directoryBuild
     ? project?.bundleEntrypoint
@@ -197,7 +243,15 @@ async function buildNativeFile(
   if (!sourcePath) {
     throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
   }
-  const semanticValidation = vexaTypeCheckForSource(sourcePath, project, typeCheck);
+  const typeCheckStartedAt = monotonicNow();
+  let typeCheckElapsedMs = 0;
+  const semanticValidation = (async (): Promise<boolean> => {
+    try {
+      return await vexaTypeCheckForSource(sourcePath, project, typeCheck);
+    } finally {
+      typeCheckElapsedMs = monotonicNow() - typeCheckStartedAt;
+    }
+  })();
   const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, typeCheck)
     ? false
     : await semanticValidation;
@@ -211,13 +265,20 @@ async function buildNativeFile(
     directoryBuild ? resolve(process.cwd(), buildDir ?? resolve(projectOutputDir, ".vexa-native")) : buildDir
   );
   await mkdir(paths.buildRoot, { recursive: true });
+  const declarationsStartedAt = monotonicNow();
   const ambientDeclarations = await ambientDeclarationsForProject(paths.sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
+  phaseTimings.set("declarations", monotonicNow() - declarationsStartedAt);
   const result = await compileNativeModuleGraph(paths.sourcePath, target, {
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     importMappings: nativeImportMappings(project),
     typeCheck: vexaTypeCheck,
     emitNativeSourceLocations,
+    profile: (event) => {
+      if (event.phase !== "total") {
+        phaseTimings.set(event.phase, (phaseTimings.get(event.phase) ?? 0) + event.elapsedMs);
+      }
+    },
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
@@ -227,10 +288,22 @@ async function buildNativeFile(
     printDiagnostics(result.errors, result.diagnostics, paths.sourcePath);
     throw new Error(`Compilation failed for ${paths.sourcePath}`);
   }
+  const writeStartedAt = monotonicNow();
   await vfs().writeFile(paths.cppPath, result.code);
-  console.log(`Compiled: ${paths.sourcePath} -> ${paths.cppPath}`);
+  phaseTimings.set("type-check", typeCheckElapsedMs);
+  phaseTimings.set("write", monotonicNow() - writeStartedAt);
+  phaseTimings.set("cpp-generation-total", monotonicNow() - buildStartedAt);
+  console.log(`Compiled: ${paths.sourcePath} -> ${paths.cppPath} (${formatPhaseTimings(phaseTimings)})`);
+  console.log(`Compiling native executable with g++ -O2: ${paths.executablePath}`);
+  const nativeCompileStartedAt = monotonicNow();
   await linkNativeExecutable(paths.cppPath, paths.executablePath);
-  console.log(`Linked: ${paths.cppPath} + Oilpan -> ${paths.executablePath}`);
+  phaseTimings.set("native-compile-link", monotonicNow() - nativeCompileStartedAt);
+  phaseTimings.set("total", monotonicNow() - buildStartedAt);
+  console.log(
+    `Linked: ${paths.cppPath} + Oilpan -> ${paths.executablePath} ` +
+    `(native-compile-link ${roundedMilliseconds(phaseTimings.get("native-compile-link") ?? 0)}ms, ` +
+    `total ${roundedMilliseconds(phaseTimings.get("total") ?? 0)}ms)`
+  );
 }
 
 async function buildCppModuleGraph(
@@ -240,35 +313,51 @@ async function buildCppModuleGraph(
   typeCheck = true,
   emitNativeSourceLocations = false
 ): Promise<void> {
+  const buildStartedAt = monotonicNow();
+  const phaseTimings = new Map<string, number>();
   const inputPath = resolve(process.cwd(), input);
   const inputStats = await vfs().stat(inputPath).catch((_error) => null);
+  const projectLoadStartedAt = monotonicNow();
   const project = await loadProject(inputPath);
+  phaseTimings.set("project-load", monotonicNow() - projectLoadStartedAt);
   const directoryBuild = inputStats?.isDirectory === true;
   const sourcePath = directoryBuild ? project?.bundleEntrypoint : inputPath;
   if (!sourcePath) {
     throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
   }
-  const semanticValidation = vexaTypeCheckForSource(sourcePath, project, typeCheck);
+  const typeCheckStartedAt = monotonicNow();
+  let typeCheckElapsedMs = 0;
+  const semanticValidation = (async (): Promise<boolean> => {
+    try {
+      return await vexaTypeCheckForSource(sourcePath, project, typeCheck);
+    } finally {
+      typeCheckElapsedMs = monotonicNow() - typeCheckStartedAt;
+    }
+  })();
   const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, typeCheck)
     ? false
     : await semanticValidation;
   const outputPath = directoryBuild
     ? resolve(process.cwd(), out ?? project?.buildOutputDir ?? resolve(inputPath, "dist"), "main.cpp")
     : resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".cpp"));
+  const declarationsStartedAt = monotonicNow();
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
-  let profile: ((event: { phase: string; elapsedMs: number; moduleCount: number }) => void) | undefined;
-  if (environmentVariable("VEXA_PROFILE_COMPILER") === "1") {
-    profile = (event): void => {
+  phaseTimings.set("declarations", monotonicNow() - declarationsStartedAt);
+  const profile = (event: { phase: string; elapsedMs: number; moduleCount: number }): void => {
+    if (event.phase !== "total") {
+      phaseTimings.set(event.phase, (phaseTimings.get(event.phase) ?? 0) + event.elapsedMs);
+    }
+    if (environmentVariable("VEXA_PROFILE_COMPILER") === "1") {
       console.error(`[compiler] ${event.phase}: ${event.elapsedMs}ms (${event.moduleCount} modules)`);
-    };
-  }
+    }
+  };
   const result = await compileNativeModuleGraph(sourcePath, target, {
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     importMappings: nativeImportMappings(project),
     typeCheck: vexaTypeCheck,
     emitNativeSourceLocations,
-    ...(profile ? { profile } : {}),
+    profile,
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
@@ -278,9 +367,13 @@ async function buildCppModuleGraph(
     printDiagnostics(result.errors, result.diagnostics, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
+  const writeStartedAt = monotonicNow();
   await mkdir(dirname(outputPath), { recursive: true });
   await vfs().writeFile(outputPath, result.code);
-  console.log(`Compiled: ${sourcePath} -> ${outputPath}`);
+  phaseTimings.set("write", monotonicNow() - writeStartedAt);
+  phaseTimings.set("type-check", typeCheckElapsedMs);
+  phaseTimings.set("total", monotonicNow() - buildStartedAt);
+  console.log(`Compiled: ${sourcePath} -> ${outputPath} (${formatPhaseTimings(phaseTimings)})`);
 }
 
 async function bundleFile(
@@ -646,7 +739,7 @@ function createProgram(): Command {
   const addExecutableCommand = (name: "executable" | "native", description: string): void => {
     const executableCommand = program.command(name);
     executableCommand.description(description);
-    executableCommand.argument("<input>", "Input .vx file or configured project directory");
+    executableCommand.argument("<input>", "Input .vx or .ts file, or configured project directory");
     executableCommand.option("-o, --out <path>", "Output executable, or output directory for project builds");
     executableCommand.option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)");
     executableCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
@@ -707,6 +800,10 @@ function createProgram(): Command {
         await buildNativeFile(input, opts.out, undefined, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
         return;
       }
+      if (emit === "cpp") {
+        await buildCppModuleGraph(input, opts.out, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
+        return;
+      }
       await buildFile(input, opts.out, target, jsxOptions, emit, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
   });
 
@@ -727,7 +824,7 @@ function createProgram(): Command {
       await buildCppModuleGraph(input, opts.out, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
   });
 
-  addExecutableCommand("executable", "Compile one VexaScript file directly to a native Oilpan executable");
+  addExecutableCommand("executable", "Compile one VexaScript or TypeScript file directly to a native Oilpan executable");
   addExecutableCommand("native", "Compatibility alias for the executable command");
 
   const bundleCommand = program.command("bundle");

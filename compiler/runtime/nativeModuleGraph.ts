@@ -11,6 +11,7 @@ import type { ParseIssue } from "compiler/parser/parser";
 import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { vfs, type Vfs } from "compiler/vfs";
 import { extname, resolve } from "compiler/utils/path";
+import { monotonicNow } from "compiler/utils/time";
 import { localImportSpecifiers, parserOptionsForModulePath, type LocalImportDependency } from "./localModuleResolution";
 import type { ModuleGraphOptions } from "./moduleGraphModel";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
@@ -366,10 +367,10 @@ export async function compileNativeModuleGraph(
   target: TranspileTarget,
   options: ModuleGraphOptions = {}
 ): Promise<NativeModuleGraphResult> {
-  const startedAt = Date.now();
+  const startedAt = monotonicNow();
   let phaseStartedAt = startedAt;
   const reportPhase = (phase: string, moduleCount: number): void => {
-    const now = Date.now();
+    const now = monotonicNow();
     options.profile?.({ phase, elapsedMs: now - phaseStartedAt, moduleCount });
     phaseStartedAt = now;
   };
@@ -527,7 +528,7 @@ export async function compileNativeModuleGraph(
 
   for (const filePath of order) {
     const info = moduleInfos.get(filePath)!;
-    const isolationStartedAt = Date.now();
+    const isolationStartedAt = monotonicNow();
     const symbolNames = new Map<Node, string>();
     const typeNames = new Map(info.localSymbols);
     const namespaceExports = new Map<Node, ReadonlyMap<string, string>>();
@@ -571,7 +572,7 @@ export async function compileNativeModuleGraph(
     const resolvedSymbols = nativeIdentifierResolutions(info.program, symbolNames, typeNames, namespaceTargets);
     options.profile?.({
       phase: "module-isolation-resolution",
-      elapsedMs: Date.now() - isolationStartedAt,
+      elapsedMs: monotonicNow() - isolationStartedAt,
       moduleCount: order.length,
     });
 
@@ -640,7 +641,7 @@ export async function compileNativeModuleGraph(
   reportPhase("cpp-emission", order.length);
   options.profile?.({
     phase: "total",
-    elapsedMs: Date.now() - startedAt,
+    elapsedMs: monotonicNow() - startedAt,
     moduleCount: order.length,
   });
   const nativeResult: NativeModuleGraphResult = {

@@ -7,6 +7,7 @@ import {
   readFile,
   rm,
   tmpdir,
+  vi,
 } from "../compiler/test/expect";
 import { runCli } from "./cli";
 import { runCommandCapture } from "./io";
@@ -20,6 +21,7 @@ describe("native language smoke", () => {
     const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-language-smoke-"));
     const executablePath = join(outputRoot, "smoke");
     const buildRoot = join(outputRoot, "build");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     try {
       await runCli([
@@ -42,7 +44,14 @@ describe("native language smoke", () => {
       ).toBe(0);
       expect(result.stderr).toBe("");
       expect(result.stdout.trim()).toBe(expected.trim());
+      const logs = logSpy.mock.calls.map((call) => String(call[0] ?? "")).join("\n");
+      expect(/Compiled: .*\(project-load [\d.]+ms, declarations [\d.]+ms, load-and-parse [\d.]+ms,/.test(logs)).toBe(true);
+      expect(/cpp-emission [\d.]+ms/.test(logs)).toBe(true);
+      expect(/type-check [\d.]+ms, write [\d.]+ms, cpp-generation-total [\d.]+ms/.test(logs)).toBe(true);
+      expect(/Compiling native executable with g\+\+ -O2:/.test(logs)).toBe(true);
+      expect(/native-compile-link [\d.]+ms, total [\d.]+ms\)/.test(logs)).toBe(true);
     } finally {
+      logSpy.mockRestore();
       await rm(outputRoot, { recursive: true, force: true });
     }
   });

@@ -502,6 +502,27 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("reports parse, analysis, and emission timings for module bundles", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "value.vx": "export fun value(): int => 1\n",
+        "main.vx": "import { value } from \"./value\"\nconsole.log(value())\n"
+      },
+      async (dir) => {
+        const events: Array<{ phase: string; elapsedMs: number; moduleCount: number }> = [];
+        const result = await bundleModuleGraphAsModules(join(dir, "main.vx"), "conservative", {
+          moduleFormat: "commonjs",
+          profile: (event) => events.push(event)
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(events.map((event) => event.phase)).toEqual(["parse", "analysis", "emit"]);
+        expect(events.every((event) => event.elapsedMs >= 0 && event.moduleCount === 2)).toBe(true);
+      }
+    );
+  });
+
   it("reuses module typing contexts for entry-only incremental rebuilds", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(

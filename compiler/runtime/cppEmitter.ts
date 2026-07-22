@@ -2301,7 +2301,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
           ? right
           : "vexa::Value";
       }
-      return mappedAnalysisType && mappedAnalysisType !== "vexa::Value"
+      return mappedAnalysisType && mappedAnalysisType !== "vexa::Value" && right !== "vexa::Value"
         ? mappedAnalysisType
         : "vexa::Value";
     }
@@ -4698,6 +4698,10 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     if (call.args.length !== 0) throw new CppEmitError("C++ Date.now expects no arguments", call);
     return "vexa::dateNow()";
   }
+  if (member?.objectName === "performance" && member.propertyName === "now") {
+    if (call.args.length !== 0) throw new CppEmitError("C++ performance.now expects no arguments", call);
+    return "vexa::performanceNow()";
+  }
   if (member?.objectName === "Date" && member.propertyName === "parse") {
     if (call.args.length !== 1) throw new CppEmitError("C++ Date.parse expects one string", call);
     return `vexa::dateParse(vexa::toText(${emitExpression(call.args[0]!)}))`;
@@ -4933,6 +4937,10 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     }
   }
   if (member && isArrayExpression(member.object) && isArrayRuntimeMethod(member.propertyName)) {
+    const optionalReceiver = call.callee instanceof MemberExpression && (
+      (call.callee as MemberExpression).optional === true ||
+      isOptionalChainExpression((call.callee as MemberExpression).object)
+    );
     const expectedCallType = activeExpectedExpressionCppType;
     activeExpectedExpressionCppType = null;
     let receiver: string;
@@ -5061,7 +5069,9 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     }
     const allocatesArray = isManagedArrayExpression(member.object) &&
       new Set(["slice", "concat", "map", "filter", "splice", "flat", "flatMap"]).has(member.propertyName);
-    return `vexa::${member.propertyName}(${allocatesArray ? `${activeRuntimeName}, ` : ""}${receiver}${arrayArguments ? `, ${arrayArguments}` : ""})`;
+    return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
+      `vexa::${member.propertyName}(${allocatesArray ? `${activeRuntimeName}, ` : ""}${target}${arrayArguments ? `, ${arrayArguments}` : ""})`
+    );
   }
   if (member?.propertyName === "return" && isGeneratorExpression(member.object)) {
     if (call.args.length > 1) {

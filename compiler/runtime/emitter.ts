@@ -2030,7 +2030,9 @@ function emitClassLike(classLike: ClassStatement | ClassExpression, resolvedName
     ...emitClassDelegateMembers(classLike as ClassStatement, members)
   ];
   const extendsClause = classLike.extendsType &&
-    (!activeState.interfaceNames.has(classLike.extendsType.name) || activeState.classNames.has(classLike.extendsType.name))
+    (activeState.sourceLanguage === "typescript" ||
+      !activeState.interfaceNames.has(classLike.extendsType.name) ||
+      activeState.classNames.has(classLike.extendsType.name))
     ? ` extends ${eraseTypeArguments(classLike.extendsType.name)}`
     : "";
   const name = resolvedName ?? classLike.name?.name ?? "";

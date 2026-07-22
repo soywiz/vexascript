@@ -33,4 +33,6 @@ The rebuild debounce was reduced from 75 ms to 20 ms because the watcher now coa
 
 The real Pixi watcher measured 52 ms and 45 ms on steady-state rebuilds, down from 212 ms and 201 ms. The first rebuild after the large initial compile can still be slower (about 90 ms in observed runs), primarily because of runtime warm-up and garbage collection.
 
+Serve output now separates compiler work into `parse`, `analysis`, and `emit` timings while retaining the end-to-end bundle duration. This distinction matters because package resolution, JavaScript dependency bundling, and watcher bookkeeping are deliberately outside those compiler phases. In one real Pixi run, the initial `1831 ms` total contained `2 ms` of parsing, `94 ms` of analysis, and `5 ms` of emission; an entry rebuild took `93 ms` total with `1 ms`, `83 ms`, and `2 ms` in those phases respectively.
+
 Browser live reload deliberately remains a full page reload. Re-importing the Pixi entry without a disposal contract would leave the previous application, canvas, and ticker alive. A future HMR design must define ownership and cleanup before replacing the full reload.

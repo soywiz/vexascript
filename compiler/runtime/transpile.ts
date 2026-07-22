@@ -1,12 +1,14 @@
 import {
-  compileSource,
+  compileParsedSource,
   type CompilationArtifacts,
   formatParseIssue,
   formatSemanticIssue
 } from "compiler/pipeline/compile";
+import { parseSource } from "compiler/pipeline/parse";
 import type { ParserOptions } from "compiler/parser/parser";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
 import { basename, extname } from "compiler/utils/path";
+import { monotonicNow } from "compiler/utils/time";
 import {
   createEmitProgramRuntimeSeed,
   createEmitProgramRuntimeContext,
@@ -146,6 +148,8 @@ export interface TranspileOptions {
    * builds (vexa build) where sibling imports are not inlined.
    */
   rewriteImportExtensions?: boolean;
+  /** Reports the major single-file compiler phases without requiring Node.js timing APIs. */
+  profile?: (event: { phase: "parse" | "analysis" | "emit"; elapsedMs: number }) => void;
 }
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -337,11 +341,20 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     normalizeImportedSymbolSources(options).importedSymbols;
   const ambientDeclarations = options.ambientDeclarations ?? [];
   const parserOptions = parserOptionsForTranspile(options);
-  const artifacts = options.compilationArtifacts ?? compileSource(
-    source,
-    parserOptions,
-    { externalDeclarations, ambientDeclarations, importedSymbols }
-  );
+  let artifacts = options.compilationArtifacts;
+  if (!artifacts) {
+    const parseStartedAt = monotonicNow();
+    const parsed = parseSource(source, parserOptions);
+    options.profile?.({ phase: "parse", elapsedMs: monotonicNow() - parseStartedAt });
+    const analysisStartedAt = monotonicNow();
+    artifacts = compileParsedSource(parsed, {
+      externalDeclarations,
+      ambientDeclarations,
+      importedSymbols,
+      language: parserOptions.language === "typescript" ? "typescript" : "vexascript"
+    });
+    options.profile?.({ phase: "analysis", elapsedMs: monotonicNow() - analysisStartedAt });
+  }
   const errors: string[] = [];
   const diagnostics: TranspileDiagnostic[] = [];
   const file = options.sourceFilePath ?? "<unknown>";
@@ -421,13 +434,14 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     };
   }
 
+  const emissionStartedAt = monotonicNow();
   const target = options.target ?? "optimized";
   const programForEmission = lowerProgram(artifacts.ast, {
     lowerRangeForLoops: target !== "conservative"
   });
   if (options.emit === "cpp") {
     try {
-      return {
+      const result: TranspileResult = {
         code: emitCppProgram(
           lowerProgram(artifacts.ast, { lowerRangeForLoops: true }),
           {
@@ -452,6 +466,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
         errors: [],
         diagnostics: []
       };
+      options.profile?.({ phase: "emit", elapsedMs: monotonicNow() - emissionStartedAt });
+      return result;
     } catch (error) {
       let message: string;
       let statement: Node | undefined;
@@ -465,6 +481,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
       const fatalDiagnostics: TranspileDiagnostic[] = [
         makeDiagnostic(message, range, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)
       ];
+      options.profile?.({ phase: "emit", elapsedMs: monotonicNow() - emissionStartedAt });
       return {
         code: "",
         warnings: [],
@@ -480,16 +497,16 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   // extension properties that resolve outside the source file.
   const runtimeProgram = getEcmaScriptRuntimeProgram();
   cachedEcmaScriptRuntimeEmitSeed ??= createEmitProgramRuntimeSeed(runtimeProgram);
-  const contextProgram: Program = {
-    ...programForEmission,
-    body: options.emitRuntimeSeed
+  const contextProgram = new Program(
+    options.emitRuntimeSeed
       ? programForEmission.body
       : [
           ...ambientDeclarations,
           ...externalDeclarations,
           ...programForEmission.body
-        ]
-  };
+        ],
+    programForEmission.__vexaRecoveryMarkers
+  );
   const expressionTypes = artifacts.analysis.getExpressionTypes();
   const implicitReceiverIdentifiers = artifacts.analysis.getImplicitReceiverIdentifiers();
   const staticImplicitReceiverIdentifiers = artifacts.analysis.getStaticImplicitReceiverIdentifiers();
@@ -529,7 +546,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     const segmentSourceLines = sourceLinesForEmittedStatement(segment.statement, segment.emitted);
     for (const sourceLine of segmentSourceLines) sourceLinesByGeneratedLine.push(sourceLine);
   }
-  return {
+  const result: TranspileResult = {
     code,
     warnings: [],
     errors: [],
@@ -545,4 +562,6 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
         }
       : {})
   };
+  options.profile?.({ phase: "emit", elapsedMs: monotonicNow() - emissionStartedAt });
+  return result;
 }

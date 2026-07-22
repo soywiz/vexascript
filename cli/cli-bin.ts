@@ -11,7 +11,7 @@ const CLI_HELP_TEXT = [
   "Commands:",
   "  build <input>     Compile a VexaScript file to JavaScript or C++",
   "  cpp <input>       Emit a C++ translation unit without compiling it",
-  "  executable <input> Compile a VexaScript file to a native Oilpan executable",
+  "  executable <input> Compile a VexaScript or TypeScript file to a native Oilpan executable",
   "  native <input>    Compatibility alias for executable",
   "  bundle <input>    Bundle a VexaScript entry file and its local/package modules as ESM",
   "  run <input>       Transpile and run a VexaScript file with Node.js",
@@ -76,7 +76,7 @@ async function main(argv: string[] = process.argv): Promise<void> {
   }
 
   (globalThis as { __vexaCliBootstrappedEntry?: boolean }).__vexaCliBootstrappedEntry = true;
-  const { runCli, DiagnosticError } = await import("./cli");
+  const { runCli, DiagnosticError } = await import("./cli.ts");
   try {
     await runCli(argv);
   } catch (error) {

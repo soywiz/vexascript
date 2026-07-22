@@ -4,12 +4,19 @@ import type { AddressInfo } from "node:net";
 import type { VexaServeMapping } from "../compiler/project";
 import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
 import { basename, extname, resolve } from "../compiler/utils/path";
+import { monotonicNow, roundedMilliseconds } from "../compiler/utils/time";
 import {
   ambientDeclarationsForProject,
   createBundledModuleArtifacts,
   ensureRuntimeDependencies,
   resolveProjectForSource
 } from "./cliShared";
+
+interface CompilationPhaseTimings {
+  parseMs: number;
+  analysisMs: number;
+  emitMs: number;
+}
 
 export interface ServeOptions {
   rootDir: string;
@@ -30,6 +37,13 @@ const LIVE_RELOAD_PATH = "/__vexa_live_reload";
 const BUNDLE_PATH = "/__vexa_bundle__.js";
 const LOOPBACK_HOST = "127.0.0.1";
 const REBUILD_DEBOUNCE_MS = 20;
+
+function formatBundleTiming(elapsedMs: number, timings: CompilationPhaseTimings): string {
+  return `Bundled in ${roundedMilliseconds(elapsedMs)}ms ` +
+    `(parse ${roundedMilliseconds(timings.parseMs)}ms, ` +
+    `analysis ${roundedMilliseconds(timings.analysisMs)}ms, ` +
+    `emit ${roundedMilliseconds(timings.emitMs)}ms)`;
+}
 
 const CONTENT_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -159,6 +173,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
   let bundleCode = "";
   let bundleVersion = 0;
   let pendingInitialBundleDurationMs: number | null = null;
+  let pendingInitialPhaseTimings: CompilationPhaseTimings | null = null;
   const project = await resolveProjectForSource(bundleInput);
   let serveMappings: VexaServeMapping[] = project?.serveMappings ?? [];
   await ensureRuntimeDependencies(bundleInput, project);
@@ -242,7 +257,8 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
   };
 
   const rebuildBundle = async (reason: string, changedFiles: readonly string[]): Promise<void> => {
-    const startedAt = Date.now();
+    const startedAt = monotonicNow();
+    const phaseTimings = { parseMs: 0, analysisMs: 0, emitMs: 0 };
     const versionsBeforeBuild = new Map<string, string | null>();
     for (const filePath of changedFiles) versionsBeforeBuild.set(filePath, await fileVersion(filePath));
     const result = await createBundledModuleArtifacts(bundleInput, target, project, jsxOptions, {
@@ -250,6 +266,11 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
       moduleGraphIncrementalCache,
       nodeModuleIncrementalCache,
       changedFiles,
+      profile: (event) => {
+        if (event.phase === "parse") phaseTimings.parseMs += event.elapsedMs;
+        if (event.phase === "analysis") phaseTimings.analysisMs += event.elapsedMs;
+        if (event.phase === "emit") phaseTimings.emitMs += event.elapsedMs;
+      }
     });
     if (result.errors.length > 0) {
       options.onDiagnosticError?.(result, bundleInput);
@@ -268,11 +289,12 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
         forcedChangedFiles.add(filePath);
       }
     }
-    const elapsedMs = Date.now() - startedAt;
+    const elapsedMs = monotonicNow() - startedAt;
     if (reason === "initial") {
       pendingInitialBundleDurationMs = elapsedMs;
+      pendingInitialPhaseTimings = phaseTimings;
     } else {
-      console.log(`Bundled in ${elapsedMs}ms`);
+      console.log(formatBundleTiming(elapsedMs, phaseTimings));
       broadcastReload();
     }
   };
@@ -360,9 +382,10 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
 
   const port = await listenOnAvailablePort(server, requestedPort);
   console.log(`Serving at http://localhost:${port} -- ${rootDir}`);
-  if (pendingInitialBundleDurationMs !== null) {
-    console.log(`Bundled in ${pendingInitialBundleDurationMs}ms`);
+  if (pendingInitialBundleDurationMs !== null && pendingInitialPhaseTimings !== null) {
+    console.log(formatBundleTiming(pendingInitialBundleDurationMs, pendingInitialPhaseTimings));
     pendingInitialBundleDurationMs = null;
+    pendingInitialPhaseTimings = null;
   }
 
   return {

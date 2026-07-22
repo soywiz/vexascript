@@ -1606,6 +1606,12 @@ inline double dateNow() {
       std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
+inline double performanceNow() {
+  static const auto origin = std::chrono::steady_clock::now();
+  return std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - origin).count();
+}
+
 inline double dateParse(const std::u16string& value) { return DateObject::parse(value); }
 
 class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject>, public BaseObject {

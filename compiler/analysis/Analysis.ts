@@ -17,6 +17,7 @@ import { TypeChecker } from "./TypeChecker";
 import { type AnalysisType, typeToString, FunctionType } from "./types";
 import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
 import { IdentifierResolution, resolveScopeSymbol, type BoundAnalysis } from "./model";
+import { monotonicNow } from "compiler/utils/time";
 
 export type { AnalysisIssue, AnalysisSymbol, AnalysisSymbolKind, AnalysisValueType } from "./model";
 
@@ -138,14 +139,14 @@ export class Analysis {
     const invalidImportedBindings = options.invalidImportedBindings ?? new Set<string>();
     const importedSymbolViews = normalizeImportedSymbolSources(options);
     const importedSymbols: Map<string, ImportedSymbolResolution> = importedSymbolViews.importedSymbols;
-    let phaseStartedAt: number = Date.now();
+    let phaseStartedAt: number = monotonicNow();
     const bound = new Binder(
       program,
       externalDeclarations,
       ambientDeclarations,
       importedSymbols
     ).bind();
-    options.profile?.({ phase: "binding", elapsedMs: Date.now() - phaseStartedAt });
+    options.profile?.({ phase: "binding", elapsedMs: monotonicNow() - phaseStartedAt });
     this.rootScope = bound.rootScope;
 
     if (options.inferTypes === false) {
@@ -166,7 +167,7 @@ export class Analysis {
       return;
     }
 
-    phaseStartedAt = Date.now();
+    phaseStartedAt = monotonicNow();
     const validateTypes = options.checkTypes ?? true;
     const checked = new TypeChecker(
       program,
@@ -180,7 +181,7 @@ export class Analysis {
     ).check();
     options.profile?.({
       phase: validateTypes ? "type-checking" : "type-inference",
-      elapsedMs: Date.now() - phaseStartedAt
+      elapsedMs: monotonicNow() - phaseStartedAt
     });
     this.issues = validateTypes ? [...bound.issues, ...checked.issues] : [...bound.issues];
     this.identifierResolutions = checked.identifierResolutions;

@@ -250,14 +250,16 @@ async function resolvePathWithExtensions(
   const candidates = hasRecognizedModuleFileExtension(basePath)
     ? [basePath]
     : [
-        basePath,
         `${basePath}.vx`,
+        `${basePath}.ts`,
+        `${basePath}.tsx`,
         `${basePath}.js`,
+        `${basePath}.jsx`,
         `${basePath}.mjs`,
         `${basePath}.cjs`,
         `${basePath}.json`,
-        `${basePath}.ts`,
-        `${basePath}.tsx`
+        `${basePath}.txt`,
+        basePath
       ];
   for (const candidate of candidates) {
     if (virtualSources.has(candidate)) {

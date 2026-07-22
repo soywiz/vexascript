@@ -19,12 +19,28 @@ The intermediate C++ file is written to `main.vx.build/main.cpp`. Use
 `--build-dir <dir>` to select a different intermediate directory and
 `-o <file>` to select the executable path. `vexa native main.vx` and
 `vexa build main.vx --native` remain compatibility forms of this workflow.
+TypeScript entrypoints are accepted too: `vexa executable main.ts`.
+
+Both `cpp` and `build --emit cpp` use the same complete module graph and print
+project/declaration loading, load/parse, module isolation, merged analysis, C++
+emission, type-check, write, and total generation timings. `executable` prints
+the same generation breakdown before invoking the native compiler. It then announces the
+`g++ -O2` step and reports native compile/link plus end-to-end time when linking
+finishes. Measurements use the monotonic high-resolution `performance.now()`
+clock on Node.js and browsers.
+
+JavaScript file builds print source/project/declaration loading, type-check,
+parse, analysis, emission, write, and total timings. For `.ts` inputs the
+external `tsc --noEmit` check runs concurrently with VexaScript compilation, so
+the individual durations intentionally do not add up to the total.
 
 The first native build extracts `native/oilpan-standalone-main.zip` and
-`native/mimalloc-3.4.3.tar.gz` under the operating system's temporary directory.
+`native/mimalloc-3.4.3.zip` under the operating system's temporary directory.
 CMake builds `liboilpan_gc.a` and mimalloc's portable allocator override object;
 later builds reuse both caches. The final generated translation unit is compiled
-and linked with `g++ -std=c++20`. Sanitizer builds omit mimalloc so ASan can
+and linked with `g++ -std=c++20 -O2`. The trimmed mimalloc ZIP contains its
+source/include tree plus only the three small CMake modules needed to configure
+the object build. Sanitizer builds omit mimalloc so ASan can
 observe allocations through the system allocator.
 
 ## Requirements
@@ -367,6 +383,8 @@ The native surface is an audited subset of `compiler/runtime/es2025.d.ts`:
 - `Date` supports current time, numeric and ISO date-only construction,
   `Date.now`, `Date.parse`, UTC getters, numeric comparison, ISO formatting, and
   JSON formatting.
+- `performance.now()` maps to a monotonic `std::chrono::steady_clock` timestamp,
+  matching the high-resolution clock contract used by Node.js and browsers.
 - `ArrayBuffer`, `Uint8Array`, and `DataView` share one backing buffer. Integer,
   float32, and float64 DataView reads and writes honor endianness.
 - Dependency-free `BigInt` supports signed decimal plus `0x`, `0o`, and `0b`

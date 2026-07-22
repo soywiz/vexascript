@@ -27,8 +27,9 @@ export function nativeProgramPaths(
 ): NativeProgramPaths {
   const path = platform === "win32" ? win32 : posix;
   const sourcePath = path.resolve(cwd, input);
-  if (path.extname(sourcePath).toLowerCase() !== LANGUAGE_FILE_EXTENSION) {
-    throw new Error(`Native compilation expects a ${LANGUAGE_FILE_EXTENSION} input file: ${sourcePath}`);
+  const sourceExtension = path.extname(sourcePath).toLowerCase();
+  if (sourceExtension !== LANGUAGE_FILE_EXTENSION && sourceExtension !== ".ts") {
+    throw new Error(`Native compilation expects a ${LANGUAGE_FILE_EXTENSION} or .ts input file: ${sourcePath}`);
   }
   const buildRoot = buildDir ? path.resolve(cwd, buildDir) : `${sourcePath}.build`;
   const selectedExecutablePath = out
@@ -206,7 +207,7 @@ export function nativeMimallocCmakeConfigureArguments(
 async function ensureMimallocObject(root: string, platform: NodeJS.Platform): Promise<string> {
   const { archive, cacheRoot, extractedRoot } = await nativeArchiveCachePaths(
     root,
-    "mimalloc-3.4.3.tar.gz",
+    "mimalloc-3.4.3.zip",
     "mimalloc-3.4.3",
     "mimalloc-3.4.3"
   );
@@ -229,7 +230,7 @@ function nativeCompilerFrontendArguments(
   gcRoot: string,
   platform: NodeJS.Platform,
   options: NativeCompilerOptions,
-  optimization: "-O0" | "-O1" | "-O3"
+  optimization: "-O0" | "-O1" | "-O2"
 ): string[] {
   const instrumented = options.sanitizers === true;
   const path = platform === "win32" ? win32 : posix;
@@ -271,7 +272,7 @@ export function nativeCompilerArguments(
       gcRoot,
       platform,
       options,
-      instrumented ? "-O1" : "-O3"
+      instrumented ? "-O1" : "-O2"
     ),
     ...(!instrumented && options.mimallocObjectPath ? [options.mimallocObjectPath] : []),
     libraryPath,

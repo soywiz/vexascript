@@ -106,7 +106,7 @@ This section is the fast onboarding map for agents and contributors.
 - Embedded syntax definitions:
   - Shared editor-syntax generators used by the CLI and editor integrations: `compiler/syntax.ts`; the lightweight target-name contract used without loading the generators lives in `compiler/syntaxTargets.ts`.
   - Syntax generator consistency tests: `validation/syntax.test.ts`
-- Shared async file helpers live in `compiler/utils/fs.ts`, and CLI-only async process helpers live in `cli/io.ts`. Reuse them instead of duplicating `fileExists`, directory probes, or child-process wrappers.
+- Shared async file helpers live in `compiler/utils/fs.ts`, shared monotonic profiling helpers in `compiler/utils/time.ts`, and CLI-only async process helpers in `cli/io.ts`. Reuse them instead of duplicating file probes, clocks, or child-process wrappers.
 
 ### Tooling and Integration Pieces
 
@@ -120,7 +120,7 @@ This section is the fast onboarding map for agents and contributors.
   - Node-only local disk implementation of the shared VFS contract for CLI/LSP/test flows: `cli/localVfs.ts`
   - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `cli/cli-bin.ts`
   - CLI entrypoint and command implementation, including direct `cpp` source emission, `executable` native linking (`native` remains a compatibility alias), single-file transpilation, and directory-based static site builds that materialize the `serve` bundle and mapped assets into `dist`/`outDir`: `cli/cli.ts`
-  - Node-only native build adapter that plans `<input>.vx.build/main.cpp` intermediates, extracts the vendored Oilpan and mimalloc archives through CMake into OS temporary caches, configures them with `g++` (using MinGW Makefiles on Windows), builds `liboilpan_gc.a` plus mimalloc's allocator override object, and links generated C++ with platform system libraries: `cli/nativeBuild.ts`
+  - Node-only native build adapter that plans source-specific `<input>.build/main.cpp` intermediates, extracts the vendored Oilpan and mimalloc archives through CMake into OS temporary caches, configures them with `g++` (using MinGW Makefiles on Windows), builds `liboilpan_gc.a` plus mimalloc's allocator override object, and links generated C++ with `-O2` and platform system libraries: `cli/nativeBuild.ts`
   - Reproducible native production benchmark runner and its thin script entrypoint, covering compile time, binary size, startup, arrays, bigint, the event loop, and forced-GC execution: `cli/nativeBenchmark.ts`, `scripts/nativeBenchmark.ts`, baselines: `docs/native-benchmarks.md`
   - Compiler self-hosting orchestrator and script entrypoint: `cli/selfHost.ts` builds the TypeScript compiler with the source CLI, executes generated compilers from an isolated directory for two more roundtrips, and requires byte-stable output; `scripts/selfHostCompiler.ts` exposes it through `pnpm self-host`, `cli/selfHost.test.ts` verifies the third compiler against a normal fixture, and `docs/self-hosting.md` documents the contract.
   - Node-only dependency installer helpers used by CLI bundle/run/serve flows: `cli/deps.ts`
@@ -133,10 +133,10 @@ This section is the fast onboarding map for agents and contributors.
   - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `cli/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - CLI tests: `cli/cli.test.ts`
   - `test` command delegates test-file discovery and helper injection to `cli/testRunner.ts`, keeping CLI command parsing separate from test orchestration.
-  - `cpp` emits one `.vx` file as C++ without compiling it. `executable` compiles one `.vx` file directly to an executable while isolating generated C++ in `<input>.build/`; `native`, `build --emit cpp`, and `build --native` remain compatible forms of those workflows.
+  - `cpp` and `build --emit cpp` share the complete native module-graph path for `.vx` and `.ts` entrypoints and emit C++ without compiling it. `executable` compiles the same entrypoints directly to an executable while isolating generated C++ in `<input>.build/`; `native` and `build --native` remain compatible forms of that workflow. All build forms print their generation phase timings.
   - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
 - Native C++ support:
-  - Oilpan runtime, including reference-semantic traced `ArrayObject<T>` storage, a dependency-free arbitrary-precision integer implementation, UTF-16/UTF-8 operating-system boundary adapters, and the vendored standalone Oilpan and mimalloc source archives used by generated C++ builds: `native/runtime.cpp`, `native/bigint.h`, `native/utf.h`, `native/oilpan-standalone-main.zip`, `native/mimalloc-3.4.3.tar.gz`
+  - Oilpan runtime, including reference-semantic traced `ArrayObject<T>` storage, a native `performance.now()` steady clock, a dependency-free arbitrary-precision integer implementation, UTF-16/UTF-8 operating-system boundary adapters, and the vendored standalone Oilpan and trimmed mimalloc source archives used by generated C++ builds: `native/runtime.cpp`, `native/bigint.h`, `native/utf.h`, `native/oilpan-standalone-main.zip`, `native/mimalloc-3.4.3.zip`
   - Native backend usage, requirements, supported surface, and module limitations: `docs/native.md`
   - Informational native performance baselines and reproduction command: `docs/native-benchmarks.md`
 - Monaco editor support for the website embeds (project folder: `website/src/assets/monaco/`):
@@ -247,6 +247,7 @@ This section is the fast onboarding map for agents and contributors.
 - TypeScript compatibility fixture: `testFixtures/typescript-supported.d.ts`
 - Fixture tests: `testFixtures/@test.test.ts`
 - Shared async file helpers: `compiler/utils/fs.ts`
+- Shared high-resolution monotonic timing and display rounding helpers: `compiler/utils/time.ts`, tests: `compiler/utils/time.test.ts`
 - CLI async process/I/O helpers: `cli/io.ts`, tests: `compiler/utils/io.test.ts`
 - Reader utilities used by parser/tokenizer:
   - `compiler/utils/ListReader.ts`, tests: `compiler/utils/ListReader.test.ts`

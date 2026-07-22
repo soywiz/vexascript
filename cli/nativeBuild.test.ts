@@ -21,7 +21,8 @@ describe("native build", () => {
     expect(args).toContain("-DCPPGC_IS_STANDALONE=1");
     expect(args).not.toContain("-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO");
     expect(args).toContain("-DV8_LOGGING_LEVEL=0");
-    expect(args).toContain("-O3");
+    expect(args).toContain("-O2");
+    expect(args).not.toContain("-O3");
     expect(args).toContain("-DNDEBUG");
     expect(args).toContain("-fno-rtti");
     expect(args).not.toContain("-DVEXA_NATIVE_DEBUG=1");
@@ -135,6 +136,15 @@ describe("native build", () => {
     });
   });
 
+  it("accepts TypeScript entrypoints for native executables", () => {
+    expect(nativeProgramPaths("src/main.ts", undefined, undefined, "/project", "linux")).toEqual({
+      sourcePath: "/project/src/main.ts",
+      buildRoot: "/project/src/main.ts.build",
+      cppPath: "/project/src/main.ts.build/main.cpp",
+      executablePath: "/project/src/main",
+    });
+  });
+
   it("uses an executable suffix for default and explicit Windows outputs", () => {
     expect(nativeProgramPaths("src\\main.vx", undefined, undefined, "C:\\project", "win32").executablePath)
       .toBe("C:\\project\\src\\main.exe");
@@ -144,9 +154,9 @@ describe("native build", () => {
       .toBe("C:\\project\\bin\\app.exe");
   });
 
-  it("rejects non-VexaScript inputs before choosing an executable path", () => {
-    expect(() => nativeProgramPaths("src/main.ts", undefined, undefined, "/project", "linux")).toThrow(
-      "Native compilation expects a .vx input file"
+  it("rejects unsupported native source inputs before choosing an executable path", () => {
+    expect(() => nativeProgramPaths("src/main.js", undefined, undefined, "/project", "linux")).toThrow(
+      "Native compilation expects a .vx or .ts input file"
     );
   });
 
