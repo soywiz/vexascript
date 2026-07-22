@@ -2,7 +2,7 @@ import { ArrowFunctionExpression, BlockStatement, CatchClause, ClassMethodMember
 import type { FunctionParameter, Statement } from "compiler/ast/ast";
 
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
-import { childNodes, unwrapExportedDeclaration } from "compiler/ast/traversal";
+import { appendChildNodes, childNodes, unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { AnalysisProfileEvent } from "compiler/analysis/Analysis";
 import { substituteTypeNameText } from "compiler/analysis/typeNames";
 import { compileParsedSource } from "compiler/pipeline/compile";
@@ -208,43 +208,6 @@ function isNativeIdentifierShadowed(
   return false;
 }
 
-function visitNativeIdentifierResolutions(
-  node: Node,
-  parent: Node,
-  key: string,
-  targetsByName: ReadonlyMap<string, Node>,
-  typeNames: ReadonlyMap<string, string>,
-  resolved: Map<Node, Node>,
-  shadowScopes: NativeShadowBinding[][]
-): void {
-  const bindings = nativeIsolationBindings(node);
-  if (bindings && bindings.length > 0) shadowScopes.push(bindings);
-  if (node instanceof Identifier) {
-    if (isNativeTypeNodeKey(key)) {
-      node.name = typeNameWithRenamedBase(node.name, typeNames);
-    } else if (isNativeIdentifierReference(parent, key) &&
-        !isNativeIdentifierShadowed(node, shadowScopes)) {
-      const target = targetsByName.get(node.name);
-      if (target) resolved.set(node, target);
-    }
-  }
-  const fields = node as unknown as Record<string, unknown>;
-  for (const childKey in fields) {
-    if (childKey === "firstToken" || childKey === "lastToken" || childKey.startsWith("__vexa")) continue;
-    const value = fields[childKey];
-    if (value instanceof Node) {
-      visitNativeIdentifierResolutions(value, node, childKey, targetsByName, typeNames, resolved, shadowScopes);
-    } else if (Array.isArray(value)) {
-      for (const child of value) {
-        if (child instanceof Node) {
-          visitNativeIdentifierResolutions(child, node, childKey, targetsByName, typeNames, resolved, shadowScopes);
-        }
-      }
-    }
-  }
-  if (bindings && bindings.length > 0) shadowScopes.pop();
-}
-
 function nativeIdentifierResolutions(
   program: Program,
   targetSymbols: ReadonlyMap<Node, string>,
@@ -260,7 +223,50 @@ function nativeIdentifierResolutions(
   }
   const resolved = new Map<Node, Node>();
   const shadowScopes: NativeShadowBinding[][] = [];
-  visitNativeIdentifierResolutions(program, program, "", targetsByName, typeNames, resolved, shadowScopes);
+  const pendingNodes: Node[] = [program];
+  const pendingParents: Node[] = [program];
+  const pendingKeys: string[] = [""];
+  const pendingScopeExits: boolean[] = [false];
+  const children: Node[] = [];
+  const childKeys: string[] = [];
+  while (pendingNodes.length > 0) {
+    const node = pendingNodes.pop()!;
+    const parent = pendingParents.pop()!;
+    const key = pendingKeys.pop()!;
+    const scopeExit = pendingScopeExits.pop()!;
+    if (scopeExit) {
+      shadowScopes.pop();
+      continue;
+    }
+
+    const bindings = nativeIsolationBindings(node);
+    if (bindings && bindings.length > 0) {
+      shadowScopes.push(bindings);
+      pendingNodes.push(node);
+      pendingParents.push(parent);
+      pendingKeys.push(key);
+      pendingScopeExits.push(true);
+    }
+    if (node instanceof Identifier) {
+      if (isNativeTypeNodeKey(key)) {
+        node.name = typeNameWithRenamedBase(node.name, typeNames);
+      } else if (isNativeIdentifierReference(parent, key) &&
+          !isNativeIdentifierShadowed(node, shadowScopes)) {
+        const target = targetsByName.get(node.name);
+        if (target) resolved.set(node, target);
+      }
+    }
+
+    children.length = 0;
+    childKeys.length = 0;
+    appendChildNodes(node, children, childKeys);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pendingNodes.push(children[index]!);
+      pendingParents.push(node);
+      pendingKeys.push(childKeys[index]!);
+      pendingScopeExits.push(false);
+    }
+  }
   return resolved;
 }
 

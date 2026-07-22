@@ -12,7 +12,7 @@ import {
 import { describe, expect, it } from "../test/expect";
 import { TokenCommentKind, TokenType } from "../parser/tokenizer";
 import type { Node } from "./ast";
-import { childNodes, findNode, unwrapExportedDeclaration, walkAst } from "./traversal";
+import { appendChildNodes, childNodes, findNode, unwrapExportedDeclaration, walkAst } from "./traversal";
 
 describe("AST traversal", () => {
   it("reads source offsets through the typed token graph", () => {
@@ -66,6 +66,11 @@ describe("AST traversal", () => {
       NodeKind.ExprStatement,
       NodeKind.ExprStatement,
     ]);
+    const keyedChildren: Node[] = [];
+    const childKeys: string[] = [];
+    appendChildNodes(root, keyedChildren, childKeys);
+    expect(keyedChildren).toEqual(root.body);
+    expect(childKeys).toEqual(["body", "body"]);
 
     const visited: NodeKind[] = [];
     walkAst(root, (node) => visited.push(node.kind));
