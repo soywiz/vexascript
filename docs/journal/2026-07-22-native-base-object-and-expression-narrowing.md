@@ -69,6 +69,12 @@ With specialized boxing:
 - Native semantic self-host emission takes 67.52 seconds for roundtrip one and 73.12 seconds for roundtrip two.
 - The two native roundtrip outputs remain byte-identical.
 
+## Follow-up: static primitive conversions
+
+`convertValue<Result>` is also unnecessary when both source and destination are known native primitives. The emitter now returns identical boolean types directly and uses `static_cast` between native numeric types. It deliberately does not use a C++ cast for numeric-to-boolean conversion because JavaScript truthiness differs for values such as `NaN`.
+
+This reduces `convertValue<double>` call sites in the generated compiler from 620 to 132 and `convertValue<bool>` from 428 to 277. Remaining numeric conversions consume dynamic `Value` or nullish-expression results and therefore still require checked unboxing.
+
 ## Regression guidance
 
 Keep behavioral smoke coverage for statement, logical-expression, conditional-expression, and stable-member `instanceof` narrowing. A native self-host compile is required in addition to runtime output because a dynamic access can be behaviorally correct while still hiding a static field and inflating the generated code.

@@ -1495,6 +1495,20 @@ function directlyEmittedCppType(expression: Expr): string | null {
   }
 }
 
+function emitStaticPrimitiveConversion(expression: Expr, resultType: string): string | null {
+  if (!isDirectNativePrimitiveExpression(expression)) return null;
+  const sourceType = directlyEmittedCppType(expression) ??
+    emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
+  if (sourceType === "bool" && resultType === "bool") {
+    return emitExpression(expression);
+  }
+  if (!isNativeNumericCppType(sourceType) || !isNativeNumericCppType(resultType)) {
+    return null;
+  }
+  const emitted = emitExpression(expression);
+  return sourceType === resultType ? emitted : `static_cast<${resultType}>(${emitted})`;
+}
+
 function emitConvertedValue(expression: Expr, resultType: string): string {
   if (resultType === "void") {
     return `([&]() { ${emitExpression(expression)}; }())`;
@@ -1513,6 +1527,8 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
   if (builtinCallCppType(expression) === resultType) {
     return emitExpression(expression);
   }
+  const staticPrimitiveConversion = emitStaticPrimitiveConversion(expression, resultType);
+  if (staticPrimitiveConversion) return staticPrimitiveConversion;
   if (canStaticallyConvertClassPointer(expression, resultType)) {
     return `static_cast<${resultType}>(${emitExpression(expression)})`;
   }
