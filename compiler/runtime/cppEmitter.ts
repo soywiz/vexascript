@@ -1127,7 +1127,7 @@ function emitManagedArrayIndexGet(member: MemberExpression): string {
   const resultType = elementType?.endsWith("*") ? elementType : "vexa::Value";
   const value = `vexa::arrayGet(__vexa_optional_array, ${emitExpression(member.property)})`;
   const converted = resultType === "vexa::Value"
-    ? `vexa::convertValue<vexa::Value>(${value})`
+    ? `vexa::toValue(${value})`
     : value;
   return `([&]() { auto* __vexa_optional_array = ${emitManagedArrayPointer(member.object)}; return __vexa_optional_array ? ${converted} : vexa::defaultValue<${resultType}>(); }())`;
 }
@@ -1612,7 +1612,10 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
       return `vexa::adaptInterface<${resultType.slice(0, -1)}, ${recordInterfaceAdapterName(interfaceName)}>(${activeRuntimeName}, ${emitExpression(expression)})`;
     }
   }
-  return `vexa::convertValue<${resultType}>(${emitExpression(expression)})`;
+  const emitted = emitExpression(expression);
+  return resultType === "vexa::Value"
+    ? `vexa::toValue(${emitted})`
+    : `vexa::convertValue<${resultType}>(${emitted})`;
 }
 
 function emitArrayElements(elements: readonly Expr[], elementType: string): string {
@@ -1759,7 +1762,7 @@ function emitObjectLiteral(object: ObjectLiteral): string {
   const emitPropertyValue = (name: string, value: Expr): string => {
     const expectedType = expectedPropertyTypes?.get(name);
     return expectedType
-      ? `vexa::convertValue<vexa::Value>(${emitExpressionWithExpectedCppType(value, expectedType)})`
+      ? `vexa::toValue(${emitExpressionWithExpectedCppType(value, expectedType)})`
       : emitConvertedValue(value, "vexa::Value");
   };
   const emitSpreadValue = (value: Expr): string => {
@@ -2026,7 +2029,7 @@ function emitOptionalPointerAccess(
 ): string {
   const access = emitAccess("__vexa_optional_receiver");
   const value = resultType === "vexa::Value"
-    ? `vexa::convertValue<vexa::Value>(${access})`
+    ? `vexa::toValue(${access})`
     : access;
   return `([&]() { auto* __vexa_optional_receiver = vexa::rawPointer(${receiver}); return __vexa_optional_receiver ? ${value} : vexa::defaultValue<${resultType}>(); }())`;
 }
@@ -3357,7 +3360,7 @@ function emitNativePropertySet(
   }
   if (property.kind === "dynamic") {
     const helper = property.keyExpression ? "dynamicIndexSet" : "dynamicSet";
-    return `vexa::${helper}(${receiver}, ${key ?? emitNativePropertyKey(property)}, vexa::convertValue<vexa::Value>(${value}))`;
+    return `vexa::${helper}(${receiver}, ${key ?? emitNativePropertyKey(property)}, vexa::toValue(${value}))`;
   }
   if (property.kind === "extension") {
     const converted = property.valueType && property.valueType !== "vexa::Value"
@@ -3796,27 +3799,27 @@ function nativeLambdaRootValues(captureNames: ReadonlySet<string>): string[] {
   const roots: string[] = [];
   for (const sourceName of activeGcObjectTypes.keys()) {
     if (captureNames.has(sourceName) && !activeGcArrayTypes.has(sourceName)) {
-      roots.push(`vexa::convertValue<vexa::Value>(vexa::rawPointer(${cppName(sourceName)}))`);
+      roots.push(`vexa::toValue(vexa::rawPointer(${cppName(sourceName)}))`);
     }
   }
   for (const sourceName of activeGcArrayTypes.keys()) {
     if (captureNames.has(sourceName)) {
-      roots.push(`vexa::convertValue<vexa::Value>(vexa::arrayPointer(${cppName(sourceName)}))`);
+      roots.push(`vexa::toValue(vexa::arrayPointer(${cppName(sourceName)}))`);
     }
   }
   for (const sourceName of activeDynamicValueNames) {
     if (captureNames.has(sourceName)) {
-      roots.push(`vexa::convertValue<vexa::Value>(${cppName(sourceName)})`);
+      roots.push(`vexa::toValue(${cppName(sourceName)})`);
     }
   }
   for (const [sourceName, type] of activeLocalCppTypes) {
     if (!type.endsWith("*") || activeGcObjectTypes.has(sourceName) || activeGcArrayTypes.has(sourceName)) continue;
     if (captureNames.has(sourceName)) {
-      roots.push(`vexa::convertValue<vexa::Value>(vexa::rawPointer(${cppName(sourceName)}))`);
+      roots.push(`vexa::toValue(vexa::rawPointer(${cppName(sourceName)}))`);
     }
   }
   if (activeCurrentClassName !== null && !activeCurrentMethodStatic && captureNames.has("this")) {
-    roots.push(`vexa::convertValue<vexa::Value>(this)`);
+    roots.push(`vexa::toValue(this)`);
   }
   return roots;
 }
@@ -4203,7 +4206,7 @@ function emitTimerCallback(expression: Expr, argumentsList: readonly Expr[]): st
   const argumentsText = orderedArguments.map((_, index) => `__vexa_timer_argument_${index}`);
   const invocation = dynamic
     ? `vexa::call(${activeRuntimeName}, __vexa_timer_callback, {${argumentsText.map((argument) =>
-        `vexa::convertValue<vexa::Value>(${argument})`).join(", ")}})`
+        `vexa::toValue(${argument})`).join(", ")}})`
     : `__vexa_timer_callback(${argumentsText.join(", ")})`;
   return `[${capture}]() mutable { ${invocation}; }`;
 }
@@ -5221,7 +5224,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
   if (isDynamicValueExpression(call.callee) || dynamicRecordCallable || dynamicPropertyCallable) {
     const dynamicArguments = call.args.map(emitDynamicCallArgument);
     const dynamicCallee = resolvedCallableProperty?.receiver
-      ? `vexa::dynamicGet(vexa::convertValue<vexa::Value>(${emitExpression(resolvedCallableProperty.receiver)}), ${emitNativePropertyKey(resolvedCallableProperty)})`
+      ? `vexa::dynamicGet(vexa::toValue(${emitExpression(resolvedCallableProperty.receiver)}), ${emitNativePropertyKey(resolvedCallableProperty)})`
       : emitExpression(call.callee);
     const invocation = `vexa::${call.optional ? "callOptional" : "call"}(${activeRuntimeName}, ${dynamicCallee}, {${dynamicArguments.join(", ")}})`;
     const resultType = emittedCppTypeForExpression(call);
@@ -5407,8 +5410,8 @@ function hasStaticPrimitiveOperands(expression: BinaryExpression): boolean {
 function emitDynamicBinaryText(operator: string, left: string, right: string): string | null {
   const helper = dynamicBinaryHelper(operator);
   if (!helper) return null;
-  const convertedLeft = `vexa::convertValue<vexa::Value>(${left})`;
-  const convertedRight = `vexa::convertValue<vexa::Value>(${right})`;
+  const convertedLeft = `vexa::toValue(${left})`;
+  const convertedRight = `vexa::toValue(${right})`;
   return helper === "add"
     ? `vexa::add(${activeRuntimeName}, ${left}, ${right})`
     : `vexa::${helper}(${convertedLeft}, ${convertedRight})`;
@@ -5488,7 +5491,7 @@ function emitBinary(expression: BinaryExpression): string {
         ? left
         : emitConvertedValue(expression.left, "vexa::Value");
       const fallback = resultType && resultType !== "vexa::Value"
-        ? `vexa::convertValue<vexa::Value>(${emitExpressionWithExpectedCppType(expression.right, resultType)})`
+        ? `vexa::toValue(${emitExpressionWithExpectedCppType(expression.right, resultType)})`
         : emitConvertedValue(expression.right, "vexa::Value");
       const coalesced = `vexa::nullishCoalesce(${convertedLeft}, [&]() { return ${fallback}; })`;
       return resultType && resultType !== "vexa::Value"
@@ -6119,7 +6122,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
           (messageReceiverIsStoredDynamic || messageReceiverStorageType === "vexa::Value" ||
             emittedCppTypeForExpression(member.object) === "vexa::Value" ||
             new Set(["auto", "vexa::Value"]).has(cppTypeForExpression(member.object)))) {
-        return `vexa::dynamicGet(vexa::convertValue<vexa::Value>(${emitExpression(member.object)}), u"message")`;
+        return `vexa::dynamicGet(vexa::toValue(${emitExpression(member.object)}), u"message")`;
       }
       if (!member.computed && identifierName(member.property) === "message") {
         const className = classNameForExpression(member.object);
@@ -6138,7 +6141,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         }
         if (member.optional && isManagedArrayExpression(member.object)) {
           const receiver = emitManagedArrayPointer(member.object);
-          return `([&]() { auto* __vexa_optional_array = ${receiver}; return __vexa_optional_array ? vexa::convertValue<vexa::Value>(static_cast<double>(__vexa_optional_array->size())) : vexa::Value::undefined(); }())`;
+          return `([&]() { auto* __vexa_optional_array = ${receiver}; return __vexa_optional_array ? vexa::toValue(static_cast<double>(__vexa_optional_array->size())) : vexa::Value::undefined(); }())`;
         }
         const receiver = isManagedArrayExpression(member.object)
           ? `${emitManagedArrayPointer(member.object)}->size()`
@@ -6152,7 +6155,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         return `vexa::stringIndex(${emitExpression(member.object)}, ${emitExpression(member.property)})`;
       }
       if (!member.computed && member.optional && identifierName(member.property) === "length") {
-        return `vexa::dynamicGetOptional(vexa::convertValue<vexa::Value>(${emitExpression(member.object)}), u"length")`;
+        return `vexa::dynamicGetOptional(vexa::toValue(${emitExpression(member.object)}), u"length")`;
       }
       if (!member.computed && nativeCollectionKind(member.object) && identifierName(member.property) === "size") {
         const receiver = emitNativePointerExpression(member.object, nativeCollectionPointerCppType(member.object));
@@ -6212,7 +6215,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
           : `vexa::${member.computed ? "dynamicIndexGet" : "dynamicGet"}(${emitExpression(member.object)}, ${key})`;
       }
       if (member.optional && member.computed && !isManagedArrayExpression(member.object)) {
-        return `vexa::dynamicGetOptional(vexa::convertValue<vexa::Value>(${emitExpression(member.object)}), vexa::propertyKey(${emitExpression(member.property)}))`;
+        return `vexa::dynamicGetOptional(vexa::toValue(${emitExpression(member.object)}), vexa::propertyKey(${emitExpression(member.property)}))`;
       }
       const boundMethod: CallableMember | null = memberInfo
         ? classMethodForMember(memberInfo)
@@ -8236,7 +8239,7 @@ function emitInterfacePropertyBridges(statement: ClassStatement): string[] {
       ? `this->${propertyName}()`
       : `this->${propertyName}`;
     const returnedValue = property.optional
-      ? `vexa::convertValue<vexa::Value>(${getterValue})`
+      ? `vexa::toValue(${getterValue})`
       : getterValue;
     const lines = [
       `  ${type} ${interfacePropertyGetterName(property.name.name)}() override { return ${returnedValue}; }`,
@@ -8534,7 +8537,7 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
           const property = rawProperty as TypedConstructorProperty;
           const parameterType = emittedCallableParameterCppType(property.parameter, false);
           const initializer = property.type === "vexa::Value" && parameterType?.endsWith("*")
-            ? `(${property.name} ? vexa::convertValue<vexa::Value>(${property.name}) : vexa::Value::undefined())`
+            ? `(${property.name} ? vexa::toValue(${property.name}) : vexa::Value::undefined())`
             : property.name;
           nativeInitializers.push(`${property.name}(${initializer})`);
         }
@@ -8774,7 +8777,7 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     for (const parameterType of parameterTypes) functionTypes.push(parameterType!);
     dynamicMethodReads.push({
       key: method.operator ? `__vexa_operator:${method.operator}` : method.name.name,
-      body: `return vexa::Value(vexa::makeFunction<${functionTypes.join(", ")}>(${currentRuntimeExpression}, [this](${lambdaParameters}) -> ${resultType} { ${result} }, {vexa::convertValue<vexa::Value>(this)}));`,
+      body: `return vexa::Value(vexa::makeFunction<${functionTypes.join(", ")}>(${currentRuntimeExpression}, [this](${lambdaParameters}) -> ${resultType} { ${result} }, {vexa::toValue(this)}));`,
     });
   }
   const dynamicGetFallback = baseClass && mappedBaseClassType

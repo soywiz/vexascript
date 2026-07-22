@@ -52,6 +52,23 @@ After these fixes:
 - The two native roundtrip C++ files are byte-identical.
 - Node and native emission still differ in redundant conversion choices around nullish expressions. Matching those outputs remains follow-up work.
 
+## Follow-up: specialized value boxing
+
+The dominant conversion was boxing a statically known C++ value into `vexa::Value`. Routing that operation through overloads named `toValue` avoids instantiating the two-dimensional `convertValue<Result, Input>` decision tree for every input type. The generic conversion remains available for unboxing, array conversion, checked pointer casts, and forward-declared adapter boundaries.
+
+Two edge cases matter:
+
+- Generated adapters can refer to forward-declared classes before C++ can prove that they inherit `BaseObject`. Those boundaries keep the generic conversion until declaration ordering is improved.
+- A pointer without a matching pointer overload can implicitly select the boolean overload. A pointer catch-all is required so enumerable interfaces preserve object adaptation instead of becoming `true`.
+
+With specialized boxing:
+
+- The generated translation unit is 6,936,080 bytes.
+- Total `convertValue` call sites fall from 16,640 to 6,793; `convertValue<Value>` falls from 10,876 to 1,029.
+- The native `-O0` build improves from 24.12 seconds to 21.12 seconds.
+- Native semantic self-host emission takes 67.52 seconds for roundtrip one and 73.12 seconds for roundtrip two.
+- The two native roundtrip outputs remain byte-identical.
+
 ## Regression guidance
 
 Keep behavioral smoke coverage for statement, logical-expression, conditional-expression, and stable-member `instanceof` narrowing. A native self-host compile is required in addition to runtime output because a dynamic access can be behaviorally correct while still hiding a static field and inflating the generated code.

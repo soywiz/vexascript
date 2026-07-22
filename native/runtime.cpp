@@ -2593,6 +2593,50 @@ Result convertValue(Input&& input) {
   }
 }
 
+inline Value toValue(Value value) { return value; }
+inline Value toValue(const StoredValue& value) { return value.load(); }
+inline Value toValue(Undefined) { return Value::undefined(); }
+inline Value toValue(Null) { return Value::null(); }
+inline Value toValue(std::nullptr_t) { return Value::null(); }
+inline Value toValue(bool value) { return Value(value); }
+inline Value toValue(double value) { return Value(value); }
+inline Value toValue(float value) { return Value(static_cast<double>(value)); }
+inline Value toValue(std::int32_t value) { return Value(static_cast<double>(value)); }
+inline Value toValue(std::uint32_t value) { return Value(static_cast<double>(value)); }
+inline Value toValue(std::int64_t value) { return Value(static_cast<double>(value)); }
+inline Value toValue(std::uint64_t value) { return Value(static_cast<double>(value)); }
+inline Value toValue(BigInt value) { return Value(std::move(value)); }
+inline Value toValue(const std::u16string& value) { return currentRuntime().string(value); }
+inline Value toValue(std::u16string&& value) { return currentRuntime().string(std::move(value)); }
+
+template <typename T>
+  requires std::is_enum_v<T>
+inline Value toValue(T value) {
+  return Value(static_cast<double>(value));
+}
+
+template <typename T>
+  requires std::is_base_of_v<BaseObject, T>
+inline Value toValue(T* value) {
+  return value ? Value(static_cast<BaseObject*>(value)) : Value::null();
+}
+
+template <typename T>
+inline Value toValue(T* value) {
+  return convertValue<Value>(value);
+}
+
+template <typename T>
+  requires requires(const T& value) { value.Get(); }
+inline Value toValue(const T& value) {
+  return toValue(value.Get());
+}
+
+template <typename T>
+inline Value toValue(const std::optional<T>& value) {
+  return value ? toValue(*value) : Value::undefined();
+}
+
 template <typename Interface, typename Adapter, typename Input>
 inline Interface* adaptInterface(Runtime& runtime, Input&& input) {
   using Source = std::remove_cvref_t<Input>;
