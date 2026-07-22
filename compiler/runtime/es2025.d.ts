@@ -4,6 +4,17 @@
  * Entry point: es2025.d.ts
  * Excludes DOM, WebWorker, and ScriptHost libs by following only transitive `lib` references from es2025.
  */
+
+/**
+ * High-resolution monotonic timing available in browsers, Node.js, and the
+ * native VexaScript runtime.
+ */
+interface Performance {
+    now(): number;
+}
+
+declare var performance: Performance;
+
 // ---- decorators.d.ts ----
 /**
  * The decorator context types provided to class element decorators.

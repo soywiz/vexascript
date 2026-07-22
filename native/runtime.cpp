@@ -793,6 +793,9 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
     return dynamic_backing_ ? dynamic_backing_->dynamicArraySize() : values_.size();
   }
   bool empty() const { return size() == 0; }
+  void reserve(std::size_t capacity) {
+    if (!dynamic_backing_) values_.reserve(capacity);
+  }
   void resize(std::size_t size) {
     if (dynamic_backing_) {
       dynamic_backing_->dynamicSet(u"length", Value(static_cast<double>(size)));
@@ -829,12 +832,14 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
       set(size(), value);
       return;
     }
-    values_.emplace_back(value);
+    values_.emplace_back(std::move(value));
   }
   void insert(std::size_t index, T value) {
-    values_.insert(values_.begin() + static_cast<std::ptrdiff_t>(std::min(index, values_.size())), ArraySlot<T>(value));
+    values_.insert(
+        values_.begin() + static_cast<std::ptrdiff_t>(std::min(index, values_.size())),
+        ArraySlot<T>(std::move(value)));
   }
-  void prepend(T value) { values_.insert(values_.begin(), ArraySlot<T>(value)); }
+  void prepend(T value) { values_.insert(values_.begin(), ArraySlot<T>(std::move(value))); }
   double push(T value) {
     append(std::move(value));
     return static_cast<double>(size());
@@ -2007,22 +2012,37 @@ class RegExp final {
  public:
   RegExp() : RegExp(u"", u"") {}
   RegExp(std::u16string pattern, const std::u16string& flags)
-      : expression_(pattern, flags.find(u'i') != std::u16string::npos) {}
+      : expression_(cachedExpression(std::move(pattern), flags.find(u'i') != std::u16string::npos)) {}
 
-  bool test(const std::u16string& value) const { return expression_.test(value); }
+  bool test(const std::u16string& value) const { return expression_->test(value); }
   std::optional<std::vector<std::u16string>> exec(const std::u16string& value) const {
-    return expression_.exec(value);
+    return expression_->exec(value);
   }
   std::u16string replace(const std::u16string& value, const std::u16string& replacement) const {
-    return expression_.replace(value, replacement);
+    return expression_->replace(value, replacement);
   }
 
   std::vector<std::u16string> split(const std::u16string& value) const {
-    return expression_.split(value);
+    return expression_->split(value);
   }
 
  private:
-  Utf16Regex expression_;
+  static std::shared_ptr<const Utf16Regex> cachedExpression(
+      std::u16string pattern,
+      bool caseInsensitive) {
+    static std::unordered_map<std::u16string, std::shared_ptr<const Utf16Regex>> cache;
+    std::u16string key;
+    key.reserve(pattern.size() + 1);
+    key.push_back(caseInsensitive ? u'i' : u'-');
+    key += pattern;
+    const auto found = cache.find(key);
+    if (found != cache.end()) return found->second;
+    auto expression = std::make_shared<const Utf16Regex>(std::move(pattern), caseInsensitive);
+    cache.emplace(std::move(key), expression);
+    return expression;
+  }
+
+  std::shared_ptr<const Utf16Regex> expression_;
 };
 
 inline bool regexTest(const RegExp& expression, const std::u16string& value) {
@@ -4545,14 +4565,18 @@ inline void appendAll(std::vector<T>& target, const std::vector<T>& source) {
 
 template <typename T>
 inline void appendAll(ArrayObject<T>* target, const ArrayObject<T>* source) {
-  for (const auto value : *source) target->append(value);
+  target->reserve(target->size() + source->size());
+  for (std::size_t index = 0; index < source->size(); ++index) {
+    target->append(source->get(index));
+  }
 }
 
 template <typename T, typename U>
   requires (!std::is_same_v<T, U>)
 inline void appendAll(ArrayObject<T>* target, const ArrayObject<U>* source) {
-  for (const auto value : *source) {
-    target->append(convertValue<T>(value));
+  target->reserve(target->size() + source->size());
+  for (std::size_t index = 0; index < source->size(); ++index) {
+    target->append(convertValue<T>(source->get(index)));
   }
 }
 
@@ -4585,7 +4609,10 @@ inline void appendAllConverted(Runtime& runtime, std::vector<Value>& target, con
 
 template <typename T>
 inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, const ArrayObject<T>* source) {
-  for (const auto value : *source) target->append(convertValue<Value>(value));
+  target->reserve(target->size() + source->size());
+  for (std::size_t index = 0; index < source->size(); ++index) {
+    target->append(convertValue<Value>(source->get(index)));
+  }
 }
 
 template <typename K, typename V>
@@ -4763,6 +4790,7 @@ inline ArrayObject<T>* ArrayObject<T>::slice(Runtime& runtime, double start, dou
   auto* result = runtime.array<T>();
   const std::size_t first = normalizedSliceIndex(start, size());
   const std::size_t last = std::isinf(end) ? size() : normalizedSliceIndex(end, size());
+  result->reserve(last > first ? last - first : 0);
   for (std::size_t index = first; index < last; ++index) result->append(get(index));
   return result;
 }
@@ -4811,11 +4839,11 @@ inline decltype(auto) invokeArrayCallback(
     const ArrayObject<T>* array) {
   auto* mutableArray = const_cast<ArrayObject<T>*>(array);
   if constexpr (std::is_invocable_v<Callback, T, double, ArrayObject<T>*>) {
-    return callback(value, static_cast<double>(index), mutableArray);
+    return callback(std::move(value), static_cast<double>(index), mutableArray);
   } else if constexpr (std::is_invocable_v<Callback, T, double>) {
-    return callback(value, static_cast<double>(index));
+    return callback(std::move(value), static_cast<double>(index));
   } else if constexpr (std::is_invocable_v<Callback, T>) {
-    return callback(value);
+    return callback(std::move(value));
   } else {
     return callback();
   }
@@ -4830,11 +4858,11 @@ inline decltype(auto) invokeArrayReduceCallback(
     const ArrayObject<T>* array) {
   auto* mutableArray = const_cast<ArrayObject<T>*>(array);
   if constexpr (std::is_invocable_v<Callback, Accumulator, T, double, ArrayObject<T>*>) {
-    return callback(std::move(accumulator), value, static_cast<double>(index), mutableArray);
+    return callback(std::move(accumulator), std::move(value), static_cast<double>(index), mutableArray);
   } else if constexpr (std::is_invocable_v<Callback, Accumulator, T, double>) {
-    return callback(std::move(accumulator), value, static_cast<double>(index));
+    return callback(std::move(accumulator), std::move(value), static_cast<double>(index));
   } else {
-    return callback(std::move(accumulator), value);
+    return callback(std::move(accumulator), std::move(value));
   }
 }
 
@@ -4869,6 +4897,7 @@ inline auto ArrayObject<T>::map(Runtime& runtime, Callback callback) const {
   using Result = std::remove_cvref_t<decltype(
       invokeArrayCallback(callback, std::declval<T>(), std::size_t{}, this))>;
   auto* result = runtime.array<Result>();
+  result->reserve(size());
   for (std::size_t index = 0; index < size(); ++index) {
     result->append(invokeArrayCallback(callback, get(index), index, this));
   }
@@ -4892,6 +4921,7 @@ template <typename T>
 template <typename Callback>
 inline ArrayObject<T>* ArrayObject<T>::filter(Runtime& runtime, Callback callback) const {
   auto* result = runtime.array<T>();
+  result->reserve(size());
   for (std::size_t index = 0; index < size(); ++index) {
     const auto value = get(index);
     if (arrayCallbackBoolean(invokeArrayCallback(callback, value, index, this))) result->append(value);
@@ -5477,11 +5507,18 @@ inline std::u16string mapJoin(
     Callback callback,
     Separator&& rawSeparator) {
   const std::u16string separator = toString(std::forward<Separator>(rawSeparator));
-  std::u16string result;
-  if (array->size() > 0) result.reserve(array->size() * 16 + separator.size() * (array->size() - 1));
+  std::vector<std::u16string> parts;
+  parts.reserve(array->size());
+  std::size_t resultSize = array->size() > 0 ? separator.size() * (array->size() - 1) : 0;
   for (std::size_t index = 0; index < array->size(); ++index) {
+    parts.push_back(toString(invokeArrayCallback(callback, array->get(index), index, array)));
+    resultSize += parts.back().size();
+  }
+  std::u16string result;
+  result.reserve(resultSize);
+  for (std::size_t index = 0; index < parts.size(); ++index) {
     if (index > 0) result += separator;
-    result += toString(invokeArrayCallback(callback, array->get(index), index, array));
+    result += parts[index];
   }
   return result;
 }
@@ -5571,11 +5608,13 @@ template <typename T>
 inline ArrayObject<T>* ArrayObject<T>::sort() {
   std::vector<T> sorted;
   sorted.reserve(size());
-  for (const auto value : *this) sorted.push_back(value);
+  for (std::size_t index = 0; index < size(); ++index) sorted.push_back(get(index));
   std::stable_sort(sorted.begin(), sorted.end(), [](const T& left, const T& right) {
     return vexa::toString(left) < vexa::toString(right);
   });
-  for (std::size_t index = 0; index < sorted.size(); ++index) values_[index].store(sorted[index]);
+  for (std::size_t index = 0; index < sorted.size(); ++index) {
+    values_[index].store(std::move(sorted[index]));
+  }
   return this;
 }
 

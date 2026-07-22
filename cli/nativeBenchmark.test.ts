@@ -6,6 +6,7 @@ describe("native benchmark", () => {
     expect(NATIVE_BENCHMARK_SOURCE).toContain("values.push");
     expect(NATIVE_BENCHMARK_SOURCE).toContain("bigintValue * 33n");
     expect(NATIVE_BENCHMARK_SOURCE).toContain("setTimeout");
+    expect(NATIVE_BENCHMARK_SOURCE).toContain("performance.now()");
   });
 
   it("formats stable measurements without imposing machine-specific thresholds", () => {
@@ -22,9 +23,16 @@ describe("native benchmark", () => {
       arrayMilliseconds: 4,
       bigintMilliseconds: 5,
       eventLoopMilliseconds: 6,
+      nodeStartupMedianMilliseconds: 7,
+      nodeWorkloadMedianMilliseconds: 8,
+      nodeArrayMilliseconds: 9,
+      nodeBigintMilliseconds: 10,
+      nodeEventLoopMilliseconds: 11,
     });
     expect(markdown).toContain("Platform: test/arch");
     expect(markdown).toContain("| Binary size | 20.00 | bytes |");
     expect(markdown).toContain("| GC-stress workload | 3.00 | ms |");
+    expect(markdown).toContain("| Node workload median | 8.00 | ms |");
+    expect(markdown).toContain("| Native workload speedup | 4.00 | x |");
   });
 });

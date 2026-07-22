@@ -5491,38 +5491,17 @@ function isDirectNativePrimitiveExpression(operand: Expr): boolean {
   }
 }
 
-function isDirectNativeTextExpression(expression: Expr): boolean {
-  const type = emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
-  if (type !== "std::u16string") return false;
-  switch (expression.kind) {
-    case NodeKind.StringLiteral:
-    case NodeKind.Identifier:
-      return true;
-    case NodeKind.MemberExpression:
-    case NodeKind.CallExpression:
-      return !isDynamicValueExpression(expression);
-    case NodeKind.AsExpression:
-    case NodeKind.SatisfiesExpression:
-    case NodeKind.NonNullExpression:
-      return isDirectNativeTextExpression((expression as AsExpression | SatisfiesExpression | NonNullExpression).expression);
-    case NodeKind.BinaryExpression: {
-      const binary = expression as BinaryExpression;
-      return binary.operator === "+" &&
-        isDirectNativeTextExpression(binary.left) &&
-        isDirectNativeTextExpression(binary.right);
-    }
-    default:
-      return false;
-  }
+function hasNativeTextOperand(expression: BinaryExpression): boolean {
+  const leftType = emittedCppTypeForExpression(expression.left) ?? cppTypeForExpression(expression.left);
+  const rightType = emittedCppTypeForExpression(expression.right) ?? cppTypeForExpression(expression.right);
+  return expression.operator === "+" &&
+    (leftType === "std::u16string" || rightType === "std::u16string");
 }
 
-function directNativeTextParts(expression: Expr, parts: Expr[]): void {
-  if (expression instanceof BinaryExpression &&
-      expression.operator === "+" &&
-      isDirectNativeTextExpression(expression.left) &&
-      isDirectNativeTextExpression(expression.right)) {
-    directNativeTextParts(expression.left, parts);
-    directNativeTextParts(expression.right, parts);
+function nativeTextParts(expression: Expr, parts: Expr[]): void {
+  if (expression instanceof BinaryExpression && hasNativeTextOperand(expression)) {
+    nativeTextParts(expression.left, parts);
+    nativeTextParts(expression.right, parts);
     return;
   }
   parts.push(expression);
@@ -5563,26 +5542,10 @@ function emitBinary(expression: BinaryExpression): string {
   const optionalStoredPropertyComparison = emitOptionalStoredPropertyComparison(expression);
   if (optionalStoredPropertyComparison) return optionalStoredPropertyComparison;
   const staticPrimitiveOperands = hasStaticPrimitiveOperands(expression);
-  if (expression.operator === "+" &&
-      isDirectNativeTextExpression(expression.left) &&
-      isDirectNativeTextExpression(expression.right)) {
+  if (hasNativeTextOperand(expression)) {
     const parts: Expr[] = [];
-    directNativeTextParts(expression, parts);
-    if (parts.length > 2) {
-      return `vexa::concatText({${parts.map((part) => `vexa::toText(${emitExpression(part)})`).join(", ")}})`;
-    }
-    return `(${emitExpression(expression.left)} + ${emitExpression(expression.right)})`;
-  }
-  if (expression.operator === "+") {
-    const leftType = emittedCppTypeForExpression(expression.left) ?? cppTypeForExpression(expression.left);
-    const rightType = emittedCppTypeForExpression(expression.right) ?? cppTypeForExpression(expression.right);
-    if (leftType === "std::u16string" || rightType === "std::u16string") {
-      return emitDynamicBinaryText(
-        expression.operator,
-        emitExpression(expression.left),
-        emitExpression(expression.right)
-      )!;
-    }
+    nativeTextParts(expression, parts);
+    return `vexa::concatText({${parts.map((part) => `vexa::toString(${emitExpression(part)})`).join(", ")}})`;
   }
   if (expression.operator === "&" || expression.operator === "|" || expression.operator === "^" ||
       expression.operator === "<<" || expression.operator === ">>" || expression.operator === ">>>") {

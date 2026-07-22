@@ -18,8 +18,8 @@
 namespace vexa {
 
 // A deliberately small arbitrary-precision signed integer. Magnitudes use
-// little-endian base-2^32 limbs. Division is the simple bit-at-a-time algorithm:
-// slow for very large values, but dependency-free and straightforward to audit.
+// little-endian base-2^32 limbs. Division uses a linear single-limb path for
+// common small divisors and a dependency-free bit-at-a-time general fallback.
 class BigInt final {
  public:
   BigInt() = default;
@@ -337,9 +337,17 @@ class BigInt final {
 
   static std::pair<BigInt, BigInt> divideAndRemainder(const BigInt& dividend, const BigInt& divisor) {
     if (divisor.isZero()) throw std::runtime_error("BigInt division by zero");
+    const BigInt magnitudeDivisor = divisor.absolute();
+    if (magnitudeDivisor.limbs_.size() == 1) {
+      BigInt quotient = dividend.absolute();
+      const std::uint32_t remainderValue = quotient.divideSmall(magnitudeDivisor.limbs_[0]);
+      BigInt remainder(static_cast<long long>(remainderValue));
+      quotient.negative_ = dividend.negative_ != divisor.negative_ && !quotient.isZero();
+      remainder.negative_ = dividend.negative_ && !remainder.isZero();
+      return {std::move(quotient), std::move(remainder)};
+    }
     BigInt quotient;
     BigInt remainder;
-    const BigInt magnitudeDivisor = divisor.absolute();
     for (std::size_t index = dividend.bitLength(); index-- > 0;) {
       remainder.shiftLeftOne();
       if (dividend.bit(index)) remainder.addSmall(1);

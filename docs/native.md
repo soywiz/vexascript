@@ -121,10 +121,10 @@ Numeric VexaScript types keep their intended native representation: `int` maps
 to `std::int32_t`, `long` maps to `std::int64_t`, and `number` maps to C++
 `double`. `bigint` maps to the runtime's arbitrary-precision `vexa::BigInt`,
 which stores a sign and base-2^32 magnitude limbs. Its multiplication is
-grade-school and its division is deliberately bit-at-a-time: the initial
-implementation favors correctness and no dependencies over speed. Range-loop
-iterators use the analyzed element type rather than a single hard-coded numeric
-type. Numeric remainder uses the shared native
+grade-school. Division by a single magnitude limb uses a linear pass over the
+dividend; larger divisors retain the dependency-free bit-at-a-time fallback.
+Range-loop iterators use the analyzed element type rather than a single
+hard-coded numeric type. Numeric remainder uses the shared native
 `remainder` helper, preserving integral `%` behavior while mapping `number`
 operands to `std::fmod` instead of emitting invalid C++ floating-point `%`.
 
@@ -444,10 +444,12 @@ remain separate because macOS ASan's instrumented stack is not compatible with
 Oilpan's forced conservative stack scan. The bundled executable workflow is
 tested on macOS and Linux; Windows remains an explicit future portability target.
 
-Run `pnpm benchmark:native` to measure native compile time, binary size, startup,
-array and bigint workloads, event-loop latency, and forced-GC execution. Recorded
-results live in `docs/native-benchmarks.md`; they are informational baselines
-rather than cross-machine pass/fail thresholds.
+Run `pnpm benchmark:native` to compile the same source to native C++ and
+JavaScript, then compare startup, total workload, array, bigint, and event-loop
+execution against Node.js. It also measures native compile time, binary size,
+and forced-GC execution. Recorded results live in
+`docs/native-benchmarks.md`; they are informational baselines rather than
+cross-machine pass/fail thresholds.
 
 ## Explicit rejection inventory
 

@@ -4,26 +4,26 @@ import { join } from "node:path";
 import { runCli } from "./cli";
 import { runCommandCapture } from "./io";
 
-export const NATIVE_BENCHMARK_SOURCE = `val arrayStart = Date.now()
+export const NATIVE_BENCHMARK_SOURCE = `val arrayStart = performance.now()
 val values: int[] = [0]
 for (index of 1 ..< 100000) values.push(index)
 var arrayTotal: number = 0
 values.forEach((value: int) => { arrayTotal += value })
-console.log("array_ms", Date.now() - arrayStart, arrayTotal)
+console.log("array_ms", performance.now() - arrayStart, arrayTotal)
 
-val bigintStart = Date.now()
+val bigintStart = performance.now()
 var bigintValue = 123456789012345678901234567890n
 for (index of 0 ..< 250) {
   bigintValue = (bigintValue * 33n + 17n) / 3n
 }
-console.log("bigint_ms", Date.now() - bigintStart, bigintValue > 0n)
+console.log("bigint_ms", performance.now() - bigintStart, bigintValue > 0n)
 
-val eventLoopStart = Date.now()
+val eventLoopStart = performance.now()
 var completedTimers = 0
 for (index of 0 ..< 250) {
   setTimeout(() => { completedTimers += 1 }, 0)
 }
-setTimeout(() => console.log("event_loop_ms", Date.now() - eventLoopStart, completedTimers), 0)
+setTimeout(() => console.log("event_loop_ms", performance.now() - eventLoopStart, completedTimers), 0)
 `;
 
 export interface NativeBenchmarkResult {
@@ -37,6 +37,11 @@ export interface NativeBenchmarkResult {
   arrayMilliseconds: number;
   bigintMilliseconds: number;
   eventLoopMilliseconds: number;
+  nodeStartupMedianMilliseconds: number;
+  nodeWorkloadMedianMilliseconds: number;
+  nodeArrayMilliseconds: number;
+  nodeBigintMilliseconds: number;
+  nodeEventLoopMilliseconds: number;
 }
 
 export function median(values: readonly number[]): number {
@@ -61,11 +66,11 @@ function parseWorkloadMetrics(output: string): Pick<NativeBenchmarkResult,
   };
 }
 
-async function timedExecution(executablePath: string): Promise<{ milliseconds: number; stdout: string }> {
+async function timedExecution(command: string, args: string[] = []): Promise<{ milliseconds: number; stdout: string }> {
   const started = performance.now();
-  const result = await runCommandCapture(executablePath, []);
+  const result = await runCommandCapture(command, args);
   const milliseconds = performance.now() - started;
-  if (result.code !== 0) throw new Error(result.stderr || `Native benchmark exited with ${result.code}`);
+  if (result.code !== 0) throw new Error(result.stderr || `Benchmark command '${command}' exited with ${result.code}`);
   return { milliseconds, stdout: result.stdout };
 }
 
@@ -80,8 +85,10 @@ export async function runNativeBenchmark(): Promise<NativeBenchmarkResult> {
   try {
     const sourcePath = join(root, "workload.vx");
     const executablePath = join(root, "workload");
+    const javaScriptPath = join(root, "workload.js");
     await writeFile(sourcePath, NATIVE_BENCHMARK_SOURCE, "utf8");
     const compileMilliseconds = await compile(sourcePath, executablePath, join(root, "build"));
+    await runCli(["node", "vexa", "build", sourcePath, "--out", javaScriptPath, "--transpile-only"]);
     const binaryBytes = (await stat(executablePath)).size;
 
     const workloadRuns = [];
@@ -91,14 +98,25 @@ export async function runNativeBenchmark(): Promise<NativeBenchmarkResult> {
       workloadRuns.push(run.milliseconds);
       workloadOutput = run.stdout;
     }
+    const nodeWorkloadRuns = [];
+    let nodeWorkloadOutput = "";
+    for (let index = 0; index < 5; index += 1) {
+      const run = await timedExecution(process.execPath, [javaScriptPath]);
+      nodeWorkloadRuns.push(run.milliseconds);
+      nodeWorkloadOutput = run.stdout;
+    }
 
     const emptySourcePath = join(root, "empty.vx");
     const emptyExecutablePath = join(root, "empty");
+    const emptyJavaScriptPath = join(root, "empty.js");
     await writeFile(emptySourcePath, "", "utf8");
     await compile(emptySourcePath, emptyExecutablePath, join(root, "empty-build"));
+    await runCli(["node", "vexa", "build", emptySourcePath, "--out", emptyJavaScriptPath, "--transpile-only"]);
     const startupRuns = [];
+    const nodeStartupRuns = [];
     for (let index = 0; index < 9; index += 1) {
       startupRuns.push((await timedExecution(emptyExecutablePath)).milliseconds);
+      nodeStartupRuns.push((await timedExecution(process.execPath, [emptyJavaScriptPath])).milliseconds);
     }
 
     const previousStress = process.env["VEXA_NATIVE_GC_STRESS"];
@@ -112,6 +130,7 @@ export async function runNativeBenchmark(): Promise<NativeBenchmarkResult> {
     }
     const gcStressMilliseconds = (await timedExecution(stressExecutablePath)).milliseconds;
 
+    const nodeMetrics = parseWorkloadMetrics(nodeWorkloadOutput);
     return {
       platform: process.platform,
       architecture: process.arch,
@@ -121,6 +140,11 @@ export async function runNativeBenchmark(): Promise<NativeBenchmarkResult> {
       workloadMedianMilliseconds: median(workloadRuns),
       gcStressMilliseconds,
       ...parseWorkloadMetrics(workloadOutput),
+      nodeStartupMedianMilliseconds: median(nodeStartupRuns),
+      nodeWorkloadMedianMilliseconds: median(nodeWorkloadRuns),
+      nodeArrayMilliseconds: nodeMetrics.arrayMilliseconds,
+      nodeBigintMilliseconds: nodeMetrics.bigintMilliseconds,
+      nodeEventLoopMilliseconds: nodeMetrics.eventLoopMilliseconds,
     };
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -137,6 +161,12 @@ export function formatNativeBenchmarkMarkdown(result: NativeBenchmarkResult): st
     ["Array workload", result.arrayMilliseconds, "ms"],
     ["Bigint workload", result.bigintMilliseconds, "ms"],
     ["Event-loop workload", result.eventLoopMilliseconds, "ms"],
+    ["Node startup median", result.nodeStartupMedianMilliseconds, "ms"],
+    ["Node workload median", result.nodeWorkloadMedianMilliseconds, "ms"],
+    ["Node array workload", result.nodeArrayMilliseconds, "ms"],
+    ["Node bigint workload", result.nodeBigintMilliseconds, "ms"],
+    ["Node event-loop workload", result.nodeEventLoopMilliseconds, "ms"],
+    ["Native workload speedup", result.nodeWorkloadMedianMilliseconds / Math.max(result.workloadMedianMilliseconds, Number.EPSILON), "x"],
   ];
   return [
     `Platform: ${result.platform}/${result.architecture}`,

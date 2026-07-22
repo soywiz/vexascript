@@ -30,12 +30,22 @@ function pick(candidate: Statement, statement: Statement): void {
   it("uses the native steady clock for performance.now", () => {
     const result = transpile("const startedAt = performance.now()", {
       emit: "cpp",
-      sourceFilePath: "/tmp/performance.ts",
-      typeCheck: false
+      sourceFilePath: "/tmp/performance.ts"
     });
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("vexa::performanceNow()");
+  });
+
+  it("keeps mixed template concatenation in native text storage", () => {
+    const result = transpile('const count = 2; const message = `count ${count}!`', {
+      emit: "cpp",
+      sourceFilePath: "/tmp/template-text.ts"
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::concatText({");
+    expect(result.code).not.toContain("vexa::add(");
   });
 
   it("guards optional array method receivers before invoking native helpers", () => {
