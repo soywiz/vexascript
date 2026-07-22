@@ -85,41 +85,6 @@ class OilpanPlatform final : public cppgc::Platform {
 
 class Value;
 
-class Text final {
- public:
-  Text() = default;
-  Text(const char16_t* value) : value_(value) {}
-  Text(std::u16string value) : value_(std::move(value)) {}
-  Text(std::u16string_view value) : value_(value) {}
-  Text(const Value& value);
-
-  const std::u16string& utf16() const { return value_; }
-  std::size_t size() const { return value_.size(); }
-  bool empty() const { return value_.empty(); }
-  char16_t operator[](std::size_t index) const { return value_[index]; }
-  explicit operator bool() const { return !value_.empty(); }
-
-  Text& operator+=(const Text& other) {
-    value_ += other.value_;
-    return *this;
-  }
-
-  operator std::u16string() const { return value_; }
-
-  friend Text operator+(Text left, const Text& right) {
-    left += right;
-    return left;
-  }
-  friend bool operator==(const Text&, const Text&) = default;
-  friend auto operator<=>(const Text&, const Text&) = default;
-  friend std::ostream& operator<<(std::ostream& output, const Text& value) {
-    return output << utf16ToUtf8(value.utf16());
-  }
-
- private:
-  std::u16string value_;
-};
-
 class StringObject final : public cppgc::GarbageCollected<StringObject> {
  public:
   explicit StringObject(std::u16string value)
@@ -302,6 +267,8 @@ class Value final {
     return !isString() || !utf16().empty();
   }
 
+  operator std::u16string() const;
+
   bool operator==(const Value& other) const;
 
  private:
@@ -310,11 +277,46 @@ class Value final {
   Storage storage_;
 };
 
-inline Text::Text(const Value& value) {
+inline const std::u16string& requireString(const Value& value) {
   if (!value.isString()) {
     throw errorAtCurrentSource(u"VexaScript value is not a string");
   }
-  value_ = value.utf16();
+  return value.utf16();
+}
+
+inline Value::operator std::u16string() const {
+  return requireString(*this);
+}
+
+inline std::u16string& operator+=(std::u16string& left, const Value& right) {
+  left += requireString(right);
+  return left;
+}
+
+inline std::u16string operator+(std::u16string left, const Value& right) {
+  left += right;
+  return left;
+}
+
+inline std::u16string operator+(const Value& left, std::u16string right) {
+  right.insert(0, requireString(left));
+  return right;
+}
+
+inline bool operator==(const std::u16string& left, const Value& right) {
+  return left == requireString(right);
+}
+
+inline bool operator==(const Value& left, const std::u16string& right) {
+  return requireString(left) == right;
+}
+
+inline auto operator<=>(const std::u16string& left, const Value& right) {
+  return left <=> requireString(right);
+}
+
+inline auto operator<=>(const Value& left, const std::u16string& right) {
+  return requireString(left) <=> right;
 }
 
 class StoredValue final {
@@ -354,17 +356,13 @@ inline std::size_t stringCodeUnitLength(const std::u16string& value) {
   return value.size();
 }
 
-inline std::size_t stringCodeUnitLength(const Text& value) {
-  return value.size();
-}
-
 inline std::int32_t stringFirstCodeUnit(const Value& value) {
   return value.isString() && !value.utf16().empty()
     ? static_cast<std::uint16_t>(value.utf16()[0])
     : -1;
 }
 
-inline std::int32_t stringFirstCodeUnit(const Text& value) {
+inline std::int32_t stringFirstCodeUnit(const std::u16string& value) {
   return value.empty() ? -1 : static_cast<std::uint16_t>(value[0]);
 }
 
@@ -373,7 +371,6 @@ class RecordObject final : public cppgc::GarbageCollected<RecordObject>, public 
   RecordObject() = default;
   explicit RecordObject(DynamicValueObject* dynamicBacking);
 
-  Value get(const Text& key) const;
   Value get(const std::u16string& key) const;
   void set(std::u16string key, const Value& value);
   void setHidden(std::u16string key, const Value& value);
@@ -578,10 +575,6 @@ inline void DynamicValueObject::Trace(cppgc::Visitor* visitor) const {
 inline RecordObject::RecordObject(DynamicValueObject* dynamicBacking)
     : dynamic_backing_(dynamicBacking) {}
 
-inline Value RecordObject::get(const Text& key) const {
-  return get(key.utf16());
-}
-
 inline Value RecordObject::get(const std::u16string& key) const {
   if (dynamic_backing_) return dynamic_backing_->dynamicGet(key);
   const auto property = properties_.find(key);
@@ -783,8 +776,7 @@ class ArraySlot<Value> final {
 
 template <typename T>
 inline constexpr bool IsDynamicArrayElement =
-    std::is_same_v<T, Value> || std::is_same_v<T, Text> ||
-    std::is_same_v<T, std::u16string> ||
+    std::is_same_v<T, Value> || std::is_same_v<T, std::u16string> ||
     std::is_same_v<T, BigInt> || std::is_arithmetic_v<T> ||
     (std::is_pointer_v<T> &&
      (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<T>> ||
@@ -1010,8 +1002,8 @@ struct SameValueZeroHash final {
   std::size_t operator()(const T& value) const {
     if constexpr (std::is_same_v<T, BigInt>) {
       return std::hash<std::u16string>{}(value.toString());
-    } else if constexpr (std::is_same_v<T, Text>) {
-      return std::hash<std::u16string>{}(value.utf16());
+    } else if constexpr (std::is_same_v<T, std::u16string>) {
+      return std::hash<std::u16string>{}(value);
     } else if constexpr (std::is_pointer_v<T>) {
       return std::hash<const void*>{}(value);
     } else {
@@ -1999,10 +1991,6 @@ inline bool regexTest(const RegExp& expression, const Value& value) {
   return expression.test(value.isString() ? value.string() : u"");
 }
 
-inline bool regexTest(const RegExp& expression, const Text& value) {
-  return expression.test(value.utf16());
-}
-
 inline std::u16string stringReplace(const std::u16string& value, const RegExp& expression, const Value& replacement) {
   return expression.replace(value, toString(replacement));
 }
@@ -2019,54 +2007,28 @@ inline std::u16string stringReplace(const std::u16string& value, const std::u16s
   return result;
 }
 
-inline Text stringReplace(const Value& value, const Value& search, const Value& replacement) {
-  const Text source(value);
-  const Text searchText(search);
-  const auto offset = source.utf16().find(searchText.utf16());
-  if (offset == std::u16string::npos) return source;
-  auto result = source.utf16();
-  result.replace(offset, searchText.size(), Text(replacement).utf16());
-  return Text(std::move(result));
+inline std::u16string stringReplace(const Value& value, const Value& search, const Value& replacement) {
+  return stringReplace(requireString(value), requireString(search), requireString(replacement));
 }
 
-inline Text stringReplace(const Value& value, const RegExp& expression, const Value& replacement) {
-  return Text(expression.replace(Text(value).utf16(), Text(replacement).utf16()));
+inline std::u16string stringReplace(const Value& value, const RegExp& expression, const Value& replacement) {
+  return expression.replace(requireString(value), requireString(replacement));
 }
 
-inline Text stringReplace(const Text& value, const RegExp& expression, const Text& replacement) {
-  return Text(expression.replace(value.utf16(), replacement.utf16()));
+inline std::u16string stringReplace(const Value& value, const RegExp& expression, const std::u16string& replacement) {
+  return expression.replace(toString(value), replacement);
 }
 
-inline Text stringReplace(const Text& value, const RegExp& expression, const Value& replacement) {
-  return Text(expression.replace(value.utf16(), toString(replacement)));
+inline std::u16string stringReplace(const std::u16string& value, const std::u16string& search, const Value& replacement) {
+  return stringReplace(value, search, requireString(replacement));
 }
 
-inline Text stringReplace(const std::u16string& value, const RegExp& expression, const Text& replacement) {
-  return Text(expression.replace(value, replacement.utf16()));
+inline std::u16string stringReplace(const Value& value, const std::u16string& search, const std::u16string& replacement) {
+  return stringReplace(requireString(value), search, replacement);
 }
 
-inline Text stringReplace(const Value& value, const RegExp& expression, const Text& replacement) {
-  return Text(expression.replace(toString(value), replacement.utf16()));
-}
-
-inline Text stringReplace(const Text& value, const Text& search, const Text& replacement) {
-  const auto offset = value.utf16().find(search.utf16());
-  if (offset == std::u16string::npos) return value;
-  auto result = value.utf16();
-  result.replace(offset, search.size(), replacement.utf16());
-  return Text(std::move(result));
-}
-
-inline Text stringReplace(const Text& value, const Text& search, const Value& replacement) {
-  return stringReplace(value, search, Text(replacement));
-}
-
-inline Text stringReplace(const Value& value, const Text& search, const Text& replacement) {
-  return stringReplace(Text(value), search, replacement);
-}
-
-inline Text stringReplace(const Value& value, const Text& search, const Value& replacement) {
-  return stringReplace(Text(value), search, Text(replacement));
+inline std::u16string stringReplace(const Value& value, const std::u16string& search, const Value& replacement) {
+  return stringReplace(requireString(value), search, requireString(replacement));
 }
 
 template <typename Callback>
@@ -2477,8 +2439,6 @@ Result convertValue(Input&& input) {
       return Value::null();
     } else if constexpr (std::is_same_v<Source, std::u16string>) {
       return currentRuntime().string(std::forward<Input>(input));
-    } else if constexpr (std::is_same_v<Source, Text>) {
-      return currentRuntime().string(input.utf16());
     } else if constexpr (std::is_pointer_v<Source>) {
       if (!input) return Value::null();
       if constexpr (std::is_base_of_v<DynamicValueObject, std::remove_pointer_t<Source>>) {
@@ -2522,9 +2482,6 @@ Result convertValue(Input&& input) {
       throw runtimeError(u"VexaScript value cannot be converted to bigint");
     } else if constexpr (std::is_same_v<Result, std::u16string>) {
       if (input.isString()) return input.utf16();
-      throw errorAtCurrentSource(u"VexaScript value is not a string");
-    } else if constexpr (std::is_same_v<Result, Text>) {
-      if (input.isString()) return Text(input.utf16());
       throw errorAtCurrentSource(u"VexaScript value is not a string");
     } else if constexpr (std::is_arithmetic_v<Result>) {
       if (input.isNumber()) return static_cast<Result>(input.number());
@@ -3138,7 +3095,6 @@ std::remove_cvref_t<Input> recordSet(
   return result;
 }
 
-inline std::u16string propertyKey(const Text& value) { return value.utf16(); }
 inline const std::u16string& propertyKey(const std::u16string& value) { return value; }
 inline std::u16string propertyKey(double value) {
   return formatNumberText(value);
@@ -3258,10 +3214,10 @@ inline Value dynamicObjectGet(DynamicValueObject* target, const std::u16string& 
   return value;
 }
 
-inline Value dynamicGet(const Text& target, const std::u16string& key) {
+inline Value dynamicGet(const std::u16string& target, const std::u16string& key) {
   if (key == u"length") return Value(static_cast<double>(target.size()));
   if (const auto index = propertyIndex(key); index && *index < target.size()) {
-    return currentRuntime().string(target.utf16().substr(*index, 1));
+    return currentRuntime().string(target.substr(*index, 1));
   }
   return Value::undefined();
 }
@@ -3380,27 +3336,27 @@ inline Value recordGetOptional(RecordObject* record, const std::u16string& key) 
   return record ? record->get(key) : Value::undefined();
 }
 
-inline ArrayObject<Text>* recordKeys(Runtime& runtime, RecordObject* record) {
-  auto* result = runtime.array<Text>();
-  if (record) for (const auto& key : record->keys()) result->append(Text(key));
+inline ArrayObject<std::u16string>* recordKeys(Runtime& runtime, RecordObject* record) {
+  auto* result = runtime.array<std::u16string>();
+  if (record) for (const auto& key : record->keys()) result->append(std::u16string(key));
   return result;
 }
 
-inline ArrayObject<Text>* recordKeys(Runtime& runtime, EnumerableObject* object) {
-  auto* result = runtime.array<Text>();
-  if (object) for (const auto& key : objectKeys(object)) result->append(Text(key));
+inline ArrayObject<std::u16string>* recordKeys(Runtime& runtime, EnumerableObject* object) {
+  auto* result = runtime.array<std::u16string>();
+  if (object) for (const auto& key : objectKeys(object)) result->append(std::u16string(key));
   return result;
 }
 
-inline ArrayObject<Text>* recordKeys(Runtime& runtime, DynamicValueObject* object) {
-  auto* result = runtime.array<Text>();
-  if (object) for (const auto& key : objectKeys(object)) result->append(Text(key));
+inline ArrayObject<std::u16string>* recordKeys(Runtime& runtime, DynamicValueObject* object) {
+  auto* result = runtime.array<std::u16string>();
+  if (object) for (const auto& key : objectKeys(object)) result->append(std::u16string(key));
   return result;
 }
 
 template <typename T>
   requires std::is_base_of_v<DynamicValueObject, T>
-inline ArrayObject<Text>* recordKeys(Runtime& runtime, T* object) {
+inline ArrayObject<std::u16string>* recordKeys(Runtime& runtime, T* object) {
   return recordKeys(runtime, static_cast<DynamicValueObject*>(object));
 }
 
@@ -3491,10 +3447,10 @@ inline RecordObject* recordFromEntries(Runtime& runtime, const Value& entries) {
   return record;
 }
 
-inline ArrayObject<Text>* recordKeys(Runtime& runtime, const Value& value) {
+inline ArrayObject<std::u16string>* recordKeys(Runtime& runtime, const Value& value) {
   if (value.isRecord()) return recordKeys(runtime, value.record());
   if (value.isDynamicObject()) return recordKeys(runtime, value.dynamicObject());
-  return runtime.array<Text>();
+  return runtime.array<std::u16string>();
 }
 
 inline ArrayObject<Value>* recordValues(Runtime& runtime, const Value& value) {
@@ -3522,7 +3478,7 @@ Value nullishCoalesce(Value value, Callback&& fallback) {
 }
 
 template <typename Callback>
-Text nullishCoalesce(Text value, Callback&&) {
+std::u16string nullishCoalesce(std::u16string value, Callback&&) {
   return value;
 }
 
@@ -4095,13 +4051,13 @@ inline std::u16string shellQuote(std::u16string_view value) {
 inline Task<Value> nativeRunCommandCapture(
     Runtime& runtime,
     std::u16string command,
-    ArrayObject<Text>* arguments,
+    ArrayObject<std::u16string>* arguments,
     std::u16string workingDirectory) {
   std::vector<std::u16string> copiedArguments;
   copiedArguments.reserve(arguments ? arguments->size() : 0);
   if (arguments) {
     for (std::size_t index = 0; index < arguments->size(); ++index) {
-      copiedArguments.push_back(arguments->get(index).utf16());
+      copiedArguments.push_back(arguments->get(index));
     }
   }
   auto operation = std::async(std::launch::async, [
@@ -4163,12 +4119,12 @@ class Process final {
       Runtime& runtime,
       const std::vector<std::u16string>& arguments,
       const std::vector<std::pair<std::u16string, std::u16string>>& environment)
-      : argv(runtime.array<Text>()), env(runtime.record()) {
+      : argv(runtime.array<std::u16string>()), env(runtime.record()) {
     const std::u16string executable = arguments.empty() ? u"vexa" : arguments.front();
-    argv->append(Text(executable));
-    argv->append(Text(executable));
+    argv->append(executable);
+    argv->append(executable);
     for (std::size_t index = 1; index < arguments.size(); ++index) {
-      argv->append(Text(arguments[index]));
+      argv->append(arguments[index]);
     }
     for (const auto& [name, value] : environment) {
       env->set(name, runtime.string(value));
@@ -4178,15 +4134,15 @@ class Process final {
   std::u16string cwd() const { return currentPathText(); }
   [[noreturn]] void exit(double code = 0) const { std::exit(static_cast<int>(code)); }
 
-  cppgc::Persistent<ArrayObject<Text>> argv;
+  cppgc::Persistent<ArrayObject<std::u16string>> argv;
   cppgc::Persistent<RecordObject> env;
   double exitCode = 0;
 };
 
 inline Process* process = nullptr;
 
-inline ArrayObject<Text>* commandLineArguments(Runtime& runtime) {
-  auto* result = runtime.array<Text>();
+inline ArrayObject<std::u16string>* commandLineArguments(Runtime& runtime) {
+  auto* result = runtime.array<std::u16string>();
   if (!process || !process->argv) return result;
   for (std::size_t index = 2; index < process->argv->size(); ++index) {
     result->append(process->argv->get(index));
@@ -5052,7 +5008,6 @@ inline std::u16string toString(const Value& value) {
   return u"[object Object]";
 }
 
-inline std::u16string toString(const Text& value) { return value.utf16(); }
 inline std::u16string toString(const BigInt& value) { return utf8ToUtf16(value.toString()); }
 
 inline std::u16string toString(double value) { return numberToString(value); }
@@ -5366,21 +5321,21 @@ inline std::u16string join(const ArrayObject<T>* array) {
   return array->join();
 }
 
-inline Text join(const std::vector<Text>& array, const Text& separator) {
-  if (array.empty()) return Text();
+inline std::u16string join(const std::vector<std::u16string>& array, const std::u16string& separator) {
+  if (array.empty()) return std::u16string();
   std::size_t size = separator.size() * (array.size() - 1);
   for (const auto& value : array) size += value.size();
   std::u16string result;
   result.reserve(size);
   for (std::size_t index = 0; index < array.size(); ++index) {
-    if (index > 0) result += separator.utf16();
-    result += array[index].utf16();
+    if (index > 0) result += separator;
+    result += array[index];
   }
-  return Text(std::move(result));
+  return result;
 }
 
-inline Text join(const ArrayObject<Text>* array, const Text& separator) {
-  if (!array || array->size() == 0) return Text();
+inline std::u16string join(const ArrayObject<std::u16string>* array, const std::u16string& separator) {
+  if (!array || array->size() == 0) return std::u16string();
   std::size_t size = separator.size() * (array->size() - 1);
   for (std::size_t index = 0; index < array->size(); ++index) {
     size += array->get(index).size();
@@ -5388,10 +5343,10 @@ inline Text join(const ArrayObject<Text>* array, const Text& separator) {
   std::u16string result;
   result.reserve(size);
   for (std::size_t index = 0; index < array->size(); ++index) {
-    if (index > 0) result += separator.utf16();
-    result += array->get(index).utf16();
+    if (index > 0) result += separator;
+    result += array->get(index);
   }
-  return Text(std::move(result));
+  return result;
 }
 
 template <typename T, typename Separator>
@@ -5745,94 +5700,64 @@ inline std::u16string toFixed(double value, int digits = 0) {
 }
 
 inline std::u16string toUpperCase(std::u16string value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
-    return static_cast<char>(std::toupper(character));
-  });
-  return value;
-}
-inline Text toUpperCase(Text value) {
-  auto codeUnits = value.utf16();
-  std::transform(codeUnits.begin(), codeUnits.end(), codeUnits.begin(), [](char16_t character) {
+  std::transform(value.begin(), value.end(), value.begin(), [](char16_t character) {
     return character <= 0x7f
       ? static_cast<char16_t>(std::toupper(static_cast<unsigned char>(character)))
       : character;
   });
-  return Text(std::move(codeUnits));
-}
-inline Text toUpperCase(const Value& value) { return toUpperCase(Text(value)); }
-
-inline std::u16string toLowerCase(std::u16string value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
-    return static_cast<char>(std::tolower(character));
-  });
   return value;
 }
-inline Text toLowerCase(Text value) {
-  auto codeUnits = value.utf16();
-  std::transform(codeUnits.begin(), codeUnits.end(), codeUnits.begin(), [](char16_t character) {
+inline std::u16string toUpperCase(const Value& value) {
+  return toUpperCase(requireString(value));
+}
+
+inline std::u16string toLowerCase(std::u16string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](char16_t character) {
     return character <= 0x7f
       ? static_cast<char16_t>(std::tolower(static_cast<unsigned char>(character)))
       : character;
   });
-  return Text(std::move(codeUnits));
+  return value;
 }
-inline Text toLowerCase(const Value& value) { return toLowerCase(Text(value)); }
+inline std::u16string toLowerCase(const Value& value) {
+  return toLowerCase(requireString(value));
+}
+
+inline bool isStringWhitespace(char16_t character) {
+  return character == u' ' || character == u'\t' || character == u'\n' ||
+    character == u'\r' || character == u'\f' || character == u'\v';
+}
 
 inline std::u16string trim(std::u16string value) {
-  const auto isSpace = [](unsigned char character) { return std::isspace(character) != 0; };
-  value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), isSpace));
-  value.erase(std::find_if_not(value.rbegin(), value.rend(), isSpace).base(), value.end());
+  value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), isStringWhitespace));
+  value.erase(std::find_if_not(value.rbegin(), value.rend(), isStringWhitespace).base(), value.end());
   return value;
 }
-inline Text trim(Text value) {
-  auto codeUnits = value.utf16();
-  const auto isSpace = [](char16_t character) {
-    return character == u' ' || character == u'\t' || character == u'\n' ||
-      character == u'\r' || character == u'\f' || character == u'\v';
-  };
-  codeUnits.erase(codeUnits.begin(), std::find_if_not(codeUnits.begin(), codeUnits.end(), isSpace));
-  codeUnits.erase(std::find_if_not(codeUnits.rbegin(), codeUnits.rend(), isSpace).base(), codeUnits.end());
-  return Text(std::move(codeUnits));
+inline std::u16string trim(const Value& value) {
+  return trim(requireString(value));
 }
-inline Text trim(const Value& value) { return trim(Text(value)); }
 
 inline std::u16string trimStart(std::u16string value) {
-  const auto isSpace = [](unsigned char character) { return std::isspace(character) != 0; };
-  value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), isSpace));
+  value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), isStringWhitespace));
   return value;
 }
-inline Text trimStart(Text value) {
-  auto codeUnits = value.utf16();
-  const auto isSpace = [](char16_t character) {
-    return character == u' ' || character == u'\t' || character == u'\n' ||
-      character == u'\r' || character == u'\f' || character == u'\v';
-  };
-  codeUnits.erase(codeUnits.begin(), std::find_if_not(codeUnits.begin(), codeUnits.end(), isSpace));
-  return Text(std::move(codeUnits));
+inline std::u16string trimStart(const Value& value) {
+  return trimStart(requireString(value));
 }
-inline Text trimStart(const Value& value) { return trimStart(Text(value)); }
 
 inline std::u16string trimEnd(std::u16string value) {
-  const auto isSpace = [](unsigned char character) { return std::isspace(character) != 0; };
-  value.erase(std::find_if_not(value.rbegin(), value.rend(), isSpace).base(), value.end());
+  value.erase(std::find_if_not(value.rbegin(), value.rend(), isStringWhitespace).base(), value.end());
   return value;
 }
-inline Text trimEnd(Text value) {
-  auto codeUnits = value.utf16();
-  const auto isSpace = [](char16_t character) {
-    return character == u' ' || character == u'\t' || character == u'\n' ||
-      character == u'\r' || character == u'\f' || character == u'\v';
-  };
-  codeUnits.erase(std::find_if_not(codeUnits.rbegin(), codeUnits.rend(), isSpace).base(), codeUnits.end());
-  return Text(std::move(codeUnits));
+inline std::u16string trimEnd(const Value& value) {
+  return trimEnd(requireString(value));
 }
-inline Text trimEnd(const Value& value) { return trimEnd(Text(value)); }
 
-inline bool stringIncludes(const std::u16string& value, const std::u16string& search, double position = 0) {
+inline bool stringIncludes(
+    const std::u16string& value,
+    const std::u16string& search,
+    double position = 0) {
   return value.find(search, normalizedSliceIndex(position, value.size())) != std::u16string::npos;
-}
-inline bool stringIncludes(const Text& value, const Text& search, double position = 0) {
-  return value.utf16().find(search.utf16(), normalizedSliceIndex(position, value.size())) != std::u16string::npos;
 }
 inline bool stringIncludes(const std::u16string& value, const Value& search, double position = 0) {
   return stringIncludes(value, toString(search), position);
@@ -5851,14 +5776,12 @@ double stringIndexOf(const ValueLike& valueLike, const SearchLike& searchLike, d
   const auto found = value.find(search, normalizedSliceIndex(position, value.size()));
   return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
 }
-inline double stringIndexOf(const Text& value, const Text& search, double position = 0) {
-  const auto found = value.utf16().find(search.utf16(), normalizedSliceIndex(position, value.size()));
-  return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
-}
 
 template <typename ValueLike, typename SearchLike>
-double stringLastIndexOf(const ValueLike& valueLike, const SearchLike& searchLike,
-                         double position = std::numeric_limits<double>::infinity()) {
+double stringLastIndexOf(
+    const ValueLike& valueLike,
+    const SearchLike& searchLike,
+    double position = std::numeric_limits<double>::infinity()) {
   const std::u16string value = toString(valueLike);
   const std::u16string search = toString(searchLike);
   const std::size_t start = std::isfinite(position)
@@ -5867,33 +5790,12 @@ double stringLastIndexOf(const ValueLike& valueLike, const SearchLike& searchLik
   const auto found = value.rfind(search, start);
   return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
 }
-inline double stringLastIndexOf(const Text& value, const Text& search,
-                                double position = std::numeric_limits<double>::infinity()) {
-  const std::size_t start = std::isfinite(position)
-      ? std::min(value.size(), static_cast<std::size_t>(std::max(0.0, std::floor(position))))
-      : value.size();
-  const auto found = value.utf16().rfind(search.utf16(), start);
-  return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
-}
 
-inline bool startsWith(const std::u16string& value, const std::u16string& search, double position = 0) {
+inline bool startsWith(
+    const std::u16string& value,
+    const std::u16string& search,
+    double position = 0) {
   return value.compare(normalizedSliceIndex(position, value.size()), search.size(), search) == 0;
-}
-inline bool startsWith(const Text& value, const Text& search, double position = 0) {
-  return value.utf16().compare(normalizedSliceIndex(position, value.size()), search.size(), search.utf16()) == 0;
-}
-inline bool startsWith(const std::u16string& value, const Text& search, double position = 0) {
-  return startsWith(Text(value), search, position);
-}
-inline bool startsWith(const Value& value, const Text& search, double position = 0) {
-  return value.isString()
-    ? startsWith(Text(value), search, position)
-    : startsWith(Text(toString(value)), search, position);
-}
-inline bool startsWith(const Text& value, const Value& search, double position = 0) {
-  return search.isString()
-    ? startsWith(value, Text(search), position)
-    : startsWith(value, Text(toString(search)), position);
 }
 inline bool startsWith(const Value& value, const Value& search, double position = 0) {
   return startsWith(toString(value), toString(search), position);
@@ -5909,23 +5811,6 @@ inline bool endsWith(const std::u16string& value, const std::u16string& search) 
   return search.size() <= value.size() &&
     value.compare(value.size() - search.size(), search.size(), search) == 0;
 }
-inline bool endsWith(const Text& value, const Text& search) {
-  return search.size() <= value.size() &&
-    value.utf16().compare(value.size() - search.size(), search.size(), search.utf16()) == 0;
-}
-inline bool endsWith(const std::u16string& value, const Text& search) {
-  return endsWith(Text(value), search);
-}
-inline bool endsWith(const Value& value, const Text& search) {
-  return value.isString()
-    ? endsWith(Text(value), search)
-    : endsWith(Text(toString(value)), search);
-}
-inline bool endsWith(const Text& value, const Value& search) {
-  return search.isString()
-    ? endsWith(value, Text(search))
-    : endsWith(value, Text(toString(search)));
-}
 inline bool endsWith(const Value& value, const Value& search) {
   return endsWith(toString(value), toString(search));
 }
@@ -5937,31 +5822,17 @@ inline bool endsWith(const Value& value, const std::u16string& search) {
 }
 
 inline std::u16string charAt(const std::u16string& value, double index = 0) {
-  const auto position = static_cast<std::int64_t>(index);
-  return position >= 0 && static_cast<std::size_t>(position) < value.size()
-      ? value.substr(static_cast<std::size_t>(position), 1)
-      : u"";
-}
-inline Text charAt(const Value& value, double index = 0) {
-  if (!value.isString()) return charAt(Text(value), index);
-  const auto position = static_cast<std::int64_t>(index);
-  return position >= 0 && static_cast<std::size_t>(position) < value.utf16().size()
-    ? Text(value.utf16().substr(static_cast<std::size_t>(position), 1))
-    : Text();
-}
-
-inline Text charAt(const Text& value, double index = 0) {
   const auto position = static_cast<std::int64_t>(std::trunc(index));
   return position >= 0 && static_cast<std::size_t>(position) < value.size()
-    ? Text(std::u16string(1, value[static_cast<std::size_t>(position)]))
-    : Text();
+    ? std::u16string(1, value[static_cast<std::size_t>(position)])
+    : std::u16string();
+}
+inline std::u16string charAt(const Value& value, double index = 0) {
+  return charAt(requireString(value), index);
 }
 
-inline Text stringIndex(const Text& value, double index) {
-  const auto position = static_cast<std::int64_t>(std::trunc(index));
-  return position >= 0 && static_cast<std::size_t>(position) < value.size()
-    ? Text(std::u16string(1, value[static_cast<std::size_t>(position)]))
-    : Text();
+inline std::u16string stringIndex(const std::u16string& value, double index) {
+  return charAt(value, index);
 }
 
 inline double charCodeAt(const std::u16string& value, double index = 0) {
@@ -5971,22 +5842,8 @@ inline double charCodeAt(const std::u16string& value, double index = 0) {
   }
   return static_cast<std::uint16_t>(value[static_cast<std::size_t>(position)]);
 }
-
 inline double charCodeAt(const Value& value, double index = 0) {
-  if (!value.isString()) return charCodeAt(toString(value), index);
-  const auto position = static_cast<std::int64_t>(std::trunc(index));
-  if (position < 0 || static_cast<std::size_t>(position) >= value.utf16().size()) {
-    return std::numeric_limits<double>::quiet_NaN();
-  }
-  return static_cast<std::uint16_t>(value.utf16()[static_cast<std::size_t>(position)]);
-}
-
-inline double charCodeAt(const Text& value, double index = 0) {
-  const auto position = static_cast<std::int64_t>(std::trunc(index));
-  if (position < 0 || static_cast<std::size_t>(position) >= value.size()) {
-    return std::numeric_limits<double>::quiet_NaN();
-  }
-  return static_cast<std::uint16_t>(value[static_cast<std::size_t>(position)]);
+  return charCodeAt(requireString(value), index);
 }
 
 template <typename T>
@@ -5994,9 +5851,10 @@ inline bool numberIsNaN(const T& value) {
   return std::isnan(Number(value));
 }
 
-inline Text stringFromCharCode(double value) {
-  const auto codeUnit = static_cast<std::uint32_t>(static_cast<std::uint16_t>(static_cast<std::uint32_t>(value)));
-  return Text(std::u16string(1, static_cast<char16_t>(codeUnit)));
+inline std::u16string stringFromCharCode(double value) {
+  const auto codeUnit =
+    static_cast<std::uint32_t>(static_cast<std::uint16_t>(static_cast<std::uint32_t>(value)));
+  return std::u16string(1, static_cast<char16_t>(codeUnit));
 }
 
 inline std::u16string stringRepeat(const std::u16string& value, double count) {
@@ -6006,77 +5864,52 @@ inline std::u16string stringRepeat(const std::u16string& value, double count) {
   for (std::int64_t index = 0; index < repetitions; ++index) result += value;
   return result;
 }
-
-inline Text stringRepeat(const Text& value, double count) {
-  const auto repetitions = std::max<std::int64_t>(0, static_cast<std::int64_t>(count));
-  std::u16string result;
-  result.reserve(value.size() * static_cast<std::size_t>(repetitions));
-  for (std::int64_t index = 0; index < repetitions; ++index) result += value.utf16();
-  return Text(std::move(result));
-}
-inline Text stringRepeat(const Value& value, double count) {
-  return stringRepeat(Text(value), count);
+inline std::u16string stringRepeat(const Value& value, double count) {
+  return stringRepeat(requireString(value), count);
 }
 
-inline std::u16string substring(const std::u16string& value, double start, double end = std::numeric_limits<double>::infinity()) {
+inline std::u16string substring(
+    const std::u16string& value,
+    double start,
+    double end = std::numeric_limits<double>::infinity()) {
   std::size_t first = normalizedSliceIndex(std::max(0.0, start), value.size());
-  std::size_t last = std::isinf(end) ? value.size() : normalizedSliceIndex(std::max(0.0, end), value.size());
+  std::size_t last = std::isinf(end)
+    ? value.size()
+    : normalizedSliceIndex(std::max(0.0, end), value.size());
   if (first > last) std::swap(first, last);
   return value.substr(first, last - first);
 }
-inline Text substring(const Value& value, double start, double end = std::numeric_limits<double>::infinity()) {
-  if (!value.isString()) return substring(Text(value), start, end);
-  std::size_t first = normalizedSliceIndex(std::max(0.0, start), value.utf16().size());
-  std::size_t last = std::isinf(end) ? value.utf16().size() : normalizedSliceIndex(std::max(0.0, end), value.utf16().size());
-  if (first > last) std::swap(first, last);
-  return Text(value.utf16().substr(first, last - first));
-}
-inline Text substring(const Text& value, double start, double end = std::numeric_limits<double>::infinity()) {
-  std::size_t first = normalizedSliceIndex(std::max(0.0, start), value.size());
-  std::size_t last = std::isinf(end) ? value.size() : normalizedSliceIndex(std::max(0.0, end), value.size());
-  if (first > last) std::swap(first, last);
-  return Text(value.utf16().substr(first, last - first));
+inline std::u16string substring(
+    const Value& value,
+    double start,
+    double end = std::numeric_limits<double>::infinity()) {
+  return substring(requireString(value), start, end);
 }
 
-inline std::u16string stringSlice(const std::u16string& value, double start, double end = std::numeric_limits<double>::infinity()) {
+inline std::u16string stringSlice(
+    const std::u16string& value,
+    double start,
+    double end = std::numeric_limits<double>::infinity()) {
   const std::size_t first = normalizedSliceIndex(start, value.size());
-  const std::size_t last = std::isinf(end) ? value.size() : normalizedSliceIndex(end, value.size());
-  return last <= first ? u"" : value.substr(first, last - first);
+  const std::size_t last = std::isinf(end)
+    ? value.size()
+    : normalizedSliceIndex(end, value.size());
+  return last <= first ? std::u16string() : value.substr(first, last - first);
 }
-inline Text stringSlice(const Value& value, double start, double end = std::numeric_limits<double>::infinity()) {
-  if (!value.isString()) return stringSlice(Text(value), start, end);
-  const std::size_t first = normalizedSliceIndex(start, value.utf16().size());
-  const std::size_t last = std::isinf(end) ? value.utf16().size() : normalizedSliceIndex(end, value.utf16().size());
-  return last <= first ? Text() : Text(value.utf16().substr(first, last - first));
-}
-inline Text stringSlice(const Text& value, double start, double end = std::numeric_limits<double>::infinity()) {
-  const std::size_t first = normalizedSliceIndex(start, value.size());
-  const std::size_t last = std::isinf(end) ? value.size() : normalizedSliceIndex(end, value.size());
-  return last <= first ? Text() : Text(value.utf16().substr(first, last - first));
+inline std::u16string stringSlice(
+    const Value& value,
+    double start,
+    double end = std::numeric_limits<double>::infinity()) {
+  return stringSlice(requireString(value), start, end);
 }
 
-inline ArrayObject<Text>* split(Runtime& runtime, const Text& value, const Text& separator) {
-  auto* result = runtime.array<Text>();
-  if (separator.empty()) {
-    for (char16_t character : value.utf16()) result->append(Text(std::u16string(1, character)));
-    return result;
-  }
-  std::size_t start = 0;
-  while (true) {
-    const std::size_t next = value.utf16().find(separator.utf16(), start);
-    if (next == std::u16string::npos) {
-      result->append(Text(value.utf16().substr(start)));
-      return result;
-    }
-    result->append(Text(value.utf16().substr(start, next - start)));
-    start = next + separator.size();
-  }
-}
-
-inline ArrayObject<std::u16string>* split(Runtime& runtime, const std::u16string& value, const std::u16string& separator) {
+inline ArrayObject<std::u16string>* split(
+    Runtime& runtime,
+    const std::u16string& value,
+    const std::u16string& separator) {
   auto* result = runtime.array<std::u16string>();
   if (separator.empty()) {
-    for (char character : value) result->append(std::u16string(1, character));
+    for (char16_t character : value) result->append(std::u16string(1, character));
     return result;
   }
   std::size_t start = 0;
@@ -6093,25 +5926,36 @@ inline ArrayObject<std::u16string>* split(Runtime& runtime, const std::u16string
 inline ArrayObject<std::u16string>* split(Runtime& runtime, const Value& value, const Value& separator) {
   return split(runtime, toString(value), toString(separator));
 }
-inline ArrayObject<std::u16string>* split(Runtime& runtime, const std::u16string& value, const Value& separator) {
+inline ArrayObject<std::u16string>* split(
+    Runtime& runtime,
+    const std::u16string& value,
+    const Value& separator) {
   return split(runtime, value, toString(separator));
 }
-inline ArrayObject<std::u16string>* split(Runtime& runtime, const Value& value, const std::u16string& separator) {
+inline ArrayObject<std::u16string>* split(
+    Runtime& runtime,
+    const Value& value,
+    const std::u16string& separator) {
   return split(runtime, toString(value), separator);
 }
 
-inline ArrayObject<std::u16string>* split(Runtime& runtime, const Value& value, const RegExp& separator) {
+inline ArrayObject<std::u16string>* split(
+    Runtime& runtime,
+    const Value& value,
+    const RegExp& separator) {
   auto* result = runtime.array<std::u16string>();
   for (const auto& part : separator.split(toString(value))) result->append(part);
   return result;
 }
 
-inline ArrayObject<std::u16string>* split(Runtime& runtime, const std::u16string& value, const RegExp& separator) {
+inline ArrayObject<std::u16string>* split(
+    Runtime& runtime,
+    const std::u16string& value,
+    const RegExp& separator) {
   auto* result = runtime.array<std::u16string>();
   for (const auto& part : separator.split(value)) result->append(part);
   return result;
 }
-
 inline double Number(double value) { return value; }
 inline double Number(bool value) { return value ? 1 : 0; }
 inline double Number(int value) { return static_cast<double>(value); }
@@ -6219,14 +6063,13 @@ inline double remainder(Left left, const Value& right) {
 }
 
 template <typename T>
-inline Text String(const T& value) {
-  return Text(toString(value));
+inline std::u16string String(const T& value) {
+  return std::u16string(toString(value));
 }
 
 inline bool Boolean(bool value) { return value; }
 inline bool Boolean(double value) { return value != 0 && !std::isnan(value); }
 inline bool Boolean(const std::u16string& value) { return !value.empty(); }
-inline bool Boolean(const Text& value) { return !value.empty(); }
 template <typename Result, typename... Arguments>
 inline bool Boolean(const std::function<Result(Arguments...)>& value) {
   return static_cast<bool>(value);
@@ -6636,14 +6479,12 @@ inline bool isErrorLike(T* value) {
 inline Value encodeURIComponent(const std::u16string& value) {
   return Runtime::current().string(encodeUriComponentText(value));
 }
-inline Value encodeURIComponent(const Text& value) { return encodeURIComponent(value.utf16()); }
 inline Value encodeURIComponent(const Value& value) {
   return encodeURIComponent(value.isString() ? value.utf16() : toString(value));
 }
 inline Value decodeURIComponent(const std::u16string& value) {
   return Runtime::current().string(decodeUriComponentText(value));
 }
-inline Value decodeURIComponent(const Text& value) { return decodeURIComponent(value.utf16()); }
 inline Value decodeURIComponent(const Value& value) {
   return decodeURIComponent(value.isString() ? value.utf16() : toString(value));
 }

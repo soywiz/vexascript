@@ -476,7 +476,7 @@ function cppUtf16String(value: string): string {
 }
 
 function cppText(value: string): string {
-  return `vexa::Text(std::u16string_view(${cppUtf16String(value)}, ${value.length}))`;
+  return `std::u16string(${cppUtf16String(value)}, ${value.length})`;
 }
 
 function pooledStringLiteral(value: string): string {
@@ -573,7 +573,7 @@ function cppTypeForBuiltin(typeName: BuiltinTypeName): string | null {
     case "null":
       return "vexa::Null";
     case "string":
-      return "vexa::Text";
+      return "std::u16string";
     case "any":
     case "unknown":
     case "object":
@@ -801,7 +801,7 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
   const arrayType = splitArraySuffixTypeName(typeName);
   if (arrayType) {
     const elementType = arrayType.elementTypeName === "string"
-      ? "vexa::Text"
+      ? "std::u16string"
       : cppTypeForDeclaredName(arrayType.elementTypeName, visitedAliases);
     if (!elementType || elementType === "void") return "";
     let result = elementType;
@@ -901,8 +901,8 @@ function canonicalNativeObjectName(typeName: string): string | null {
 }
 
 function cppArrayElementType(type: AnalysisType): string | null {
-  if (type.kind === AnalysisTypeKind.Builtin && type.name === "string") return "vexa::Text";
-  if (type.kind === AnalysisTypeKind.Literal && type.base === "string") return "vexa::Text";
+  if (type.kind === AnalysisTypeKind.Builtin && type.name === "string") return "std::u16string";
+  if (type.kind === AnalysisTypeKind.Literal && type.base === "string") return "std::u16string";
   if (type.kind === AnalysisTypeKind.Union) return "vexa::Value";
   return cppTypeForAnalysisType(type);
 }
@@ -1247,7 +1247,7 @@ function isStringExpression(expression: Expr): boolean {
       return true;
     }
   }
-  return localCppType === "vexa::Text" ||
+  return localCppType === "std::u16string" ||
     (type?.kind === AnalysisTypeKind.Builtin && type.name === "string") ||
     (type?.kind === AnalysisTypeKind.Literal && type.base === "string") ||
     declaredTypeNameForExpression(expression) === "string" ||
@@ -1489,7 +1489,7 @@ function directlyEmittedCppType(expression: Expr): string | null {
     case NodeKind.BooleanLiteral:
       return "bool";
     case NodeKind.StringLiteral:
-      return "vexa::Text";
+      return "std::u16string";
     case NodeKind.NullLiteral:
     case NodeKind.UndefinedLiteral:
       return "vexa::Value";
@@ -1516,7 +1516,7 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
       ? emitExpressionWithExpectedCppType(expression, resultType)
       : emitExpression(expression);
   }
-  if (resultType === "vexa::Text" && emittedCppTypeForExpression(expression) === resultType) {
+  if (resultType === "std::u16string" && emittedCppTypeForExpression(expression) === resultType) {
     return emitExpression(expression);
   }
   if (builtinCallCppType(expression) === resultType) {
@@ -1668,7 +1668,7 @@ function emitArrayElements(elements: readonly Expr[], elementType: string): stri
 
 function arrayLiteralElementCppType(element: Expr): string {
   if (element.kind === NodeKind.ArrayHole) return "vexa::Value";
-  if (element.kind === NodeKind.StringLiteral) return "vexa::Text";
+  if (element.kind === NodeKind.StringLiteral) return "std::u16string";
   if (element.kind === NodeKind.IntLiteral) return "std::int32_t";
   if (element.kind === NodeKind.FloatLiteral) return "double";
   if (element.kind === NodeKind.LongLiteral) return "std::int64_t";
@@ -1701,7 +1701,7 @@ function arrayElementCanUseCppType(element: Expr, expectedElementType: string): 
     return spreadElementType === null || spreadElementType === expectedElementType || expectedElementType === "vexa::Value";
   }
   if (element.kind === NodeKind.StringLiteral) {
-    return expectedElementType === "vexa::Text" || expectedElementType === "vexa::Value";
+    return expectedElementType === "std::u16string" || expectedElementType === "vexa::Value";
   }
   if (element.kind === NodeKind.IntLiteral || element.kind === NodeKind.FloatLiteral || element.kind === NodeKind.LongLiteral) {
     return expectedElementType === "std::int32_t" || expectedElementType === "std::int64_t" ||
@@ -1883,7 +1883,7 @@ function builtinCallCppType(expression: Expr): string {
   if (expression.kind !== NodeKind.CallExpression) return "";
   const name = identifierName((expression as CallExpression).callee);
   if (name && activeLocalNames.has(name)) return "";
-  if (name === "String") return "vexa::Text";
+  if (name === "String") return "std::u16string";
   if (name === "Number") return "double";
   return "";
 }
@@ -2348,14 +2348,14 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         return `vexa::GeneratorResult<${generatorElementType}>`;
       }
       if (member?.objectName === "Object") {
-        if (member.propertyName === "keys") return "vexa::ArrayObject<vexa::Text>*";
+        if (member.propertyName === "keys") return "vexa::ArrayObject<std::u16string>*";
         if (member.propertyName === "values") return "vexa::ArrayObject<vexa::Value>*";
         if (member.propertyName === "entries") return "vexa::ArrayObject<vexa::ArrayObject<vexa::Value>*>*";
       }
       if (member?.objectName === "Number" && member.propertyName === "isInteger") return "bool";
       if (member?.objectName === "Number" && member.propertyName === "isNaN") return "bool";
       if (member?.objectName === "Array" && member.propertyName === "isArray") return "bool";
-      if (member?.objectName === "String" && member.propertyName === "fromCharCode") return "vexa::Text";
+      if (member?.objectName === "String" && member.propertyName === "fromCharCode") return "std::u16string";
       if (member?.objectName === "Promise" && member.propertyName === "allSettled") {
         return "vexa::Task<vexa::ArrayObject<vexa::RecordObject*>*>";
       }
@@ -2379,11 +2379,11 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         }
       }
       if (member && isStringExpression(member.object)) {
-        if (member.propertyName === "split") return "vexa::ArrayObject<vexa::Text>*";
+        if (member.propertyName === "split") return "vexa::ArrayObject<std::u16string>*";
         if (new Set([
           "toString", "toUpperCase", "toLowerCase", "trim", "trimStart", "trimEnd", "charAt", "repeat",
           "replace", "substring", "slice",
-        ]).has(member.propertyName)) return "vexa::Text";
+        ]).has(member.propertyName)) return "std::u16string";
         if (new Set(["includes", "startsWith", "endsWith", "test"]).has(member.propertyName)) return "bool";
         if (new Set(["charCodeAt", "lastIndexOf", "indexOf"]).has(member.propertyName)) return "double";
       }
@@ -2396,7 +2396,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
           return receiverType;
         }
         if (new Set(["includes", "some", "every"]).has(member.propertyName)) return "bool";
-        if (member.propertyName === "join") return "vexa::Text";
+        if (member.propertyName === "join") return "std::u16string";
         if (member.propertyName === "map" || member.propertyName === "flatMap") {
           const callback = callExpression.args[0];
           let callbackResult = callback ? callbackResultCppType(callback) : null;
@@ -5102,7 +5102,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     if (call.args.length !== 3) {
       throw new CppEmitError("C++ nativeRunCommandCapture expects a command, arguments, and working directory");
     }
-    return `vexa::nativeRunCommandCapture(${activeRuntimeName}, vexa::toString(${emitExpression(call.args[0]!)}), vexa::convertValue<vexa::ArrayObject<vexa::Text>*>(${emitExpression(call.args[1]!)}), vexa::toString(${emitExpression(call.args[2]!)}))`;
+    return `vexa::nativeRunCommandCapture(${activeRuntimeName}, vexa::toString(${emitExpression(call.args[0]!)}), vexa::convertValue<vexa::ArrayObject<std::u16string>*>(${emitExpression(call.args[1]!)}), vexa::toString(${emitExpression(call.args[2]!)}))`;
   }
   if (calleeName === "nativeRunTask") {
     if (call.args.length !== 1) {
@@ -5325,7 +5325,7 @@ function isDirectNativePrimitiveExpression(operand: Expr): boolean {
 
 function isDirectNativeTextExpression(expression: Expr): boolean {
   const type = emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
-  if (type !== "vexa::Text") return false;
+  if (type !== "std::u16string") return false;
   switch (expression.kind) {
     case NodeKind.StringLiteral:
     case NodeKind.Identifier:
@@ -5353,7 +5353,7 @@ function hasStaticPrimitiveOperands(expression: BinaryExpression): boolean {
   const right = emittedCppTypeForExpression(expression.right) ?? cppTypeForExpression(expression.right);
   const primitiveTypesMatch = (isNativeNumericCppType(left) && isNativeNumericCppType(right)) ||
     (left === "bool" && right === "bool") ||
-    (left === "vexa::Text" && right === "vexa::Text");
+    (left === "std::u16string" && right === "std::u16string");
   return primitiveTypesMatch &&
     isDirectNativePrimitiveExpression(expression.left) &&
     isDirectNativePrimitiveExpression(expression.right);
@@ -5382,7 +5382,7 @@ function emitBinary(expression: BinaryExpression): string {
   if (expression.operator === "+") {
     const leftType = emittedCppTypeForExpression(expression.left) ?? cppTypeForExpression(expression.left);
     const rightType = emittedCppTypeForExpression(expression.right) ?? cppTypeForExpression(expression.right);
-    if (leftType === "vexa::Text" || rightType === "vexa::Text") {
+    if (leftType === "std::u16string" || rightType === "std::u16string") {
       return emitDynamicBinaryText(
         expression.operator,
         emitExpression(expression.left),
@@ -5776,7 +5776,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       }
       if (compoundOperator) {
         const targetType = emittedCppTypeForExpression(assignment.left) ?? cppTypeForExpression(assignment.left);
-        if (targetType === "vexa::Text") {
+        if (targetType === "std::u16string") {
           const target = emitExpression(assignment.left);
           const value = emitDynamicBinaryText(
             compoundOperator,
@@ -5784,7 +5784,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
             emitExpression(assignment.right)
           );
           if (value) {
-            return `vexa::assignWith(${target}, [&](const vexa::Text& __vexa_compound_current) { return vexa::convertValue<vexa::Text>(${value}); })`;
+            return `vexa::assignWith(${target}, [&](const std::u16string& __vexa_compound_current) { return vexa::convertValue<std::u16string>(${value}); })`;
           }
         }
       }
@@ -5852,7 +5852,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         ? emittedCppTypeForExpression(presentBranch) ?? cppTypeForExpression(presentBranch)
         : null;
       const resultType = activeExpectedExpressionCppType ??
-        (hasNullishBranch && presentBranchType === "vexa::Text"
+        (hasNullishBranch && presentBranchType === "std::u16string"
           ? "vexa::Value"
           : emittedCppTypeForExpression(conditional) ?? cppTypeForExpression(conditional));
       const branch = (value: Expr): string => {
@@ -6609,7 +6609,7 @@ function emitFor(statement: ForStatement, indent: string, label?: string): strin
       if (iteratorBinding.kind === NodeKind.Identifier) {
         activeLocalNames.add(iteratorBinding.name);
         const elementType = stringIterable
-          ? "vexa::Text"
+          ? "std::u16string"
           : deferredNativeArray
             ? "vexa::Value"
             : managedArrayElementType(iterableCppType);

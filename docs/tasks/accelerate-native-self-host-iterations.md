@@ -65,12 +65,10 @@ development loop.
   and optimization time, and native execution time before and after. Safe
   boxing into `Value` may use implicit constructors, but broad implicit
   unboxing conversions must not make JavaScript coercions ambiguous.
-* [ ] Make immutable native `Text` cheap to pass through statically typed code,
-  either through shared backing storage with copy-on-write mutation or through
-  emitter-selected `const Text&` parameters. A measured recursive type-name
-  experiment showed that replacing `Value` with the current value-owning
-  `Text` copies `u16string` buffers and slows inference, despite producing
-  cleaner and smaller C++.
+* [x] Remove the value-owning native `Text` wrapper and emit statically typed
+  strings directly as `std::u16string`. This leaves `Value`/`StringObject` as
+  the dynamic managed-string representation and avoids copying through an
+  otherwise redundant wrapper at static call boundaries.
 * [x] Replace the string-valued `AnalysisTypeKind` discriminator with a numeric
   `const enum`, then measure Node and native analysis before and after the
   change. The 2026-07-20 checkpoint changed the nominal type hierarchy to one

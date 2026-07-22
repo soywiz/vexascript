@@ -64,3 +64,19 @@ Number and fixed-point formatting also no longer builds locale-aware streams.
 The UTF boundary adapter uses bounded `std::to_chars` calls and widens the
 ASCII result directly to UTF-16, avoiding an intermediate allocated UTF-8
 string on these compiler hot paths.
+
+## A value-owning UTF-16 wrapper was not a second string model
+
+The native `Text` class only owned a `std::u16string` and forwarded its basic
+operations. Keeping both types multiplied overloads, conversions, and template
+specializations without adding lifetime or encoding semantics. Native static
+strings now use `std::u16string` directly, while dynamically boxed strings keep
+their existing Oilpan-managed `StringObject` representation inside `Value`.
+
+Removing the wrapper exposed places where generated code had relied on its
+implicit construction from `Value`, especially template literals containing a
+statically string-typed expression stored dynamically. The narrow compatibility
+boundary now lives between `Value` and `std::u16string`; it does not introduce a
+third string representation. The complete native language smoke and the full
+CLI C++ syntax check both compile real generated translation units and caught
+these mixed static/dynamic expressions during the migration.
