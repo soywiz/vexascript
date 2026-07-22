@@ -15,15 +15,11 @@ const GC_CYCLE_PROGRAM = `#include "runtime.cpp"
 
 class FinalizationProbe final
     : public cppgc::GarbageCollected<FinalizationProbe>,
-      public vexa::DynamicValueObject {
+      public vexa::BaseObject {
  public:
   ~FinalizationProbe() { ++finalized; }
-  const void* dynamicTypeToken() const override { return vexa::nativeTypeToken<FinalizationProbe>(); }
-  void* dynamicCast(const void* type) override {
-    return type == vexa::nativeTypeToken<FinalizationProbe>() ? this : nullptr;
-  }
   std::u16string dynamicToString() const override { return u"probe"; }
-  void Trace(cppgc::Visitor*) const override {}
+  void Trace(cppgc::Visitor* visitor) const override { vexa::BaseObject::Trace(visitor); }
   static inline int finalized = 0;
 };
 

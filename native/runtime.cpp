@@ -120,16 +120,19 @@ std::u16string jsonStringifyNative(const T&, std::unordered_set<const void*>&);
 template <typename T>
 class Task;
 template <typename T>
+struct TaskTraits final {
+  static constexpr bool value = false;
+};
+template <typename T>
+struct TaskTraits<Task<T>> final {
+  static constexpr bool value = true;
+  using Result = T;
+};
+template <typename T>
 struct PromiseResult;
 template <typename T>
 std::u16string toString(const Task<T>&);
 RecordObject* makeDynamicPropertyRecord(Runtime&);
-
-template <typename T>
-inline const void* nativeTypeToken() {
-  static const int token = 0;
-  return &token;
-}
 
 class BaseObject : public cppgc::GarbageCollectedMixin {
  public:
@@ -142,8 +145,6 @@ class BaseObject : public cppgc::GarbageCollectedMixin {
   explicit BaseObject(Kind kind = Kind::Object) : kind_(kind) {}
   virtual ~BaseObject() = default;
   Kind objectKind() const { return kind_; }
-  virtual const void* dynamicTypeToken() const = 0;
-  virtual void* dynamicCast(const void* type) = 0;
   virtual std::u16string dynamicToString() const = 0;
   virtual std::optional<std::u16string> dynamicJsonStringify(std::unordered_set<const void*>&) const {
     return std::nullopt;
@@ -178,11 +179,6 @@ class StringObject final
   StringObject(StringObject* left, StringObject* right)
       : BaseObject(Kind::String), left_(left), right_(right), size_(left->size() + right->size()) {}
 
-  const void* dynamicTypeToken() const override { return nativeTypeToken<StringObject>(); }
-  void* dynamicCast(const void* type) override {
-    if (type == nativeTypeToken<StringObject>()) return this;
-    return type == nativeTypeToken<BaseObject>() ? static_cast<BaseObject*>(this) : nullptr;
-  }
   std::u16string dynamicToString() const override { return value(); }
 
   void Trace(cppgc::Visitor* visitor) const override {
@@ -390,11 +386,6 @@ class RecordObject final
   RecordObject() : BaseObject(Kind::Record) {}
   explicit RecordObject(BaseObject* dynamicBacking);
 
-  const void* dynamicTypeToken() const override { return nativeTypeToken<RecordObject>(); }
-  void* dynamicCast(const void* type) override {
-    if (type == nativeTypeToken<RecordObject>()) return this;
-    return type == nativeTypeToken<BaseObject>() ? static_cast<BaseObject*>(this) : nullptr;
-  }
   std::u16string dynamicToString() const override { return u"[object Object]"; }
   Value dynamicGet(const std::u16string& key) override { return get(key); }
   Value dynamicSet(const std::u16string& key, const Value& value) override {
@@ -424,9 +415,6 @@ class RecordObject final
 class EnumerableObject {
  public:
   virtual ~EnumerableObject() = default;
-  virtual void* nativeInterfaceCast(const void* type) {
-    return type == nativeTypeToken<EnumerableObject>() ? this : nullptr;
-  }
   virtual std::vector<std::u16string> enumerableKeys() const { return {}; }
   virtual Value enumerableGet(const std::u16string&) { return Value::undefined(); }
   virtual RecordObject* enumerableBackingRecord() { return nullptr; }
@@ -502,7 +490,7 @@ template <typename T, typename Other>
 inline bool operator==(const cppgc::Persistent<T>& value, Other&& other) {
   if (other.isUndefined() || other.isNull()) return value.Get() == nullptr;
   if (!other.isRuntimeObject()) return false;
-  return other.object()->dynamicCast(nativeTypeToken<T>()) == value.Get();
+  return dynamic_cast<T*>(other.object()) == value.Get();
 }
 
 template <typename Other, typename T>
@@ -516,7 +504,7 @@ template <typename T, typename Other>
 inline bool operator==(const cppgc::Member<T>& value, Other&& other) {
   if (other.isUndefined() || other.isNull()) return value.Get() == nullptr;
   if (!other.isRuntimeObject()) return false;
-  return other.object()->dynamicCast(nativeTypeToken<T>()) == value.Get();
+  return dynamic_cast<T*>(other.object()) == value.Get();
 }
 
 template <typename Other, typename T>
@@ -893,10 +881,6 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   ArrayObject* sort(Callback callback);
   std::u16string join(const std::u16string& separator = u",") const;
   std::u16string toString() const;
-  const void* dynamicTypeToken() const override { return nativeTypeToken<ArrayObject<T>>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<ArrayObject<T>>() ? this : nullptr;
-  }
   std::u16string dynamicToString() const override { return toString(); }
   bool dynamicIsArray() const override { return true; }
   bool dynamicIsIterable() const override { return true; }
@@ -1129,12 +1113,6 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
     }
   }
 
-  const void* dynamicTypeToken() const override { return nativeTypeToken<MapObject<K, V>>(); }
-  void* dynamicCast(const void* type) override {
-    if (type == nativeTypeToken<MapObject<K, V>>()) return this;
-    if (type == nativeTypeToken<MapLikeObject>()) return static_cast<MapLikeObject*>(this);
-    return nullptr;
-  }
   std::u16string dynamicToString() const override { return u"[object Map]"; }
   bool dynamicIsIterable() const override { return true; }
   std::size_t dynamicIterableSize() const override { return size(); }
@@ -1241,10 +1219,6 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
     }
   }
 
-  const void* dynamicTypeToken() const override { return nativeTypeToken<SetObject<T>>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<SetObject<T>>() ? this : nullptr;
-  }
   std::u16string dynamicToString() const override { return u"[object Set]"; }
   bool dynamicIsIterable() const override { return true; }
   std::size_t dynamicIterableSize() const override { return values_.size(); }
@@ -1302,10 +1276,6 @@ class WeakMapObject final : public cppgc::GarbageCollected<WeakMapObject<K, V>>,
     return true;
   }
 
-  const void* dynamicTypeToken() const override { return nativeTypeToken<WeakMapObject<K, V>>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<WeakMapObject<K, V>>() ? this : nullptr;
-  }
   std::u16string dynamicToString() const override { return u"[object WeakMap]"; }
   void Trace(cppgc::Visitor* visitor) const override {
     BaseObject::Trace(visitor);
@@ -1364,10 +1334,6 @@ class WeakSetObject final : public cppgc::GarbageCollected<WeakSetObject<T>>, pu
     values_.erase(found);
     return true;
   }
-  const void* dynamicTypeToken() const override { return nativeTypeToken<WeakSetObject<T>>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<WeakSetObject<T>>() ? this : nullptr;
-  }
   std::u16string dynamicToString() const override { return u"[object WeakSet]"; }
   void Trace(cppgc::Visitor* visitor) const override {
     BaseObject::Trace(visitor);
@@ -1396,12 +1362,12 @@ class WeakSetObject final : public cppgc::GarbageCollected<WeakSetObject<T>>, pu
 
 template <typename Kind>
 inline bool isCollectionLikeValue(const Value& value) {
-  return value.isRuntimeObject() && value.object()->dynamicCast(nativeTypeToken<Kind>()) != nullptr;
+  return value.isRuntimeObject() && dynamic_cast<Kind*>(value.object()) != nullptr;
 }
 
 template <typename Kind, typename T>
 inline bool isCollectionLikePointer(T* value) {
-  return value && value->dynamicCast(nativeTypeToken<Kind>()) != nullptr;
+  return value && dynamic_cast<Kind*>(value) != nullptr;
 }
 
 inline bool isMapLike(const Value& value) { return isCollectionLikeValue<MapLikeObject>(value); }
@@ -1472,8 +1438,6 @@ class URLObject final : public cppgc::GarbageCollected<URLObject>, public BaseOb
     }
   }
 
-  const void* dynamicTypeToken() const override { return nativeTypeToken<URLObject>(); }
-  void* dynamicCast(const void* type) override { return type == nativeTypeToken<URLObject>() ? this : nullptr; }
   std::u16string dynamicToString() const override { return href; }
   void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); }
 
@@ -1538,10 +1502,6 @@ class DateObject final : public cppgc::GarbageCollected<DateObject>, public Base
   std::u16string toString() const { return toISOString(); }
   std::u16string toJSON() const { return toISOString(); }
 
-  const void* dynamicTypeToken() const override { return nativeTypeToken<DateObject>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<DateObject>() ? this : nullptr;
-  }
   std::u16string dynamicToString() const override { return toString(); }
   std::optional<std::u16string> dynamicJsonStringify(std::unordered_set<const void*>&) const override {
     return jsonQuoted(toISOString());
@@ -1582,10 +1542,6 @@ class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject
     if (index >= bytes_.size()) throw std::out_of_range("ArrayBuffer access is out of range");
     bytes_[index] = value;
   }
-  const void* dynamicTypeToken() const override { return nativeTypeToken<ArrayBufferObject>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<ArrayBufferObject>() ? this : nullptr;
-  }
   std::u16string dynamicToString() const override { return u"[object ArrayBuffer]"; }
   void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); }
 
@@ -1617,10 +1573,6 @@ class Uint8ArrayObject final : public cppgc::GarbageCollected<Uint8ArrayObject>,
     const auto converted = static_cast<std::uint8_t>(modulo);
     buffer_->set(byte_offset_ + index, converted);
     return converted;
-  }
-  const void* dynamicTypeToken() const override { return nativeTypeToken<Uint8ArrayObject>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<Uint8ArrayObject>() ? this : nullptr;
   }
   std::u16string dynamicToString() const override { return u"[object Uint8Array]"; }
   Value dynamicGet(const std::u16string& key) override {
@@ -1684,10 +1636,6 @@ class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, pub
   }
   void setFloat64(double offset, double value, bool littleEndian = false) {
     writeBits(offset, std::bit_cast<std::uint64_t>(value), 8, littleEndian);
-  }
-  const void* dynamicTypeToken() const override { return nativeTypeToken<DataViewObject>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<DataViewObject>() ? this : nullptr;
   }
   std::u16string dynamicToString() const override { return u"[object DataView]"; }
   void Trace(cppgc::Visitor* visitor) const override {
@@ -1765,8 +1713,7 @@ inline double arrayLength(const Value& value) {
 
 inline ArrayObject<Value>* arrayPointer(const Value& value) {
   if (!value.isRuntimeObject()) throw errorAtCurrentSource(u"Value is not an array");
-  auto* array = static_cast<ArrayObject<Value>*>(
-      value.object()->dynamicCast(nativeTypeToken<ArrayObject<Value>>()));
+  auto* array = dynamic_cast<ArrayObject<Value>*>(value.object());
   if (array) return array;
   if (!value.object()->dynamicIsArray()) {
     throw errorAtCurrentSource(u"Value is not a dynamically typed array");
@@ -2329,9 +2276,9 @@ ArrayObject<T>* ArrayObject<T>::fromDynamicObject(BaseObject* backing) {
 template <typename K, typename V>
 MapObject<K, V>* MapObject<K, V>::fromDynamicObject(BaseObject* backing) {
   if (!backing) throw errorAtCurrentSource(u"VexaScript value is not a compatible map");
-  void* converted = backing->dynamicCast(nativeTypeToken<MapLikeObject>());
+  auto* converted = dynamic_cast<MapLikeObject*>(backing);
   if (!converted) throw errorAtCurrentSource(u"VexaScript value is not a compatible map");
-  return currentRuntime().make<MapObject<K, V>>(static_cast<MapLikeObject*>(converted));
+  return currentRuntime().make<MapObject<K, V>>(converted);
 }
 
 #if defined(VEXA_NATIVE_DEBUG) || defined(VEXA_NATIVE_GC_STRESS)
@@ -2447,8 +2394,8 @@ Result Value::toInstance() const {
     throw errorAtCurrentSource(u"VexaScript WeakMap/WeakSet key is not an object");
   } else if constexpr (RecordAdaptable<std::remove_pointer_t<Result>>) {
     if (isRuntimeObject()) {
-      void* converted = object()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
-      if (converted) return static_cast<Result>(converted);
+      auto* converted = dynamic_cast<std::remove_pointer_t<Result>*>(object());
+      if (converted) return converted;
       return std::remove_pointer_t<Result>::fromRecord(
           currentRuntime().make<RecordObject>(object()));
     }
@@ -2460,7 +2407,7 @@ Result Value::toInstance() const {
           std::u16string(u"VexaScript dynamic value has an incompatible native object type: ") +
           utf8ToUtf16(__PRETTY_FUNCTION__) + u"; actual value: " + toString(*this));
     }
-    void* converted = object()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
+    auto* converted = dynamic_cast<std::remove_pointer_t<Result>*>(object());
     if (!converted) {
       if constexpr (DynamicObjectView<std::remove_pointer_t<Result>>) {
         return std::remove_pointer_t<Result>::fromDynamicObject(object());
@@ -2473,7 +2420,7 @@ Result Value::toInstance() const {
           utf8ToUtf16(__PRETTY_FUNCTION__) + u"; actual value: " + toString(*this) +
           (kind.isUndefined() ? u"" : u"; kind: " + toString(kind)));
     }
-    return static_cast<Result>(converted);
+    return converted;
   }
 }
 
@@ -2507,7 +2454,7 @@ Result toInstance(Input&& input) {
     } else if constexpr (
         std::is_base_of_v<BaseObject, std::remove_pointer_t<Source>> &&
         std::is_base_of_v<BaseObject, std::remove_pointer_t<Result>>) {
-      void* converted = input->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
+      auto* converted = dynamic_cast<std::remove_pointer_t<Result>*>(input);
       if (!converted) {
         if constexpr (DynamicObjectView<std::remove_pointer_t<Result>>) {
           return std::remove_pointer_t<Result>::fromDynamicObject(static_cast<BaseObject*>(input));
@@ -2516,13 +2463,13 @@ Result toInstance(Input&& input) {
             std::u16string(u"VexaScript object has an incompatible native pointer type (dynamic cast): ") +
             utf8ToUtf16(__PRETTY_FUNCTION__));
       }
-      return static_cast<Result>(converted);
+      return converted;
     } else if constexpr (
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>> &&
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Result>>) {
-      void* converted = input->nativeInterfaceCast(nativeTypeToken<std::remove_pointer_t<Result>>());
+      auto* converted = dynamic_cast<std::remove_pointer_t<Result>*>(input);
       if (!converted) throw runtimeError(u"VexaScript object has an incompatible interface type");
-      return static_cast<Result>(converted);
+      return converted;
     } else if constexpr (
         std::is_same_v<Result, RecordObject*> &&
         std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>>) {
@@ -2661,8 +2608,8 @@ inline Interface* adaptInterface(Runtime& runtime, Input&& input) {
   if constexpr (std::is_same_v<Source, Value>) {
     if (input.isRecord()) return runtime.make<Adapter>(input.record());
     if (input.isRuntimeObject()) {
-      void* converted = input.object()->dynamicCast(nativeTypeToken<Interface>());
-      if (converted) return static_cast<Interface*>(converted);
+      auto* converted = dynamic_cast<Interface*>(input.object());
+      if (converted) return converted;
       return runtime.make<Adapter>(runtime.make<RecordObject>(input.object()));
     }
     return convertValue<Interface*>(std::forward<Input>(input));
@@ -2674,8 +2621,8 @@ inline Interface* adaptInterface(Runtime& runtime, Input&& input) {
       std::is_pointer_v<Source> &&
       std::is_base_of_v<BaseObject, std::remove_pointer_t<Source>>) {
     if (!input) return nullptr;
-    void* converted = input->dynamicCast(nativeTypeToken<Interface>());
-    if (converted) return static_cast<Interface*>(converted);
+    auto* converted = dynamic_cast<Interface*>(input);
+    if (converted) return converted;
     return runtime.make<Adapter>(runtime.make<RecordObject>(input));
   } else if constexpr (
       std::is_pointer_v<Source> &&
@@ -2843,8 +2790,7 @@ inline MapObject<K, V>* mapFromDynamicEntries(
           std::u16string(u"VexaScript Map entry at index ") + formatIntegerText(index) +
           u" is not an array: " + toString(entryValue));
     }
-    auto* entry = static_cast<ArrayObject<Value>*>(
-        entryValue.object()->dynamicCast(nativeTypeToken<ArrayObject<Value>>()));
+    auto* entry = dynamic_cast<ArrayObject<Value>*>(entryValue.object());
     if (!entry) {
       throw runtimeError(
           std::u16string(u"VexaScript Map entry at index ") + formatIntegerText(index) +
@@ -3036,14 +2982,14 @@ inline DataViewObject* makeDataView(
 template <typename Target>
 bool isInstance(const Value& value) {
   return value.isRuntimeObject() &&
-      value.object()->dynamicCast(nativeTypeToken<Target>()) != nullptr;
+      dynamic_cast<Target*>(value.object()) != nullptr;
 }
 
 template <typename Target, typename Source>
 bool isInstance(Source* value) {
   if (!value) return false;
   if constexpr (std::is_base_of_v<BaseObject, Source>) {
-    return value->dynamicCast(nativeTypeToken<Target>()) != nullptr;
+    return dynamic_cast<Target*>(value) != nullptr;
   } else {
     return std::is_convertible_v<Source*, Target*>;
   }
@@ -3075,14 +3021,6 @@ class FunctionObject final
     return callback_(std::forward<Arguments>(arguments)...);
   }
 
-  const void* dynamicTypeToken() const override {
-    return nativeTypeToken<FunctionObject<Result, Arguments...>>();
-  }
-
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<FunctionObject<Result, Arguments...>>() ? this : nullptr;
-  }
-
   std::u16string dynamicToString() const override { return u"function"; }
 
   Value dynamicCall(Runtime& runtime, const std::vector<Value>& arguments) override {
@@ -3107,6 +3045,14 @@ class FunctionObject final
     if constexpr (std::is_void_v<Result>) {
       callback_(convertValue<Arguments>(arguments[Indices])...);
       return Value::undefined();
+    } else if constexpr (TaskTraits<Result>::value) {
+      auto task = callback_(convertValue<Arguments>(arguments[Indices])...);
+      if constexpr (std::is_void_v<typename TaskTraits<Result>::Result>) {
+        task.get();
+        return Value::undefined();
+      } else {
+        return convertValue<Value>(task.get());
+      }
     } else {
       return convertValue<Value>(
           callback_(convertValue<Arguments>(arguments[Indices])...));
@@ -3125,8 +3071,7 @@ struct FunctionFromValue<std::function<Result(Arguments...)>> {
   static std::function<Result(Arguments...)> convert(Runtime& runtime, const Value& value) {
     if (value.isUndefined() || value.isNull()) return {};
     if (!value.isRuntimeObject()) throw runtime.errorAtCurrentSource(u"VexaScript value is not callable");
-    auto* function = static_cast<FunctionObject<Result, Arguments...>*>(
-        value.object()->dynamicCast(nativeTypeToken<FunctionObject<Result, Arguments...>>()));
+    auto* function = dynamic_cast<FunctionObject<Result, Arguments...>*>(value.object());
     if (!function) throw runtime.errorAtCurrentSource(u"VexaScript callable has an incompatible native signature");
     cppgc::Persistent<FunctionObject<Result, Arguments...>> rooted(function);
     return [rooted = std::move(rooted)](Arguments... arguments) mutable -> Result {
@@ -3311,8 +3256,8 @@ inline Value dynamicObjectGet(BaseObject* target, const std::u16string& key) {
   Value value = target->dynamicGet(key);
   if (!value.isUndefined()) return value;
   if (key == u"message") {
-    if (void* error = target->dynamicCast(nativeTypeToken<Error>())) {
-      return currentRuntime().string(static_cast<Error*>(error)->messageText());
+    if (auto* error = dynamic_cast<Error*>(target)) {
+      return currentRuntime().string(error->messageText());
     }
   }
   return value;
@@ -6194,12 +6139,6 @@ class DynamicArrayMethodObject final
   DynamicArrayMethodObject(ArrayObject<T>* array, std::u16string method)
       : array_(array), method_(std::move(method)) {}
 
-  const void* dynamicTypeToken() const override {
-    return nativeTypeToken<DynamicArrayMethodObject<T>>();
-  }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<DynamicArrayMethodObject<T>>() ? this : nullptr;
-  }
   std::u16string dynamicToString() const override { return u"function"; }
   void Trace(cppgc::Visitor* visitor) const final {
     BaseObject::Trace(visitor);
@@ -6536,10 +6475,8 @@ inline std::int32_t compare(const Value& left, const Value& right) {
     return convertValue<std::int32_t>(*result);
   }
   if (left.isRuntimeObject() && right.isRuntimeObject()) {
-    auto* leftDate = static_cast<DateObject*>(
-      left.object()->dynamicCast(nativeTypeToken<DateObject>()));
-    auto* rightDate = static_cast<DateObject*>(
-      right.object()->dynamicCast(nativeTypeToken<DateObject>()));
+    auto* leftDate = dynamic_cast<DateObject*>(left.object());
+    auto* rightDate = dynamic_cast<DateObject*>(right.object());
     if (leftDate && rightDate) return compare(leftDate->getTime(), rightDate->getTime());
   }
   if (left.isString() && right.isString()) {
@@ -6573,7 +6510,7 @@ inline bool isFinite(double value) { return std::isfinite(value); }
 inline bool isErrorLike(const Error&) { return true; }
 inline bool isErrorLike(const Value& value) {
   return value.isString() ||
-    (value.isRuntimeObject() && value.object()->dynamicCast(nativeTypeToken<Error>()) != nullptr);
+    (value.isRuntimeObject() && dynamic_cast<Error*>(value.object()) != nullptr);
 }
 inline const std::u16string& errorMessageText(const Error& error) {
   return error.messageText();
@@ -6589,7 +6526,7 @@ inline std::u16string errorMessageText(const Value& value) {
 template <typename T>
 inline bool isErrorLike(T* value) {
   if constexpr (std::is_base_of_v<Error, T>) return value != nullptr;
-  return value && value->dynamicCast(nativeTypeToken<Error>()) != nullptr;
+  return value && dynamic_cast<Error*>(value) != nullptr;
 }
 inline Value encodeURIComponent(const std::u16string& value) {
   return Runtime::current().string(encodeUriComponentText(value));

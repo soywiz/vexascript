@@ -22,6 +22,7 @@ describe("native build", () => {
     expect(args).toContain("-DV8_LOGGING_LEVEL=0");
     expect(args).toContain("-O3");
     expect(args).toContain("-DNDEBUG");
+    expect(args).not.toContain("-fno-rtti");
     expect(args).not.toContain("-DVEXA_NATIVE_DEBUG=1");
     expect(args).toContain("-ldl");
   });

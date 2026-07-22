@@ -1,4 +1,4 @@
-import { access, mkdir, rm, stat } from "node:fs/promises";
+import { access, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, extname, posix, resolve, win32 } from "node:path";
 import { LANGUAGE_FILE_EXTENSION } from "../compiler/language";
@@ -113,7 +113,7 @@ async function oilpanCachePaths(root: string): Promise<{
   const cacheRoot = resolve(
     tmpdir(),
     "vexascript-native",
-    `oilpan-${archiveInfo.size}-${Math.trunc(archiveInfo.mtimeMs)}`
+    `oilpan-${archiveInfo.size}-${Math.trunc(archiveInfo.mtimeMs)}-rtti`
   );
   const extractedRoot = resolve(cacheRoot, "oilpan-standalone-main");
   return { archive, cacheRoot, extractedRoot };
@@ -130,6 +130,14 @@ async function ensureOilpanSources(
 
   await mkdir(cacheRoot, { recursive: true });
   await runCommand("cmake", ["-E", "tar", "xf", archive], { cwd: cacheRoot });
+}
+
+async function enableOilpanRtti(extractedRoot: string): Promise<void> {
+  const cmakePath = resolve(extractedRoot, "gc", "CMakeLists.txt");
+  const source = await readFile(cmakePath, "utf8");
+  const disabledRtti = "  target_compile_options(oilpan_gc PUBLIC -fno-rtti)";
+  if (!source.includes(disabledRtti)) return;
+  await writeFile(cmakePath, source.replace(disabledRtti, ""), "utf8");
 }
 
 export function nativeCmakeConfigureArguments(
@@ -157,6 +165,7 @@ async function ensureOilpanLibrary(root: string): Promise<{ gcRoot: string; libr
 
   await withNativeBuildLock(`${cacheRoot}.lock`, async () => {
     await ensureOilpanSources(archive, cacheRoot, extractedRoot);
+    await enableOilpanRtti(extractedRoot);
     if (await exists(libraryPath)) return;
     await runCommand("cmake", nativeCmakeConfigureArguments(gcRoot, buildRoot));
     await runCommand("cmake", ["--build", buildRoot, "--parallel"]);
@@ -193,7 +202,6 @@ function nativeCompilerFrontendArguments(
     ...(options.debug || instrumented ? ["-g"] : []),
     ...(instrumented ? ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] : []),
     ...(platform === "darwin" ? ["-Wno-inconsistent-missing-override", "-Wno-trigraphs"] : []),
-    "-fno-rtti",
     "-DCPPGC_IS_STANDALONE=1",
     ...(platform === "darwin" ? ["-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO"] : []),
     ...(platform === "win32" ? ["-D_WIN32_WINNT=0x0A00"] : []),
