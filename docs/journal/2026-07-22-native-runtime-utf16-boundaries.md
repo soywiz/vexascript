@@ -45,3 +45,22 @@ regression now compiles the ordinary `cli/cli.ts` graph and runs a real
 `-fsyntax-only` native compiler check. The validation shares the production
 compiler frontend arguments so it cannot silently drift into a less realistic
 test configuration.
+
+## Static container knowledge must outrank dynamic storage fallbacks
+
+A computed access such as `call.args[index]` was emitted through `dynamicGet`
+when the intermediate member expression was conservatively classified as a
+`Value`, even though semantic analysis and the native member type both knew it
+was an array. That converted the numeric index to a UTF-16 property key and the
+runtime parsed it back into an integer.
+
+Managed-array computed access now takes the shared `arrayGet` path before the
+dynamic-value fallback. On the complete CLI translation unit this reduced
+`dynamicGet` occurrences from 2,013 to 1,809 and `propertyKey` occurrences from
+389 to 129, while increasing direct `arrayGet` calls from 499 to 759. The
+existing native smoke's callback array indexing exercises the same path.
+
+Number and fixed-point formatting also no longer builds locale-aware streams.
+The UTF boundary adapter uses bounded `std::to_chars` calls and widens the
+ASCII result directly to UTF-16, avoiding an intermediate allocated UTF-8
+string on these compiler hot paths.

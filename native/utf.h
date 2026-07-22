@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <charconv>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -108,15 +109,27 @@ inline std::runtime_error runtimeError(std::u16string_view message) {
 }
 
 inline std::u16string formatNumberText(double value, int precision = 15) {
-  std::ostringstream output;
-  output << std::setprecision(precision) << value;
-  return utf8ToUtf16(output.str());
+  char buffer[64];
+  const auto [end, error] = std::to_chars(
+      buffer,
+      buffer + sizeof(buffer),
+      value,
+      std::chars_format::general,
+      precision);
+  if (error != std::errc()) return {};
+  return std::u16string(buffer, end);
 }
 
 inline std::u16string formatFixedText(double value, int digits) {
-  std::ostringstream output;
-  output << std::fixed << std::setprecision(digits) << value;
-  return utf8ToUtf16(output.str());
+  char buffer[128];
+  const auto [end, error] = std::to_chars(
+      buffer,
+      buffer + sizeof(buffer),
+      value,
+      std::chars_format::fixed,
+      digits);
+  if (error != std::errc()) return {};
+  return std::u16string(buffer, end);
 }
 
 inline std::u16string formatIsoDateText(const std::tm& parts, int milliseconds) {

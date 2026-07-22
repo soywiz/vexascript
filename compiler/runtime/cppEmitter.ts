@@ -1150,6 +1150,20 @@ function emitManagedArrayPointer(expression: Expr): string {
   return `vexa::arrayPointer(${emitExpression(expression)})`;
 }
 
+function emitManagedArrayIndexGet(member: MemberExpression): string {
+  if (!member.optional && !isOptionalChainExpression(member.object)) {
+    return `vexa::arrayGet(${emitManagedArrayPointer(member.object)}, ${emitExpression(member.property)})`;
+  }
+  const arrayType = managedArrayCppTypeForExpression(member.object);
+  const elementType = arrayType ? managedArrayElementType(arrayType) : null;
+  const resultType = elementType?.endsWith("*") ? elementType : "vexa::Value";
+  const value = `vexa::arrayGet(__vexa_optional_array, ${emitExpression(member.property)})`;
+  const converted = resultType === "vexa::Value"
+    ? `vexa::convertValue<vexa::Value>(${value})`
+    : value;
+  return `([&]() { auto* __vexa_optional_array = ${emitManagedArrayPointer(member.object)}; return __vexa_optional_array ? ${converted} : vexa::defaultValue<${resultType}>(); }())`;
+}
+
 function isArrayExpression(expression: Expr): boolean {
   if (expression.kind === NodeKind.Identifier && activeGcArrayTypes.has((expression as Identifier).name)) return true;
   if (managedArrayElementType(cppTypeForExpression(expression)) !== null) return true;
@@ -6025,6 +6039,9 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       if (member.computed && binaryKind === "uint8") {
         return `static_cast<double>(${emitExpression(member.object)}->get(static_cast<std::size_t>(${emitExpression(member.property)})))`;
       }
+      if (member.computed && isManagedArrayExpression(member.object)) {
+        return emitManagedArrayIndexGet(member);
+      }
       if (!isOptionalChainExpression(member.object) && !member.optional && isDynamicValueExpression(member.object) && isClassStoredPropertyMember(member)) {
         const receiverClassName = classNameForExpression(member.object)!;
         const receiverType = cppTypeForDeclaredName(receiverClassName);
@@ -6138,20 +6155,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         }
       }
       return member.computed
-        ? isManagedArrayExpression(member.object)
-          ? member.optional || isOptionalChainExpression(member.object)
-            ? (() => {
-                const arrayType = managedArrayCppTypeForExpression(member.object);
-                const elementType = arrayType ? managedArrayElementType(arrayType) : null;
-                const resultType = elementType?.endsWith("*") ? elementType : "vexa::Value";
-                const value = `vexa::arrayGet(__vexa_optional_array, ${emitExpression(member.property)})`;
-                const converted = resultType === "vexa::Value"
-                  ? `vexa::convertValue<vexa::Value>(${value})`
-                  : value;
-                return `([&]() { auto* __vexa_optional_array = ${emitManagedArrayPointer(member.object)}; return __vexa_optional_array ? ${converted} : vexa::defaultValue<${resultType}>(); }())`;
-              })()
-            : `vexa::arrayGet(${emitManagedArrayPointer(member.object)}, ${emitExpression(member.property)})`
-          : `${emitExpression(member.object)}[${emitExpression(member.property)}]`
+        ? `${emitExpression(member.object)}[${emitExpression(member.property)}]`
         : `${emitExpression(member.object)}${isGcObjectExpression(member.object) ? "->" : "."}${cppName((member.property as Identifier).name)}`;
     }
     case NodeKind.NamedArgument:
