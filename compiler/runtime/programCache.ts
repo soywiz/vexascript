@@ -1,3 +1,4 @@
+import * as ast from "compiler/ast/ast";
 import type { Program } from "compiler/ast/ast";
 import { globalVfs, vfs, type Vfs } from "compiler/vfs";
 
@@ -201,6 +202,27 @@ function hashKey(sourceFilePath: string): string {
   return `${programKey(sourceFilePath)}_hash`;
 }
 
+function reviveProgram(serialized: string): Program {
+  const root = JSON.parse(serialized) as unknown;
+  const constructors = ast as unknown as Record<string, { prototype: object } | undefined>;
+  const visit = (value: unknown): void => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (ast.isNodeKind(record["kind"])) {
+      const constructor = constructors[ast.nodeKindName(record["kind"] as ast.NodeKind)];
+      if (!constructor) throw new Error(`No AST constructor for kind ${String(record["kind"])}`);
+      Object.setPrototypeOf(record, constructor.prototype);
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+  visit(root);
+  return root as Program;
+}
+
 async function hashText(source: string): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest("SHA-1", new TextEncoder().encode(source));
   return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
@@ -239,7 +261,7 @@ export async function cacheProgram(
   }
 
   try {
-    return JSON.parse(cachedProgram) as Program;
+    return reviveProgram(cachedProgram);
   } catch {
     return generateAndPersist(storage, cachedProgramKey, cachedHashKey, expectedHash, generate);
   }

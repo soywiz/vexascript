@@ -327,7 +327,95 @@ fun assert(cond: boolean, message: string = "assert failed")
 assert(value > 0)
 ```
 
-The annotated declaration itself is omitted from JavaScript output. Templates are raw JavaScript and are responsible for being valid in every context where the function is called.
+The annotated declaration itself is omitted from JavaScript output. Templates
+are raw JavaScript and are responsible for being valid in every context where
+the function is called.
+
+Native bindings use three equivalent trusted annotations on a signature-only
+function. `@CppHeader` inserts arbitrary translation-unit text, repeated
+`@CppFlags` values are appended as individual compiler/linker arguments, and
+`@CppBody` supplies the C++ function body:
+
+```vexa
+@CppHeader("#include <native_api.h>")
+@CppFlags("-I/opt/native/include")
+@CppFlags("-lnative")
+@CppBody("return native_add(left, right);")
+declare fun nativeAdd(left: int, right: int): int
+```
+
+Only modules reached by the native module graph contribute headers, bodies, and
+flags. Flags are passed directly as process arguments and are never interpreted
+by a shell. These annotations execute trusted build/source input and must not be
+constructed from untrusted text.
+
+`@FFILibrary` declares a dynamic C library as an ordered list of candidate
+paths. The first path that opens is used. Static signature-only class methods map
+to C symbols with the same names:
+
+```vexa
+@FFILibrary("native.dll", "libnative.so", "libnative.dylib", "Native.framework")
+declare class Native {
+  static add(left: int, right: int): int
+  @FFIName("native_wait")
+  static wait(milliseconds: int): Promise<void>
+}
+```
+
+Without `@FFIName`, the source method name is used as the imported C symbol.
+`@FFIName("symbol")` overrides only the imported name, so callers still use the
+clean source API (`Native.wait(...)` in the example).
+
+Native C++ uses cached `LibraryOpen`/`dlopen` or `LoadLibrary` handles and caches
+each resolved symbol at its call site. JavaScript uses `Deno.dlopen` when run
+with `--allow-ffi`, or `globalThis.VexaFFI.open(path, symbols)` when another
+runtime installs a compatible adapter. Parameters support `int`, `long`,
+`number`, `boolean`, `string`, `ArrayBuffer`, `FFIPointer`, and `@FFIStruct`
+classes; results support numeric/boolean types, `FFIPointer`, and `void`. String
+results are not yet supported. A method returning `Promise<T>` is nonblocking:
+Deno sets `nonblocking: true`, while native C++ invokes the symbol on a worker
+and settles the Vexa task through the main event loop.
+
+`@FFIStruct(totalBytes)` defines an owned native memory layout backed by an
+`ArrayBuffer`. Primary-constructor parameters and ordinary instance fields
+become typed views into that buffer. Constructor parameters may have defaults;
+ordinary fields start zeroed. `@FFISize(bytes)` selects integer/float width,
+`@FFIOffset(bytes)` fixes an offset, and `@FFIAlign(bytes)` controls class or
+field alignment. Omitted offsets are placed sequentially with alignment.
+Explicit offsets may overlap to describe C unions and event overlays. The
+compiler rejects invalid sizes, non-power-of-two alignments, and out-of-bounds
+layouts:
+
+```vexa
+@FFIStruct(16)
+@FFIAlign(4)
+class Rect(
+  @FFIOffset(0) @FFISize(4) var x: int = 0,
+  @FFIOffset(4) @FFISize(4) var y: int = 0,
+  @FFIOffset(8) @FFISize(4) var width: int = 0,
+  @FFIOffset(12) @FFISize(4) var height: int = 0
+)
+
+@FFIStruct(8)
+@FFIAlign(4)
+class Event {
+  @FFIOffset(0) var type: int
+  @FFIOffset(0) @FFISize(2) var code: int
+  @FFIOffset(4) var value: int
+}
+```
+
+Passing a struct or `ArrayBuffer` to an FFI method passes a pointer to its bytes
+without copying. In Deno, the compiler supplies a byte view accepted by
+`Deno.dlopen`; in native C++, it supplies the backing storage address directly.
+`FFIPointer` represents an opaque native address and provides
+signed 8/16/32/64-bit and 32/64-bit floating-point reads and writes at byte
+offsets. Native pointers use direct `memcpy`-safe access; Deno reads through
+`UnsafePointerView` and writes through the platform C runtime's `memcpy`.
+
+`vexaRuntime()` returns `browser`, `node`, `deno`, or `native`.
+`vexaPlatform()` returns the normalized host platform, including `macos`,
+`windows`, and `linux`.
 
 ### Custom JavaScript names
 

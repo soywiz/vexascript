@@ -63,6 +63,7 @@ This section is the fast onboarding map for agents and contributors.
   - Lowering tests: `compiler/runtime/lowering.test.ts`
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - Browser-compatible C++ emission backend, sharing the normal parse and analysis pipeline; native behavior is validated by the compiled executable smoke rather than generated-code string assertions: `compiler/runtime/cppEmitter.ts`, smoke test: `cli/nativeSmoke.test.ts`, fixture: `samples/native-language-smoke/`
+  - Shared trusted C++ annotation extraction and cross-backend dynamic-library/ABI layout metadata: `compiler/runtime/cppAnnotations.ts`, `compiler/runtime/foreignLibrary.ts`, `compiler/runtime/foreignStruct.ts`
   - Native dependency-ordered module-graph compilation, reusing the shared import resolver and merging local module ASTs into one analyzed C++ translation unit: `compiler/runtime/nativeModuleGraph.ts`, tests: `compiler/runtime/nativeModuleGraph.test.ts`
   - Single source of truth mapping overloadable operators to their mangled runtime method names (`operator$star`, ...) plus the shared identifier `sanitizeManglePart`, consumed by both the emitter and the implicit-export planner so an exported operator overload is always re-exported under the exact name it was emitted with: `compiler/runtime/operatorNames.ts`
   - CommonJS-specific import/export emission helpers extracted from the generic emitter path: `compiler/runtime/commonJsEmitter.ts`, `compiler/runtime/commonJsEmitter.test.ts`
@@ -99,6 +100,8 @@ This section is the fast onboarding map for agents and contributors.
   - JSON/text asset import sample: `samples/json-text-import/` validates a `.vx` entry importing local `.json` and `.txt` assets as default imports that are inlined into the bundled runtime output.
   - Native Oilpan sample: `samples/native-oilpan/` is the minimal range-loop and `console.log` program validated by both the normal sample harness and the C++/native build path.
   - Native language smoke sample: `samples/native-language-smoke/` is the multi-file end-to-end native fixture. `expected.txt` validates JavaScript execution through the normal sample harness, while `cli/nativeSmoke.test.ts` invokes the public `executable` command, runs the linked Oilpan binary, and compares stdout with `expected.native.txt`.
+  - FFI sample convention: cross-backend/native-library examples use a `samples/ffi-*` prefix so they remain distinct from normal JavaScript samples.
+  - SDL2 FFI sample: `samples/ffi-sdl2/` opens a real window through raw `@CppHeader` / `@CppFlags` / `@CppBody` bindings and through cross-backend `@FFILibrary`, `@FFIStruct`, and `FFIPointer` APIs. Its dynamic renderer runs under native `LibraryOpen` and Deno FFI, passes a raw `ArrayBuffer` to `SDL_GetKeyboardState`, moves a rectangle with the arrow keys, polls overlapping `SDL_Event` field views, and yields each frame through asynchronous `SDL_Delay`.
 - Formatter:
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`

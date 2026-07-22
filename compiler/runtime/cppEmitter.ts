@@ -25,6 +25,9 @@ import type { ExtensionPropertyResolution } from "compiler/analysis/model";
 import { parseFunctionTypeAnnotation, parseObjectTypeAnnotation, parseTypeNameShape, splitArraySuffixTypeName, splitTopLevelTypeText, substituteTypeNameText } from "compiler/analysis/typeNames";
 import type { ArraySuffixTypeName } from "compiler/analysis/typeNames";
 import type { ReceiverLambdaInfo } from "compiler/analysis/model";
+import { cppBindingMetadata, cppBodyForFunction } from "./cppAnnotations";
+import { foreignDenoType, foreignLibraryForClass, foreignReturnDefinition, foreignSymbolName } from "./foreignLibrary";
+import { foreignStructForClass, isForeignStructClass } from "./foreignStruct";
 import { operatorMethodRuntimeName } from "./operatorNames";
 
 export class CppEmitError extends Error {
@@ -613,6 +616,7 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
   if (type instanceof NamedType && type.name === "RegExp") return "vexa::RegExp";
   if (type instanceof NamedType && type.name === "Date") return "vexa::DateObject*";
   if (type instanceof NamedType && type.name === "ArrayBuffer") return "vexa::ArrayBufferObject*";
+  if (type instanceof NamedType && type.name === "FFIPointer") return "vexa::FFIPointerObject*";
   if (type instanceof NamedType && type.name === "Uint8Array") return "vexa::Uint8ArrayObject*";
   if (type instanceof NamedType && type.name === "DataView") return "vexa::DataViewObject*";
   if (type instanceof NamedType && activeEnumNames.has(type.name)) return "std::int32_t";
@@ -804,6 +808,7 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
   if (shape.baseName === "URL") return "vexa::URLObject*";
   if (isNativeErrorTypeName(shape.baseName)) return "vexa::Error";
   if (shape.baseName === "ArrayBuffer") return "vexa::ArrayBufferObject*";
+  if (shape.baseName === "FFIPointer") return "vexa::FFIPointerObject*";
   if (shape.baseName === "Uint8Array") return "vexa::Uint8ArrayObject*";
   if (shape.baseName === "DataView") return "vexa::DataViewObject*";
   if (activeClassNames.has(shape.baseName) || activeInterfaceNames.has(shape.baseName)) {
@@ -3654,6 +3659,7 @@ function classGetterForMember(
 
 function classUsesRuntimeConstructor(statement: ClassStatement | undefined): boolean {
   if (!statement) return false;
+  if (isForeignStructClass(statement)) return true;
   if (statement.members.some((member) => member instanceof ClassFieldMember && !member.isStatic)) return true;
   return classConstructorMethod(statement) !== null;
 }
@@ -4608,6 +4614,24 @@ function emitMappedArrayJoin(call: CallExpression): string | null {
   return `([&]() { auto* __vexa_map_join_receiver = ${receiver}; auto __vexa_map_join_callback = ${callback}; return vexa::mapJoin(__vexa_map_join_receiver, __vexa_map_join_callback, ${separator}); }())`;
 }
 
+function emitNativeBufferConstruction(name: string, args: readonly Expr[], expression: Node): string | null {
+  if (name === "ArrayBuffer") {
+    if (args.length !== 1) throw new CppEmitError("C++ ArrayBuffer construction expects a byte length", expression);
+    return `${activeRuntimeName}.make<vexa::ArrayBufferObject>(static_cast<std::size_t>(${emitExpression(args[0]!)}))`;
+  }
+  if (name === "Uint8Array") {
+    if (args.length !== 1) throw new CppEmitError("C++ Uint8Array construction expects a length, ArrayBuffer, or array", expression);
+    const argument = args[0]!;
+    const emitted = isManagedArrayExpression(argument) ? emitManagedArrayPointer(argument) : emitExpression(argument);
+    return `vexa::makeUint8Array(${activeRuntimeName}, ${emitted})`;
+  }
+  if (name === "DataView") {
+    if (args.length < 1 || args.length > 3) throw new CppEmitError("C++ DataView construction expects a buffer and optional offset/length", expression);
+    return `vexa::makeDataView(${activeRuntimeName}, ${args.map((argument) => emitExpression(argument)).join(", ")})`;
+  }
+  return null;
+}
+
 function emitCall(call: CallExpression, resultUsed = true): string {
   const mappedArrayJoin = emitMappedArrayJoin(call);
   if (mappedArrayJoin) return mappedArrayJoin;
@@ -4632,9 +4656,15 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     return `([&](auto __vexa_receiver_block) { (${blockText})(__vexa_receiver_block); return __vexa_receiver_block; })(${receiverText})`;
   }
   const calleeName = identifierName(call.callee);
+  if (calleeName === "vexaRuntime" && call.args.length === 0) return "vexa::vexaRuntimeName()";
+  if (calleeName === "vexaPlatform" && call.args.length === 0) return "vexa::vexaPlatformName()";
   if (calleeName === "Promise") return emitPromiseCall(call);
   if (calleeName === "Map" || calleeName === "Set" || calleeName === "WeakMap" || calleeName === "WeakSet") {
     return emitNativeCollectionConstruction(call, calleeName);
+  }
+  if (calleeName && !activeLocalNames.has(calleeName)) {
+    const bufferConstruction = emitNativeBufferConstruction(calleeName, call.args, call);
+    if (bufferConstruction) return bufferConstruction;
   }
   const localCallableType = calleeName && activeLocalNames.has(calleeName)
     ? activeLocalCppTypes.get(calleeName)
@@ -6147,6 +6177,10 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
     case NodeKind.NewExpression: {
       const construction = expression as NewExpression;
       const collectionName = identifierName(construction.callee);
+      const bufferConstruction = collectionName
+        ? emitNativeBufferConstruction(collectionName, construction.args ?? [], construction)
+        : null;
+      if (bufferConstruction) return bufferConstruction;
       if (collectionName === "Map" || collectionName === "Set" || collectionName === "WeakMap" || collectionName === "WeakSet") {
         return emitNativeCollectionConstruction(construction, collectionName);
       }
@@ -6175,21 +6209,6 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         const pattern = `vexa::toString(${emitExpression(args[0] as Expr)})`;
         const flags = args[1] ? `vexa::toString(${emitExpression(args[1] as Expr)})` : 'std::u16string(u"")';
         return `vexa::RegExp(${pattern}, ${flags})`;
-      }
-      if (collectionName === "ArrayBuffer") {
-        if ((construction.args?.length ?? 0) !== 1) throw new CppEmitError("C++ ArrayBuffer construction expects a byte length", construction);
-        return `${activeRuntimeName}.make<vexa::ArrayBufferObject>(static_cast<std::size_t>(${emitExpression(construction.args![0] as Expr)}))`;
-      }
-      if (collectionName === "Uint8Array") {
-        if ((construction.args?.length ?? 0) !== 1) throw new CppEmitError("C++ Uint8Array construction expects a length, ArrayBuffer, or array", construction);
-        const argument = construction.args![0] as Expr;
-        const emitted = isManagedArrayExpression(argument) ? emitManagedArrayPointer(argument) : emitExpression(argument);
-        return `vexa::makeUint8Array(${activeRuntimeName}, ${emitted})`;
-      }
-      if (collectionName === "DataView") {
-        const args = construction.args ?? [];
-        if (args.length < 1 || args.length > 3) throw new CppEmitError("C++ DataView construction expects a buffer and optional offset/length", construction);
-        return `vexa::makeDataView(${activeRuntimeName}, ${args.map((argument) => emitExpression(argument)).join(", ")})`;
       }
       if (collectionName === "Array") {
         const args = construction.args ?? [];
@@ -7628,9 +7647,9 @@ function emitGeneratorCallableBlock(body: BlockStatement, indent: string, result
 }
 
 function validateFunction(statement: FunctionStatement): void {
+  const cppBody = cppBodyForFunction(statement);
   if (
-    statement.declared ||
-    statement.missingBody ||
+    ((statement.declared || statement.missingBody) && cppBody === undefined) ||
     statement.operator
   ) {
     throw new CppEmitError(
@@ -7835,6 +7854,17 @@ function emitFunction(statement: FunctionStatement): string {
         if (receiverType) activeLocalCppTypes.set("this", receiverType);
       }
       try {
+      const cppBody = cppBodyForFunction(statement);
+      if (cppBody !== undefined) {
+        if (generatorInfo || asyncResultType !== null) {
+          throw new CppEmitError("@CppBody supports synchronous functions only", statement);
+        }
+        const bodyLines = cppBody.split("\n").map((line) => `  ${line}`);
+        const body = bodyLines.length === 1 && bodyLines[0] === "  "
+          ? "{}"
+          : `{\n${bodyLines.join("\n")}\n}`;
+        return `${cppTemplatePrefix(statement.typeParameters)}${signature} ${body}`;
+      }
       const body = generatorInfo
         ? emitGeneratorCallableBlock(statement.body, "  ", generatorInfo.resultType)
         : asyncResultType !== null
@@ -8507,7 +8537,166 @@ function emitClassMethodWithActiveTypeParameters(
   );
 }
 
+function emitForeignLibraryCppClass(statement: ClassStatement): string {
+  const library = foreignLibraryForClass(statement)!;
+  const methods = statement.members.filter((member): member is ClassMethodMember => member instanceof ClassMethodMember);
+  const methodLines: string[] = [];
+  for (const method of methods) {
+    const symbolName = foreignSymbolName(method);
+    const signatureOnly = method.missingBody || (statement.declared && method.body.body.length === 0);
+    if (!method.isStatic || !signatureOnly || method.typeParameters?.length || method.parameters.some((parameter) =>
+      !(parameter.name instanceof Identifier) || parameter.rest)) {
+      throw new CppEmitError("@FFILibrary supports static, non-generic signature-only methods with identifier parameters", statement);
+    }
+    const declaredReturnTypeName = method.returnType?.name ?? "void";
+    const returnDefinition = foreignReturnDefinition(declaredReturnTypeName);
+    const returnTypeName = returnDefinition.valueTypeName;
+    if (!foreignDenoType(returnTypeName, true)) {
+      throw new CppEmitError(`@FFILibrary cannot map return type '${declaredReturnTypeName}'`, statement);
+    }
+    const valueReturnType = cppTypeForDeclaredName(returnTypeName);
+    const sourceReturnType = returnDefinition.async ? `vexa::Task<${valueReturnType}>` : valueReturnType;
+    const abiReturnType = returnTypeName === "boolean"
+      ? "std::uint8_t"
+      : returnTypeName === "FFIPointer"
+        ? "void*"
+        : valueReturnType;
+    const sourceParameters: string[] = [];
+    const abiParameters: string[] = [];
+    const preamble: string[] = [];
+    const argumentsText: string[] = [];
+    const asyncCaptures: string[] = [];
+    for (let index = 0; index < method.parameters.length; index += 1) {
+      const parameter = method.parameters[index]!;
+      const name = cppName((parameter.name as Identifier).name);
+      const typeName = parameter.typeAnnotation?.name ?? "";
+      const structDefinition = activeClassStatements.get(typeName)
+        ? foreignStructForClass(activeClassStatements.get(typeName)!)
+        : null;
+      if (!foreignDenoType(typeName) && !structDefinition) {
+        throw new CppEmitError(`@FFILibrary cannot map parameter type '${typeName}'`, statement);
+      }
+      if (typeName === "string") {
+        sourceParameters.push(`const std::u16string& ${name}`);
+        abiParameters.push("const char*");
+        const converted = `__vexa_argument_${index}`;
+        preamble.push(`    const auto ${converted} = vexa::utf16ToUtf8(${name});`);
+        argumentsText.push(`${converted}.c_str()`);
+        asyncCaptures.push(converted);
+      } else if (typeName === "ArrayBuffer") {
+        sourceParameters.push(`vexa::ArrayBufferObject* ${name}`);
+        abiParameters.push("void*");
+        if (returnDefinition.async) {
+          const kept = `__vexa_argument_${index}`;
+          preamble.push(`    auto ${kept} = ${name}->sharedBytes();`);
+          argumentsText.push(`${kept}->data()`);
+          asyncCaptures.push(kept);
+        } else {
+          argumentsText.push(`${name}->data()`);
+        }
+      } else if (typeName === "FFIPointer") {
+        sourceParameters.push(`vexa::FFIPointerObject* ${name}`);
+        abiParameters.push("void*");
+        if (returnDefinition.async) {
+          const pointer = `__vexa_argument_${index}`;
+          preamble.push(`    void* ${pointer} = ${name} ? ${name}->rawAddress() : nullptr;`);
+          argumentsText.push(pointer);
+          asyncCaptures.push(pointer);
+        } else {
+          argumentsText.push(`${name} ? ${name}->rawAddress() : nullptr`);
+        }
+      } else if (structDefinition) {
+        sourceParameters.push(`${cppName(typeName)}* ${name}`);
+        abiParameters.push("void*");
+        if (returnDefinition.async) {
+          const kept = `__vexa_argument_${index}`;
+          preamble.push(`    auto ${kept} = ${name}->__vexa_buffer()->sharedBytes();`);
+          argumentsText.push(`${kept}->data()`);
+          asyncCaptures.push(kept);
+        } else {
+          argumentsText.push(`${name}->__vexa_data()`);
+        }
+      } else {
+        const sourceType = cppTypeForDeclaredName(typeName);
+        sourceParameters.push(`${sourceType} ${name}`);
+        abiParameters.push(typeName === "boolean" ? "std::uint8_t" : sourceType);
+        argumentsText.push(typeName === "boolean" ? `static_cast<std::uint8_t>(${name})` : name);
+        if (returnDefinition.async) asyncCaptures.push(name);
+      }
+    }
+    const paths = library.paths.map((path) => JSON.stringify(path)).join(", ");
+    const invocation = `__vexa_function(${argumentsText.join(", ")})`;
+    const captures = asyncCaptures.join(", ");
+    const asyncInvocation = `[${captures}]() mutable { ${returnTypeName === "void" ? `${invocation};` : `return ${invocation};`} }`;
+    const result = returnDefinition.async
+      ? returnTypeName === "FFIPointer"
+        ? `    return vexa::runAsyncMapped(vexa::Runtime::current(), ${asyncInvocation}, [](void* value) { return vexa::Runtime::current().make<vexa::FFIPointerObject>(value); });`
+        : returnTypeName === "boolean"
+          ? `    return vexa::runAsyncMapped(vexa::Runtime::current(), ${asyncInvocation}, [](std::uint8_t value) { return value != 0; });`
+          : `    return vexa::runAsync(vexa::Runtime::current(), ${asyncInvocation});`
+      : returnTypeName === "void"
+        ? `    ${invocation};`
+        : returnTypeName === "boolean"
+          ? `    return ${invocation} != 0;`
+          : returnTypeName === "FFIPointer"
+            ? `    return vexa::Runtime::current().make<vexa::FFIPointerObject>(${invocation});`
+            : `    return ${invocation};`;
+    methodLines.push([
+      `  static ${sourceReturnType} ${cppName(method.name.name)}(${sourceParameters.join(", ")}) {`,
+      `    using __vexa_function_type = ${abiReturnType} (*)(${abiParameters.join(", ")});`,
+      `    static auto __vexa_function = reinterpret_cast<__vexa_function_type>(vexa::LibraryOpen::symbol({${paths}}, ${JSON.stringify(symbolName)}));`,
+      ...preamble,
+      result,
+      "  }",
+    ].join("\n"));
+  }
+  return [
+    `class ${cppName(statement.name.name)} final {`,
+    " public:",
+    ...methodLines,
+    "};",
+  ].join("\n");
+}
+
+function emitForeignStructCppClass(statement: ClassStatement): string {
+  const definition = foreignStructForClass(statement)!;
+  const className = cppName(statement.name.name);
+  const constructorFields = definition.fields.filter((field) => field.constructorParameter);
+  const parameters = constructorFields.map((field) =>
+    `${cppTypeForDeclaredName(field.typeName)} ${cppName(field.name)}`).join(", ");
+  const referenceInitializers = definition.fields.map((field) =>
+    `${cppName(field.name)}(*reinterpret_cast<${field.cppType}*>(buffer_->data() + ${field.offset}))`);
+  const assignments = constructorFields.map((field) =>
+    `this->${cppName(field.name)} = ${cppName(field.name)};`).join(" ");
+  const fields = definition.fields.map((field) =>
+    `  ${field.cppType}& ${cppName(field.name)};`);
+  const assertions = definition.fields.flatMap((field) => [
+    `  static_assert(${field.offset} + sizeof(${field.cppType}) <= ${definition.size});`,
+    `  static_assert(${field.offset} % ${field.alignment} == 0);`,
+  ]);
+  return [
+    `class ${className} final : public cppgc::GarbageCollected<${className}>, public vexa::BaseObject {`,
+    " private:",
+    "  cppgc::Member<vexa::ArrayBufferObject> buffer_;",
+    " public:",
+    `  ${className}(${parameters})`,
+    `      : buffer_(vexa::Runtime::current().make<vexa::ArrayBufferObject>(${definition.size}))${referenceInitializers.length ? `, ${referenceInitializers.join(", ")}` : ""} { ${assignments} }`,
+    "  void* __vexa_data() { return buffer_->data(); }",
+    "  const void* __vexa_data() const { return buffer_->data(); }",
+    "  vexa::ArrayBufferObject* __vexa_buffer() const { return buffer_.Get(); }",
+    `  const void* dynamicTypeToken() const override { return vexa::nativeTypeToken<${className}>(); }`,
+    `  void* dynamicCast(const void* type) override { return type == vexa::nativeTypeToken<${className}>() ? this : nullptr; }`,
+    `  std::u16string dynamicToString() const override { return u"[object ${statement.name.name}]"; }`,
+    "  void Trace(cppgc::Visitor* visitor) const final { vexa::BaseObject::Trace(visitor); visitor->Trace(buffer_); }",
+    ...fields,
+    ...assertions,
+    "};",
+  ].join("\n");
+}
+
 function emitClass(statement: ClassStatement): string {
+  if (foreignLibraryForClass(statement)) return emitForeignLibraryCppClass(statement);
+  if (foreignStructForClass(statement)) return emitForeignStructCppClass(statement);
   return withCppTypeParameters(statement.typeParameters, () => emitClassWithActiveTypeParameters(statement));
 }
 
@@ -9625,6 +9814,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
 
   const outputLines: string[] = [
     "// Generated by VexaScript. Compile through `vexa build <file> --emit cpp --native`.",
+    ...cppBindingMetadata(program).headers,
     '#include "runtime.cpp"',
     ""
   ];

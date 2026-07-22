@@ -166,6 +166,17 @@ class Color(val r: int, val g: int, val b: int, val a: int)
 val white = Color(255, 255, 255, 255)  // emits: new rgba(255, 255, 255, 255)
 ```
 
+### Native implementation and FFI annotations
+
+`@CppHeader`, `@CppFlags`, and `@CppBody` attach trusted C++ source and build
+metadata to a signature-only function. `@FFILibrary("candidate", ...)` attaches
+an ordered dynamic-library search list to an ambient class whose static methods
+name C symbols. `@FFIName` optionally separates the imported symbol from the
+source method name. Native builds use cached `LibraryOpen` symbol resolution;
+JavaScript uses Deno FFI or a compatible `globalThis.VexaFFI` adapter. See
+`docs/syntax.md` for `@FFIStruct` layouts, `FFIPointer`, asynchronous
+`Promise<T>` calls, and the complete type and security contract.
+
 ## Classes
 
 ### Primary constructors

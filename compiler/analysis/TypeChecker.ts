@@ -934,7 +934,14 @@ export class TypeChecker {
       return;
     }
 
-    const requiredCount = declaration.parameters.filter((parameter) => parameter.defaultValue === undefined).length;
+    const restParameter = declaration.parameters.at(-1)?.rest === true
+      ? declaration.parameters.at(-1)
+      : undefined;
+    const fixedParameterCount: number = restParameter
+      ? declaration.parameters.length - 1
+      : declaration.parameters.length;
+    const requiredCount = declaration.parameters.filter((parameter) =>
+      parameter.defaultValue === undefined && parameter.rest !== true).length;
     const providedCount = annotation.args.length;
     const totalCount = declaration.parameters.length;
 
@@ -943,7 +950,7 @@ export class TypeChecker {
         message: `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
         node: annotation.name
       });
-    } else if (providedCount > totalCount) {
+    } else if (!restParameter && providedCount > totalCount) {
       this.issues.push({
         message: `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
         node: annotation.name
@@ -956,12 +963,17 @@ export class TypeChecker {
       }
     }
 
-    const comparableCount = Math.min(argumentTypes.length, parameterTypes.length);
+    const comparableCount = restParameter
+      ? argumentTypes.length
+      : Math.min(argumentTypes.length, parameterTypes.length);
     for (let index = 0; index < comparableCount; index += 1) {
-      const expectedType = parameterTypes[index] ?? UNKNOWN_TYPE;
+      const restIndex: number = index - fixedParameterCount;
+      const expectedType = restParameter && index >= fixedParameterCount
+        ? this.restParameterExpectedTypeAt(parameterTypes.at(-1) ?? UNKNOWN_TYPE, restIndex)
+        : parameterTypes[index] ?? UNKNOWN_TYPE;
       const argumentType = argumentTypes[index] ?? UNKNOWN_TYPE;
       const argumentNode = annotation.args[index] ?? annotation.name;
-      const parameter = declaration.parameters[index];
+      const parameter = declaration.parameters[Math.min(index, declaration.parameters.length - 1)];
       const parameterName = parameter ? bindingNameText(parameter.name) : `arg${index + 1}`;
       if (isUnknownType(expectedType) || isUnknownType(argumentType) || this.isCallArgumentAssignable(argumentType, expectedType)) {
         continue;
@@ -1826,6 +1838,9 @@ export class TypeChecker {
       }
       for (const candidate of statement.primaryConstructorParameters ?? []) {
         const parameter = candidate as ClassPrimaryConstructorParameter;
+        for (const annotation of parameter.annotations ?? []) {
+          this.visitAnnotationApplication(annotation, classScope);
+        }
         const parameterType = this.resolveTypeAnnotation(parameter.typeAnnotation, classScope)
           ?? (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, classScope) : UNKNOWN_TYPE);
         if (

@@ -76,4 +76,33 @@ describe("native module graph profiling", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it("collects compiler flags from native bindings in referenced modules", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vexa-native-module-flags-"));
+    try {
+      await writeFile(
+        join(directory, "binding.vx"),
+        [
+          '@CppFlags("-I/native/include")',
+          '@CppFlags("-L/native/lib")',
+          '@CppFlags("-lnative")',
+          '@CppBody("return native_value();")',
+          "export declare fun nativeValue(): int",
+        ].join("\n"),
+        "utf8"
+      );
+      await writeFile(
+        join(directory, "main.vx"),
+        'import { nativeValue } from "./binding.vx"\nconsole.log(nativeValue())',
+        "utf8"
+      );
+
+      const result = await compileNativeModuleGraph(join(directory, "main.vx"), "optimized");
+
+      expect(result.errors).toEqual([]);
+      expect(result.nativeCompilerFlags).toEqual(["-I/native/include", "-L/native/lib", "-lnative"]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });

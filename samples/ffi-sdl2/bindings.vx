@@ -1,0 +1,15 @@
+@CppHeader("#include <SDL2/SDL.h>\nstatic SDL_Window* __vexa_sdl_window = nullptr;")
+@CppFlags("-I/opt/homebrew/include")
+@CppFlags("-L/opt/homebrew/lib")
+@CppFlags("-lSDL2")
+@CppBody("return SDL_Init(static_cast<Uint32>(flags));")
+export declare fun sdlInit(flags: int): int
+
+@CppBody("const auto titleUtf8 = vexa::utf16ToUtf8(title); __vexa_sdl_window = SDL_CreateWindow(titleUtf8.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, SDL_WINDOW_SHOWN); return __vexa_sdl_window ? 1 : 0;")
+export declare fun sdlCreateWindow(title: string, width: int, height: int): int
+
+@CppBody("const Uint64 deadline = SDL_GetTicks64() + static_cast<Uint64>(milliseconds); SDL_Event event{}; while (SDL_GetTicks64() < deadline) { while (SDL_PollEvent(&event)) { if (event.type == SDL_QUIT) return; } SDL_Delay(16); }")
+export declare fun sdlPumpEvents(milliseconds: int): void
+
+@CppBody("if (__vexa_sdl_window) { SDL_DestroyWindow(__vexa_sdl_window); __vexa_sdl_window = nullptr; } SDL_Quit();")
+export declare fun sdlShutdown(): void

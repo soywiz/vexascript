@@ -25,6 +25,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <queue>
 #include <regex>
@@ -40,7 +41,10 @@
 #include <variant>
 #include <vector>
 
-#if !defined(_WIN32)
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <dlfcn.h>
 #include <sys/wait.h>
 #endif
 
@@ -57,6 +61,56 @@
 #include <src/base/page-allocator.h>
 
 namespace vexa {
+
+class LibraryOpen final {
+ public:
+  static void* open(std::initializer_list<std::string_view> paths) {
+    static std::mutex mutex;
+    static std::unordered_map<std::string, void*> handles;
+    std::lock_guard<std::mutex> lock(mutex);
+    std::string failures;
+    for (const auto pathView : paths) {
+      std::string path(pathView);
+      if (path.empty()) continue;
+#if defined(__APPLE__)
+      if (path.ends_with(".framework")) {
+        const auto slash = path.find_last_of('/');
+        const auto nameStart = slash == std::string::npos ? 0 : slash + 1;
+        const auto nameLength = path.size() - nameStart - std::string_view(".framework").size();
+        path += "/" + path.substr(nameStart, nameLength);
+      }
+#endif
+      if (const auto cached = handles.find(path); cached != handles.end()) return cached->second;
+#if defined(_WIN32)
+      void* handle = reinterpret_cast<void*>(LoadLibraryA(path.c_str()));
+      if (!handle) failures += path + "; ";
+#else
+      void* handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+      if (!handle) {
+        const char* error = dlerror();
+        failures += path + ": " + std::string(error ? error : "unknown error") + "; ";
+      }
+#endif
+      if (handle) {
+        handles.emplace(path, handle);
+        return handle;
+      }
+    }
+    throw std::runtime_error("Unable to open native library: " + failures);
+  }
+
+  static void* symbol(std::initializer_list<std::string_view> paths, std::string_view name) {
+    void* handle = open(paths);
+#if defined(_WIN32)
+    void* result = reinterpret_cast<void*>(GetProcAddress(
+        static_cast<HMODULE>(handle), std::string(name).c_str()));
+#else
+    void* result = dlsym(handle, std::string(name).c_str());
+#endif
+    if (!result) throw std::runtime_error("Unable to load native symbol: " + std::string(name));
+    return result;
+  }
+};
 
 inline std::optional<std::size_t> propertyIndex(std::u16string_view key) {
   if (key.empty()) return std::nullopt;
@@ -1617,19 +1671,39 @@ inline double performanceNow() {
       std::chrono::steady_clock::now() - origin).count();
 }
 
+inline std::u16string vexaRuntimeName() { return u"native"; }
+
+inline std::u16string vexaPlatformName() {
+#if defined(_WIN32)
+  return u"windows";
+#elif defined(__APPLE__)
+  return u"macos";
+#elif defined(__linux__)
+  return u"linux";
+#elif defined(__FreeBSD__)
+  return u"freebsd";
+#else
+  return u"unknown";
+#endif
+}
+
 inline double dateParse(const std::u16string& value) { return DateObject::parse(value); }
 
 class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject>, public BaseObject {
  public:
-  explicit ArrayBufferObject(std::size_t byteLength) : bytes_(byteLength, 0) {}
-  std::size_t byteLength() const { return bytes_.size(); }
+  explicit ArrayBufferObject(std::size_t byteLength)
+      : bytes_(std::make_shared<std::vector<std::uint8_t>>(byteLength, 0)) {}
+  std::size_t byteLength() const { return bytes_->size(); }
+  std::uint8_t* data() { return bytes_->data(); }
+  const std::uint8_t* data() const { return bytes_->data(); }
+  std::shared_ptr<std::vector<std::uint8_t>> sharedBytes() const { return bytes_; }
   std::uint8_t get(std::size_t index) const {
-    if (index >= bytes_.size()) throw std::out_of_range("ArrayBuffer access is out of range");
-    return bytes_[index];
+    if (index >= bytes_->size()) throw std::out_of_range("ArrayBuffer access is out of range");
+    return (*bytes_)[index];
   }
   void set(std::size_t index, std::uint8_t value) {
-    if (index >= bytes_.size()) throw std::out_of_range("ArrayBuffer access is out of range");
-    bytes_[index] = value;
+    if (index >= bytes_->size()) throw std::out_of_range("ArrayBuffer access is out of range");
+    (*bytes_)[index] = value;
   }
   const void* dynamicTypeToken() const override { return nativeTypeToken<ArrayBufferObject>(); }
   void* dynamicCast(const void* type) override {
@@ -1639,7 +1713,61 @@ class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject
   void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); }
 
  private:
-  std::vector<std::uint8_t> bytes_;
+  std::shared_ptr<std::vector<std::uint8_t>> bytes_;
+};
+
+class FFIPointerObject final : public cppgc::GarbageCollected<FFIPointerObject>, public BaseObject {
+ public:
+  FFIPointerObject(void* address, std::size_t byteLength = std::numeric_limits<std::size_t>::max())
+      : address(static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(address))),
+        address_(static_cast<std::uint8_t*>(address)), byte_length_(byteLength) {}
+  FFIPointerObject(ArrayBufferObject* buffer, std::size_t byteOffset = 0, std::size_t byteLength = std::numeric_limits<std::size_t>::max())
+      : address(static_cast<std::int64_t>(reinterpret_cast<std::uintptr_t>(buffer ? buffer->data() + byteOffset : nullptr))), backing_(buffer),
+        address_(buffer ? buffer->data() + byteOffset : nullptr),
+        byte_length_(buffer ? std::min(byteLength, buffer->byteLength() - std::min(byteOffset, buffer->byteLength())) : 0) {
+    if (!buffer || byteOffset > buffer->byteLength()) throw std::out_of_range("FFIPointer view is outside its ArrayBuffer");
+  }
+  void* rawAddress() const { return address_; }
+  std::int64_t address;
+  double getInt8(double offset) const { return read<std::int8_t>(offset); }
+  double getInt16(double offset) const { return read<std::int16_t>(offset); }
+  double getInt32(double offset) const { return read<std::int32_t>(offset); }
+  std::int64_t getInt64(double offset) const { return read<std::int64_t>(offset); }
+  double getFloat32(double offset) const { return read<float>(offset); }
+  double getFloat64(double offset) const { return read<double>(offset); }
+  void setInt8(double offset, double value) { write<std::int8_t>(offset, static_cast<std::int8_t>(value)); }
+  void setInt16(double offset, double value) { write<std::int16_t>(offset, static_cast<std::int16_t>(value)); }
+  void setInt32(double offset, double value) { write<std::int32_t>(offset, static_cast<std::int32_t>(value)); }
+  void setInt64(double offset, std::int64_t value) { write<std::int64_t>(offset, value); }
+  void setFloat32(double offset, double value) { write<float>(offset, static_cast<float>(value)); }
+  void setFloat64(double offset, double value) { write<double>(offset, value); }
+  const void* dynamicTypeToken() const override { return nativeTypeToken<FFIPointerObject>(); }
+  void* dynamicCast(const void* type) override { return type == nativeTypeToken<FFIPointerObject>() ? this : nullptr; }
+  std::u16string dynamicToString() const override { return u"[object FFIPointer]"; }
+  void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); visitor->Trace(backing_); }
+
+ private:
+  template <typename T> T read(double offsetValue) const {
+    const auto offset = checkedOffset<T>(offsetValue);
+    T value;
+    std::memcpy(&value, address_ + offset, sizeof(T));
+    return value;
+  }
+  template <typename T> void write(double offsetValue, T value) {
+    const auto offset = checkedOffset<T>(offsetValue);
+    std::memcpy(address_ + offset, &value, sizeof(T));
+  }
+  template <typename T> std::size_t checkedOffset(double offsetValue) const {
+    if (!address_ || offsetValue < 0 || !std::isfinite(offsetValue)) throw std::out_of_range("Invalid FFIPointer access");
+    const auto offset = static_cast<std::size_t>(offsetValue);
+    if (byte_length_ != std::numeric_limits<std::size_t>::max() && (offset > byte_length_ || sizeof(T) > byte_length_ - offset)) {
+      throw std::out_of_range("FFIPointer access is out of range");
+    }
+    return offset;
+  }
+  cppgc::Member<ArrayBufferObject> backing_;
+  std::uint8_t* address_ = nullptr;
+  std::size_t byte_length_ = 0;
 };
 
 class Uint8ArrayObject final : public cppgc::GarbageCollected<Uint8ArrayObject>, public BaseObject {
@@ -1706,33 +1834,33 @@ class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, pub
   std::size_t byteLength() const { return byte_length_; }
   std::size_t byteOffset() const { return byte_offset_; }
   ArrayBufferObject* buffer() const { return buffer_.Get(); }
-  double getUint8(double offset) const { return readUnsigned(offset, 1, true); }
-  double getInt8(double offset) const { return static_cast<std::int8_t>(readUnsigned(offset, 1, true)); }
-  double getUint16(double offset, bool littleEndian = false) const { return readUnsigned(offset, 2, littleEndian); }
+  double getUint8(double offset) const { return readValue<std::uint8_t>(offset, true); }
+  double getInt8(double offset) const { return std::bit_cast<std::int8_t>(readValue<std::uint8_t>(offset, true)); }
+  double getUint16(double offset, bool littleEndian = false) const { return readValue<std::uint16_t>(offset, littleEndian); }
   double getInt16(double offset, bool littleEndian = false) const {
-    return static_cast<std::int16_t>(readUnsigned(offset, 2, littleEndian));
+    return std::bit_cast<std::int16_t>(readValue<std::uint16_t>(offset, littleEndian));
   }
-  double getUint32(double offset, bool littleEndian = false) const { return readUnsigned(offset, 4, littleEndian); }
+  double getUint32(double offset, bool littleEndian = false) const { return readValue<std::uint32_t>(offset, littleEndian); }
   double getInt32(double offset, bool littleEndian = false) const {
-    return static_cast<std::int32_t>(readUnsigned(offset, 4, littleEndian));
+    return std::bit_cast<std::int32_t>(readValue<std::uint32_t>(offset, littleEndian));
   }
   double getFloat32(double offset, bool littleEndian = false) const {
-    return static_cast<double>(std::bit_cast<float>(static_cast<std::uint32_t>(readBits(offset, 4, littleEndian))));
+    return static_cast<double>(std::bit_cast<float>(readValue<std::uint32_t>(offset, littleEndian)));
   }
   double getFloat64(double offset, bool littleEndian = false) const {
-    return std::bit_cast<double>(readBits(offset, 8, littleEndian));
+    return std::bit_cast<double>(readValue<std::uint64_t>(offset, littleEndian));
   }
-  void setUint8(double offset, double value) { writeUnsigned(offset, value, 1, true); }
-  void setInt8(double offset, double value) { writeUnsigned(offset, value, 1, true); }
-  void setUint16(double offset, double value, bool littleEndian = false) { writeUnsigned(offset, value, 2, littleEndian); }
-  void setInt16(double offset, double value, bool littleEndian = false) { writeUnsigned(offset, value, 2, littleEndian); }
-  void setUint32(double offset, double value, bool littleEndian = false) { writeUnsigned(offset, value, 4, littleEndian); }
-  void setInt32(double offset, double value, bool littleEndian = false) { writeUnsigned(offset, value, 4, littleEndian); }
+  void setUint8(double offset, double value) { writeValue(offset, static_cast<std::uint8_t>(value), true); }
+  void setInt8(double offset, double value) { writeValue(offset, static_cast<std::uint8_t>(value), true); }
+  void setUint16(double offset, double value, bool littleEndian = false) { writeValue(offset, static_cast<std::uint16_t>(value), littleEndian); }
+  void setInt16(double offset, double value, bool littleEndian = false) { writeValue(offset, static_cast<std::uint16_t>(value), littleEndian); }
+  void setUint32(double offset, double value, bool littleEndian = false) { writeValue(offset, static_cast<std::uint32_t>(value), littleEndian); }
+  void setInt32(double offset, double value, bool littleEndian = false) { writeValue(offset, static_cast<std::uint32_t>(value), littleEndian); }
   void setFloat32(double offset, double value, bool littleEndian = false) {
-    writeBits(offset, std::bit_cast<std::uint32_t>(static_cast<float>(value)), 4, littleEndian);
+    writeValue(offset, std::bit_cast<std::uint32_t>(static_cast<float>(value)), littleEndian);
   }
   void setFloat64(double offset, double value, bool littleEndian = false) {
-    writeBits(offset, std::bit_cast<std::uint64_t>(value), 8, littleEndian);
+    writeValue(offset, std::bit_cast<std::uint64_t>(value), littleEndian);
   }
   const void* dynamicTypeToken() const override { return nativeTypeToken<DataViewObject>(); }
   void* dynamicCast(const void* type) override {
@@ -1745,29 +1873,66 @@ class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, pub
   }
 
  private:
-  std::uint32_t readUnsigned(double offsetValue, std::size_t width, bool littleEndian) const {
-    return static_cast<std::uint32_t>(readBits(offsetValue, width, littleEndian));
-  }
-  std::uint64_t readBits(double offsetValue, std::size_t width, bool littleEndian) const {
-    const auto offset = static_cast<std::size_t>(offsetValue);
-    if (offset + width > byte_length_) throw std::out_of_range("DataView access is out of range");
-    std::uint64_t result = 0;
-    for (std::size_t index = 0; index < width; ++index) {
-      const std::size_t source = littleEndian ? width - index - 1 : index;
-      result = (result << 8U) | buffer_->get(byte_offset_ + offset + source);
+  static_assert(
+      std::endian::native == std::endian::little || std::endian::native == std::endian::big,
+      "DataView requires a consistently little- or big-endian native target");
+
+  template <typename UInt>
+  static UInt byteSwap(UInt value) {
+    static_assert(std::is_unsigned_v<UInt>);
+    if constexpr (sizeof(UInt) == 1) {
+      return value;
+    } else if constexpr (sizeof(UInt) == 2) {
+      return static_cast<UInt>((value << 8U) | (value >> 8U));
+    } else if constexpr (sizeof(UInt) == 4) {
+      return static_cast<UInt>(
+          ((value & 0x000000ffU) << 24U) |
+          ((value & 0x0000ff00U) << 8U) |
+          ((value & 0x00ff0000U) >> 8U) |
+          ((value & 0xff000000U) >> 24U));
+    } else {
+      static_assert(sizeof(UInt) == 8);
+      return static_cast<UInt>(
+          ((value & 0x00000000000000ffULL) << 56U) |
+          ((value & 0x000000000000ff00ULL) << 40U) |
+          ((value & 0x0000000000ff0000ULL) << 24U) |
+          ((value & 0x00000000ff000000ULL) << 8U) |
+          ((value & 0x000000ff00000000ULL) >> 8U) |
+          ((value & 0x0000ff0000000000ULL) >> 24U) |
+          ((value & 0x00ff000000000000ULL) >> 40U) |
+          ((value & 0xff00000000000000ULL) >> 56U));
     }
-    return result;
   }
-  void writeUnsigned(double offsetValue, double value, std::size_t width, bool littleEndian) {
-    writeBits(offsetValue, static_cast<std::uint32_t>(value), width, littleEndian);
-  }
-  void writeBits(double offsetValue, std::uint64_t value, std::size_t width, bool littleEndian) {
-    const auto offset = static_cast<std::size_t>(offsetValue);
-    if (offset + width > byte_length_) throw std::out_of_range("DataView access is out of range");
-    for (std::size_t index = 0; index < width; ++index) {
-      const std::size_t target = littleEndian ? index : width - index - 1;
-      buffer_->set(byte_offset_ + offset + target, static_cast<std::uint8_t>((value >> (index * 8U)) & 0xffU));
+
+  template <typename UInt>
+  UInt readValue(double offsetValue, bool littleEndian) const {
+    static_assert(std::is_unsigned_v<UInt>);
+    if (!std::isfinite(offsetValue) || offsetValue < 0) {
+      throw std::out_of_range("DataView access is out of range");
     }
+    const auto offset = static_cast<std::size_t>(offsetValue);
+    if (offset > byte_length_ || sizeof(UInt) > byte_length_ - offset) {
+      throw std::out_of_range("DataView access is out of range");
+    }
+    UInt value;
+    std::memcpy(&value, buffer_->data() + byte_offset_ + offset, sizeof(value));
+    constexpr bool nativeLittleEndian = std::endian::native == std::endian::little;
+    return littleEndian == nativeLittleEndian ? value : byteSwap(value);
+  }
+
+  template <typename UInt>
+  void writeValue(double offsetValue, UInt value, bool littleEndian) {
+    static_assert(std::is_unsigned_v<UInt>);
+    if (!std::isfinite(offsetValue) || offsetValue < 0) {
+      throw std::out_of_range("DataView access is out of range");
+    }
+    const auto offset = static_cast<std::size_t>(offsetValue);
+    if (offset > byte_length_ || sizeof(UInt) > byte_length_ - offset) {
+      throw std::out_of_range("DataView access is out of range");
+    }
+    constexpr bool nativeLittleEndian = std::endian::native == std::endian::little;
+    const UInt stored = littleEndian == nativeLittleEndian ? value : byteSwap(value);
+    std::memcpy(buffer_->data() + byte_offset_ + offset, &stored, sizeof(stored));
   }
   cppgc::Member<ArrayBufferObject> buffer_;
   std::size_t byte_offset_;
@@ -4098,6 +4263,52 @@ class Task<void> final {
 
   std::shared_ptr<State> state_;
 };
+
+template <typename Work, typename Map>
+auto runAsyncMapped(Runtime& runtime, Work work, Map map)
+    -> Task<std::invoke_result_t<Map, std::invoke_result_t<Work>>> {
+  using Result = std::invoke_result_t<Map, std::invoke_result_t<Work>>;
+  auto operation = std::async(std::launch::async, std::move(work)).share();
+  return Task<Result>::create(runtime, [&runtime, operation = std::move(operation), map = std::move(map)](auto resolve, auto reject) mutable {
+    runtime.enqueueIo([operation = std::move(operation), map = std::move(map), resolve, reject]() mutable {
+      if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
+      try {
+        if constexpr (std::is_void_v<Result>) {
+          operation.get();
+          map();
+          resolve();
+        } else {
+          resolve(map(operation.get()));
+        }
+      } catch (const std::exception& error) {
+        reject(Error(exceptionText(error)));
+      }
+      return true;
+    });
+  });
+}
+
+template <typename Work>
+auto runAsync(Runtime& runtime, Work work) -> Task<std::invoke_result_t<Work>> {
+  using Result = std::invoke_result_t<Work>;
+  if constexpr (std::is_void_v<Result>) {
+    auto operation = std::async(std::launch::async, std::move(work)).share();
+    return Task<void>::create(runtime, [&runtime, operation = std::move(operation)](auto resolve, auto reject) mutable {
+      runtime.enqueueIo([operation = std::move(operation), resolve, reject]() mutable {
+        if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
+        try {
+          operation.get();
+          resolve();
+        } catch (const std::exception& error) {
+          reject(Error(exceptionText(error)));
+        }
+        return true;
+      });
+    });
+  } else {
+    return runAsyncMapped(runtime, std::move(work), [](Result value) { return value; });
+  }
+}
 
 inline Task<Value> readTextFile(Runtime& runtime, std::u16string path) {
   auto operation = std::async(std::launch::async, [path = std::move(path)] {

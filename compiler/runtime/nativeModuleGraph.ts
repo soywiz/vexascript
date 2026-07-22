@@ -15,9 +15,11 @@ import { monotonicNow } from "compiler/utils/time";
 import { localImportSpecifiers, parserOptionsForModulePath, type LocalImportDependency } from "./localModuleResolution";
 import type { ModuleGraphOptions } from "./moduleGraphModel";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
+import { cppBindingMetadata } from "./cppAnnotations";
 
 export interface NativeModuleGraphResult extends TranspileResult {
   watchedFiles: string[];
+  nativeCompilerFlags: string[];
 }
 
 function formatNativeParseIssue(filePath: string, issue: ParseIssue): string {
@@ -33,6 +35,12 @@ function nativeModuleStatements(program: Program): Statement[] {
       if (exported.isDefault && exported.declaration instanceof ExprStatement) return [];
     }
     const declaration = unwrapExportedDeclaration(statement);
+    if (declaration && declaration !== statement && statement.annotations?.length) {
+      declaration.annotations = [
+        ...statement.annotations,
+        ...(declaration.annotations ?? []),
+      ];
+    }
     return declaration ? [declaration] : [];
   });
 }
@@ -487,7 +495,7 @@ export async function compileNativeModuleGraph(
   const entryParsed = parsedByPath.get(entryFilePath);
   const entrySource = sourceByPath.get(entryFilePath) ?? "";
   if (!entryParsed?.ast || errors.length > 0) {
-    return { code: "", warnings: [], errors, diagnostics: [], watchedFiles: [...sourceByPath.keys()] };
+    return { code: "", warnings: [], errors, diagnostics: [], watchedFiles: [...sourceByPath.keys()], nativeCompilerFlags: [] };
   }
 
   const moduleInfos = new Map<string, NativeModuleInfo>();
@@ -600,7 +608,7 @@ export async function compileNativeModuleGraph(
   }
   reportPhase("module-isolation-analysis", order.length);
   if (errors.length > 0) {
-    return { code: "", warnings: [], errors, diagnostics: [], watchedFiles: order };
+    return { code: "", warnings: [], errors, diagnostics: [], watchedFiles: order, nativeCompilerFlags: [] };
   }
 
   const mergedProgram = new Program(
@@ -650,6 +658,7 @@ export async function compileNativeModuleGraph(
     errors: result.errors,
     diagnostics: result.diagnostics,
     watchedFiles: order,
+    nativeCompilerFlags: cppBindingMetadata(mergedProgram).flags,
   };
   if (result.sourceMap !== undefined) nativeResult.sourceMap = result.sourceMap;
   return nativeResult;

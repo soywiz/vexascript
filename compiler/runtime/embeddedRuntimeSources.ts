@@ -11640,6 +11640,34 @@ interface RegExpConstructor {
 
 export const VEXA_SCRIPT_RUNTIME_DECLARATIONS: string = `annotation JsName(val name: string)
 annotation JsInline(val replacement: string)
+annotation CppHeader(val source: string)
+annotation CppFlags(val flag: string)
+annotation CppBody(val body: string)
+annotation FFILibrary(...paths: string[])
+annotation FFIName(name: string)
+annotation FFIStruct(size: int)
+annotation FFIAlign(bytes: int)
+annotation FFIOffset(bytes: int)
+annotation FFISize(bytes: int)
+
+declare class FFIPointer {
+    readonly address: long
+    getInt8(offset: int): int
+    getInt16(offset: int): int
+    getInt32(offset: int): int
+    getInt64(offset: int): long
+    getFloat32(offset: int): number
+    getFloat64(offset: int): number
+    setInt8(offset: int, value: int): void
+    setInt16(offset: int, value: int): void
+    setInt32(offset: int, value: int): void
+    setInt64(offset: int, value: long): void
+    setFloat32(offset: int, value: number): void
+    setFloat64(offset: int, value: number): void
+}
+
+declare function vexaRuntime(): string
+declare function vexaPlatform(): string
 
 declare interface Property<T> {
   name: string

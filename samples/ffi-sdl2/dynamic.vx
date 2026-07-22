@@ -1,0 +1,120 @@
+@FFIStruct(56)
+@FFIAlign(8)
+class SDLEvent {
+  @FFIOffset(0) @FFISize(4) var type: int
+  @FFIOffset(0) @FFISize(4) var commonType: int
+  @FFIOffset(12) @FFISize(1) var keyState: int
+  @FFIOffset(16) @FFISize(4) var scanCode: int
+}
+
+@FFIStruct(16)
+@FFIAlign(4)
+class SDLRect(
+  @FFIOffset(0) @FFISize(4) var x: int = 0,
+  @FFIOffset(4) @FFISize(4) var y: int = 0,
+  @FFIOffset(8) @FFISize(4) var width: int = 0,
+  @FFIOffset(12) @FFISize(4) var height: int = 0
+)
+
+@FFILibrary(
+  "SDL2.dll",
+  "libSDL2.so",
+  "libSDL2-2.0.so.0",
+  "/opt/homebrew/lib/libSDL2.dylib",
+  "/Library/Frameworks/SDL2.framework/SDL2"
+)
+declare class SDL2 {
+  @FFIName("SDL_Init") static Init(flags: int): int
+  @FFIName("SDL_CreateWindow") static CreateWindow(title: string, x: int, y: int, width: int, height: int, flags: int): FFIPointer
+  @FFIName("SDL_CreateRenderer") static CreateRenderer(window: FFIPointer, driverIndex: int, flags: int): FFIPointer
+  @FFIName("SDL_PollEvent") static PollEvent(event: SDLEvent): int
+  @FFIName("SDL_GetKeyboardState") static GetKeyboardState(keyCount: ArrayBuffer): FFIPointer
+  @FFIName("SDL_SetRenderDrawColor") static SetRenderDrawColor(renderer: FFIPointer, red: int, green: int, blue: int, alpha: int): int
+  @FFIName("SDL_RenderClear") static RenderClear(renderer: FFIPointer): int
+  @FFIName("SDL_RenderFillRect") static RenderFillRect(renderer: FFIPointer, rectangle: SDLRect): int
+  @FFIName("SDL_RenderPresent") static RenderPresent(renderer: FFIPointer): void
+  @FFIName("SDL_Delay") static Delay(milliseconds: int): Promise<void>
+  @FFIName("SDL_DestroyRenderer") static DestroyRenderer(renderer: FFIPointer): void
+  @FFIName("SDL_DestroyWindow") static DestroyWindow(window: FFIPointer): void
+  @FFIName("SDL_Quit") static Quit(): void
+}
+
+const SDL_INIT_VIDEO = 0x20
+const SDL_WINDOWPOS_CENTERED = 0x2fff0000
+const SDL_WINDOW_SHOWN = 0x4
+const SDL_QUIT = 0x100
+const SDL_SCANCODE_RIGHT = 79
+const SDL_SCANCODE_LEFT = 80
+const SDL_SCANCODE_DOWN = 81
+const SDL_SCANCODE_UP = 82
+
+sync function runGameLoop(): void {
+  if (SDL2.Init(SDL_INIT_VIDEO) != 0) {
+    throw new Error("SDL2 video initialization failed")
+  }
+
+  const window = SDL2.CreateWindow(
+    "VexaScript FFI game loop",
+    SDL_WINDOWPOS_CENTERED,
+    SDL_WINDOWPOS_CENTERED,
+    800,
+    450,
+    SDL_WINDOW_SHOWN
+  )
+  if (window == null || window.address == 0L) {
+    SDL2.Quit()
+    throw new Error("SDL2 window creation failed")
+  }
+
+  const renderer = SDL2.CreateRenderer(window, -1, 0)
+  if (renderer == null || renderer.address == 0L) {
+    SDL2.DestroyWindow(window)
+    SDL2.Quit()
+    throw new Error("SDL2 renderer creation failed")
+  }
+
+  const event = SDLEvent()
+  const rectangle = SDLRect(x: 368, y: 193, width: 64, height: 64)
+  const keyCount = ArrayBuffer(4)
+  const keys = SDL2.GetKeyboardState(keyCount)
+  if (keys == null || keys.address == 0L) {
+    throw new Error("SDL2 keyboard state is unavailable")
+  }
+  var frame = 0
+  var running = true
+  try {
+    console.log("Dynamic SDL2 game loop running on", vexaRuntime(), vexaPlatform())
+    while (running && frame < 600) {
+      while (SDL2.PollEvent(event) != 0) {
+        if (event.type == SDL_QUIT) running = false
+      }
+
+      var horizontal = 0
+      var vertical = 0
+      if (keys.getInt8(SDL_SCANCODE_LEFT) != 0) horizontal -= 1
+      if (keys.getInt8(SDL_SCANCODE_RIGHT) != 0) horizontal += 1
+      if (keys.getInt8(SDL_SCANCODE_UP) != 0) vertical -= 1
+      if (keys.getInt8(SDL_SCANCODE_DOWN) != 0) vertical += 1
+      rectangle.x += horizontal * 5
+      rectangle.y += vertical * 5
+      if (rectangle.x < 0) rectangle.x = 0
+      if (rectangle.y < 0) rectangle.y = 0
+      if (rectangle.x + rectangle.width > 800) rectangle.x = 800 - rectangle.width
+      if (rectangle.y + rectangle.height > 450) rectangle.y = 450 - rectangle.height
+
+      SDL2.SetRenderDrawColor(renderer, 20, 24, 38, 255)
+      SDL2.RenderClear(renderer)
+      SDL2.SetRenderDrawColor(renderer, 70 + frame % 150, 170, 255, 255)
+      SDL2.RenderFillRect(renderer, rectangle)
+      SDL2.RenderPresent(renderer)
+      frame += 1
+      SDL2.Delay(16)
+    }
+  } finally {
+    SDL2.DestroyRenderer(renderer)
+    SDL2.DestroyWindow(window)
+    SDL2.Quit()
+  }
+}
+
+runGameLoop()

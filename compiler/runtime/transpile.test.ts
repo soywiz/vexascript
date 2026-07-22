@@ -1182,4 +1182,127 @@ c += 5`;
     expect(result.code).toContain("let ne = !(new Tag(\"a\").operator$equals$$Tag(new Tag(\"b\")));");
   });
 
+  it("lowers FFILibrary classes to Deno FFI with a portable adapter fallback", () => {
+    const result = transpile(`
+@FFILibrary("native.dll", "libnative.so", "Native.framework/Native")
+declare class NativeMath { static abs(value: int): int }
+console.log(NativeMath.abs(-3))
+`);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("globalThis.Deno?.dlopen");
+    expect(result.code).toContain("globalThis.VexaFFI?.open");
+    expect(result.code).toContain('abs: { parameters: ["i32"], result: "i32" }');
+    expect(result.code).toContain("return __vexa_library().symbols.abs(value);");
+  });
+
+  it("uses FFIName for the imported symbol and the method name at call sites", () => {
+    const result = transpile(`
+@FFILibrary("libnative.so")
+declare class NativeMath { @FFIName("native_abs") static Abs(value: int): int }
+console.log(NativeMath.Abs(-3))
+`);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('Abs: { name: "native_abs", parameters: ["i32"], result: "i32" }');
+    expect(result.code).toContain("NativeMath.Abs(-3)");
+  });
+
+  it("preserves FFI metadata on exported declarations", () => {
+    const result = transpile(`
+@FFILibrary("libnative.so")
+export declare class NativeMath { static abs(value: int): int }
+`);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('abs: { parameters: ["i32"], result: "i32" }');
+  });
+
+  it("emits ArrayBuffer-backed C ABI structs for JavaScript", () => {
+    const result = transpile(`
+@FFIStruct(8)
+@FFIAlign(4)
+class Pair(@FFIOffset(0) @FFISize(2) var x: int, @FFIOffset(4) var y: int)
+const pair = Pair(7, 9)
+console.log(pair.x, pair.y)
+`);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("this.buffer = new ArrayBuffer(8)");
+    expect(result.code).toContain("get x() { return this.__vexaView.getInt16(0, true); }");
+    expect(result.code).toContain("set y(value) { this.__vexaView.setInt32(4, value, true); }");
+  });
+
+  it("preserves default values on FFI struct constructor fields", () => {
+    const result = transpile(`
+@FFIStruct(8)
+@FFIAlign(4)
+class Pair(@FFIOffset(0) var x: int = 0, @FFIOffset(4) var y: int = 0)
+const pair = Pair()
+`);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("constructor(x = 0, y = 0)");
+  });
+
+  it("uses class fields as zero-backed FFI views and permits explicit union overlays", () => {
+    const result = transpile(`
+@FFIStruct(8)
+@FFIAlign(4)
+class Event {
+  @FFIOffset(0) var type: int
+  @FFIOffset(0) @FFISize(2) var code: int
+  @FFIOffset(4) var value: int
+}
+const event = Event()
+event.type = 7
+console.log(event.code)
+`);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("constructor() { this.buffer = new ArrayBuffer(8); this.__vexaView = new DataView(this.buffer); }");
+    expect(result.code).toContain("get type() { return this.__vexaView.getInt32(0, true); }");
+    expect(result.code).toContain("get code() { return this.__vexaView.getInt16(0, true); }");
+    expect(result.code).toContain("set value(value) { this.__vexaView.setInt32(4, value, true); }");
+  });
+
+  it("passes ArrayBuffer arguments to Deno FFI as byte views", () => {
+    const result = transpile(`
+@FFILibrary("libnative.so")
+declare class Native { static fill(bytes: ArrayBuffer, value: int, size: long): FFIPointer }
+Native.fill(ArrayBuffer(8), 1, 8L)
+`);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('fill: { parameters: ["buffer","i32","i64"], result: "pointer" }');
+    expect(result.code).toContain("new Uint8Array(bytes)");
+  });
+
+  it("rejects misaligned and out-of-bounds FFI layouts", () => {
+    expect(() => transpile(`
+@FFIStruct(4)
+@FFIAlign(4)
+class Invalid(@FFIOffset(1) @FFISize(4) var value: int)
+`)).toThrow("outside its 4-byte layout");
+  });
+
+  it("marks Promise-returning Deno FFI symbols as nonblocking", () => {
+    const result = transpile(`
+@FFILibrary("libnative.so")
+declare class Native { static wait(milliseconds: int): Promise<void> }
+Native.wait(1)
+`);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('wait: { parameters: ["i32"], result: "void", nonblocking: true }');
+    expect(result.code).toContain("return __vexa_library().symbols.wait(milliseconds);");
+  });
+
+  it("detects the JavaScript runtime and platform without a host adapter", () => {
+    const result = transpile("console.log(vexaRuntime(), vexaPlatform())");
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('typeof Deno !== "undefined" ? "deno"');
+    expect(result.code).toContain("Deno.build.os");
+  });
+
 });

@@ -53,6 +53,9 @@ describe("runtime program cache", () => {
       expect(storageState.has("vexa.runtime.program-cache.v3./runtime/runtime.d.ts_hash")).toBe(true);
       expect(first).toEqual(program);
       expect(second).toEqual(program);
+      expect(second).toBeInstanceOf(Program);
+      expect(second.body[0]).toBeInstanceOf(ExprStatement);
+      expect((second.body[0] as ExprStatement).expression).toBeInstanceOf(Identifier);
       expect(third.body).toEqual([]);
       expect(generateCount).toBe(2);
     } finally {

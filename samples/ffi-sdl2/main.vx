@@ -1,0 +1,17 @@
+import { sdlCreateWindow, sdlInit, sdlPumpEvents, sdlShutdown } from "./bindings.vx"
+
+const SDL_INIT_VIDEO = 0x20
+
+if (sdlInit(SDL_INIT_VIDEO) != 0) {
+  throw new Error("SDL2 video initialization failed")
+}
+
+try {
+  if (sdlCreateWindow("VexaScript SDL2", 800, 450) == 0) {
+    throw new Error("SDL2 window creation failed")
+  }
+  console.log("SDL2 window opened")
+  sdlPumpEvents(1500)
+} finally {
+  sdlShutdown()
+}

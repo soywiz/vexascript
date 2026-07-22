@@ -19,6 +19,9 @@ website/src/assets/generated
 /.codegraph
 /native/oilpan-standalone-main/
 **/main.cpp
+/samples/**/*.cpp
+/samples/**/*.js
+/samples/**/*.map
 /cli/cli
 /cli/cli.cpp
 /cli/cli.js.map

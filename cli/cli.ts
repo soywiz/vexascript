@@ -296,7 +296,7 @@ async function buildNativeFile(
   console.log(`Compiled: ${paths.sourcePath} -> ${paths.cppPath} (${formatPhaseTimings(phaseTimings)})`);
   console.log(`Compiling native executable with g++ -O2: ${paths.executablePath}`);
   const nativeCompileStartedAt = monotonicNow();
-  await linkNativeExecutable(paths.cppPath, paths.executablePath);
+  await linkNativeExecutable(paths.cppPath, paths.executablePath, result.nativeCompilerFlags);
   phaseTimings.set("native-compile-link", monotonicNow() - nativeCompileStartedAt);
   phaseTimings.set("total", monotonicNow() - buildStartedAt);
   console.log(

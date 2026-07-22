@@ -24,6 +24,8 @@ import {
   type CommonJsRuntimeExportBinding
 } from "./commonJsEmitter";
 import { operatorBaseRuntimeName, operatorMethodRuntimeName, sanitizeManglePart } from "./operatorNames";
+import { foreignDenoType, foreignLibraryForClass, foreignReturnDefinition, foreignSymbolName } from "./foreignLibrary";
+import { foreignStructForClass, isForeignStructClass } from "./foreignStruct";
 
 type Assoc = "left" | "right";
 
@@ -97,6 +99,7 @@ interface ActiveEmitState {
   extensionProperties: Map<string, string>;
   extensionPropertySetters: Map<string, string>;
   classNames: Set<string>;
+  foreignStructNames: Set<string>;
   interfaceNames: Set<string>;
   interfaceMembers: Map<string, InterfaceStatement["members"]>;
   constructableOnlyNames: Set<string>;
@@ -144,6 +147,7 @@ function createEmptyEmitState(): ActiveEmitState {
     extensionProperties: new Map(),
     extensionPropertySetters: new Map(),
     classNames: new Set(),
+    foreignStructNames: new Set(),
     interfaceNames: new Set(),
     interfaceMembers: new Map(),
     constructableOnlyNames: new Set(),
@@ -1476,6 +1480,15 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case NodeKind.CallExpression: {
         const call = expression as CallExpression;
+        if (call.callee instanceof Identifier && call.args.length === 0) {
+          const intrinsicName = (call.callee as Identifier).name;
+          if (intrinsicName === "vexaRuntime") {
+            return `(typeof Deno !== "undefined" ? "deno" : typeof process !== "undefined" && process?.versions?.node ? "node" : "browser")`;
+          }
+          if (intrinsicName === "vexaPlatform") {
+            return `(typeof Deno !== "undefined" ? ({ darwin: "macos", windows: "windows", linux: "linux" }[Deno.build.os] ?? Deno.build.os) : typeof process !== "undefined" && process?.platform ? ({ darwin: "macos", win32: "windows" }[process.platform] ?? process.platform) : typeof navigator !== "undefined" ? (navigator.platform || "browser") : "unknown")`;
+          }
+        }
         if (
           call.receiverBlockShorthand === true &&
           call.args[0] instanceof ArrowFunctionExpression
@@ -2019,6 +2032,117 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
   });
 }
 
+function emitForeignLibraryClass(statement: ClassStatement, resolvedName: string): string {
+  const library = foreignLibraryForClass(statement)!;
+  const methods = statement.members.filter((member): member is ClassMethodMember => member instanceof ClassMethodMember);
+  const descriptors: string[] = [];
+  const methodLines: string[] = [];
+  for (const method of methods) {
+    const symbolName = foreignSymbolName(method);
+    const signatureOnly = method.missingBody || (statement.declared && method.body.body.length === 0);
+    if (!method.isStatic || !signatureOnly || method.typeParameters?.length || method.parameters.some((parameter) =>
+      !(parameter.name instanceof Identifier) || parameter.rest)) {
+      throw new Error("@FFILibrary supports static, non-generic signature-only methods with identifier parameters");
+    }
+    const parameterTypes = method.parameters.map((parameter) => {
+      const typeName = parameter.typeAnnotation?.name ?? "";
+      const mapped = activeState.foreignStructNames.has(typeName) ? "buffer" : foreignDenoType(typeName);
+      if (!mapped) throw new Error(`@FFILibrary cannot map parameter type '${typeName}'`);
+      return mapped;
+    });
+    const declaredReturnTypeName = method.returnType?.name ?? "void";
+    const returnDefinition = foreignReturnDefinition(declaredReturnTypeName);
+    const returnTypeName = returnDefinition.valueTypeName;
+    const resultType = foreignDenoType(returnTypeName, true);
+    if (!resultType) throw new Error(`@FFILibrary cannot map return type '${declaredReturnTypeName}'`);
+    descriptors.push(`${method.name.name}: {${symbolName !== method.name.name ? ` name: ${JSON.stringify(symbolName)},` : ""} parameters: ${JSON.stringify(parameterTypes)}, result: ${JSON.stringify(resultType)}${returnDefinition.async ? ", nonblocking: true" : ""} }`);
+
+    const parameters = method.parameters.map((parameter) => (parameter.name as Identifier).name);
+    const preamble: string[] = [];
+    const argumentsText = method.parameters.map((parameter, index) => {
+      const name = (parameter.name as Identifier).name;
+      if (parameter.typeAnnotation?.name === "string") {
+        const encodedName = `__vexa_argument_${index}`;
+        preamble.push(`const ${encodedName} = new TextEncoder().encode(${name} + "\\0");`);
+        return encodedName;
+      }
+      if (parameter.typeAnnotation?.name === "ArrayBuffer") return `new Uint8Array(${name})`;
+      if (parameter.typeAnnotation?.name === "FFIPointer") return `${name}?.pointer ?? null`;
+      if (activeState.foreignStructNames.has(parameter.typeAnnotation?.name ?? "")) return `new Uint8Array(${name}.buffer)`;
+      if (parameter.typeAnnotation?.name === "boolean") return `(${name} ? 1 : 0)`;
+      return name;
+    }).join(", ");
+    const invocation = `__vexa_library().symbols.${method.name.name}(${argumentsText})`;
+    const convertResult = (value: string): string => returnTypeName === "boolean"
+      ? `${value} !== 0`
+      : returnTypeName === "FFIPointer"
+        ? `__vexa_pointer(${value})`
+        : value;
+    const result = returnDefinition.async
+      ? returnTypeName === "void"
+        ? `return ${invocation};`
+        : `return ${invocation}.then(__vexa_result => ${convertResult("__vexa_result")});`
+      : returnTypeName === "void"
+        ? `${invocation};`
+        : `return ${convertResult(invocation)};`;
+    methodLines.push(`static ${method.name.name}(${parameters.join(", ")}) { ${[...preamble, result].join(" ")} }`);
+  }
+  return [
+    `const ${resolvedName} = (() => {`,
+    `const __vexa_paths = ${JSON.stringify(library.paths)};`,
+    `const __vexa_symbols = { ${descriptors.join(", ")} };`,
+    "let __vexa_memory_library;",
+    "const __vexa_write_pointer = (pointer, offset, method, size, value) => { if (!globalThis.Deno?.dlopen) throw new Error(\"Pointer writes require Deno FFI\"); if (!__vexa_memory_library) { const paths = Deno.build.os === \"windows\" ? [\"msvcrt.dll\"] : Deno.build.os === \"darwin\" ? [\"/usr/lib/libSystem.B.dylib\"] : [\"libc.so.6\", \"libc.so\"]; let error; for (const path of paths) { try { __vexa_memory_library = Deno.dlopen(path, { memcpy: { parameters: [\"pointer\", \"buffer\", \"usize\"], result: \"pointer\" } }); break; } catch (candidateError) { error = candidateError; } } if (!__vexa_memory_library) throw error; } const bytes = new Uint8Array(size); new DataView(bytes.buffer)[method](0, value, true); __vexa_memory_library.symbols.memcpy(Deno.UnsafePointer.offset(pointer, offset), bytes, BigInt(size)); };",
+    "const __vexa_pointer = pointer => pointer == null ? null : (() => { const view = new Deno.UnsafePointerView(pointer); return { pointer, get address() { return Deno.UnsafePointer.value(pointer); }, getInt8: offset => view.getInt8(offset), getInt16: offset => view.getInt16(offset), getInt32: offset => view.getInt32(offset), getInt64: offset => view.getBigInt64(offset), getFloat32: offset => view.getFloat32(offset), getFloat64: offset => view.getFloat64(offset), setInt8: (offset, value) => __vexa_write_pointer(pointer, offset, \"setInt8\", 1, value), setInt16: (offset, value) => __vexa_write_pointer(pointer, offset, \"setInt16\", 2, value), setInt32: (offset, value) => __vexa_write_pointer(pointer, offset, \"setInt32\", 4, value), setInt64: (offset, value) => __vexa_write_pointer(pointer, offset, \"setBigInt64\", 8, BigInt(value)), setFloat32: (offset, value) => __vexa_write_pointer(pointer, offset, \"setFloat32\", 4, value), setFloat64: (offset, value) => __vexa_write_pointer(pointer, offset, \"setFloat64\", 8, value) }; })();",
+    "let __vexa_handle;",
+    "const __vexa_library = () => {",
+    "if (__vexa_handle) return __vexa_handle;",
+    "let __vexa_error;",
+    "for (const __vexa_path of __vexa_paths) {",
+    "try {",
+    "if (globalThis.Deno?.dlopen) __vexa_handle = globalThis.Deno.dlopen(__vexa_path, __vexa_symbols);",
+    "else if (globalThis.VexaFFI?.open) __vexa_handle = globalThis.VexaFFI.open(__vexa_path, __vexa_symbols);",
+    "else throw new Error(\"No FFI provider is available; use Deno --allow-ffi or install globalThis.VexaFFI\");",
+    "if (__vexa_handle) return __vexa_handle;",
+    "} catch (__vexa_candidate_error) { __vexa_error = __vexa_candidate_error; }",
+    "}",
+    `throw new Error("Unable to open native library for ${resolvedName}: " + String(__vexa_error ?? __vexa_paths.join(", ")));`,
+    "};",
+    `return class ${resolvedName} { ${methodLines.join(" ")} };`,
+    "})();",
+  ].join("\n");
+}
+
+function emitForeignStructClass(statement: ClassStatement, resolvedName: string): string {
+  const definition = foreignStructForClass(statement)!;
+  const constructorFields = definition.fields.filter((field) => field.constructorParameter);
+  const parameters = constructorFields.map((field) =>
+    `${field.name}${field.constructorDefaultValue ? ` = ${emitExpression(field.constructorDefaultValue)}` : ""}`
+  ).join(", ");
+  const assignments = constructorFields.map((field) => `this.${field.name} = ${field.name};`).join(" ");
+  const accessors = definition.fields.flatMap((field) => {
+    const endian = field.size > 1 ? ", true" : "";
+    const read = `this.__vexaView.${field.dataViewGetter}(${field.offset}${endian})`;
+    const writeValue = field.typeName === "boolean"
+      ? "(value ? 1 : 0)"
+      : field.typeName === "long"
+        ? "BigInt(value)"
+        : "value";
+    const returned = field.typeName === "boolean" ? `${read} !== 0` : read;
+    return [
+      `get ${field.name}() { return ${returned}; }`,
+      `set ${field.name}(value) { this.__vexaView.${field.dataViewSetter}(${field.offset}, ${writeValue}${endian}); }`,
+    ];
+  });
+  return [
+    `class ${resolvedName} {`,
+    `static byteLength = ${definition.size};`,
+    `constructor(${parameters}) { this.buffer = new ArrayBuffer(${definition.size}); this.__vexaView = new DataView(this.buffer);${assignments ? ` ${assignments}` : ""} }`,
+    ...accessors,
+    "}",
+  ].join("\n");
+}
+
 function emitClassLike(classLike: ClassStatement | ClassExpression, resolvedName?: string): string {
   const members = classLike.members.filter(member =>
     !(member instanceof ClassFieldMember) || member.declared !== true
@@ -2502,6 +2626,13 @@ export function emitStatement(statement: Statement): string {
     }
     case NodeKind.ClassStatement: {
       const classStatement = statement as ClassStatement;
+      const foreignLibrary = foreignLibraryForClass(classStatement);
+      if (foreignLibrary) {
+        return emitForeignLibraryClass(classStatement, resolveJsName(classStatement.name.name));
+      }
+      if (foreignStructForClass(classStatement)) {
+        return emitForeignStructClass(classStatement, resolveJsName(classStatement.name.name));
+      }
       if (classStatement.declared) {
         return "";
       }
@@ -2627,6 +2758,7 @@ interface EmitProgramRuntimeContext {
   extensionProperties: Map<string, string>;
   extensionPropertySetters: Map<string, string>;
   classNames: Set<string>;
+  foreignStructNames: Set<string>;
   interfaceNames: Set<string>;
   interfaceMembers: Map<string, InterfaceStatement["members"]>;
   constructableOnlyNames: Set<string>;
@@ -3131,6 +3263,13 @@ function collectEmitProgramRuntimeContext(
   }
 
   const variableDelegates = collectVariableDelegates(contextProgram, expressionTypes);
+  const foreignStructNames = new Set<string>();
+  for (const rawStatement of contextProgram.body) {
+    const candidate = unwrapExportedDeclaration(rawStatement);
+    if (candidate instanceof ClassStatement && isForeignStructClass(candidate)) {
+      foreignStructNames.add(candidate.name.name);
+    }
+  }
 
   return {
     overloads,
@@ -3140,6 +3279,7 @@ function collectEmitProgramRuntimeContext(
     extensionProperties,
     extensionPropertySetters,
     classNames,
+    foreignStructNames,
     interfaceNames,
     interfaceMembers,
     constructableOnlyNames,
@@ -3219,6 +3359,7 @@ export function emitProgramStatementPairs(
     extensionProperties: runtimeContext.extensionProperties,
     extensionPropertySetters: runtimeContext.extensionPropertySetters,
     classNames: runtimeContext.classNames,
+    foreignStructNames: runtimeContext.foreignStructNames,
     interfaceNames: runtimeContext.interfaceNames,
     interfaceMembers: runtimeContext.interfaceMembers,
     constructableOnlyNames: runtimeContext.constructableOnlyNames,

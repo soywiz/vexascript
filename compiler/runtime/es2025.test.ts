@@ -39,6 +39,15 @@ describe("bundled es2025 runtime declarations", () => {
 
     expect(names).toContain("JsName");
     expect(names).toContain("JsInline");
+    expect(names).toContain("CppHeader");
+    expect(names).toContain("CppFlags");
+    expect(names).toContain("CppBody");
+    expect(names).toContain("FFILibrary");
+    expect(names).toContain("FFIName");
+    expect(names).toContain("FFIStruct");
+    expect(names).toContain("FFIAlign");
+    expect(names).toContain("FFIOffset");
+    expect(names).toContain("FFISize");
   });
 
   it("embeds each declaration file as one exact string instead of an array of lines", async () => {

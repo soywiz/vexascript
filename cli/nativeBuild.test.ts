@@ -44,6 +44,20 @@ describe("native build", () => {
     expect(args.indexOf("/cache/mimalloc.o")).toBeLessThan(args.indexOf("/repo/native/oilpan/gc/build/liboilpan_gc.a"));
   });
 
+  it("appends source-declared compiler and linker flags without shell parsing", () => {
+    const args = nativeCompilerArguments(
+      "/tmp/main.cpp",
+      "/tmp/main",
+      "/repo/native",
+      "/repo/native/oilpan/gc",
+      "/repo/native/oilpan/gc/build/liboilpan_gc.a",
+      "linux",
+      { extraFlags: ["-I/native include", "-L/native lib", "-lnative"] }
+    );
+
+    expect(args.slice(-5)).toEqual(["-I/native include", "-L/native lib", "-lnative", "-o", "/tmp/main"]);
+  });
+
   it("builds only the portable mimalloc object and static dependency", () => {
     const args = nativeMimallocCmakeConfigureArguments("/cache/mimalloc", "/cache/mimalloc/build");
 

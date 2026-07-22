@@ -416,6 +416,7 @@ export function appendChildNodes(node: Node, children: Node[], keys?: string[]):
     }
     case NodeKind.ClassPrimaryConstructorParameter: {
       const current = node as ClassPrimaryConstructorParameter;
+      appendNodes(children, current.annotations, "annotations", keys);
       appendNode(children, current.name, "name", keys);
       appendNode(children, current.typeAnnotation, "typeAnnotation", keys);
       appendNode(children, current.defaultValue, "defaultValue", keys);

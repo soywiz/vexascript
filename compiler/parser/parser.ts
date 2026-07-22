@@ -379,7 +379,54 @@ export class Parser {
 
     private applyBuiltinAnnotation(statement: Statement, annotation: AnnotationApplication): void {
         const name = annotation.name.name;
-        if (name !== "JsName" && name !== "JsInline") {
+        const cppAnnotation = name === "CppHeader" || name === "CppFlags" || name === "CppBody";
+        const cppLayoutAnnotation = name === "FFIStruct" || name === "FFIAlign";
+        if (name !== "JsName" && name !== "JsInline" && !cppAnnotation && name !== "FFILibrary" && !cppLayoutAnnotation) {
+            return;
+        }
+        if (cppLayoutAnnotation) {
+            const layoutTarget = statement instanceof ExportStatement && statement.declaration
+                ? statement.declaration
+                : statement;
+            if (!(layoutTarget instanceof ClassStatement)) {
+                this.fail(`'@${name}' can only be applied to a class declaration`, this.tokenAt(annotation.name.firstToken));
+            }
+            if (annotation.args.length !== 1 || !(annotation.args[0] instanceof IntLiteral)) {
+                this.fail(`Expected a single integer argument in '@${name}'`, this.tokenAt(annotation.args[0]?.firstToken));
+            }
+            if (layoutTarget !== statement) {
+                layoutTarget.annotations = [...(layoutTarget.annotations ?? []), annotation];
+            }
+            return;
+        }
+        if (name === "FFILibrary") {
+            const libraryTarget = statement instanceof ExportStatement && statement.declaration
+                ? statement.declaration
+                : statement;
+            if (!(libraryTarget instanceof ClassStatement)) {
+                this.fail("'@FFILibrary' can only be applied to a class declaration", this.tokenAt(annotation.name.firstToken));
+            }
+            if (annotation.args.length === 0 || annotation.args.some((candidate) => !(candidate instanceof StringLiteral))) {
+                this.fail("Expected one or more string arguments in '@FFILibrary'", this.tokenAt(annotation.args[0]?.firstToken));
+            }
+            if (libraryTarget !== statement) {
+                libraryTarget.annotations = [...(libraryTarget.annotations ?? []), annotation];
+            }
+            return;
+        }
+        if (cppAnnotation) {
+            const cppTarget = statement instanceof ExportStatement && statement.declaration
+                ? statement.declaration
+                : statement;
+            if (!(cppTarget instanceof FunctionStatement)) {
+                this.fail(`'@${name}' can only be applied to a function declaration`, this.tokenAt(annotation.name.firstToken));
+            }
+            if (annotation.args.length !== 1 || !(annotation.args[0] instanceof StringLiteral)) {
+                this.fail(`Expected a single string argument in '@${name}'`, this.tokenAt(annotation.args[0]?.firstToken));
+            }
+            if (cppTarget !== statement) {
+                cppTarget.annotations = [...(cppTarget.annotations ?? []), annotation];
+            }
             return;
         }
         const argument = annotation.args[0];
@@ -5252,6 +5299,9 @@ export class Parser {
     }
 
     private parseAnnotationParameters(): FunctionParameter[] {
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "...") {
+            return this.parseFunctionParameters();
+        }
         const parameters = this.parseClassPrimaryConstructorParameters();
         return parameters.map<FunctionParameter>((parameter): FunctionParameter => {
             const functionParameter: FunctionParameter = new FunctionParameter(parameter.name);
@@ -5450,6 +5500,15 @@ export class Parser {
         }
         const members = this.parseClassMemberDeclaration(allowSignatureOnly);
         if (annotations.length > 0) {
+            for (const annotation of annotations) {
+                if (annotation.name.name !== "FFIName") continue;
+                if (members.some((member) => !(member instanceof ClassMethodMember))) {
+                    this.fail("'@FFIName' can only be applied to a class method", this.tokenAt(annotation.name.firstToken));
+                }
+                if (annotation.args.length !== 1 || !(annotation.args[0] instanceof StringLiteral)) {
+                    this.fail("Expected a single string argument in '@FFIName'", this.tokenAt(annotation.args[0]?.firstToken));
+                }
+            }
             for (const member of members) {
                 const existingAnnotations: AnnotationApplication[] = member.annotations ?? [];
                 member.annotations = [...existingAnnotations, ...annotations];
@@ -5967,6 +6026,19 @@ export class Parser {
                 break;
             }
 
+            const annotations: AnnotationApplication[] = [];
+            while (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "@") {
+                annotations.push(this.parseAnnotationApplication());
+            }
+            for (const annotation of annotations) {
+                if (annotation.name.name !== "FFISize" && annotation.name.name !== "FFIOffset" && annotation.name.name !== "FFIAlign") {
+                    continue;
+                }
+                if (annotation.args.length !== 1 || !(annotation.args[0] instanceof IntLiteral)) {
+                    this.fail(`Expected a single integer argument in '@${annotation.name.name}'`, this.tokenAt(annotation.args[0]?.firstToken));
+                }
+            }
+
             const firstToken = this.tokens.read();
             if (firstToken?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected parameter name in class primary constructor", this.tokenAt(firstToken));
@@ -5997,14 +6069,20 @@ export class Parser {
                 parameterDefaultValue = this.parseAssignment();
             }
 
-            const parameter: ClassPrimaryConstructorParameter = new ClassPrimaryConstructorParameter(declarationKind, this.buildIdentifierFromToken(parameterNameToken));
+            const parameter: ClassPrimaryConstructorParameter = new ClassPrimaryConstructorParameter(
+                declarationKind,
+                this.buildIdentifierFromToken(parameterNameToken),
+                undefined,
+                undefined,
+                annotations.length > 0 ? annotations : undefined
+            );
             if (parameterTypeAnnotation) {
                 parameter.typeAnnotation = parameterTypeAnnotation;
             }
             if (parameterDefaultValue) {
                 parameter.defaultValue = parameterDefaultValue;
             }
-            parameters.push(this.attachNodeBounds(parameter, firstToken, this.getLastReadToken() ?? firstToken));
+            parameters.push(this.attachNodeBounds(parameter, annotations[0]?.firstToken ?? firstToken, this.getLastReadToken() ?? firstToken));
 
             const separator = this.tokens.peek();
             if (separator?.type === TokenType.SYMBOL && separator.value === ",") {

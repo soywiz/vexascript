@@ -52,12 +52,31 @@ describe("native package contents", () => {
   it("packages platform-specific native command quoting", async () => {
     const runtime = (await readFile(join(process.cwd(), "native/runtime.cpp"), "utf8"))
       .replace(/\r\n/g, "\n");
+    const commandQuoting = runtime.slice(
+      runtime.indexOf("inline std::u16string shellQuote"),
+      runtime.indexOf("struct CommandCaptureResult")
+    );
 
     expect(runtime).toContain("#if defined(_WIN32)\ninline std::u16string shellQuote");
-    expect(runtime).toContain('shellCommand = u"cd /d " + shellQuote(workingDirectory) + u" && "');
-    expect(runtime).toContain('#else\n    if (!workingDirectory.empty()) shellCommand = u"cd "');
-    expect(runtime).not.toContain("std::string");
-    expect(/\b(?:const\s+)?char\s*\*/.test(runtime)).toBe(false);
+    expect(commandQuoting).toContain('shellCommand = u"cd /d " + shellQuote(workingDirectory) + u" && "');
+    expect(commandQuoting).toContain('#else\n    if (!workingDirectory.empty()) shellCommand = u"cd "');
+    expect(commandQuoting).not.toContain("std::string");
+    expect(/\b(?:const\s+)?char\s*\*/.test(commandQuoting)).toBe(false);
+  });
+
+  it("uses whole-width unaligned DataView loads and stores", async () => {
+    const runtime = (await readFile(join(process.cwd(), "native/runtime.cpp"), "utf8"))
+      .replace(/\r\n/g, "\n");
+    const dataView = runtime.slice(
+      runtime.indexOf("class DataViewObject final"),
+      runtime.indexOf("template <typename T>\ninline ArrayObject<T>* arrayPointer")
+    );
+
+    expect(dataView).toContain("std::memcpy(&value");
+    expect(dataView).toContain("std::memcpy(buffer_->data()");
+    expect(dataView).toContain("std::endian::native");
+    expect(dataView).toContain("byteSwap(value)");
+    expect(dataView).not.toContain("for (");
   });
 
   it("packages the portable Linux GC table and the required Windows sources", async () => {

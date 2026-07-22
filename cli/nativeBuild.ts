@@ -185,6 +185,7 @@ interface NativeCompilerOptions {
   debug?: boolean;
   gcStress?: boolean;
   mimallocObjectPath?: string;
+  extraFlags?: string[];
 }
 
 export function nativeMimallocCmakeConfigureArguments(
@@ -282,6 +283,7 @@ export function nativeCompilerArguments(
       : platform === "win32"
         ? ["-ldbghelp", "-lshlwapi", "-lwinmm"]
         : ["-ldl"]),
+    ...(options.extraFlags ?? []),
     "-o",
     executablePath,
   ];
@@ -301,7 +303,8 @@ export async function validateNativeCppSyntax(
 
 export async function compileNativeExecutable(
   cppPath: string,
-  executablePath = defaultExecutablePath(cppPath)
+  executablePath = defaultExecutablePath(cppPath),
+  extraFlags: string[] = []
 ): Promise<NativeBuildResult> {
   const root = nativeRoot();
   const sanitizers = process.env["VEXA_NATIVE_SANITIZERS"] === "1";
@@ -315,6 +318,7 @@ export async function compileNativeExecutable(
     sanitizers,
     debug: process.env["VEXA_NATIVE_DEBUG"] === "1",
     gcStress: process.env["VEXA_NATIVE_GC_STRESS"] === "1",
+    extraFlags,
     ...(mimallocObjectPath ? { mimallocObjectPath } : {}),
   });
   await runCommand("g++", args);

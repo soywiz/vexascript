@@ -417,13 +417,12 @@ whose resolved entry and transitive dependencies are compilable `.vx`, `.ts`, or
 to JavaScript is rejected explicitly because JavaScript binaries cannot be linked
 into the C++ translation unit.
 
-Native-only libraries should currently ship a VexaScript/TypeScript declaration
-and source facade that calls supported runtime primitives; there is not yet a
-stable user-defined C ABI annotation. This source-package contract keeps package
-identity, aliases, defaults, namespace imports, re-exports, and project mappings
-on the shared resolver instead of introducing a native-only package map. The
-published package includes `native/runtime.cpp`, `native/bigint.h`, and the
-vendored Oilpan and mimalloc archives required by native executable builds.
+Native-only libraries may ship a VexaScript/TypeScript declaration facade using
+the C++ binding or dynamic-library annotations described below. Package identity,
+aliases, defaults, namespace imports, re-exports, and project mappings remain on
+the shared resolver rather than a native-only package map. The published package
+includes `native/runtime.cpp`, `native/bigint.h`, and the vendored Oilpan and
+mimalloc archives required by native executable builds.
 
 ## Diagnostics and sanitizer mode
 
@@ -450,6 +449,30 @@ execution against Node.js. It also measures native compile time, binary size,
 and forced-GC execution. Recorded results live in
 `docs/native-benchmarks.md`; they are informational baselines rather than
 cross-machine pass/fail thresholds.
+
+## Native source bindings and dynamic libraries
+
+Signature-only functions may provide trusted raw integration metadata through
+`@CppHeader`, repeated `@CppFlags`, and `@CppBody`. Headers are emitted before
+the shared runtime include, bodies retain the analyzed VexaScript signature, and
+flags flow from the native module graph to `g++` as separate arguments. Modules
+that are not reachable from the entrypoint do not contribute binding metadata.
+
+An ambient class annotated with `@FFILibrary("path", ...)` describes a dynamic
+C ABI. Candidate DLL, shared-object, dylib, or framework paths are tried in
+source order. The native runtime caches successful library handles and generated
+methods cache their resolved symbols. `@FFIName("symbol")` may override a C
+symbol name; otherwise the VexaScript method name is used. The JavaScript emitter produces the same
+class surface backed by `Deno.dlopen`; other runtimes can provide
+`globalThis.VexaFFI.open`. `@FFIStruct`, `@FFIAlign`, `@FFIOffset`, and
+`@FFISize` generate one validated `ArrayBuffer`-backed memory layout for both
+targets. Layout views may be constructor parameters or ordinary instance
+fields, and explicit offsets may overlap for C union-style data. Raw
+`ArrayBuffer` parameters pass their backing bytes to the symbol without a copy.
+`FFIPointer` exposes arbitrary numeric reads and writes over opaque
+addresses. A `Promise<T>` symbol runs on Deno's nonblocking FFI pool or a native
+C++ worker, then settles on the main Vexa event loop. The `samples/ffi-sdl2/`
+sample demonstrates raw C++ bindings and the complete cross-backend form.
 
 ## Explicit rejection inventory
 

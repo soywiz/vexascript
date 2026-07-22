@@ -898,3 +898,91 @@ describe("JavaScript implementation annotations", () => {
         });
     });
 });
+
+describe("C++ implementation annotations", () => {
+    it("parses raw headers, compiler flags, and bodies on native functions", () => {
+        const program = parseFile(tokenizeReader([
+            '@CppHeader("#include <SDL2/SDL.h>")',
+            '@CppFlags("-I/opt/include")',
+            '@CppFlags("-lSDL2")',
+            '@CppBody("return SDL_Init(flags);")',
+            'declare fun sdlInit(flags: int): int'
+        ].join("\n")));
+
+        expect(program.body[0]).toMatchObject({
+            kind: NodeKind.FunctionStatement,
+            name: { name: "sdlInit" },
+            declared: true,
+            missingBody: true,
+            annotations: [
+                { name: { name: "CppHeader" }, args: [{ value: "#include <SDL2/SDL.h>" }] },
+                { name: { name: "CppFlags" }, args: [{ value: "-I/opt/include" }] },
+                { name: { name: "CppFlags" }, args: [{ value: "-lSDL2" }] },
+                { name: { name: "CppBody" }, args: [{ value: "return SDL_Init(flags);" }] }
+            ]
+        });
+    });
+
+    it("rejects C++ implementation annotations on non-function declarations", () => {
+        expect(() => parseFile(tokenizeReader('@CppBody("return 0;")\nclass Native {}'))).toThrow();
+    });
+});
+
+describe("foreign library annotations", () => {
+    it("parses platform library names on ambient classes", () => {
+        const program = parseFile(tokenizeReader([
+            '@FFILibrary("native.dll", "libnative.so", "Native.framework/Native")',
+            'declare class Native { static add(left: int, right: int): int }'
+        ].join("\n")));
+
+        expect(program.body[0]).toMatchObject({
+            kind: NodeKind.ClassStatement,
+            name: { name: "Native" },
+            declared: true,
+            annotations: [{
+                name: { name: "FFILibrary" },
+                args: [
+                    { value: "native.dll" },
+                    { value: "libnative.so" },
+                    { value: "Native.framework/Native" }
+                ]
+            }]
+        });
+    });
+
+    it("rejects @FFILibrary on functions", () => {
+        expect(() => parseFile(tokenizeReader('@FFILibrary("libnative.so")\ndeclare fun native()'))).toThrow();
+    });
+
+    it("parses FFI symbol names and explicit struct field layouts", () => {
+        const program = parseFile(tokenizeReader([
+            "@FFIStruct(4)",
+            "@FFIAlign(4)",
+            "class NativeInt(@FFIOffset(0) @FFISize(4) var value: int)",
+            '@FFILibrary("libnative.so")',
+            'declare class Native { @FFIName("native_abs") static Abs(value: int): int }'
+        ].join("\n")));
+
+        expect(program.body[0]).toMatchObject({
+            name: { name: "NativeInt" },
+            primaryConstructorParameters: [{
+                name: { name: "value" },
+                annotations: [
+                    { name: { name: "FFIOffset" }, args: [{ value: 0 }] },
+                    { name: { name: "FFISize" }, args: [{ value: 4 }] }
+                ]
+            }]
+        });
+        expect(program.body[1]).toMatchObject({
+            members: [{
+                name: { name: "Abs" },
+                annotations: [{ name: { name: "FFIName" }, args: [{ value: "native_abs" }] }]
+            }]
+        });
+    });
+
+    it("rejects invalid FFIName and layout arguments", () => {
+        expect(() => parseFile(tokenizeReader('@FFIStruct("4")\nclass NativeInt(var value: int)'))).toThrow();
+        expect(() => parseFile(tokenizeReader('declare class Native { @FFIName(1) static Abs(value: int): int }'))).toThrow();
+    });
+});
