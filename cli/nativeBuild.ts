@@ -289,13 +289,20 @@ export function nativeCompilerArguments(
   ];
 }
 
+export function nativeSyntaxCompiler(platform: NodeJS.Platform = process.platform): string {
+  // GCC 13 can ICE in build_special_member_call while parsing the complete
+  // generated self-host coroutine graph. Clang validates the same C++20 source,
+  // while normal Linux native builds and focused runtime tests still exercise GCC.
+  return platform === "linux" ? "clang++" : "g++";
+}
+
 export async function validateNativeCppSyntax(
   cppPath: string,
   options: NativeCompilerOptions = {}
 ): Promise<void> {
   const root = nativeRoot();
   const { gcRoot } = await ensureOilpanLibrary(root);
-  await runCommand("g++", [
+  await runCommand(nativeSyntaxCompiler(), [
     ...nativeCompilerFrontendArguments(cppPath, root, gcRoot, process.platform, options, "-O0"),
     "-fsyntax-only",
   ]);

@@ -4,6 +4,7 @@ import {
   nativeCompilerArguments,
   nativeMimallocCmakeConfigureArguments,
   nativeProgramPaths,
+  nativeSyntaxCompiler,
   withNativeBuildLock,
 } from "./nativeBuild";
 
@@ -27,6 +28,12 @@ describe("native build", () => {
     expect(args).toContain("-fno-rtti");
     expect(args).not.toContain("-DVEXA_NATIVE_DEBUG=1");
     expect(args).toContain("-ldl");
+  });
+
+  it("uses Clang for Linux syntax-only validation to avoid the GCC 13 coroutine ICE", () => {
+    expect(nativeSyntaxCompiler("linux")).toBe("clang++");
+    expect(nativeSyntaxCompiler("darwin")).toBe("g++");
+    expect(nativeSyntaxCompiler("win32")).toBe("g++");
   });
 
   it("links the cached mimalloc override object in release builds", () => {
