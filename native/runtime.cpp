@@ -820,7 +820,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   T set(std::size_t index, T value) {
     if (dynamic_backing_) {
       if constexpr (IsDynamicArrayElement<T>) {
-        dynamic_backing_->dynamicSet(utf8ToUtf16(std::to_string(index)), convertValue<Value>(value));
+        dynamic_backing_->dynamicSet(formatIntegerText(index), convertValue<Value>(value));
         return value;
       } else {
         throw runtimeError(u"This native array element type cannot flow through a dynamic array view");
@@ -2142,8 +2142,8 @@ class Runtime final {
 
   std::u16string sourceLocation() const {
     if (sourceFile_.empty()) return u"";
-    return sourceFile_ + u":" + utf8ToUtf16(std::to_string(sourceLine_)) +
-        u":" + utf8ToUtf16(std::to_string(sourceColumn_));
+    return sourceFile_ + u":" + formatIntegerText(sourceLine_) +
+        u":" + formatIntegerText(sourceColumn_);
   }
 
   std::runtime_error errorAtCurrentSource(std::u16string message) const {
@@ -2742,14 +2742,14 @@ inline MapObject<K, V>* mapFromDynamicEntries(
   for (const auto& entryValue : *entries) {
     if (!entryValue.isDynamicObject()) {
       throw runtimeError(
-          std::u16string(u"VexaScript Map entry at index ") + utf8ToUtf16(std::to_string(index)) +
+          std::u16string(u"VexaScript Map entry at index ") + formatIntegerText(index) +
           u" is not an array: " + toString(entryValue));
     }
     auto* entry = static_cast<ArrayObject<Value>*>(
         entryValue.dynamicObject()->dynamicCast(nativeTypeToken<ArrayObject<Value>>()));
     if (!entry) {
       throw runtimeError(
-          std::u16string(u"VexaScript Map entry at index ") + utf8ToUtf16(std::to_string(index)) +
+          std::u16string(u"VexaScript Map entry at index ") + formatIntegerText(index) +
           u" has an incompatible array element type");
     }
     if (entry->size() < 2) throw runtimeError(u"VexaScript Map entry must contain a key and value");
@@ -2773,7 +2773,7 @@ inline MapObject<K, V>* mapFromIterable(Runtime& runtime, const Value& source) {
   for (const auto& entryValue : dynamicIterationRange(runtime, source)) {
     if (!entryValue.isDynamicObject() || !entryValue.dynamicObject()->dynamicIsArray()) {
       throw runtimeError(
-          std::u16string(u"VexaScript Map entry at index ") + utf8ToUtf16(std::to_string(index)) +
+          std::u16string(u"VexaScript Map entry at index ") + formatIntegerText(index) +
           u" is not an array: " + toString(entryValue));
     }
     auto* entry = entryValue.dynamicObject();
@@ -5498,7 +5498,7 @@ class JsonParser final {
  private:
   [[noreturn]] void fail(const std::u16string& message) const {
     throw runtimeError(
-        std::u16string(u"Invalid JSON at offset ") + utf8ToUtf16(std::to_string(position_)) +
+        std::u16string(u"Invalid JSON at offset ") + formatIntegerText(position_) +
         u": " + message);
   }
 

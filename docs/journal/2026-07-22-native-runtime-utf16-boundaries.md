@@ -102,3 +102,10 @@ parse both narrow and UTF-16 views. Decimal chunks and integer property keys
 use bounded `std::to_chars` buffers whose ASCII digits are widened directly.
 This removes the UTF-16 to UTF-8 and back conversions from BigInt coercion,
 hashing, equality, and numeric property-key paths.
+
+The same integer formatter is the canonical path for runtime indexes, source
+locations, JSON offsets, and diagnostic positions. ISO date formatting also
+assembles UTF-16 text directly. Consequently, `utf8ToUtf16` is reserved for
+actual narrow external boundaries such as files, processes, environment data,
+standard-library regex results and exceptions, URI bytes, and C++ compiler
+metadata.

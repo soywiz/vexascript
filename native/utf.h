@@ -9,11 +9,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <iomanip>
 #include <limits>
 #include <optional>
 #include <regex>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <stdexcept>
@@ -143,16 +141,28 @@ inline std::u16string formatIntegerText(Integer value) {
 }
 
 inline std::u16string formatIsoDateText(const std::tm& parts, int milliseconds) {
-  std::ostringstream output;
-  output << std::setfill('0')
-         << std::setw(4) << parts.tm_year + 1900 << '-'
-         << std::setw(2) << parts.tm_mon + 1 << '-'
-         << std::setw(2) << parts.tm_mday << 'T'
-         << std::setw(2) << parts.tm_hour << ':'
-         << std::setw(2) << parts.tm_min << ':'
-         << std::setw(2) << parts.tm_sec << '.'
-         << std::setw(3) << milliseconds << 'Z';
-  return utf8ToUtf16(output.str());
+  std::u16string output;
+  output.reserve(24);
+  const auto appendPadded = [&](int value, std::size_t width) {
+    const auto text = formatIntegerText(value);
+    if (text.size() < width) output.append(width - text.size(), u'0');
+    output += text;
+  };
+  appendPadded(parts.tm_year + 1900, 4);
+  output += u'-';
+  appendPadded(parts.tm_mon + 1, 2);
+  output += u'-';
+  appendPadded(parts.tm_mday, 2);
+  output += u'T';
+  appendPadded(parts.tm_hour, 2);
+  output += u':';
+  appendPadded(parts.tm_min, 2);
+  output += u':';
+  appendPadded(parts.tm_sec, 2);
+  output += u'.';
+  appendPadded(milliseconds, 3);
+  output += u'Z';
+  return output;
 }
 
 class Utf16Regex final {
