@@ -213,9 +213,9 @@ function cppTemplatePrefix(
   return `${indent}template <${parameters}>\n`;
 }
 
-function withCppTypeParameters(
+function withCppTypeParameters<Emit extends () => string>(
   typeParameters: readonly TypeParameter[] | undefined,
-  emit: () => string
+  emit: Emit
 ): string {
   if (!typeParameters?.length) return emit();
   const previous = activeCppTypeParameters;
@@ -224,13 +224,9 @@ function withCppTypeParameters(
   for (const parameter of typeParameters) nextTypeParameters.add(parameter.name.name);
   activeCppTypeParameters = nextTypeParameters;
   activeCppTypeParameterCacheKey = [...activeCppTypeParameters].sort().join("\u001f");
-  let result: string;
-  try {
-    result = emit();
-  } finally {
-    activeCppTypeParameters = previous;
-    activeCppTypeParameterCacheKey = previousCacheKey;
-  }
+  const result = emit();
+  activeCppTypeParameters = previous;
+  activeCppTypeParameterCacheKey = previousCacheKey;
   return result;
 }
 
@@ -361,12 +357,8 @@ function emitTopLevelFunctionValue(statement: FunctionStatement): string {
 function emitWithoutAutoAwait(expression: Expr): string {
   const previous = activeSuppressAutoAwait;
   activeSuppressAutoAwait = true;
-  let result: string;
-  try {
-    result = emitExpression(expression);
-  } finally {
-    activeSuppressAutoAwait = previous;
-  }
+  const result = emitExpression(expression);
+  activeSuppressAutoAwait = previous;
   return result;
 }
 
@@ -1618,15 +1610,11 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
     activeFunctionObjectCaptureNames = captureNames;
     activeExpectedLambdaResultCppType = callableResult;
     activeExpectedLambdaParameterCppTypes = callableParameters;
-    let result: string;
-    try {
-      result = `vexa::Value(vexa::makeFunction<${templateArguments}>(${activeRuntimeName}, ${emitExpression(expression)}, {${roots.join(", ")}}))`;
-    } finally {
-      activeFunctionObjectCapture = previousFunctionObjectCapture;
-      activeFunctionObjectCaptureNames = previousFunctionObjectCaptureNames;
-      activeExpectedLambdaResultCppType = previousLambdaResult;
-      activeExpectedLambdaParameterCppTypes = previousLambdaParameters;
-    }
+    const result = `vexa::Value(vexa::makeFunction<${templateArguments}>(${activeRuntimeName}, ${emitExpression(expression)}, {${roots.join(", ")}}))`;
+    activeFunctionObjectCapture = previousFunctionObjectCapture;
+    activeFunctionObjectCaptureNames = previousFunctionObjectCaptureNames;
+    activeExpectedLambdaResultCppType = previousLambdaResult;
+    activeExpectedLambdaParameterCppTypes = previousLambdaParameters;
     return result;
   }
   if (expression instanceof CallExpression || expression instanceof NewExpression) {
@@ -1643,12 +1631,8 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
   ) {
     const previous = activeExpectedExpressionCppType;
     activeExpectedExpressionCppType = resultType;
-    let result: string;
-    try {
-      result = emitNativeConversion(emitExpression(expression), resultType);
-    } finally {
-      activeExpectedExpressionCppType = previous;
-    }
+    const result = emitNativeConversion(emitExpression(expression), resultType);
+    activeExpectedExpressionCppType = previous;
     return result;
   }
   if (resultType.endsWith("*")) {
@@ -1827,44 +1811,37 @@ function emitObjectLiteral(object: ObjectLiteral): string {
   const emitSpreadValue = (value: Expr): string => {
     const previousExpectedType = activeExpectedExpressionCppType;
     activeExpectedExpressionCppType = null;
-    let result: string;
-    try {
-      result = emitExpression(value);
-    } finally {
-      activeExpectedExpressionCppType = previousExpectedType;
-    }
+    const result = emitExpression(value);
+    activeExpectedExpressionCppType = previousExpectedType;
     return result;
   };
   let result: string;
-  try {
-    const simple = object.properties.every((property) =>
-      property instanceof ObjectProperty &&
-      !(property as ObjectProperty).computed &&
-      !(property as ObjectProperty).method);
-    if (simple) {
-      const properties = object.properties.map((property) => {
-        const objectProperty = property as ObjectProperty;
-        const name = objectPropertyName(objectProperty)!;
-        return `{${cppUtf16String(name)}, ${emitPropertyValue(name, objectProperty.value)}}`;
-      });
-      result = `${activeRuntimeName}.record({${properties.join(", ")}})`;
-    } else {
-      const operations = object.properties.map((property) => {
-        if (property instanceof ObjectSpreadProperty) {
-          return `vexa::recordSpread(__vexa_record, ${emitSpreadValue(property.argument)})`;
-        }
-        const objectProperty = property as ObjectProperty;
-        const name = objectPropertyName(objectProperty);
-        const key = objectProperty.computed
-          ? `vexa::propertyKey(${emitExpression(objectProperty.key)})`
-          : cppUtf16String(name!);
-        return `vexa::recordSet(${activeRuntimeName}, __vexa_record, ${key}, ${emitPropertyValue(name ?? "", objectProperty.value)})`;
-      });
-      result = `([&]() { auto* __vexa_record = ${activeRuntimeName}.record(); ${operations.join("; ")}; return __vexa_record; }())`;
-    }
-  } finally {
-    activeExpectedRecordPropertyCppTypes = expectedPropertyTypes;
+  const simple = object.properties.every((property) =>
+    property instanceof ObjectProperty &&
+    !(property as ObjectProperty).computed &&
+    !(property as ObjectProperty).method);
+  if (simple) {
+    const properties = object.properties.map((property) => {
+      const objectProperty = property as ObjectProperty;
+      const name = objectPropertyName(objectProperty)!;
+      return `{${cppUtf16String(name)}, ${emitPropertyValue(name, objectProperty.value)}}`;
+    });
+    result = `${activeRuntimeName}.record({${properties.join(", ")}})`;
+  } else {
+    const operations = object.properties.map((property) => {
+      if (property instanceof ObjectSpreadProperty) {
+        return `vexa::recordSpread(__vexa_record, ${emitSpreadValue(property.argument)})`;
+      }
+      const objectProperty = property as ObjectProperty;
+      const name = objectPropertyName(objectProperty);
+      const key = objectProperty.computed
+        ? `vexa::propertyKey(${emitExpression(objectProperty.key)})`
+        : cppUtf16String(name!);
+      return `vexa::recordSet(${activeRuntimeName}, __vexa_record, ${key}, ${emitPropertyValue(name ?? "", objectProperty.value)})`;
+    });
+    result = `([&]() { auto* __vexa_record = ${activeRuntimeName}.record(); ${operations.join("; ")}; return __vexa_record; }())`;
   }
+  activeExpectedRecordPropertyCppTypes = expectedPropertyTypes;
   return result;
 }
 
@@ -2101,12 +2078,8 @@ function emitDynamicCallArgument(argument: Expr): string {
   const callable = value as ArrowFunctionExpression | FunctionExpression;
   const previousParameters = activeExpectedLambdaParameterCppTypes;
   activeExpectedLambdaParameterCppTypes = callable.parameters.map(() => "vexa::Value");
-  let result: string;
-  try {
-    result = emitConvertedValue(value, "vexa::Value");
-  } finally {
-    activeExpectedLambdaParameterCppTypes = previousParameters;
-  }
+  const result = emitConvertedValue(value, "vexa::Value");
+  activeExpectedLambdaParameterCppTypes = previousParameters;
   return result;
 }
 
@@ -3438,33 +3411,33 @@ function emitNativePropertyReceiverDeclaration(property: NativePropertyMember, r
 function emitExpressionWithExpectedCppType(expression: Expr, expectedCppType: string): string {
   const previous = activeExpectedExpressionCppType;
   activeExpectedExpressionCppType = expectedCppType;
-  try {
-    if (expectedCppType.endsWith("*") &&
-        (expression instanceof UndefinedLiteral || expression instanceof NullLiteral)) {
-      return "nullptr";
-    }
+  let result: string;
+  if (expectedCppType.endsWith("*") &&
+      (expression instanceof UndefinedLiteral || expression instanceof NullLiteral)) {
+    result = "nullptr";
+  } else {
     const emitted = emitExpression(expression);
-    if (builtinCallCppType(expression) === expectedCppType) return emitted;
     const actual = emittedCppTypeForExpression(expression);
-    if (managedArrayElementType(expectedCppType) !== null &&
+    if (builtinCallCppType(expression) === expectedCppType) {
+      result = emitted;
+    } else if (managedArrayElementType(expectedCppType) !== null &&
       managedArrayElementType(actual ?? "") !== null &&
       (expression instanceof CallExpression || expression instanceof ArrayLiteral)) {
-      return emitted;
-    }
-    if ((expression instanceof CallExpression || expression instanceof NewExpression) &&
+      result = emitted;
+    } else if ((expression instanceof CallExpression || expression instanceof NewExpression) &&
         ["vexa::MapObject<", "vexa::SetObject<", "vexa::WeakMapObject<", "vexa::WeakSetObject<"]
           .some((prefix) => expectedCppType.startsWith(prefix))) {
-      return emitted;
+      result = emitted;
+    } else if (expectedCppType === "vexa::Value" && isStringExpression(expression)) {
+      result = emitConvertedValue(expression, expectedCppType);
+    } else {
+      result = actual && actual !== expectedCppType
+        ? emitConvertedValue(expression, expectedCppType)
+        : emitted;
     }
-    if (expectedCppType === "vexa::Value" && isStringExpression(expression)) {
-      return emitConvertedValue(expression, expectedCppType);
-    }
-    return actual && actual !== expectedCppType
-      ? emitConvertedValue(expression, expectedCppType)
-      : emitted;
-  } finally {
-    activeExpectedExpressionCppType = previous;
   }
+  activeExpectedExpressionCppType = previous;
+  return result;
 }
 
 function emitPropertyAssignment(
@@ -5840,9 +5813,9 @@ function applyInstanceofNarrowings(
   activeEmittedExpressionTypeCache = new Map();
 }
 
-function emitWithInstanceofNarrowings(
+function emitWithInstanceofNarrowings<Emit extends () => string>(
   narrowings: readonly PositiveInstanceofNarrowing[],
-  emit: () => string,
+  emit: Emit,
   useNarrowedLocal = false
 ): string {
   if (narrowings.length === 0) return emit();
@@ -5860,27 +5833,25 @@ function emitWithInstanceofNarrowings(
   activeCppExpressionTypeCache = new Map();
   activeEmittedExpressionTypeCache = new Map();
   applyInstanceofNarrowings(narrowings, useNarrowedLocal);
-  try {
-    return emit();
-  } finally {
-    activeLocalCppTypes = previousLocalCppTypes;
-    activeGcObjectTypes = previousGcObjectTypes;
-    activeDynamicValueNames = previousDynamicValueNames;
-    activeNarrowedIdentifierExpressions = previousNarrowedExpressions;
-    activeCppExpressionTypeCache = previousCppExpressionTypeCache;
-    activeEmittedExpressionTypeCache = previousEmittedExpressionTypeCache;
-  }
+  const result = emit();
+  activeLocalCppTypes = previousLocalCppTypes;
+  activeGcObjectTypes = previousGcObjectTypes;
+  activeDynamicValueNames = previousDynamicValueNames;
+  activeNarrowedIdentifierExpressions = previousNarrowedExpressions;
+  activeCppExpressionTypeCache = previousCppExpressionTypeCache;
+  activeEmittedExpressionTypeCache = previousEmittedExpressionTypeCache;
+  return result;
 }
 
-function emitWithPositiveInstanceofNarrowing(
+function emitWithPositiveInstanceofNarrowing<Emit extends () => string>(
   test: Expr,
-  emit: () => string,
+  emit: Emit,
   useNarrowedLocal = false
 ): string {
   return emitWithInstanceofNarrowings(positiveInstanceofNarrowings(test), emit, useNarrowedLocal);
 }
 
-function emitWithNegativeInstanceofNarrowing(test: Expr, emit: () => string): string {
+function emitWithNegativeInstanceofNarrowing<Emit extends () => string>(test: Expr, emit: Emit): string {
   return emitWithInstanceofNarrowings(negativeInstanceofNarrowings(test), emit);
 }
 
@@ -6833,44 +6804,39 @@ function emitBlock(block: BlockStatement, indent: string, trailingStatement?: st
   const previousCppExpressionTypeCache = activeCppExpressionTypeCache;
   const previousEmittedExpressionTypeCache = activeEmittedExpressionTypeCache;
   activeNarrowedIdentifierExpressions = new Map(activeNarrowedIdentifierExpressions);
-  try {
-    const childIndent = `${indent}  `;
-    const lines: string[] = [];
-    for (let index = 0; index < block.body.length; index += 1) {
-      const statement = block.body[index]!;
-      const emitted = emitStatement(statement, childIndent);
-      if (!emitted) continue;
-      for (const preambleLine of emitStatementPreamble(statement, childIndent)) {
-        lines.push(preambleLine);
-      }
-      lines.push(emitted);
-      if (statement instanceof IfStatement && !statement.elseBranch &&
-          statementAlwaysExits(statement.thenBranch)) {
-        const remaining = block.body.slice(index + 1);
-        const stableNarrowings = negativeInstanceofNarrowings(statement.condition).filter(
-          (narrowing) => !remaining.some((child) => nodeReassignsIdentifier(child, narrowing.sourceName))
-        );
-        applyInstanceofNarrowings(stableNarrowings, false);
-      }
+  const childIndent = `${indent}  `;
+  const lines: string[] = [];
+  for (let index = 0; index < block.body.length; index += 1) {
+    const statement = block.body[index]!;
+    const emitted = emitStatement(statement, childIndent);
+    if (!emitted) continue;
+    if (activeEmitSourceLocations) appendStatementPreamble(lines, statement, childIndent);
+    lines.push(emitted);
+    if (statement instanceof IfStatement && !statement.elseBranch &&
+        statementAlwaysExits(statement.thenBranch)) {
+      const remaining = block.body.slice(index + 1);
+      const stableNarrowings = negativeInstanceofNarrowings(statement.condition).filter(
+        (narrowing) => !remaining.some((child) => nodeReassignsIdentifier(child, narrowing.sourceName))
+      );
+      applyInstanceofNarrowings(stableNarrowings, false);
     }
-    if (trailingStatement) lines.push(`${childIndent}${trailingStatement}`);
-    return lines.length > 0 ? `{\n${lines.join("\n")}\n${indent}}` : "{}";
-  } finally {
-    activeLocalNames = previousLocalNames;
-    activeLocalDeclaredTypeNames = previousDeclaredTypeNames;
-    activeLocalCppTypes = previousLocalCppTypes;
-    activeGcObjectTypes = previousGcObjectTypes;
-    activeGcArrayTypes = previousGcArrayTypes;
-    activeDynamicValueNames = previousDynamicValueNames;
-    activeSharedBindingNames = previousSharedBindingNames;
-    activeNarrowedIdentifierExpressions = previousNarrowedExpressions;
-    activeCppExpressionTypeCache = previousCppExpressionTypeCache;
-    activeEmittedExpressionTypeCache = previousEmittedExpressionTypeCache;
   }
+  if (trailingStatement) lines.push(`${childIndent}${trailingStatement}`);
+  const result = lines.length > 0 ? `{\n${lines.join("\n")}\n${indent}}` : "{}";
+  activeLocalNames = previousLocalNames;
+  activeLocalDeclaredTypeNames = previousDeclaredTypeNames;
+  activeLocalCppTypes = previousLocalCppTypes;
+  activeGcObjectTypes = previousGcObjectTypes;
+  activeGcArrayTypes = previousGcArrayTypes;
+  activeDynamicValueNames = previousDynamicValueNames;
+  activeSharedBindingNames = previousSharedBindingNames;
+  activeNarrowedIdentifierExpressions = previousNarrowedExpressions;
+  activeCppExpressionTypeCache = previousCppExpressionTypeCache;
+  activeEmittedExpressionTypeCache = previousEmittedExpressionTypeCache;
+  return result;
 }
 
-function emitStatementPreamble(statement: Statement, indent: string): string[] {
-  if (!activeEmitSourceLocations) return [];
+function appendStatementPreamble(lines: string[], statement: Statement, indent: string): void {
   const position = statement.firstToken?.range.start;
   const statementSourcePath = statement.__vexaNativeSourcePath;
   const sourcePath = typeof statementSourcePath === "string" ? statementSourcePath : activeSourceFilePath;
@@ -6881,7 +6847,7 @@ function emitStatementPreamble(statement: Statement, indent: string): string[] {
     line = position.line + 1.0;
     column = position.column + 1.0;
   }
-  return [`${indent}VEXA_NATIVE_SOURCE(${activeRuntimeName}, ${file}, ${line}, ${column});`];
+  lines.push(`${indent}VEXA_NATIVE_SOURCE(${activeRuntimeName}, ${file}, ${line}, ${column});`);
 }
 
 function emitBody(statement: Statement, indent: string): string {
@@ -6895,10 +6861,10 @@ function emitLoopBody(statement: Statement, indent: string, label?: string): str
   const continueBoundary: ControlBoundary = { finallyDepth: activeFinallyProtectedDepth, usesSignal: false };
   activeBreakBoundaries.push(breakBoundary);
   activeContinueBoundaries.push(continueBoundary);
-  try {
-    const body = emitBody(statement, `${indent}  `);
-    if (!breakBoundary.usesSignal && !continueBoundary.usesSignal && !label) return body;
-    return [
+  const body = emitBody(statement, `${indent}  `);
+  const result = !breakBoundary.usesSignal && !continueBoundary.usesSignal && !label
+    ? body
+    : [
       "{",
       `${indent}  try ${body}`,
       ...(continueBoundary.usesSignal
@@ -6913,10 +6879,9 @@ function emitLoopBody(statement: Statement, indent: string, label?: string): str
       ] : []),
       `${indent}}`,
     ].join("\n");
-  } finally {
-    activeBreakBoundaries.pop();
-    activeContinueBoundaries.pop();
-  }
+  activeBreakBoundaries.pop();
+  activeContinueBoundaries.pop();
+  return result;
 }
 
 function emitFor(statement: ForStatement, indent: string, label?: string): string {
@@ -7516,7 +7481,7 @@ function callableSignature(
   return `${emittedResultType} ${cppName(emittedName)}(${parameterText})`;
 }
 
-function withCallableContext(
+function withCallableContext<Emit extends () => string>(
   parameters: readonly FunctionParameter[],
   className: string | null,
   staticMethod: boolean,
@@ -7524,7 +7489,7 @@ function withCallableContext(
   generatorResultType: string | null,
   callableResultType: string,
   owner: Statement,
-  emit: () => string
+  emit: Emit
 ): string {
   const previousRuntimeName = activeRuntimeName;
   const previousThisExpression = activeThisExpression;
@@ -7584,33 +7549,29 @@ function withCallableContext(
   activeBreakBoundaries = [];
   activeContinueBoundaries = [];
   clearExpressionTypeCaches();
-  let result: string;
-  try {
-    result = emit();
-  } finally {
-    activeRuntimeName = previousRuntimeName;
-    activeThisExpression = previousThisExpression;
-    activeCurrentClassName = previousClassName;
-    activeCurrentClassStatement = previousClassStatement;
-    activeCurrentMethodStatic = previousMethodStatic;
-    activeLocalNames = previousLocalNames;
-    activeLocalDeclaredTypeNames = previousDeclaredTypeNames;
-    activeLocalCppTypes = previousLocalCppTypes;
-    activeCallableParameterPointerTypes = previousCallableParameterPointerTypes;
-    activeGcObjectTypes = previousGcObjectTypes;
-    activeGcArrayTypes = previousGcArrayTypes;
-    activeDynamicValueNames = previousDynamicValueNames;
-    activeSharedBindingNames = previousSharedBindingNames;
-    activeSharedBindingCandidates = previousSharedBindingCandidates;
-    activeAsyncResultType = previousAsyncResultType;
-    activeGeneratorResultType = previousGeneratorResultType;
-    activeCallableResultType = previousCallableResultType;
-    activeCallableUsesReturnSignal = previousCallableUsesReturnSignal;
-    activeFinallyProtectedDepth = previousFinallyProtectedDepth;
-    activeBreakBoundaries = previousBreakBoundaries;
-    activeContinueBoundaries = previousContinueBoundaries;
-    clearExpressionTypeCaches();
-  }
+  const result = emit();
+  activeRuntimeName = previousRuntimeName;
+  activeThisExpression = previousThisExpression;
+  activeCurrentClassName = previousClassName;
+  activeCurrentClassStatement = previousClassStatement;
+  activeCurrentMethodStatic = previousMethodStatic;
+  activeLocalNames = previousLocalNames;
+  activeLocalDeclaredTypeNames = previousDeclaredTypeNames;
+  activeLocalCppTypes = previousLocalCppTypes;
+  activeCallableParameterPointerTypes = previousCallableParameterPointerTypes;
+  activeGcObjectTypes = previousGcObjectTypes;
+  activeGcArrayTypes = previousGcArrayTypes;
+  activeDynamicValueNames = previousDynamicValueNames;
+  activeSharedBindingNames = previousSharedBindingNames;
+  activeSharedBindingCandidates = previousSharedBindingCandidates;
+  activeAsyncResultType = previousAsyncResultType;
+  activeGeneratorResultType = previousGeneratorResultType;
+  activeCallableResultType = previousCallableResultType;
+  activeCallableUsesReturnSignal = previousCallableUsesReturnSignal;
+  activeFinallyProtectedDepth = previousFinallyProtectedDepth;
+  activeBreakBoundaries = previousBreakBoundaries;
+  activeContinueBoundaries = previousContinueBoundaries;
+  clearExpressionTypeCaches();
   return result;
 }
 
@@ -9658,7 +9619,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
       if (!(variable.name instanceof Identifier)) {
         const emitted = emitStatement(variable, "    ");
         if (emitted) {
-          entryStatements.push(...emitStatementPreamble(statement, "    "));
+          if (activeEmitSourceLocations) appendStatementPreamble(entryStatements, statement, "    ");
           entryStatements.push(emitted);
         }
         continue;
@@ -9671,7 +9632,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
         isRecordExpression(variable.initializer)
         ? emitRecordInterfaceAdaptation(variable.initializer, parseTypeNameShape(declaredTypeName).baseName)
         : emitExpressionWithExpectedCppType(variable.initializer, info.type);
-      entryStatements.push(...emitStatementPreamble(statement, "    "));
+      if (activeEmitSourceLocations) appendStatementPreamble(entryStatements, statement, "    ");
       entryStatements.push(`    ${info.name} = ${initializer};`);
       if (info.pointee) {
         entryStatements.push(`    ${info.name}__vexa_root = cppgc::Persistent<${info.pointee}>(${info.name});`);
@@ -9679,13 +9640,13 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
       continue;
     }
     if (statement instanceof ExprStatement && isDirectSyncCall((statement as ExprStatement).expression)) {
-      entryStatements.push(...emitStatementPreamble(statement, "    "));
+      if (activeEmitSourceLocations) appendStatementPreamble(entryStatements, statement, "    ");
       entryStatements.push(`    ${emitWithoutAutoAwait((statement as ExprStatement).expression)}.get();`);
       continue;
     }
     const emitted = emitStatement(statement, "    ");
     if (!emitted) continue;
-    entryStatements.push(...emitStatementPreamble(statement, "    "));
+    if (activeEmitSourceLocations) appendStatementPreamble(entryStatements, statement, "    ");
     entryStatements.push(emitted);
   }
 

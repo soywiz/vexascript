@@ -1050,12 +1050,24 @@ class WeakSetLikeObject : public BaseObject {};
 
 template <typename K, typename V>
 class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public MapLikeObject {
+ private:
+  struct Entry final {
+    ArraySlot<K> key;
+    ArraySlot<V> value;
+  };
+  struct Storage final {
+    std::vector<Entry> entries;
+    std::unordered_map<K, std::size_t, SameValueZeroHash<K>, SameValueZeroEqual<K>> index;
+  };
+
  public:
-  MapObject() = default;
+  MapObject() : storage_(std::make_shared<Storage>()) {}
   explicit MapObject(MapLikeObject* dynamicBacking) : dynamic_backing_(dynamicBacking) {}
+  explicit MapObject(const MapObject* source) : storage_(source->storage_) {}
   static MapObject* fromDynamicObject(BaseObject* backing);
 
-  std::size_t size() const { return dynamic_backing_ ? dynamic_backing_->dynamicMapSize() : entries_.size(); }
+  bool usesDynamicBacking() const { return dynamic_backing_ != nullptr; }
+  std::size_t size() const { return dynamic_backing_ ? dynamic_backing_->dynamicMapSize() : storage_->entries.size(); }
 
   MapObject* set(K key, V value) {
     if (dynamic_backing_) {
@@ -1065,13 +1077,14 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
           convertValue<Value>(value));
       return this;
     }
-    const auto existing = index_.find(key);
-    if (existing != index_.end()) {
-      entries_[existing->second].value.store(std::move(value));
+    ensureUniqueStorage();
+    const auto existing = storage_->index.find(key);
+    if (existing != storage_->index.end()) {
+      storage_->entries[existing->second].value.store(std::move(value));
       return this;
     }
-    entries_.push_back(Entry{ArraySlot<K>(std::move(key)), ArraySlot<V>(std::move(value))});
-    index_.emplace(entries_.back().key.load(), entries_.size() - 1);
+    storage_->entries.push_back(Entry{ArraySlot<K>(std::move(key)), ArraySlot<V>(std::move(value))});
+    storage_->index.emplace(storage_->entries.back().key.load(), storage_->entries.size() - 1);
     return this;
   }
 
@@ -1087,22 +1100,27 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
             toString(convertValue<Value>(key)));
       }
     }
-    const auto found = index_.find(key);
-    return found == index_.end()
+    const auto found = storage_->index.find(key);
+    return found == storage_->index.end()
         ? std::nullopt
-        : std::optional<V>(entries_[found->second].value.load());
+        : std::optional<V>(storage_->entries[found->second].value.load());
   }
 
-  bool has(const K& key) const { return get(key).has_value(); }
+  bool has(const K& key) const {
+    return dynamic_backing_
+      ? dynamic_backing_->dynamicMapGet(currentRuntime(), convertValue<Value>(key)).has_value()
+      : storage_->index.contains(key);
+  }
 
   bool erase(const K& key) {
     if (dynamic_backing_) {
       return dynamic_backing_->dynamicMapDelete(currentRuntime(), convertValue<Value>(key));
     }
-    const auto found = index_.find(key);
-    if (found == index_.end()) return false;
+    ensureUniqueStorage();
+    const auto found = storage_->index.find(key);
+    if (found == storage_->index.end()) return false;
     const std::size_t erasedIndex = found->second;
-    entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(erasedIndex));
+    storage_->entries.erase(storage_->entries.begin() + static_cast<std::ptrdiff_t>(erasedIndex));
     rebuildIndex(erasedIndex);
     return true;
   }
@@ -1112,8 +1130,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
       dynamic_backing_->dynamicMapClear();
       return;
     }
-    entries_.clear();
-    index_.clear();
+    storage_ = std::make_shared<Storage>();
   }
 
   template <typename Callback>
@@ -1129,7 +1146,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
       }
       return;
     }
-    for (const auto& entry : entries_) {
+    for (const auto& entry : storage_->entries) {
       if constexpr (std::is_invocable_v<Callback, V, K, MapObject*>) {
         callback(entry.value.load(), entry.key.load(), this);
       } else if constexpr (std::is_invocable_v<Callback, V, K>) {
@@ -1160,11 +1177,11 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   std::size_t dynamicMapSize() const override { return size(); }
   Value dynamicMapKeyAt(Runtime& runtime, std::size_t index) override {
     if (dynamic_backing_) return dynamic_backing_->dynamicMapKeyAt(runtime, index);
-    return index < entries_.size() ? convertValue<Value>(entries_[index].key.load()) : Value::undefined();
+    return index < storage_->entries.size() ? convertValue<Value>(storage_->entries[index].key.load()) : Value::undefined();
   }
   Value dynamicMapValueAt(Runtime& runtime, std::size_t index) override {
     if (dynamic_backing_) return dynamic_backing_->dynamicMapValueAt(runtime, index);
-    return index < entries_.size() ? convertValue<Value>(entries_[index].value.load()) : Value::undefined();
+    return index < storage_->entries.size() ? convertValue<Value>(storage_->entries[index].value.load()) : Value::undefined();
   }
   std::optional<Value> dynamicMapGet(Runtime& runtime, const Value& key) override {
     if (dynamic_backing_) return dynamic_backing_->dynamicMapGet(runtime, key);
@@ -1188,60 +1205,68 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   void Trace(cppgc::Visitor* visitor) const override {
     BaseObject::Trace(visitor);
     visitor->Trace(dynamic_backing_);
-    for (const auto& entry : entries_) {
+    for (const auto& entry : storage_->entries) {
       entry.key.Trace(visitor);
       entry.value.Trace(visitor);
     }
   }
 
  private:
-  struct Entry final {
-    ArraySlot<K> key;
-    ArraySlot<V> value;
-  };
-  void rebuildIndex(std::size_t start) {
-    index_.clear();
-    for (std::size_t index = 0; index < entries_.size(); ++index) {
-      index_.emplace(entries_[index].key.load(), index);
+  void ensureUniqueStorage() {
+    if (storage_.use_count() != 1) storage_ = std::make_shared<Storage>(*storage_);
+  }
+  void rebuildIndex(std::size_t) {
+    storage_->index.clear();
+    for (std::size_t index = 0; index < storage_->entries.size(); ++index) {
+      storage_->index.emplace(storage_->entries[index].key.load(), index);
     }
   }
   cppgc::Member<MapLikeObject> dynamic_backing_;
-  std::vector<Entry> entries_;
-  std::unordered_map<K, std::size_t, SameValueZeroHash<K>, SameValueZeroEqual<K>> index_;
+  std::shared_ptr<Storage> storage_ = std::make_shared<Storage>();
 };
 
 template <typename T>
 class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public SetLikeObject {
+ private:
+  struct Storage final {
+    std::vector<ArraySlot<T>> values;
+    std::unordered_set<T, SameValueZeroHash<T>, SameValueZeroEqual<T>> index;
+  };
+
  public:
-  std::size_t size() const { return values_.size(); }
+  SetObject() : storage_(std::make_shared<Storage>()) {}
+  explicit SetObject(const SetObject* source) : storage_(source->storage_) {}
+
+  std::size_t size() const { return storage_->values.size(); }
 
   SetObject* add(T value) {
-    if (index_.insert(value).second) values_.emplace_back(std::move(value));
+    ensureUniqueStorage();
+    if (storage_->index.insert(value).second) storage_->values.emplace_back(std::move(value));
     return this;
   }
 
   bool has(const T& value) const {
-    return index_.contains(value);
+    return storage_->index.contains(value);
   }
 
   bool erase(const T& value) {
-    if (index_.erase(value) == 0) return false;
-    const auto found = std::find_if(values_.begin(), values_.end(), [&](const ArraySlot<T>& candidate) {
+    ensureUniqueStorage();
+    if (storage_->index.erase(value) == 0) return false;
+    const auto found = std::find_if(storage_->values.begin(), storage_->values.end(), [&](const ArraySlot<T>& candidate) {
       return sameValueZero(candidate.load(), value);
     });
-    if (found == values_.end()) return true;
-    values_.erase(found);
+    if (found == storage_->values.end()) return true;
+    storage_->values.erase(found);
     return true;
   }
 
   void clear() {
-    values_.clear();
-    index_.clear();
+    storage_ = std::make_shared<Storage>();
   }
 
   template <typename Callback>
   void forEach(Callback callback) {
-    for (const auto& value : values_) {
+    for (const auto& value : storage_->values) {
       if constexpr (std::is_invocable_v<Callback, T, T, SetObject*>) {
         callback(value.load(), value.load(), this);
       } else if constexpr (std::is_invocable_v<Callback, T, T>) {
@@ -1258,20 +1283,22 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
   }
   std::u16string dynamicToString() const override { return u"[object Set]"; }
   bool dynamicIsIterable() const override { return true; }
-  std::size_t dynamicIterableSize() const override { return values_.size(); }
+  std::size_t dynamicIterableSize() const override { return storage_->values.size(); }
   Value dynamicIterableGet(Runtime& runtime, std::size_t index) override {
-    if (index >= values_.size()) return Value::undefined();
-    return convertValue<Value>(values_[index].load());
+    if (index >= storage_->values.size()) return Value::undefined();
+    return convertValue<Value>(storage_->values[index].load());
   }
 
   void Trace(cppgc::Visitor* visitor) const override {
     BaseObject::Trace(visitor);
-    for (const auto& value : values_) value.Trace(visitor);
+    for (const auto& value : storage_->values) value.Trace(visitor);
   }
 
  private:
-  std::vector<ArraySlot<T>> values_;
-  std::unordered_set<T, SameValueZeroHash<T>, SameValueZeroEqual<T>> index_;
+  void ensureUniqueStorage() {
+    if (storage_.use_count() != 1) storage_ = std::make_shared<Storage>(*storage_);
+  }
+  std::shared_ptr<Storage> storage_ = std::make_shared<Storage>();
 };
 
 template <typename K, typename V>
@@ -2822,7 +2849,17 @@ inline MapObject<K, V>* mapFromIterable(
   return mapFromEntries<K, V>(runtime, entries);
 }
 
+template <typename K, typename V>
+inline MapObject<K, V>* mapFromIterable(Runtime& runtime, MapObject<K, V>* source) {
+  if (!source) return runtime.make<MapObject<K, V>>();
+  if (!source->usesDynamicBacking()) return runtime.make<MapObject<K, V>>(source);
+  auto* result = runtime.make<MapObject<K, V>>();
+  source->forEach([&](V value, K key) { result->set(std::move(key), std::move(value)); });
+  return result;
+}
+
 template <typename K, typename V, typename InputK, typename InputV>
+  requires (!std::is_same_v<K, InputK> || !std::is_same_v<V, InputV>)
 inline MapObject<K, V>* mapFromIterable(Runtime& runtime, MapObject<InputK, InputV>* source) {
   auto* result = runtime.make<MapObject<K, V>>();
   if (!source) return result;
@@ -2952,7 +2989,13 @@ inline SetObject<T>* setFromIterable(Runtime& runtime, const cppgc::Persistent<A
   return setFromArray<T>(runtime, values.Get());
 }
 
+template <typename T>
+inline SetObject<T>* setFromIterable(Runtime& runtime, SetObject<T>* source) {
+  return source ? runtime.make<SetObject<T>>(source) : runtime.make<SetObject<T>>();
+}
+
 template <typename T, typename Input>
+  requires (!std::is_same_v<T, Input>)
 inline SetObject<T>* setFromIterable(Runtime& runtime, SetObject<Input>* source) {
   auto* result = runtime.make<SetObject<T>>();
   if (!source) return result;
