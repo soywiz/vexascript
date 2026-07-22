@@ -11,6 +11,8 @@ type Scores = int[]
 
 class Leaf(val value: int)
 
+fun nullLeaf(): Leaf | null => null
+
 interface Meter {
   var value: int
   val label: string
@@ -551,6 +553,7 @@ console.log("loop destructuring", destructuredLoopTotal)
 val counter: Meter = Counter(1, "cpu", Leaf(9))
 val { value } = counter
 console.log("interface", render(counter), counter.add(3), value, optionalMeterLabel(counter), optionalMeterLabel(null))
+console.log("typed null pointer", nullLeaf() === null)
 
 val greeters: Greeter[] = [English("Ada"), Spanish("Luz")]
 console.log("dispatch", greet(greeters[0], "Hello"), greet(greeters[1], "Hola"))

@@ -78,3 +78,21 @@ This reduces `convertValue<double>` call sites in the generated compiler from 62
 ## Regression guidance
 
 Keep behavioral smoke coverage for statement, logical-expression, conditional-expression, and stable-member `instanceof` narrowing. A native self-host compile is required in addition to runtime output because a dynamic access can be behaviorally correct while still hiding a static field and inflating the generated code.
+
+## Follow-up: focused instance conversion
+
+Object unboxing no longer needs to instantiate the complete `convertValue<Result, Input>` decision tree. `Value::toInstance<T*>()` now owns null handling, checked object casts, structural-record adaptation, and weak-collection object validation. The free `toInstance<T*>(input)` boundary handles native pointer storage forms without collection-specific branches. The general converter delegates its pointer branch to that API, and the emitter uses it directly for dynamic native receivers and directly emitted `null`/`undefined` values.
+
+An initial emitter implementation selected `toInstance` from the semantic expression type. That was too broad: contextually typed record access could emit a concrete pointer even when its source node retained a dynamic semantic type, producing an invalid member call on the pointer. The reliable condition is the type of the emitted C++ expression. Direct `Value` literals are handled explicitly, while dynamic receiver casts already pass through the dedicated native-pointer emission path.
+
+The unified native language smoke includes a typed null class pointer so null unboxing remains covered by executed behavior.
+
+## Follow-up: deferred object boundaries and focused conversions
+
+The generated interface enumeration and class dynamic-property methods originally appeared inline before all referenced generated classes were complete. That ordering forced boxing through `convertValue<Value>` because C++ could not yet prove that a forward-declared pointer inherited `BaseObject`. Replacing that conversion directly with `toValue` failed at compilation; it was not a valid overload-resolution problem to hide behind another generic wrapper.
+
+The durable fix keeps the declarations on their owning classes but emits the method bodies after all class definitions. At that point the regular `toValue` and `toInstance` overloads have complete types. Record-interface method adapters use the same deferred-body path. This also makes generated class declarations smaller and easier to inspect.
+
+Concrete unboxing now uses focused functions for text, booleans, native numbers, bigint, null, undefined, errors, functions, and object pointers. Array, map, and set pointer conversion traits were deleted because the common `BaseObject` path already preserves identity and performs the required checked cast. The legacy `DynamicValueObject` alias was removed in favor of naming `BaseObject` directly.
+
+The generated compiler translation unit is 6,911,479 bytes. It contains no concrete `convertValue<Result>` call sites: the remaining 36 sites are `convertValue<T>` inside genuinely generic compiler functions. Node semantic C++ emission takes about 6.3 seconds on this machine. Exact pre- and post-RTTI compile/link and native-generation measurements are recorded with the RTTI follow-up so all optimization levels use the same benchmark source.
