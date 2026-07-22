@@ -16,6 +16,7 @@ import {
   ensureRuntimeDependencies,
   globalDeclarationsForProject,
   resolveServeBundleInput,
+  usesExternalTypeScriptCheck,
   vexaTypeCheckForSource
 } from "./cliShared";
 import {
@@ -132,7 +133,10 @@ async function buildFile(
   const sourcePath = resolve(process.cwd(), input);
   const source = (await vfs().readFile(sourcePath))!;
   const project = await loadProject(sourcePath);
-  const vexaTypeCheck = await vexaTypeCheckForSource(sourcePath, project, typeCheck);
+  const semanticValidation = vexaTypeCheckForSource(sourcePath, project, typeCheck);
+  const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, typeCheck)
+    ? false
+    : await semanticValidation;
   const outputExtension = emit === "cpp" ? ".cpp" : ".js";
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, outputExtension));
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
@@ -152,6 +156,7 @@ async function buildFile(
     ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
     ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
   });
+  await semanticValidation;
   if (result.errors.length > 0) {
     printDiagnostics(result.errors, result.diagnostics, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
@@ -192,7 +197,10 @@ async function buildNativeFile(
   if (!sourcePath) {
     throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
   }
-  const vexaTypeCheck = await vexaTypeCheckForSource(sourcePath, project, typeCheck);
+  const semanticValidation = vexaTypeCheckForSource(sourcePath, project, typeCheck);
+  const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, typeCheck)
+    ? false
+    : await semanticValidation;
   const projectOutputDir = project?.buildOutputDir ?? resolve(inputPath, "dist");
   const executableName = basename(sourcePath).replace(/\.[^.]+$/, runtimePlatform() === "win32" ? ".exe" : "");
   const paths = await resolveNativeProgramPaths(
@@ -214,6 +222,7 @@ async function buildNativeFile(
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
   });
+  await semanticValidation;
   if (result.errors.length > 0) {
     printDiagnostics(result.errors, result.diagnostics, paths.sourcePath);
     throw new Error(`Compilation failed for ${paths.sourcePath}`);
@@ -239,7 +248,10 @@ async function buildCppModuleGraph(
   if (!sourcePath) {
     throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
   }
-  const vexaTypeCheck = await vexaTypeCheckForSource(sourcePath, project, typeCheck);
+  const semanticValidation = vexaTypeCheckForSource(sourcePath, project, typeCheck);
+  const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, typeCheck)
+    ? false
+    : await semanticValidation;
   const outputPath = directoryBuild
     ? resolve(process.cwd(), out ?? project?.buildOutputDir ?? resolve(inputPath, "dist"), "main.cpp")
     : resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".cpp"));
@@ -261,6 +273,7 @@ async function buildCppModuleGraph(
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
   });
+  await semanticValidation;
   if (result.errors.length > 0) {
     printDiagnostics(result.errors, result.diagnostics, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);

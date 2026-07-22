@@ -2,7 +2,13 @@ import type { VexaProject } from "../../compiler/project";
 import type { BundledModuleArtifacts } from "../../cli/model";
 import { resolve } from "../../compiler/utils/path";
 import { vfs } from "../../compiler/vfs";
-import { runCommandCapture } from "./cliIo";
+import { environmentVariable, runCommandCapture } from "./cliIo";
+
+function typeScriptBuildInfoPath(sourcePath: string): string {
+  const temporaryDirectory = environmentVariable("TMPDIR") ?? environmentVariable("TEMP") ?? "/tmp";
+  const cacheName = sourcePath.replace(/[^A-Za-z0-9_-]+/g, "_");
+  return resolve(temporaryDirectory, `vexa-typescript-${cacheName}.tsbuildinfo`);
+}
 
 export async function ambientDeclarationsForProject(_sourcePath: string, _project: unknown): Promise<any[]> {
   return [];
@@ -15,22 +21,41 @@ export async function globalDeclarationsForProject(_project: unknown): Promise<a
 export async function ensureRuntimeDependencies(_sourcePath: string, _project: unknown): Promise<void> {
 }
 
+export function isTypeScriptSource(path: string): boolean {
+  const lowerPath = path.toLowerCase();
+  return lowerPath.endsWith(".ts") || lowerPath.endsWith(".tsx");
+}
+
+export function usesExternalTypeScriptCheck(sourcePath: string, semanticCheck: boolean): boolean {
+  return semanticCheck && isTypeScriptSource(sourcePath);
+}
+
 export async function vexaTypeCheckForSource(
   sourcePath: string,
   project: VexaProject | null,
   semanticCheck: boolean
 ): Promise<boolean> {
-  if (!semanticCheck) return false;
-  const lowerPath = sourcePath.toLowerCase();
-  if (!lowerPath.endsWith(".ts") && !lowerPath.endsWith(".tsx")) return true;
+  if (!usesExternalTypeScriptCheck(sourcePath, semanticCheck)) return semanticCheck;
 
   const tsconfigPath = project ? resolve(project.projectDir, "tsconfig.json") : "";
   const hasTsconfig = tsconfigPath.length > 0 && await vfs().fileExists(tsconfigPath);
-  const args = ["exec", "tsc", "--noEmit", "--pretty", "false"];
-  if (hasTsconfig) args.push("--project", tsconfigPath);
-  else args.push(sourcePath);
-  const result = await runCommandCapture("pnpm", args, {
-    cwd: project?.projectDir ?? process.cwd()
+  const typeScriptArgs = [
+    "--noEmit",
+    "--pretty",
+    "false",
+    "--incremental",
+    "--tsBuildInfoFile",
+    typeScriptBuildInfoPath(sourcePath)
+  ];
+  if (hasTsconfig) typeScriptArgs.push("--project", tsconfigPath);
+  else typeScriptArgs.push(sourcePath);
+  const workingDirectory = project?.projectDir ?? process.cwd();
+  const localTypeScriptCli = resolve(workingDirectory, "node_modules/typescript/bin/tsc");
+  const hasLocalTypeScript = await vfs().fileExists(localTypeScriptCli);
+  const result = await runCommandCapture(hasLocalTypeScript ? "node" : "pnpm", hasLocalTypeScript
+    ? [localTypeScriptCli, ...typeScriptArgs]
+    : ["exec", "tsc", ...typeScriptArgs], {
+    cwd: workingDirectory
   });
   if (result.code !== 0) {
     const diagnostics = result.stdout.length > 0 ? result.stdout : result.stderr;

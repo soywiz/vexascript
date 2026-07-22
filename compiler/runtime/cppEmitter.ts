@@ -2869,9 +2869,8 @@ function classFieldValueCppType(field: ClassFieldMember): string | null {
   return inferredType && inferredType !== "auto" ? inferredType : null;
 }
 
-interface ClassStoredPropertyInfo {
-  typeName: string | null;
-  valueType: string;
+class ClassStoredPropertyInfo {
+  constructor(public typeName: string | null, public valueType: string) {}
 }
 
 function classStoredPropertyInfo(statement: ClassStatement, propertyName: string): ClassStoredPropertyInfo | null {
@@ -2887,7 +2886,7 @@ function classStoredPropertyInfo(statement: ClassStatement, propertyName: string
       : null;
     if (field && fieldType) {
       const typeName: string | null = field.typeAnnotation ? field.typeAnnotation.name : null;
-      const result = { typeName, valueType: fieldType };
+      const result = new ClassStoredPropertyInfo(typeName, fieldType);
       activeClassStoredPropertyInfoCache.set(cacheKey, result);
       return result;
     }
@@ -2902,7 +2901,7 @@ function classStoredPropertyInfo(statement: ClassStatement, propertyName: string
     const primaryTypeName = primaryProperty?.typeAnnotation?.name;
     const primaryType = primaryTypeName ? cppTypeForDeclaredNameOr(primaryTypeName, "vexa::Value") : null;
     if (primaryTypeName && primaryType) {
-      const result = { typeName: primaryTypeName, valueType: primaryType };
+      const result = new ClassStoredPropertyInfo(primaryTypeName, primaryType);
       activeClassStoredPropertyInfoCache.set(cacheKey, result);
       return result;
     }
@@ -2922,7 +2921,7 @@ function classStoredPropertyInfo(statement: ClassStatement, propertyName: string
       ? optionalCppValueType(rawConstructorType, constructorTypeName)
       : rawConstructorType;
     if (constructorTypeName && constructorType) {
-      const result = { typeName: constructorTypeName, valueType: constructorType };
+      const result = new ClassStoredPropertyInfo(constructorTypeName, constructorType);
       activeClassStoredPropertyInfoCache.set(cacheKey, result);
       return result;
     }
@@ -2950,10 +2949,7 @@ function classStoredPropertyInfoForMember(member: MemberExpression): ClassStored
   }
   if (bindings.size === 0) return info;
   const typeName = substituteTypeName(info.typeName, bindings);
-  return {
-    typeName,
-    valueType: cppTypeForDeclaredNameOr(typeName, info.valueType),
-  };
+  return new ClassStoredPropertyInfo(typeName, cppTypeForDeclaredNameOr(typeName, info.valueType));
 }
 
 function hasValueBackedClassProperty(expression: Expr): boolean {
@@ -4603,7 +4599,45 @@ function primitiveRuntimeMethodName(name: string): string | null {
   }
 }
 
+function emitMappedArrayJoin(call: CallExpression): string | null {
+  const joinMember = memberParts(call.callee);
+  if (!joinMember || joinMember.propertyName !== "join" || call.args.length > 1) return null;
+  if (call.args[0] && !(call.args[0] instanceof StringLiteral)) return null;
+  if (!(joinMember.object instanceof CallExpression)) return null;
+  const mapCall = joinMember.object as CallExpression;
+  const mapMember = memberParts(mapCall.callee);
+  if (!mapMember || mapMember.propertyName !== "map" || mapCall.args.length !== 1) return null;
+  if (!isArrayExpression(mapMember.object)) return null;
+
+  const receiverType = emittedCppTypeForExpression(mapMember.object) ?? cppTypeForExpression(mapMember.object);
+  const receiverElementType = managedArrayElementType(receiverType);
+  const mappedElementType = managedArrayElementType(
+    emittedCppTypeForExpression(mapCall) ?? cppTypeForExpression(mapCall)
+  );
+  if (!receiverElementType || !mappedElementType) return null;
+
+  const previousResult = activeExpectedLambdaResultCppType;
+  const previousParameters = activeExpectedLambdaParameterCppTypes;
+  activeExpectedLambdaResultCppType = mappedElementType;
+  activeExpectedLambdaParameterCppTypes = [receiverElementType, "double", receiverType];
+  let callback: string;
+  try {
+    callback = emitExpression(mapCall.args[0]!);
+  } finally {
+    activeExpectedLambdaResultCppType = previousResult;
+    activeExpectedLambdaParameterCppTypes = previousParameters;
+  }
+
+  const receiver = isManagedArrayExpression(mapMember.object)
+    ? emitManagedArrayPointer(mapMember.object)
+    : emitExpression(mapMember.object);
+  const separator = call.args[0] ? emitExpression(call.args[0]) : "std::u16string(u\",\")";
+  return `([&]() { auto* __vexa_map_join_receiver = ${receiver}; auto __vexa_map_join_callback = ${callback}; return vexa::mapJoin(__vexa_map_join_receiver, __vexa_map_join_callback, ${separator}); }())`;
+}
+
 function emitCall(call: CallExpression, resultUsed = true): string {
+  const mappedArrayJoin = emitMappedArrayJoin(call);
+  if (mappedArrayJoin) return mappedArrayJoin;
   if (
     call.receiverBlockShorthand === true &&
     call.args[0] instanceof ArrowFunctionExpression
@@ -5499,6 +5533,18 @@ function isDirectNativeTextExpression(expression: Expr): boolean {
   }
 }
 
+function directNativeTextParts(expression: Expr, parts: Expr[]): void {
+  if (expression instanceof BinaryExpression &&
+      expression.operator === "+" &&
+      isDirectNativeTextExpression(expression.left) &&
+      isDirectNativeTextExpression(expression.right)) {
+    directNativeTextParts(expression.left, parts);
+    directNativeTextParts(expression.right, parts);
+    return;
+  }
+  parts.push(expression);
+}
+
 function hasStaticPrimitiveOperands(expression: BinaryExpression): boolean {
   const directlyEmittedLeft = directlyEmittedCppType(expression.left);
   const directlyEmittedRight = directlyEmittedCppType(expression.right);
@@ -5537,6 +5583,11 @@ function emitBinary(expression: BinaryExpression): string {
   if (expression.operator === "+" &&
       isDirectNativeTextExpression(expression.left) &&
       isDirectNativeTextExpression(expression.right)) {
+    const parts: Expr[] = [];
+    directNativeTextParts(expression, parts);
+    if (parts.length > 2) {
+      return `vexa::concatText({${parts.map((part) => `vexa::toText(${emitExpression(part)})`).join(", ")}})`;
+    }
     return `(${emitExpression(expression.left)} + ${emitExpression(expression.right)})`;
   }
   if (expression.operator === "+") {
@@ -7871,11 +7922,13 @@ function primaryConstructorParameterType(parameter: ClassPrimaryConstructorParam
   );
 }
 
-interface ClassFieldTypeInfo {
-  valueType: string;
-  storageType: string;
-  traced: boolean;
-  genericTraced: boolean;
+class ClassFieldTypeInfo {
+  constructor(
+    public valueType: string,
+    public storageType: string,
+    public traced: boolean,
+    public genericTraced: boolean
+  ) {}
 }
 
 function classFieldType(field: ClassFieldMember, statement: ClassStatement): ClassFieldTypeInfo {
@@ -7904,12 +7957,7 @@ function classFieldType(field: ClassFieldMember, statement: ClassStatement): Cla
   const genericTraced = Boolean(declaredType && activeCppTypeParameters.has(declaredType));
   const traced = valueType.endsWith("*");
   const storageType = traced ? `cppgc::Member<${valueType.slice(0, -1)}>` : valueType;
-  return {
-    valueType,
-    storageType,
-    traced,
-    genericTraced,
-  };
+  return new ClassFieldTypeInfo(valueType, storageType, traced, genericTraced);
 }
 
 function emitClassFieldInitializer(
@@ -7941,9 +7989,8 @@ function emitClassFieldInitializer(
   return result;
 }
 
-interface StaticClassField {
-  statement: ClassStatement;
-  field: ClassFieldMember;
+class StaticClassField {
+  constructor(public statement: ClassStatement, public field: ClassFieldMember) {}
 }
 
 function staticClassFieldForMember(member: MemberExpression): StaticClassField | null {
@@ -7954,7 +8001,7 @@ function staticClassFieldForMember(member: MemberExpression): StaticClassField |
   const propertyName = (member.property as Identifier).name;
   const field = statement.members.find((candidate): candidate is ClassFieldMember =>
     candidate instanceof ClassFieldMember && candidate.isStatic === true && candidate.name.name === propertyName);
-  return field ? { statement, field } : null;
+  return field ? new StaticClassField(statement, field) : null;
 }
 
 function staticFieldAccessorName(field: ClassFieldMember): string {
@@ -8311,9 +8358,8 @@ function emitRecordInterfaceAdapter(statement: InterfaceStatement): string | nul
   ].join("\n");
 }
 
-interface ResolvedInterfaceProperty {
-  property: InterfacePropertyMember;
-  typeName: string;
+class ResolvedInterfaceProperty {
+  constructor(public property: InterfacePropertyMember, public typeName: string) {}
 }
 
 function resolvedInterfaceProperties(
@@ -8341,10 +8387,10 @@ function resolvedInterfaceProperties(
   }
   for (const member of statement.members) {
     if (!(member instanceof InterfacePropertyMember)) continue;
-    properties.set(member.name.name, {
-      property: member,
-      typeName: substituteTypeName(member.typeAnnotation.name, bindings),
-    });
+    properties.set(member.name.name, new ResolvedInterfaceProperty(
+      member,
+      substituteTypeName(member.typeAnnotation.name, bindings)
+    ));
   }
   return [...properties.values()];
 }
@@ -8528,27 +8574,36 @@ function emitClass(statement: ClassStatement): string {
   return withCppTypeParameters(statement.typeParameters, () => emitClassWithActiveTypeParameters(statement));
 }
 
-interface TypedPrimaryConstructorParameter {
-  parameter: ClassPrimaryConstructorParameter;
-  name: string;
-  type: string;
+class TypedPrimaryConstructorParameter {
+  constructor(
+    public parameter: ClassPrimaryConstructorParameter,
+    public name: string,
+    public type: string
+  ) {}
 }
 
-interface TypedClassField extends ClassFieldTypeInfo {
-  field: ClassFieldMember;
-  name: string;
+class TypedClassField {
+  constructor(
+    public field: ClassFieldMember,
+    public name: string,
+    public valueType: string,
+    public storageType: string,
+    public traced: boolean,
+    public genericTraced: boolean
+  ) {}
 }
 
-interface TypedConstructorProperty {
-  parameter: FunctionParameter;
-  typeName: string;
-  type: string;
-  name: string;
+class TypedConstructorProperty {
+  constructor(
+    public parameter: FunctionParameter,
+    public typeName: string,
+    public type: string,
+    public name: string
+  ) {}
 }
 
-interface ClassFieldOutput {
-  access: "public" | "private" | "protected";
-  text: string;
+class ClassFieldOutput {
+  constructor(public access: "public" | "private" | "protected", public text: string) {}
 }
 
 function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
@@ -8605,11 +8660,11 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   const parameters = statement.primaryConstructorParameters ?? [];
   const typedParameters: TypedPrimaryConstructorParameter[] = [];
   for (const parameter of parameters) {
-    typedParameters.push({
+    typedParameters.push(new TypedPrimaryConstructorParameter(
       parameter,
-      name: cppName(parameter.name.name),
-      type: primaryConstructorParameterType(parameter, statement),
-    });
+      cppName(parameter.name.name),
+      primaryConstructorParameterType(parameter, statement)
+    ));
   }
   const typedFieldMembers: TypedClassField[] = [];
   const typedStaticFields: TypedClassField[] = [];
@@ -8618,14 +8673,14 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     const field = rawMember as ClassFieldMember;
     if (field.declared) continue;
     const fieldType = classFieldType(field, statement);
-    const typedField: TypedClassField = {
+    const typedField = new TypedClassField(
       field,
-      name: cppName(field.name.name),
-      valueType: fieldType.valueType,
-      storageType: fieldType.storageType,
-      traced: fieldType.traced,
-      genericTraced: fieldType.genericTraced,
-    };
+      cppName(field.name.name),
+      fieldType.valueType,
+      fieldType.storageType,
+      fieldType.traced,
+      fieldType.genericTraced
+    );
     if (field.isStatic) typedStaticFields.push(typedField);
     else typedFieldMembers.push(typedField);
   }
@@ -8645,7 +8700,12 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     if (!type || type === "void" || !(parameter.name instanceof Identifier)) {
       throw new CppEmitError("C++ constructor parameter properties require supported identifier types", statement);
     }
-    typedConstructorProperties.push({ parameter, typeName: typeName!, type, name: cppName(parameter.name.name) });
+    typedConstructorProperties.push(new TypedConstructorProperty(
+      parameter,
+      typeName!,
+      type,
+      cppName(parameter.name.name)
+    ));
   }
   const sourceConstructorParameterParts: string[] = [];
   for (const rawParameter of typedParameters) {
@@ -8766,7 +8826,10 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     const typedField = rawField as TypedClassField;
     const immutable = Boolean(typedField.field.initializer) &&
       (typedField.field.declarationKind === "val" || typedField.field.declarationKind === "const" || typedField.field.isReadonly);
-    explicitFields.push({ access: typedField.field.accessModifier ?? "public", text: `  ${immutable ? "const " : ""}${typedField.storageType} ${typedField.name};` });
+    explicitFields.push(new ClassFieldOutput(
+      typedField.field.accessModifier ?? "public",
+      `  ${immutable ? "const " : ""}${typedField.storageType} ${typedField.name};`
+    ));
   }
   const staticFieldAccessors: ClassFieldOutput[] = [];
   for (const rawField of typedStaticFields) {
@@ -8776,22 +8839,22 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
       : `vexa::defaultValue<${typedField.valueType}>()`;
     if (typedField.traced) {
       const pointee = typedField.valueType.slice(0, -1);
-      staticFieldAccessors.push({
-        access: typedField.field.accessModifier ?? "public" as const,
-        text: [
+      staticFieldAccessors.push(new ClassFieldOutput(
+        typedField.field.accessModifier ?? "public",
+        [
           `  static ${typedField.valueType} ${staticFieldAccessorName(typedField.field)}() {`,
           `    static cppgc::Persistent<${pointee}> __vexa_value;`,
           `    if (!__vexa_value) __vexa_value = ${initializer};`,
           "    return __vexa_value.Get();",
           "  }",
-        ].join("\n"),
-      });
+        ].join("\n")
+      ));
       continue;
     }
-    staticFieldAccessors.push({
-      access: typedField.field.accessModifier ?? "public" as const,
-      text: `  static ${typedField.valueType}& ${staticFieldAccessorName(typedField.field)}() { static ${typedField.valueType} __vexa_value = ${initializer}; return __vexa_value; }`,
-    });
+    staticFieldAccessors.push(new ClassFieldOutput(
+      typedField.field.accessModifier ?? "public",
+      `  static ${typedField.valueType}& ${staticFieldAccessorName(typedField.field)}() { static ${typedField.valueType} __vexa_value = ${initializer}; return __vexa_value; }`
+    ));
   }
   const fieldLines = [...primaryFields];
   let activeAccess: "public" | "private" | "protected" = "public";
@@ -9630,10 +9693,14 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   ];
   outputLines.push(...declarations);
   if (declarations.length > 0) outputLines.push("");
+  const suggestedInitialHeapMegabytes = Math.min(
+    2048,
+    Math.max(16, Math.ceil(activeExpressionTypes.size / 16))
+  );
   outputLines.push(
     "#define __VEXA_STRING_LITERAL(str) runtime.retainLiteralString(std::u16string((str), sizeof(str) / sizeof(char16_t) - 1))",
     "int main(int argc, char** argv) {",
-    "  vexa::Runtime runtime;",
+    `  vexa::Runtime runtime(${suggestedInitialHeapMegabytes}ULL * 1024 * 1024);`,
     `  runtime.reserveLiterals(${activeStringLiteralNames.size});`
   );
   outputLines.push(...stringLiteralInitializers);

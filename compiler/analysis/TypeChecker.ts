@@ -7,26 +7,29 @@ import { bindingElementPropertyName, bindingElements, bindingIdentifiers, bindin
 
 import type {
   AnalysisIssue,
-  AnalysisSymbol,
   BoundAnalysis,
   CheckedAnalysis,
+} from "./model";
+import {
+  AnalysisSymbol,
   ExtensionPropertyResolution,
   FlowContext,
+  FlowLabel,
   IdentifierResolution,
   JsxAttributeResolution,
   OperatorResolution,
   ReceiverLambdaInfo,
+  Scope,
   SelectedCallResolution,
-  Scope
+  resolveScopeSymbol
 } from "./model";
-import { FlowLabel, resolveScopeSymbol } from "./model";
 import {
     type AnalysisType,
   ArrayType,
   BuiltinType,
   type BuiltinTypeName,
   FunctionType,
-  type FunctionTypeParameter,
+  FunctionTypeParameter,
   NamedType,
   ObjectType,
   RangeType,
@@ -456,7 +459,7 @@ export class TypeChecker {
   }
 
   check(): CheckedAnalysis {
-    this.visitProgram(this.program, this.bound.rootScope, { loopDepth: 0, switchDepth: 0, labels: [] });
+    this.visitProgram(this.program, this.bound.rootScope, new FlowContext(0, 0, []));
     return {
       issues: [...this.issues],
       identifierResolutions: [...this.identifierResolutions],
@@ -478,34 +481,49 @@ export class TypeChecker {
     if (!boundScope) return fallback;
     const mergeFallbackNarrowings = (scope: Scope): Scope => {
       const mergedSymbols = new Map<string, AnalysisSymbol>(scope.symbols);
-      for (const [name, fallbackSymbol] of fallback.symbols) {
+      fallback.symbols.forEach((fallbackSymbol, name) => {
         const currentSymbol = mergedSymbols.get(name);
         if (
           !currentSymbol ||
           (currentSymbol.declaredOffset !== fallbackSymbol.declaredOffset && currentSymbol.node !== fallbackSymbol.node)
         ) {
-          continue;
+          return;
         }
         if (currentSymbol.type === fallbackSymbol.type && currentSymbol.valueType === fallbackSymbol.valueType) {
-          continue;
+          return;
         }
-        mergedSymbols.set(name, {
-          ...currentSymbol,
-          ...(fallbackSymbol.type !== undefined ? { type: fallbackSymbol.type } : {}),
-          ...(fallbackSymbol.valueType !== undefined ? { valueType: fallbackSymbol.valueType } : {})
-        });
-      }
+        mergedSymbols.set(name, new AnalysisSymbol(
+          currentSymbol.name,
+          currentSymbol.kind,
+          currentSymbol.node,
+          currentSymbol.declaredOffset,
+          currentSymbol.isReadonly,
+          currentSymbol.implicitReceiver,
+          currentSymbol.implicitReceiverClassName,
+          currentSymbol.implicitReceiverExtensionReceiver,
+          fallbackSymbol.type ?? currentSymbol.type,
+          fallbackSymbol.valueType ?? currentSymbol.valueType
+        ));
+      });
       const mergedNarrowedExpressionTypes = fallback.narrowedExpressionTypes
         ? new Map<string, AnalysisType>(fallback.narrowedExpressionTypes)
         : scope.narrowedExpressionTypes;
-      return {
-        ...scope,
-        symbols: mergedSymbols,
-        ...(mergedNarrowedExpressionTypes ? { narrowedExpressionTypes: mergedNarrowedExpressionTypes } : {})
-      };
+      return new Scope(
+        scope.node,
+        mergedSymbols,
+        scope.children,
+        scope.parent,
+        mergedNarrowedExpressionTypes
+      );
     };
     if (boundScope.parent && boundScope.parent !== fallback) {
-      return mergeFallbackNarrowings({ ...boundScope, parent: fallback });
+      return mergeFallbackNarrowings(new Scope(
+        boundScope.node,
+        boundScope.symbols,
+        boundScope.children,
+        fallback,
+        boundScope.narrowedExpressionTypes
+      ));
     }
     return mergeFallbackNarrowings(boundScope);
   }
@@ -651,22 +669,30 @@ export class TypeChecker {
       case NodeKind.WhileStatement: {
         const whileStatement = statement as WhileStatement;
         this.visitExpression(whileStatement.condition, scope);
-        const loopFlow: FlowContext = {
-          ...flow,
-          loopDepth: flow.loopDepth + 1,
-          switchDepth: flow.switchDepth
-        };
+        const loopFlow = new FlowContext(
+          flow.loopDepth + 1,
+          flow.switchDepth,
+          flow.labels,
+          flow.expectedReturnType,
+          flow.inAsync,
+          flow.inGenerator,
+          flow.contextualVoidReturn
+        );
         const loopScope = this.scopeFor(whileStatement, scope);
         this.visitStatement(whileStatement.body, loopScope, loopFlow);
         return;
       }
       case NodeKind.DoWhileStatement: {
         const doWhileStatement = statement as DoWhileStatement;
-        const loopFlow: FlowContext = {
-          ...flow,
-          loopDepth: flow.loopDepth + 1,
-          switchDepth: flow.switchDepth
-        };
+        const loopFlow = new FlowContext(
+          flow.loopDepth + 1,
+          flow.switchDepth,
+          flow.labels,
+          flow.expectedReturnType,
+          flow.inAsync,
+          flow.inGenerator,
+          flow.contextualVoidReturn
+        );
         const loopScope = this.scopeFor(doWhileStatement, scope);
         this.visitStatement(doWhileStatement.body, loopScope, loopFlow);
         this.visitExpression(doWhileStatement.condition, scope);
@@ -700,7 +726,15 @@ export class TypeChecker {
           ...(flow.labels ?? []),
           new FlowLabel(labeled.label.name, statementAllowsLabeledContinue(labeled.body))
         ];
-        this.visitStatement(labeled.body, scope, { ...flow, labels });
+        this.visitStatement(labeled.body, scope, new FlowContext(
+          flow.loopDepth,
+          flow.switchDepth,
+          labels,
+          flow.expectedReturnType,
+          flow.inAsync,
+          flow.inGenerator,
+          flow.contextualVoidReturn
+        ));
         return;
       }
       case NodeKind.ReturnStatement: {
@@ -849,7 +883,7 @@ export class TypeChecker {
     const usageOffset = nodeStartOffset(annotation.name);
     const symbol = this.resolve(annotation.name.name, scope, usageOffset);
     if (symbol?.kind === "annotation") {
-      this.identifierResolutions.push({ identifier: annotation.name, symbol });
+      this.identifierResolutions.push(new IdentifierResolution(annotation.name, symbol));
     }
     const declaration = this.resolveAnnotationStatement(annotation.name.name);
     if (!declaration) {
@@ -1094,16 +1128,16 @@ export class TypeChecker {
                 : UNKNOWN_TYPE;
             }
 
-            const accessorFlow: FlowContext = {
-              loopDepth: 0,
-              switchDepth: 0,
-              labels: [],
-              expectedReturnType: accessor.accessorKind === "set"
+            const accessorFlow = new FlowContext(
+              0,
+              0,
+              [],
+              accessor.accessorKind === "set"
                 ? builtinType("void")
                 : explicitType ?? getterType ?? UNKNOWN_TYPE,
-              inAsync: false,
-              inGenerator: false
-            };
+              false,
+              false
+            );
             for (const bodyStatement of accessor.body.body) {
               this.visitStatement(bodyStatement, accessorScope, accessorFlow);
             }
@@ -1242,15 +1276,7 @@ export class TypeChecker {
       if (scope.symbols.has(identifier.name)) {
         continue;
       }
-      scope.symbols.set(identifier.name, {
-        name: identifier.name,
-        kind: "variable",
-        node: identifier,
-        declaredOffset: nodeStartOffset(identifier) ?? -1,
-        isReadonly: declarationKind === "const" || declarationKind === "val",
-        type,
-        valueType: typeToString(type)
-      });
+      scope.symbols.set(identifier.name, new AnalysisSymbol(identifier.name, "variable", identifier, nodeStartOffset(identifier) ?? -1, declarationKind === "const" || declarationKind === "val", undefined, undefined, undefined, type, typeToString(type)));
     }
   }
 
@@ -1448,14 +1474,7 @@ export class TypeChecker {
 
   private defineBindingParameterSymbols(scope: Scope, binding: BindingName, sourceType: AnalysisType): void {
     const define = (name: Identifier, type: AnalysisType): void => {
-      scope.symbols.set(name.name, {
-        name: name.name,
-        kind: "parameter",
-        node: name,
-        declaredOffset: nodeStartOffset(name) ?? -1,
-        type,
-        valueType: typeToString(type)
-      });
+      scope.symbols.set(name.name, new AnalysisSymbol(name.name, "parameter", name, nodeStartOffset(name) ?? -1, undefined, undefined, undefined, undefined, type, typeToString(type)));
     };
     this.visitBindingIdentifiersWithTypes(scope, binding, sourceType, define);
   }
@@ -1651,14 +1670,14 @@ export class TypeChecker {
           }
         }
 
-        const functionFlow: FlowContext = {
-          loopDepth: 0,
-          switchDepth: 0,
-          labels: [],
-          expectedReturnType: returnType,
-          inAsync: asyncLike,
-          inGenerator: statement.generator === true
-        };
+        const functionFlow = new FlowContext(
+          0,
+          0,
+          [],
+          returnType,
+          asyncLike,
+          statement.generator === true
+        );
         for (const bodyStatement of statement.body.body) {
           this.visitStatement(bodyStatement, functionScope, functionFlow);
         }
@@ -1816,15 +1835,7 @@ export class TypeChecker {
           const resolvedMembers = this.resolveNamedTypeMembers(expectedDelegateType);
           if (resolvedMembers) for (const [memberName, memberType] of resolvedMembers) {
             if (!classScope.symbols.has(memberName)) {
-              classScope.symbols.set(memberName, {
-                name: memberName,
-                kind: memberType instanceof FunctionType ? "method" : "variable",
-                node: classDelegate.typeAnnotation,
-                implicitReceiver: true,
-                declaredOffset: -1,
-                type: memberType,
-                valueType: typeToString(memberType)
-              });
+              classScope.symbols.set(memberName, new AnalysisSymbol(memberName, memberType instanceof FunctionType ? "method" : "variable", classDelegate.typeAnnotation, -1, undefined, true, undefined, undefined, memberType, typeToString(memberType)));
               continue;
             }
             this.updateSymbolType(classScope, memberName, memberType);
@@ -1946,14 +1957,14 @@ export class TypeChecker {
               }
             }
             const methodReturnType = declaredMethodReturnType ?? UNKNOWN_TYPE;
-            const methodFlow: FlowContext = {
-              loopDepth: 0,
-              switchDepth: 0,
-              labels: [],
-              expectedReturnType: methodReturnType,
-              inAsync: methodIsAsyncLike,
-              inGenerator: method.generator === true
-            };
+            const methodFlow = new FlowContext(
+              0,
+              0,
+              [],
+              methodReturnType,
+              methodIsAsyncLike,
+              method.generator === true
+            );
             for (const bodyStatement of method.body.body) {
               this.visitStatement(bodyStatement, methodScope, methodFlow);
             }
@@ -2032,11 +2043,15 @@ export class TypeChecker {
 
   private visitForStatement(statement: ForStatement, scope: Scope, flow: FlowContext): void {
     const loopScope = this.scopeFor(statement, scope);
-    const loopFlow: FlowContext = {
-      ...flow,
-      loopDepth: flow.loopDepth + 1,
-      switchDepth: flow.switchDepth
-    };
+    const loopFlow = new FlowContext(
+      flow.loopDepth + 1,
+      flow.switchDepth,
+      flow.labels,
+      flow.expectedReturnType,
+      flow.inAsync,
+      flow.inGenerator,
+      flow.contextualVoidReturn
+    );
 
     if (statement.iterationKind && statement.iterator && statement.iterable) {
       if (!(statement.iterator instanceof VarStatement) && !(statement.iterator instanceof Identifier)) {
@@ -2120,17 +2135,28 @@ export class TypeChecker {
     expressionNarrowings: Map<string, AnalysisType> = new Map()
   ): Scope {
     if (narrowings.size === 0 && expressionNarrowings.size === 0) return scope;
-    const narrowedScope: Scope = {
-      ...(scope.parent ? { parent: scope.parent } : {}),
-      node: scope.node,
-      symbols: new Map(scope.symbols),
-      ...(scope.narrowedExpressionTypes ? { narrowedExpressionTypes: new Map(scope.narrowedExpressionTypes) } : {}),
-      children: scope.children
-    };
+    const narrowedScope = new Scope(
+      scope.node,
+      new Map(scope.symbols),
+      scope.children,
+      scope.parent,
+      scope.narrowedExpressionTypes ? new Map(scope.narrowedExpressionTypes) : undefined
+    );
     for (const [name, type] of narrowings) {
       const symbol = this.resolve(name, scope, undefined);
       if (!symbol) continue;
-      narrowedScope.symbols.set(name, { ...symbol, type, valueType: typeToString(type) });
+      narrowedScope.symbols.set(name, new AnalysisSymbol(
+        symbol.name,
+        symbol.kind,
+        symbol.node,
+        symbol.declaredOffset,
+        symbol.isReadonly,
+        symbol.implicitReceiver,
+        symbol.implicitReceiverClassName,
+        symbol.implicitReceiverExtensionReceiver,
+        type,
+        typeToString(type)
+      ));
     }
     if (expressionNarrowings.size > 0) {
       const narrowedExpressionTypes = narrowedScope.narrowedExpressionTypes ?? new Map<string, AnalysisType>();
@@ -2407,11 +2433,15 @@ export class TypeChecker {
       }
     }
     const switchScope = this.scopeFor(statement, scope);
-    const switchFlow: FlowContext = {
-      ...flow,
-      loopDepth: flow.loopDepth,
-      switchDepth: flow.switchDepth + 1
-    };
+    const switchFlow = new FlowContext(
+      flow.loopDepth,
+      flow.switchDepth + 1,
+      flow.labels,
+      flow.expectedReturnType,
+      flow.inAsync,
+      flow.inGenerator,
+      flow.contextualVoidReturn
+    );
 
     for (const switchCase of statement.cases) {
       const caseScope = this.scopeFor(switchCase, switchScope);
@@ -2485,15 +2515,12 @@ export class TypeChecker {
         const rightType = this.visitExpression(binary.right, rightScope, rightExpectedType);
         const overload = this.resolveOperatorOverload(binary.operator, leftType, rightType, scope);
         if (overload) {
-          this.operatorResolutions.push({
-            expression: binary,
-            symbol: overload.symbol
-          });
+          this.operatorResolutions.push(new OperatorResolution(binary, overload.symbol));
           result = overload.type;
         } else {
           const derivedOverload = this.resolveDerivedComparisonOverload(binary.operator, leftType, rightType, scope);
           if (derivedOverload) {
-            this.operatorResolutions.push({ expression: binary, symbol: derivedOverload.symbol });
+            this.operatorResolutions.push(new OperatorResolution(binary, derivedOverload.symbol));
           }
           result = this.inferBinaryType(binary.operator, leftType, rightType);
           if (this.shouldReportUndefinedOperator(binary.operator, leftType, rightType, result)) {
@@ -2550,14 +2577,14 @@ export class TypeChecker {
           : null;
         if (compoundOverload) {
           const symbol: AnalysisSymbol = compoundOverload.symbol;
-          this.operatorResolutions.push({ expression: assignment, symbol });
+          this.operatorResolutions.push(new OperatorResolution(assignment, symbol));
         }
         const indexSetterOverload = assignment.operator === "="
           ? this.resolveIndexSetterOperatorOverload(assignment.left, rightType, scope)
           : null;
         if (indexSetterOverload) {
           const symbol: AnalysisSymbol = indexSetterOverload.symbol;
-          this.operatorResolutions.push({ expression: assignment, symbol });
+          this.operatorResolutions.push(new OperatorResolution(assignment, symbol));
         }
         const hasIndexSetterCandidates = assignment.operator === "=" &&
           this.hasIndexOperatorCandidates(assignment.left, "[]=");
@@ -2714,7 +2741,7 @@ export class TypeChecker {
           }
           const indexGetterOverload = this.resolveOperatorOverloadForArguments("[]", objectType, indexArgumentTypes, scope);
           if (indexGetterOverload) {
-            this.operatorResolutions.push({ expression: member, symbol: indexGetterOverload.symbol });
+            this.operatorResolutions.push(new OperatorResolution(member, indexGetterOverload.symbol));
             result = this.resolveOptionalAccessType(indexGetterOverload.type, this.hasOptionalAssignmentTarget(member));
             result = this.narrowedExpressionType(scope, member) ?? result;
             break;
@@ -2732,10 +2759,7 @@ export class TypeChecker {
         this.validateKnownMemberAccess(member, objectType, scope);
         const memberSymbol = this.validateTypes ? this.resolveKnownMemberSymbol(member, objectType) : null;
         if (memberSymbol && member.property instanceof Identifier) {
-          this.identifierResolutions.push({
-            identifier: member.property as Identifier,
-            symbol: memberSymbol
-          });
+          this.identifierResolutions.push(new IdentifierResolution(member.property as Identifier, memberSymbol));
         }
         result = this.resolveOptionalAccessType(
           this.resolveKnownMemberType(member, objectType) ?? UNKNOWN_TYPE,
@@ -2752,10 +2776,7 @@ export class TypeChecker {
         this.validateKnownMemberAccess(member, rawObjectType, scope);
         const memberSymbol = this.validateTypes ? this.resolveKnownMemberSymbol(member, rawObjectType) : null;
         if (memberSymbol) {
-          this.identifierResolutions.push({
-            identifier: propertyReference.property,
-            symbol: memberSymbol
-          });
+          this.identifierResolutions.push(new IdentifierResolution(propertyReference.property, memberSymbol));
         }
         result = namedType("Property", [this.resolveKnownMemberType(member, rawObjectType) ?? UNKNOWN_TYPE]);
         break;
@@ -2769,13 +2790,13 @@ export class TypeChecker {
           const receiver = call.callee;
           const receiverType = this.visitExpression(receiver, scope);
           const block = call.args[0] as ArrowFunctionExpression;
-          this.receiverLambdas.set(block, {
+          this.receiverLambdas.set(block, new ReceiverLambdaInfo(
             receiverType,
-            label: "apply",
-            implicitReceiverAlias: this.hasImplicitBraceLambdaParameter(block)
-          });
+            "apply",
+            this.hasImplicitBraceLambdaParameter(block)
+          ));
           const blockType = functionType(
-            [{ name: "this", type: receiverType, receiver: true }],
+            [new FunctionTypeParameter("this", receiverType, true)],
             builtinType("void")
           );
           this.visitExpression(block, scope, blockType);
@@ -2869,12 +2890,12 @@ export class TypeChecker {
             : selectedCallableType;
           const overloadIndex = Math.max(0, callableCandidates.findIndex((candidate) => candidate === bestCallableType));
           if (this.validateTypes) {
-            this.selectedCallResolutions.push({
+            this.selectedCallResolutions.push(new SelectedCallResolution(
               call,
-              callee: call.callee,
-              overload: bestCallableType,
+              call.callee,
+              bestCallableType,
               overloadIndex
-            });
+            ));
           }
           const inferenceArgumentTypes = hasNamedArguments
             ? this.reorderNamedArgumentTypes(call.args, preferredInferenceArguments, bestCallableType)
@@ -3255,7 +3276,7 @@ export class TypeChecker {
         if (unary.operator === "+" || unary.operator === "-") {
           const overload = this.resolveUnaryOperatorOverload(unary.operator, argumentType, scope);
           if (overload) {
-            this.operatorResolutions.push({ expression: unary, symbol: overload.symbol });
+            this.operatorResolutions.push(new OperatorResolution(unary, overload.symbol));
             result = overload.type;
             break;
           }
@@ -3326,11 +3347,11 @@ export class TypeChecker {
             );
           }
           if (contextualReceiver && !this.receiverLambdas.has(arrow)) {
-            this.receiverLambdas.set(arrow, {
-              receiverType: contextualReceiver.type,
-              label: "lambda",
-              implicitReceiverAlias: this.hasImplicitReceiverAlias(arrow, expectedFunctionType)
-            });
+            this.receiverLambdas.set(arrow, new ReceiverLambdaInfo(
+              contextualReceiver.type,
+              "lambda",
+              this.hasImplicitReceiverAlias(arrow, expectedFunctionType)
+            ));
           }
           if (arrow.contextualObjectLiteral && expectedType && !expectedFunctionType) {
             return this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
@@ -3339,14 +3360,7 @@ export class TypeChecker {
           let returnType: AnalysisType;
           if (arrow.body instanceof BlockStatement) {
             const expectedReturnType = expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
-            const arrowFlow: FlowContext = {
-              loopDepth: 0,
-              switchDepth: 0,
-              labels: [],
-              expectedReturnType,
-              inAsync: arrowIsAsyncLike,
-              inGenerator: false
-            };
+            const arrowFlow = new FlowContext(0, 0, [], expectedReturnType, arrowIsAsyncLike, false);
             if (expectedReturnType instanceof BuiltinType && expectedReturnType.name === "void") {
               arrowFlow.contextualVoidReturn = true;
             }
@@ -3395,11 +3409,9 @@ export class TypeChecker {
             arrow.returnType?.name
           );
           if (receiverInfo && inferredFunction instanceof FunctionType) {
-            (inferredFunction as FunctionType).parameters.unshift({
-              name: "this",
-              type: receiverInfo.receiverType,
-              receiver: true
-            });
+            (inferredFunction as FunctionType).parameters.unshift(
+              new FunctionTypeParameter("this", receiverInfo.receiverType, true)
+            );
           }
           return inferredFunction;
             })
@@ -3427,14 +3439,14 @@ export class TypeChecker {
           }
           const expectedReturnType =
             declaredReturnType ?? expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
-          const functionFlow: FlowContext = {
-            loopDepth: 0,
-            switchDepth: 0,
-            labels: [],
+          const functionFlow = new FlowContext(
+            0,
+            0,
+            [],
             expectedReturnType,
-            inAsync: fnIsAsyncLike,
-            inGenerator: fn.generator === true
-          };
+            fnIsAsyncLike,
+            fn.generator === true
+          );
           for (const bodyStatement of fn.body.body) {
             this.visitStatement(bodyStatement, functionScope, functionFlow);
           }
@@ -3905,66 +3917,40 @@ export class TypeChecker {
   private createMethodSymbol(method: ClassMethodMember): AnalysisSymbol {
     if (method.accessorKind === "get" || method.getterShorthand === true) {
       const propertyType = this.typeFromAnnotationLoose(method.returnType, this.classNameForMember(method)) ?? UNKNOWN_TYPE;
-      return {
-        name: method.name.name,
-        kind: "variable",
-        node: method.name,
-        declaredOffset: nodeStartOffset(method.name) ?? -1,
-        type: propertyType,
-        valueType: typeToString(propertyType)
-      };
+      return new AnalysisSymbol(method.name.name, "variable", method.name, nodeStartOffset(method.name) ?? -1, undefined, undefined, undefined, undefined, propertyType, typeToString(propertyType));
     }
     if (method.accessorKind === "set") {
       const propertyType = this.typeFromAnnotationLoose(method.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
-      return {
-        name: method.name.name,
-        kind: "variable",
-        node: method.name,
-        declaredOffset: nodeStartOffset(method.name) ?? -1,
-        type: propertyType,
-        valueType: typeToString(propertyType)
-      };
+      return new AnalysisSymbol(method.name.name, "variable", method.name, nodeStartOffset(method.name) ?? -1, undefined, undefined, undefined, undefined, propertyType, typeToString(propertyType));
     }
 
     const symbolType = functionType(
-      method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-        name: bindingNameText(parameter.name),
-        type: this.functionParameterTypeLoose(parameter),
-        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-        rest: parameter.rest === true
-      })),
+      method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+        bindingNameText(parameter.name),
+        this.functionParameterTypeLoose(parameter),
+        undefined,
+        parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        parameter.rest === true
+      )),
       this.typeFromAnnotationLoose(method.returnType, this.classNameForMember(method)) ?? UNKNOWN_TYPE,
       method.typeParameters ? typeParameterNameList(method.typeParameters) : undefined
     );
-    return {
-      name: method.name.name,
-      kind: "method",
-      node: method.name,
-      declaredOffset: nodeStartOffset(method.name) ?? -1,
-      type: symbolType,
-      valueType: typeToString(symbolType)
-    };
+    return new AnalysisSymbol(method.name.name, "method", method.name, nodeStartOffset(method.name) ?? -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType));
   }
 
   private createFunctionSymbol(statement: FunctionStatement): AnalysisSymbol {
     const symbolType = functionType(
-      statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-        name: bindingNameText(parameter.name),
-        type: this.functionParameterTypeLoose(parameter),
-        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-        rest: parameter.rest === true
-      })),
+      statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+        bindingNameText(parameter.name),
+        this.functionParameterTypeLoose(parameter),
+        undefined,
+        parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        parameter.rest === true
+      )),
       this.typeFromAnnotationLoose(statement.returnType, statement.receiverType?.name) ?? UNKNOWN_TYPE,
       statement.typeParameters ? typeParameterNameList(statement.typeParameters) : undefined
     );
-    return {
-      name: statement.name.name,
-      kind: "function",
-      node: statement.name,
-      declaredOffset: nodeStartOffset(statement.name) ?? -1,
-      type: symbolType,
-      valueType: typeToString(symbolType)
-    };
+    return new AnalysisSymbol(statement.name.name, "function", statement.name, nodeStartOffset(statement.name) ?? -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType));
   }
 
 
@@ -4837,12 +4823,13 @@ export class TypeChecker {
     returnTypeText?: string
   ): AnalysisType {
     return functionType(
-      parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-        name: bindingNameText(parameter.name),
-        type: this.functionParameterType(parameter, scope),
-        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-        rest: parameter.rest === true
-      })),
+      parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+        bindingNameText(parameter.name),
+        this.functionParameterType(parameter, scope),
+        undefined,
+        parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        parameter.rest === true
+      )),
       returnType,
       typeParameterNameList(typeParameters),
       this.typeParameterConstraintMap(typeParameters, scope),
@@ -5193,11 +5180,11 @@ export class TypeChecker {
           : undefined;
         if (receiver) {
           const arrow = argument as ArrowFunctionExpression;
-          this.receiverLambdas.set(arrow, {
-            receiverType: receiver.type,
-            label: this.receiverLabelForCall(call),
-            implicitReceiverAlias: this.hasImplicitReceiverAlias(arrow, expectedFunction)
-          });
+          this.receiverLambdas.set(arrow, new ReceiverLambdaInfo(
+            receiver.type,
+            this.receiverLabelForCall(call),
+            this.hasImplicitReceiverAlias(arrow, expectedFunction)
+          ));
         }
       }
 
@@ -5557,13 +5544,13 @@ export class TypeChecker {
 
     const substituted = this.substituteTypeParameters(calleeType, substitutions) as FunctionType;
     return functionType(
-      substituted.parameters.map((parameter) => ({
-        name: parameter.name,
-        type: parameter.type,
-        ...(parameter.receiver ? { receiver: true } : {}),
-        ...(parameter.optional !== undefined ? { optional: parameter.optional } : {}),
-        ...(parameter.rest ? { rest: true } : {})
-      })),
+      substituted.parameters.map((parameter) => new FunctionTypeParameter(
+        parameter.name,
+        parameter.type,
+        parameter.receiver || undefined,
+        parameter.optional,
+        parameter.rest || undefined
+      )),
       substituted.returnType,
       substituted.typeParameters,
       substituted.typeParameterConstraints,
@@ -6438,16 +6425,17 @@ export class TypeChecker {
         const methodParameters: FunctionTypeParameter[] = [];
         for (const parameter of methodMember.parameters) {
           if (parameter.thisParameter === true) continue;
-          methodParameters.push({
-            name: bindingNameText(parameter.name),
-            type: this.typeFromAnnotationLooseWithTypeParameters(
+          methodParameters.push(new FunctionTypeParameter(
+            bindingNameText(parameter.name),
+            this.typeFromAnnotationLooseWithTypeParameters(
               parameter.typeAnnotation,
               availableTypeParameterNames,
               interfaceStatement.name.name
             ) ?? UNKNOWN_TYPE,
-            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-            rest: parameter.rest === true
-          });
+            undefined,
+            parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+            parameter.rest === true
+          ));
         }
         return functionType(
           methodParameters,
@@ -6518,10 +6506,10 @@ export class TypeChecker {
       const tupleRestType = restParameter.type as TupleType;
       const expanded = parameters.slice(0, -1);
       for (let index = 0; index < tupleRestType.elements.length; index += 1) {
-        expanded.push({
-          name: `${restParameter.name}${index + 1}`,
-          type: tupleRestType.elements[index]!
-        });
+        expanded.push(new FunctionTypeParameter(
+          `${restParameter.name}${index + 1}`,
+          tupleRestType.elements[index]!
+        ));
       }
       return expanded;
     };
@@ -6646,7 +6634,7 @@ export class TypeChecker {
 
       const attributeSymbol = this.resolveJsxAttributeSymbol(jsxElement, attribute, expectedType);
       if (attributeSymbol) {
-        this.jsxAttributeResolutions.push({ attribute, symbol: attributeSymbol });
+        this.jsxAttributeResolutions.push(new JsxAttributeResolution(attribute, attributeSymbol));
       }
 
       if (provided.has(attribute.name)) {
@@ -7096,21 +7084,23 @@ export class TypeChecker {
       if (constructorMember) {
         const concreteConstructor = constructorMember as ClassMethodMember;
         for (const parameter of concreteConstructor.parameters) {
-          parameters.push({
-            name: bindingNameText(parameter.name),
-            type: this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE,
-            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-            rest: parameter.rest === true
-          });
+          parameters.push(new FunctionTypeParameter(
+            bindingNameText(parameter.name),
+            this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE,
+            undefined,
+            parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+            parameter.rest === true
+          ));
         }
       } else {
         for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-          parameters.push({
-            name: parameter.name.name,
-            type: this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE,
-            optional: parameter.defaultValue !== undefined,
-            rest: false
-          });
+          parameters.push(new FunctionTypeParameter(
+            parameter.name.name,
+            this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE,
+            undefined,
+            parameter.defaultValue !== undefined,
+            false
+          ));
         }
       }
       return functionType(
@@ -7168,34 +7158,35 @@ export class TypeChecker {
     const typeParameterNames = typeParameterNameList(constructorMember.typeParameters ?? []);
     if (constructorInterfaceName === "PromiseConstructor") {
       return functionType(
-        [{
-          name: "executor",
-          type: functionType(
+        [new FunctionTypeParameter(
+          "executor",
+          functionType(
             [
-              {
-                name: "resolve",
-                type: functionType([{ name: "arg1", type: namedType("T") }], builtinType("void"))
-              },
-              {
-                name: "reject",
-                type: functionType([{ name: "arg1", type: namedType("Error") }], builtinType("void"))
-              }
+              new FunctionTypeParameter(
+                "resolve",
+                functionType([new FunctionTypeParameter("arg1", namedType("T"))], builtinType("void"))
+              ),
+              new FunctionTypeParameter(
+                "reject",
+                functionType([new FunctionTypeParameter("arg1", namedType("Error"))], builtinType("void"))
+              )
             ],
             builtinType("void")
           )
-        }],
+        )],
         namedType("Promise", [namedType("T")]),
         ["T"]
       );
     }
     return this.withTypeParametersResult<FunctionType>(typeParameterNames, (): FunctionType => {
       return functionType(
-        constructorMember.parameters.map((parameter) => ({
-          name: bindingNameText(parameter.name),
-          type: this.typeFromAnnotationLooseWithTypeParameters(parameter.typeAnnotation, typeParameterNames) ?? UNKNOWN_TYPE,
-          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-          rest: parameter.rest === true
-        })),
+        constructorMember.parameters.map((parameter) => new FunctionTypeParameter(
+          bindingNameText(parameter.name),
+          this.typeFromAnnotationLooseWithTypeParameters(parameter.typeAnnotation, typeParameterNames) ?? UNKNOWN_TYPE,
+          undefined,
+          parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          parameter.rest === true
+        )),
         this.typeFromAnnotationLooseWithTypeParameters(constructorMember.returnType, typeParameterNames) ?? UNKNOWN_TYPE,
         typeParameterNames,
         this.typeParameterConstraintMapLoose(constructorMember.typeParameters ?? [], typeParameterNames),
@@ -8015,10 +8006,7 @@ export class TypeChecker {
       if ((symbol && (symbol.kind === "class" || symbol.kind === "variable")) || hasKnownNamedType) {
         if (captureResolution && node instanceof Identifier) {
           if (symbol) {
-            this.identifierResolutions.push({
-              identifier: node as Identifier,
-              symbol
-            });
+            this.identifierResolutions.push(new IdentifierResolution(node as Identifier, symbol));
           }
         }
         this.validateNamedTypeArgumentConstraints(parsed.baseName, resolvedTypeArguments, node, scope);
@@ -9539,7 +9527,7 @@ export class TypeChecker {
       : identifier.name;
     const symbol = this.resolve(lookupName, scope, usageOffset);
     if (symbol) {
-      this.identifierResolutions.push({ identifier, symbol });
+      this.identifierResolutions.push(new IdentifierResolution(identifier, symbol));
       return symbol.type ?? UNKNOWN_TYPE;
     }
     this.issues.push({
@@ -9647,12 +9635,12 @@ export class TypeChecker {
     expectedFunctionType?: FunctionType
   ): Scope {
     const existingScope = this.bound.scopeByNode.get(node);
-    const functionScope: Scope = existingScope ?? {
-      parent: parentScope,
+    const functionScope = existingScope ?? new Scope(
       node,
-      symbols: new Map<string, AnalysisSymbol>(),
-      children: []
-    };
+      new Map<string, AnalysisSymbol>(),
+      [],
+      parentScope
+    );
     functionScope.parent = parentScope;
     functionScope.symbols.clear();
     if (!existingScope) {
@@ -9709,16 +9697,18 @@ export class TypeChecker {
       const extensionReceiver = this.extensionMethodsByReceiver.get(receiverName)?.has(name) === true
         ? receiverName
         : undefined;
-      scope.symbols.set(name, {
+      scope.symbols.set(name, new AnalysisSymbol(
         name,
-        kind: type instanceof FunctionType ? "method" : "variable",
+        type instanceof FunctionType ? "method" : "variable",
         node,
-        declaredOffset: -1,
-        implicitReceiver: true,
-        ...(extensionReceiver ? { implicitReceiverExtensionReceiver: extensionReceiver } : {}),
+        -1,
+        undefined,
+        true,
+        undefined,
+        extensionReceiver,
         type,
-        valueType: typeToString(type)
-      });
+        typeToString(type)
+      ));
     }
     const declaredExtensionNames = new Set<string>();
     for (const extensionReceiverName of receiverNames) {
@@ -9731,31 +9721,13 @@ export class TypeChecker {
         const resolvedType = importedType instanceof FunctionType
           ? importedType
           : type;
-        scope.symbols.set(name, {
-          name,
-          kind: "method",
-          node,
-          declaredOffset: -1,
-          implicitReceiver: true,
-          implicitReceiverExtensionReceiver: extensionReceiverName,
-          type: resolvedType,
-          valueType: typeToString(resolvedType)
-        });
+        scope.symbols.set(name, new AnalysisSymbol(name, "method", node, -1, undefined, true, undefined, extensionReceiverName, resolvedType, typeToString(resolvedType)));
       }
       for (const [name, property] of this.extensionPropertiesByReceiver.get(extensionReceiverName) ?? []) {
         if (declaredExtensionNames.has(name)) continue;
         declaredExtensionNames.add(name);
         const type = this.specializeExtensionPropertyType(receiverType, extensionReceiverName, property);
-        scope.symbols.set(name, {
-          name,
-          kind: "variable",
-          node: property.declaration.name,
-          declaredOffset: -1,
-          implicitReceiver: true,
-          implicitReceiverExtensionReceiver: extensionReceiverName,
-          type,
-          valueType: typeToString(type)
-        });
+        scope.symbols.set(name, new AnalysisSymbol(name, "variable", property.declaration.name, -1, undefined, true, undefined, extensionReceiverName, type, typeToString(type)));
       }
     }
     for (const [name, methods] of this.genericReceiverExtensionMethods) {
@@ -9766,37 +9738,25 @@ export class TypeChecker {
         method.receiverTypeParameter,
         receiverType
       );
-      scope.symbols.set(name, {
-        name,
-        kind: "method",
-        node,
-        declaredOffset: -1,
-        implicitReceiver: true,
-        implicitReceiverExtensionReceiver: method.receiverTypeParameter,
-        type,
-        valueType: typeToString(type)
-      });
+      scope.symbols.set(name, new AnalysisSymbol(name, "method", node, -1, undefined, true, undefined, method.receiverTypeParameter, type, typeToString(type)));
     }
-    const receiverSymbol: AnalysisSymbol = {
-      name: "this",
-      kind: "variable",
-      node,
-      declaredOffset: -1,
-      type: receiverType,
-      valueType: typeToString(receiverType)
-    };
+    const receiverSymbol: AnalysisSymbol = new AnalysisSymbol("this", "variable", node, -1, undefined, undefined, undefined, undefined, receiverType, typeToString(receiverType));
     scope.symbols.set("this", receiverSymbol);
-    scope.symbols.set(`this@${info.label}`, { ...receiverSymbol, name: `this@${info.label}` });
+    scope.symbols.set(`this@${info.label}`, new AnalysisSymbol(
+      `this@${info.label}`,
+      receiverSymbol.kind,
+      receiverSymbol.node,
+      receiverSymbol.declaredOffset,
+      receiverSymbol.isReadonly,
+      receiverSymbol.implicitReceiver,
+      receiverSymbol.implicitReceiverClassName,
+      receiverSymbol.implicitReceiverExtensionReceiver,
+      receiverSymbol.type,
+      receiverSymbol.valueType
+    ));
     if (info.implicitReceiverAlias && parameters[0]?.name instanceof Identifier) {
       const identifier = parameters[0]!.name as Identifier;
-      scope.symbols.set(identifier.name, {
-        name: identifier.name,
-        kind: "parameter",
-        node: identifier,
-        declaredOffset: -1,
-        type: receiverType,
-        valueType: typeToString(receiverType)
-      });
+      scope.symbols.set(identifier.name, new AnalysisSymbol(identifier.name, "parameter", identifier, -1, undefined, undefined, undefined, undefined, receiverType, typeToString(receiverType)));
     }
   }
 
@@ -10521,11 +10481,11 @@ export class TypeChecker {
       const property = properties.get(propertyName);
       if (property) {
         if (expression) {
-          this.extensionPropertyResolutions.set(expression, {
+          this.extensionPropertyResolutions.set(expression, new ExtensionPropertyResolution(
             expression,
-            declaration: property.declaration,
-            receiverTypeArguments: this.extensionReceiverTypeArguments(objectType, receiverName)
-          });
+            property.declaration,
+            this.extensionReceiverTypeArguments(objectType, receiverName)
+          ));
         }
         return this.specializeExtensionPropertyType(objectType, receiverName, property);
       }
@@ -10603,12 +10563,13 @@ export class TypeChecker {
       if (!extension.receiverType || extension.operator) continue;
       const methods = this.extensionMethodsByReceiver.get(extension.receiverType.name) ?? new Map<string, AnalysisType>();
       const methodType = functionType(
-        extension.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-          name: bindingNameText(parameter.name),
-          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-          rest: parameter.rest === true
-        })),
+        extension.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+          bindingNameText(parameter.name),
+          this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+          undefined,
+          parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          parameter.rest === true
+        )),
         this.typeFromAnnotationLoose(extension.returnType, extension.receiverType.name) ?? UNKNOWN_TYPE,
         extension.typeParameters ? typeParameterNameList(extension.typeParameters) : undefined
       );
@@ -11386,12 +11347,12 @@ export class TypeChecker {
       if (member.name.name !== memberName) {
         continue;
       }
-      return {
-        name: memberName,
-        kind: member instanceof InterfaceMethodMember ? "method" : "variable",
-        node: member.name,
-        declaredOffset: nodeStartOffset(member.name) ?? -1
-      };
+      return new AnalysisSymbol(
+        memberName,
+        member instanceof InterfaceMethodMember ? "method" : "variable",
+        member.name,
+        nodeStartOffset(member.name) ?? -1
+      );
     }
 
     for (const parentType of interfaceStatement.extendsTypes ?? []) {
@@ -11831,16 +11792,20 @@ export class TypeChecker {
       const typeParameterNames = typeParameterNameList(fn.typeParameters ?? []);
       const availableTypeParameterNames: string[] = [...typeParameterNames];
       const functionMemberType = this.withTypeParametersResult<FunctionType>(typeParameterNames, (): FunctionType => {
-        const params = (fn.parameters ?? []).filter((parameter) => parameter.thisParameter !== true).map((p) => ({
-          name: p.name instanceof Identifier ? (p.name as Identifier).name : memberName,
-          type: this.typeFromAnnotationLooseWithTypeParameters(
-            p.typeAnnotation,
-            availableTypeParameterNames,
-            fn.receiverType?.name
-          ) ?? UNKNOWN_TYPE,
-          optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
-          rest: p.rest === true,
-        }));
+        const params = (fn.parameters ?? []).filter((parameter) => parameter.thisParameter !== true).map((p) => {
+          const parameterName = p.name instanceof Identifier ? p.name.name : memberName;
+          return new FunctionTypeParameter(
+            parameterName,
+            this.typeFromAnnotationLooseWithTypeParameters(
+              p.typeAnnotation,
+              availableTypeParameterNames,
+              fn.receiverType?.name
+            ) ?? UNKNOWN_TYPE,
+            undefined,
+            p.optional === true || p.defaultValue !== undefined || p.rest === true,
+            p.rest === true
+          );
+        });
         return functionType(
           params,
           this.typeFromAnnotationLooseWithTypeParameters(
@@ -12001,16 +11966,17 @@ export class TypeChecker {
         const parameters: FunctionTypeParameter[] = [];
         for (const parameter of methodMember.parameters) {
           if (parameter.thisParameter === true) continue;
-          parameters.push({
-            name: bindingNameText(parameter.name),
-            type: this.typeFromAnnotationLooseWithTypeParameters(
+          parameters.push(new FunctionTypeParameter(
+            bindingNameText(parameter.name),
+            this.typeFromAnnotationLooseWithTypeParameters(
               parameter.typeAnnotation,
               availableTypeParameterNames,
               interfaceStatement.name.name
             ) ?? UNKNOWN_TYPE,
-            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-            rest: parameter.rest === true
-          });
+            undefined,
+            parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+            parameter.rest === true
+          ));
         }
         return functionType(
           parameters,
@@ -12202,16 +12168,17 @@ export class TypeChecker {
           const parameters: FunctionTypeParameter[] = [];
           for (const parameter of methodMember.parameters) {
             if (parameter.thisParameter === true) continue;
-            parameters.push({
-              name: bindingNameText(parameter.name),
-              type: this.typeFromAnnotationLooseWithTypeParameters(
+            parameters.push(new FunctionTypeParameter(
+              bindingNameText(parameter.name),
+              this.typeFromAnnotationLooseWithTypeParameters(
                 parameter.typeAnnotation,
                 availableTypeParameterNames,
                 classStatement.name.name
               ) ?? UNKNOWN_TYPE,
-              optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-              rest: parameter.rest === true
-            });
+              undefined,
+              parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+              parameter.rest === true
+            ));
           }
           return functionType(
             parameters,
@@ -12602,12 +12569,13 @@ export class TypeChecker {
       const parameters: FunctionTypeParameter[] = [];
       for (const parameter of methodMember.parameters) {
         if (parameter.thisParameter === true) continue;
-        parameters.push({
-          name: bindingNameText(parameter.name),
-          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-          rest: parameter.rest === true
-        });
+        parameters.push(new FunctionTypeParameter(
+          bindingNameText(parameter.name),
+          this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+          undefined,
+          parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          parameter.rest === true
+        ));
       }
       return this.substituteTypeParameters(functionType(
         parameters,
@@ -13691,12 +13659,12 @@ export class TypeChecker {
       const functionSource = type as FunctionType;
       const parameters: FunctionTypeParameter[] = [];
       for (const parameter of functionSource.parameters) {
-        parameters.push({
-          name: parameter.name,
-          type: this.expandTypeAliases(parameter.type),
-          ...(parameter.receiver ? { receiver: true } : {}),
-          ...(parameter.optional !== undefined ? { optional: parameter.optional } : {})
-        });
+        parameters.push(new FunctionTypeParameter(
+          parameter.name,
+          this.expandTypeAliases(parameter.type),
+          parameter.receiver || undefined,
+          parameter.optional
+        ));
       }
       return functionType(
         parameters,
@@ -13826,13 +13794,13 @@ export class TypeChecker {
       }
       const parameters: FunctionTypeParameter[] = [];
       for (const parameter of functionSource.parameters) {
-        parameters.push({
-          name: parameter.name,
-          type: this.substituteTypeParameters(parameter.type, substitutions),
-          ...(parameter.receiver ? { receiver: true } : {}),
-          ...(parameter.optional !== undefined ? { optional: parameter.optional } : {}),
-          ...(parameter.rest ? { rest: true } : {})
-        });
+        parameters.push(new FunctionTypeParameter(
+          parameter.name,
+          this.substituteTypeParameters(parameter.type, substitutions),
+          parameter.receiver || undefined,
+          parameter.optional,
+          parameter.rest || undefined
+        ));
       }
       return functionType(
         parameters,
@@ -13907,18 +13875,19 @@ export class TypeChecker {
       return null;
     }
     const parameters: FunctionTypeParameter[] = parsed.receiverTypeName
-      ? [{
-          name: "this",
-          type: this.resolveTypeNameText(parsed.receiverTypeName, node, scope, false),
-          receiver: true
-        }]
+      ? [new FunctionTypeParameter(
+          "this",
+          this.resolveTypeNameText(parsed.receiverTypeName, node, scope, false),
+          true
+        )]
       : [];
-    parameters.push(...parsed.parameters.map((parameter) => ({
-      name: parameter.name,
-      type: this.resolveTypeNameText(parameter.typeName, node, scope, false),
-      ...(parameter.optional ? { optional: true } : {}),
-      ...(parameter.rest ? { rest: true } : {})
-    })));
+    parameters.push(...parsed.parameters.map((parameter) => new FunctionTypeParameter(
+      parameter.name,
+      this.resolveTypeNameText(parameter.typeName, node, scope, false),
+      undefined,
+      parameter.optional || undefined,
+      parameter.rest || undefined
+    )));
     return functionType(
       parameters,
       this.resolveTypeNameText(parsed.returnTypeName, node, scope, false),
@@ -13953,19 +13922,20 @@ export class TypeChecker {
     const parsedAssertion = parseAssertionTypePredicateText(parsed.returnTypeName) as AssertionTypePredicateText | null;
     const parameters: FunctionTypeParameter[] = [];
     if (parsed.receiverTypeName) {
-      parameters.push({
-        name: "this",
-        type: this.typeFromTypeNameLoose(parsed.receiverTypeName),
-        receiver: true
-      });
+      parameters.push(new FunctionTypeParameter(
+        "this",
+        this.typeFromTypeNameLoose(parsed.receiverTypeName),
+        true
+      ));
     }
     for (const parameter of parsed.parameters) {
-      parameters.push({
-        name: parameter.name,
-        type: this.typeFromTypeNameLoose(parameter.typeName),
-        optional: parameter.optional === true,
-        rest: parameter.rest === true
-      });
+      parameters.push(new FunctionTypeParameter(
+        parameter.name,
+        this.typeFromTypeNameLoose(parameter.typeName),
+        undefined,
+        parameter.optional === true,
+        parameter.rest === true
+      ));
     }
     return functionType(
       parameters,

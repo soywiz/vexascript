@@ -104,13 +104,15 @@ export class NamedType extends NamedAnalysisType {
   }
 }
 
-export interface FunctionTypeParameter {
-  name: string;
-  type: AnalysisType;
-  /** Hidden leading receiver argument declared by `Receiver.(...) => Result`. */
-  receiver?: boolean;
-  optional?: boolean;
-  rest?: boolean;
+export class FunctionTypeParameter {
+  constructor(
+    public name: string,
+    public type: AnalysisType,
+    /** Hidden leading receiver argument declared by `Receiver.(...) => Result`. */
+    public receiver?: boolean,
+    public optional?: boolean,
+    public rest?: boolean
+  ) {}
 }
 
 export class FunctionType extends AnalysisType {

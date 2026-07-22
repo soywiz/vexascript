@@ -6,18 +6,20 @@ import type { AnalysisIssueCode, AnalysisIssueData } from "./issueCodes";
 export type AnalysisSymbolKind = "variable" | "parameter" | "function" | "class" | "method" | "annotation";
 export type AnalysisValueType = string;
 
-export interface AnalysisSymbol {
-  name: string;
-  kind: AnalysisSymbolKind;
-  node: Node;
-  declaredOffset: number;
-  isReadonly?: boolean;
-  implicitReceiver?: boolean;
-  implicitReceiverClassName?: string;
-  /** Set when this implicit receiver symbol is a user-defined extension method/property on a receiver type. */
-  implicitReceiverExtensionReceiver?: string;
-  type?: AnalysisType;
-  valueType?: AnalysisValueType;
+export class AnalysisSymbol {
+  constructor(
+    public name: string,
+    public kind: AnalysisSymbolKind,
+    public node: Node,
+    public declaredOffset: number = -1,
+    public isReadonly?: boolean,
+    public implicitReceiver?: boolean,
+    public implicitReceiverClassName?: string,
+    /** Set when this implicit receiver symbol is a user-defined extension method/property on a receiver type. */
+    public implicitReceiverExtensionReceiver?: string,
+    public type?: AnalysisType,
+    public valueType: AnalysisValueType = "unknown"
+  ) {}
 }
 
 export interface AnalysisIssue {
@@ -28,26 +30,30 @@ export interface AnalysisIssue {
   data?: AnalysisIssueData;
 }
 
-export interface Scope {
-  parent?: Scope;
-  node: Node;
-  symbols: Map<string, AnalysisSymbol>;
-  narrowedExpressionTypes?: Map<string, AnalysisType>;
-  children: Scope[];
+export class Scope {
+  constructor(
+    public node: Node,
+    public symbols: Map<string, AnalysisSymbol>,
+    public children: Scope[],
+    public parent?: Scope,
+    public narrowedExpressionTypes?: Map<string, AnalysisType>
+  ) {}
 }
 
 export class FlowLabel {
   constructor(public name: string, public allowsContinue: boolean) {}
 }
 
-export interface FlowContext {
-  loopDepth: number;
-  switchDepth: number;
-  labels?: FlowLabel[];
-  expectedReturnType?: AnalysisType;
-  inAsync?: boolean;
-  inGenerator?: boolean;
-  contextualVoidReturn?: boolean;
+export class FlowContext {
+  constructor(
+    public loopDepth: number,
+    public switchDepth: number,
+    public labels?: FlowLabel[],
+    public expectedReturnType?: AnalysisType,
+    public inAsync?: boolean,
+    public inGenerator?: boolean,
+    public contextualVoidReturn?: boolean
+  ) {}
 }
 
 export interface BoundAnalysis {
@@ -75,38 +81,41 @@ export function resolveScopeSymbol(
   return null;
 }
 
-export interface IdentifierResolution {
-  identifier: Identifier;
-  symbol: AnalysisSymbol;
+export class IdentifierResolution {
+  constructor(public identifier: Identifier, public symbol: AnalysisSymbol) {}
 }
 
-export interface JsxAttributeResolution {
-  attribute: JsxAttribute;
-  symbol: AnalysisSymbol;
+export class JsxAttributeResolution {
+  constructor(public attribute: JsxAttribute, public symbol: AnalysisSymbol) {}
 }
 
-export interface OperatorResolution {
-  expression: Node;
-  symbol: AnalysisSymbol;
+export class OperatorResolution {
+  constructor(public expression: Node, public symbol: AnalysisSymbol) {}
 }
 
-export interface ExtensionPropertyResolution {
-  expression: MemberExpression;
-  declaration: VarStatement;
-  receiverTypeArguments: AnalysisType[];
+export class ExtensionPropertyResolution {
+  constructor(
+    public expression: MemberExpression,
+    public declaration: VarStatement,
+    public receiverTypeArguments: AnalysisType[]
+  ) {}
 }
 
-export interface SelectedCallResolution {
-  call: Node;
-  callee: Node;
-  overload: FunctionType;
-  overloadIndex: number;
+export class SelectedCallResolution {
+  constructor(
+    public call: Node,
+    public callee: Node,
+    public overload: FunctionType,
+    public overloadIndex: number
+  ) {}
 }
 
-export interface ReceiverLambdaInfo {
-  receiverType: AnalysisType;
-  label: string;
-  implicitReceiverAlias: boolean;
+export class ReceiverLambdaInfo {
+  constructor(
+    public receiverType: AnalysisType,
+    public label: string,
+    public implicitReceiverAlias: boolean
+  ) {}
 }
 
 export interface CheckedAnalysis {

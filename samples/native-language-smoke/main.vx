@@ -773,6 +773,13 @@ switch (Permission.All) {
 }
 
 console.log("strings", "  Vexa  ".trim().toUpperCase(), "language".includes("gua"))
+val concatenationOrder: string[] = []
+fun concatenationPart(value: string): string {
+  concatenationOrder.push(value)
+  return value
+}
+val concatenated = "a" + concatenationPart("b") + concatenationPart("c") + concatenationPart("d")
+console.log("string concatenation", concatenated, concatenationOrder.join(""))
 val smokeParameter = SmokeFunctionParameter(SmokeNodeName(SmokeNodeKind.ExprStatement, "it"))
 val smokeCallable = SmokeCallableShape([smokeParameter])
 console.log(

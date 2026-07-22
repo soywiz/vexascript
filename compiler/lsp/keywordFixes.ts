@@ -3,7 +3,7 @@ import type { Program } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
-import { walkAst } from "compiler/ast/traversal";
+import { walkAstUntil } from "compiler/ast/traversal";
 import { findNodeAtPosition } from "./nodeSearch";
 
 export interface KeywordReplacement {
@@ -62,7 +62,7 @@ function collectDeclaredNames(varStatement: VarStatement): Set<string> {
 
 function isReassigned(ast: Program, names: Set<string>): boolean {
   let found = false;
-  walkAst(ast, (node) => {
+  walkAstUntil(ast, (node) => {
     if (found) return false;
     if (node instanceof AssignmentExpression) {
       const left = (node as AssignmentExpression).left;
@@ -78,7 +78,7 @@ function isReassigned(ast: Program, names: Set<string>): boolean {
         return false;
       }
     }
-    return undefined;
+    return true;
   });
   return found;
 }

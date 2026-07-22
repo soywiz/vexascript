@@ -13,11 +13,12 @@ import {
   typeToString,
   UNKNOWN_TYPE,
   unionType,
-  BUILTIN_TYPE_NAMES, UnionType, FunctionType, NamedType
+  BUILTIN_TYPE_NAMES, UnionType, FunctionType, FunctionTypeParameter, NamedType
 } from "./types";
 import { parseFunctionTypeAnnotation, parseTypeNameShape, splitArraySuffixTypeName, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, tupleElementTypeText } from "./typeNames";
-import type { AnalysisType, BuiltinTypeName, FunctionTypeParameter } from "./types";
-import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
+import type { AnalysisType, BuiltinTypeName } from "./types";
+import { AnalysisSymbol, Scope } from "./model";
+import type { BoundAnalysis } from "./model";
 import type { AnalysisIssue } from "./model";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
@@ -36,29 +37,29 @@ const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typ
   ["null", builtinType("null")],
   ["undefined", builtinType("undefined")],
   ["console", objectTypeWithProperties({
-    log: functionType([{ name: "args", type: UNKNOWN_TYPE, rest: true }], builtinType("void")),
-    error: functionType([{ name: "args", type: UNKNOWN_TYPE, rest: true }], builtinType("void")),
-    warn: functionType([{ name: "args", type: UNKNOWN_TYPE, rest: true }], builtinType("void")),
-    info: functionType([{ name: "args", type: UNKNOWN_TYPE, rest: true }], builtinType("void"))
+    log: functionType([new FunctionTypeParameter("args", UNKNOWN_TYPE, undefined, undefined, true)], builtinType("void")),
+    error: functionType([new FunctionTypeParameter("args", UNKNOWN_TYPE, undefined, undefined, true)], builtinType("void")),
+    warn: functionType([new FunctionTypeParameter("args", UNKNOWN_TYPE, undefined, undefined, true)], builtinType("void")),
+    info: functionType([new FunctionTypeParameter("args", UNKNOWN_TYPE, undefined, undefined, true)], builtinType("void"))
   })],
   ["setTimeout", functionType([
-    { name: "code", type: functionType(noFunctionParameters(), builtinType("void")) },
-    { name: "time", type: builtinType("number") },
-    { name: "arguments", type: UNKNOWN_TYPE, rest: true }
+    new FunctionTypeParameter("code", functionType(noFunctionParameters(), builtinType("void"))),
+    new FunctionTypeParameter("time", builtinType("number")),
+    new FunctionTypeParameter("arguments", UNKNOWN_TYPE, undefined, undefined, true)
   ], builtinType("int"))],
   ["setInterval", functionType([
-    { name: "code", type: functionType(noFunctionParameters(), builtinType("void")) },
-    { name: "time", type: builtinType("number") },
-    { name: "arguments", type: UNKNOWN_TYPE, rest: true }
+    new FunctionTypeParameter("code", functionType(noFunctionParameters(), builtinType("void"))),
+    new FunctionTypeParameter("time", builtinType("number")),
+    new FunctionTypeParameter("arguments", UNKNOWN_TYPE, undefined, undefined, true)
   ], builtinType("int"))],
   ["clearTimeout", functionType([
-    { name: "id", type: builtinType("int") }
+    new FunctionTypeParameter("id", builtinType("int"))
   ], builtinType("void"))],
   ["clearInterval", functionType([
-    { name: "id", type: builtinType("int") }
+    new FunctionTypeParameter("id", builtinType("int"))
   ], builtinType("void"))],
   ["readTextFile", functionType([
-    { name: "path", type: builtinType("string") }
+    new FunctionTypeParameter("path", builtinType("string"))
   ], namedType("Promise", [builtinType("string")]))]
 ]);
 
@@ -141,12 +142,7 @@ export class Binder {
   }
 
   private createScope(parent: Scope | undefined, node: Node): Scope {
-    const scope: Scope = {
-      node,
-      symbols: new Map<string, AnalysisSymbol>(),
-      children: [],
-      ...(parent ? { parent } : {})
-    };
+    const scope = new Scope(node, new Map<string, AnalysisSymbol>(), [], parent);
     if (parent) {
       parent.children.push(scope);
     }
@@ -156,7 +152,7 @@ export class Binder {
 
   private declare(
     scope: Scope,
-    symbol: Omit<AnalysisSymbol, "declaredOffset">,
+    symbol: AnalysisSymbol,
     declaredOffsetOverride?: number
   ): void {
     const existing = scope.symbols.get(symbol.name);
@@ -209,21 +205,13 @@ export class Binder {
     ) {
       return;
     }
-    scope.symbols.set(symbol.name, {
-      ...symbol,
-      declaredOffset
-    });
+    symbol.declaredOffset = declaredOffset;
+    scope.symbols.set(symbol.name, symbol);
   }
 
   private bindBuiltins(): void {
     for (const [name, symbolType] of BUILTIN_IDENTIFIERS) {
-      this.declare(this.rootScope, {
-        name,
-        kind: "variable",
-        node: this.program,
-        type: symbolType,
-        valueType: typeToString(symbolType)
-      }, -1);
+      this.declare(this.rootScope, new AnalysisSymbol(name, "variable", this.program, -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType)), -1);
     }
   }
 
@@ -233,13 +221,7 @@ export class Binder {
     declaredOffsetOverride?: number
   ): void {
     for (const facade of this.collectAmbientNamespaceExportFacades(statements)) {
-      this.declare(scope, {
-        name: facade.name.name,
-        kind: facade.type instanceof FunctionType ? "function" : "variable",
-        node: facade.name,
-        type: facade.type,
-        valueType: typeToString(facade.type)
-      }, declaredOffsetOverride);
+      this.declare(scope, new AnalysisSymbol(facade.name.name, facade.type instanceof FunctionType ? "function" : "variable", facade.name, -1, undefined, undefined, undefined, undefined, facade.type, typeToString(facade.type)), declaredOffsetOverride);
     }
 
     for (const statement of declarationIndexForStatements(statements).globalDeclarations) {
@@ -255,23 +237,11 @@ export class Binder {
           const importStatement = statement as ImportStatement;
           if (importStatement.defaultImport) {
           const resolvedType = this.importedSymbolType(importStatement.defaultImport.name);
-          this.declare(scope, {
-            name: importStatement.defaultImport.name,
-            kind: resolvedType instanceof FunctionType ? "function" : "variable",
-            node: importStatement.defaultImport,
-            type: resolvedType,
-            valueType: this.importedSymbolValueType(importStatement.defaultImport.name, resolvedType)
-          }, declaredOffsetOverride);
+          this.declare(scope, new AnalysisSymbol(importStatement.defaultImport.name, resolvedType instanceof FunctionType ? "function" : "variable", importStatement.defaultImport, -1, undefined, undefined, undefined, undefined, resolvedType, this.importedSymbolValueType(importStatement.defaultImport.name, resolvedType)), declaredOffsetOverride);
         }
         if (importStatement.namespaceImport) {
           const resolvedType = this.importedSymbolType(importStatement.namespaceImport.name);
-          this.declare(scope, {
-            name: importStatement.namespaceImport.name,
-            kind: resolvedType instanceof FunctionType ? "function" : "variable",
-            node: importStatement.namespaceImport,
-            type: resolvedType,
-            valueType: this.importedSymbolValueType(importStatement.namespaceImport.name, resolvedType)
-          }, declaredOffsetOverride);
+          this.declare(scope, new AnalysisSymbol(importStatement.namespaceImport.name, resolvedType instanceof FunctionType ? "function" : "variable", importStatement.namespaceImport, -1, undefined, undefined, undefined, undefined, resolvedType, this.importedSymbolValueType(importStatement.namespaceImport.name, resolvedType)), declaredOffsetOverride);
         }
         for (const specifier of importStatement.specifiers) {
           const local = specifier.local ?? specifier.imported;
@@ -279,13 +249,7 @@ export class Binder {
           // imported values (e.g. functions returning a Promise) keep their type
           // instead of degrading to `unknown`.
           const resolvedType = this.importedSymbolType(local.name);
-          this.declare(scope, {
-            name: local.name,
-            kind: resolvedType instanceof FunctionType ? "function" : "variable",
-            node: local,
-            type: resolvedType,
-            valueType: this.importedSymbolValueType(local.name, resolvedType)
-          }, declaredOffsetOverride);
+          this.declare(scope, new AnalysisSymbol(local.name, resolvedType instanceof FunctionType ? "function" : "variable", local, -1, undefined, undefined, undefined, undefined, resolvedType, this.importedSymbolValueType(local.name, resolvedType)), declaredOffsetOverride);
         }
         continue;
       }
@@ -299,7 +263,7 @@ export class Binder {
         const name = namespaceStatement.names?.[0];
         if (name) {
           const symbolType = namedType(name.name);
-          this.declare(scope, { name: name.name, kind: "class", node: name, type: symbolType, valueType: typeToString(symbolType) }, declaredOffsetOverride);
+          this.declare(scope, new AnalysisSymbol(name.name, "class", name, -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType)), declaredOffsetOverride);
         }
         continue;
       }
@@ -329,48 +293,31 @@ export class Binder {
         const fnIsAsyncLike = functionStatement.async === true || functionStatement.sync === true;
         const fnIsGenerator = functionStatement.generator === true;
         const symbolType = functionType(
-          functionStatement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-            name: bindingNameText(parameter.name),
-            type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-            rest: parameter.rest === true
-          })),
+          functionStatement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+            bindingNameText(parameter.name),
+            this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+            undefined,
+            parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+            parameter.rest === true
+          )),
           this.effectiveReturnType(this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE, fnIsAsyncLike, fnIsGenerator),
           typeParameterNames(functionStatement.typeParameters)
         );
-        this.declare(scope, {
-          name: functionStatement.name.name,
-          kind: "function",
-          node: functionStatement.name,
-          type: symbolType,
-          valueType: typeToString(symbolType)
-        }, declaredOffsetOverride);
+        this.declare(scope, new AnalysisSymbol(functionStatement.name.name, "function", functionStatement.name, -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType)), declaredOffsetOverride);
         continue;
       }
 
       if (statement instanceof ClassStatement) {
         const classStatement = statement as ClassStatement;
         const symbolType = namedType(classStatement.name.name);
-        this.declare(scope, {
-          name: classStatement.name.name,
-          kind: "class",
-          node: classStatement.name,
-          type: symbolType,
-          valueType: typeToString(symbolType)
-        }, declaredOffsetOverride);
+        this.declare(scope, new AnalysisSymbol(classStatement.name.name, "class", classStatement.name, -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType)), declaredOffsetOverride);
         continue;
       }
 
       if (statement instanceof EnumStatement) {
         const enumStatement = statement as EnumStatement;
         const symbolType = namedType(enumStatement.name.name);
-        this.declare(scope, {
-          name: enumStatement.name.name,
-          kind: "class",
-          node: enumStatement.name,
-          type: symbolType,
-          valueType: typeToString(symbolType)
-        }, declaredOffsetOverride);
+        this.declare(scope, new AnalysisSymbol(enumStatement.name.name, "class", enumStatement.name, -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType)), declaredOffsetOverride);
         continue;
       }
 
@@ -388,38 +335,20 @@ export class Binder {
           continue;
         }
         const symbolType = namedType(interfaceStatement.name.name);
-        this.declare(scope, {
-          name: interfaceStatement.name.name,
-          kind: "class",
-          node: interfaceStatement.name,
-          type: symbolType,
-          valueType: typeToString(symbolType)
-        }, declaredOffsetOverride);
+        this.declare(scope, new AnalysisSymbol(interfaceStatement.name.name, "class", interfaceStatement.name, -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType)), declaredOffsetOverride);
         continue;
       }
 
       if (statement instanceof TypeAliasStatement) {
         const typeAliasStatement = statement as TypeAliasStatement;
         const symbolType = this.typeFromAnnotationLoose(typeAliasStatement.targetType) ?? namedType(typeAliasStatement.name.name);
-        this.declare(scope, {
-          name: typeAliasStatement.name.name,
-          kind: "class",
-          node: typeAliasStatement.name,
-          type: symbolType,
-          valueType: typeToString(symbolType)
-        }, declaredOffsetOverride);
+        this.declare(scope, new AnalysisSymbol(typeAliasStatement.name.name, "class", typeAliasStatement.name, -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType)), declaredOffsetOverride);
         continue;
       }
 
       if (statement instanceof AnnotationStatement) {
         const annotationStatement = statement as AnnotationStatement;
-        this.declare(scope, {
-          name: annotationStatement.name.name,
-          kind: "annotation",
-          node: annotationStatement.name,
-          type: namedType(annotationStatement.name.name),
-          valueType: `annotation ${annotationStatement.name.name}`
-        }, declaredOffsetOverride);
+        this.declare(scope, new AnalysisSymbol(annotationStatement.name.name, "annotation", annotationStatement.name, -1, undefined, undefined, undefined, undefined, namedType(annotationStatement.name.name), `annotation ${annotationStatement.name.name}`), declaredOffsetOverride);
       }
     }
   }
@@ -478,12 +407,13 @@ export class Binder {
         const fnIsAsyncLike = functionStatement.async === true || functionStatement.sync === true;
         const fnIsGenerator = functionStatement.generator === true;
         properties[functionStatement.name.name] = functionType(
-          functionStatement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-            name: bindingNameText(parameter.name),
-            type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-            rest: parameter.rest === true
-          })),
+          functionStatement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+            bindingNameText(parameter.name),
+            this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+            undefined,
+            parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+            parameter.rest === true
+          )),
           this.effectiveReturnType(this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE, fnIsAsyncLike, fnIsGenerator),
           typeParameterNames(functionStatement.typeParameters)
         );
@@ -633,13 +563,7 @@ export class Binder {
       const extensionScope = this.createScope(scope, statement);
       this.declareReceiverMembers(extensionScope, statement.receiverType.name);
       const receiverType = this.typeFromReceiverAnnotation(statement.receiverType, statement.receiverTypeArguments);
-      this.declare(extensionScope, {
-        name: "this",
-        kind: "variable",
-        node: statement.receiverType,
-        type: receiverType,
-        valueType: typeToString(receiverType)
-      }, -1);
+      this.declare(extensionScope, new AnalysisSymbol("this", "variable", statement.receiverType, -1, undefined, undefined, undefined, undefined, receiverType, typeToString(receiverType)), -1);
       if (statement.accessors) {
         for (const accessor of statement.accessors) {
           const accessorScope = this.createScope(extensionScope, accessor);
@@ -669,26 +593,13 @@ export class Binder {
 
   private declareParameterBinding(scope: Scope, binding: VarStatement["name"], type: AnalysisType): void {
     for (const identifier of bindingIdentifiers(binding)) {
-      this.declare(scope, {
-        name: identifier.name,
-        kind: "parameter",
-        node: identifier,
-        type,
-        valueType: typeToString(type)
-      });
+      this.declare(scope, new AnalysisSymbol(identifier.name, "parameter", identifier, -1, undefined, undefined, undefined, undefined, type, typeToString(type)));
     }
   }
 
   private declareBinding(scope: Scope, binding: VarStatement["name"], kind: VariableDeclarationKind, type: AnalysisType, declaredOffsetOverride?: number): void {
     for (const identifier of bindingIdentifiers(binding)) {
-      this.declare(scope, {
-        name: identifier.name,
-        kind: "variable",
-        node: identifier,
-        isReadonly: isReadonlyVariable(kind),
-        type,
-        valueType: typeToString(type)
-      }, declaredOffsetOverride);
+      this.declare(scope, new AnalysisSymbol(identifier.name, "variable", identifier, -1, isReadonlyVariable(kind), undefined, undefined, undefined, type, typeToString(type)), declaredOffsetOverride);
     }
   }
 
@@ -697,35 +608,24 @@ export class Binder {
       const stmtIsAsyncLike = statement.async === true || statement.sync === true;
       const stmtIsGenerator = statement.generator === true;
       const symbolType = functionType(
-        statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-          name: bindingNameText(parameter.name),
-          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-          rest: parameter.rest === true
-        })),
+        statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+          bindingNameText(parameter.name),
+          this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+          undefined,
+          parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          parameter.rest === true
+        )),
         this.effectiveReturnType(this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE, stmtIsAsyncLike, stmtIsGenerator),
         typeParameterNames(statement.typeParameters)
       );
-      this.declare(scope, {
-        name: statement.name.name,
-        kind: "function",
-        node: statement.name,
-        type: symbolType,
-        valueType: typeToString(symbolType)
-      });
+      this.declare(scope, new AnalysisSymbol(statement.name.name, "function", statement.name, -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType)));
     }
 
     const functionScope = this.createScope(scope, statement);
     if (statement.receiverType) {
       this.declareReceiverMembers(functionScope, statement.receiverType.name);
       const receiverType = this.typeFromReceiverAnnotation(statement.receiverType, statement.receiverTypeArguments);
-      this.declare(functionScope, {
-        name: "this",
-        kind: "variable",
-        node: statement.receiverType,
-        type: receiverType,
-        valueType: typeToString(receiverType)
-      }, -1);
+      this.declare(functionScope, new AnalysisSymbol("this", "variable", statement.receiverType, -1, undefined, undefined, undefined, undefined, receiverType, typeToString(receiverType)), -1);
     }
     for (const parameter of statement.parameters) {
       if (parameter.thisParameter === true) {
@@ -739,13 +639,7 @@ export class Binder {
   }
 
   private bindClassStatement(statement: ClassStatement, scope: Scope): void {
-    this.declare(scope, {
-      name: statement.name.name,
-      kind: "class",
-      node: statement.name,
-      type: namedType(statement.name.name),
-      valueType: statement.name.name
-    });
+    this.declare(scope, new AnalysisSymbol(statement.name.name, "class", statement.name, -1, undefined, undefined, undefined, undefined, namedType(statement.name.name), statement.name.name));
 
     const classScope = this.createScope(scope, statement);
     this.reportDuplicateClassVariables(statement);
@@ -755,60 +649,31 @@ export class Binder {
         const method = member as ClassMethodMember;
         if (method.accessorKind === "get" || method.getterShorthand === true) {
           const propertyType = this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE;
-          this.declare(classScope, {
-            name: method.name.name,
-            kind: "variable",
-            node: method.name,
-            type: propertyType,
-            valueType: typeToString(propertyType)
-          });
+          this.declare(classScope, new AnalysisSymbol(method.name.name, "variable", method.name, -1, undefined, undefined, undefined, undefined, propertyType, typeToString(propertyType)));
         } else if (method.accessorKind === "set") {
           if (!classScope.symbols.has(method.name.name)) {
             const propertyType = this.typeFromAnnotationLoose(method.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
-            this.declare(classScope, {
-              name: method.name.name,
-              kind: "variable",
-              node: method.name,
-              type: propertyType,
-              valueType: typeToString(propertyType)
-            });
+            this.declare(classScope, new AnalysisSymbol(method.name.name, "variable", method.name, -1, undefined, undefined, undefined, undefined, propertyType, typeToString(propertyType)));
           }
         } else {
           const methodType = functionType(
-            method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-              name: bindingNameText(parameter.name),
-              type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-              optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-              rest: parameter.rest === true
-            })),
+            method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+              bindingNameText(parameter.name),
+              this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+              undefined,
+              parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+              parameter.rest === true
+            )),
             this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE,
             typeParameterNames(method.typeParameters)
           );
-          this.declare(classScope, {
-            name: method.name.name,
-            kind: "method",
-            node: method.name,
-            type: methodType,
-            valueType: typeToString(methodType)
-          });
+          this.declare(classScope, new AnalysisSymbol(method.name.name, "method", method.name, -1, undefined, undefined, undefined, undefined, methodType, typeToString(methodType)));
         }
         const methodScope = this.createScope(classScope, method);
-        this.declare(methodScope, {
-          name: "this",
-          kind: "variable",
-          node: statement.name,
-          type: namedType(statement.name.name),
-          valueType: statement.name.name
-        }, -1);
+        this.declare(methodScope, new AnalysisSymbol("this", "variable", statement.name, -1, undefined, undefined, undefined, undefined, namedType(statement.name.name), statement.name.name), -1);
         if (statement.extendsType) {
           const superType = this.typeFromAnnotationLoose(statement.extendsType) ?? namedType(statement.extendsType.name);
-          this.declare(methodScope, {
-            name: "super",
-            kind: "variable",
-            node: statement.extendsType,
-            type: superType,
-            valueType: typeToString(superType)
-          }, -1);
+          this.declare(methodScope, new AnalysisSymbol("super", "variable", statement.extendsType, -1, undefined, undefined, undefined, undefined, superType, typeToString(superType)), -1);
         }
         for (const parameter of method.parameters) {
           if (parameter.thisParameter === true) {
@@ -986,25 +851,18 @@ export class Binder {
         if (!(property.name instanceof Identifier)) continue;
         const name = (property.name as Identifier).name;
         const propertyType = this.typeFromAnnotationLoose(property.typeAnnotation) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name,
-          kind: "variable",
-          node: property.name as Identifier,
-          implicitReceiver: true,
-          implicitReceiverExtensionReceiver: receiverName,
-          type: propertyType,
-          valueType: typeToString(propertyType)
-        });
+        this.declare(scope, new AnalysisSymbol(name, "variable", property.name as Identifier, -1, undefined, true, undefined, receiverName, propertyType, typeToString(propertyType)));
       } else {
         const fn = candidate as FunctionStatement;
         if (fn.operator || !fn.name) continue;
         const methodType = functionType(
-          fn.parameters.filter((p) => p.thisParameter !== true).map((p) => ({
-            name: bindingNameText(p.name),
-            type: this.typeFromAnnotationLoose(p.typeAnnotation) ?? UNKNOWN_TYPE,
-            optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
-            rest: p.rest === true
-          })),
+          fn.parameters.filter((p) => p.thisParameter !== true).map((p) => new FunctionTypeParameter(
+            bindingNameText(p.name),
+            this.typeFromAnnotationLoose(p.typeAnnotation) ?? UNKNOWN_TYPE,
+            undefined,
+            p.optional === true || p.defaultValue !== undefined || p.rest === true,
+            p.rest === true
+          )),
           this.typeFromAnnotationLoose(fn.returnType) ?? UNKNOWN_TYPE,
           typeParameterNames(fn.typeParameters)
         );
@@ -1019,15 +877,7 @@ export class Binder {
           }
           continue;
         }
-        this.declare(scope, {
-          name: fn.name.name,
-          kind: "method",
-          node: fn.name,
-          implicitReceiver: true,
-          implicitReceiverExtensionReceiver: receiverName,
-          type: methodType,
-          valueType: typeToString(methodType)
-        });
+        this.declare(scope, new AnalysisSymbol(fn.name.name, "method", fn.name, -1, undefined, true, undefined, receiverName, methodType, typeToString(methodType)));
       }
     }
   }
@@ -1052,14 +902,7 @@ export class Binder {
       if (member instanceof InterfacePropertyMember) {
         const property = member as InterfacePropertyMember;
         const propertyType = this.typeFromAnnotationLoose(property.typeAnnotation) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name: property.name.name,
-          kind: "variable",
-          node: property.name,
-          implicitReceiver: true,
-          type: propertyType,
-          valueType: typeToString(propertyType)
-        });
+        this.declare(scope, new AnalysisSymbol(property.name.name, "variable", property.name, -1, undefined, true, undefined, undefined, propertyType, typeToString(propertyType)));
         continue;
       }
       const method = member as InterfaceMethodMember;
@@ -1068,14 +911,7 @@ export class Binder {
           continue;
         }
         const propertyType = this.typeFromAnnotationLooseWithContext(method.returnType, statement.name.name) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name: method.name.name,
-          kind: "variable",
-          node: method.name,
-          implicitReceiver: true,
-          type: propertyType,
-          valueType: typeToString(propertyType)
-        });
+        this.declare(scope, new AnalysisSymbol(method.name.name, "variable", method.name, -1, undefined, true, undefined, undefined, propertyType, typeToString(propertyType)));
         continue;
       }
       if (method.accessorKind === "set") {
@@ -1084,24 +920,18 @@ export class Binder {
         }
         if (!scope.symbols.has(method.name.name)) {
           const propertyType = this.typeFromAnnotationLoose(method.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
-          this.declare(scope, {
-            name: method.name.name,
-            kind: "variable",
-            node: method.name,
-            implicitReceiver: true,
-            type: propertyType,
-            valueType: typeToString(propertyType)
-          });
+          this.declare(scope, new AnalysisSymbol(method.name.name, "variable", method.name, -1, undefined, true, undefined, undefined, propertyType, typeToString(propertyType)));
         }
         continue;
       }
       const methodType = functionType(
-        method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-          name: bindingNameText(parameter.name),
-          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-          rest: parameter.rest === true
-        })),
+        method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+          bindingNameText(parameter.name),
+          this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+          undefined,
+          parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          parameter.rest === true
+        )),
         this.typeFromAnnotationLooseWithContext(method.returnType, statement.name.name) ?? UNKNOWN_TYPE,
         typeParameterNames(method.typeParameters)
       );
@@ -1120,14 +950,7 @@ export class Binder {
         }
         continue;
       }
-      this.declare(scope, {
-        name: method.name.name,
-        kind: "method",
-        node: method.name,
-        implicitReceiver: true,
-        type: methodType,
-        valueType: typeToString(methodType)
-      });
+      this.declare(scope, new AnalysisSymbol(method.name.name, "method", method.name, -1, undefined, true, undefined, undefined, methodType, typeToString(methodType)));
     }
   }
 
@@ -1148,15 +971,7 @@ export class Binder {
     if (statement.primaryConstructorParameters) {
       for (const parameter of statement.primaryConstructorParameters) {
         const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name: bindingNameText(parameter.name),
-          kind: "variable",
-          node: parameter.name,
-          isReadonly: isReadonlyVariable(parameter.declarationKind),
-          implicitReceiver: true,
-          type: parameterType,
-          valueType: typeToString(parameterType)
-        });
+        this.declare(scope, new AnalysisSymbol(bindingNameText(parameter.name), "variable", parameter.name, -1, isReadonlyVariable(parameter.declarationKind), true, undefined, undefined, parameterType, typeToString(parameterType)));
       }
     }
     for (const candidate of statement.members) {
@@ -1167,15 +982,7 @@ export class Binder {
         const parameter = parameterCandidate as FunctionParameter;
         if (parameter.accessModifier === undefined && parameter.isReadonly !== true) continue;
         const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name: bindingNameText(parameter.name),
-          kind: "variable",
-          node: parameter.name,
-          isReadonly: parameter.isReadonly === true,
-          implicitReceiver: true,
-          type: parameterType,
-          valueType: typeToString(parameterType)
-        });
+        this.declare(scope, new AnalysisSymbol(bindingNameText(parameter.name), "variable", parameter.name, -1, parameter.isReadonly === true, true, undefined, undefined, parameterType, typeToString(parameterType)));
       }
     }
     const className = statement.name.name;
@@ -1183,16 +990,18 @@ export class Binder {
       if (member instanceof ClassFieldMember) {
         const field = member as ClassFieldMember;
         const fieldType = this.typeFromAnnotationLoose(field.typeAnnotation) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name: field.name.name,
-          kind: "variable",
-          node: field.name,
-          isReadonly: field.isReadonly === true,
-          implicitReceiver: true,
-          ...(field.isStatic === true ? { implicitReceiverClassName: className } : {}),
-          type: fieldType,
-          valueType: typeToString(fieldType)
-        });
+        this.declare(scope, new AnalysisSymbol(
+          field.name.name,
+          "variable",
+          field.name,
+          -1,
+          field.isReadonly === true,
+          true,
+          field.isStatic === true ? className : undefined,
+          undefined,
+          fieldType,
+          typeToString(fieldType)
+        ));
         continue;
       }
       const method = member as ClassMethodMember;
@@ -1201,15 +1010,18 @@ export class Binder {
           continue;
         }
         const propertyType = this.typeFromAnnotationLooseWithContext(method.returnType, className) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name: method.name.name,
-          kind: "variable",
-          node: method.name,
-          implicitReceiver: true,
-          ...(method.isStatic === true ? { implicitReceiverClassName: className } : {}),
-          type: propertyType,
-          valueType: typeToString(propertyType)
-        });
+        this.declare(scope, new AnalysisSymbol(
+          method.name.name,
+          "variable",
+          method.name,
+          -1,
+          undefined,
+          true,
+          method.isStatic === true ? className : undefined,
+          undefined,
+          propertyType,
+          typeToString(propertyType)
+        ));
         continue;
       }
       if (method.accessorKind === "set") {
@@ -1218,63 +1030,57 @@ export class Binder {
         }
         if (!scope.symbols.has(method.name.name)) {
           const propertyType = this.typeFromAnnotationLoose(method.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
-          this.declare(scope, {
-            name: method.name.name,
-            kind: "variable",
-            node: method.name,
-            implicitReceiver: true,
-            ...(method.isStatic === true ? { implicitReceiverClassName: className } : {}),
-            type: propertyType,
-            valueType: typeToString(propertyType)
-          });
+          this.declare(scope, new AnalysisSymbol(
+            method.name.name,
+            "variable",
+            method.name,
+            -1,
+            undefined,
+            true,
+            method.isStatic === true ? className : undefined,
+            undefined,
+            propertyType,
+            typeToString(propertyType)
+          ));
         }
         continue;
       }
       const methodType = functionType(
-        method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-          name: bindingNameText(parameter.name),
-          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-          rest: parameter.rest === true
-        })),
+        method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+          bindingNameText(parameter.name),
+          this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+          undefined,
+          parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          parameter.rest === true
+        )),
         this.typeFromAnnotationLooseWithContext(method.returnType, className) ?? UNKNOWN_TYPE,
         typeParameterNames(method.typeParameters)
       );
       if (method.computed) {
         continue;
       }
-      this.declare(scope, {
-        name: method.name.name,
-        kind: "method",
-        node: method.name,
-        implicitReceiver: true,
-        ...(method.isStatic === true ? { implicitReceiverClassName: className } : {}),
-        type: methodType,
-        valueType: typeToString(methodType)
-      });
+      this.declare(scope, new AnalysisSymbol(
+        method.name.name,
+        "method",
+        method.name,
+        -1,
+        undefined,
+        true,
+        method.isStatic === true ? className : undefined,
+        undefined,
+        methodType,
+        typeToString(methodType)
+      ));
     }
   }
 
 
   private bindEnumStatement(statement: EnumStatement, scope: Scope): void {
-    this.declare(scope, {
-      name: statement.name.name,
-      kind: "class",
-      node: statement.name,
-      type: namedType(statement.name.name),
-      valueType: statement.name.name
-    });
+    this.declare(scope, new AnalysisSymbol(statement.name.name, "class", statement.name, -1, undefined, undefined, undefined, undefined, namedType(statement.name.name), statement.name.name));
 
     const enumScope = this.createScope(scope, statement);
     for (const member of statement.members) {
-      this.declare(enumScope, {
-        name: member.name.name,
-        kind: "variable",
-        node: member.name,
-        isReadonly: true,
-        type: namedType(statement.name.name),
-        valueType: statement.name.name
-      });
+      this.declare(enumScope, new AnalysisSymbol(member.name.name, "variable", member.name, -1, true, undefined, undefined, undefined, namedType(statement.name.name), statement.name.name));
     }
   }
 
@@ -1286,13 +1092,7 @@ export class Binder {
         this.bindVarStatement(statement.iterator as VarStatement, loopScope);
       } else if (statement.iterator instanceof Identifier) {
         const iteratorIdentifier = statement.iterator as Identifier;
-        this.declare(loopScope, {
-          name: iteratorIdentifier.name,
-          kind: "variable",
-          node: iteratorIdentifier,
-          type: UNKNOWN_TYPE,
-          valueType: typeToString(UNKNOWN_TYPE)
-        });
+        this.declare(loopScope, new AnalysisSymbol(iteratorIdentifier.name, "variable", iteratorIdentifier, -1, undefined, undefined, undefined, undefined, UNKNOWN_TYPE, typeToString(UNKNOWN_TYPE)));
       }
       this.bindStatement(statement.body, loopScope);
       return;
@@ -1339,13 +1139,7 @@ export class Binder {
   private bindCatchClause(catchClause: CatchClause, scope: Scope): void {
     const catchScope = this.createScope(scope, catchClause);
     if (catchClause.parameter) {
-      this.declare(catchScope, {
-        name: catchClause.parameter.name,
-        kind: "variable",
-        node: catchClause.parameter,
-        type: UNKNOWN_TYPE,
-        valueType: typeToString(UNKNOWN_TYPE)
-      });
+      this.declare(catchScope, new AnalysisSymbol(catchClause.parameter.name, "variable", catchClause.parameter, -1, undefined, undefined, undefined, undefined, UNKNOWN_TYPE, typeToString(UNKNOWN_TYPE)));
     }
     this.bindStatements(catchClause.body.body, catchScope);
   }
@@ -1471,14 +1265,15 @@ export class Binder {
       return null;
     }
     const parameters: FunctionTypeParameter[] = parsed.receiverTypeName
-      ? [{ name: "this", type: this.typeFromTypeNameLoose(parsed.receiverTypeName), receiver: true }]
+      ? [new FunctionTypeParameter("this", this.typeFromTypeNameLoose(parsed.receiverTypeName), true)]
       : [];
-    parameters.push(...parsed.parameters.map((parameter) => ({
-        name: parameter.name,
-        type: this.typeFromTypeNameLoose(parameter.typeName),
-        ...(parameter.optional ? { optional: true } : {}),
-        ...(parameter.rest ? { rest: true } : {})
-      })));
+    parameters.push(...parsed.parameters.map((parameter) => new FunctionTypeParameter(
+      parameter.name,
+      this.typeFromTypeNameLoose(parameter.typeName),
+      undefined,
+      parameter.optional || undefined,
+      parameter.rest || undefined
+    )));
     return functionType(
       parameters,
       this.typeFromTypeNameLoose(parsed.returnTypeName)

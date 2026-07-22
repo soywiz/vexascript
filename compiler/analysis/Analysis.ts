@@ -7,7 +7,6 @@ import type {
   AnalysisIssue,
   AnalysisSymbol,
   ExtensionPropertyResolution,
-  IdentifierResolution,
   JsxAttributeResolution,
   OperatorResolution,
   ReceiverLambdaInfo,
@@ -17,7 +16,7 @@ import type {
 import { TypeChecker } from "./TypeChecker";
 import { type AnalysisType, typeToString, FunctionType } from "./types";
 import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
-import { resolveScopeSymbol, type BoundAnalysis } from "./model";
+import { IdentifierResolution, resolveScopeSymbol, type BoundAnalysis } from "./model";
 
 export type { AnalysisIssue, AnalysisSymbol, AnalysisSymbolKind, AnalysisValueType } from "./model";
 
@@ -110,7 +109,7 @@ function collectBoundImplicitReceiverResolutions(
   if (node instanceof Identifier) {
     const identifier = node as Identifier;
     const symbol = resolveScopeSymbol(identifier.name, scope, nodeStartOffset(identifier));
-    if (symbol?.implicitReceiver === true) resolutions.push({ identifier, symbol });
+    if (symbol?.implicitReceiver === true) resolutions.push(new IdentifierResolution(identifier, symbol));
   }
   for (const child of childNodes(node)) {
     collectBoundImplicitReceiverResolutions(child, scope, bound, resolutions);
@@ -517,7 +516,7 @@ export class Analysis {
   getHoverAt(line: number, character: number): AnalysisHoverInfo | null {
     const symbolMatch = this.getSymbolAt(line, character) ?? this.getOperatorSymbolAt(line, character);
     if (symbolMatch) {
-      const typeLabel = symbolMatch.symbol.valueType ?? "unknown";
+      const typeLabel = symbolMatch.symbol.valueType;
       return {
         contents: `${symbolMatch.symbol.kind} ${symbolMatch.symbol.name}: ${typeLabel}`,
         range: symbolMatch.range

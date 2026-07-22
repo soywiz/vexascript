@@ -714,6 +714,7 @@ class ArraySlot final {
   explicit ArraySlot(T value) : value_(std::move(value)) {}
 
   T load() const { return value_; }
+  const T& loadRef() const { return value_; }
   void store(T value) { value_ = std::move(value); }
   void Trace(cppgc::Visitor*) const {}
 
@@ -741,6 +742,7 @@ class ArraySlot<T*> final {
   explicit ArraySlot(T* value) : value_(value) {}
 
   T* load() const { return value_; }
+  T* const& loadRef() const { return value_; }
   void store(T* value) { value_ = value; }
   void Trace(cppgc::Visitor* visitor) const {
     const cppgc::Member<T> member(value_);
@@ -2068,7 +2070,8 @@ class Runtime final {
   using TimerCallback = std::function<void()>;
   using IoPoller = std::function<bool()>;
 
-  Runtime() : previousRuntime_(currentRuntime_), platform_(std::make_shared<OilpanPlatform>()) {
+  explicit Runtime(std::size_t suggestedInitialHeapSizeBytes = 0)
+      : previousRuntime_(currentRuntime_), platform_(std::make_shared<OilpanPlatform>()) {
     currentRuntime_ = this;
     cppgc::InitializeProcess(platform_->GetPageAllocator());
     cppgc::Heap::HeapOptions options;
@@ -2076,8 +2079,10 @@ class Runtime final {
     options.sweeping_support = cppgc::Heap::SweepingType::kAtomic;
     options.stack_support = cppgc::Heap::StackSupport::kSupportsConservativeStackScan;
     options.stack_start_marker.emplace();
-    if (const auto initialHeapSize = initialHeapSizeBytes()) {
-      options.resource_constraints.initial_heap_size_bytes = *initialHeapSize;
+    if (const auto configuredInitialHeapSize = initialHeapSizeBytes()) {
+      options.resource_constraints.initial_heap_size_bytes = *configuredInitialHeapSize;
+    } else if (suggestedInitialHeapSizeBytes > 0) {
+      options.resource_constraints.initial_heap_size_bytes = suggestedInitialHeapSizeBytes;
     }
     heap_ = cppgc::Heap::Create(platform_, std::move(options));
   }
@@ -2376,7 +2381,7 @@ concept DynamicObjectView = requires(BaseObject* object) {
   { T::fromDynamicObject(object) } -> std::convertible_to<T*>;
 };
 
-inline std::u16string toText(const std::u16string& value) { return value; }
+inline const std::u16string& toText(const std::u16string& value) { return value; }
 inline std::u16string toText(std::u16string&& value) { return std::move(value); }
 inline std::u16string toText(const Value& value) {
   if (value.isString()) return value.utf16();
@@ -5408,6 +5413,30 @@ Task<T> promiseFinally(Runtime& runtime, Task<T> source, Callback callback) {
   co_return TaskStorage<T>::load(*value);
 }
 
+inline std::u16string concatText(std::initializer_list<std::u16string_view> parts) {
+  std::size_t size = 0;
+  for (const auto part : parts) size += part.size();
+  std::u16string result;
+  result.reserve(size);
+  for (const auto part : parts) result.append(part);
+  return result;
+}
+
+template <typename T, typename Callback, typename Separator>
+inline std::u16string mapJoin(
+    const ArrayObject<T>* array,
+    Callback callback,
+    Separator&& rawSeparator) {
+  const std::u16string separator = toString(std::forward<Separator>(rawSeparator));
+  std::u16string result;
+  if (array->size() > 0) result.reserve(array->size() * 16 + separator.size() * (array->size() - 1));
+  for (std::size_t index = 0; index < array->size(); ++index) {
+    if (index > 0) result += separator;
+    result += toString(invokeArrayCallback(callback, array->get(index), index, array));
+  }
+  return result;
+}
+
 template <typename T>
 inline std::u16string joinWithSeparator(const std::vector<T>& array, const std::u16string& separator) {
   std::u16string output;
@@ -5430,6 +5459,20 @@ inline std::u16string joinWithSeparator(const ArrayObject<T>* array, const std::
 
 template <typename T>
 inline std::u16string ArrayObject<T>::join(const std::u16string& separator) const {
+  if constexpr (std::is_same_v<T, std::u16string>) {
+    if (!dynamic_backing_) {
+      if (values_.empty()) return {};
+      std::size_t outputSize = separator.size() * (values_.size() - 1);
+      for (const auto& value : values_) outputSize += value.loadRef().size();
+      std::u16string output;
+      output.reserve(outputSize);
+      for (std::size_t index = 0; index < values_.size(); ++index) {
+        if (index > 0) output += separator;
+        output += values_[index].loadRef();
+      }
+      return output;
+    }
+  }
   return joinWithSeparator(this, separator);
 }
 
@@ -5457,18 +5500,7 @@ inline std::u16string join(const std::vector<std::u16string>& array, const std::
 }
 
 inline std::u16string join(const ArrayObject<std::u16string>* array, const std::u16string& separator) {
-  if (!array || array->size() == 0) return std::u16string();
-  std::size_t size = separator.size() * (array->size() - 1);
-  for (std::size_t index = 0; index < array->size(); ++index) {
-    size += array->get(index).size();
-  }
-  std::u16string result;
-  result.reserve(size);
-  for (std::size_t index = 0; index < array->size(); ++index) {
-    if (index > 0) result += separator;
-    result += array->get(index);
-  }
-  return result;
+  return array ? array->join(separator) : std::u16string();
 }
 
 template <typename T, typename Separator>

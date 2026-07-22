@@ -8,9 +8,13 @@ import { vfs } from "../compiler/vfs";
 import { ensureDependencies } from "./deps";
 import { runCommandCapture } from "./io";
 
-function isTypeScriptSource(path: string): boolean {
+export function isTypeScriptSource(path: string): boolean {
   const lowerPath = path.toLowerCase();
   return lowerPath.endsWith(".ts") || lowerPath.endsWith(".tsx");
+}
+
+export function usesExternalTypeScriptCheck(sourcePath: string, semanticCheck: boolean): boolean {
+  return semanticCheck && isTypeScriptSource(sourcePath);
 }
 
 /**
@@ -23,7 +27,7 @@ export async function vexaTypeCheckForSource(
   project: VexaProject | null,
   semanticCheck: boolean
 ): Promise<boolean> {
-  if (!semanticCheck || !isTypeScriptSource(sourcePath)) {
+  if (!usesExternalTypeScriptCheck(sourcePath, semanticCheck)) {
     return semanticCheck;
   }
 
@@ -108,11 +112,14 @@ export async function createBundledModuleArtifacts(
     typeCheck?: boolean;
   } = {}
 ): Promise<BundledModuleArtifacts> {
-  const vexaTypeCheck = await vexaTypeCheckForSource(
+  const semanticValidation = vexaTypeCheckForSource(
     sourcePath,
     project,
     options.typeCheck ?? true
   );
+  const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, options.typeCheck ?? true)
+    ? false
+    : await semanticValidation;
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const { bundleModuleGraphAsModules } = await import("../compiler/runtime/moduleGraph");
   const result = await bundleModuleGraphAsModules(sourcePath, target, {
@@ -127,6 +134,7 @@ export async function createBundledModuleArtifacts(
     ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
     ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
   });
+  await semanticValidation;
   if (result.errors.length > 0) {
     return {
       code: "",
