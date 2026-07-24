@@ -130,7 +130,7 @@ val pt = Point(3, 4)
 {% highlightVexaScript %}
 vexa build app.ts -o app.js
 vexa cpp app.ts -o app.cpp
-vexa executable app.ts -o app
+vexa cpp link app.ts -o app
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
@@ -148,7 +148,7 @@ ambient class SDL2 {
       <p>VexaScript compiles the complete TypeScript compiler graph, then runs the generated compiler to produce the next generation in JavaScript or native C++.</p>
 {% highlightVexaScript %}
 pnpm self-host
-vexa executable cli/cli.ts -o vexa-native
+vexa cpp run cli/cli.ts -o vexa-native
 {% endhighlightVexaScript %}
     </article>
   </div>
@@ -178,7 +178,7 @@ npm install -g vexascript
 {% highlightVexaScript %}
 vexa run hello.vx
 vexa build hello.vx -o dist/hello.js
-vexa executable hello.vx -o dist/hello
+vexa cpp link hello.vx -o dist/hello
 {% endhighlightVexaScript %}
     </article>
     <article class="card getting-started-card">

@@ -27,7 +27,20 @@ describe("native language smoke", () => {
       await runCli([
         "node",
         "vexa",
-        "executable",
+        "cpp",
+        "link",
+        sourcePath,
+        "--out",
+        executablePath,
+        "--build-dir",
+        buildRoot,
+      ]);
+
+      await runCli([
+        "node",
+        "vexa",
+        "cpp",
+        "link",
         sourcePath,
         "--out",
         executablePath,
@@ -49,7 +62,9 @@ describe("native language smoke", () => {
       expect(/cpp-emission [\d.]+ms/.test(logs)).toBe(true);
       expect(/type-check [\d.]+ms, write [\d.]+ms, cpp-generation-total [\d.]+ms/.test(logs)).toBe(true);
       expect(/Compiling native executable with g\+\+ -O2:/.test(logs)).toBe(true);
-      expect(/native-compile-link [\d.]+ms, total [\d.]+ms\)/.test(logs)).toBe(true);
+      expect(/native-compile-link [\d.]+ms/.test(logs)).toBe(true);
+      expect(logs).toContain(`Reusing cached C++: ${join(buildRoot, "main.cpp")}`);
+      expect(logs).toContain(`Reusing cached native executable: ${executablePath}`);
     } finally {
       logSpy.mockRestore();
       await rm(outputRoot, { recursive: true, force: true });

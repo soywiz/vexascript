@@ -292,9 +292,13 @@ export class Command {
     const root = this.root();
     const tokens = argv.slice(2);
     if (tokens[0] === "help") {
-      const command = root.commands.find((candidate) => candidate.commandName === tokens[1]);
-      if (command) command.exitWithHelp();
-      root.exitWithHelp();
+      let command = root;
+      for (const token of tokens.slice(1)) {
+        const child = command.commands.find((candidate) => candidate.commandName === token);
+        if (!child) break;
+        command = child;
+      }
+      command.exitWithHelp();
     }
     if ((tokens[0] === "--version" || tokens[0] === "-V") && root.versionValue !== undefined) {
       console.log(root.versionValue);
@@ -307,19 +311,31 @@ export class Command {
 
     const command = root.commands.find((candidate) => candidate.commandName === tokens[0]);
     if (!command) throw new Error(`Unknown command '${tokens[0]}'`);
-    if (tokens[1] === "--help" || tokens[1] === "-h") {
-      command.exitWithHelp();
-    }
-    const parsed = command.parseValues(tokens.slice(1));
-    if (command.actionArity < 0) return this;
-    command.validateArguments(parsed.positional);
-    if (command.actionArity === 0) await command.actionCallback0();
-    else if (command.actionArity === 1) await command.optionsCallback(parsed.options);
-    else if (command.actionArity === 2) await command.stringCallback(parsed.positional[0]!);
-    else if (command.actionArity === 3) await command.stringsCallback(parsed.positional);
-    else {
-      await command.inputCallback(parsed.positional[0]!, parsed.options);
-    }
+    await command.parseCommandTokens(tokens.slice(1));
     return this;
+  }
+
+  private async parseCommandTokens(tokens: string[]): Promise<void> {
+    if (tokens[0] === "--help" || tokens[0] === "-h") {
+      this.exitWithHelp();
+    }
+
+    const child = this.commands.find((candidate) => candidate.commandName === tokens[0]);
+    if (child) {
+      await child.parseCommandTokens(tokens.slice(1));
+      return;
+    }
+
+    const parsed = this.parseValues(tokens);
+    if (this.actionArity < 0) {
+      this.outputHelp();
+      return;
+    }
+    this.validateArguments(parsed.positional);
+    if (this.actionArity === 0) await this.actionCallback0();
+    else if (this.actionArity === 1) await this.optionsCallback(parsed.options);
+    else if (this.actionArity === 2) await this.stringCallback(parsed.positional[0]!);
+    else if (this.actionArity === 3) await this.stringsCallback(parsed.positional);
+    else await this.inputCallback(parsed.positional[0]!, parsed.options);
   }
 }

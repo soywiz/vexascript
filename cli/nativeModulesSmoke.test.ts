@@ -37,7 +37,8 @@ console.log(selected(), renamed(), values.second(), [1, 2, 3].doubledLength, sha
       await runCli([
         "node",
         "vexa",
-        "executable",
+        "cpp",
+        "link",
         join(projectRoot, "main.vx"),
         "--out",
         executablePath,
@@ -53,7 +54,7 @@ console.log(selected(), renamed(), values.second(), [1, 2, 3].doubledLength, sha
     }
   });
 
-  it("builds configured project directories through cpp and executable", async () => {
+  it("builds configured project directories through cpp and cpp link", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vexa-native-project-smoke-"));
     await writeFile(join(projectRoot, "vexascript.json"), JSON.stringify({
       entrypoint: "src/main.vx",
@@ -69,7 +70,7 @@ console.log(value())`, "utf8");
       const cpp = await readFile(join(projectRoot, "native-dist", "main.cpp"), "utf8");
       expect(cpp).toContain("__vexa_module_0_value");
 
-      await runCli(["node", "vexa", "executable", projectRoot]);
+      await runCli(["node", "vexa", "cpp", "link", projectRoot]);
       const executablePath = join(projectRoot, "native-dist", "main");
       const result = await runCommandCapture(executablePath, [], { cwd: projectRoot });
       expect(result.code).toBe(0);

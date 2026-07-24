@@ -24,7 +24,7 @@ async function readOilpanArchiveFile(path: string): Promise<string> {
 }
 
 describe("native package contents", () => {
-  it("publishes every source artifact required by cpp and executable", async () => {
+  it("publishes every source artifact required by cpp native workflows", async () => {
     const root = process.cwd();
     const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { files?: string[] };
     const required = [

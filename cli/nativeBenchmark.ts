@@ -76,7 +76,7 @@ async function timedExecution(command: string, args: string[] = []): Promise<{ m
 
 async function compile(sourcePath: string, executablePath: string, buildRoot: string): Promise<number> {
   const started = performance.now();
-  await runCli(["node", "vexa", "executable", sourcePath, "--out", executablePath, "--build-dir", buildRoot]);
+  await runCli(["node", "vexa", "cpp", "link", sourcePath, "--out", executablePath, "--build-dir", buildRoot]);
   return performance.now() - started;
 }
 

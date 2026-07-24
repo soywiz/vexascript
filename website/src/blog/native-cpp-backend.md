@@ -67,10 +67,10 @@ These contracts were encoded in focused emitter tests and in runnable native sam
 
 ```text
 vexa cpp program.vx -o program.cpp
-vexa executable program.vx -o program
+vexa cpp link program.vx -o program
 ```
 
-`cpp` stops after generating the translation unit. `executable` keeps the generated `main.cpp` under a source-specific build directory, builds cached native dependencies under the OS temporary directory, and links the requested output. The source tree should not accumulate CMake caches or dependency objects.
+`cpp` and `cpp build` generate the translation unit. `cpp link` keeps the generated `main.cpp` under a source-specific build directory, builds cached native dependencies under the OS temporary directory, and links the requested output. `cpp run` performs the same cached workflow and executes the result. The source tree should not accumulate CMake caches or dependency objects.
 
 | Initial milestone fact | Value |
 | --- | --- |
@@ -79,6 +79,6 @@ vexa executable program.vx -o program
 | Change size | 20 files, 1,150 insertions, 14 deletions |
 | C++ standard | C++20 |
 | Managed runtime | Standalone Oilpan / `cppgc` |
-| First public surfaces | `cpp`, `executable`, native runtime docs and samples |
+| First public surfaces | `cpp`, `cpp link`, native runtime docs and samples |
 
 The backend became maintainable because it did not create a second interpretation of VexaScript. A parser fix, a type-resolution fix, or a lowering fix remains shared; the C++ emitter is responsible for representation and execution, not for rediscovering the language.

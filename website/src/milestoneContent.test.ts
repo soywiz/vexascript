@@ -16,16 +16,18 @@ test("the concise syntax guide documents postfix receiver blocks", async () => {
 });
 
 test("the public website describes native compilation, FFI, and self-hosting", async () => {
-  const [home, cli] = await Promise.all([
+  const [home, cli, syntax] = await Promise.all([
     readWebsiteSource("index.njk"),
     readWebsiteSource("cli.njk"),
+    readWebsiteSource("syntax.njk"),
   ]);
 
   assert.match(home, /native C\+\+/i);
   assert.match(home, /FFI/);
   assert.match(home, /compile itself/i);
   assert.match(cli, /\.vx.*\.ts/i);
-  assert.match(cli, /FFILibrary/);
+  assert.doesNotMatch(cli, /FFILibrary/);
+  assert.match(syntax, /FFILibrary/);
 });
 
 test("the blog records the requested compiler milestones", async () => {

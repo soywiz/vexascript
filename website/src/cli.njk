@@ -19,11 +19,8 @@ permalink: /cli.html
         </div>
         <div>
           <code>cpp</code> <code class="command_switch">&lt;input.vx|input.ts&gt;</code>
-          <p>Emit a C++ translation unit without compiling it.</p>
-        </div>
-        <div>
-          <code>executable</code> <code class="command_switch">&lt;input.vx|input.ts&gt;</code>
-          <p>Emit C++, build the Oilpan and mimalloc runtime dependencies when needed, and link an optimized native executable. <code>native</code> remains a compatibility alias.</p>
+          <p>Compile, link, or run through the native C++ backend. The direct form is equivalent to <code>cpp build</code>.</p>
+          <p><code>cpp build</code> compiles, <code>cpp link</code> compiles and links, and <code>cpp run</code> compiles, links, and executes.</p>
         </div>
         <div>
           <code>bundle</code> <code class="command_switch">&lt;input&gt;</code>
@@ -68,11 +65,11 @@ permalink: /cli.html
       </div>
     </article>
     <article class="card cli-flags">
-      <h3>Useful switches</h3>
+      <h3>Command overview</h3>
       <div class="cli-flag-grid">
         <div>
           <code>-o, --out &lt;file&gt;</code>
-          <p>Available on <code>build</code>, <code>cpp</code>, <code>executable</code>, <code>bundle</code>, and <code>format</code> to control the output path.</p>
+          <p>Use the command-specific sections below for the complete flag list.</p>
         </div>
         <div>
           <code>--target &lt;mode&gt;</code>
@@ -91,27 +88,106 @@ permalink: /cli.html
     </article>
   </div>
 {% highlightVexaScript %}
-pnpm tsx cli/cli.ts build src/main.vx --out dist/main.js --target optimized
-pnpm tsx cli/cli.ts cpp src/main.ts --out dist/main.cpp
-pnpm tsx cli/cli.ts executable src/main.ts --out dist/main
-pnpm tsx cli/cli.ts serve demo/ --bundle demo/main.vx
-pnpm tsx cli/cli.ts syntax --monaco
-pnpm tsx cli/cli.ts test samples/
+vexa build src/main.vx --out dist/main.js --target optimized
+vexa cpp src/main.ts --out dist/main.cpp
+vexa cpp link src/main.ts --out dist/main
+vexa serve demo/ --bundle demo/main.vx
+vexa syntax --monaco
+vexa test samples/
 {% endhighlightVexaScript %}
+</section>
 
+<section class="section">
   <div class="section-heading">
-    <p class="eyebrow">Native libraries</p>
-    <h2>Declare an ABI once for Deno and C++</h2>
-    <p class="lead"><code>@FFILibrary</code> accepts ordered library candidates, <code>@FFIName</code> maps friendly method names to exported symbols, and <code>@FFIStruct</code>, <code>FFIPointer</code>, and <code>ArrayBuffer</code> cover native memory. A <code>Promise&lt;T&gt;</code> return runs the blocking call on a worker and resumes the main event loop.</p>
+    <p class="eyebrow">Command reference</p>
+    <h2>Flags and supported forms</h2>
+    <p class="lead">These sections mirror <code>vexa help &lt;command&gt;</code>. Native C++ operations are grouped below <code>cpp</code>.</p>
   </div>
-{% highlightVexaScript %}
-@FFILibrary("libSDL2-2.0.so.0", "SDL2.framework/SDL2")
-ambient class SDL2 {
-  @FFIName("SDL_Init")
-  static fun Init(flags: int): int
-
-  @FFIName("SDL_Delay")
-  static fun Delay(milliseconds: int): Promise<void>
-}
-{% endhighlightVexaScript %}
+  <div class="cli-layout">
+    <article class="card cli-flags">
+      <h3><code>vexa build &lt;input&gt;</code></h3>
+      <p>Compile a file or project to JavaScript.</p>
+      <p><code>-o, --out &lt;path&gt;</code> output file or project directory.</p>
+      <p><code>--target &lt;mode&gt;</code> <code>conservative</code> or <code>optimized</code>.</p>
+      <p><code>--jsx-factory &lt;factory&gt;</code> and <code>--jsx-fragment-factory &lt;factory&gt;</code> override JSX factories.</p>
+      <p><code>--bundle</code> bundles the entry and referenced modules; <code>--platform &lt;platform&gt;</code> selects <code>browser</code> or <code>node</code>.</p>
+      <p><code>--transpile-only</code> skips semantic diagnostics.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa cpp &lt;input&gt;</code></h3>
+      <p>Compile to C++ directly. This is the short form of <code>vexa cpp build &lt;input&gt;</code>.</p>
+      <p><code>-o, --out &lt;path&gt;</code> output C++ file or project directory.</p>
+      <p><code>--target &lt;mode&gt;</code> <code>conservative</code> or <code>optimized</code>.</p>
+      <p><code>--jsx-factory &lt;factory&gt;</code> and <code>--jsx-fragment-factory &lt;factory&gt;</code> configure JSX emission.</p>
+      <p><code>--transpile-only</code> skips semantic diagnostics; <code>--native-source-locations</code> adds native source hooks.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa cpp build &lt;input&gt;</code></h3>
+      <p>Explicit C++ compilation. It accepts the same output, target, diagnostic, and source-location flags as <code>cpp</code>.</p>
+      <p><code>-o, --out &lt;path&gt;</code>, <code>--target &lt;mode&gt;</code>, <code>--jsx-factory &lt;factory&gt;</code>, <code>--jsx-fragment-factory &lt;factory&gt;</code>, <code>--transpile-only</code>, and <code>--native-source-locations</code>.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa cpp link &lt;input&gt;</code></h3>
+      <p>Compile and link a native Oilpan executable. Generated C++ and unchanged executables are reused from the cache.</p>
+      <p><code>-o, --out &lt;path&gt;</code> executable path or project output directory.</p>
+      <p><code>--build-dir &lt;dir&gt;</code> intermediate directory; defaults to <code>&lt;input&gt;.build</code>.</p>
+      <p><code>--target &lt;mode&gt;</code>, <code>--jsx-factory &lt;factory&gt;</code>, <code>--jsx-fragment-factory &lt;factory&gt;</code>, <code>--transpile-only</code>, and <code>--native-source-locations</code>.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa cpp run &lt;input&gt;</code></h3>
+      <p>Compile, link, and execute a native Oilpan executable, reusing cached artifacts when inputs are unchanged.</p>
+      <p>Supports the same flags as <code>cpp link</code>: <code>-o, --out &lt;path&gt;</code>, <code>--build-dir &lt;dir&gt;</code>, <code>--target &lt;mode&gt;</code>, <code>--jsx-factory &lt;factory&gt;</code>, <code>--jsx-fragment-factory &lt;factory&gt;</code>, <code>--transpile-only</code>, and <code>--native-source-locations</code>.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa run &lt;input&gt;</code></h3>
+      <p>Transpile and execute a VexaScript file with Node.js.</p>
+      <p><code>--target &lt;mode&gt;</code> selects <code>conservative</code> or <code>optimized</code>.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa bundle &lt;input&gt;</code></h3>
+      <p>Bundle the entry and referenced local and package modules as ESM.</p>
+      <p><code>-o, --out &lt;file&gt;</code>, <code>--target &lt;mode&gt;</code>, <code>--jsx-factory &lt;factory&gt;</code>, <code>--jsx-fragment-factory &lt;factory&gt;</code>, and <code>--transpile-only</code>.</p>
+      <p><code>--platform &lt;platform&gt;</code> is <code>browser</code> or <code>node</code>.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa serve [dir]</code></h3>
+      <p>Serve static files, optionally bundle an entry, inject it into HTML, and live-reload on changes.</p>
+      <p><code>--bundle &lt;input&gt;</code>, <code>--open</code>, <code>--port &lt;number&gt;</code>, <code>--target &lt;mode&gt;</code>, <code>--jsx-factory &lt;factory&gt;</code>, and <code>--jsx-fragment-factory &lt;factory&gt;</code>.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa test [paths...]</code></h3>
+      <p>Discover and run <code>.test.vx</code> files. It has no command-specific flags.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa format &lt;input&gt;</code></h3>
+      <p>Format a VexaScript file in place.</p>
+      <p><code>-w, --write</code> is retained as a deprecated compatibility flag; <code>-o, --out &lt;file&gt;</code> selects another output path.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa tokens &lt;input&gt;</code> and <code>vexa ast &lt;input&gt;</code></h3>
+      <p>Print the token stream or simplified AST. Neither command has additional flags.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa syntax</code></h3>
+      <p>Print embedded editor syntax definitions.</p>
+      <p><code>--target &lt;name&gt;</code>, <code>--monaco</code>, <code>--monaco-language</code>, <code>--monaco-configuration</code>, <code>--vscode</code>, <code>--vscode-grammar</code>, <code>--vscode-configuration</code>, <code>--codemirror</code>, and <code>--textmate</code>.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa lsp</code></h3>
+      <p>Start the language server. Transport options are passed through to the language-server adapter.</p>
+    </article>
+    <article class="card cli-flags">
+      <h3><code>vexa mcp</code></h3>
+      <p>Start the MCP codebase-navigation server over JSON-RPC on standard input/output. MCP clients discover these tools through <code>tools/list</code> and invoke them through <code>tools/call</code>.</p>
+      <p><code>--root &lt;dir&gt;</code> selects the workspace root used to resolve paths and scan symbols.</p>
+      <h4>Provided MCP tools</h4>
+      <p><code>vexa_workspace_symbols</code> searches top-level symbols and class members across the workspace. Optional arguments: <code>query</code> (case-insensitive name filter; empty returns all symbols) and <code>root</code>.</p>
+      <p><code>vexa_document_symbols</code> lists the symbols declared in one file. Required argument: <code>file</code>.</p>
+      <p><code>vexa_hover</code> returns type and documentation information at a position. Required arguments: <code>file</code>, <code>line</code>, <code>character</code>. The line is zero-based and <code>character</code> is a zero-based UTF-16 offset. Optional: <code>root</code>.</p>
+      <p><code>vexa_definition</code> navigates to the definition at a position, including imported and cross-file symbols. It accepts the same position arguments as <code>vexa_hover</code>.</p>
+      <p><code>vexa_references</code> finds references to the symbol at a position across the workspace. It accepts the same position arguments plus optional <code>includeDeclaration</code>, which defaults to <code>true</code>.</p>
+      <p><code>vexa_signature_help</code> returns call-signature help around a position. It accepts the same position arguments as <code>vexa_hover</code>.</p>
+      <p><code>vexa_rename</code> builds a cross-file rename edit at a position. Required arguments: <code>file</code>, <code>line</code>, <code>character</code>, and <code>newName</code>. Optional: <code>root</code> and <code>apply</code>; <code>apply</code> defaults to <code>false</code> and writes changes only when set to <code>true</code>.</p>
+    </article>
+  </div>
 </section>

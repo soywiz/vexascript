@@ -46,10 +46,11 @@ console.log(g.greet())
 vexa run hello.vx
 vexa build hello.vx -o dist/hello.js
 {% endhighlightVexaScript %}
-      <p>You can also compile either <code>.vx</code> or <code>.ts</code> entrypoints to an optimized native executable:</p>
+      <p>You can also compile either <code>.vx</code> or <code>.ts</code> entrypoints through the native C++ command group:</p>
 {% highlightVexaScript %}
-vexa executable hello.vx -o dist/hello
-vexa executable cli/cli.ts -o dist/vexa-native
+vexa cpp hello.vx
+vexa cpp link hello.vx -o dist/hello
+vexa cpp run cli/cli.ts -o dist/vexa-native
 {% endhighlightVexaScript %}
     </article>
 
@@ -72,10 +73,10 @@ vexa executable cli/cli.ts -o dist/vexa-native
       </div>
       <p>Test files use the <code>.test.vx</code> suffix. The <code>test</code> and <code>assert</code> helpers are available without any import.</p>
 {% highlightVexaScript %}
-test("arithmetic", () => {
+test("arithmetic") {
   assert(1 + 1 == 2)
   assert(2 * 3 == 6)
-})
+}
 {% endhighlightVexaScript %}
       <p>Run all tests under the current directory, or pass specific paths:</p>
 {% highlightVexaScript %}

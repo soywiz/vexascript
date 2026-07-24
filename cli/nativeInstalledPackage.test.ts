@@ -38,7 +38,8 @@ describe("installed native package", () => {
       const executablePath = join(consumerRoot, "native-app");
       await writeFile(sourcePath, `console.log("installed", [1, 2, 3].map { it * 2 })\n`, "utf8");
       await runCommand(process.execPath, [join(packageRoot, "dist", "vexa.js"),
-        "executable",
+        "cpp",
+        "link",
         sourcePath,
         "--out",
         executablePath,

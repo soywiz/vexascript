@@ -44,7 +44,8 @@ describe("native foreign libraries", () => {
       await runCli([
         "node",
         "vexa",
-        "executable",
+        "cpp",
+        "link",
         sourcePath,
         "--out",
         executablePath,

@@ -583,6 +583,13 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 }
 
 .embed-docs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.embed-docs .card {
+  height: min(24rem, calc(100vh - 12rem));
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.embed-docs .syntax-block { overflow: visible; }
 
 .blog-list {
   display: grid;
@@ -590,7 +597,9 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 }
 
 .blog-list .card {
+  width: 100%;
   max-width: 860px;
+  margin-inline: auto;
 }
 
 .blog-meta {
@@ -613,7 +622,9 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 }
 
 .blog-article {
+  width: 100%;
   max-width: 860px;
+  margin-inline: auto;
 }
 
 .blog-article p {

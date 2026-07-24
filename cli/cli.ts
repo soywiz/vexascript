@@ -31,6 +31,7 @@ import {
   openUrlInDefaultBrowser,
   renderSyntaxForCli,
   resolveNativeProgramPaths,
+  runCommand as runProcessCommand,
   runAsyncMain,
   runTestFiles,
   runtimePlatform,
@@ -221,14 +222,68 @@ async function buildFile(
   }
 }
 
-async function buildNativeFile(
+interface NativeCompilationCache {
+  version: 1;
+  compilerVersion: string;
+  sourcePath: string;
+  cppPath: string;
+  target: TranspileTarget;
+  typeCheck: boolean;
+  emitNativeSourceLocations: boolean;
+  jsxFactory: string;
+  jsxFragmentFactory: string;
+  watchedFiles: Record<string, number>;
+  nativeCompilerFlags: string[];
+}
+
+async function nativeFileSignatures(paths: string[]): Promise<Record<string, number> | null> {
+  const signatures: Record<string, number> = {};
+  for (const path of paths) {
+    const info = await vfs().stat(path).catch((_error) => null);
+    if (!info) return null;
+    signatures[path] = info.mtimeMs;
+  }
+  return signatures;
+}
+
+async function readNativeCompilationCache(cachePath: string): Promise<NativeCompilationCache | null> {
+  const content = await vfs().readFile(cachePath).catch((_error) => null);
+  if (!content) return null;
+  try {
+    const cache = JSON.parse(content) as NativeCompilationCache;
+    return cache.version === 1 ? cache : null;
+  } catch {
+    return null;
+  }
+}
+
+async function isNativeCompilationCacheValid(
+  cache: NativeCompilationCache | null,
+  options: Omit<NativeCompilationCache, "watchedFiles" | "nativeCompilerFlags">,
+  cppPath: string
+): Promise<boolean> {
+  if (!cache || cache.version !== options.version || cache.compilerVersion !== options.compilerVersion ||
+      cache.sourcePath !== options.sourcePath || cache.cppPath !== options.cppPath ||
+      cache.target !== options.target || cache.typeCheck !== options.typeCheck ||
+      cache.emitNativeSourceLocations !== options.emitNativeSourceLocations ||
+      cache.jsxFactory !== options.jsxFactory || cache.jsxFragmentFactory !== options.jsxFragmentFactory) {
+    return false;
+  }
+  if (!(await vfs().stat(cppPath).catch((_error) => null))) return false;
+  const files = await nativeFileSignatures(Object.keys(cache.watchedFiles));
+  if (!files) return false;
+  return Object.entries(files).every(([path, mtimeMs]) => cache.watchedFiles[path] === mtimeMs);
+}
+
+async function compileNativeProgram(
   input: string,
   out?: string,
   buildDir?: string,
   target: TranspileTarget = "optimized",
   typeCheck = true,
-  emitNativeSourceLocations = false
-): Promise<void> {
+  emitNativeSourceLocations = false,
+  jsxOptions: JsxOptions = new JsxOptions()
+): Promise<{ paths: Awaited<ReturnType<typeof resolveNativeProgramPaths>>; nativeCompilerFlags: string[] }> {
   const buildStartedAt = monotonicNow();
   const phaseTimings = new Map<string, number>();
   const inputPath = resolve(process.cwd(), input);
@@ -243,6 +298,33 @@ async function buildNativeFile(
   if (!sourcePath) {
     throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
   }
+  const projectOutputDir = project?.buildOutputDir ?? resolve(inputPath, "dist");
+  const executableName = basename(sourcePath).replace(/\.[^.]+$/, runtimePlatform() === "win32" ? ".exe" : "");
+  const paths = await resolveNativeProgramPaths(
+    sourcePath,
+    directoryBuild
+      ? resolve(process.cwd(), out ? resolve(out, executableName) : resolve(projectOutputDir, executableName))
+      : out,
+    directoryBuild ? resolve(process.cwd(), buildDir ?? resolve(projectOutputDir, ".vexa-native")) : buildDir
+  );
+  await mkdir(paths.buildRoot, { recursive: true });
+  const cachePath = resolve(paths.buildRoot, ".vexa-native-cache.json");
+  const cacheOptions = {
+    version: 1 as const,
+    compilerVersion: COMPILER_VERSION,
+    sourcePath: paths.sourcePath,
+    cppPath: paths.cppPath,
+    target,
+    typeCheck,
+    emitNativeSourceLocations,
+    jsxFactory: jsxOptions.jsxFactory,
+    jsxFragmentFactory: jsxOptions.jsxFragmentFactory,
+  };
+  const cached = await readNativeCompilationCache(cachePath);
+  if (await isNativeCompilationCacheValid(cached, cacheOptions, paths.cppPath)) {
+    console.log(`Reusing cached C++: ${paths.cppPath}`);
+    return { paths, nativeCompilerFlags: cached!.nativeCompilerFlags };
+  }
   const typeCheckStartedAt = monotonicNow();
   let typeCheckElapsedMs = 0;
   const semanticValidation = (async (): Promise<boolean> => {
@@ -255,16 +337,6 @@ async function buildNativeFile(
   const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, typeCheck)
     ? false
     : await semanticValidation;
-  const projectOutputDir = project?.buildOutputDir ?? resolve(inputPath, "dist");
-  const executableName = basename(sourcePath).replace(/\.[^.]+$/, runtimePlatform() === "win32" ? ".exe" : "");
-  const paths = await resolveNativeProgramPaths(
-    sourcePath,
-    directoryBuild
-      ? resolve(process.cwd(), out ? resolve(out, executableName) : resolve(projectOutputDir, executableName))
-      : out,
-    directoryBuild ? resolve(process.cwd(), buildDir ?? resolve(projectOutputDir, ".vexa-native")) : buildDir
-  );
-  await mkdir(paths.buildRoot, { recursive: true });
   const declarationsStartedAt = monotonicNow();
   const ambientDeclarations = await ambientDeclarationsForProject(paths.sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
@@ -282,6 +354,8 @@ async function buildNativeFile(
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
+    ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
+    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {}),
   });
   await semanticValidation;
   if (result.errors.length > 0) {
@@ -294,16 +368,45 @@ async function buildNativeFile(
   phaseTimings.set("write", monotonicNow() - writeStartedAt);
   phaseTimings.set("cpp-generation-total", monotonicNow() - buildStartedAt);
   console.log(`Compiled: ${paths.sourcePath} -> ${paths.cppPath} (${formatPhaseTimings(phaseTimings)})`);
-  console.log(`Compiling native executable with g++ -O2: ${paths.executablePath}`);
+  const watchedFiles = [...result.watchedFiles];
+  const projectConfigRoot = directoryBuild ? inputPath : dirname(paths.sourcePath);
+  for (const configName of ["vexascript.json", "tsconfig.json"]) {
+    const configPath = resolve(projectConfigRoot, configName);
+    if (await vfs().stat(configPath).catch((_error) => null)) watchedFiles.push(configPath);
+  }
+  const watchedFileSignatures = await nativeFileSignatures(watchedFiles);
+  await vfs().writeFile(cachePath, JSON.stringify({
+    ...cacheOptions,
+    watchedFiles: watchedFileSignatures ?? {},
+    nativeCompilerFlags: result.nativeCompilerFlags,
+  } satisfies NativeCompilationCache));
+  return { paths, nativeCompilerFlags: result.nativeCompilerFlags };
+}
+
+async function linkNativeProgram(
+  input: string,
+  out: string | undefined,
+  buildDir: string | undefined,
+  target: TranspileTarget,
+  typeCheck: boolean,
+  emitNativeSourceLocations: boolean,
+  jsxOptions: JsxOptions = new JsxOptions()
+): Promise<Awaited<ReturnType<typeof resolveNativeProgramPaths>>> {
+  const compilation = await compileNativeProgram(input, out, buildDir, target, typeCheck, emitNativeSourceLocations, jsxOptions);
+  const executableInfo = await vfs().stat(compilation.paths.executablePath).catch((_error) => null);
+  const cppInfo = await vfs().stat(compilation.paths.cppPath).catch((_error) => null);
+  if (executableInfo && cppInfo && executableInfo.mtimeMs >= cppInfo.mtimeMs) {
+    console.log(`Reusing cached native executable: ${compilation.paths.executablePath}`);
+    return compilation.paths;
+  }
+  console.log(`Compiling native executable with g++ -O2: ${compilation.paths.executablePath}`);
   const nativeCompileStartedAt = monotonicNow();
-  await linkNativeExecutable(paths.cppPath, paths.executablePath, result.nativeCompilerFlags);
-  phaseTimings.set("native-compile-link", monotonicNow() - nativeCompileStartedAt);
-  phaseTimings.set("total", monotonicNow() - buildStartedAt);
+  await linkNativeExecutable(compilation.paths.cppPath, compilation.paths.executablePath, compilation.nativeCompilerFlags);
   console.log(
-    `Linked: ${paths.cppPath} + Oilpan -> ${paths.executablePath} ` +
-    `(native-compile-link ${roundedMilliseconds(phaseTimings.get("native-compile-link") ?? 0)}ms, ` +
-    `total ${roundedMilliseconds(phaseTimings.get("total") ?? 0)}ms)`
+    `Linked: ${compilation.paths.cppPath} + Oilpan -> ${compilation.paths.executablePath} ` +
+    `(native-compile-link ${roundedMilliseconds(monotonicNow() - nativeCompileStartedAt)}ms)`
   );
+  return compilation.paths;
 }
 
 async function buildCppModuleGraph(
@@ -311,7 +414,8 @@ async function buildCppModuleGraph(
   out: string | undefined,
   target: TranspileTarget,
   typeCheck = true,
-  emitNativeSourceLocations = false
+  emitNativeSourceLocations = false,
+  jsxOptions: JsxOptions = new JsxOptions()
 ): Promise<void> {
   const buildStartedAt = monotonicNow();
   const phaseTimings = new Map<string, number>();
@@ -361,6 +465,8 @@ async function buildCppModuleGraph(
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
+    ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
+    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {}),
   });
   await semanticValidation;
   if (result.errors.length > 0) {
@@ -736,79 +842,38 @@ function createProgram(): Command {
       new JsxOptions(opts.jsxFactory ?? "", opts.jsxFragmentFactory ?? "")
     );
 
-  const addExecutableCommand = (name: "executable" | "native", description: string): void => {
-    const executableCommand = program.command(name);
-    executableCommand.description(description);
-    executableCommand.argument("<input>", "Input .vx or .ts file, or configured project directory");
-    executableCommand.option("-o, --out <path>", "Output executable, or output directory for project builds");
-    executableCommand.option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)");
-    executableCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
-    executableCommand.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
-    executableCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
-    executableCommand.actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
-      const target = opts.target === "conservative" ? "conservative" : "optimized";
-      await buildNativeFile(input, opts.out, opts.buildDir, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
-    });
-  };
-
   const buildCommand = program.command("build");
-  buildCommand.description("Compile a VexaScript file to JavaScript or C++, optionally linking a native Oilpan executable");
+  buildCommand.description("Compile a VexaScript file to JavaScript");
   buildCommand.argument("<input>", "Input file or project directory");
   buildCommand.option("-o, --out <path>", "Output file for file builds, or output directory for project builds");
   buildCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
-  buildCommand.option("--emit <language>", "Output language for file builds: javascript|cpp", "javascript");
-  buildCommand.option("--native", "Emit C++, build Oilpan with g++, and link a native executable");
-  buildCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
   buildCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
   buildCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
   buildCommand.option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and node_modules packages as ESM");
   buildCommand.option("--transpile-only", "Emit TypeScript without failing on VexaScript semantic diagnostics");
   buildCommand.option("--platform <platform>", "Bundle platform: browser|node", "browser");
-  buildCommand.actionInput(async (input: string, opts: { out?: string; target?: string; emit?: string; native?: boolean; nativeSourceLocations?: boolean; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean; transpileOnly?: boolean; platform?: string }): Promise<void> => {
+  buildCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean; transpileOnly?: boolean; platform?: string }): Promise<void> => {
       const buildOptions = resolveBuildOptions(opts);
       const target = buildOptions.target;
       const jsxOptions = buildOptions.jsxOptions;
-      const emit = opts.native === true ? "cpp" : opts.emit ?? "javascript";
-      if (emit !== "javascript" && emit !== "cpp") {
-        throw new Error(`Unsupported output language "${emit}". Supported languages: javascript, cpp`);
-      }
       const inputPath = resolve(process.cwd(), input);
       const inputStats = await vfs().stat(inputPath).catch((_error) => null);
       if (inputStats?.isDirectory) {
-        if (opts.native === true) {
-          await buildNativeFile(input, opts.out, undefined, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
-          return;
-        }
-        if (emit === "cpp") {
-          await buildCppModuleGraph(input, opts.out, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
-          return;
-        }
         await buildDirectory(input, opts.out, target, jsxOptions);
         return;
       }
       if (opts.bundle === true) {
-        if (emit === "cpp" || opts.native === true) {
-          throw new Error("C++ emission cannot be combined with --bundle");
-        }
         if (opts.platform !== "browser" && opts.platform !== "node") {
           throw new Error(`Unsupported bundle platform "${opts.platform}". Supported platforms: browser, node`);
         }
         await bundleFile(input, opts.out, target, jsxOptions, opts.transpileOnly !== true, opts.platform);
         return;
       }
-      if (opts.native === true) {
-        await buildNativeFile(input, opts.out, undefined, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
-        return;
-      }
-      if (emit === "cpp") {
-        await buildCppModuleGraph(input, opts.out, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
-        return;
-      }
-      await buildFile(input, opts.out, target, jsxOptions, emit, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
+      await buildFile(input, opts.out, target, jsxOptions, "javascript", opts.transpileOnly !== true);
   });
 
   const cppCommand = program.command("cpp");
-  cppCommand.description("Emit a VexaScript file or configured project as a C++ translation unit without compiling it");
+  cppCommand.description("Compile, link, or run a VexaScript program through the native C++ backend");
   cppCommand.argument("<input>", "Input .vx file or configured project directory");
   cppCommand.option("-o, --out <path>", "Output C++ file, or output directory for project builds");
   cppCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
@@ -818,14 +883,42 @@ function createProgram(): Command {
   cppCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
   cppCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
       const buildOptions = resolveBuildOptions(opts);
-      const target = buildOptions.target;
-      const jsxOptions = buildOptions.jsxOptions;
-      void jsxOptions;
-      await buildCppModuleGraph(input, opts.out, target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false);
+      await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions);
   });
 
-  addExecutableCommand("executable", "Compile one VexaScript or TypeScript file directly to a native Oilpan executable");
-  addExecutableCommand("native", "Compatibility alias for the executable command");
+  const cppBuildCommand = cppCommand.command("build");
+  cppBuildCommand.description("Compile a VexaScript file to a C++ translation unit");
+  cppBuildCommand.argument("<input>", "Input .vx file or configured project directory");
+  cppBuildCommand.option("-o, --out <path>", "Output C++ file, or output directory for project builds");
+  cppBuildCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
+  cppBuildCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
+  cppBuildCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
+  cppBuildCommand.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
+  cppBuildCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
+  cppBuildCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
+    const buildOptions = resolveBuildOptions(opts);
+    await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions);
+  });
+
+  const addCppLinkCommand = (name: "link" | "run", description: string): void => {
+    const command = cppCommand.command(name);
+    command.description(description);
+    command.argument("<input>", "Input .vx or .ts file, or configured project directory");
+    command.option("-o, --out <path>", "Output executable, or output directory for project builds");
+    command.option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)");
+    command.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
+    command.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
+    command.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
+    command.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
+    command.option("--native-source-locations", "Emit per-statement native source-location hooks");
+    command.actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
+      const buildOptions = resolveBuildOptions(opts);
+      const paths = await linkNativeProgram(input, opts.out, opts.buildDir, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions);
+      if (name === "run") await runProcessCommand(paths.executablePath, []);
+    });
+  };
+  addCppLinkCommand("link", "Compile and link a native Oilpan executable");
+  addCppLinkCommand("run", "Compile, link, and run a native Oilpan executable");
 
   const bundleCommand = program.command("bundle");
   bundleCommand.description("Bundle a VexaScript entry file and its resolved local and package modules as ESM");
@@ -950,7 +1043,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(["build", "cpp", "executable", "native", "bundle", "serve", "run", "test", "tokens", "ast", "format", "syntax", "lsp", "mcp"]);
+  const knownCommands = new Set(["build", "cpp", "bundle", "serve", "run", "test", "tokens", "ast", "format", "syntax", "lsp", "mcp"]);
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");

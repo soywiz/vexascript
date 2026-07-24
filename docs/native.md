@@ -1,32 +1,30 @@
 # Native C++ backend
 
-VexaScript can emit a C++ translation unit from a single source file:
+VexaScript exposes all native workflows below the `cpp` command:
 
 ```sh
 vexa cpp main.vx
+vexa cpp build main.vx
 ```
 
-The default output is `main.cpp`; `-o <file>` selects another C++ output path.
-`vexa build main.vx --emit cpp` remains available as the equivalent compatibility
-form. To compile directly to a native executable, use:
+Both forms compile to a C++ translation unit. The default output is `main.cpp`;
+`-o <file>` selects another C++ output path. To compile and link a native
+executable, use:
 
 ```sh
-vexa executable main.vx
+vexa cpp link main.vx
 ./main
 ```
 
 The intermediate C++ file is written to `main.vx.build/main.cpp`. Use
 `--build-dir <dir>` to select a different intermediate directory and
-`-o <file>` to select the executable path. `vexa native main.vx` and
-`vexa build main.vx --native` remain compatibility forms of this workflow.
-TypeScript entrypoints are accepted too: `vexa executable main.ts`.
+`-o <file>` to select the executable path. `cpp run` performs the same build,
+then executes the resulting program. TypeScript entrypoints are accepted too:
+`vexa cpp link main.ts`.
 
-Both `cpp` and `build --emit cpp` use the same complete module graph and print
-project/declaration loading, load/parse, module isolation, merged analysis, C++
-emission, type-check, write, and total generation timings. `executable` prints
-the same generation breakdown before invoking the native compiler. It then announces the
-`g++ -O2` step and reports native compile/link plus end-to-end time when linking
-finishes. Measurements use the monotonic high-resolution `performance.now()`
+All four forms use the same complete module graph. `cpp link` and `cpp run`
+cache the generated C++ and linked executable; unchanged sources reuse both
+artifacts. Measurements use the monotonic high-resolution `performance.now()`
 clock on Node.js and browsers.
 
 JavaScript file builds print source/project/declaration loading, type-check,
@@ -57,7 +55,7 @@ The end-to-end regression lives in `samples/native-language-smoke/`. It is a
 multi-file program covering functions, classes, interfaces, operators, managed
 arrays and records, control flow, exceptions, generators, promises, timers, and
 local imports. `cli/nativeSmoke.test.ts` compiles it through the public
-`executable` command, runs the resulting process, and compares its complete
+`cpp link` command, runs the resulting process, and compares its complete
 stdout with `expected.native.txt`. The ordinary sample harness separately runs
 the same entry through JavaScript and compares it with `expected.txt`.
 

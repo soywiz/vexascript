@@ -16,28 +16,33 @@ permalink: /embed.html
   <div class="embed-docs">
     <article class="card">
       <h3>Simple editor</h3>
-<pre><code>&lt;div id="lesson-editor"&gt;&lt;/div&gt;
-&lt;script src="/assets/generated/vexa-embed.js"&gt;&lt;/script&gt;
-&lt;script&gt;
+{% highlightVexaScript %}
+<div id="lesson-editor"></div>
+<script src="/assets/generated/vexa-embed.js"></script>
+<script>
   VexaScriptEmbeds.createSimpleEditor("#lesson-editor", {
     content: "fun add(a: int, b: int): int { return a + b }",
     inlayHints: false
   })
-&lt;/script&gt;</code></pre>
+</script>
+{% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>Workspace editor</h3>
-<pre><code>VexaScriptEmbeds.createWorkspaceEditor("#workspace", {
+{% highlightVexaScript %}
+VexaScriptEmbeds.createWorkspaceEditor("#workspace", {
   activePath: "/main.vx",
   files: [
     { path: "/main.vx", content: "import { greet } from './greeter.vx'\nconsole.log(greet('VexaScript'))" },
     { path: "/greeter.vx", content: "export fun greet(name: string): string { return $\"Hello {name}\" }" }
   ]
-})</code></pre>
+})
+{% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>Full workbench</h3>
-<pre><code>VexaScriptEmbeds.createWorkbenchEditor("#workbench", {
+{% highlightVexaScript %}
+VexaScriptEmbeds.createWorkbenchEditor("#workbench", {
   activePath: "/src/main.vx",
   allowWorkspaceWrites: true,
   inlayHints: true,
@@ -45,7 +50,8 @@ permalink: /embed.html
     { path: "/src/main.vx", content: "import { greet } from './greeter.vx'\nconsole.log(greet('VexaScript'))" },
     { path: "/src/greeter.vx", content: "export fun greet(name: string): string => $\"Hello {name}\"" }
   ]
-})</code></pre>
+})
+{% endhighlightVexaScript %}
     </article>
   </div>
 </section>
