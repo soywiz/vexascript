@@ -1,8 +1,18 @@
 import { readFile } from "node:fs/promises";
 import { assert, dirname, fileURLToPath, resolve, test } from "../../compiler/test/expect";
+import { ensureGeneratedSyntaxModule } from "../scripts/prepare.ts";
 import { loadSyntaxDocument, loadSyntaxAiDocument, renderMarkdownDocument } from "./siteContent.ts";
 import { highlightVexaScriptHtml } from "./syntaxHighlight.ts";
-import { highlightVexaScriptHtml as highlightBuiltVexaScriptHtml } from "./syntaxHighlight.mjs";
+
+let builtHighlighterPromise: Promise<typeof import("./syntaxHighlight.mjs")> | undefined;
+
+function loadBuiltHighlighter(): Promise<typeof import("./syntaxHighlight.mjs")> {
+  builtHighlighterPromise ??= (async () => {
+    await ensureGeneratedSyntaxModule();
+    return await import("./syntaxHighlight.mjs");
+  })();
+  return builtHighlighterPromise;
+}
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(testDirectory, "..", "..");
@@ -60,17 +70,19 @@ test("highlightVexaScriptHtml limits documentation comments to one line", () => 
 });
 
 test("the Eleventy highlighter uses the same keyword and comment rules", () => {
-  const html = highlightBuiltVexaScriptHtml("/// docs\nclass Point {}\nsync fun load(): int {\n  const value = 1\n}");
+  return loadBuiltHighlighter().then(({ highlightVexaScriptHtml: highlightBuiltVexaScriptHtml }) => {
+    const html = highlightBuiltVexaScriptHtml("/// docs\nclass Point {}\nsync fun load(): int {\n  const value = 1\n}");
 
-  assert.match(html, /class="token-keyword-type">class<\/span>/);
-  assert.match(html, /class="token-keyword-modifier">sync<\/span>/);
-  assert.match(html, /class="token-keyword-modifier">fun<\/span>/);
-  assert.match(html, /class="token-keyword-declaration">const<\/span>/);
-  assert.doesNotMatch(html, /token-comment-doc[^<]*[\r\n][\s\S]*token-keyword/);
+    assert.match(html, /class="token-keyword-type">class<\/span>/);
+    assert.match(html, /class="token-keyword-modifier">sync<\/span>/);
+    assert.match(html, /class="token-keyword-modifier">fun<\/span>/);
+    assert.match(html, /class="token-keyword-declaration">const<\/span>/);
+    assert.doesNotMatch(html, /token-comment-doc[^<]*[\r\n][\s\S]*token-keyword/);
+  });
 });
 
 test("the Eleventy highlighter also handles TypeScript blocks", async () => {
-  const { renderHighlightedCodeBlock: renderBuiltCodeBlock } = await import("./syntaxHighlight.mjs");
+  const { renderHighlightedCodeBlock: renderBuiltCodeBlock } = await loadBuiltHighlighter();
   const html = renderBuiltCodeBlock("const value: string = \"hello\"", "ts");
 
   assert.match(html, /language-ts/);
