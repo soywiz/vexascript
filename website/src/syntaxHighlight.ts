@@ -1,30 +1,24 @@
 import {
   createPortableMonarchLanguage,
-  VEXA_CONSTANTS,
-  VEXA_KEYWORD_CONTROLS,
-  VEXA_KEYWORD_DECLARATIONS,
   VEXA_PRIMITIVE_TYPES,
-  VEXA_STORAGE_TYPES,
   type PortableMonarchLanguage,
   type PortableMonarchRule,
 } from "../../compiler/syntax.ts";
 
-const declarationKeywords = new Set([
-  ...VEXA_KEYWORD_DECLARATIONS,
-  ...VEXA_STORAGE_TYPES,
-]);
-const controlKeywords = new Set([
-  ...VEXA_KEYWORD_CONTROLS,
-  ...VEXA_CONSTANTS,
-]);
+const portableLanguage = createPortableMonarchLanguage();
+const declarationKeywords = new Set(portableLanguage.declarationKeywords);
+const modifierKeywords = new Set(portableLanguage.modifierKeywords);
+const functionKeywords = new Set(portableLanguage.functionKeywords);
+const typeKeywords = new Set(portableLanguage.typeKeywords);
+const controlKeywords = new Set(portableLanguage.controlKeywords);
 const primitiveTypes = new Set(VEXA_PRIMITIVE_TYPES);
+const sharedHighlightLanguages = new Set(["vexa", "typescript", "ts", "tsx"]);
 
 interface CompiledRule {
   regex: RegExp;
   rule: PortableMonarchRule;
 }
 
-const portableLanguage = createPortableMonarchLanguage();
 const compiledRules = new Map<string, CompiledRule[]>(
   Object.entries(portableLanguage.tokenizer).map(([state, rules]) => [
     state,
@@ -64,6 +58,21 @@ function tokenClassName(token: string): string {
   if (token === "keyword.control") {
     return "token-keyword-control";
   }
+  if (token === "keywordModifier") {
+    return "token-keyword-modifier";
+  }
+  if (token === "keywordFunction") {
+    return "token-keyword-function";
+  }
+  if (token === "keywordType") {
+    return "token-keyword-type";
+  }
+  if (token === "type.primitive") {
+    return "token-type-primitive";
+  }
+  if (token === "annotation") {
+    return "token-annotation";
+  }
   if (token === "operator") {
     return "token-operator";
   }
@@ -80,15 +89,12 @@ function tokenClassName(token: string): string {
 }
 
 function resolveCaseToken(text: string): string {
-  if (declarationKeywords.has(text)) {
-    return "keyword.declaration";
-  }
-  if (controlKeywords.has(text)) {
-    return "keyword.control";
-  }
-  if (primitiveTypes.has(text)) {
-    return "type.primitive";
-  }
+  if (modifierKeywords.has(text)) return "keywordModifier";
+  if (functionKeywords.has(text)) return "keywordFunction";
+  if (typeKeywords.has(text)) return "keywordType";
+  if (declarationKeywords.has(text)) return "keyword.declaration";
+  if (controlKeywords.has(text)) return "keyword.control";
+  if (primitiveTypes.has(text)) return "type.primitive";
   return "identifier";
 }
 
@@ -173,7 +179,7 @@ export function highlightVexaScriptHtml(source: string): string {
 
 export function renderHighlightedCodeBlock(source: string, language = "vexa"): string {
   const normalizedLanguage = language.trim().toLowerCase();
-  const html = normalizedLanguage === "vexa"
+  const html = sharedHighlightLanguages.has(normalizedLanguage)
     ? highlightVexaScriptHtml(source)
     : escapeHtml(source);
   return `<pre class="syntax-block"><code class="language-${escapeHtml(normalizedLanguage)}">${html}</code></pre>`;

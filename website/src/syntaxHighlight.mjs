@@ -1,12 +1,12 @@
 import portableLanguage, { vexaPrimitiveTypes } from "./generated/vexa-monarch-language.mjs";
 
-const declarationKeywords = new Set([
-  ...portableLanguage.declarationKeywords
-]);
-const controlKeywords = new Set([
-  ...portableLanguage.controlKeywords
-]);
+const declarationKeywords = new Set(portableLanguage.declarationKeywords);
+const modifierKeywords = new Set(portableLanguage.modifierKeywords);
+const functionKeywords = new Set(portableLanguage.functionKeywords);
+const typeKeywords = new Set(portableLanguage.typeKeywords);
+const controlKeywords = new Set(portableLanguage.controlKeywords);
 const primitiveTypes = new Set(vexaPrimitiveTypes);
+const sharedHighlightLanguages = new Set(["vexa", "typescript", "ts", "tsx"]);
 
 const compiledRules = new Map(
   Object.entries(portableLanguage.tokenizer).map(([state, rules]) => [
@@ -47,6 +47,21 @@ function tokenClassName(token) {
   if (token === "keyword.control") {
     return "token-keyword-control";
   }
+  if (token === "keywordModifier") {
+    return "token-keyword-modifier";
+  }
+  if (token === "keywordFunction") {
+    return "token-keyword-function";
+  }
+  if (token === "keywordType") {
+    return "token-keyword-type";
+  }
+  if (token === "type.primitive") {
+    return "token-type-primitive";
+  }
+  if (token === "annotation") {
+    return "token-annotation";
+  }
   if (token === "operator") {
     return "token-operator";
   }
@@ -63,15 +78,12 @@ function tokenClassName(token) {
 }
 
 function resolveCaseToken(text) {
-  if (declarationKeywords.has(text)) {
-    return "keyword.declaration";
-  }
-  if (controlKeywords.has(text)) {
-    return "keyword.control";
-  }
-  if (primitiveTypes.has(text)) {
-    return "type.primitive";
-  }
+  if (modifierKeywords.has(text)) return "keywordModifier";
+  if (functionKeywords.has(text)) return "keywordFunction";
+  if (typeKeywords.has(text)) return "keywordType";
+  if (declarationKeywords.has(text)) return "keyword.declaration";
+  if (controlKeywords.has(text)) return "keyword.control";
+  if (primitiveTypes.has(text)) return "type.primitive";
   return "identifier";
 }
 
@@ -150,7 +162,7 @@ export function highlightVexaScriptHtml(source) {
 
 export function renderHighlightedCodeBlock(source, language = "vexa") {
   const normalizedLanguage = language.trim().toLowerCase();
-  const html = normalizedLanguage === "vexa"
+  const html = sharedHighlightLanguages.has(normalizedLanguage)
     ? highlightVexaScriptHtml(source)
     : escapeHtml(source);
   return `<pre class="syntax-block"><code class="language-${escapeHtml(normalizedLanguage)}">${html}</code></pre>`;

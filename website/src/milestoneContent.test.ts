@@ -45,6 +45,7 @@ test("the blog records the requested compiler milestones", async () => {
     "Oilpan and mimalloc power VexaScript native memory",
     "Pixi serve rebuilds fall from 200 ms to about 50 ms",
     "Engineering journals and repository-local skills",
+    "VexaScript 0.10.0 makes native C++ an executable compiler path",
   ]) {
     assert.match(combined, new RegExp(`title: ${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   }
@@ -60,6 +61,7 @@ test("milestone posts include technical subsections and evidence tables", async 
     "cross-backend-ffi.md",
     "engineering-journals-and-skills.md",
     "oilpan-and-mimalloc.md",
+    "vexa-0.10.0.md",
   ]) {
     const post = await readWebsiteSource(`blog/${name}`);
     assert.match(post, /^## \*\*.+\*\*$/m, `${name} should have explicit technical subsections`);

@@ -1,10 +1,12 @@
 import { describe, expect, it, readFile, resolve } from "./test/expect";
 
 type RootPackageJson = {
+  version?: string;
   scripts?: Record<string, string>;
 };
 
 type VscodePackageJson = {
+  version?: string;
   icon?: string;
   license?: string;
   repository?: { type?: string; url?: string };
@@ -14,6 +16,17 @@ type VscodePackageJson = {
 };
 
 describe("VS Code extension packaging", () => {
+  it("keeps the extension version aligned with the compiler package", async () => {
+    const [rootPackage, extensionPackage] = await Promise.all([
+      readFile(resolve(process.cwd(), "package.json"), "utf8"),
+      readFile(resolve(process.cwd(), "plugins", "vscode", "package.json"), "utf8"),
+    ]);
+    const root = JSON.parse(rootPackage) as RootPackageJson;
+    const extension = JSON.parse(extensionPackage) as VscodePackageJson;
+
+    expect(extension.version).toBe(root.version);
+  });
+
   it("defines install, bundle, launch, and package wrapper scripts at the repo root", async () => {
     const packageJsonPath = resolve(process.cwd(), "package.json");
     const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as RootPackageJson;

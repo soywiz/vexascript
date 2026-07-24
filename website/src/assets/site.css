@@ -285,6 +285,19 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 .token-keyword-control {
   color: #7fc4ff;
 }
+.token-keyword-modifier {
+  color: #7fc4ff;
+}
+.token-keyword-function {
+  color: #dcdcaa;
+}
+.token-keyword-type,
+.token-type-primitive {
+  color: #4ec9b0;
+}
+.token-annotation {
+  color: #dcdcaa;
+}
 .token-string {
   color: #f9b66d;
 }

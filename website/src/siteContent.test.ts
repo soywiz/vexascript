@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { assert, dirname, fileURLToPath, resolve, test } from "../../compiler/test/expect";
 import { loadSyntaxDocument, loadSyntaxAiDocument, renderMarkdownDocument } from "./siteContent.ts";
 import { highlightVexaScriptHtml } from "./syntaxHighlight.ts";
+import { highlightVexaScriptHtml as highlightBuiltVexaScriptHtml } from "./syntaxHighlight.mjs";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(testDirectory, "..", "..");
@@ -30,12 +31,50 @@ test("renderMarkdownDocument renders headings and fenced code blocks", () => {
   assert.match(html, /token-number/);
 });
 
-test("highlightVexaScriptHtml applies shared token classes", () => {
-  const html = highlightVexaScriptHtml("sync fun load(): int {\n  return 1\n}");
+test("renderMarkdownDocument highlights TypeScript blocks with the shared lexer", () => {
+  const html = renderMarkdownDocument("```typescript\nconst value: string = \"hello\"\n```\n");
 
-  assert.match(html, /token-keyword-declaration/);
+  assert.match(html, /language-typescript/);
+  assert.match(html, /class="token-keyword-declaration">const<\/span>/);
+  assert.match(html, /class="token-string">"hello"<\/span>/);
+});
+
+test("highlightVexaScriptHtml applies shared token classes", () => {
+  const html = highlightVexaScriptHtml("class Point {}\nsync fun load(): int {\n  const value = 1\n  return value\n}");
+
+  assert.match(html, /class="token-keyword-type">class<\/span>/);
+  assert.match(html, /class="token-keyword-modifier">sync<\/span>/);
+  assert.match(html, /class="token-keyword-modifier">fun<\/span>/);
+  assert.match(html, /class="token-keyword-declaration">const<\/span>/);
   assert.match(html, /token-keyword-control/);
   assert.match(html, /token-number/);
+});
+
+test("highlightVexaScriptHtml limits documentation comments to one line", () => {
+  const html = highlightVexaScriptHtml("/// Point documentation\nclass Point {}\nconst value = 1");
+
+  assert.match(html, /class="token-comment-doc"> Point documentation<\/span>/);
+  assert.match(html, /class="token-keyword-type">class<\/span>/);
+  assert.match(html, /class="token-keyword-declaration">const<\/span>/);
+  assert.doesNotMatch(html, /token-comment-doc[^<]*[\r\n][\s\S]*token-keyword/);
+});
+
+test("the Eleventy highlighter uses the same keyword and comment rules", () => {
+  const html = highlightBuiltVexaScriptHtml("/// docs\nclass Point {}\nsync fun load(): int {\n  const value = 1\n}");
+
+  assert.match(html, /class="token-keyword-type">class<\/span>/);
+  assert.match(html, /class="token-keyword-modifier">sync<\/span>/);
+  assert.match(html, /class="token-keyword-modifier">fun<\/span>/);
+  assert.match(html, /class="token-keyword-declaration">const<\/span>/);
+  assert.doesNotMatch(html, /token-comment-doc[^<]*[\r\n][\s\S]*token-keyword/);
+});
+
+test("the Eleventy highlighter also handles TypeScript blocks", async () => {
+  const { renderHighlightedCodeBlock: renderBuiltCodeBlock } = await import("./syntaxHighlight.mjs");
+  const html = renderBuiltCodeBlock("const value: string = \"hello\"", "ts");
+
+  assert.match(html, /language-ts/);
+  assert.match(html, /class="token-keyword-declaration">const<\/span>/);
 });
 
 test("blog single-column content is centered in the listing and article views", async () => {

@@ -108,8 +108,8 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
       ],
       doc_line_comment: [
         { match: String.raw`\[[A-Za-z_][A-Za-z0-9_]*\]`, token: "comment.doc.param" },
-        { match: String.raw`[^\[]+$`, token: "comment.doc", next: "@pop" },
-        { match: String.raw`[^\[]+`, token: "comment.doc" },
+        { match: String.raw`[^\[\r\n]+`, token: "comment.doc" },
+        { match: String.raw`(?:\r\n|\r|\n)`, token: "", next: "@pop" },
         { match: String.raw`\[`, token: "comment.doc" },
       ],
       doc_block_comment: [
