@@ -45,9 +45,9 @@ test("the blog records the requested compiler milestones", async () => {
     "Oilpan and mimalloc power VexaScript native memory",
     "Pixi serve rebuilds fall from 200 ms to about 50 ms",
     "Engineering journals and repository-local skills",
-    "VexaScript 0.10.0 makes native C++ an executable compiler path",
+    "From VexaScript 0.9.0 to 0.10.0: one language, two backends, a tested toolchain",
   ]) {
-    assert.match(combined, new RegExp(`title: ${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    assert.match(combined, new RegExp(`title: "?${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"?`));
   }
 });
 

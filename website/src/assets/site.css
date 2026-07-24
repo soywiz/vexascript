@@ -644,6 +644,12 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
   color: #32405f;
 }
 
+.blog-article table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .site-footer { padding: 2rem clamp(1rem, 4vw, 4rem); color: #6b7287; border-top: 1px solid rgba(26, 34, 64, 0.08); }
 
 .doc-shell {

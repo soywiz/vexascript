@@ -82,6 +82,7 @@ test("blog single-column content is centered in the listing and article views", 
 
   assert.match(css, /\.blog-list \.card \{[\s\S]*?width: 100%;[\s\S]*?margin-inline: auto;/);
   assert.match(css, /\.blog-article \{[\s\S]*?width: 100%;[\s\S]*?margin-inline: auto;/);
+  assert.match(css, /\.blog-article table \{[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: auto;/);
 });
 
 test("embed example cards scroll independently", async () => {
