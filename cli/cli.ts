@@ -34,6 +34,7 @@ import {
   runCommand as runProcessCommand,
   runAsyncMain,
   runTestFiles,
+  runtimePid,
   runtimePlatform,
   startLanguageServer,
   startMcpServer,
@@ -647,22 +648,32 @@ async function buildDirectory(
   }
 }
 
-export async function runFile(input: string, target: TranspileTarget = "conservative"): Promise<void> {
+type RunRuntime = "node" | "deno";
+
+export async function runFile(
+  input: string,
+  target: TranspileTarget = "conservative",
+  runtime: RunRuntime = "node"
+): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   await ensureRuntimeDependencies(sourcePath, project);
   const result = await createBundledModuleArtifacts(sourcePath, target, project, new JsxOptions(), {
-    externalDependencyStrategy: "node-require"
+    externalDependencyStrategy: runtime === "node" ? "node-require" : "runtime-error"
   });
-  await executeCompiled(result.code, result.warnings, result.errors, undefined, result.diagnostics, sourcePath);
+  await executeCompiled(result.code, result.warnings, result.errors, undefined, result.diagnostics, sourcePath, runtime);
 }
 
-async function executeSource(source: string, sourcePath: string, target: TranspileTarget): Promise<void> {
-  const outputPath = replaceLanguageExtension(sourcePath, ".js");
+async function transpileSource(
+  source: string,
+  sourcePath: string,
+  target: TranspileTarget,
+  outputPath = replaceLanguageExtension(sourcePath, ".js")
+): Promise<ReturnType<typeof transpile>> {
   const project = await loadProject(sourcePath);
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
-  const result = transpile(source, {
+  return transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
@@ -671,7 +682,6 @@ async function executeSource(source: string, sourcePath: string, target: Transpi
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {})
   });
-  await executeCompiled(result.code, result.warnings, result.errors, result.sourceMap, result.diagnostics, sourcePath);
 }
 
 async function executeCompiled(
@@ -680,13 +690,28 @@ async function executeCompiled(
   errors: string[],
   sourceMap: string | undefined,
   diagnostics: TranspileDiagnostic[] | undefined,
-  sourcePath: string
+  sourcePath: string,
+  runtime: RunRuntime = "node"
 ): Promise<void> {
   if (errors.length > 0) {
     printDiagnostics(errors, diagnostics, sourcePath);
     throw new DiagnosticError();
   }
-  await executeJavaScriptModule(code, sourceMap, sourcePath);
+  if (runtime === "node") {
+    await executeJavaScriptModule(code, sourceMap, sourcePath);
+  } else {
+    const outputPath = `${sourcePath}.vexa-run-${runtimePid()}-${Date.now()}.mjs`;
+    try {
+      await vfs().writeFile(outputPath, `${code}\n//# sourceURL=${sourcePath}`);
+      await runProcessCommand("deno", ["run", "-A", outputPath]);
+    } finally {
+      try {
+        await vfs().unlink(outputPath);
+      } catch {
+        // The temporary output is best-effort cleanup after the runtime exits.
+      }
+    }
+  }
 
   if (warnings.length > 0) {
     for (const warning of warnings) {
@@ -695,12 +720,47 @@ async function executeCompiled(
   }
 }
 
-async function runTests(paths: string[]): Promise<void> {
-  const testFiles = await runTestFiles(paths, async (source, testFile) => {
-    await executeSource(source, testFile, "conservative");
-    console.log(`Passed: ${testFile}`);
-  });
+async function compileTestSource(source: string, testFile: string, outputFile: string): Promise<void> {
+  const result = await transpileSource(source, testFile, "conservative", outputFile);
+  if (result.errors.length > 0) {
+    printDiagnostics(result.errors, result.diagnostics, testFile);
+    throw new DiagnosticError();
+  }
+  const nodeTestImports = `import test from "node:test";\nimport assert from "node:assert/strict";\n`;
+  await vfs().writeFile(outputFile, `${nodeTestImports}${result.code}\n//# sourceURL=${testFile}`);
+  for (const warning of result.warnings) console.warn(`warning: ${warning}`);
+}
+
+async function runTests(paths: string[], nodeArgs: string[]): Promise<void> {
+  const testFiles = await runTestFiles(paths, nodeArgs, compileTestSource);
   console.log(`${testFiles.length} test file${testFiles.length === 1 ? "" : "s"} passed`);
+}
+
+const NODE_TEST_FLAGS_WITH_VALUES = new Set([
+  "--test-concurrency",
+  "--test-name-pattern",
+  "--test-reporter",
+  "--test-reporter-destination",
+  "--test-shard",
+  "--test-skip-pattern",
+  "--test-timeout"
+]);
+
+function splitTestArguments(args: string[]): { paths: string[]; nodeArgs: string[] } {
+  const paths: string[] = [];
+  const nodeArgs: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    nodeArgs.push(arg);
+    const flag = arg.includes("=") ? arg.slice(0, arg.indexOf("=")) : arg;
+    if (NODE_TEST_FLAGS_WITH_VALUES.has(flag) && !arg.includes("=") && args[index + 1] !== undefined) {
+      nodeArgs.push(args[++index]!);
+    } else if (!arg.startsWith("-")) {
+      nodeArgs.pop();
+      paths.push(arg);
+    }
+  }
+  return { paths, nodeArgs };
 }
 
 async function printTokens(input: string): Promise<void> {
@@ -979,19 +1039,22 @@ function createProgram(): Command {
   });
 
   const runCommand = program.command("run");
-  runCommand.description("Transpile and run a VexaScript file with Node.js");
+  runCommand.description("Transpile and run a VexaScript file with Node.js or Deno");
   runCommand.argument("<input>", "Input file");
   runCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "conservative");
-  runCommand.actionInput(async (input: string, opts: { target?: string }): Promise<void> => {
+  runCommand.option("-deno, --deno", "Run with Deno and grant all permissions (-A)");
+  runCommand.actionInput(async (input: string, opts: { target?: string; deno?: boolean }): Promise<void> => {
     const target = opts.target === "conservative" ? "conservative" : "optimized";
-    await runFile(input, target);
+    await runFile(input, target, opts.deno === true ? "deno" : "node");
   });
 
   const testCommand = program.command("test");
-  testCommand.description(`Discover and run .test${LANGUAGE_FILE_EXTENSION} files with inline test and assert helpers`);
+  testCommand.description(`Discover and run .test${LANGUAGE_FILE_EXTENSION} files with Node's test runner`);
+  testCommand.allowUnknownOption(true);
   testCommand.argument("[paths...]", "Test files or directories", []);
-  testCommand.actionStrings(async (paths: string[]): Promise<void> => {
-    await runTests(paths);
+  testCommand.actionStrings(async (args: string[]): Promise<void> => {
+    const testArguments = splitTestArguments(args);
+    await runTests(testArguments.paths, testArguments.nodeArgs);
   });
 
   const tokensCommand = program.command("tokens");

@@ -51,7 +51,11 @@ export async function linkNativeExecutable(_cppPath: string, _executablePath: st
   throw new Error("Native executable linking is not available in the native VexaScript CLI");
 }
 
-export async function runTestFiles(_paths: string[], _execute: (source: string, testFile: string) => Promise<void>): Promise<string[]> {
+export async function runTestFiles(
+  _paths: string[],
+  _nodeArgs: string[],
+  _compile: (source: string, testFile: string, outputFile: string) => Promise<void>
+): Promise<string[]> {
   throw new Error("The test runner is not available in the native VexaScript CLI");
 }
 

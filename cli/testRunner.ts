@@ -1,24 +1,20 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { LANGUAGE_FILE_EXTENSION } from "../compiler/language";
 import { resolve } from "../compiler/utils/path";
 
-export type VexaScriptTestExecutor = (source: string, filePath: string) => Promise<void>;
-
-export interface VexaScriptTestRunResult {
-  testFiles: string[];
+const TEST_TYPE_SOURCE = `interface VexaTestContext {
+  name: string
+  test(name: string, callback: (context: VexaTestContext) => any): Promise<void>
 }
-
-const TEST_RUNTIME_SOURCE = `@JsInline("((function test() { call() })())")
-fun test(call: any)
-@JsInline("if (!cond) throw new Error(message)")
-fun assert(cond: boolean, message: string = "assert failed")
-`;
+declare fun test(name: string, callback: (context: VexaTestContext) => any): Promise<void>
+declare fun test(callback: () => any): Promise<void>
+declare fun assert(condition: boolean, message?: string): void`;
 
 const IGNORED_TEST_DIRECTORIES = new Set([".git", "dist", "node_modules"]);
 const TEST_FILE_SUFFIX = `.test${LANGUAGE_FILE_EXTENSION}`;
 
-export function appendTestRuntimeSource(source: string): string {
-  return `${source}\n${TEST_RUNTIME_SOURCE}`;
+export function prependTestTypeDeclarations(source: string): string {
+  return `${TEST_TYPE_SOURCE}\n${source}`;
 }
 
 export async function discoverVexaScriptTestFiles(path: string, cwd = process.cwd()): Promise<string[]> {
@@ -45,24 +41,4 @@ export async function discoverVexaScriptTestFiles(path: string, cwd = process.cw
     }
   }
   return discovered;
-}
-
-export async function runVexaScriptTests(
-  paths: string[],
-  executeTest: VexaScriptTestExecutor,
-  cwd = process.cwd()
-): Promise<VexaScriptTestRunResult> {
-  const roots = paths.length > 0 ? paths : [cwd];
-  const discovered = await Promise.all(roots.map((path) => discoverVexaScriptTestFiles(path, cwd)));
-  const testFiles = [...new Set(discovered.flat())].sort();
-  if (testFiles.length === 0) {
-    throw new Error(`No ${TEST_FILE_SUFFIX} files found`);
-  }
-
-  for (const testFile of testFiles) {
-    const source = await readFile(testFile, "utf8");
-    await executeTest(appendTestRuntimeSource(source), testFile);
-  }
-
-  return { testFiles };
 }

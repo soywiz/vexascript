@@ -28,9 +28,13 @@ renders an interactive rectangle:
 ./vexa executable samples/ffi-sdl2/dynamic.vx --out /tmp/sdl2-dynamic
 /tmp/sdl2-dynamic
 
-./vexa build samples/ffi-sdl2/dynamic.vx --out /tmp/sdl2-dynamic.js
-deno run --allow-ffi /tmp/sdl2-dynamic.js
+./vexa run -deno samples/ffi-sdl2/dynamic.vx
+# Or, after installing `vexa` on PATH:
+./samples/ffi-sdl2/dynamic.vx
 ```
+
+The Deno run mode invokes `deno run -A`, including FFI, filesystem, and all
+other Deno permissions required by the sample.
 
 Other JavaScript runtimes may install `globalThis.VexaFFI` with an `open(path,
 symbols)` method compatible with the `{ symbols }` shape returned by

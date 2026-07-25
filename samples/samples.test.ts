@@ -1,5 +1,5 @@
 import { describe, expect, format, it, readFile, readdir } from "../compiler/test/expect";
-import { runFile } from "../cli/cli";
+import { runCli, runFile } from "../cli/cli";
 import {
     createBundledModuleArtifacts,
     ensureRuntimeDependencies,
@@ -34,6 +34,13 @@ describe("samples test", async () => {
         if ((await fileExists(rpackageJson)) && !(await fileExists(rnodeModules))) {
             // pnpm install
             await runCommand("pnpm", ["install"], { cwd: rfile })
+        }
+
+        const testFiles = (await readdir(rfile)).filter((name) => name.endsWith(".test.vx"))
+        if (testFiles.length > 0) {
+            it(`sample ${file} runs VexaScript tests`, async () => {
+                await runCli(["node", "vexa", "test", rfile])
+            })
         }
 
         if (await fileExists(rexpected)) {

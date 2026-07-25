@@ -417,6 +417,9 @@ offsets. Native pointers use direct `memcpy`-safe access; Deno reads through
 `vexaPlatform()` returns the normalized host platform, including `macos`,
 `windows`, and `linux`.
 
+The CLI's `vexa run -deno` mode writes the compiled module to a temporary file
+and invokes `deno run -A`, enabling FFI and all other Deno permissions.
+
 ### Custom JavaScript names
 
 Annotations are declared explicitly and then applied with `@`:
@@ -469,15 +472,16 @@ class Test extends Behaviour {
 
 ### Test files
 
-The CLI `test` command discovers files ending in `.test.vx`. Each test file receives inline `test(call)` and `assert(cond, message = "assert failed")` helpers without imports:
+The CLI `test` command discovers files ending in `.test.vx` and runs the generated modules with Node's `node:test` runner. Each test file receives `test` from `node:test` and `assert` from `node:assert/strict` without imports:
 
 ```my
-test(() => {
+test("arithmetic") {
+  assert(1 + 1 == 2)
   assert(2 * 3 == 6)
-})
+}
 ```
 
-`test` invokes its callback, and `assert` throws an `Error` when its condition is false. The helpers are implemented with `@JsInline`, so test execution does not require additional runtime files.
+The test name is reported by Node, and failed assertions set the CLI exit code to `1`. Node test-runner flags can be passed through the VexaScript command, for example `vexa test --test-name-pattern=arithmetic`.
 
 ### Implicit member access
 

@@ -1,5 +1,6 @@
 import { spawn, type StdioOptions } from "node:child_process";
 import { Buffer } from "node:buffer";
+import { unlink } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { basename, dirname, resolve } from "../compiler/utils/path";
 import { vfs } from "../compiler/vfs";
@@ -77,11 +78,42 @@ export async function linkNativeExecutable(cppPath: string, executablePath: stri
 
 export async function runTestFiles(
   paths: string[],
-  execute: (source: string, testFile: string) => Promise<void>
+  nodeArgs: string[],
+  compile: (source: string, testFile: string, outputFile: string) => Promise<void>
 ): Promise<string[]> {
-  const { runVexaScriptTests } = await import("./testRunner");
-  const result = await runVexaScriptTests(paths, execute);
-  return result.testFiles;
+  const { discoverVexaScriptTestFiles, prependTestTypeDeclarations } = await import("./testRunner");
+  const cwd = process.cwd();
+  const roots = paths.length > 0 ? paths : [cwd];
+  const discovered = await Promise.all(roots.map((path) => discoverVexaScriptTestFiles(path, cwd)));
+  const testFiles = [...new Set(discovered.flat())].sort();
+  if (testFiles.length === 0) {
+    throw new Error("No .test.vx files found");
+  }
+
+  const outputFiles: string[] = [];
+  try {
+    for (const [index, testFile] of testFiles.entries()) {
+      const outputFile = `${testFile}.vexa-test-${process.pid}-${index}.mjs`;
+      outputFiles.push(outputFile);
+      const source = await vfs().readFile(testFile);
+      await compile(prependTestTypeDeclarations(source), testFile, outputFile);
+    }
+
+    const nodeEnvironment = { ...process.env };
+    delete nodeEnvironment["NODE_TEST_CONTEXT"];
+    const result = await runCommandCapture("node", ["--test", ...nodeArgs, ...outputFiles], {
+      cwd,
+      env: nodeEnvironment
+    });
+    if (result.stdout.trim().length > 0) console.log(result.stdout.trimEnd());
+    if (result.stderr.trim().length > 0) console.error(result.stderr.trimEnd());
+    if (result.code !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `Node test runner exited with code ${result.code}`);
+    }
+    return testFiles;
+  } finally {
+    await Promise.all(outputFiles.map((outputFile) => unlink(outputFile).catch(() => undefined)));
+  }
 }
 
 export async function tokenizeForCli(source: string): Promise<unknown> {
@@ -141,11 +173,12 @@ export async function runCommand(
 export async function runCommandCapture(
   command: string,
   args: string[],
-  options: { cwd?: string } = {}
+  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
 ): Promise<CommandOutput> {
   return await new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
+      env: options.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

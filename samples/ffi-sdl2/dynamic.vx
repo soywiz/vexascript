@@ -1,3 +1,5 @@
+#!/usr/bin/env -S vexa run -deno
+
 @FFIStruct(56)
 @FFIAlign(8)
 class SDLEvent {

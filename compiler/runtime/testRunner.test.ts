@@ -1,5 +1,6 @@
 import { describe, expect, it, join, mkdir, mkdtemp, tmpdir, writeFile } from "../test/expect";
-import { appendTestRuntimeSource, discoverVexaScriptTestFiles, runVexaScriptTests } from "../../cli/testRunner";
+import { discoverVexaScriptTestFiles, prependTestTypeDeclarations } from "../../cli/testRunner";
+import { transpile } from "./transpile";
 
 describe("VexaScript test runner", () => {
   it("discovers sorted .test.vx files while skipping generated dependency directories", async () => {
@@ -19,20 +20,23 @@ describe("VexaScript test runner", () => {
     expect(await discoverVexaScriptTestFiles(dir)).toEqual([alpha, beta]);
   });
 
-  it("runs unique discovered test files with inline helpers appended", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vexa-test-runner-"));
-    const testFile = join(dir, "sample.test.vx");
-    await writeFile(testFile, "test(() => { assert(true) })", "utf8");
+  it("embeds Node test typings in each generated test module", () => {
+    const source = prependTestTypeDeclarations("test(\"arithmetic\") { assert(1 + 1 == 2) }");
+    expect(source).toContain("interface VexaTestContext");
+    expect(source).toContain("declare fun test(name: string");
+    expect(source).toContain("declare fun assert(condition: boolean");
+    expect(source).toContain('test("arithmetic")');
+  });
 
-    const calls: Array<{ source: string; filePath: string }> = [];
-    const result = await runVexaScriptTests([dir, testFile], async (source, filePath) => {
-      calls.push({ source, filePath });
-    });
+  it("type-checks named tests and rejects invalid assert conditions", () => {
+    const valid = transpile(prependTestTypeDeclarations(`test("arithmetic") {
+  assert(1 + 1 == 2)
+}`));
+    expect(valid.errors).toEqual([]);
 
-    expect(result.testFiles).toEqual([testFile]);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.filePath).toBe(testFile);
-    expect(calls[0]?.source).toBe(appendTestRuntimeSource("test(() => { assert(true) })"));
-    expect(calls[0]?.source).toContain("fun assert(cond: boolean");
+    const invalid = transpile(prependTestTypeDeclarations(`test("invalid") {
+  assert("not a boolean")
+}`));
+    expect(invalid.errors.some((error) => error.includes("expected to be 'boolean'") || error.includes("expected 'boolean'"))).toBe(true);
   });
 });

@@ -161,6 +161,41 @@ describe("CLI", () => {
     );
   });
 
+  it("run command supports Deno with all permissions", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-run-deno-"));
+    const input = join(dir, "input.vx");
+    const fakeDeno = join(dir, "deno");
+    const argsFile = join(dir, "deno-args.json");
+    await writeFile(input, 'console.log("deno")\n', "utf8");
+    await writeFile(fakeDeno, [
+      `#!${process.execPath}`,
+      'import { writeFile } from "node:fs/promises";',
+      'await writeFile(process.env.VEXA_DENO_ARGS, JSON.stringify(process.argv.slice(2)), "utf8");',
+      ""
+    ].join("\n"), "utf8");
+    await chmod(fakeDeno, 0o755);
+
+    const previousPath = process.env["PATH"];
+    const previousArgsFile = process.env["VEXA_DENO_ARGS"];
+    process.env["PATH"] = `${dir}${previousPath ? `:${previousPath}` : ""}`;
+    process.env["VEXA_DENO_ARGS"] = argsFile;
+    try {
+      await runCli(["node", "vexa", "run", "-deno", input]);
+    } finally {
+      if (previousPath === undefined) delete process.env["PATH"];
+      else process.env["PATH"] = previousPath;
+      if (previousArgsFile === undefined) delete process.env["VEXA_DENO_ARGS"];
+      else process.env["VEXA_DENO_ARGS"] = previousArgsFile;
+    }
+
+    const denoArgs = JSON.parse(await readFile(argsFile, "utf8")) as string[];
+    expect(denoArgs[0]).toBe("run");
+    expect(denoArgs[1]).toBe("-A");
+    expect(denoArgs[2]?.startsWith(`${input}.vexa-run-`)).toBe(true);
+    expect(denoArgs[2]?.endsWith(".mjs")).toBe(true);
+    await expect(readFile(denoArgs[2]!)).rejects.toThrow();
+  });
+
   it("build command emits C++ without a JavaScript source map", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-"));
     const input = join(dir, "input.vx");
@@ -848,25 +883,24 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Formatted:");
   });
 
-  it("test command discovers and executes .test.vx files with test and assert helpers", async () => {
+  it("test command discovers and executes .test.vx files with Node's test runner", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-tests-"));
     const testFile = join(dir, "math.test.vx");
-    await writeFile(testFile, "test(() => { assert(1 + 1 == 2) })", "utf8");
+    await writeFile(testFile, 'test("arithmetic") { assert(1 + 1 == 2) }', "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await runCli(["node", "vexa", "test", dir]);
 
-    expect(logSpy.mock.calls.map((call) => String(call[0]))).toEqual([
-      `Passed: ${testFile}`,
-      "1 test file passed"
-    ]);
+    const logs = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(logs).toContain("arithmetic");
+    expect(logs).toContain("1 test file passed");
   });
 
   it("test command fails when an inline assertion fails", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-tests-"));
     const testFile = join(dir, "failure.test.vx");
-    await writeFile(testFile, 'test(() => { assert(false, "expected true") })', "utf8");
+    await writeFile(testFile, 'test("failure", () => { assert(false, "expected true") })', "utf8");
 
     await expect(runCli(["node", "vexa", "test", testFile])).rejects.toThrow("expected true");
   });
