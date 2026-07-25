@@ -881,7 +881,7 @@ if (true) {
     expect(result.code).toContain("const duration = number$$milliseconds(10);");
   });
 
-  it("emits contextually resolved brace arguments and is checks", () => {
+  it("emits contextually resolved brace arguments and equivalent type checks", () => {
     const source = `interface Options { it: int }
 fun transform(fn: (value: int) => int): int { return fn(1) }
 fun consume(options: Options): int { return options.it }
@@ -892,6 +892,7 @@ let b = transform({ value -> value + 1 })
 let c = consume({ it })
 let cat: Cat | string = new Cat()
 if (cat is Cat) { transform({ it }) }
+if (cat instanceof Cat) { transform({ it }) }
 `;
     const result = transpile(source);
     expect(result.errors).toEqual([]);
@@ -899,6 +900,7 @@ if (cat is Cat) { transform({ it }) }
     expect(result.code).toContain("transform((value) => value + 1)");
     expect(result.code).toContain("consume({it})");
     expect(result.code).toContain("cat instanceof Cat");
+    expect(result.code.match(/cat instanceof Cat/g)?.length).toBe(2);
   });
 
   it("inlines @JsInline functions and substitutes arguments and defaults", () => {

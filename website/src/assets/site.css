@@ -596,7 +596,7 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 }
 
 .embed-docs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
-.embed-docs .card {
+.embed-docs .card pre {
   height: min(24rem, calc(100vh - 12rem));
   min-height: 0;
   overflow-x: auto;

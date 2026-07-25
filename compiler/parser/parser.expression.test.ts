@@ -907,6 +907,18 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses receiver blocks after direct non-null assertions", () => {
+        expect(parseExpression(tokenizeReader('canvas.getContext("2d")!. { fillStyle = "#f4f8fc" }'))).toMatchObject({
+            kind: NodeKind.CallExpression,
+            receiverBlockShorthand: true,
+            callee: {
+                kind: NodeKind.NonNullExpression,
+                expression: { kind: NodeKind.CallExpression }
+            },
+            args: [{ kind: NodeKind.ArrowFunctionExpression, body: { kind: NodeKind.AssignmentExpression } }]
+        });
+    });
+
     it("builds an AST for mixed safe access and computed member access", () => {
         expect(parseExpression(tokenizeReader("b?.c[\"d\"]"))).toEqual({
             kind: NodeKind.MemberExpression,

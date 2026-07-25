@@ -10,9 +10,23 @@ async function readWebsiteSource(path: string): Promise<string> {
 test("the concise syntax guide documents postfix receiver blocks", async () => {
   const differences = await readFile(resolve(testDirectory, "..", "..", "docs", "syntax.differences.md"), "utf8");
 
-  assert.match(differences, /## Postfix receiver blocks/m);
+  assert.match(differences, /### Postfix receiver blocks/m);
   assert.match(differences, /value\. \{ \.\.\. \}/m);
   assert.match(differences, /returns the same value/m);
+});
+
+test("the samples page places postfix receiver blocks beside the cascade operator", async () => {
+  const samples = await readWebsiteSource("samples.njk");
+
+  assert.match(samples, /<h3>Cascade operator<\/h3>[\s\S]*<h3>Postfix receiver blocks<\/h3>/m);
+  assert.match(samples, /val badge = new Graphics\(\)\. \{/m);
+});
+
+test("the samples page demonstrates receiver functions in Extensions and Calls", async () => {
+  const samples = await readWebsiteSource("samples.njk");
+
+  assert.match(samples, /<h2 class="samples-group-heading">Extensions &amp; Calls<\/h2>[\s\S]*<h3>Receiver functions<\/h3>/m);
+  assert.match(samples, /fun <T> T\.apply\(block: T\.\(\) => T\) \{ block\(this\); return this \}/m);
 });
 
 test("the public website describes native compilation, FFI, and self-hosting", async () => {

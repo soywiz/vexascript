@@ -135,7 +135,7 @@ for (n of 0 ... 10) { }           // inclusive range (0 through 10)
 
 defer file.close()                 // runs at block exit, like finally
 
-if (x is Circle) { x.radius }     // smart cast; compiles to instanceof
+if (x is Circle) { x.radius }     // shorthand for instanceof; both smart-cast
 ```
 
 ## Cascade operator

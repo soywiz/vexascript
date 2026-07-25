@@ -543,6 +543,29 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses array shorthand extension receivers", () => {
+        expect(parseStatement(tokenizeReader("fun <T> T[].second(): T { return this[1] }"))).toMatchObject({
+            kind: NodeKind.FunctionStatement,
+            receiverType: { kind: NodeKind.Identifier, name: "Array" },
+            receiverTypeArguments: [{ kind: NodeKind.Identifier, name: "T" }],
+            typeParameters: [
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }
+            ],
+            name: { kind: NodeKind.Identifier, name: "second" },
+            returnType: { kind: NodeKind.Identifier, name: "T" }
+        });
+        expect(parseStatement(tokenizeReader("val <T> T[].firstItem: T => this[0]"))).toMatchObject({
+            kind: NodeKind.VarStatement,
+            receiverType: { kind: NodeKind.Identifier, name: "Array" },
+            receiverTypeArguments: [{ kind: NodeKind.Identifier, name: "T" }],
+            typeParameters: [
+                { kind: NodeKind.TypeParameter, name: { kind: NodeKind.Identifier, name: "T" } }
+            ],
+            name: { kind: NodeKind.Identifier, name: "firstItem" },
+            typeAnnotation: { kind: NodeKind.Identifier, name: "T" }
+        });
+    });
+
     it("parses receiver function type parameters with the VexaScript arrow", () => {
         expect(parseStatement(tokenizeReader(
             "fun <T> T.apply(block: T.() -> void): T { block(this); return this }"

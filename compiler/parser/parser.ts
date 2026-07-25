@@ -1443,6 +1443,37 @@ export class Parser {
         return suffix;
     }
 
+    private parseReceiverTypeSuffix(baseToken: Token): {
+        receiverType: Identifier;
+        receiverTypeArguments?: Identifier[];
+    } | null {
+        if (this.tokens.peek()?.type !== TokenType.SYMBOL || this.tokens.peek()?.value !== "[") {
+            return null;
+        }
+
+        const suffix = this.parseTypeAnnotationSuffixText();
+        const lastToken = this.getLastReadToken() ?? baseToken;
+        if (/^(\[\])+$/.test(suffix)) {
+            const elementType = this.attachNodeBounds(
+                new Identifier(`${baseToken.value}${suffix.slice(2)}`),
+                baseToken,
+                lastToken
+            );
+            return {
+                receiverType: this.attachNodeBounds(new Identifier("Array"), baseToken, lastToken),
+                receiverTypeArguments: [elementType]
+            };
+        }
+
+        return {
+            receiverType: this.attachNodeBounds(
+                new Identifier(`${baseToken.value}${suffix}`),
+                baseToken,
+                lastToken
+            )
+        };
+    }
+
     private parseTypeQueryOperandText(): string {
         const first = this.tokens.read();
         if (!first) {
@@ -3104,6 +3135,27 @@ export class Parser {
                 continue;
             }
 
+            if (
+                token?.type === TokenType.SYMBOL && token.value === "!." &&
+                this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "{"
+            ) {
+                this.tokens.skip();
+                const tailLambda = this.parseTailLambdaArgument();
+                const nonNullReceiver = this.attachNodeBounds(
+                    new NonNullExpression(expr),
+                    expr.firstToken,
+                    token
+                );
+                const receiverBlock = new CallExpression(nonNullReceiver, [tailLambda]);
+                receiverBlock.receiverBlockShorthand = true;
+                expr = this.attachNodeBounds(
+                    receiverBlock,
+                    expr.firstToken,
+                    tailLambda.lastToken ?? this.getLastReadToken()
+                );
+                continue;
+            }
+
             if (token?.type === TokenType.SYMBOL && (token.value === "." || token.value === "?." || token.value === "!.")) {
                 this.tokens.skip();
                 const property: Token | undefined = this.tryParsePrivateIdentifierToken() ?? this.tokens.read() ?? undefined;
@@ -4016,8 +4068,10 @@ export class Parser {
         }
         this.tokens.skip();
 
+        const parsedReceiverType = this.parseReceiverTypeSuffix(receiverToken);
+
         let receiverTypeArguments: Identifier[] | undefined;
-        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "<") {
+        if (!parsedReceiverType && this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "<") {
             const parsed = this.tryParseReceiverTypeArguments();
             if (!parsed) {
                 return restore();
@@ -4050,9 +4104,11 @@ export class Parser {
         }
 
         this.commitTokenCheckpoint(checkpoint);
+        const receiverType = parsedReceiverType?.receiverType ?? this.buildIdentifierFromToken(receiverToken);
+        const effectiveReceiverTypeArguments = parsedReceiverType?.receiverTypeArguments ?? receiverTypeArguments;
         return {
-            receiverType: this.buildIdentifierFromToken(receiverToken),
-            ...(receiverTypeArguments ? { receiverTypeArguments } : {}),
+            receiverType,
+            ...(effectiveReceiverTypeArguments ? { receiverTypeArguments: effectiveReceiverTypeArguments } : {}),
             name: this.buildIdentifierFromToken(nameToken),
             ...(typeAnnotation ? { typeAnnotation } : {})
         };
@@ -4955,9 +5011,16 @@ export class Parser {
                 receiverTypeArguments = parsedReceiverTypeArguments;
             }
         }
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "[") {
+            const parsedReceiverType = this.parseReceiverTypeSuffix(firstNameToken);
+            if (parsedReceiverType) {
+                receiverType = parsedReceiverType.receiverType;
+                receiverTypeArguments = parsedReceiverType.receiverTypeArguments;
+            }
+        }
         if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ".") {
             this.tokens.skip();
-            receiverType = this.buildIdentifierFromToken(firstNameToken);
+            receiverType ??= this.buildIdentifierFromToken(firstNameToken);
             nameToken = this.tokens.read()!;
             if (nameToken.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected extension method name after receiver type", this.tokenAt(nameToken));

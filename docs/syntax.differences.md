@@ -127,24 +127,6 @@ Inside an argument list, `{ name }` remains context-sensitive: it can be interpr
 
 TypeScript uses inline arrow functions: `[1,2,3].map(it => it * 2)`.
 
-## Postfix receiver blocks
-
-The postfix form `value. { ... }` evaluates `value` once, makes it the implicit
-receiver inside the block, and returns the same value. It is useful for grouped
-configuration and mutation without introducing a temporary variable or an
-`apply` helper.
-
-```vexa
-val point = Point(10, 20). {
-  x *= 2
-  y += x / 2
-}
-```
-
-Inside the block, `x` and `y` resolve against the `Point` receiver. The complete
-expression still evaluates to that same `Point` instance. JavaScript and native
-C++ emit the receiver block directly at the use site.
-
 ### `@JsInline` annotation
 
 A bodyless function with `@JsInline` provides a raw JavaScript template inserted at each call site.
@@ -475,13 +457,18 @@ for (const item of items) process(item);
 for (const key in map) use(key);
 ```
 
-### `is` operator for type narrowing (smart casts)
+### `is` operator shorthand for `instanceof` (smart casts)
 
-The `is` operator checks the runtime type and narrows the compile-time type in the true branch—similar to `instanceof` but with smart-cast integration.
+The `is` operator is VexaScript's shorter spelling of `instanceof`. Both operators perform the same runtime type check and narrow the compile-time type in the matching branch, including stable identifiers and member expressions.
 
 ```vexa
 if (shape is Circle) {
   shape.radius  // shape is narrowed to Circle here
+}
+
+// `instanceof` has the same smart-cast behavior
+if (shape instanceof Circle) {
+  shape.radius  // shape is narrowed to Circle here too
 }
 ```
 
@@ -492,7 +479,25 @@ if (shape instanceof Circle) {
 }
 ```
 
-`is` compiles to JavaScript `instanceof`.
+`is` compiles to JavaScript `instanceof`; the two VexaScript spellings are otherwise equivalent for runtime checks and smart casts.
+
+### Postfix receiver blocks
+
+The postfix form `value. { ... }` evaluates `value` once, makes it the implicit
+receiver inside the block, and returns the same value. It is useful for grouped
+configuration and mutation without introducing a temporary variable or an
+`apply` helper.
+
+```vexa
+val point = Point(10, 20). {
+  x *= 2
+  y += x / 2
+}
+```
+
+Inside the block, `x` and `y` resolve against the `Point` receiver. The complete
+expression still evaluates to that same `Point` instance. JavaScript and native
+C++ emit the receiver block directly at the use site.
 
 ### Cascade operator
 

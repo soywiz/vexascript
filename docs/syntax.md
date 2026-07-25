@@ -662,6 +662,8 @@ Extension methods and extension properties can be generic. Type parameters are w
 ```my
 fun <T> Array<T>.second(): T { return this[1] }
 val <T> Array<T>.doubledLength => length * 2
+// `T[]` is accepted as shorthand for `Array<T>` in extension receivers.
+fun <T> T[].lastItem(): T { return this[this.length - 1] }
 
 let xs = [10, 20, 30]
 let value = xs.second()        // 20
@@ -1563,7 +1565,7 @@ new hello.world[0].test(arg1, arg2)
 
 ### Smart casts
 
-Within `if` and `else` branches, stable identifier types are narrowed by `is`, `instanceof`, and range-membership (`in`) checks. The false branch excludes the checked member from union types, and negated checks reverse the branch narrowing. `is` is emitted as JavaScript `instanceof`.
+Within `if` and `else` branches, stable identifier and member-expression types are narrowed by `is`, `instanceof`, and range-membership (`in`) checks. The false branch excludes the checked member from union types, and negated checks reverse the branch narrowing. `is` is the shorter spelling of `instanceof`; both have the same smart-cast behavior, and `is` is emitted as JavaScript `instanceof`.
 
 ```vexa
 if (value is Cat) {

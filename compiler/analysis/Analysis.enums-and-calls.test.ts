@@ -198,6 +198,17 @@ describe("enum semantic analysis", () => {
     expect(analysis.getIssues()).toEqual([]);
   });
 
+  it("resolves generic extension methods and properties on array shorthand receivers", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      fun <T> T[].second(): T { return this[1] }
+      val <T> T[].firstItem: T => this[0]
+      let xs: int[] = [10, 20, 30]
+      let first: int = xs.firstItem
+      let value: int = xs.second()
+    `.trimEnd())));
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
   it("resolves implicit and labeled members in nested receiver lambdas", () => {
     const analysis = new Analysis(parseFile(tokenizeReader(dedent`
       fun <T> T.apply(block: T.() -> void): T { block(this); return this }
@@ -323,6 +334,18 @@ describe("enum semantic analysis", () => {
       }, [count])
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("accepts receiver blocks after direct non-null assertions", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      class CanvasContext(var fillStyle: string)
+      class Canvas {
+        fun getContext(kind: string): CanvasContext? { return CanvasContext("") }
+      }
+      const canvas = Canvas()
+      const c2d = canvas.getContext("2d")!. { fillStyle = "#f4f8fc" }
+    `.trimEnd())));
     expect(analysis.getIssues()).toEqual([]);
   });
 
