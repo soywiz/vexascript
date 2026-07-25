@@ -10,3 +10,9 @@ The SDL2 dynamic sample is now directly executable. A shebang using plain
 `/usr/bin/env vexa run -deno` is not reliable when multiple arguments must be
 passed through the POSIX interpreter line, so the sample uses the common
 `env -S` form instead: `#!/usr/bin/env -S vexa run -deno`.
+
+On macOS, the kernel can still deliver the interpreter-line command as one
+argument (`run -deno`) after the `env -S` expansion when the selected `vexa`
+entrypoint is a shell wrapper. The CLI now expands that packed `run` argument
+before normal command parsing; ordinary `vexa run -deno file.vx` invocations
+remain unchanged.

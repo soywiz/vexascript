@@ -180,7 +180,7 @@ describe("CLI", () => {
     process.env["PATH"] = `${dir}${previousPath ? `:${previousPath}` : ""}`;
     process.env["VEXA_DENO_ARGS"] = argsFile;
     try {
-      await runCli(["node", "vexa", "run", "-deno", input]);
+      await runCli(["node", "vexa", "run -deno", input]);
     } finally {
       if (previousPath === undefined) delete process.env["PATH"];
       else process.env["PATH"] = previousPath;

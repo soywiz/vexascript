@@ -844,6 +844,18 @@ async function printSyntax(opts: {
   console.log(await renderSyntaxForCli(resolveSyntaxTarget(opts)));
 }
 
+function expandPackedRunArgument(argv: string[]): string[] {
+  const packedCommand = argv[2];
+  if (!packedCommand || !packedCommand.includes(" ")) {
+    return argv;
+  }
+  const commandParts = packedCommand.trim().split(/\s+/);
+  if (commandParts[0] !== "run") {
+    return argv;
+  }
+  return [argv[0]!, argv[1]!, ...commandParts, ...argv.slice(3)];
+}
+
 function createProgram(): Command {
   const program = new Command();
   program.name(LANGUAGE_CLI_BIN);
@@ -1084,6 +1096,12 @@ function createProgram(): Command {
 }
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
+  const expandedArgv = expandPackedRunArgument(argv);
+  if (expandedArgv !== argv) {
+    await runCli(expandedArgv);
+    return;
+  }
+
   if (argv[2] === LANGUAGE_CLI_BIN) {
     await runCli([argv[0]!, argv[1]!, ...argv.slice(3)]);
     return;
