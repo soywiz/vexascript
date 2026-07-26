@@ -143,12 +143,23 @@ interface SupertypeMemberContext {
   hasSupertype: boolean;
 }
 
-type EnumResolvedValue =
-  | { kind: "constant-int"; value: number }
-  | { kind: "constant-string"; value: string }
-  | { kind: "computed-int" }
-  | { kind: "computed-string" }
-  | { kind: "invalid" };
+abstract class EnumResolvedValue {}
+
+class ConstantIntEnumResolvedValue extends EnumResolvedValue {
+  constructor(readonly value: number) {
+    super();
+  }
+}
+
+class ConstantStringEnumResolvedValue extends EnumResolvedValue {
+  constructor(readonly value: string) {
+    super();
+  }
+}
+
+class ComputedIntEnumResolvedValue extends EnumResolvedValue {}
+class ComputedStringEnumResolvedValue extends EnumResolvedValue {}
+class InvalidEnumResolvedValue extends EnumResolvedValue {}
 
 type ExtensionPropertyInfo = {
   type: AnalysisType;
@@ -1761,23 +1772,23 @@ export class TypeChecker {
       }
 
       if (index === 0) {
-        this.enumMemberResolutionCache.set(member, { kind: "constant-int", value: 0 });
+        this.enumMemberResolutionCache.set(member, new ConstantIntEnumResolvedValue(0));
         continue;
       }
 
       const previous = statement.members[index - 1];
       const previousValue: EnumResolvedValue = previous
         ? this.resolveEnumMemberValue(statement, previous)
-        : { kind: "invalid" };
-      if (previousValue.kind === "constant-int") {
-        this.enumMemberResolutionCache.set(member, {
-          kind: "constant-int",
-          value: previousValue.value + 1
-        });
+        : new InvalidEnumResolvedValue();
+      if (previousValue instanceof ConstantIntEnumResolvedValue) {
+        this.enumMemberResolutionCache.set(
+          member,
+          new ConstantIntEnumResolvedValue(previousValue.value + 1)
+        );
         continue;
       }
 
-      this.enumMemberResolutionCache.set(member, { kind: "invalid" });
+      this.enumMemberResolutionCache.set(member, new InvalidEnumResolvedValue());
       this.issues.push({
         message: `Enum member '${member.name.name}' must have an initializer because the previous member is not a numeric constant`,
         node: member.name
@@ -11544,10 +11555,10 @@ export class TypeChecker {
 
   private enumMemberValueType(member: EnumMember): AnalysisType | null {
     const resolved = this.resolveEnumMemberValueByMember(member);
-    if (resolved.kind === "constant-int" || resolved.kind === "computed-int") {
+    if (resolved instanceof ConstantIntEnumResolvedValue || resolved instanceof ComputedIntEnumResolvedValue) {
       return builtinType("int");
     }
-    if (resolved.kind === "constant-string" || resolved.kind === "computed-string") {
+    if (resolved instanceof ConstantStringEnumResolvedValue || resolved instanceof ComputedStringEnumResolvedValue) {
       return builtinType("string");
     }
     return null;
@@ -11555,12 +11566,12 @@ export class TypeChecker {
 
   private enumMemberStringValue(member: EnumMember): string | null {
     const resolved = this.resolveEnumMemberValueByMember(member);
-    return resolved.kind === "constant-string" ? resolved.value : null;
+    return resolved instanceof ConstantStringEnumResolvedValue ? resolved.value : null;
   }
 
   private resolveEnumMemberValueByMember(member: EnumMember): EnumResolvedValue {
     const parentEnum = this.enumStatementForMember(member);
-    return parentEnum ? this.resolveEnumMemberValue(parentEnum, member) : { kind: "invalid" };
+    return parentEnum ? this.resolveEnumMemberValue(parentEnum, member) : new InvalidEnumResolvedValue();
   }
 
   private resolveEnumMemberValue(
@@ -11573,7 +11584,7 @@ export class TypeChecker {
       return cached;
     }
     if (visiting.has(member)) {
-      return { kind: "invalid" };
+      return new InvalidEnumResolvedValue();
     }
     visiting.add(member);
 
@@ -11581,15 +11592,15 @@ export class TypeChecker {
     if (!member.initializer) {
       const index = enumStatement.members.indexOf(member);
       if (index === 0) {
-        resolved = { kind: "constant-int", value: 0 };
+        resolved = new ConstantIntEnumResolvedValue(0);
       } else {
         const previous = enumStatement.members[index - 1];
         const previousValue: EnumResolvedValue = previous
           ? this.resolveEnumMemberValue(enumStatement, previous, visiting)
-          : { kind: "invalid" };
-        resolved = previousValue.kind === "constant-int"
-          ? { kind: "constant-int", value: previousValue.value + 1 }
-          : { kind: "invalid" };
+          : new InvalidEnumResolvedValue();
+        resolved = previousValue instanceof ConstantIntEnumResolvedValue
+          ? new ConstantIntEnumResolvedValue(previousValue.value + 1)
+          : new InvalidEnumResolvedValue();
       }
     } else {
       resolved = this.resolveEnumInitializerValue(enumStatement, member.initializer, visiting);
@@ -11607,23 +11618,23 @@ export class TypeChecker {
   ): EnumResolvedValue {
     switch (expression.kind) {
       case NodeKind.IntLiteral:
-        return { kind: "constant-int", value: (expression as IntLiteral).value };
+        return new ConstantIntEnumResolvedValue((expression as IntLiteral).value);
       case NodeKind.StringLiteral:
-        return { kind: "constant-string", value: (expression as StringLiteral).value };
+        return new ConstantStringEnumResolvedValue((expression as StringLiteral).value);
       case NodeKind.UnaryExpression: {
         const unary = expression as UnaryExpression;
         const argument = this.resolveEnumInitializerValue(enumStatement, unary.argument, visiting);
-        if (argument.kind !== "constant-int") {
+        if (!(argument instanceof ConstantIntEnumResolvedValue)) {
           return this.enumComputedValueFromExpression(expression);
         }
-        const argumentValue = (argument as { kind: "constant-int"; value: number }).value;
+        const argumentValue = argument.value;
         switch (unary.operator) {
           case "+":
-            return { kind: "constant-int", value: +argumentValue };
+            return new ConstantIntEnumResolvedValue(+argumentValue);
           case "-":
-            return { kind: "constant-int", value: -argumentValue };
+            return new ConstantIntEnumResolvedValue(-argumentValue);
           case "~":
-            return { kind: "constant-int", value: ~argumentValue };
+            return new ConstantIntEnumResolvedValue(-argumentValue - 1);
           default:
             return this.enumComputedValueFromExpression(expression);
         }
@@ -11662,11 +11673,11 @@ export class TypeChecker {
     left: EnumResolvedValue,
     right: EnumResolvedValue
   ): EnumResolvedValue | null {
-    if (left.kind !== "constant-int" || right.kind !== "constant-int") {
+    if (!(left instanceof ConstantIntEnumResolvedValue) || !(right instanceof ConstantIntEnumResolvedValue)) {
       return null;
     }
-    const leftValue = (left as { kind: "constant-int"; value: number }).value;
-    const rightValue = (right as { kind: "constant-int"; value: number }).value;
+    const leftValue = left.value;
+    const rightValue = right.value;
     let value: number;
     switch (operator) {
       case "+":
@@ -11705,18 +11716,20 @@ export class TypeChecker {
       default:
         return null;
     }
-    return Number.isFinite(value) ? { kind: "constant-int", value } : { kind: "invalid" };
+    return Number.isFinite(value)
+      ? new ConstantIntEnumResolvedValue(value)
+      : new InvalidEnumResolvedValue();
   }
 
   private enumComputedValueFromExpression(expression: Expr): EnumResolvedValue {
     const initializerType = this.expressionTypes.get(expression) ?? UNKNOWN_TYPE;
     if (isIntType(initializerType)) {
-      return { kind: "computed-int" };
+      return new ComputedIntEnumResolvedValue();
     }
     if (isStringLikeType(initializerType)) {
-      return { kind: "computed-string" };
+      return new ComputedStringEnumResolvedValue();
     }
-    return { kind: "invalid" };
+    return new InvalidEnumResolvedValue();
   }
 
   private enumStatementForMember(member: EnumMember): EnumStatement | null {

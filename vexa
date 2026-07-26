@@ -5,12 +5,13 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CALLER_DIR="$(pwd)"
 SOURCE_CLI="$SCRIPT_DIR/cli/cli.ts"
 TSX_LOADER="$SCRIPT_DIR/node_modules/tsx/dist/loader.mjs"
+TEXT_MODULE_LOADER="$SCRIPT_DIR/scripts/registerTextModuleLoader.cjs"
 BUILT_CLI="$SCRIPT_DIR/dist/vexa.js"
 
-if [[ -f "$SOURCE_CLI" && -f "$TSX_LOADER" ]]; then
+if [[ -f "$SOURCE_CLI" && -f "$TSX_LOADER" && -f "$TEXT_MODULE_LOADER" ]]; then
   cd "$CALLER_DIR"
   export TSX_TSCONFIG_PATH="$SCRIPT_DIR/tsconfig.json"
-  exec node --import "$TSX_LOADER" "$SOURCE_CLI" "$@"
+  exec node --import "$TSX_LOADER" --import "$TEXT_MODULE_LOADER" "$SOURCE_CLI" "$@"
 fi
 
 cd "$SCRIPT_DIR"

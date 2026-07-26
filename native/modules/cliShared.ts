@@ -35,10 +35,13 @@ export function usesExternalTypeScriptCheck(sourcePath: string, semanticCheck: b
 }
 
 export async function vexaTypeCheckForSource(
-  _sourcePath: string,
+  sourcePath: string,
   _project: VexaProject | null,
   semanticCheck: boolean
 ): Promise<boolean> {
+  if (usesExternalTypeScriptCheck(sourcePath, semanticCheck)) {
+    return false;
+  }
   return semanticCheck;
 }
 
@@ -50,12 +53,13 @@ export async function createBundledModuleArtifacts(
   options: { externalDependencyStrategy?: "runtime-error" | "node-require"; typeCheck?: boolean } = {}
 ): Promise<BundledModuleArtifacts> {
   const jsxOptions = _jsxOptions as { jsxFactory?: string; jsxFragmentFactory?: string } | undefined;
+  const typeCheck = await vexaTypeCheckForSource(sourcePath, project, options.typeCheck ?? true);
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const result = await bundleModuleGraphAsModules(sourcePath, target === "conservative" ? "conservative" : "optimized", {
     ambientDeclarations,
     importMappings: project?.importMappings ?? {},
     moduleFormat: "commonjs",
-    typeCheck: options.typeCheck ?? true,
+    typeCheck,
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.globalSymbols ? { globalSymbols: project.globalSymbols } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),

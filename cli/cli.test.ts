@@ -1,11 +1,13 @@
-import { afterEach, describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, readFile, readdir, rm, spawn, tmpdir, vi, writeFile } from "../compiler/test/expect";
+import { afterEach, describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, readFile, readdir, resolve, rm, spawn, tmpdir, vi, writeFile } from "../compiler/test/expect";
 import { createServer as createNetServer } from "node:net";
 import { chmod } from "node:fs/promises";
+import { build as buildWithEsbuild } from "esbuild";
 import { ensureLspTransportArg, runCli } from "./cli";
 import { startServeSession } from "./cliServe";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
 import { runCommandCapture } from "./io";
 import { validateNativeCppSyntax } from "./nativeBuild";
+import { textModulePlugin } from "../scripts/textModulePlugin";
 
 async function buildBundledCli(): Promise<{
   code: number | null;
@@ -15,20 +17,9 @@ async function buildBundledCli(): Promise<{
   return await runCommandCapture(
     process.execPath,
     [
-      "node_modules/esbuild/bin/esbuild",
-      "cli/cli-bin.ts",
-      "--bundle",
-      "--platform=node",
-      "--format=esm",
-      "--target=node20",
-      "--outfile=dist/vexa.js",
-      "--external:commander",
-      "--external:vscode-languageserver",
-      "--external:vscode-languageserver-textdocument",
-      "--external:source-map",
-      "--external:esbuild",
-      "--banner:js=#!/usr/bin/env node",
-      "--log-level=error",
+      "--import",
+      "tsx",
+      "scripts/build.ts"
     ],
     { cwd: process.cwd() }
   );
@@ -532,7 +523,20 @@ describe("CLI", () => {
     ].join("\n"), "utf8");
     await chmod(browserScript, 0o755);
 
-    const child = spawn(process.execPath, ["--import", "tsx", "cli/cli.ts", "serve", dir, "--bundle", entry, "--port", "0", "--open"], {
+    const child = spawn(process.execPath, [
+      "--import",
+      "tsx",
+      "--import",
+      resolve(process.cwd(), "scripts/registerTextModuleLoader.cjs"),
+      "cli/cli.ts",
+      "serve",
+      dir,
+      "--bundle",
+      entry,
+      "--port",
+      "0",
+      "--open"
+    ], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -717,6 +721,14 @@ describe("CLI", () => {
     expect(stdoutWriteSpy.mock.calls.some((call) => String(call[0] ?? "").includes(COMPILER_VERSION))).toBe(true);
   });
 
+  it("root launcher starts the source CLI with text-module imports enabled", async () => {
+    const run = await runCommandCapture(resolve(process.cwd(), "vexa"), [], { cwd: process.cwd() });
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain("Usage: vexa [options] [command]");
+    expect(run.stderr).toBe("");
+  });
+
   it("built CLI starts without unsettled top-level await warnings", async () => {
     const distPath = join(process.cwd(), "dist");
     await rm(distPath, { recursive: true, force: true });
@@ -739,25 +751,21 @@ describe("CLI", () => {
     // exits with code 13 in a restart loop. The server must bundle without one.
     const dir = await mkdtemp(join(tmpdir(), "vexa-lsp-bundle-"));
     const outfile = join(dir, "vexa.mjs");
-    const build = await runCommandCapture(
-      process.execPath,
-      [
-        "node_modules/esbuild/bin/esbuild",
-        "compiler/lsp/server.ts",
-        "--bundle",
-        "--platform=node",
-        "--format=esm",
-        "--target=node20",
-        `--outfile=${outfile}`,
-        "--external:vscode-languageserver",
-        "--external:vscode-languageserver/node.js",
-        "--external:vscode-languageserver-textdocument",
-        "--log-level=error",
+    await buildWithEsbuild({
+      entryPoints: ["compiler/lsp/server.ts"],
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      target: "node20",
+      outfile,
+      external: [
+        "vscode-languageserver",
+        "vscode-languageserver/node.js",
+        "vscode-languageserver-textdocument"
       ],
-      { cwd: process.cwd() }
-    );
-    expect(build.code).toBe(0);
-    expect(build.stderr).toBe("");
+      logLevel: "silent",
+      plugins: [textModulePlugin()]
+    });
 
     const bundle = await readFile(outfile, "utf8");
     // Module-scope statements are emitted at column 0; awaits inside function

@@ -711,6 +711,33 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("inlines explicitly text-loaded files regardless of their extension", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "runtime.d.ts": "declare interface ImportedRuntimeMarker {}\n",
+        "main.vx":
+          'import runtimeSource from "./runtime.d.ts?text"\n' +
+          'console.log(runtimeSource.includes("ImportedRuntimeMarker"))\n'
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
+
+        expect(result.errors).toEqual([]);
+        expect(result.code).toContain("declare interface ImportedRuntimeMarker");
+        expect(result.code).not.toContain("./runtime.d.ts?text");
+
+        const logs: unknown[][] = [];
+        new Script(result.code).runInContext(createContext({
+          console: {
+            log: (...args: unknown[]) => logs.push(args)
+          }
+        }));
+        expect(logs).toEqual([[true]]);
+      }
+    );
+  });
+
   it("keeps non-local (bare) imports in the bundled output", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(

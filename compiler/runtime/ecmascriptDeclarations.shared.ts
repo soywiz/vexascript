@@ -4,7 +4,7 @@ import {
   parseDeclarationProgram,
   type CachedDeclarationProgram
 } from "./declarationProgramCache";
-import { ECMA_SCRIPT_RUNTIME_DECLARATIONS } from "./embeddedRuntimeSources";
+import { ECMA_SCRIPT_RUNTIME_DECLARATIONS } from "compiler/runtime/embeddedRuntimeSources";
 
 export const TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME: string = "es2025.d.ts";
 const EXTRA_RUNTIME_DECLARATIONS: string = [

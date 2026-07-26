@@ -71,6 +71,23 @@ information. `cli/nativeSmoke.test.ts` compiles the CLI with `-O0`, uses that
 native executable to bundle both a small Node fixture and the Pixi browser
 sample, and syntax-checks the Pixi result.
 
+Explicit text-module imports use a `?text` suffix:
+
+```typescript
+import declarations from "./runtime.d.ts?text"
+```
+
+The bundler reads the referenced file asynchronously and replaces the import
+with a string constant regardless of the file extension. Native compilation
+performs the same replacement in the module AST before merged analysis, so the
+text becomes a native string literal and the source file remains a watched
+build input. The native CLI uses this path for its canonical ECMAScript,
+VexaScript, and DOM declaration files instead of compiling generated TypeScript
+wrappers for those sources. The same import form is handled by a small
+asynchronous ESM loader during direct Node/tsx execution and by a shared
+esbuild plugin for the CLI, website, and VS Code bundles, so
+`embeddedRuntimeSources.ts` is only a stable two-import facade.
+
 ## Requirements
 
 - `g++` with C++20 support

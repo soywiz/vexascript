@@ -3,9 +3,11 @@ import {
   compileParsedSource,
   compileSource,
   formatParseIssue,
-  formatSemanticIssue
+  formatSemanticIssue,
+  sourceRangeForAnalysisIssue
 } from "./compile";
 import { parseSource } from "./parse";
+import { SourcePosition, SourceRange } from "../parser/tokenizer";
 
 describe("compileSource", () => {
   it("produces parse and semantic artifacts for valid source", () => {
@@ -71,5 +73,15 @@ describe("compileSource", () => {
 
     expect(parseMessage).toContain(" at ");
     expect(semaMessage).toContain(" at ");
+  });
+
+  it("materializes semantic issue ranges as nominal tokenizer instances", () => {
+    const issue = compileSource("let value: string = 1\n").semanticIssues[0];
+    expect(issue).toBeDefined();
+
+    const range = issue ? sourceRangeForAnalysisIssue(issue) : undefined;
+    expect(range instanceof SourceRange).toBe(true);
+    expect(range?.start instanceof SourcePosition).toBe(true);
+    expect(range?.end instanceof SourcePosition).toBe(true);
   });
 });

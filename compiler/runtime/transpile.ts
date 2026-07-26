@@ -2,7 +2,8 @@ import {
   compileParsedSource,
   type CompilationArtifacts,
   formatParseIssue,
-  formatSemanticIssue
+  formatSemanticIssue,
+  sourceRangeForAnalysisIssue
 } from "compiler/pipeline/compile";
 import { parseSource } from "compiler/pipeline/parse";
 import type { ParserOptions } from "compiler/parser/parser";
@@ -396,20 +397,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   if (options.typeCheck ?? true) {
     for (const issue of artifacts.semanticIssues) {
       errors.push(formatSemanticIssue(issue));
-      const range: SourceRange | undefined = issue.range
-        ? {
-            start: {
-              offset: 0,
-              line: issue.range.start.line,
-              column: issue.range.start.character
-            },
-            end: {
-              offset: 0,
-              line: issue.range.end.line,
-              column: issue.range.end.character
-            }
-          }
-        : issue.node.firstToken?.range;
+      const range = sourceRangeForAnalysisIssue(issue);
       const code =
         mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
         classifySemanticDiagnosticMessage(issue.message) ??

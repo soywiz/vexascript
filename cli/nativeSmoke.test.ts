@@ -80,6 +80,7 @@ describe("native language smoke", () => {
     const nativeCliPath = join(outputRoot, "vexa-native-cli");
     const bundlePath = join(outputRoot, "sample.js");
     const pixiBundlePath = join(outputRoot, "pixi.js");
+    const cliBundlePath = join(outputRoot, "cli.js");
     const buildRoot = join(outputRoot, "build");
     try {
       await runCli([
@@ -107,6 +108,20 @@ describe("native language smoke", () => {
       const executed = await runCommandCapture(process.execPath, [bundlePath], { cwd: outputRoot });
       expect(executed.code).toBe(0);
       expect(executed.stdout).toContain("Point { x: 4, y: 6 }");
+
+      const cliBundle = await runCommandCapture(nativeCliPath, [
+        "bundle",
+        join(process.cwd(), "cli", "cli.ts"),
+        "--platform",
+        "node",
+        "--out",
+        cliBundlePath,
+      ], { cwd: process.cwd() });
+      expect(cliBundle.code, `${cliBundle.stdout}\n${cliBundle.stderr}`).toBe(0);
+      const cliCode = await readFile(cliBundlePath, "utf8");
+      expect(cliCode).toContain("VexaScript compiler CLI");
+      const cliSyntaxCheck = await runCommandCapture(process.execPath, ["--check", cliBundlePath]);
+      expect(cliSyntaxCheck.code, cliSyntaxCheck.stderr).toBe(0);
 
       const pixiSourcePath = join(process.cwd(), "samples", "pixi", "html.vx");
       const pixiProject = await resolveProjectForSource(pixiSourcePath);

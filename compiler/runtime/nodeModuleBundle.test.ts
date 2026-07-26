@@ -286,6 +286,25 @@ describe("bundleNodeModuleGraph", () => {
     );
   });
 
+  it("bundles ?text imports from files with arbitrary extensions", async () => {
+    await withTempProject(
+      {
+        "entry.js": 'import runtimeSource from "./runtime.d.ts?text"; export const source = runtimeSource;\n',
+        "runtime.d.ts": "declare interface BundledRuntimeMarker {}\n"
+      },
+      async (dir) => {
+        const entryPath = join(dir, "entry.js");
+        const result = await bundleNodeModuleGraph(
+          'import runtimeSource from "./runtime.d.ts?text"; export const source = runtimeSource;\n',
+          entryPath
+        );
+
+        expect(result.code).toContain("declare interface BundledRuntimeMarker");
+        expect(result.code).not.toContain("Unbundled external dependency './runtime.d.ts?text'");
+      }
+    );
+  });
+
   it("lowers bundled .mjs imports to runtime requires inside wrapped factories", async () => {
     await withTempProject(
       {

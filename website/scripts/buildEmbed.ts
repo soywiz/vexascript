@@ -2,6 +2,7 @@ import { build, context, type BuildOptions, type Plugin } from "esbuild";
 import { mkdir, readFile, rm, watch, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { textModulePlugin } from "../../scripts/textModulePlugin.ts";
 import { pathExists } from "./prepare.ts";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -256,7 +257,7 @@ function vexaLanguageWorkerBuildOptions(): BuildOptions {
     entryPoints: [vexaLanguageWorkerEntryPoint],
     outfile: resolve(generatedAssetsRoot, "vexa-language.worker.js"),
     format: "esm",
-    plugins: [aliasPlugin()],
+    plugins: [textModulePlugin(), aliasPlugin()],
   };
 }
 
@@ -278,6 +279,7 @@ function embedBuildOptions(): BuildOptions {
       ".svg": "file",
     },
     plugins: [
+      textModulePlugin(),
       aliasPlugin(),
       {
         name: "vexa-embed-postbuild",

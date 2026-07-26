@@ -50,14 +50,14 @@ describe("bundled es2025 runtime declarations", () => {
     expect(names).toContain("FFISize");
   });
 
-  it("embeds each declaration file as one exact string instead of an array of lines", async () => {
+  it("loads each declaration file through direct text-module imports", async () => {
     const vexaSource = await readFile(join(process.cwd(), "compiler", "runtime", "vexascript.d.vx"), "utf8");
-    const generatedSource = await readFile(join(process.cwd(), "compiler", "runtime", "embeddedRuntimeSources.ts"), "utf8");
+    const sourceModule = await readFile(join(process.cwd(), "compiler", "runtime", "embeddedRuntimeSources.ts"), "utf8");
 
     expect(ECMA_SCRIPT_RUNTIME_DECLARATIONS).toBe(await readBundledRuntime());
     expect(VEXA_SCRIPT_RUNTIME_DECLARATIONS).toBe(vexaSource);
-    expect(generatedSource).not.toContain("].join(");
-    expect(generatedSource).toContain("export const ECMA_SCRIPT_RUNTIME_DECLARATIONS: string = `");
-    expect(generatedSource).toContain("export const VEXA_SCRIPT_RUNTIME_DECLARATIONS: string = `");
+    expect(sourceModule).toContain('from "./es2025.d.ts?text"');
+    expect(sourceModule).toContain('from "./vexascript.d.vx?text"');
+    expect(sourceModule).not.toContain("`/*!");
   });
 });

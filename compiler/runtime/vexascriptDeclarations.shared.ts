@@ -4,7 +4,7 @@ import {
   type CachedDeclarationProgram
 } from "./declarationProgramCache";
 import { parseSource } from "compiler/pipeline/parse";
-import { VEXA_SCRIPT_RUNTIME_DECLARATIONS } from "./embeddedRuntimeSources";
+import { VEXA_SCRIPT_RUNTIME_DECLARATIONS } from "compiler/runtime/embeddedRuntimeSources";
 
 export const VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME = "vexascript.d.vx";
 

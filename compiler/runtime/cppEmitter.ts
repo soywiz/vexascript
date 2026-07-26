@@ -5499,6 +5499,13 @@ function isNativeNumericCppType(type: string): boolean {
   return type === "std::int32_t" || type === "std::int64_t" || type === "double";
 }
 
+function isStaticNativeNumericExpression(expression: Expr): boolean {
+  const directlyEmitted = directlyEmittedCppType(expression);
+  const type = directlyEmitted ?? emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
+  return isNativeNumericCppType(type) &&
+    (directlyEmitted !== null || isDirectNativePrimitiveExpression(expression));
+}
+
 function isDirectNativePrimitiveExpression(operand: Expr): boolean {
   switch (operand.kind) {
     case NodeKind.Identifier:
@@ -5562,6 +5569,15 @@ function emitDynamicBinaryText(operator: string, left: string, right: string): s
     : `vexa::${helper}(${convertedLeft}, ${convertedRight})`;
 }
 
+function emitNativeNumericBitwise(expression: BinaryExpression): string | null {
+  if (!isStaticNativeNumericExpression(expression.left) || !isStaticNativeNumericExpression(expression.right)) {
+    return null;
+  }
+  const helper = dynamicBinaryHelper(expression.operator);
+  if (!helper) return null;
+  return `vexa::${helper}(${emitExpression(expression.left)}, ${emitExpression(expression.right)})`;
+}
+
 function emitBinary(expression: BinaryExpression): string {
   const overloaded = emitResolvedBinaryOperator(expression);
   if (overloaded) return overloaded;
@@ -5579,6 +5595,8 @@ function emitBinary(expression: BinaryExpression): string {
   }
   if (expression.operator === "&" || expression.operator === "|" || expression.operator === "^" ||
       expression.operator === "<<" || expression.operator === ">>" || expression.operator === ">>>") {
+    const nativeNumeric = emitNativeNumericBitwise(expression);
+    if (nativeNumeric) return nativeNumeric;
     return emitDynamicBinaryText(
       expression.operator,
       emitExpression(expression.left),
@@ -5930,7 +5948,12 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       }
       if (unary.operator === "void") return `(static_cast<void>(${emitExpression(unary.argument)}), vexa::Value::undefined())`;
       if (unary.operator === "!") return `(!${emitCondition(unary.argument)})`;
-      if (unary.operator === "~") return `vexa::bitwiseNot(${emitConvertedValue(unary.argument, "vexa::Value")})`;
+      if (unary.operator === "~") {
+        if (isStaticNativeNumericExpression(unary.argument)) {
+          return `vexa::bitwiseNot(${emitExpression(unary.argument)})`;
+        }
+        return `vexa::bitwiseNot(${emitConvertedValue(unary.argument, "vexa::Value")})`;
+      }
       if (unary.operator === "-" && isDynamicValueExpression(unary.argument)) {
         return `vexa::negate(${emitExpression(unary.argument)})`;
       }

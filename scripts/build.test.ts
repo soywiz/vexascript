@@ -17,9 +17,15 @@ describe("distribution build", () => {
     const runtimeDir = join(root, "runtime");
     const outputDir = join(root, "dist");
     const entryPoint = join(root, "entry.ts");
+    const textModulePath = join(root, "runtime-source.d.ts");
     await mkdir(runtimeDir);
-    await writeFile(entryPoint, "console.log('portable build');\n", "utf8");
+    await writeFile(
+      entryPoint,
+      'import runtimeSource from "./runtime-source.d.ts?text";\nconsole.log("portable build", runtimeSource);\n',
+      "utf8"
+    );
     await Promise.all([
+      writeFile(textModulePath, "declare const textModulePluginWorks: true;\n", "utf8"),
       writeFile(join(runtimeDir, "es2025.d.ts"), "declare const es2025: true;\n", "utf8"),
       writeFile(join(runtimeDir, "dom.d.ts"), "declare const dom: true;\n", "utf8"),
       writeFile(join(runtimeDir, "vexascript.d.vx"), "declare const vexa: true;\n", "utf8"),
@@ -30,6 +36,7 @@ describe("distribution build", () => {
     const bundle = await readFile(join(outputDir, "vexa.js"), "utf8");
     expect(bundle.startsWith("#!/usr/bin/env node\n")).toBe(true);
     expect(bundle).toContain("portable build");
+    expect(bundle).toContain("textModulePluginWorks");
     expect(await readFile(join(outputDir, "es2025.d.ts"), "utf8")).toContain("es2025");
     expect(await readFile(join(outputDir, "dom.d.ts"), "utf8")).toContain("dom");
     expect(await readFile(join(outputDir, "vexascript.d.vx"), "utf8")).toContain("vexa");

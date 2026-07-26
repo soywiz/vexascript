@@ -24,4 +24,6 @@ website/src/assets/generated
 /samples/**/*.map
 /cli/cli
 /cli/cli.cpp
+/cli/cli.js
 /cli/cli.js.map
+/cli/cli.ts.build/*

@@ -23,6 +23,7 @@ import {
   type TranspileResult,
   type TranspileTarget
 } from "../../compiler/runtime/transpile";
+import { inlineTextModuleImports } from "../../compiler/runtime/textModuleImports";
 import type { Vfs } from "../../compiler/vfs";
 import { vfs } from "../../compiler/vfs";
 import { resolveNodeModuleImportsForRuntime } from "./nodeModuleImportResolution";
@@ -165,6 +166,17 @@ async function visitModule(
   }
   const ast = parsed.ast;
   const importMappings = context.options.importMappings ?? {};
+  const textImports = await inlineTextModuleImports(
+    ast,
+    filePath,
+    context.activeVfs,
+    importMappings,
+    context.options.baseUrl
+  );
+  context.errors.push(...textImports.errors);
+  for (const watchedFile of textImports.watchedFiles) {
+    context.watchedFiles.add(watchedFile);
+  }
   const localImports = await localImportSpecifiers(
     ast,
     filePath,

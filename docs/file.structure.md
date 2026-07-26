@@ -50,8 +50,8 @@ This section is the fast onboarding map for agents and contributors.
   - Analysis tests: `compiler/analysis/Analysis.test.ts`, `compiler/analysis/Analysis.generics.test.ts`, and `compiler/analysis/Analysis.enums-and-calls.test.ts`
 - Embedded runtime declarations:
   - Shared runtime-declaration host contract that lets Node/browser adapters provide bundled declaration sources without hard-wiring shared compiler code to `fs/path/url`: `compiler/runtime/declarationHost.ts`
-  - Generated embedded ECMAScript and VexaScript runtime declaration source constants, stored as one template string per source so native startup does not allocate and join thousands of line fragments: `compiler/runtime/embeddedRuntimeSources.ts`
-  - Async Node-only generator for those exact embedded declaration strings: `scripts/generateEmbeddedRuntimeSources.ts`
+  - Thin runtime-declaration source module that exports the canonical ECMAScript and VexaScript files through direct `?text` imports instead of generated template literals: `compiler/runtime/embeddedRuntimeSources.ts`
+  - Async Node ESM loader registration for direct TypeScript/test execution plus the equivalent reusable esbuild plugin used by distribution, website, and VS Code bundles: `scripts/registerTextModuleLoader.cjs`, `scripts/textModuleLoader.cjs`, `scripts/textModulePlugin.ts`
   - Node runtime-declaration host that reads optional bundled declaration assets such as `compiler/runtime/dom.d.ts` from disk for the CLI/LSP/test environment without static `node:*` imports (via `process.getBuiltinModule`): `compiler/runtime/nodeDeclarationHost.ts`
   - Shared ECMAScript and VexaScript runtime declaration parsing/cache logic plus the Node bootstrap wrapper used by compiler consumers to set source paths: `compiler/runtime/ecmascriptDeclarations.shared.ts`, `compiler/runtime/vexascriptDeclarations.shared.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
   - Shared DOM runtime declaration parsing/cache logic plus the Node bootstrap wrapper used when a project requests `compilerOptions.lib` with `"dom"`: `compiler/runtime/domDeclarations.shared.ts`, `compiler/runtime/domDeclarations.ts`
@@ -64,7 +64,7 @@ This section is the fast onboarding map for agents and contributors.
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - Browser-compatible C++ emission backend, sharing the normal parse and analysis pipeline; native behavior is validated by the compiled executable smoke rather than generated-code string assertions: `compiler/runtime/cppEmitter.ts`, smoke test: `cli/nativeSmoke.test.ts`, fixture: `samples/native-language-smoke/`
   - Shared trusted C++ annotation extraction and cross-backend dynamic-library/ABI layout metadata: `compiler/runtime/cppAnnotations.ts`, `compiler/runtime/foreignLibrary.ts`, `compiler/runtime/foreignStruct.ts`
-  - Native dependency-ordered module-graph compilation, reusing the shared import resolver and merging local module ASTs into one analyzed C++ translation unit: `compiler/runtime/nativeModuleGraph.ts`, tests: `compiler/runtime/nativeModuleGraph.test.ts`
+  - Native dependency-ordered module-graph compilation, reusing the shared import resolver and merging local module ASTs into one analyzed C++ translation unit; explicit `?text` imports become compile-time string literals and remain watched inputs: `compiler/runtime/nativeModuleGraph.ts`, tests: `compiler/runtime/nativeModuleGraph.test.ts`
   - Single source of truth mapping overloadable operators to their mangled runtime method names (`operator$star`, ...) plus the shared identifier `sanitizeManglePart`, consumed by both the emitter and the implicit-export planner so an exported operator overload is always re-exported under the exact name it was emitted with: `compiler/runtime/operatorNames.ts`
   - CommonJS-specific import/export emission helpers extracted from the generic emitter path: `compiler/runtime/commonJsEmitter.ts`, `compiler/runtime/commonJsEmitter.test.ts`
   - Shared implicit Vexa export planning used by both module-graph ESM output and module-graph CommonJS-shaped output: `compiler/runtime/implicitExports.ts`, `compiler/runtime/implicitExports.test.ts`
@@ -72,6 +72,7 @@ This section is the fast onboarding map for agents and contributors.
   - Emission tests: `compiler/runtime/emitter.test.ts`
   - Transpile orchestration: `compiler/runtime/transpile.ts`
   - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.vx` entry file together with its transitively imported local `.vx` and `.ts` modules so cross-file classes/operators/extension properties and TypeScript runtime declarations resolve before the CLI hands the emitted JavaScript to the Node-side package bundler): `compiler/runtime/moduleGraph.ts`
+  - Shared explicit text-module import model (`import source from "./file.ext?text"`), including arbitrary-extension resolution and native AST replacement with string constants: `compiler/runtime/textModuleImports.ts`
   - Shared node_modules import-resolution bridge used by the runtime bundler to reuse the richer declaration/type import pipeline without making core runtime modules depend directly on LSP-layer paths: `compiler/nodeModuleImportResolution.ts`
   - Module-graph bundling tests: `compiler/runtime/moduleGraph.test.ts`
   - Runtime tooling helpers: `compiler/runtime/tooling.ts`
@@ -113,7 +114,7 @@ This section is the fast onboarding map for agents and contributors.
 
 ### Tooling and Integration Pieces
 
-- Distribution build: `scripts/build.ts` bundles the Node CLI with esbuild and copies its runtime declarations through asynchronous Node APIs so `pnpm build` behaves consistently on Unix and Windows; `scripts/build.test.ts` validates the emitted package layout.
+- Distribution builds: `scripts/build.ts` bundles the Node CLI with esbuild and copies its runtime declarations through asynchronous Node APIs, while `scripts/buildVscodeServer.ts` performs the equivalent plugin-aware server bundle for the VS Code extension; `scripts/build.test.ts` and `compiler/vscodeext-packaging.test.ts` validate the emitted package contracts.
 - Compilation pipeline (separate shared parse and parse + analysis artifacts):
   - Parse phase: `compiler/pipeline/parse.ts`
   - Parse phase tests: `compiler/pipeline/parse.test.ts`
@@ -140,7 +141,7 @@ This section is the fast onboarding map for agents and contributors.
   - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
 - Native C++ support:
   - Oilpan runtime, including reference-semantic traced `ArrayObject<T>` storage, a native `performance.now()` steady clock, a dependency-free arbitrary-precision integer implementation, UTF-16/UTF-8 operating-system boundary adapters, and the vendored standalone Oilpan and trimmed mimalloc source archives used by generated C++ builds: `native/runtime.cpp`, `native/bigint.h`, `native/utf.h`, `native/oilpan-standalone-main.zip`, `native/mimalloc-3.4.3.zip`
-  - Native CLI adapters for filesystem/process access and in-process JavaScript bundling: `native/modules/cliShared.ts` composes the native local-module graph (`native/modules/moduleGraph.ts`), package declaration resolver (`native/modules/nodeModuleImportResolution.ts`), embedded DOM declarations (`native/modules/domDeclarations.ts`, generated source in `compiler/runtime/embeddedDomSource.ts`), native built-in module metadata (`native/modules/nodeModule.ts`), and the shared token-based package bundler (`cli/nodeModuleBundle.ts`); `native/modules/cliIo.ts` and `native/modules/nodeFsPromises.ts` provide native host I/O
+  - Native CLI adapters for filesystem/process access and in-process JavaScript bundling: `native/modules/cliShared.ts` composes the native local-module graph (`native/modules/moduleGraph.ts`), package declaration resolver (`native/modules/nodeModuleImportResolution.ts`), declaration sources loaded directly through `?text` (`native/modules/domDeclarations.ts`, `native/modules/runtimeDeclarationSources.ts`), native built-in module metadata (`native/modules/nodeModule.ts`), and the shared token-based package bundler (`cli/nodeModuleBundle.ts`); `native/modules/cliIo.ts` and `native/modules/nodeFsPromises.ts` provide native host I/O
   - Native backend usage, requirements, supported surface, and module limitations: `docs/native.md`
   - Informational native performance baselines and reproduction command: `docs/native-benchmarks.md`
 - Monaco editor support for the website embeds (project folder: `website/src/assets/monaco/`):

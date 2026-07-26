@@ -16,10 +16,19 @@ import { localImportSpecifiers, parserOptionsForModulePath, type LocalImportDepe
 import type { ModuleGraphOptions } from "./moduleGraphModel";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 import { cppBindingMetadata } from "./cppAnnotations";
+import { inlineTextModuleImports } from "./textModuleImports";
 
 export interface NativeModuleGraphResult extends TranspileResult {
   watchedFiles: string[];
   nativeCompilerFlags: string[];
+}
+
+function stringSetValues(values: Set<string>): string[] {
+  const result: string[] = [];
+  for (const value of values) {
+    result.push(value);
+  }
+  return result;
 }
 
 function formatNativeParseIssue(filePath: string, issue: ParseIssue): string {
@@ -392,12 +401,14 @@ export async function compileNativeModuleGraph(
   const visiting = new Set<string>();
   const visitStack: string[] = [];
   const visited = new Set<string>();
+  const watchedFiles = new Set<string>();
   const errors: string[] = [];
 
   let visit: (filePath: string) => Promise<undefined>;
   visit = async (filePath: string): Promise<undefined> => {
     if (visited.has(filePath) || visiting.has(filePath)) return undefined;
     visiting.add(filePath);
+    watchedFiles.add(filePath);
     visitStack.push(filePath);
     const source = await activeVfs.readFile(filePath);
     if (source === null) {
@@ -422,6 +433,17 @@ export async function compileNativeModuleGraph(
       }
       visiting.delete(filePath);
       return undefined;
+    }
+    const textImports = await inlineTextModuleImports(
+      parsed.ast,
+      filePath,
+      activeVfs,
+      importMappings,
+      options.baseUrl
+    );
+    errors.push(...textImports.errors);
+    for (const watchedFile of textImports.watchedFiles) {
+      watchedFiles.add(watchedFile);
     }
     markNativeSourcePath(parsed.ast, filePath);
 
@@ -495,7 +517,7 @@ export async function compileNativeModuleGraph(
   const entryParsed = parsedByPath.get(entryFilePath);
   const entrySource = sourceByPath.get(entryFilePath) ?? "";
   if (!entryParsed?.ast || errors.length > 0) {
-    return { code: "", warnings: [], errors, diagnostics: [], watchedFiles: [...sourceByPath.keys()], nativeCompilerFlags: [] };
+    return { code: "", warnings: [], errors, diagnostics: [], watchedFiles: stringSetValues(watchedFiles), nativeCompilerFlags: [] };
   }
 
   const moduleInfos = new Map<string, NativeModuleInfo>();
@@ -608,7 +630,7 @@ export async function compileNativeModuleGraph(
   }
   reportPhase("module-isolation-analysis", order.length);
   if (errors.length > 0) {
-    return { code: "", warnings: [], errors, diagnostics: [], watchedFiles: order, nativeCompilerFlags: [] };
+    return { code: "", warnings: [], errors, diagnostics: [], watchedFiles: stringSetValues(watchedFiles), nativeCompilerFlags: [] };
   }
 
   const mergedProgram = new Program(
@@ -657,7 +679,7 @@ export async function compileNativeModuleGraph(
     warnings: result.warnings,
     errors: result.errors,
     diagnostics: result.diagnostics,
-    watchedFiles: order,
+    watchedFiles: stringSetValues(watchedFiles),
     nativeCompilerFlags: cppBindingMetadata(mergedProgram).flags,
   };
   if (result.sourceMap !== undefined) nativeResult.sourceMap = result.sourceMap;

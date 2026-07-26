@@ -1,6 +1,6 @@
 import type { Program } from "../../compiler/ast/ast";
 import { parseSource } from "../../compiler/pipeline/parse";
-import { DOM_RUNTIME_DECLARATIONS } from "../../compiler/runtime/embeddedDomSource";
+import DOM_RUNTIME_DECLARATIONS from "../../compiler/runtime/dom.d.ts?text";
 
 export const TYPESCRIPT_DOM_DECLARATION_FILE_NAME = "dom.d.ts";
 

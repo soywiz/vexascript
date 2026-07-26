@@ -6822,6 +6822,10 @@ inline std::int32_t toInt32(const Value& value) {
   return static_cast<std::int32_t>(static_cast<std::uint32_t>(static_cast<std::int64_t>(Number(value))));
 }
 
+inline std::int32_t toInt32(double value) {
+  return static_cast<std::int32_t>(static_cast<std::uint32_t>(static_cast<std::int64_t>(value)));
+}
+
 inline Value bitwiseNot(const Value& value) {
   return value.isBigInt() ? Value(~value.bigint()) : Value(~toInt32(value));
 }
@@ -6861,6 +6865,37 @@ inline Value unsignedShiftRight(const Value& left, const Value& right) {
   }
   const auto amount = static_cast<std::uint32_t>(toInt32(right)) & 31U;
   return Value(static_cast<double>(static_cast<std::uint32_t>(toInt32(left)) >> amount));
+}
+
+inline double bitwiseNot(double value) {
+  return static_cast<double>(~toInt32(value));
+}
+
+inline double bitwiseAnd(double left, double right) {
+  return static_cast<double>(toInt32(left) & toInt32(right));
+}
+
+inline double bitwiseOr(double left, double right) {
+  return static_cast<double>(toInt32(left) | toInt32(right));
+}
+
+inline double bitwiseXor(double left, double right) {
+  return static_cast<double>(toInt32(left) ^ toInt32(right));
+}
+
+inline double shiftLeft(double left, double right) {
+  const auto amount = static_cast<std::uint32_t>(toInt32(right)) & 31U;
+  return static_cast<double>(static_cast<std::int32_t>(static_cast<std::uint32_t>(toInt32(left)) << amount));
+}
+
+inline double shiftRight(double left, double right) {
+  const auto amount = static_cast<std::uint32_t>(toInt32(right)) & 31U;
+  return static_cast<double>(toInt32(left) >> amount);
+}
+
+inline double unsignedShiftRight(double left, double right) {
+  const auto amount = static_cast<std::uint32_t>(toInt32(right)) & 31U;
+  return static_cast<double>(static_cast<std::uint32_t>(toInt32(left)) >> amount);
 }
 
 template <typename Target, typename Callback>

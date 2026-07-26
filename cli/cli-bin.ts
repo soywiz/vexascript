@@ -41,12 +41,24 @@ function isHelpRequest(argv: string[]): boolean {
 async function runSourceCliIfAvailable(argv: string[]): Promise<boolean> {
   const sourceCliPath = resolve(process.cwd(), "cli", "cli.ts");
   const tsxLoaderPath = resolve(process.cwd(), "node_modules", "tsx", "dist", "loader.mjs");
-  if (!(await fileExists(sourceCliPath)) || !(await fileExists(tsxLoaderPath))) {
+  const textModuleLoaderPath = resolve(process.cwd(), "scripts", "registerTextModuleLoader.cjs");
+  if (
+    !(await fileExists(sourceCliPath))
+    || !(await fileExists(tsxLoaderPath))
+    || !(await fileExists(textModuleLoaderPath))
+  ) {
     return false;
   }
 
   await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", sourceCliPath, ...argv.slice(2)], {
+    const child = spawn(process.execPath, [
+      "--import",
+      "tsx",
+      "--import",
+      textModuleLoaderPath,
+      sourceCliPath,
+      ...argv.slice(2)
+    ], {
       stdio: "inherit",
       cwd: process.cwd(),
     });

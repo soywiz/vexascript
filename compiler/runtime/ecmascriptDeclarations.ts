@@ -32,6 +32,6 @@ export {
 } from "./vexascriptDeclarations.shared";
 
 // NOTE: This module intentionally does NOT preload the runtime declaration
-// programs at import time. The ECMAScript and VexaScript declaration sources are
-// embedded as module constants and parsed lazily by their synchronous getters,
-// so no top-level await or entry-point preload is needed.
+// programs at import time. Static `?text` imports finish before module evaluation,
+// so their source bindings can still be parsed lazily by synchronous getters
+// without top-level await or entry-point preloading.

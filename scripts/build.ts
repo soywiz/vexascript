@@ -2,6 +2,7 @@ import { chmod, copyFile, mkdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { textModulePlugin } from "./textModulePlugin";
 
 export interface DistributionBuildPaths {
   entryPoint: string;
@@ -23,6 +24,7 @@ export async function buildDistribution(paths: DistributionBuildPaths): Promise<
     target: "node20",
     outfile: outputFile,
     sourcemap: true,
+    plugins: [textModulePlugin()],
     external: [
       "commander",
       "vscode-languageserver",

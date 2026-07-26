@@ -32,6 +32,10 @@ import {
   localImportSpecifiers,
   parserOptionsForModulePath
 } from "./localModuleResolution";
+import {
+  resolveTextModuleImportPath,
+  textModuleSourceSpecifier
+} from "./textModuleImports";
 import type { ModuleGraphIncrementalCache, ModuleGraphOptions } from "./moduleGraphModel";
 export type {
   GlobalSymbolSourceOptions,
@@ -144,6 +148,9 @@ async function resolveInlineAssetModulePath(
   vfs: Vfs,
   importMappings: Readonly<Record<string, string>>
 ): Promise<string | null> {
+  if (textModuleSourceSpecifier(importPath) !== null) {
+    return resolveTextModuleImportPath(importerFilePath, importPath, vfs, importMappings);
+  }
   if (!importPath.startsWith(".")) {
     return null;
   }

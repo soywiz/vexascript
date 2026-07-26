@@ -64,3 +64,62 @@ analysis path regardless of whether semantic diagnostics are enforced. A native
 `-O0` CLI now bundles `samples/pixi/html.vx` into a syntactically valid browser
 bundle. A real browser run produced a 480×320 Pixi canvas and logged
 `pixi-ready`.
+
+## Declaration sources should use the bundler too
+
+The first native CLI implementation added `embeddedDomSource.ts`, generated
+from `dom.d.ts`, because the C++-compiled CLI needed the declaration text
+without Node filesystem APIs. That solved packaging but introduced another
+generated source representation.
+
+The module graphs now recognize an explicit `?text` resource import. It
+resolves any local file extension, reads it through the active asynchronous
+VFS, and replaces the default import with a string constant. The JavaScript
+package graph represents the same resource as a bundled CommonJS text module,
+while native compilation replaces the import directly in the AST before merged
+analysis and C++ emission.
+
+The native declaration-source provider and DOM adapter now import
+`es2025.d.ts`, `vexascript.d.vx`, and `dom.d.ts` through `?text`.
+`embeddedDomSource.ts` and its generator branch were deleted.
+
+A follow-up removed the remaining generated declaration strings as well.
+Static module loading already settles before consumers use imported bindings,
+so synchronous compiler code does not require synchronous file I/O or an
+asynchronous API conversion. `embeddedRuntimeSources.ts` is now a small facade
+over `es2025.d.ts?text` and `vexascript.d.vx?text`. Direct Node/tsx execution
+registers an asynchronous ESM loader for that suffix, while distribution,
+website, and VS Code builds use one shared esbuild plugin. This keeps module
+evaluation synchronous from the compiler's perspective without retaining a
+second generated representation of either declaration source.
+
+## Prefer nominal values on native compiler paths
+
+Self-bundling `cli/cli.ts` exposed two more JavaScript-only assumptions. A
+`SourceRange` object literal was structurally assignable in TypeScript but
+became a native record that could not be cast to the generated `SourceRange`
+class. Later, the bundler used `[{ name: variable.name }]` as a structural
+fallback for `VarDeclarator[]`; C++ consequently cast that record to
+`VarDeclarator` while collecting exported names. Both failures appeared only
+after the native CLI traversed enough of its own compiler graph.
+
+The fixes construct real `SourceRange` and `SourcePosition` instances and use
+the shared `bindingIdentifiers` helper without manufacturing AST-shaped
+objects. Diagnostics around recursive dependency bundling now retain the full
+import chain, which made the failing module and operation visible instead of
+leaving only a low-level dynamic-cast error.
+
+The same principle applies to internal discriminated unions that are created
+frequently on native paths. `EnumResolvedValue` previously used five object
+literal variants distinguished by a `kind` string. It now uses five concrete
+classes and `instanceof` checks, so C++ stores generated class instances rather
+than dynamic records. The native self-bundle regression compiles this code,
+bundles the CLI itself and Pixi, and syntax-checks the generated JavaScript.
+
+The same audit found that statically typed numeric bitwise expressions were
+still routed through the dynamic `Value` helpers. JavaScript applies
+`ToInt32` to `number` operands for `~`, `&`, `|`, `^`, `<<`, and `>>`, while
+`>>>` uses the corresponding unsigned 32-bit result. The C++ emitter now keeps
+these expressions on numeric overloads when their operands are statically
+numeric; the overloads preserve the JavaScript conversion rules without
+allocating temporary `Value` objects.

@@ -48,6 +48,23 @@ function pick(candidate: Statement, statement: Statement): void {
     expect(result.code).not.toContain("vexa::add(");
   });
 
+  it("keeps statically numeric bitwise operations out of the dynamic Value path", () => {
+    const result = transpile(`
+function fold(leftValue: number, rightValue: number): number {
+  const shifted = leftValue << rightValue;
+  const masked = leftValue & rightValue;
+  const inverted = ~leftValue;
+  return shifted + masked + inverted;
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/numeric-bitwise.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::shiftLeft(leftValue, rightValue)");
+    expect(result.code).toContain("vexa::bitwiseAnd(leftValue, rightValue)");
+    expect(result.code).toContain("vexa::bitwiseNot(leftValue)");
+    expect(result.code).not.toContain("vexa::toValue(leftValue)");
+  });
+
   it("emits referenced C++ headers and raw function bodies", () => {
     const result = transpile(`
 @CppHeader("#include <native_api.h>")

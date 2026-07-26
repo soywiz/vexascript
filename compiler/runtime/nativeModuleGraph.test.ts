@@ -105,4 +105,28 @@ describe("native module graph profiling", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it("embeds explicitly text-loaded files as native string literals", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vexa-native-text-module-"));
+    try {
+      const declarationPath = join(directory, "runtime.d.ts");
+      await writeFile(declarationPath, "declare interface NativeRuntimeMarker {}\n", "utf8");
+      await writeFile(
+        join(directory, "main.ts"),
+        [
+          'import runtimeSource from "./runtime.d.ts?text";',
+          'console.log(runtimeSource.includes("NativeRuntimeMarker"));',
+        ].join("\n"),
+        "utf8"
+      );
+
+      const result = await compileNativeModuleGraph(join(directory, "main.ts"), "optimized");
+
+      expect(result.errors).toEqual([]);
+      expect(result.code).toContain("NativeRuntimeMarker");
+      expect(result.watchedFiles).toContain(declarationPath);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });

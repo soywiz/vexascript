@@ -1,9 +1,16 @@
-import { ClassStatement, EnumStatement, ExportStatement, FunctionStatement, Identifier, VarStatement } from "compiler/ast/ast";
+import { ClassStatement, EnumStatement, ExportStatement, FunctionStatement, VarStatement } from "compiler/ast/ast";
 import { builtinModules } from "node:module";
 import type { Program, Statement } from "../compiler/ast/ast";
+import { bindingIdentifiers } from "../compiler/ast/bindingPatterns";
 import { parseSource } from "../compiler/pipeline/parse";
 import { tokenize, TokenType, type Token } from "../compiler/parser/tokenizer";
 import { emitProgram } from "../compiler/runtime/emitter";
+import {
+  asTextModulePath,
+  isTextModulePath,
+  textModuleSourcePath,
+  textModuleSourceSpecifier
+} from "../compiler/runtime/textModuleImports";
 import { basename, dirname, extname, relative, resolve } from "../compiler/utils/path";
 import { hasRecognizedModuleFileExtension } from "../compiler/language";
 import { vfs, type Vfs } from "../compiler/vfs";
@@ -263,6 +270,7 @@ async function isDirectoryInVfs(path: string, vfs: Vfs, context: ResolutionConte
 }
 
 async function fileMtimeInVfs(path: string, vfs: Vfs, context: ResolutionContext): Promise<number | null> {
+  path = textModuleSourcePath(path);
   if (context.fileMtimeByPath.has(path)) {
     return context.fileMtimeByPath.get(path) ?? null;
   }
@@ -539,35 +547,41 @@ async function resolveDependency(
     context.resolvedDependencyByKey.set(cacheKey, resolved);
     return resolved;
   }
+  const textSourceSpecifier = textModuleSourceSpecifier(specifier);
+  const resolutionSpecifier = textSourceSpecifier ?? specifier;
+  const decorateResolvedPath = (filePath: string): string =>
+    textSourceSpecifier === null ? filePath : asTextModulePath(filePath);
 
-  const mappedTarget = importMappings[specifier];
+  const mappedTarget = importMappings[resolutionSpecifier] ?? importMappings[specifier];
   if (mappedTarget) {
     const targetPath = await resolveAsModulePath(mappedTarget, vfs, virtualSources, context);
     if (targetPath) {
-      const resolved = { kind: "bundled", filePath: targetPath } satisfies ResolvedDependency;
+      const resolved = { kind: "bundled", filePath: decorateResolvedPath(targetPath) } satisfies ResolvedDependency;
       context.resolvedDependencyByKey.set(cacheKey, resolved);
       return resolved;
     }
   }
 
-  if (baseUrl && !isRelativeOrAbsoluteSpecifier(specifier)) {
-    const targetPath = await resolveAsModulePath(resolve(baseUrl, specifier), vfs, virtualSources, context);
+  if (baseUrl && !isRelativeOrAbsoluteSpecifier(resolutionSpecifier)) {
+    const targetPath = await resolveAsModulePath(resolve(baseUrl, resolutionSpecifier), vfs, virtualSources, context);
     if (targetPath) {
-      const resolved = { kind: "bundled", filePath: targetPath } satisfies ResolvedDependency;
+      const resolved = { kind: "bundled", filePath: decorateResolvedPath(targetPath) } satisfies ResolvedDependency;
       context.resolvedDependencyByKey.set(cacheKey, resolved);
       return resolved;
     }
   }
 
-  if (isRelativeOrAbsoluteSpecifier(specifier)) {
+  if (isRelativeOrAbsoluteSpecifier(resolutionSpecifier)) {
     const targetPath = await resolveAsModulePath(
-      specifier.startsWith("/") ? specifier : resolve(dirname(importerFilePath), specifier),
+      resolutionSpecifier.startsWith("/")
+        ? resolutionSpecifier
+        : resolve(dirname(textModuleSourcePath(importerFilePath)), resolutionSpecifier),
       vfs,
       virtualSources,
       context
     );
     if (targetPath) {
-      const resolved = { kind: "bundled", filePath: targetPath } satisfies ResolvedDependency;
+      const resolved = { kind: "bundled", filePath: decorateResolvedPath(targetPath) } satisfies ResolvedDependency;
       context.resolvedDependencyByKey.set(cacheKey, resolved);
       return resolved;
     }
@@ -576,9 +590,15 @@ async function resolveDependency(
     return resolved;
   }
 
-  const packagePath = await resolveBareSpecifier(importerFilePath, specifier, vfs, virtualSources, context);
+  const packagePath = await resolveBareSpecifier(
+    textModuleSourcePath(importerFilePath),
+    resolutionSpecifier,
+    vfs,
+    virtualSources,
+    context
+  );
   if (packagePath) {
-    const resolved = { kind: "bundled", filePath: packagePath } satisfies ResolvedDependency;
+    const resolved = { kind: "bundled", filePath: decorateResolvedPath(packagePath) } satisfies ResolvedDependency;
     context.resolvedDependencyByKey.set(cacheKey, resolved);
     return resolved;
   }
@@ -1007,12 +1027,16 @@ function transformJavaScriptModuleSource(source: string): TranspiledModuleSource
 function collectExportedDeclarationNames(statement: Statement): string[] {
   if (statement instanceof VarStatement) {
     const variable = statement as VarStatement;
-    const declarations = variable.declarations ?? [{ name: variable.name }];
     const names: string[] = [];
-    for (const declaration of declarations) {
-      const name = declaration.name;
-      if (name instanceof Identifier) {
-        names.push(name.name);
+    if (variable.declarations) {
+      for (const declaration of variable.declarations) {
+        for (const identifier of bindingIdentifiers(declaration.name)) {
+          names.push(identifier.name);
+        }
+      }
+    } else {
+      for (const identifier of bindingIdentifiers(variable.name)) {
+        names.push(identifier.name);
       }
     }
     return names;
@@ -1189,10 +1213,11 @@ async function createCachedBundledModuleArtifact(
   baseUrl: string | undefined,
   context: ResolutionContext
 ): Promise<CachedBundledModuleArtifact> {
-  const extension = extname(filePath).toLowerCase();
-  let source = virtualSources.get(filePath);
+  const sourcePath = textModuleSourcePath(filePath);
+  const extension = extname(sourcePath).toLowerCase();
+  let source = virtualSources.get(filePath) ?? virtualSources.get(sourcePath);
   if (source === undefined) {
-    source = await vfs.readFile(filePath) ?? undefined;
+    source = await vfs.readFile(sourcePath) ?? undefined;
   }
   if (source === undefined) {
     throw new Error(`Unable to read bundled module '${filePath}'`);
@@ -1201,7 +1226,7 @@ async function createCachedBundledModuleArtifact(
   try {
     transpiled = extension === ".json"
       ? new TranspiledModuleSource(`module.exports = ${source.trim()};`, ["default"])
-      : extension === ".txt"
+      : extension === ".txt" || isTextModulePath(filePath)
         ? new TranspiledModuleSource(`module.exports = ${JSON.stringify(source)};`, ["default"])
         : transpileModuleSource(source, filePath);
   } catch (error) {
@@ -1218,10 +1243,19 @@ async function createCachedBundledModuleArtifact(
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Unable to resolve '${specifier}' imported by '${filePath}': ${detail}`);
     }
-    resolvedDependencies[specifier] = resolved.kind === "bundled" ? resolved.filePath : null;
+    try {
+      if (resolved.kind === "bundled") {
+        resolvedDependencies[specifier] = resolved.filePath;
+      } else {
+        resolvedDependencies[specifier] = null;
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Unable to record resolved dependency '${specifier}' for '${filePath}': ${detail}`);
+    }
   }
   return {
-    mtimeMs: await fileMtimeInVfs(filePath, vfs, context) ?? -1,
+    mtimeMs: await fileMtimeInVfs(sourcePath, vfs, context) ?? -1,
     code: transpiledCode,
     resolvedDependencies
   };
@@ -1294,9 +1328,16 @@ async function visitResolvedFile(
     throw new Error(`Unable to enumerate dependencies for '${filePath}': ${detail}`);
   }
   for (const [specifier, resolvedFilePath] of resolvedDependencyEntries) {
-    dependencyMap[specifier] = resolvedFilePath === null
-      ? null
-      : await visitResolvedFile(resolvedFilePath, traversal);
+    if (resolvedFilePath === null) {
+      dependencyMap[specifier] = null;
+      continue;
+    }
+    try {
+      dependencyMap[specifier] = await visitResolvedFile(resolvedFilePath, traversal);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Unable to bundle '${specifier}' imported by '${filePath}': ${detail}`);
+    }
   }
   traversal.moduleById.set(moduleId, {
     id: moduleId,
