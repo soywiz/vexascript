@@ -123,3 +123,20 @@ still routed through the dynamic `Value` helpers. JavaScript applies
 these expressions on numeric overloads when their operands are statically
 numeric; the overloads preserve the JavaScript conversion rules without
 allocating temporary `Value` objects.
+
+## Keep runtime lookup out of generated C++
+
+Native helper calls in generated C++ must not carry a runtime object as an
+explicit first argument. The runtime object had leaked an implementation
+detail into every generated function and made it look like ordinary
+application data. The emitter now generates runtime-free calls such as
+`mapSet(map, key, value)`, `makeManaged<T>(args)`, and `runAsync(work)`.
+
+The native runtime now owns its heap, timers, microtasks, I/O pollers, and
+literal roots through static `Runtime` state. `Runtime::initialize()` prepares
+that state, while all allocation and event-loop operations are static. There
+is no `Runtime` instance, `Runtime::current()`, `currentRuntime()`, or
+`thread_local` runtime pointer. `Process` and generated `main.cpp` use the
+static API directly. This also fixes native processes that previously crashed
+when a runtime reference was removed from generated code but remained in
+low-level continuations.

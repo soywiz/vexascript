@@ -1,4 +1,4 @@
-// Minimal VexaScript C++ runtime. This file is intentionally both a header and
+// Minimal VexaScript C++ Runtime:: This file is intentionally both a header and
 // an implementation so generated translation units can include one runtime file.
 #pragma once
 
@@ -141,7 +141,6 @@ struct Undefined final {};
 struct Null final {};
 class RecordObject;
 class Runtime;
-Runtime& currentRuntime();
 template <typename T, typename... Arguments>
 T* makeManaged(Arguments&&... arguments);
 class BaseObject;
@@ -168,7 +167,7 @@ struct IsStdFunction : std::false_type {};
 template <typename Result, typename... Arguments>
 struct IsStdFunction<std::function<Result(Arguments...)>> : std::true_type {};
 template <typename Result>
-Result functionFromValue(Runtime&, const Value&);
+Result functionFromValue(const Value&);
 template <typename T>
 std::u16string jsonStringifyNative(const T&, std::unordered_set<const void*>&);
 template <typename T>
@@ -186,7 +185,7 @@ template <typename T>
 struct PromiseResult;
 template <typename T>
 std::u16string toString(const Task<T>&);
-RecordObject* makeDynamicPropertyRecord(Runtime&);
+RecordObject* makeDynamicPropertyRecord();
 
 template <typename T>
 inline const void* nativeTypeToken() {
@@ -215,13 +214,13 @@ class BaseObject : public cppgc::GarbageCollectedMixin {
   virtual Value dynamicSet(const std::u16string&, const Value&);
   virtual std::vector<std::u16string> dynamicKeys() const;
   virtual bool dynamicDelete(const std::u16string&);
-  virtual Value dynamicCall(Runtime&, const std::vector<Value>&);
+  virtual Value dynamicCall(const std::vector<Value>&);
   virtual bool dynamicIsArray() const { return false; }
   virtual std::size_t dynamicArraySize() const { return 0; }
-  virtual Value dynamicArrayGet(Runtime&, std::size_t);
+  virtual Value dynamicArrayGet(std::size_t);
   virtual bool dynamicIsIterable() const;
   virtual std::size_t dynamicIterableSize() const;
-  virtual Value dynamicIterableGet(Runtime&, std::size_t);
+  virtual Value dynamicIterableGet(std::size_t);
   void dynamicDefineProperty(const std::u16string&, const Value&, bool enumerable);
   std::vector<std::u16string> dynamicEnumerableKeys(std::vector<std::u16string>) const;
   void Trace(cppgc::Visitor*) const;
@@ -535,11 +534,11 @@ inline std::vector<std::u16string> objectKeys(T* object) {
   return objectKeys(static_cast<BaseObject*>(object));
 }
 
-inline Value enumerableGet(Runtime&, RecordObject* object, const std::u16string& key) {
+inline Value enumerableGet(RecordObject* object, const std::u16string& key) {
   return object ? object->get(key) : Value::undefined();
 }
 
-inline Value enumerableGet(Runtime&, EnumerableObject* object, const std::u16string& key) {
+inline Value enumerableGet(EnumerableObject* object, const std::u16string& key) {
   return object ? object->enumerableGet(key) : Value::undefined();
 }
 
@@ -588,7 +587,7 @@ inline bool operator==(Other&& other, const cppgc::Member<T>& value) {
   return value == std::forward<Other>(other);
 }
 
-inline Value BaseObject::dynamicCall(Runtime&, const std::vector<Value>&) {
+inline Value BaseObject::dynamicCall(const std::vector<Value>&) {
   throw runtimeError(u"VexaScript dynamic value is not callable");
 }
 
@@ -597,8 +596,7 @@ inline Value BaseObject::dynamicGet(const std::u16string& key) {
 }
 
 inline Value BaseObject::dynamicSet(const std::u16string& key, const Value& value) {
-  auto& runtime = currentRuntime();
-  if (!dynamic_properties_) dynamic_properties_ = makeDynamicPropertyRecord(runtime);
+    if (!dynamic_properties_) dynamic_properties_ = makeDynamicPropertyRecord();
   dynamic_properties_->set(key, value);
   return value;
 }
@@ -716,7 +714,7 @@ inline void RecordObject::Trace(cppgc::Visitor* visitor) const {
   for (const auto& [key, value] : hidden_properties_) value.Trace(visitor);
 }
 
-inline Value BaseObject::dynamicArrayGet(Runtime&, std::size_t) {
+inline Value BaseObject::dynamicArrayGet(std::size_t) {
   throw runtimeError(u"Dynamic native object is not an array");
 }
 
@@ -728,11 +726,11 @@ inline std::size_t BaseObject::dynamicIterableSize() const {
   return dynamicArraySize();
 }
 
-inline Value BaseObject::dynamicIterableGet(Runtime& runtime, std::size_t index) {
-  return dynamicArrayGet(runtime, index);
+inline Value BaseObject::dynamicIterableGet(std::size_t index) {
+  return dynamicArrayGet(index);
 }
 
-Value makeDynamicMapEntry(Runtime& runtime, Value key, Value value);
+Value makeDynamicMapEntry(Value key, Value value);
 
 inline Value StoredValue::load() const {
   if (std::holds_alternative<Undefined>(storage_)) return Value::undefined();
@@ -860,7 +858,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   T get(std::size_t index) const {
     if (dynamic_backing_) {
       if constexpr (IsDynamicArrayElement<T>) {
-        return convertValue<T>(dynamic_backing_->dynamicArrayGet(currentRuntime(), index));
+        return convertValue<T>(dynamic_backing_->dynamicArrayGet(index));
       } else {
         throw runtimeError(u"This native array element type cannot flow through a dynamic array view");
       }
@@ -929,15 +927,14 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   double lastIndexOf(const U& value) const;
   T at(double index) const;
   ArrayObject* slice(
-      Runtime& runtime,
       double start = 0,
       double end = std::numeric_limits<double>::infinity()) const;
   template <typename... Items>
-  ArrayObject* concat(Runtime& runtime, Items&&... items) const;
+  ArrayObject* concat(Items&&... items) const;
   template <typename Callback>
-  auto map(Runtime& runtime, Callback callback) const;
+  auto map(Callback callback) const;
   template <typename Callback>
-  ArrayObject* filter(Runtime& runtime, Callback callback) const;
+  ArrayObject* filter(Callback callback) const;
   template <typename Callback, typename Accumulator>
   Accumulator reduce(Callback callback, Accumulator initial) const;
   template <typename Callback>
@@ -952,7 +949,6 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   T find(Callback callback) const;
   template <typename... Items>
   ArrayObject* splice(
-      Runtime& runtime,
       double start,
       double deleteCount = std::numeric_limits<double>::infinity(),
       Items&&... items);
@@ -971,11 +967,11 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   bool dynamicIsArray() const override { return true; }
   bool dynamicIsIterable() const override { return true; }
   std::size_t dynamicIterableSize() const override { return size(); }
-  Value dynamicIterableGet(Runtime& runtime, std::size_t index) override {
-    return dynamicArrayGet(runtime, index);
+  Value dynamicIterableGet(std::size_t index) override {
+    return dynamicArrayGet(index);
   }
   std::size_t dynamicArraySize() const override { return size(); }
-  Value dynamicArrayGet(Runtime& runtime, std::size_t index) override {
+  Value dynamicArrayGet(std::size_t index) override {
     if constexpr (IsDynamicArrayElement<T>) {
       return index < size() ? convertValue<Value>(get(index)) : Value::undefined();
     } else {
@@ -995,8 +991,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   }
   Value dynamicGet(const std::u16string& key) override;
   Value dynamicSet(const std::u16string& key, const Value& value) override {
-    auto& runtime = currentRuntime();
-    if constexpr (IsDynamicArrayElement<T>) {
+        if constexpr (IsDynamicArrayElement<T>) {
       if (key == u"length") {
         resize(static_cast<std::size_t>(convertValue<double>(value)));
         return value;
@@ -1096,11 +1091,11 @@ struct SameValueZeroEqual final {
 class MapLikeObject : public BaseObject {
  public:
   virtual std::size_t dynamicMapSize() const = 0;
-  virtual Value dynamicMapKeyAt(Runtime&, std::size_t) = 0;
-  virtual Value dynamicMapValueAt(Runtime&, std::size_t) = 0;
-  virtual std::optional<Value> dynamicMapGet(Runtime&, const Value&) = 0;
-  virtual void dynamicMapSet(Runtime&, const Value&, const Value&) = 0;
-  virtual bool dynamicMapDelete(Runtime&, const Value&) = 0;
+  virtual Value dynamicMapKeyAt(std::size_t) = 0;
+  virtual Value dynamicMapValueAt(std::size_t) = 0;
+  virtual std::optional<Value> dynamicMapGet(const Value&) = 0;
+  virtual void dynamicMapSet(const Value&, const Value&) = 0;
+  virtual bool dynamicMapDelete(const Value&) = 0;
   virtual void dynamicMapClear() = 0;
 };
 class SetLikeObject : public BaseObject {};
@@ -1131,7 +1126,6 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   MapObject* set(K key, V value) {
     if (dynamic_backing_) {
       dynamic_backing_->dynamicMapSet(
-          currentRuntime(),
           convertValue<Value>(key),
           convertValue<Value>(value));
       return this;
@@ -1149,7 +1143,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
 
   std::optional<V> get(const K& key) const {
     if (dynamic_backing_) {
-      const auto found = dynamic_backing_->dynamicMapGet(currentRuntime(), convertValue<Value>(key));
+      const auto found = dynamic_backing_->dynamicMapGet(convertValue<Value>(key));
       if (!found) return std::nullopt;
       try {
         return std::optional<V>(convertValue<V>(*found));
@@ -1167,13 +1161,13 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
 
   bool has(const K& key) const {
     return dynamic_backing_
-      ? dynamic_backing_->dynamicMapGet(currentRuntime(), convertValue<Value>(key)).has_value()
+      ? dynamic_backing_->dynamicMapGet(convertValue<Value>(key)).has_value()
       : storage_->index.contains(key);
   }
 
   bool erase(const K& key) {
     if (dynamic_backing_) {
-      return dynamic_backing_->dynamicMapDelete(currentRuntime(), convertValue<Value>(key));
+      return dynamic_backing_->dynamicMapDelete(convertValue<Value>(key));
     }
     ensureUniqueStorage();
     const auto found = storage_->index.find(key);
@@ -1195,10 +1189,9 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   template <typename Callback>
   void forEach(Callback callback) {
     if (dynamic_backing_) {
-      auto& runtime = currentRuntime();
-      for (std::size_t index = 0; index < dynamic_backing_->dynamicMapSize(); ++index) {
-        const K key = convertValue<K>(dynamic_backing_->dynamicMapKeyAt(runtime, index));
-        const V value = convertValue<V>(dynamic_backing_->dynamicMapValueAt(runtime, index));
+            for (std::size_t index = 0; index < dynamic_backing_->dynamicMapSize(); ++index) {
+        const K key = convertValue<K>(dynamic_backing_->dynamicMapKeyAt(index));
+        const V value = convertValue<V>(dynamic_backing_->dynamicMapValueAt(index));
         if constexpr (std::is_invocable_v<Callback, V, K, MapObject*>) callback(value, key, this);
         else if constexpr (std::is_invocable_v<Callback, V, K>) callback(value, key);
         else callback(value);
@@ -1225,38 +1218,37 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   std::u16string dynamicToString() const override { return u"[object Map]"; }
   bool dynamicIsIterable() const override { return true; }
   std::size_t dynamicIterableSize() const override { return size(); }
-  Value dynamicIterableGet(Runtime& runtime, std::size_t index) override {
+  Value dynamicIterableGet(std::size_t index) override {
     if (index >= size()) return Value::undefined();
     return makeDynamicMapEntry(
-        runtime,
-        dynamicMapKeyAt(runtime, index),
-        dynamicMapValueAt(runtime, index));
+        dynamicMapKeyAt(index),
+        dynamicMapValueAt(index));
   }
 
   std::size_t dynamicMapSize() const override { return size(); }
-  Value dynamicMapKeyAt(Runtime& runtime, std::size_t index) override {
-    if (dynamic_backing_) return dynamic_backing_->dynamicMapKeyAt(runtime, index);
+  Value dynamicMapKeyAt(std::size_t index) override {
+    if (dynamic_backing_) return dynamic_backing_->dynamicMapKeyAt(index);
     return index < storage_->entries.size() ? convertValue<Value>(storage_->entries[index].key.load()) : Value::undefined();
   }
-  Value dynamicMapValueAt(Runtime& runtime, std::size_t index) override {
-    if (dynamic_backing_) return dynamic_backing_->dynamicMapValueAt(runtime, index);
+  Value dynamicMapValueAt(std::size_t index) override {
+    if (dynamic_backing_) return dynamic_backing_->dynamicMapValueAt(index);
     return index < storage_->entries.size() ? convertValue<Value>(storage_->entries[index].value.load()) : Value::undefined();
   }
-  std::optional<Value> dynamicMapGet(Runtime& runtime, const Value& key) override {
-    if (dynamic_backing_) return dynamic_backing_->dynamicMapGet(runtime, key);
+  std::optional<Value> dynamicMapGet(const Value& key) override {
+    if (dynamic_backing_) return dynamic_backing_->dynamicMapGet(key);
     const auto found = get(convertValue<K>(key));
     return found ? std::optional<Value>(convertValue<Value>(*found)) : std::nullopt;
   }
-  void dynamicMapSet(Runtime& runtime, const Value& key, const Value& value) override {
+  void dynamicMapSet(const Value& key, const Value& value) override {
     if (dynamic_backing_) {
-      dynamic_backing_->dynamicMapSet(runtime, key, value);
+      dynamic_backing_->dynamicMapSet(key, value);
       return;
     }
     set(convertValue<K>(key), convertValue<V>(value));
   }
-  bool dynamicMapDelete(Runtime& runtime, const Value& key) override {
+  bool dynamicMapDelete(const Value& key) override {
     return dynamic_backing_
-      ? dynamic_backing_->dynamicMapDelete(runtime, key)
+      ? dynamic_backing_->dynamicMapDelete(key)
       : erase(convertValue<K>(key));
   }
   void dynamicMapClear() override { clear(); }
@@ -1343,7 +1335,7 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
   std::u16string dynamicToString() const override { return u"[object Set]"; }
   bool dynamicIsIterable() const override { return true; }
   std::size_t dynamicIterableSize() const override { return storage_->values.size(); }
-  Value dynamicIterableGet(Runtime& runtime, std::size_t index) override {
+  Value dynamicIterableGet(std::size_t index) override {
     if (index >= storage_->values.size()) return Value::undefined();
     return convertValue<Value>(storage_->values[index].load());
   }
@@ -1990,86 +1982,80 @@ inline ArrayObject<Value>* arrayPointer(const Value& value) {
 
 class DynamicArrayRange final {
  public:
-  DynamicArrayRange(Runtime& runtime, BaseObject* array)
-      : runtime_(&runtime), array_(array) {}
+  explicit DynamicArrayRange(BaseObject* array) : array_(array) {}
 
   class Iterator final {
    public:
-    Iterator(Runtime& runtime, BaseObject* array, std::size_t index)
-        : runtime_(&runtime), array_(array), index_(index) {}
-    Value operator*() const { return array_->dynamicArrayGet(*runtime_, index_); }
+    Iterator(BaseObject* array, std::size_t index)
+        : array_(array), index_(index) {}
+    Value operator*() const { return array_->dynamicArrayGet(index_); }
     Iterator& operator++() { ++index_; return *this; }
     bool operator!=(const Iterator& other) const { return index_ != other.index_; }
 
    private:
-    Runtime* runtime_;
     BaseObject* array_;
     std::size_t index_;
   };
 
-  Iterator begin() const { return Iterator(*runtime_, array_.Get(), 0); }
-  Iterator end() const { return Iterator(*runtime_, array_.Get(), array_->dynamicArraySize()); }
+  Iterator begin() const { return Iterator(array_.Get(), 0); }
+  Iterator end() const { return Iterator(array_.Get(), array_->dynamicArraySize()); }
 
  private:
-  Runtime* runtime_;
   cppgc::Persistent<BaseObject> array_;
 };
 
-inline DynamicArrayRange dynamicArrayRange(Runtime& runtime, const Value& value) {
+inline DynamicArrayRange dynamicArrayRange(const Value& value) {
   if (!value.isRuntimeObject() || !value.object()->dynamicIsArray()) {
     throw errorAtCurrentSource(u"Value is not an array");
   }
-  return DynamicArrayRange(runtime, value.object());
+  return DynamicArrayRange(value.object());
 }
 
 class DynamicIterationRange final {
  public:
-  DynamicIterationRange(Runtime& runtime, BaseObject* iterable)
-      : runtime_(&runtime), iterable_(iterable) {}
+  explicit DynamicIterationRange(BaseObject* iterable) : iterable_(iterable) {}
 
   class Iterator final {
    public:
-    Iterator(Runtime& runtime, BaseObject* iterable, std::size_t index)
-        : runtime_(&runtime), iterable_(iterable), index_(index) {}
-    Value operator*() const { return iterable_->dynamicIterableGet(*runtime_, index_); }
+    Iterator(BaseObject* iterable, std::size_t index)
+        : iterable_(iterable), index_(index) {}
+    Value operator*() const { return iterable_->dynamicIterableGet(index_); }
     Iterator& operator++() { ++index_; return *this; }
     bool operator!=(const Iterator& other) const { return index_ != other.index_; }
 
    private:
-    Runtime* runtime_;
     BaseObject* iterable_;
     std::size_t index_;
   };
 
-  Iterator begin() const { return Iterator(*runtime_, iterable_.Get(), 0); }
-  Iterator end() const { return Iterator(*runtime_, iterable_.Get(), iterable_->dynamicIterableSize()); }
+  Iterator begin() const { return Iterator(iterable_.Get(), 0); }
+  Iterator end() const { return Iterator(iterable_.Get(), iterable_->dynamicIterableSize()); }
 
  private:
-  Runtime* runtime_;
   cppgc::Persistent<BaseObject> iterable_;
 };
 
-inline DynamicIterationRange dynamicIterationRange(Runtime& runtime, const Value& value) {
+inline DynamicIterationRange dynamicIterationRange(const Value& value) {
   if (!value.isRuntimeObject() || !value.object()->dynamicIsIterable()) {
     throw errorAtCurrentSource(u"Value is not iterable");
   }
-  return DynamicIterationRange(runtime, value.object());
+  return DynamicIterationRange(value.object());
 }
 
 template <typename T>
-inline DynamicIterationRange dynamicIterationRange(Runtime& runtime, ArrayObject<T>* value) {
+inline DynamicIterationRange dynamicIterationRange(ArrayObject<T>* value) {
   if (!value) throw errorAtCurrentSource(u"Value is not iterable");
-  return DynamicIterationRange(runtime, value);
+  return DynamicIterationRange(value);
 }
 
 template <typename T>
-inline std::vector<T> dynamicIterationRange(Runtime&, std::vector<T> value) {
+inline std::vector<T> dynamicIterationRange(std::vector<T> value) {
   return value;
 }
 
 template <typename T>
-inline DynamicIterationRange dynamicIterationRange(Runtime& runtime, const cppgc::Member<T>& value) {
-  return dynamicIterationRange(runtime, Value(value.Get()));
+inline DynamicIterationRange dynamicIterationRange(const cppgc::Member<T>& value) {
+  return dynamicIterationRange(Value(value.Get()));
 }
 
 template <typename T>
@@ -2086,15 +2072,15 @@ inline bool arrayIsArray(const T&) {
   return false;
 }
 
-inline std::vector<std::u16string> stringCharacters(Runtime&, const std::u16string& value) {
+inline std::vector<std::u16string> stringCharacters(const std::u16string& value) {
   std::vector<std::u16string> result;
   result.reserve(value.size());
   for (char character : value) result.emplace_back(1, character);
   return result;
 }
 
-inline std::vector<std::u16string> stringCharacters(Runtime& runtime, const Value& value) {
-  return stringCharacters(runtime, toString(value));
+inline std::vector<std::u16string> stringCharacters(const Value& value) {
+  return stringCharacters(toString(value));
 }
 
 template <typename T>
@@ -2117,7 +2103,7 @@ inline BaseObject* rawPointer(const Value& value) {
 }
 
 template <typename Target, typename Callback>
-inline Value optionalCall(Runtime& runtime, Target* target, Callback&& callback) {
+inline Value optionalCall(Target* target, Callback&& callback) {
   if (!target) return Value::undefined();
   using Result = std::invoke_result_t<Callback, Target*>;
   if constexpr (std::is_void_v<Result>) {
@@ -2129,7 +2115,7 @@ inline Value optionalCall(Runtime& runtime, Target* target, Callback&& callback)
 }
 
 template <typename T>
-inline void defineProperty(Runtime& runtime, T&& object, std::u16string key, const Value& value, bool enumerable) {
+inline void defineProperty(T&& object, std::u16string key, const Value& value, bool enumerable) {
   using Input = std::remove_cvref_t<T>;
   if constexpr (std::is_same_v<Input, Value>) {
     if (object.isRecord()) {
@@ -2288,9 +2274,9 @@ class Runtime final {
   using TimerCallback = std::function<void()>;
   using IoPoller = std::function<bool()>;
 
-  explicit Runtime(std::size_t suggestedInitialHeapSizeBytes = 0)
-      : previousRuntime_(currentRuntime_), platform_(std::make_shared<OilpanPlatform>()) {
-    currentRuntime_ = this;
+  static void initialize(std::size_t suggestedInitialHeapSizeBytes = 0) {
+    if (heap_) return;
+    platform_ = std::make_shared<OilpanPlatform>();
     cppgc::InitializeProcess(platform_->GetPageAllocator());
     cppgc::Heap::HeapOptions options;
     options.marking_support = cppgc::Heap::MarkingType::kAtomic;
@@ -2305,10 +2291,7 @@ class Runtime final {
     heap_ = cppgc::Heap::Create(platform_, std::move(options));
   }
 
-  Runtime(const Runtime&) = delete;
-  Runtime& operator=(const Runtime&) = delete;
-
-  ~Runtime() {
+  static void shutdown() {
     timers_.clear();
     while (!scheduledTimers_.empty()) scheduledTimers_.pop();
     microtasks_.clear();
@@ -2316,36 +2299,34 @@ class Runtime final {
     literalStrings_.clear();
     heap_.reset();
     cppgc::ShutdownProcess();
-    currentRuntime_ = previousRuntime_;
+    platform_.reset();
   }
 
-  static Runtime& current() {
-    if (!currentRuntime_) throw runtimeError(u"No active VexaScript runtime");
-    return *currentRuntime_;
-  }
-
-  Value string(std::u16string value) {
+  static Value string(std::u16string value) {
+    initialize();
     return Value(cppgc::MakeGarbageCollected<StringObject>(
         heap_->GetAllocationHandle(), std::move(value)));
   }
 
-  Value concatStrings(StringObject* left, StringObject* right) {
+  static Value concatStrings(StringObject* left, StringObject* right) {
+    initialize();
     if (left->size() == 0) return Value(right);
     if (right->size() == 0) return Value(left);
     return Value(cppgc::MakeGarbageCollected<StringObject>(
         heap_->GetAllocationHandle(), left, right));
   }
 
-  StringObject* retainLiteralString(std::u16string value) {
+  static StringObject* retainLiteralString(std::u16string value) {
+    initialize();
     auto* literal = cppgc::MakeGarbageCollected<StringObject>(
         heap_->GetAllocationHandle(), std::move(value));
     literalStrings_.emplace_back(literal);
     return literal;
   }
 
-  void reserveLiterals(std::size_t count) { literalStrings_.reserve(count); }
+  static void reserveLiterals(std::size_t count) { literalStrings_.reserve(count); }
 
-  RecordObject* record(
+  static RecordObject* record(
       std::initializer_list<std::pair<std::u16string, Value>> properties = {}) {
     auto* result = make<RecordObject>();
     for (const auto& [key, value] : properties) result->set(key, value);
@@ -2353,37 +2334,41 @@ class Runtime final {
   }
 
   template <typename T>
-  ArrayObject<T>* array(std::initializer_list<T> values = {}) {
+  static ArrayObject<T>* array(std::initializer_list<T> values = {}) {
     return make<ArrayObject<T>>(values);
   }
 
   template <typename T, typename... Arguments>
-  T* make(Arguments&&... arguments) {
+  static T* make(Arguments&&... arguments) {
+    initialize();
     return cppgc::MakeGarbageCollected<T>(
         heap_->GetAllocationHandle(), std::forward<Arguments>(arguments)...);
   }
 
-  cppgc::Heap& heap() { return *heap_; }
+  static cppgc::Heap& heap() {
+    initialize();
+    return *heap_;
+  }
 
-  void setSourceLocation(std::u16string file, std::size_t line, std::size_t column) {
+  static void setSourceLocation(std::u16string file, std::size_t line, std::size_t column) {
     sourceFile_ = std::move(file);
     sourceLine_ = line;
     sourceColumn_ = column;
   }
 
-  std::u16string sourceLocation() const {
+  static std::u16string sourceLocation() {
     if (sourceFile_.empty()) return u"";
     return sourceFile_ + u":" + formatIntegerText(sourceLine_) +
         u":" + formatIntegerText(sourceColumn_);
   }
 
-  std::runtime_error errorAtCurrentSource(std::u16string message) const {
+  static std::runtime_error errorAtCurrentSource(std::u16string message) {
     const auto location = sourceLocation();
     if (!location.empty()) message += u" at " + location;
     return runtimeError(message);
   }
 
-  void collectGarbageIfStressed() {
+  static void collectGarbageIfStressed() {
 #if defined(VEXA_NATIVE_GC_STRESS)
     if (++statementsUntilCollection_ >= 8) {
       statementsUntilCollection_ = 0;
@@ -2394,33 +2379,33 @@ class Runtime final {
 #endif
   }
 
-  TimerId setTimeout(TimerCallback callback, double delay = 0) {
+  static TimerId setTimeout(TimerCallback callback, double delay = 0) {
     return scheduleTimer(std::move(callback), delay, false);
   }
 
-  TimerId setInterval(TimerCallback callback, double delay = 0) {
+  static TimerId setInterval(TimerCallback callback, double delay = 0) {
     return scheduleTimer(std::move(callback), delay, true);
   }
 
-  void clearTimeout(TimerId id) { timers_.erase(id); }
-  void clearInterval(TimerId id) { timers_.erase(id); }
-  void clearTimeout(const Value& id) { clearTimeout(static_cast<TimerId>(Number(id))); }
-  void clearInterval(const Value& id) { clearInterval(static_cast<TimerId>(Number(id))); }
+  static void clearTimeout(TimerId id) { timers_.erase(id); }
+  static void clearInterval(TimerId id) { timers_.erase(id); }
+  static void clearTimeout(const Value& id) { clearTimeout(static_cast<TimerId>(Number(id))); }
+  static void clearInterval(const Value& id) { clearInterval(static_cast<TimerId>(Number(id))); }
 
-  void runEventLoop() {
+  static void runEventLoop() {
     while (runOneEvent()) {}
   }
 
-  void enqueueMicrotask(TimerCallback callback) {
+  static void enqueueMicrotask(TimerCallback callback) {
     microtasks_.push_back(std::move(callback));
   }
 
-  void enqueueIo(IoPoller poller) {
+  static void enqueueIo(IoPoller poller) {
     ioPollers_.push_back(std::move(poller));
   }
 
   template <typename Predicate>
-  void runUntil(Predicate settled) {
+  static void runUntil(Predicate settled) {
     while (!settled()) {
       if (!runOneEvent()) {
         throw runtimeError(u"VexaScript task cannot settle because the event loop is empty");
@@ -2454,14 +2439,14 @@ class Runtime final {
     return Clock::now() + std::chrono::duration_cast<Clock::duration>(milliseconds);
   }
 
-  TimerId scheduleTimer(TimerCallback callback, double delay, bool repeating) {
+  static TimerId scheduleTimer(TimerCallback callback, double delay, bool repeating) {
     const TimerId id = nextTimerId_++;
     timers_.emplace(id, TimerState{std::move(callback), delay, repeating});
     scheduledTimers_.push({deadline(delay), id});
     return id;
   }
 
-  bool runOneEvent() {
+  static bool runOneEvent() {
     if (!microtasks_.empty()) {
       TimerCallback callback = std::move(microtasks_.front());
       microtasks_.pop_front();
@@ -2509,43 +2494,53 @@ class Runtime final {
     return false;
   }
 
-  inline static thread_local Runtime* currentRuntime_ = nullptr;
-  Runtime* previousRuntime_ = nullptr;
-  std::shared_ptr<OilpanPlatform> platform_;
-  std::unique_ptr<cppgc::Heap> heap_;
-  std::u16string sourceFile_;
-  std::size_t sourceLine_ = 0;
-  std::size_t sourceColumn_ = 0;
-  std::size_t statementsUntilCollection_ = 0;
-  TimerId nextTimerId_ = 1;
-  std::deque<TimerCallback> microtasks_;
-  std::vector<IoPoller> ioPollers_;
-  std::vector<cppgc::Persistent<StringObject>> literalStrings_;
-  std::unordered_map<TimerId, TimerState> timers_;
-  std::priority_queue<ScheduledTimer, std::vector<ScheduledTimer>, EarlierTimer> scheduledTimers_;
+  inline static std::shared_ptr<OilpanPlatform> platform_;
+  inline static std::unique_ptr<cppgc::Heap> heap_;
+  inline static std::u16string sourceFile_;
+  inline static std::size_t sourceLine_ = 0;
+  inline static std::size_t sourceColumn_ = 0;
+  inline static std::size_t statementsUntilCollection_ = 0;
+  inline static TimerId nextTimerId_ = 1;
+  inline static std::deque<TimerCallback> microtasks_;
+  inline static std::vector<IoPoller> ioPollers_;
+  inline static std::vector<cppgc::Persistent<StringObject>> literalStrings_;
+  inline static std::unordered_map<TimerId, TimerState> timers_;
+  inline static std::priority_queue<ScheduledTimer, std::vector<ScheduledTimer>, EarlierTimer> scheduledTimers_;
 };
-
-inline Runtime& currentRuntime() { return Runtime::current(); }
 
 template <typename T, typename... Arguments>
 inline T* makeManaged(Arguments&&... arguments) {
-  return currentRuntime().make<T>(std::forward<Arguments>(arguments)...);
+  return Runtime::make<T>(std::forward<Arguments>(arguments)...);
+}
+
+template <typename T>
+inline ArrayObject<T>* makeArray(std::initializer_list<T> values = {}) {
+  return Runtime::array<T>(values);
+}
+
+inline RecordObject* makeRecord(
+    std::initializer_list<std::pair<std::u16string, Value>> properties = {}) {
+  return Runtime::record(properties);
+}
+
+inline Value makeString(std::u16string value) {
+  return Runtime::string(std::move(value));
 }
 
 inline ArrayObject<Value>* makeDynamicArrayValueView(BaseObject* backing) {
-  return currentRuntime().make<ArrayObject<Value>>(backing);
+  return Runtime::make<ArrayObject<Value>>(backing);
 }
 
-inline RecordObject* makeDynamicPropertyRecord(Runtime& runtime) {
-  return runtime.record();
+inline RecordObject* makeDynamicPropertyRecord() {
+  return Runtime::record();
 }
 
 inline std::runtime_error errorAtCurrentSource(std::u16string message) {
-  return Runtime::current().errorAtCurrentSource(std::move(message));
+  return Runtime::errorAtCurrentSource(std::move(message));
 }
 
-inline Value makeDynamicMapEntry(Runtime& runtime, Value key, Value value) {
-  auto* pair = runtime.array<Value>();
+inline Value makeDynamicMapEntry(Value key, Value value) {
+  auto* pair = Runtime::array<Value>();
   pair->append(std::move(key));
   pair->append(std::move(value));
   return Value(pair);
@@ -2556,7 +2551,7 @@ ArrayObject<T>* ArrayObject<T>::fromDynamicObject(BaseObject* backing) {
   if (!backing || !backing->dynamicIsArray()) {
     throw errorAtCurrentSource(u"VexaScript value is not a compatible array");
   }
-  return currentRuntime().make<ArrayObject<T>>(backing);
+  return Runtime::make<ArrayObject<T>>(backing);
 }
 
 template <typename K, typename V>
@@ -2564,29 +2559,29 @@ MapObject<K, V>* MapObject<K, V>::fromDynamicObject(BaseObject* backing) {
   if (!backing) throw errorAtCurrentSource(u"VexaScript value is not a compatible map");
   void* converted = backing->dynamicCast(nativeTypeToken<MapLikeObject>());
   if (!converted) throw errorAtCurrentSource(u"VexaScript value is not a compatible map");
-  return currentRuntime().make<MapObject<K, V>>(static_cast<MapLikeObject*>(converted));
+  return Runtime::make<MapObject<K, V>>(static_cast<MapLikeObject*>(converted));
 }
 
 #if defined(VEXA_NATIVE_DEBUG) || defined(VEXA_NATIVE_GC_STRESS)
-#define VEXA_NATIVE_SOURCE(runtime, file, line, column) \
+#define VEXA_NATIVE_SOURCE(file, line, column) \
   do {                                                    \
-    (runtime).setSourceLocation((file), (line), (column)); \
-    (runtime).collectGarbageIfStressed();                 \
+    vexa::Runtime::setSourceLocation((file), (line), (column)); \
+    vexa::Runtime::collectGarbageIfStressed();           \
   } while (false)
 #else
-#define VEXA_NATIVE_SOURCE(runtime, file, line, column) ((void)0)
+#define VEXA_NATIVE_SOURCE(file, line, column) ((void)0)
 #endif
 
-inline ArrayObject<Value>* regexExec(Runtime& runtime, const RegExp& expression, const std::u16string& value) {
+inline ArrayObject<Value>* regexExec(const RegExp& expression, const std::u16string& value) {
   const auto captures = expression.exec(value);
   if (!captures) return nullptr;
-  auto* result = runtime.array<Value>();
-  for (const auto& capture : *captures) result->append(runtime.string(capture));
+  auto* result = Runtime::array<Value>();
+  for (const auto& capture : *captures) result->append(Runtime::string(capture));
   return result;
 }
 
-inline ArrayObject<Value>* regexExec(Runtime& runtime, const RegExp& expression, const Value& value) {
-  return regexExec(runtime, expression, value.isString() ? value.string() : std::u16string());
+inline ArrayObject<Value>* regexExec(const RegExp& expression, const Value& value) {
+  return regexExec(expression, value.isString() ? value.string() : std::u16string());
 }
 
 template <typename T>
@@ -2664,7 +2659,7 @@ Result toFunction(Input&& input) {
   if constexpr (std::is_same_v<Result, Source>) {
     return std::forward<Input>(input);
   } else if constexpr (std::is_same_v<Source, Value>) {
-    return functionFromValue<Result>(currentRuntime(), input);
+    return functionFromValue<Result>(input);
   } else {
     return Result(std::forward<Input>(input));
   }
@@ -2683,7 +2678,7 @@ Result Value::toInstance() const {
       void* converted = object()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
       if (converted) return static_cast<Result>(converted);
       return std::remove_pointer_t<Result>::fromRecord(
-          currentRuntime().make<RecordObject>(object()));
+          Runtime::make<RecordObject>(object()));
     }
     if (isRecord()) return std::remove_pointer_t<Result>::fromRecord(record());
     throw errorAtCurrentSource(u"VexaScript value is not a compatible structural object");
@@ -2768,6 +2763,51 @@ Result toInstance(Input&& input) {
   }
 }
 
+template <typename Result>
+  requires std::is_pointer_v<Result>
+Result toInstanceOrNull(const Value& input) {
+  if (!input.isRuntimeObject()) return nullptr;
+  void* converted = input.object()->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
+  return converted ? static_cast<Result>(converted) : nullptr;
+}
+
+template <typename Result, typename Source>
+  requires std::is_pointer_v<Result>
+Result toInstanceOrNull(Source* input) {
+  if (!input) return nullptr;
+  if constexpr (std::is_convertible_v<Source*, Result>) {
+    return static_cast<Result>(input);
+  } else if constexpr (
+      std::is_base_of_v<BaseObject, Source> &&
+      std::is_base_of_v<BaseObject, std::remove_pointer_t<Result>>) {
+    void* converted = input->dynamicCast(nativeTypeToken<std::remove_pointer_t<Result>>());
+    return converted ? static_cast<Result>(converted) : nullptr;
+  } else if constexpr (
+      std::is_base_of_v<EnumerableObject, Source> &&
+      std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Result>>) {
+    void* converted = input->nativeInterfaceCast(nativeTypeToken<std::remove_pointer_t<Result>>());
+    return converted ? static_cast<Result>(converted) : nullptr;
+  } else if constexpr (
+      std::is_same_v<Result, RecordObject*> &&
+      std::is_base_of_v<EnumerableObject, Source>) {
+    return input->enumerableBackingRecord();
+  } else {
+    return nullptr;
+  }
+}
+
+template <typename Result, typename T>
+  requires std::is_pointer_v<Result>
+Result toInstanceOrNull(const cppgc::Member<T>& input) {
+  return toInstanceOrNull<Result>(input.Get());
+}
+
+template <typename Result, typename T>
+  requires std::is_pointer_v<Result>
+Result toInstanceOrNull(const cppgc::Persistent<T>& input) {
+  return toInstanceOrNull<Result>(input.Get());
+}
+
 template <typename Result, typename Input>
 Result convertValue(Input&& input) {
   using Source = std::remove_cvref_t<Input>;
@@ -2793,7 +2833,7 @@ Result convertValue(Input&& input) {
         std::is_same_v<Source, std::nullptr_t>) {
       return Value::null();
     } else if constexpr (std::is_same_v<Source, std::u16string>) {
-      return currentRuntime().string(std::forward<Input>(input));
+      return Runtime::string(std::forward<Input>(input));
     } else if constexpr (std::is_pointer_v<Source>) {
       if (!input) return Value::null();
       if constexpr (std::is_base_of_v<BaseObject, std::remove_pointer_t<Source>>) {
@@ -2802,8 +2842,7 @@ Result convertValue(Input&& input) {
         auto* enumerable = static_cast<EnumerableObject*>(input);
         auto* record = enumerable->enumerableBackingRecord();
         if (!record) {
-          auto& runtime = currentRuntime();
-          record = runtime.record();
+                    record = Runtime::record();
           for (const auto& key : enumerable->enumerableKeys()) {
             record->set(key, enumerable->enumerableGet(key));
           }
@@ -2835,7 +2874,7 @@ Result convertValue(Input&& input) {
     } else if constexpr (std::is_arithmetic_v<Result>) {
       return static_cast<Result>(toDouble(input));
     } else if constexpr (IsStdFunction<Result>::value) {
-      return functionFromValue<Result>(currentRuntime(), input);
+      return functionFromValue<Result>(input);
     } else {
       return std::forward<Input>(input);
     }
@@ -2857,8 +2896,8 @@ inline Value toValue(std::uint32_t value) { return Value(static_cast<double>(val
 inline Value toValue(std::int64_t value) { return Value(static_cast<double>(value)); }
 inline Value toValue(std::uint64_t value) { return Value(static_cast<double>(value)); }
 inline Value toValue(BigInt value) { return Value(std::move(value)); }
-inline Value toValue(const std::u16string& value) { return currentRuntime().string(value); }
-inline Value toValue(std::u16string&& value) { return currentRuntime().string(std::move(value)); }
+inline Value toValue(const std::u16string& value) { return Runtime::string(value); }
+inline Value toValue(std::u16string&& value) { return Runtime::string(std::move(value)); }
 
 template <typename T>
   requires std::is_enum_v<T>
@@ -2889,18 +2928,18 @@ inline Value toValue(const std::optional<T>& value) {
 }
 
 template <typename Interface, typename Adapter, typename Input>
-inline Interface* adaptInterface(Runtime& runtime, Input&& input) {
-  using Source = std::remove_cvref_t<Input>;
+inline Interface* adaptInterface(Input&& input) {
+    using Source = std::remove_cvref_t<Input>;
   if constexpr (std::is_same_v<Source, Value>) {
-    if (input.isRecord()) return runtime.make<Adapter>(input.record());
+    if (input.isRecord()) return Runtime::make<Adapter>(input.record());
     if (input.isRuntimeObject()) {
       void* converted = input.object()->dynamicCast(nativeTypeToken<Interface>());
       if (converted) return static_cast<Interface*>(converted);
-      return runtime.make<Adapter>(runtime.make<RecordObject>(input.object()));
+      return Runtime::make<Adapter>(Runtime::make<RecordObject>(input.object()));
     }
     return convertValue<Interface*>(std::forward<Input>(input));
   } else if constexpr (std::is_same_v<Source, RecordObject*>) {
-    return runtime.make<Adapter>(input);
+    return Runtime::make<Adapter>(input);
   } else if constexpr (std::is_pointer_v<Source> && std::is_convertible_v<Source, Interface*>) {
     return static_cast<Interface*>(input);
   } else if constexpr (
@@ -2909,7 +2948,7 @@ inline Interface* adaptInterface(Runtime& runtime, Input&& input) {
     if (!input) return nullptr;
     void* converted = input->dynamicCast(nativeTypeToken<Interface>());
     if (converted) return static_cast<Interface*>(converted);
-    return runtime.make<Adapter>(runtime.make<RecordObject>(input));
+    return Runtime::make<Adapter>(Runtime::make<RecordObject>(input));
   } else if constexpr (
       std::is_pointer_v<Source> &&
       std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>>) {
@@ -2917,12 +2956,12 @@ inline Interface* adaptInterface(Runtime& runtime, Input&& input) {
     auto* enumerable = static_cast<EnumerableObject*>(input);
     auto* record = enumerable->enumerableBackingRecord();
     if (!record) {
-      record = runtime.record();
+      record = Runtime::record();
       for (const auto& key : enumerable->enumerableKeys()) {
         record->set(key, enumerable->enumerableGet(key));
       }
     }
-    return runtime.make<Adapter>(record);
+    return Runtime::make<Adapter>(record);
   } else {
     return convertValue<Interface*>(std::forward<Input>(input));
   }
@@ -2941,7 +2980,7 @@ T& nullishAssign(T& target, Callback&& fallback) {
 }
 
 template <typename K, typename V, typename Key>
-inline V mapGet(Runtime& runtime, const MapObject<K, V>* map, Key&& key) {
+inline V mapGet(const MapObject<K, V>* map, Key&& key) {
   const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
   if (found) return *found;
   if constexpr (std::is_same_v<V, Value>) return Value::undefined();
@@ -2949,25 +2988,25 @@ inline V mapGet(Runtime& runtime, const MapObject<K, V>* map, Key&& key) {
 }
 
 template <typename K, typename V, typename Key>
-inline Value mapGetValue(Runtime& runtime, const MapObject<K, V>* map, Key&& key) {
+inline Value mapGetValue(const MapObject<K, V>* map, Key&& key) {
   const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
   return found ? convertValue<Value>(*found) : Value::undefined();
 }
 
 template <typename K, typename V, typename Key, typename Input>
-inline MapObject<K, V>* mapSet(Runtime& runtime, MapObject<K, V>* map, Key&& key, Input&& value) {
+inline MapObject<K, V>* mapSet(MapObject<K, V>* map, Key&& key, Input&& value) {
   return map->set(
       convertValue<K>(std::forward<Key>(key)),
       convertValue<V>(std::forward<Input>(value)));
 }
 
 template <typename K, typename V, typename Key>
-inline bool mapHas(Runtime& runtime, MapObject<K, V>* map, Key&& key) {
+inline bool mapHas(MapObject<K, V>* map, Key&& key) {
   return map->has(convertValue<K>(std::forward<Key>(key)));
 }
 
 template <typename K, typename V, typename Key>
-inline bool mapDelete(Runtime& runtime, MapObject<K, V>* map, Key&& key) {
+inline bool mapDelete(MapObject<K, V>* map, Key&& key) {
   return map->erase(convertValue<K>(std::forward<Key>(key)));
 }
 
@@ -2978,24 +3017,24 @@ template <typename K, typename V, typename Callback>
 inline void mapForEach(MapObject<K, V>* map, Callback callback) { map->forEach(std::move(callback)); }
 
 template <typename K, typename V>
-inline ArrayObject<K>* mapKeys(Runtime& runtime, MapObject<K, V>* map) {
-  auto* result = runtime.array<K>();
+inline ArrayObject<K>* mapKeys(MapObject<K, V>* map) {
+  auto* result = Runtime::array<K>();
   map->forEach([&](V, K key) { result->append(key); });
   return result;
 }
 
 template <typename K, typename V>
-inline ArrayObject<V>* mapValues(Runtime& runtime, MapObject<K, V>* map) {
-  auto* result = runtime.array<V>();
+inline ArrayObject<V>* mapValues(MapObject<K, V>* map) {
+  auto* result = Runtime::array<V>();
   map->forEach([&](V value) { result->append(value); });
   return result;
 }
 
 template <typename K, typename V>
-inline ArrayObject<ArrayObject<Value>*>* mapEntries(Runtime& runtime, MapObject<K, V>* map) {
-  auto* result = runtime.array<ArrayObject<Value>*>();
+inline ArrayObject<ArrayObject<Value>*>* mapEntries(MapObject<K, V>* map) {
+  auto* result = Runtime::array<ArrayObject<Value>*>();
   map->forEach([&](V value, K key) {
-    result->append(runtime.array<Value>({
+    result->append(Runtime::array<Value>({
         convertValue<Value>(key),
         convertValue<Value>(value)}));
   });
@@ -3004,23 +3043,20 @@ inline ArrayObject<ArrayObject<Value>*>* mapEntries(Runtime& runtime, MapObject<
 
 template <typename K, typename V>
 inline ArrayObject<ArrayObject<Value>*>* mapEntries(
-    Runtime& runtime,
     const cppgc::Member<MapObject<K, V>>& map) {
-  return mapEntries(runtime, map.Get());
+  return mapEntries(map.Get());
 }
 
 template <typename K, typename V>
 inline ArrayObject<ArrayObject<Value>*>* mapEntries(
-    Runtime& runtime,
     const cppgc::Persistent<MapObject<K, V>>& map) {
-  return mapEntries(runtime, map.Get());
+  return mapEntries(map.Get());
 }
 
 template <typename K, typename V, typename Entry>
 inline MapObject<K, V>* mapFromEntries(
-    Runtime& runtime,
     const ArrayObject<ArrayObject<Entry>*>* entries) {
-  auto* result = runtime.make<MapObject<K, V>>();
+  auto* result = Runtime::make<MapObject<K, V>>();
   if (!entries) return result;
   for (auto* entry : *entries) {
     if (!entry || entry->size() < 2) {
@@ -3035,24 +3071,23 @@ inline MapObject<K, V>* mapFromEntries(
 
 template <typename K, typename V, typename Entry>
 inline MapObject<K, V>* mapFromIterable(
-    Runtime& runtime,
     const ArrayObject<ArrayObject<Entry>*>* entries) {
-  return mapFromEntries<K, V>(runtime, entries);
+  return mapFromEntries<K, V>(entries);
 }
 
 template <typename K, typename V>
-inline MapObject<K, V>* mapFromIterable(Runtime& runtime, MapObject<K, V>* source) {
-  if (!source) return runtime.make<MapObject<K, V>>();
-  if (!source->usesDynamicBacking()) return runtime.make<MapObject<K, V>>(source);
-  auto* result = runtime.make<MapObject<K, V>>();
+inline MapObject<K, V>* mapFromIterable(MapObject<K, V>* source) {
+  if (!source) return Runtime::make<MapObject<K, V>>();
+  if (!source->usesDynamicBacking()) return Runtime::make<MapObject<K, V>>(source);
+  auto* result = Runtime::make<MapObject<K, V>>();
   source->forEach([&](V value, K key) { result->set(std::move(key), std::move(value)); });
   return result;
 }
 
 template <typename K, typename V, typename InputK, typename InputV>
   requires (!std::is_same_v<K, InputK> || !std::is_same_v<V, InputV>)
-inline MapObject<K, V>* mapFromIterable(Runtime& runtime, MapObject<InputK, InputV>* source) {
-  auto* result = runtime.make<MapObject<K, V>>();
+inline MapObject<K, V>* mapFromIterable(MapObject<InputK, InputV>* source) {
+  auto* result = Runtime::make<MapObject<K, V>>();
   if (!source) return result;
   source->forEach([&](InputV value, InputK key) {
     result->set(convertValue<K>(key), convertValue<V>(value));
@@ -3062,23 +3097,20 @@ inline MapObject<K, V>* mapFromIterable(Runtime& runtime, MapObject<InputK, Inpu
 
 template <typename K, typename V, typename InputK, typename InputV>
 inline MapObject<K, V>* mapFromIterable(
-    Runtime& runtime,
     const cppgc::Persistent<MapObject<InputK, InputV>>& source) {
-  return mapFromIterable<K, V>(runtime, source.Get());
+  return mapFromIterable<K, V>(source.Get());
 }
 
 template <typename K, typename V, typename InputK, typename InputV>
 inline MapObject<K, V>* mapFromIterable(
-    Runtime& runtime,
     const cppgc::Member<MapObject<InputK, InputV>>& source) {
-  return mapFromIterable<K, V>(runtime, source.Get());
+  return mapFromIterable<K, V>(source.Get());
 }
 
 template <typename K, typename V>
 inline MapObject<K, V>* mapFromDynamicEntries(
-    Runtime& runtime,
     const ArrayObject<Value>* entries) {
-  auto* result = runtime.make<MapObject<K, V>>();
+  auto* result = Runtime::make<MapObject<K, V>>();
   std::size_t index = 0;
   for (const auto& entryValue : *entries) {
     if (!entryValue.isRuntimeObject()) {
@@ -3102,16 +3134,15 @@ inline MapObject<K, V>* mapFromDynamicEntries(
 
 template <typename K, typename V>
 inline MapObject<K, V>* mapFromIterable(
-    Runtime& runtime,
     const ArrayObject<Value>* entries) {
-  return mapFromDynamicEntries<K, V>(runtime, entries);
+  return mapFromDynamicEntries<K, V>(entries);
 }
 
 template <typename K, typename V>
-inline MapObject<K, V>* mapFromIterable(Runtime& runtime, const Value& source) {
-  auto* result = runtime.make<MapObject<K, V>>();
+inline MapObject<K, V>* mapFromIterable(const Value& source) {
+  auto* result = Runtime::make<MapObject<K, V>>();
   std::size_t index = 0;
-  for (const auto& entryValue : dynamicIterationRange(runtime, source)) {
+  for (const auto& entryValue : dynamicIterationRange(source)) {
     if (!entryValue.isRuntimeObject() || !entryValue.object()->dynamicIsArray()) {
       throw runtimeError(
           std::u16string(u"VexaScript Map entry at index ") + formatIntegerText(index) +
@@ -3122,30 +3153,30 @@ inline MapObject<K, V>* mapFromIterable(Runtime& runtime, const Value& source) {
       throw runtimeError(u"VexaScript Map entry must contain a key and value");
     }
     result->set(
-        convertValue<K>(entry->dynamicArrayGet(runtime, 0)),
-        convertValue<V>(entry->dynamicArrayGet(runtime, 1)));
+        convertValue<K>(entry->dynamicArrayGet(0)),
+        convertValue<V>(entry->dynamicArrayGet(1)));
     ++index;
   }
   return result;
 }
 
 template <typename T, typename Input>
-inline SetObject<T>* setAdd(Runtime& runtime, SetObject<T>* set, Input&& value) {
+inline SetObject<T>* setAdd(SetObject<T>* set, Input&& value) {
   return set->add(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T, typename Input>
-inline bool setHas(Runtime& runtime, SetObject<T>* set, Input&& value) {
+inline bool setHas(SetObject<T>* set, Input&& value) {
   return set->has(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T, typename Input>
-inline bool setHas(Runtime& runtime, const SetObject<T>* set, Input&& value) {
+inline bool setHas(const SetObject<T>* set, Input&& value) {
   return set->has(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T, typename Input>
-inline bool setDelete(Runtime& runtime, SetObject<T>* set, Input&& value) {
+inline bool setDelete(SetObject<T>* set, Input&& value) {
   return set->erase(convertValue<T>(std::forward<Input>(value)));
 }
 
@@ -3156,39 +3187,39 @@ template <typename T, typename Callback>
 inline void setForEach(SetObject<T>* set, Callback callback) { set->forEach(std::move(callback)); }
 
 template <typename T>
-inline ArrayObject<T>* setValues(Runtime& runtime, SetObject<T>* set) {
-  auto* result = runtime.array<T>();
+inline ArrayObject<T>* setValues(SetObject<T>* set) {
+  auto* result = Runtime::array<T>();
   set->forEach([&](T value) { result->append(value); });
   return result;
 }
 
 template <typename T, typename Input>
-inline SetObject<T>* setFromArray(Runtime& runtime, const ArrayObject<Input>* values) {
-  auto* result = runtime.make<SetObject<T>>();
+inline SetObject<T>* setFromArray(const ArrayObject<Input>* values) {
+  auto* result = Runtime::make<SetObject<T>>();
   if (!values) return result;
   for (const auto& value : *values) result->add(convertValue<T>(value));
   return result;
 }
 
 template <typename T, typename Input>
-inline SetObject<T>* setFromIterable(Runtime& runtime, const ArrayObject<Input>* values) {
-  return setFromArray<T>(runtime, values);
+inline SetObject<T>* setFromIterable(const ArrayObject<Input>* values) {
+  return setFromArray<T>(values);
 }
 
 template <typename T, typename Input>
-inline SetObject<T>* setFromIterable(Runtime& runtime, const cppgc::Persistent<ArrayObject<Input>>& values) {
-  return setFromArray<T>(runtime, values.Get());
+inline SetObject<T>* setFromIterable(const cppgc::Persistent<ArrayObject<Input>>& values) {
+  return setFromArray<T>(values.Get());
 }
 
 template <typename T>
-inline SetObject<T>* setFromIterable(Runtime& runtime, SetObject<T>* source) {
-  return source ? runtime.make<SetObject<T>>(source) : runtime.make<SetObject<T>>();
+inline SetObject<T>* setFromIterable(SetObject<T>* source) {
+  return source ? Runtime::make<SetObject<T>>(source) : Runtime::make<SetObject<T>>();
 }
 
 template <typename T, typename Input>
   requires (!std::is_same_v<T, Input>)
-inline SetObject<T>* setFromIterable(Runtime& runtime, SetObject<Input>* source) {
-  auto* result = runtime.make<SetObject<T>>();
+inline SetObject<T>* setFromIterable(SetObject<Input>* source) {
+  auto* result = Runtime::make<SetObject<T>>();
   if (!source) return result;
   source->forEach([&](Input value) { result->add(convertValue<T>(value)); });
   return result;
@@ -3196,25 +3227,24 @@ inline SetObject<T>* setFromIterable(Runtime& runtime, SetObject<Input>* source)
 
 template <typename T, typename Input>
 inline SetObject<T>* setFromIterable(
-    Runtime& runtime,
     const cppgc::Persistent<SetObject<Input>>& source) {
-  return setFromIterable<T>(runtime, source.Get());
+  return setFromIterable<T>(source.Get());
 }
 
 template <typename T>
-inline SetObject<T>* setFromIterable(Runtime& runtime, const Value& source) {
-  return setFromArray<T>(runtime, arrayPointer(source));
+inline SetObject<T>* setFromIterable(const Value& source) {
+  return setFromArray<T>(arrayPointer(source));
 }
 
 template <typename T, typename Input>
-inline WeakSetObject<T>* weakSetFromArray(Runtime& runtime, const ArrayObject<Input>* values) {
-  auto* result = runtime.make<WeakSetObject<T>>();
+inline WeakSetObject<T>* weakSetFromArray(const ArrayObject<Input>* values) {
+  auto* result = Runtime::make<WeakSetObject<T>>();
   for (const auto& value : *values) result->add(convertValue<T>(value));
   return result;
 }
 
 template <typename K, typename V, typename Key>
-inline V weakMapGet(Runtime& runtime, WeakMapObject<K, V>* map, Key&& key) {
+inline V weakMapGet(WeakMapObject<K, V>* map, Key&& key) {
   const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
   if (found) return *found;
   if constexpr (std::is_same_v<V, Value>) return Value::undefined();
@@ -3222,56 +3252,55 @@ inline V weakMapGet(Runtime& runtime, WeakMapObject<K, V>* map, Key&& key) {
 }
 
 template <typename K, typename V, typename Key, typename Input>
-inline WeakMapObject<K, V>* weakMapSet(Runtime& runtime, WeakMapObject<K, V>* map, Key&& key, Input&& value) {
+inline WeakMapObject<K, V>* weakMapSet(WeakMapObject<K, V>* map, Key&& key, Input&& value) {
   return map->set(
       convertValue<K>(std::forward<Key>(key)),
       convertValue<V>(std::forward<Input>(value)));
 }
 
 template <typename K, typename V, typename Key>
-inline bool weakMapHas(Runtime& runtime, WeakMapObject<K, V>* map, Key&& key) {
+inline bool weakMapHas(WeakMapObject<K, V>* map, Key&& key) {
   return map->has(convertValue<K>(std::forward<Key>(key)));
 }
 
 template <typename K, typename V, typename Key>
-inline bool weakMapDelete(Runtime& runtime, WeakMapObject<K, V>* map, Key&& key) {
+inline bool weakMapDelete(WeakMapObject<K, V>* map, Key&& key) {
   return map->erase(convertValue<K>(std::forward<Key>(key)));
 }
 
 template <typename T, typename Input>
-inline WeakSetObject<T>* weakSetAdd(Runtime& runtime, WeakSetObject<T>* set, Input&& value) {
+inline WeakSetObject<T>* weakSetAdd(WeakSetObject<T>* set, Input&& value) {
   return set->add(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T, typename Input>
-inline bool weakSetHas(Runtime& runtime, WeakSetObject<T>* set, Input&& value) {
+inline bool weakSetHas(WeakSetObject<T>* set, Input&& value) {
   return set->has(convertValue<T>(std::forward<Input>(value)));
 }
 
 template <typename T, typename Input>
-inline bool weakSetDelete(Runtime& runtime, WeakSetObject<T>* set, Input&& value) {
+inline bool weakSetDelete(WeakSetObject<T>* set, Input&& value) {
   return set->erase(convertValue<T>(std::forward<Input>(value)));
 }
 
-inline Uint8ArrayObject* makeUint8Array(Runtime& runtime, double length) {
+inline Uint8ArrayObject* makeUint8Array(double length) {
   const auto size = static_cast<std::size_t>(std::max(0.0, length));
-  auto* buffer = runtime.make<ArrayBufferObject>(size);
-  return runtime.make<Uint8ArrayObject>(buffer, 0, size);
+  auto* buffer = Runtime::make<ArrayBufferObject>(size);
+  return Runtime::make<Uint8ArrayObject>(buffer, 0, size);
 }
 
-inline Uint8ArrayObject* makeUint8Array(Runtime& runtime, ArrayBufferObject* buffer) {
-  return runtime.make<Uint8ArrayObject>(buffer, 0, buffer->byteLength());
+inline Uint8ArrayObject* makeUint8Array(ArrayBufferObject* buffer) {
+  return Runtime::make<Uint8ArrayObject>(buffer, 0, buffer->byteLength());
 }
 
 template <typename T>
-inline Uint8ArrayObject* makeUint8Array(Runtime& runtime, const ArrayObject<T>* values) {
-  auto* result = makeUint8Array(runtime, static_cast<double>(values->size()));
+inline Uint8ArrayObject* makeUint8Array(const ArrayObject<T>* values) {
+  auto* result = makeUint8Array(static_cast<double>(values->size()));
   for (std::size_t index = 0; index < values->size(); ++index) result->set(index, Number(convertValue<Value>(values->get(index))));
   return result;
 }
 
 inline DataViewObject* makeDataView(
-    Runtime& runtime,
     ArrayBufferObject* buffer,
     double byteOffset = 0,
     double byteLength = -1) {
@@ -3279,7 +3308,7 @@ inline DataViewObject* makeDataView(
   const auto length = byteLength < 0
     ? buffer->byteLength() - offset
     : static_cast<std::size_t>(byteLength);
-  return runtime.make<DataViewObject>(buffer, offset, length);
+  return Runtime::make<DataViewObject>(buffer, offset, length);
 }
 
 template <typename Target>
@@ -3334,7 +3363,7 @@ class FunctionObject final
 
   std::u16string dynamicToString() const override { return u"function"; }
 
-  Value dynamicCall(Runtime& runtime, const std::vector<Value>& arguments) override {
+  Value dynamicCall(const std::vector<Value>& arguments) override {
     if (arguments.size() >= sizeof...(Arguments)) {
       return dynamicCallWithIndices(arguments, std::index_sequence_for<Arguments...>{});
     }
@@ -3379,12 +3408,12 @@ struct FunctionFromValue;
 
 template <typename Result, typename... Arguments>
 struct FunctionFromValue<std::function<Result(Arguments...)>> {
-  static std::function<Result(Arguments...)> convert(Runtime& runtime, const Value& value) {
+  static std::function<Result(Arguments...)> convert(const Value& value) {
     if (value.isUndefined() || value.isNull()) return {};
-    if (!value.isRuntimeObject()) throw runtime.errorAtCurrentSource(u"VexaScript value is not callable");
+    if (!value.isRuntimeObject()) throw errorAtCurrentSource(u"VexaScript value is not callable");
     auto* function = static_cast<FunctionObject<Result, Arguments...>*>(
         value.object()->dynamicCast(nativeTypeToken<FunctionObject<Result, Arguments...>>()));
-    if (!function) throw runtime.errorAtCurrentSource(u"VexaScript callable has an incompatible native signature");
+    if (!function) throw errorAtCurrentSource(u"VexaScript callable has an incompatible native signature");
     cppgc::Persistent<FunctionObject<Result, Arguments...>> rooted(function);
     return [rooted = std::move(rooted)](Arguments... arguments) mutable -> Result {
       return rooted->invoke(std::forward<Arguments>(arguments)...);
@@ -3393,59 +3422,56 @@ struct FunctionFromValue<std::function<Result(Arguments...)>> {
 };
 
 template <typename Result>
-Result functionFromValue(Runtime& runtime, const Value& value) {
-  return FunctionFromValue<Result>::convert(runtime, value);
+Result functionFromValue(const Value& value) {
+  return FunctionFromValue<Result>::convert(value);
 }
 
 template <typename Result, typename... Arguments, typename Callback>
 FunctionObject<Result, Arguments...>* makeFunction(
-    Runtime& runtime,
     Callback callback,
     std::initializer_list<Value> roots = {}) {
-  return runtime.make<FunctionObject<Result, Arguments...>>(std::move(callback), roots);
+  return Runtime::make<FunctionObject<Result, Arguments...>>(std::move(callback), roots);
 }
 
-inline Value call(Runtime& runtime, const Value& callable, std::vector<Value> arguments) {
+inline Value call(const Value& callable, std::vector<Value> arguments) {
   if (!callable.isRuntimeObject()) {
-    throw runtime.errorAtCurrentSource(u"VexaScript value is not callable");
+    throw errorAtCurrentSource(u"VexaScript value is not callable");
   }
-  return callable.object()->dynamicCall(runtime, arguments);
+  return callable.object()->dynamicCall(arguments);
 }
 
-inline Value callOptional(Runtime& runtime, const Value& callable, std::vector<Value> arguments) {
+inline Value callOptional(const Value& callable, std::vector<Value> arguments) {
   if (callable.isNull() || callable.isUndefined()) return Value::undefined();
-  return call(runtime, callable, std::move(arguments));
+  return call(callable, std::move(arguments));
 }
 
 template <typename... Arguments>
 inline std::optional<Value> callDynamicOperator(
-    Runtime& runtime,
     const Value& receiver,
     const std::u16string& operatorKey,
     Arguments&&... arguments) {
   if (!receiver.isRuntimeObject()) return std::nullopt;
   const Value callable = receiver.object()->dynamicGet(operatorKey);
   if (callable.isUndefined()) return std::nullopt;
-  return call(runtime, callable, {
+  return call(callable, {
     convertValue<Value>(std::forward<Arguments>(arguments))...
   });
 }
 
 template <typename Result>
-Result recordGet(Runtime& runtime, RecordObject* record, const std::u16string& key) {
+Result recordGet(RecordObject* record, const std::u16string& key) {
   if (!record) throw runtimeError(u"Cannot read a property of null");
   return convertValue<Result>(record->get(key));
 }
 
 template <typename Result>
-Result recordGet(Runtime& runtime, const Value& value, const std::u16string& key) {
+Result recordGet(const Value& value, const std::u16string& key) {
   if (!value.isRecord()) throw runtimeError(u"Cannot read a property of a non-record value");
-  return recordGet<Result>(runtime, value.record(), key);
+  return recordGet<Result>(value.record(), key);
 }
 
 template <typename Input>
 std::remove_cvref_t<Input> recordSet(
-    Runtime& runtime,
     RecordObject* record,
     const std::u16string& key,
     Input&& input) {
@@ -3483,15 +3509,13 @@ inline RecordObject* recordSpread(RecordObject* target, RecordObject* source) {
 
 inline RecordObject* recordSpread(RecordObject* target, EnumerableObject* source) {
   if (!source) return target;
-  auto& runtime = Runtime::current();
-  for (const auto& key : source->enumerableKeys()) target->set(key, source->enumerableGet(key));
+    for (const auto& key : source->enumerableKeys()) target->set(key, source->enumerableGet(key));
   return target;
 }
 
 inline RecordObject* recordSpread(RecordObject* target, BaseObject* source) {
   if (!source) return target;
-  auto& runtime = Runtime::current();
-  for (const auto& key : objectKeys(source)) target->set(key, source->dynamicGet(key));
+    for (const auto& key : objectKeys(source)) target->set(key, source->dynamicGet(key));
   return target;
 }
 
@@ -3514,12 +3538,11 @@ inline RecordObject* recordSpread(RecordObject* target, const Value& source) {
 }
 
 inline RecordObject* recordRest(
-    Runtime& runtime,
     RecordObject* source,
     std::initializer_list<std::u16string> excluded) {
   if (!source) throw runtimeError(u"Cannot destructure a null object");
   std::unordered_set<std::u16string> excludedKeys(excluded);
-  auto* result = runtime.record();
+  auto* result = Runtime::record();
   for (const auto& key : source->keys()) {
     if (!excludedKeys.contains(key)) result->set(key, source->get(key));
   }
@@ -3527,14 +3550,14 @@ inline RecordObject* recordRest(
 }
 
 template <typename Callback>
-Value destructureDefault(Runtime& runtime, Value value, Callback&& fallback) {
+Value destructureDefault(Value value, Callback&& fallback) {
   return value.isUndefined()
       ? convertValue<Value>(std::forward<Callback>(fallback)())
       : value;
 }
 
 template <typename T, typename Callback>
-T destructureDefault(Runtime&, T value, Callback&&) {
+T destructureDefault(T value, Callback&&) {
   return value;
 }
 
@@ -3542,18 +3565,18 @@ inline bool recordHas(RecordObject* record, const std::u16string& key) {
   return record && record->has(key);
 }
 
-inline bool hasProperty(Runtime& runtime, const Value& value, const std::u16string& key) {
+inline bool hasProperty(const Value& value, const std::u16string& key) {
   if (value.isRecord()) return value.record()->has(key);
   if (value.isRuntimeObject()) return !value.object()->dynamicGet(key).isUndefined();
   return false;
 }
 
-inline bool hasProperty(Runtime&, RecordObject* record, const std::u16string& key) {
+inline bool hasProperty(RecordObject* record, const std::u16string& key) {
   return recordHas(record, key);
 }
 
 template <typename T>
-inline bool hasProperty(Runtime& runtime, T* value, const std::u16string& key) {
+inline bool hasProperty(T* value, const std::u16string& key) {
   if constexpr (std::is_base_of_v<RecordObject, T>) return recordHas(value, key);
   if constexpr (std::is_base_of_v<BaseObject, T>) return value && !value->dynamicGet(key).isUndefined();
   return false;
@@ -3569,7 +3592,7 @@ inline Value dynamicObjectGet(BaseObject* target, const std::u16string& key) {
   if (!value.isUndefined()) return value;
   if (key == u"message") {
     if (void* error = target->dynamicCast(nativeTypeToken<Error>())) {
-      return currentRuntime().string(static_cast<Error*>(error)->messageText());
+      return Runtime::string(static_cast<Error*>(error)->messageText());
     }
   }
   return value;
@@ -3578,7 +3601,7 @@ inline Value dynamicObjectGet(BaseObject* target, const std::u16string& key) {
 inline Value dynamicGet(const std::u16string& target, const std::u16string& key) {
   if (key == u"length") return Value(static_cast<double>(target.size()));
   if (const auto index = propertyIndex(key); index && *index < target.size()) {
-    return currentRuntime().string(target.substr(*index, 1));
+    return Runtime::string(target.substr(*index, 1));
   }
   return Value::undefined();
 }
@@ -3590,7 +3613,7 @@ inline Value dynamicGet(const Value& target, const std::u16string& key) {
     if (key == u"message") return target;
     if (key == u"length") return Value(static_cast<double>(target.utf16().size()));
     if (const auto index = propertyIndex(key); index && *index < target.utf16().size()) {
-      return currentRuntime().string(target.utf16().substr(*index, 1));
+      return Runtime::string(target.utf16().substr(*index, 1));
     }
     return Value::undefined();
   }
@@ -3655,20 +3678,18 @@ inline Value dynamicSet(T* target, const std::u16string& key, const Value& value
   return target->dynamicSet(key, value);
 }
 
-inline Value dynamicIndexArgument(Runtime& runtime, const std::u16string& key) {
+inline Value dynamicIndexArgument(const std::u16string& key) {
   if (const auto index = propertyIndex(key)) return Value(static_cast<double>(*index));
-  return runtime.string(key);
+  return Runtime::string(key);
 }
 
 template <typename Target>
 inline Value dynamicIndexGet(Target&& target, const std::u16string& key) {
-  auto& runtime = currentRuntime();
   const Value receiver = convertValue<Value>(std::forward<Target>(target));
   if (const auto result = callDynamicOperator(
-        runtime,
         receiver,
         u"__vexa_operator:[]",
-        dynamicIndexArgument(runtime, key))) {
+        dynamicIndexArgument(key))) {
     return *result;
   }
   return dynamicGet(receiver, key);
@@ -3676,13 +3697,11 @@ inline Value dynamicIndexGet(Target&& target, const std::u16string& key) {
 
 template <typename Target>
 inline Value dynamicIndexSet(Target&& target, const std::u16string& key, const Value& value) {
-  auto& runtime = currentRuntime();
   const Value receiver = convertValue<Value>(std::forward<Target>(target));
   if (const auto result = callDynamicOperator(
-        runtime,
         receiver,
         u"__vexa_operator:[]=",
-        dynamicIndexArgument(runtime, key), value)) {
+        dynamicIndexArgument(key), value)) {
     return *result;
   }
   return dynamicSet(receiver, key, value);
@@ -3697,46 +3716,46 @@ inline Value recordGetOptional(RecordObject* record, const std::u16string& key) 
   return record ? record->get(key) : Value::undefined();
 }
 
-inline ArrayObject<std::u16string>* recordKeys(Runtime& runtime, RecordObject* record) {
-  auto* result = runtime.array<std::u16string>();
+inline ArrayObject<std::u16string>* recordKeys(RecordObject* record) {
+  auto* result = Runtime::array<std::u16string>();
   if (record) for (const auto& key : record->keys()) result->append(std::u16string(key));
   return result;
 }
 
-inline ArrayObject<std::u16string>* recordKeys(Runtime& runtime, EnumerableObject* object) {
-  auto* result = runtime.array<std::u16string>();
+inline ArrayObject<std::u16string>* recordKeys(EnumerableObject* object) {
+  auto* result = Runtime::array<std::u16string>();
   if (object) for (const auto& key : objectKeys(object)) result->append(std::u16string(key));
   return result;
 }
 
-inline ArrayObject<std::u16string>* recordKeys(Runtime& runtime, BaseObject* object) {
-  auto* result = runtime.array<std::u16string>();
+inline ArrayObject<std::u16string>* recordKeys(BaseObject* object) {
+  auto* result = Runtime::array<std::u16string>();
   if (object) for (const auto& key : objectKeys(object)) result->append(std::u16string(key));
   return result;
 }
 
 template <typename T>
   requires std::is_base_of_v<BaseObject, T>
-inline ArrayObject<std::u16string>* recordKeys(Runtime& runtime, T* object) {
-  return recordKeys(runtime, static_cast<BaseObject*>(object));
+inline ArrayObject<std::u16string>* recordKeys(T* object) {
+  return recordKeys(static_cast<BaseObject*>(object));
 }
 
-inline ArrayObject<Value>* recordValues(Runtime& runtime, RecordObject* record) {
-  auto* result = runtime.array<Value>();
+inline ArrayObject<Value>* recordValues(RecordObject* record) {
+  auto* result = Runtime::array<Value>();
   if (record) for (const auto& value : record->values()) result->append(value);
   return result;
 }
 
-inline ArrayObject<Value>* recordValues(Runtime& runtime, EnumerableObject* object) {
-  auto* result = runtime.array<Value>();
+inline ArrayObject<Value>* recordValues(EnumerableObject* object) {
+  auto* result = Runtime::array<Value>();
   if (object) {
     for (const auto& key : objectKeys(object)) result->append(object->enumerableGet(key));
   }
   return result;
 }
 
-inline ArrayObject<Value>* recordValues(Runtime& runtime, BaseObject* object) {
-  auto* result = runtime.array<Value>();
+inline ArrayObject<Value>* recordValues(BaseObject* object) {
+  auto* result = Runtime::array<Value>();
   if (object) {
     for (const auto& key : objectKeys(object)) result->append(object->dynamicGet(key));
   }
@@ -3745,52 +3764,52 @@ inline ArrayObject<Value>* recordValues(Runtime& runtime, BaseObject* object) {
 
 template <typename T>
   requires std::is_base_of_v<BaseObject, T>
-inline ArrayObject<Value>* recordValues(Runtime& runtime, T* object) {
-  return recordValues(runtime, static_cast<BaseObject*>(object));
+inline ArrayObject<Value>* recordValues(T* object) {
+  return recordValues(static_cast<BaseObject*>(object));
 }
 
-inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, RecordObject* record) {
-  auto* result = runtime.array<ArrayObject<Value>*>();
+inline ArrayObject<ArrayObject<Value>*>* recordEntries(RecordObject* record) {
+  auto* result = Runtime::array<ArrayObject<Value>*>();
   if (!record) return result;
   for (const auto& key : record->keys()) {
-    result->append(runtime.array<Value>({runtime.string(key), record->get(key)}));
+    result->append(Runtime::array<Value>({Runtime::string(key), record->get(key)}));
   }
   return result;
 }
 
-inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, EnumerableObject* object) {
-  auto* result = runtime.array<ArrayObject<Value>*>();
+inline ArrayObject<ArrayObject<Value>*>* recordEntries(EnumerableObject* object) {
+  auto* result = Runtime::array<ArrayObject<Value>*>();
   if (!object) return result;
   for (const auto& key : objectKeys(object)) {
-    result->append(runtime.array<Value>({runtime.string(key), object->enumerableGet(key)}));
+    result->append(Runtime::array<Value>({Runtime::string(key), object->enumerableGet(key)}));
   }
   return result;
 }
 
-inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, BaseObject* object) {
-  auto* result = runtime.array<ArrayObject<Value>*>();
+inline ArrayObject<ArrayObject<Value>*>* recordEntries(BaseObject* object) {
+  auto* result = Runtime::array<ArrayObject<Value>*>();
   if (!object) return result;
   for (const auto& key : objectKeys(object)) {
-    result->append(runtime.array<Value>({runtime.string(key), object->dynamicGet(key)}));
+    result->append(Runtime::array<Value>({Runtime::string(key), object->dynamicGet(key)}));
   }
   return result;
 }
 
 template <typename T>
   requires std::is_base_of_v<BaseObject, T>
-inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, T* object) {
-  return recordEntries(runtime, static_cast<BaseObject*>(object));
+inline ArrayObject<ArrayObject<Value>*>* recordEntries(T* object) {
+  return recordEntries(static_cast<BaseObject*>(object));
 }
 
-inline ArrayObject<ArrayObject<Value>*>* recordEntries(Runtime& runtime, const Value& value) {
-  if (value.isRecord()) return recordEntries(runtime, value.record());
-  if (value.isRuntimeObject()) return recordEntries(runtime, value.object());
-  return runtime.array<ArrayObject<Value>*>();
+inline ArrayObject<ArrayObject<Value>*>* recordEntries(const Value& value) {
+  if (value.isRecord()) return recordEntries(value.record());
+  if (value.isRuntimeObject()) return recordEntries(value.object());
+  return Runtime::array<ArrayObject<Value>*>();
 }
 
 template <typename Entry>
-inline RecordObject* recordFromEntries(Runtime& runtime, const ArrayObject<ArrayObject<Entry>*>* entries) {
-  auto* record = runtime.record();
+inline RecordObject* recordFromEntries(const ArrayObject<ArrayObject<Entry>*>* entries) {
+  auto* record = Runtime::record();
   for (auto* entry : *entries) {
     if (!entry || entry->size() < 2) continue;
     record->set(propertyKey(convertValue<Value>(entry->get(0))), convertValue<Value>(entry->get(1)));
@@ -3798,8 +3817,8 @@ inline RecordObject* recordFromEntries(Runtime& runtime, const ArrayObject<Array
   return record;
 }
 
-inline RecordObject* recordFromEntries(Runtime& runtime, const Value& entries) {
-  auto* record = runtime.record();
+inline RecordObject* recordFromEntries(const Value& entries) {
+  auto* record = Runtime::record();
   for (const auto& entryValue : *arrayPointer(entries)) {
     auto* entry = arrayPointer(entryValue);
     if (entry->size() < 2) continue;
@@ -3808,16 +3827,16 @@ inline RecordObject* recordFromEntries(Runtime& runtime, const Value& entries) {
   return record;
 }
 
-inline ArrayObject<std::u16string>* recordKeys(Runtime& runtime, const Value& value) {
-  if (value.isRecord()) return recordKeys(runtime, value.record());
-  if (value.isRuntimeObject()) return recordKeys(runtime, value.object());
-  return runtime.array<std::u16string>();
+inline ArrayObject<std::u16string>* recordKeys(const Value& value) {
+  if (value.isRecord()) return recordKeys(value.record());
+  if (value.isRuntimeObject()) return recordKeys(value.object());
+  return Runtime::array<std::u16string>();
 }
 
-inline ArrayObject<Value>* recordValues(Runtime& runtime, const Value& value) {
-  if (value.isRecord()) return recordValues(runtime, value.record());
-  if (value.isRuntimeObject()) return recordValues(runtime, value.object());
-  return runtime.array<Value>();
+inline ArrayObject<Value>* recordValues(const Value& value) {
+  if (value.isRecord()) return recordValues(value.record());
+  if (value.isRuntimeObject()) return recordValues(value.object());
+  return Runtime::array<Value>();
 }
 
 inline bool numberIsInteger(const Value& value) {
@@ -3902,7 +3921,7 @@ class ReturnSignal<void> final {
 };
 
 template <typename T, typename Callback>
-[[noreturn]] inline void throwReturn(Runtime& runtime, Callback&& callback) {
+[[noreturn]] inline void throwReturn(Callback&& callback) {
   if constexpr (std::is_void_v<T>) {
     std::forward<Callback>(callback)();
     throw ReturnSignal<void>();
@@ -3941,7 +3960,6 @@ template <typename T>
 class Task final {
  public:
   struct State final {
-    Runtime* runtime = nullptr;
     std::optional<typename TaskStorage<T>::Type> value;
     std::exception_ptr error;
     std::vector<std::function<void()>> continuations;
@@ -3949,13 +3967,13 @@ class Task final {
   };
 
   struct promise_type final {
-    promise_type() : state(makeState(Runtime::current())) {}
+    promise_type() : state(makeState()) {}
 
     template <typename... Arguments>
-    explicit promise_type(Runtime& runtime, Arguments&&...) : state(makeState(runtime)) {}
+    explicit promise_type(Arguments&&...) : state(makeState()) {}
 
     template <typename Owner, typename... Arguments>
-    promise_type(Owner&, Runtime& runtime, Arguments&&...) : state(makeState(runtime)) {}
+    promise_type(Owner&, Arguments&&...) : state(makeState()) {}
 
     Task get_return_object() { return Task(state); }
     std::suspend_never initial_suspend() const noexcept { return {}; }
@@ -3985,8 +4003,8 @@ class Task final {
   };
 
   template <typename Executor>
-  static Task create(Runtime& runtime, Executor executor) {
-    auto state = makeState(runtime);
+  static Task create(Executor executor) {
+    auto state = makeState();
     try {
       executor(Resolver(state), Rejecter(state));
     } catch (...) {
@@ -3996,9 +4014,9 @@ class Task final {
   }
 
   template <typename Work>
-  static Task schedule(Runtime& runtime, Work work) {
-    auto state = makeState(runtime);
-    runtime.enqueueMicrotask([state, work = std::move(work)]() mutable {
+  static Task schedule(Work work) {
+    auto state = makeState();
+    Runtime::enqueueMicrotask([state, work = std::move(work)]() mutable {
       try {
         resolve(state, work());
       } catch (...) {
@@ -4009,7 +4027,7 @@ class Task final {
   }
 
   T get() const {
-    state_->runtime->runUntil([this] { return state_->settled; });
+    Runtime::runUntil([this] { return state_->settled; });
     if (state_->error) std::rethrow_exception(state_->error);
     return TaskStorage<T>::load(*state_->value);
   }
@@ -4056,7 +4074,7 @@ class Task final {
     }
 
     void operator()(const Error& error) const {
-      reject(state_, std::make_exception_ptr(RejectedValue(state_->runtime->string(error.messageText()))));
+      reject(state_, std::make_exception_ptr(RejectedValue(Runtime::string(error.messageText()))));
     }
 
     template <typename Reason>
@@ -4070,10 +4088,8 @@ class Task final {
     std::shared_ptr<State> state_;
   };
 
-  static std::shared_ptr<State> makeState(Runtime& runtime) {
-    auto state = std::make_shared<State>();
-    state->runtime = &runtime;
-    return state;
+  static std::shared_ptr<State> makeState() {
+    return std::make_shared<State>();
   }
 
   static void resolve(const std::shared_ptr<State>& state, T value) {
@@ -4091,13 +4107,13 @@ class Task final {
   }
 
   static void onSettled(const std::shared_ptr<State>& state, std::function<void()> continuation) {
-    if (state->settled) state->runtime->enqueueMicrotask(std::move(continuation));
+    if (state->settled) Runtime::enqueueMicrotask(std::move(continuation));
     else state->continuations.push_back(std::move(continuation));
   }
 
   static void notify(const std::shared_ptr<State>& state) {
     for (auto& continuation : state->continuations) {
-      state->runtime->enqueueMicrotask(std::move(continuation));
+      Runtime::enqueueMicrotask(std::move(continuation));
     }
     state->continuations.clear();
   }
@@ -4111,20 +4127,19 @@ template <>
 class Task<void> final {
  public:
   struct State final {
-    Runtime* runtime = nullptr;
     std::exception_ptr error;
     std::vector<std::function<void()>> continuations;
     bool settled = false;
   };
 
   struct promise_type final {
-    promise_type() : state(makeState(Runtime::current())) {}
+    promise_type() : state(makeState()) {}
 
     template <typename... Arguments>
-    explicit promise_type(Runtime& runtime, Arguments&&...) : state(makeState(runtime)) {}
+    explicit promise_type(Arguments&&...) : state(makeState()) {}
 
     template <typename Owner, typename... Arguments>
-    promise_type(Owner&, Runtime& runtime, Arguments&&...) : state(makeState(runtime)) {}
+    promise_type(Owner&, Arguments&&...) : state(makeState()) {}
 
     Task get_return_object() { return Task(state); }
     std::suspend_never initial_suspend() const noexcept { return {}; }
@@ -4153,8 +4168,8 @@ class Task<void> final {
   };
 
   template <typename Executor>
-  static Task create(Runtime& runtime, Executor executor) {
-    auto state = makeState(runtime);
+  static Task create(Executor executor) {
+    auto state = makeState();
     try {
       executor(Resolver(state), Rejecter(state));
     } catch (...) {
@@ -4164,9 +4179,9 @@ class Task<void> final {
   }
 
   template <typename Work>
-  static Task schedule(Runtime& runtime, Work work) {
-    auto state = makeState(runtime);
-    runtime.enqueueMicrotask([state, work = std::move(work)]() mutable {
+  static Task schedule(Work work) {
+    auto state = makeState();
+    Runtime::enqueueMicrotask([state, work = std::move(work)]() mutable {
       try {
         work();
         resolve(state);
@@ -4178,7 +4193,7 @@ class Task<void> final {
   }
 
   void get() const {
-    state_->runtime->runUntil([this] { return state_->settled; });
+    Runtime::runUntil([this] { return state_->settled; });
     if (state_->error) std::rethrow_exception(state_->error);
   }
 
@@ -4214,7 +4229,7 @@ class Task<void> final {
     }
 
     void operator()(const Error& error) const {
-      reject(state_, std::make_exception_ptr(RejectedValue(state_->runtime->string(error.messageText()))));
+      reject(state_, std::make_exception_ptr(RejectedValue(Runtime::string(error.messageText()))));
     }
 
     template <typename Reason>
@@ -4228,10 +4243,8 @@ class Task<void> final {
     std::shared_ptr<State> state_;
   };
 
-  static std::shared_ptr<State> makeState(Runtime& runtime) {
-    auto state = std::make_shared<State>();
-    state->runtime = &runtime;
-    return state;
+  static std::shared_ptr<State> makeState() {
+    return std::make_shared<State>();
   }
 
   static void resolve(const std::shared_ptr<State>& state) {
@@ -4248,13 +4261,13 @@ class Task<void> final {
   }
 
   static void onSettled(const std::shared_ptr<State>& state, std::function<void()> continuation) {
-    if (state->settled) state->runtime->enqueueMicrotask(std::move(continuation));
+    if (state->settled) Runtime::enqueueMicrotask(std::move(continuation));
     else state->continuations.push_back(std::move(continuation));
   }
 
   static void notify(const std::shared_ptr<State>& state) {
     for (auto& continuation : state->continuations) {
-      state->runtime->enqueueMicrotask(std::move(continuation));
+      Runtime::enqueueMicrotask(std::move(continuation));
     }
     state->continuations.clear();
   }
@@ -4265,12 +4278,12 @@ class Task<void> final {
 };
 
 template <typename Work, typename Map>
-auto runAsyncMapped(Runtime& runtime, Work work, Map map)
+auto runAsyncMapped(Work work, Map map)
     -> Task<std::invoke_result_t<Map, std::invoke_result_t<Work>>> {
   using Result = std::invoke_result_t<Map, std::invoke_result_t<Work>>;
   auto operation = std::async(std::launch::async, std::move(work)).share();
-  return Task<Result>::create(runtime, [&runtime, operation = std::move(operation), map = std::move(map)](auto resolve, auto reject) mutable {
-    runtime.enqueueIo([operation = std::move(operation), map = std::move(map), resolve, reject]() mutable {
+  return Task<Result>::create([operation = std::move(operation), map = std::move(map)](auto resolve, auto reject) mutable {
+    Runtime::enqueueIo([operation = std::move(operation), map = std::move(map), resolve, reject]() mutable {
       if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
       try {
         if constexpr (std::is_void_v<Result>) {
@@ -4289,12 +4302,12 @@ auto runAsyncMapped(Runtime& runtime, Work work, Map map)
 }
 
 template <typename Work>
-auto runAsync(Runtime& runtime, Work work) -> Task<std::invoke_result_t<Work>> {
+auto runAsync(Work work) -> Task<std::invoke_result_t<Work>> {
   using Result = std::invoke_result_t<Work>;
   if constexpr (std::is_void_v<Result>) {
     auto operation = std::async(std::launch::async, std::move(work)).share();
-    return Task<void>::create(runtime, [&runtime, operation = std::move(operation)](auto resolve, auto reject) mutable {
-      runtime.enqueueIo([operation = std::move(operation), resolve, reject]() mutable {
+    return Task<void>::create([operation = std::move(operation)](auto resolve, auto reject) mutable {
+      Runtime::enqueueIo([operation = std::move(operation), resolve, reject]() mutable {
         if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
         try {
           operation.get();
@@ -4306,19 +4319,19 @@ auto runAsync(Runtime& runtime, Work work) -> Task<std::invoke_result_t<Work>> {
       });
     });
   } else {
-    return runAsyncMapped(runtime, std::move(work), [](Result value) { return value; });
+    return runAsyncMapped(std::move(work), [](Result value) { return value; });
   }
 }
 
-inline Task<Value> readTextFile(Runtime& runtime, std::u16string path) {
+inline Task<Value> readTextFile(std::u16string path) {
   auto operation = std::async(std::launch::async, [path = std::move(path)] {
     return readUtf8File(path);
   }).share();
-  return Task<Value>::create(runtime, [&runtime, operation = std::move(operation)](auto resolve, auto reject) mutable {
-    runtime.enqueueIo([&runtime, operation = std::move(operation), resolve, reject]() mutable {
+  return Task<Value>::create([operation = std::move(operation)](auto resolve, auto reject) mutable {
+    Runtime::enqueueIo([operation = std::move(operation), resolve, reject]() mutable {
       if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
       try {
-        resolve(runtime.string(operation.get()));
+        resolve(Runtime::string(operation.get()));
       } catch (const std::exception& error) {
         reject(Error(exceptionText(error)));
       }
@@ -4327,12 +4340,12 @@ inline Task<Value> readTextFile(Runtime& runtime, std::u16string path) {
   });
 }
 
-inline Task<void> writeTextFile(Runtime& runtime, std::u16string path, std::u16string contents) {
+inline Task<void> writeTextFile(std::u16string path, std::u16string contents) {
   auto operation = std::async(std::launch::async, [path = std::move(path), contents = std::move(contents)] {
     writeUtf8File(path, contents);
   }).share();
-  return Task<void>::create(runtime, [&runtime, operation = std::move(operation)](auto resolve, auto reject) mutable {
-    runtime.enqueueIo([operation = std::move(operation), resolve, reject]() mutable {
+  return Task<void>::create([operation = std::move(operation)](auto resolve, auto reject) mutable {
+    Runtime::enqueueIo([operation = std::move(operation), resolve, reject]() mutable {
       if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
       try {
         operation.get();
@@ -4345,8 +4358,8 @@ inline Task<void> writeTextFile(Runtime& runtime, std::u16string path, std::u16s
   });
 }
 
-inline Task<Value> nativeStatPath(Runtime& runtime, std::u16string path) {
-  return Task<Value>::create(runtime, [&runtime, path = std::move(path)](auto resolve, auto reject) mutable {
+inline Task<Value> nativeStatPath(std::u16string path) {
+  return Task<Value>::create([path = std::move(path)](auto resolve, auto reject) mutable {
     const std::filesystem::path filePath(path);
     std::error_code error;
     const auto status = std::filesystem::status(filePath, error);
@@ -4359,7 +4372,7 @@ inline Task<Value> nativeStatPath(Runtime& runtime, std::u16string path) {
       reject(Error(u"Cannot read file modification time: " + path));
       return;
     }
-    auto* value = runtime.record();
+    auto* value = Runtime::record();
     value->set(u"mtimeMs", Value(static_cast<double>(modified.time_since_epoch().count()) / 1'000'000.0));
     value->set(u"isFile", Value(std::filesystem::is_regular_file(status)));
     value->set(u"isDirectory", Value(std::filesystem::is_directory(status)));
@@ -4367,13 +4380,13 @@ inline Task<Value> nativeStatPath(Runtime& runtime, std::u16string path) {
   });
 }
 
-inline Task<ArrayObject<Value>*> nativeReadDirectory(Runtime& runtime, std::u16string path) {
-  return Task<ArrayObject<Value>*>::create(runtime, [&runtime, path = std::move(path)](auto resolve, auto reject) mutable {
+inline Task<ArrayObject<Value>*> nativeReadDirectory(std::u16string path) {
+  return Task<ArrayObject<Value>*>::create([path = std::move(path)](auto resolve, auto reject) mutable {
     try {
-      auto* result = runtime.array<Value>();
+      auto* result = Runtime::array<Value>();
       for (const auto& entry : std::filesystem::directory_iterator(path)) {
-        auto* value = runtime.record();
-        value->set(u"name", Value(runtime.string(entry.path().filename().u16string())));
+        auto* value = Runtime::record();
+        value->set(u"name", Value(Runtime::string(entry.path().filename().u16string())));
         value->set(u"isFile", Value(entry.is_regular_file()));
         value->set(u"isDirectory", Value(entry.is_directory()));
         result->append(Value(value));
@@ -4385,8 +4398,8 @@ inline Task<ArrayObject<Value>*> nativeReadDirectory(Runtime& runtime, std::u16s
   });
 }
 
-inline Task<void> nativeCreateDirectory(Runtime& runtime, std::u16string path, bool recursive) {
-  return Task<void>::create(runtime, [path = std::move(path), recursive](auto resolve, auto reject) mutable {
+inline Task<void> nativeCreateDirectory(std::u16string path, bool recursive) {
+  return Task<void>::create([path = std::move(path), recursive](auto resolve, auto reject) mutable {
     try {
       if (recursive) std::filesystem::create_directories(path);
       else std::filesystem::create_directory(path);
@@ -4397,8 +4410,8 @@ inline Task<void> nativeCreateDirectory(Runtime& runtime, std::u16string path, b
   });
 }
 
-inline Task<void> nativeRemovePath(Runtime& runtime, std::u16string path, bool recursive) {
-  return Task<void>::create(runtime, [path = std::move(path), recursive](auto resolve, auto reject) mutable {
+inline Task<void> nativeRemovePath(std::u16string path, bool recursive) {
+  return Task<void>::create([path = std::move(path), recursive](auto resolve, auto reject) mutable {
     try {
       if (recursive) std::filesystem::remove_all(path);
       else std::filesystem::remove(path);
@@ -4409,8 +4422,8 @@ inline Task<void> nativeRemovePath(Runtime& runtime, std::u16string path, bool r
   });
 }
 
-inline Task<void> nativeCopyFile(Runtime& runtime, std::u16string source, std::u16string target) {
-  return Task<void>::create(runtime, [source = std::move(source), target = std::move(target)](auto resolve, auto reject) mutable {
+inline Task<void> nativeCopyFile(std::u16string source, std::u16string target) {
+  return Task<void>::create([source = std::move(source), target = std::move(target)](auto resolve, auto reject) mutable {
     try {
       std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing);
       resolve();
@@ -4456,7 +4469,6 @@ inline std::u16string shellQuote(std::u16string_view value) {
 #endif
 
 inline Task<Value> nativeRunCommandCapture(
-    Runtime& runtime,
     std::u16string command,
     ArrayObject<std::u16string>* arguments,
     std::u16string workingDirectory) {
@@ -4482,15 +4494,15 @@ inline Task<Value> nativeRunCommandCapture(
     shellCommand += u" 2>&1";
     return runShellCommand(shellCommand);
   }).share();
-  return Task<Value>::create(runtime, [&runtime, operation = std::move(operation)](auto resolve, auto reject) mutable {
-    runtime.enqueueIo([&runtime, operation = std::move(operation), resolve, reject]() mutable {
+  return Task<Value>::create([operation = std::move(operation)](auto resolve, auto reject) mutable {
+    Runtime::enqueueIo([operation = std::move(operation), resolve, reject]() mutable {
       if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
       try {
         auto result = operation.get();
-        auto* value = runtime.record();
+        auto* value = Runtime::record();
         value->set(u"code", Value(static_cast<double>(result.code)));
-        value->set(u"stdout", runtime.string(result.output));
-        value->set(u"stderr", runtime.string(u""));
+        value->set(u"stdout", Runtime::string(result.output));
+        value->set(u"stderr", Runtime::string(u""));
         resolve(Value(value));
       } catch (const std::exception& error) {
         reject(Error(exceptionText(error)));
@@ -4509,13 +4521,13 @@ inline void nativeRunTask(const Task<void>& task) {
   task.get();
 }
 
-inline Value nativeEnvironmentVariable(Runtime& runtime, const std::u16string& name) {
+inline Value nativeEnvironmentVariable(const std::u16string& name) {
   const auto value = environmentVariable(name);
-  return value ? Value(runtime.string(*value)) : Value::undefined();
+  return value ? Value(Runtime::string(*value)) : Value::undefined();
 }
 
-inline Task<Value> dynamicImportUnavailable(Runtime& runtime, std::u16string specifier) {
-  return Task<Value>::create(runtime, [specifier = std::move(specifier)](auto, auto reject) mutable {
+inline Task<Value> dynamicImportUnavailable(std::u16string specifier) {
+  return Task<Value>::create([specifier = std::move(specifier)](auto, auto reject) mutable {
     reject(Error(u"Dynamic import is not available in native C++: " + specifier));
   });
 }
@@ -4523,10 +4535,9 @@ inline Task<Value> dynamicImportUnavailable(Runtime& runtime, std::u16string spe
 class Process final {
  public:
   Process(
-      Runtime& runtime,
       const std::vector<std::u16string>& arguments,
       const std::vector<std::pair<std::u16string, std::u16string>>& environment)
-      : argv(runtime.array<std::u16string>()), env(runtime.record()) {
+      : argv(Runtime::array<std::u16string>()), env(Runtime::record()) {
     const std::u16string executable = arguments.empty() ? u"vexa" : arguments.front();
     argv->append(executable);
     argv->append(executable);
@@ -4534,7 +4545,7 @@ class Process final {
       argv->append(arguments[index]);
     }
     for (const auto& [name, value] : environment) {
-      env->set(name, runtime.string(value));
+      env->set(name, Runtime::string(value));
     }
   }
 
@@ -4548,8 +4559,8 @@ class Process final {
 
 inline Process* process = nullptr;
 
-inline ArrayObject<std::u16string>* commandLineArguments(Runtime& runtime) {
-  auto* result = runtime.array<std::u16string>();
+inline ArrayObject<std::u16string>* commandLineArguments() {
+  auto* result = Runtime::array<std::u16string>();
   if (!process || !process->argv) return result;
   for (std::size_t index = 2; index < process->argv->size(); ++index) {
     result->append(process->argv->get(index));
@@ -4568,8 +4579,8 @@ inline T defaultValue() {
 }
 
 template <typename T>
-inline ArrayObject<T>* arrayWithLength(Runtime& runtime, double length) {
-  auto* result = runtime.array<T>();
+inline ArrayObject<T>* arrayWithLength(double length) {
+  auto* result = Runtime::array<T>();
   const auto size = static_cast<std::size_t>(std::max(0.0, std::floor(length)));
   for (std::size_t index = 0; index < size; ++index) result->append(defaultValue<T>());
   return result;
@@ -4800,8 +4811,7 @@ inline void appendAll(ArrayObject<T>* target, SetObject<U>* source) {
 
 template <typename T>
 inline void appendAll(ArrayObject<T>* target, const Value& source) {
-  auto& runtime = Runtime::current();
-  for (const auto value : dynamicIterationRange(runtime, source)) {
+    for (const auto value : dynamicIterationRange(source)) {
     target->append(convertValue<T>(value));
   }
 }
@@ -4813,13 +4823,13 @@ inline double pushAll(ArrayObject<T>* target, const ArrayObject<T>* source) {
 }
 
 template <typename T>
-inline void appendAllConverted(Runtime& runtime, std::vector<Value>& target, const std::vector<T>& source) {
+inline void appendAllConverted(std::vector<Value>& target, const std::vector<T>& source) {
   target.reserve(target.size() + source.size());
   for (const auto& value : source) target.push_back(convertValue<Value>(value));
 }
 
 template <typename T>
-inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, const ArrayObject<T>* source) {
+inline void appendAllConverted(ArrayObject<Value>* target, const ArrayObject<T>* source) {
   target->reserve(target->size() + source->size());
   for (std::size_t index = 0; index < source->size(); ++index) {
     target->append(convertValue<Value>(source->get(index)));
@@ -4827,9 +4837,9 @@ inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, con
 }
 
 template <typename K, typename V>
-inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, MapObject<K, V>* source) {
+inline void appendAllConverted(ArrayObject<Value>* target, MapObject<K, V>* source) {
   source->forEach([&](V value, K key) {
-    target->append(convertValue<Value>(runtime.array<Value>({
+    target->append(convertValue<Value>(Runtime::array<Value>({
         convertValue<Value>(key),
         convertValue<Value>(value)})));
   });
@@ -4837,27 +4847,25 @@ inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, Map
 
 template <typename K, typename V>
 inline void appendAllConverted(
-    Runtime& runtime,
     ArrayObject<Value>* target,
     const cppgc::Persistent<MapObject<K, V>>& source) {
-  appendAllConverted(runtime, target, source.Get());
+  appendAllConverted(target, source.Get());
 }
 
 template <typename T>
-inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, SetObject<T>* source) {
+inline void appendAllConverted(ArrayObject<Value>* target, SetObject<T>* source) {
   source->forEach([&](T value) { target->append(convertValue<Value>(value)); });
 }
 
 template <typename T>
 inline void appendAllConverted(
-    Runtime& runtime,
     ArrayObject<Value>* target,
     const cppgc::Persistent<SetObject<T>>& source) {
-  appendAllConverted(runtime, target, source.Get());
+  appendAllConverted(target, source.Get());
 }
 
-inline void appendAllConverted(Runtime& runtime, ArrayObject<Value>* target, const Value& source) {
-  for (const auto value : dynamicIterationRange(runtime, source)) {
+inline void appendAllConverted(ArrayObject<Value>* target, const Value& source) {
+  for (const auto value : dynamicIterationRange(source)) {
     target->append(value);
   }
 }
@@ -4997,8 +5005,8 @@ inline std::vector<T> slice(const std::vector<T>& array, double start = 0, doubl
 }
 
 template <typename T>
-inline ArrayObject<T>* ArrayObject<T>::slice(Runtime& runtime, double start, double end) const {
-  auto* result = runtime.array<T>();
+inline ArrayObject<T>* ArrayObject<T>::slice(double start, double end) const {
+  auto* result = Runtime::array<T>();
   const std::size_t first = normalizedSliceIndex(start, size());
   const std::size_t last = std::isinf(end) ? size() : normalizedSliceIndex(end, size());
   result->reserve(last > first ? last - first : 0);
@@ -5007,8 +5015,8 @@ inline ArrayObject<T>* ArrayObject<T>::slice(Runtime& runtime, double start, dou
 }
 
 template <typename T>
-inline ArrayObject<T>* slice(Runtime& runtime, const ArrayObject<T>* array, double start = 0, double end = std::numeric_limits<double>::infinity()) {
-  return array->slice(runtime, start, end);
+inline ArrayObject<T>* slice(const ArrayObject<T>* array, double start = 0, double end = std::numeric_limits<double>::infinity()) {
+  return array->slice(start, end);
 }
 
 template <typename T>
@@ -5030,16 +5038,16 @@ inline void appendConcatItem(ArrayObject<T>* result, const ArrayObject<T>* value
 
 template <typename T>
 template <typename... Items>
-inline ArrayObject<T>* ArrayObject<T>::concat(Runtime& runtime, Items&&... items) const {
-  auto* result = runtime.array<T>();
+inline ArrayObject<T>* ArrayObject<T>::concat(Items&&... items) const {
+  auto* result = Runtime::array<T>();
   appendAll(result, this);
   (appendConcatItem(result, std::forward<Items>(items)), ...);
   return result;
 }
 
 template <typename T, typename... Items>
-inline ArrayObject<T>* concat(Runtime& runtime, const ArrayObject<T>* array, Items&&... items) {
-  return array->concat(runtime, std::forward<Items>(items)...);
+inline ArrayObject<T>* concat(const ArrayObject<T>* array, Items&&... items) {
+  return array->concat(std::forward<Items>(items)...);
 }
 
 template <typename Callback, typename T>
@@ -5104,10 +5112,10 @@ inline auto map(const std::vector<T>& array, Callback callback)
 
 template <typename T>
 template <typename Callback>
-inline auto ArrayObject<T>::map(Runtime& runtime, Callback callback) const {
+inline auto ArrayObject<T>::map(Callback callback) const {
   using Result = std::remove_cvref_t<decltype(
       invokeArrayCallback(callback, std::declval<T>(), std::size_t{}, this))>;
-  auto* result = runtime.array<Result>();
+  auto* result = Runtime::array<Result>();
   result->reserve(size());
   for (std::size_t index = 0; index < size(); ++index) {
     result->append(invokeArrayCallback(callback, get(index), index, this));
@@ -5116,9 +5124,9 @@ inline auto ArrayObject<T>::map(Runtime& runtime, Callback callback) const {
 }
 
 template <typename T, typename Callback>
-inline auto map(Runtime& runtime, const ArrayObject<T>* array, Callback callback) {
-  using Result = decltype(array->map(runtime, std::move(callback)));
-  return array ? array->map(runtime, std::move(callback)) : static_cast<Result>(nullptr);
+inline auto map(const ArrayObject<T>* array, Callback callback) {
+  using Result = decltype(array->map(std::move(callback)));
+  return array ? array->map(std::move(callback)) : static_cast<Result>(nullptr);
 }
 
 template <typename T, typename Callback>
@@ -5130,8 +5138,8 @@ inline std::vector<T> filter(const std::vector<T>& array, Callback callback) {
 
 template <typename T>
 template <typename Callback>
-inline ArrayObject<T>* ArrayObject<T>::filter(Runtime& runtime, Callback callback) const {
-  auto* result = runtime.array<T>();
+inline ArrayObject<T>* ArrayObject<T>::filter(Callback callback) const {
+  auto* result = Runtime::array<T>();
   result->reserve(size());
   for (std::size_t index = 0; index < size(); ++index) {
     const auto value = get(index);
@@ -5141,19 +5149,18 @@ inline ArrayObject<T>* ArrayObject<T>::filter(Runtime& runtime, Callback callbac
 }
 
 template <typename T, typename Callback>
-inline ArrayObject<T>* filter(Runtime& runtime, const ArrayObject<T>* array, Callback callback) {
-  return array->filter(runtime, std::move(callback));
+inline ArrayObject<T>* filter(const ArrayObject<T>* array, Callback callback) {
+  return array->filter(std::move(callback));
 }
 
 template <typename T>
 inline ArrayObject<T>* flat(
-    Runtime& runtime,
     const ArrayObject<ArrayObject<T>*>* array,
     double depth = 1) {
   if (depth != 1) {
     throw runtimeError(u"Native Array.flat currently supports the default depth of one");
   }
-  auto* result = runtime.array<T>();
+  auto* result = Runtime::array<T>();
   for (std::size_t index = 0; index < array->size(); ++index) {
     ArrayObject<T>* nested = array->get(index);
     if (nested) appendAll(result, nested);
@@ -5170,11 +5177,11 @@ struct ArrayPointerElement<ArrayObject<T>*> final {
 };
 
 template <typename T, typename Callback>
-inline auto flatMap(Runtime& runtime, const ArrayObject<T>* array, Callback callback) {
+inline auto flatMap(const ArrayObject<T>* array, Callback callback) {
   using NestedArray = std::remove_cvref_t<decltype(
       invokeArrayCallback(callback, std::declval<T>(), std::size_t{}, array))>;
   using Result = typename ArrayPointerElement<NestedArray>::Type;
-  auto* result = runtime.array<Result>();
+  auto* result = Runtime::array<Result>();
   for (std::size_t index = 0; index < array->size(); ++index) {
     NestedArray nested = invokeArrayCallback(callback, array->get(index), index, array);
     if (nested) appendAll(result, nested);
@@ -5278,7 +5285,6 @@ inline T find(const ArrayObject<T>* array, Callback callback) {
 template <typename T>
 template <typename... Items>
 inline ArrayObject<T>* ArrayObject<T>::splice(
-    Runtime& runtime,
     double start,
     double deleteCount,
     Items&&... items) {
@@ -5287,7 +5293,7 @@ inline ArrayObject<T>* ArrayObject<T>::splice(
       ? size() - first
       : static_cast<std::size_t>(std::max(0.0, std::trunc(deleteCount)));
   const std::size_t count = std::min(requested, size() - first);
-  auto* removed = runtime.array<T>();
+  auto* removed = Runtime::array<T>();
   for (std::size_t index = 0; index < count; ++index) removed->append(get(first + index));
   values_.erase(
       values_.begin() + static_cast<std::ptrdiff_t>(first),
@@ -5303,23 +5309,21 @@ inline ArrayObject<T>* ArrayObject<T>::splice(
 
 template <typename T, typename... Items>
 inline ArrayObject<T>* splice(
-    Runtime& runtime,
     ArrayObject<T>* array,
     double start,
     double deleteCount,
     Items&&... items) {
-  return array->splice(runtime, start, deleteCount, std::forward<Items>(items)...);
+  return array->splice(start, deleteCount, std::forward<Items>(items)...);
 }
 
 template <typename T, typename Input>
 inline ArrayObject<T>* spliceAll(
-    Runtime& runtime,
     ArrayObject<T>* array,
     double start,
     double deleteCount,
     const ArrayObject<Input>* items) {
   const std::size_t first = normalizedSliceIndex(start, array->size());
-  auto* removed = array->splice(runtime, start, deleteCount);
+  auto* removed = array->splice(start, deleteCount);
   std::size_t offset = 0;
   for (const auto& item : *items) {
     array->insert(first + offset, convertValue<T>(item));
@@ -5456,7 +5460,7 @@ template <typename T>
 inline std::u16string toString(ArrayObject<T>* array);
 
 [[noreturn]] inline void throwValue(const Error& error) {
-  throw RejectedValue(Runtime::current().string(error.messageText()));
+  throw RejectedValue(Runtime::string(error.messageText()));
 }
 
 [[noreturn]] inline void throwValue(const Value& value) { throw RejectedValue(value); }
@@ -5485,14 +5489,14 @@ struct PromiseResult<Task<Result>> final {
 };
 
 template <typename Result>
-Task<typename PromiseResult<Result>::Type> assimilateTask(Runtime& runtime, Task<Result> task) {
+Task<typename PromiseResult<Result>::Type> assimilateTask(Task<Result> task) {
   if constexpr (PromiseResult<Result>::task) {
     auto nested = co_await task;
     if constexpr (std::is_void_v<typename PromiseResult<Result>::Type>) {
-      co_await assimilateTask(runtime, std::move(nested));
+      co_await assimilateTask(std::move(nested));
       co_return;
     } else {
-      co_return co_await assimilateTask(runtime, std::move(nested));
+      co_return co_await assimilateTask(std::move(nested));
     }
   } else if constexpr (std::is_void_v<Result>) {
     co_await task;
@@ -5503,44 +5507,44 @@ Task<typename PromiseResult<Result>::Type> assimilateTask(Runtime& runtime, Task
 }
 
 template <typename Input>
-Task<std::remove_cvref_t<Input>> resolvedTask(Runtime& runtime, Input value) {
+Task<std::remove_cvref_t<Input>> resolvedTask(Input value) {
   co_return std::move(value);
 }
 
 template <typename Input>
-Task<std::remove_cvref_t<Input>> promiseResolve(Runtime& runtime, Input value) {
+Task<std::remove_cvref_t<Input>> promiseResolve(Input value) {
   co_return std::move(value);
 }
 
 template <typename Result>
-Task<typename PromiseResult<Result>::Type> promiseResolve(Runtime& runtime, Task<Result> task) {
+Task<typename PromiseResult<Result>::Type> promiseResolve(Task<Result> task) {
   if constexpr (std::is_void_v<typename PromiseResult<Result>::Type>) {
-    co_await assimilateTask(runtime, std::move(task));
+    co_await assimilateTask(std::move(task));
     co_return;
   } else {
-    co_return co_await assimilateTask(runtime, std::move(task));
+    co_return co_await assimilateTask(std::move(task));
   }
 }
 
 template <typename Result, typename Reason>
-Task<Result> rejectedTask(Runtime& runtime, const Reason& reason) {
+Task<Result> rejectedTask(const Reason& reason) {
   throwValue(reason);
   co_return defaultValue<Result>();
 }
 
 template <typename T>
-Task<ArrayObject<T>*> promiseAll(Runtime& runtime, ArrayObject<Task<T>>* tasks) {
+Task<ArrayObject<T>*> promiseAll(ArrayObject<Task<T>>* tasks) {
   cppgc::Persistent<ArrayObject<Task<T>>> rootedTasks(tasks);
-  auto* values = runtime.array<T>();
+  auto* values = Runtime::array<T>();
   cppgc::Persistent<ArrayObject<T>> rootedValues(values);
   for (auto task : *tasks) values->append(co_await task);
   co_return values;
 }
 
 template <typename T>
-Task<T> promiseRace(Runtime& runtime, ArrayObject<Task<T>>* tasks) {
+Task<T> promiseRace(ArrayObject<Task<T>>* tasks) {
   cppgc::Persistent<ArrayObject<Task<T>>> rootedTasks(tasks);
-  return Task<T>::create(runtime, [rootedTasks](auto resolve, auto reject) mutable {
+  return Task<T>::create([rootedTasks](auto resolve, auto reject) mutable {
     for (std::size_t index = 0; index < rootedTasks->size(); ++index) {
       Task<T> task = rootedTasks->get(index);
       task.whenSettled([task, resolve, reject]() mutable {
@@ -5558,13 +5562,11 @@ Task<T> promiseRace(Runtime& runtime, ArrayObject<Task<T>>* tasks) {
 
 template <typename T>
 Task<ArrayObject<RecordObject*>*> promiseAllSettled(
-    Runtime& runtime,
     ArrayObject<Task<T>>* tasks) {
   cppgc::Persistent<ArrayObject<Task<T>>> rootedTasks(tasks);
-  cppgc::Persistent<ArrayObject<RecordObject*>> rootedResults(runtime.array<RecordObject*>());
+  cppgc::Persistent<ArrayObject<RecordObject*>> rootedResults(Runtime::array<RecordObject*>());
   return Task<ArrayObject<RecordObject*>*>::create(
-      runtime,
-      [&runtime, rootedTasks, rootedResults](auto resolve, auto) mutable {
+      [rootedTasks, rootedResults](auto resolve, auto) mutable {
         const std::size_t count = rootedTasks->size();
         if (count == 0) {
           resolve(rootedResults.Get());
@@ -5573,22 +5575,22 @@ Task<ArrayObject<RecordObject*>*> promiseAllSettled(
         auto completed = std::make_shared<std::size_t>(0);
         for (std::size_t index = 0; index < count; ++index) {
           Task<T> task = rootedTasks->get(index);
-          task.whenSettled([&runtime, task, index, count, completed, rootedResults, resolve]() mutable {
+          task.whenSettled([task, index, count, completed, rootedResults, resolve]() mutable {
             RecordObject* result = nullptr;
             try {
-              result = runtime.record({
-                  {u"status", runtime.string(u"fulfilled")},
+              result = Runtime::record({
+                  {u"status", Runtime::string(u"fulfilled")},
                   {u"value", convertValue<Value>(task.settledValue())},
               });
             } catch (const RejectedValue& rejected) {
-              result = runtime.record({
-                  {u"status", runtime.string(u"rejected")},
+              result = Runtime::record({
+                  {u"status", Runtime::string(u"rejected")},
                   {u"reason", rejected.reason()},
               });
             } catch (const std::exception& error) {
-              result = runtime.record({
-                  {u"status", runtime.string(u"rejected")},
-                  {u"reason", runtime.string(exceptionText(error))},
+              result = Runtime::record({
+                  {u"status", Runtime::string(u"rejected")},
+                  {u"reason", Runtime::string(exceptionText(error))},
               });
             }
             rootedResults->set(index, result);
@@ -5600,9 +5602,9 @@ Task<ArrayObject<RecordObject*>*> promiseAllSettled(
 }
 
 template <typename T>
-Task<T> promiseAny(Runtime& runtime, ArrayObject<Task<T>>* tasks) {
+Task<T> promiseAny(ArrayObject<Task<T>>* tasks) {
   cppgc::Persistent<ArrayObject<Task<T>>> rootedTasks(tasks);
-  return Task<T>::create(runtime, [rootedTasks](auto resolve, auto reject) mutable {
+  return Task<T>::create([rootedTasks](auto resolve, auto reject) mutable {
     const std::size_t count = rootedTasks->size();
     if (count == 0) {
       reject(Error(std::u16string(u"All promises were rejected")));
@@ -5625,7 +5627,6 @@ Task<T> promiseAny(Runtime& runtime, ArrayObject<Task<T>>* tasks) {
 
 template <typename T, typename Callback>
 Task<typename PromiseResult<std::invoke_result_t<Callback, T>>::Type> promiseThen(
-    Runtime& runtime,
     Task<T> source,
     Callback callback) {
   using CallbackResult = std::invoke_result_t<Callback, T>;
@@ -5633,10 +5634,10 @@ Task<typename PromiseResult<std::invoke_result_t<Callback, T>>::Type> promiseThe
   T value = co_await source;
   if constexpr (PromiseResult<CallbackResult>::task) {
     if constexpr (std::is_void_v<Result>) {
-      co_await assimilateTask(runtime, callback(std::move(value)));
+      co_await assimilateTask(callback(std::move(value)));
       co_return;
     } else {
-      co_return co_await assimilateTask(runtime, callback(std::move(value)));
+      co_return co_await assimilateTask(callback(std::move(value)));
     }
   } else if constexpr (std::is_void_v<CallbackResult>) {
     callback(std::move(value));
@@ -5648,7 +5649,6 @@ Task<typename PromiseResult<std::invoke_result_t<Callback, T>>::Type> promiseThe
 
 template <typename Callback>
 Task<typename PromiseResult<std::invoke_result_t<Callback>>::Type> promiseThen(
-    Runtime& runtime,
     Task<void> source,
     Callback callback) {
   using CallbackResult = std::invoke_result_t<Callback>;
@@ -5656,10 +5656,10 @@ Task<typename PromiseResult<std::invoke_result_t<Callback>>::Type> promiseThen(
   co_await source;
   if constexpr (PromiseResult<CallbackResult>::task) {
     if constexpr (std::is_void_v<Result>) {
-      co_await assimilateTask(runtime, callback());
+      co_await assimilateTask(callback());
       co_return;
     } else {
-      co_return co_await assimilateTask(runtime, callback());
+      co_return co_await assimilateTask(callback());
     }
   } else if constexpr (std::is_void_v<CallbackResult>) {
     callback();
@@ -5670,25 +5670,25 @@ Task<typename PromiseResult<std::invoke_result_t<Callback>>::Type> promiseThen(
 }
 
 template <typename T, typename Callback>
-Task<T> promiseCatch(Runtime& runtime, Task<T> source, Callback callback) {
+Task<T> promiseCatch(Task<T> source, Callback callback) {
   Value reason = Value::undefined();
   try {
     co_return co_await source;
   } catch (const RejectedValue& rejected) {
     reason = rejected.reason();
   } catch (const std::exception& error) {
-    reason = runtime.string(exceptionText(error));
+    reason = Runtime::string(exceptionText(error));
   }
   using CallbackResult = std::invoke_result_t<Callback, Value>;
   if constexpr (PromiseResult<CallbackResult>::task) {
-    co_return co_await assimilateTask(runtime, callback(reason));
+    co_return co_await assimilateTask(callback(reason));
   } else {
     co_return callback(reason);
   }
 }
 
 template <typename T, typename Callback>
-Task<T> promiseFinally(Runtime& runtime, Task<T> source, Callback callback) {
+Task<T> promiseFinally(Task<T> source, Callback callback) {
   std::optional<typename TaskStorage<T>::Type> value;
   std::exception_ptr error;
   try {
@@ -5929,17 +5929,17 @@ std::u16string jsonStringifyNative(const T& value, std::unordered_set<const void
   }
 }
 
-inline Value jsonStringify(Runtime& runtime, const Value& value) {
+inline Value jsonStringify(const Value& value) {
   if (value.isUndefined() || (value.isRuntimeObject() && value.object()->dynamicToString() == u"function")) {
     return Value::undefined();
   }
   std::unordered_set<const void*> seen;
-  return runtime.string(jsonStringifyNative(value, seen));
+  return Runtime::string(jsonStringifyNative(value, seen));
 }
 
 class JsonParser final {
  public:
-  JsonParser(Runtime& runtime, std::u16string_view source) : runtime_(runtime), source_(source) {}
+  explicit JsonParser(std::u16string_view source) : source_(source) {}
 
   Value parse() {
     Value result = parseValue();
@@ -5996,7 +5996,7 @@ class JsonParser final {
     skipWhitespace();
     if (position_ >= source_.size()) fail(u"expected a value");
     const char16_t next = source_[position_];
-    if (next == u'"') return runtime_.string(parseString());
+    if (next == u'"') return Runtime::string(parseString());
     if (next == u'{') return Value(parseObject());
     if (next == u'[') return Value(parseArray());
     if (consume(u"true")) return Value(true);
@@ -6075,7 +6075,7 @@ class JsonParser final {
 
   ArrayObject<Value>* parseArray() {
     ++position_;
-    auto* result = runtime_.array<Value>();
+    auto* result = Runtime::array<Value>();
     skipWhitespace();
     if (position_ < source_.size() && source_[position_] == u']') { ++position_; return result; }
     while (true) {
@@ -6089,7 +6089,7 @@ class JsonParser final {
 
   RecordObject* parseObject() {
     ++position_;
-    auto* result = runtime_.record();
+    auto* result = Runtime::record();
     skipWhitespace();
     if (position_ < source_.size() && source_[position_] == u'}') { ++position_; return result; }
     while (true) {
@@ -6106,14 +6106,13 @@ class JsonParser final {
     }
   }
 
-  Runtime& runtime_;
   std::u16string_view source_;
   std::size_t position_ = 0;
 };
 
-inline Value jsonParse(Runtime& runtime, const Value& source) {
+inline Value jsonParse(const Value& source) {
   if (!source.isString()) throw runtimeError(u"JSON.parse expects a string");
-  return JsonParser(runtime, source.string()).parse();
+  return JsonParser(source.string()).parse();
 }
 
 inline bool includes(const std::vector<std::u16string>& array, const Value& value) {
@@ -6357,10 +6356,9 @@ inline std::u16string stringSlice(
 }
 
 inline ArrayObject<std::u16string>* split(
-    Runtime& runtime,
     const std::u16string& value,
     const std::u16string& separator) {
-  auto* result = runtime.array<std::u16string>();
+  auto* result = Runtime::array<std::u16string>();
   if (separator.empty()) {
     for (char16_t character : value) result->append(std::u16string(1, character));
     return result;
@@ -6376,36 +6374,32 @@ inline ArrayObject<std::u16string>* split(
     start = next + separator.size();
   }
 }
-inline ArrayObject<std::u16string>* split(Runtime& runtime, const Value& value, const Value& separator) {
-  return split(runtime, toString(value), toString(separator));
+inline ArrayObject<std::u16string>* split(const Value& value, const Value& separator) {
+  return split(toString(value), toString(separator));
 }
 inline ArrayObject<std::u16string>* split(
-    Runtime& runtime,
     const std::u16string& value,
     const Value& separator) {
-  return split(runtime, value, toString(separator));
+  return split(value, toString(separator));
 }
 inline ArrayObject<std::u16string>* split(
-    Runtime& runtime,
     const Value& value,
     const std::u16string& separator) {
-  return split(runtime, toString(value), separator);
+  return split(toString(value), separator);
 }
 
 inline ArrayObject<std::u16string>* split(
-    Runtime& runtime,
     const Value& value,
     const RegExp& separator) {
-  auto* result = runtime.array<std::u16string>();
+  auto* result = Runtime::array<std::u16string>();
   for (const auto& part : separator.split(toString(value))) result->append(part);
   return result;
 }
 
 inline ArrayObject<std::u16string>* split(
-    Runtime& runtime,
     const std::u16string& value,
     const RegExp& separator) {
-  auto* result = runtime.array<std::u16string>();
+  auto* result = Runtime::array<std::u16string>();
   for (const auto& part : separator.split(value)) result->append(part);
   return result;
 }
@@ -6555,8 +6549,8 @@ class DynamicArrayMethodObject final
     visitor->Trace(array_);
   }
 
-  Value dynamicCall(Runtime& runtime, const std::vector<Value>& arguments) override {
-    if (!array_) throw runtime.errorAtCurrentSource(u"Cannot call an array method on null");
+  Value dynamicCall(const std::vector<Value>& arguments) override {
+    if (!array_) throw Runtime::errorAtCurrentSource(u"Cannot call an array method on null");
     if constexpr (IsDynamicArrayElement<T>) {
       if (method_ == u"push") {
         for (const auto& argument : arguments) array_->append(convertValue<T>(argument));
@@ -6582,7 +6576,7 @@ class DynamicArrayMethodObject final
         const Value searched = arguments.empty() ? Value::undefined() : arguments[0];
         double found = -1;
         for (std::size_t index = 0; index < array_->size(); ++index) {
-          if (!strictEquals(array_->dynamicArrayGet(runtime, index), searched)) continue;
+          if (!strictEquals(array_->dynamicArrayGet(index), searched)) continue;
           found = static_cast<double>(index);
           if (method_ != u"lastIndexOf") break;
         }
@@ -6590,50 +6584,50 @@ class DynamicArrayMethodObject final
       }
       if (method_ == u"join") {
         const std::u16string separator = arguments.empty() ? u"," : toString(arguments[0]);
-        return Value(runtime.string(array_->join(separator)));
+        return Value(Runtime::string(array_->join(separator)));
       }
       if (method_ == u"slice") {
         const double start = arguments.empty() ? 0 : Number(arguments[0]);
         const double end = arguments.size() < 2
           ? std::numeric_limits<double>::infinity()
           : Number(arguments[1]);
-        return Value(static_cast<BaseObject*>(array_->slice(runtime, start, end)));
+        return Value(static_cast<BaseObject*>(array_->slice(start, end)));
       }
     }
     if (arguments.empty()) {
-      throw runtime.errorAtCurrentSource(u"Dynamic array callback method requires a callback");
+      throw Runtime::errorAtCurrentSource(u"Dynamic array callback method requires a callback");
     }
     const Value callback = arguments[0];
     const auto invoke = [&](std::size_t index, const Value* accumulator = nullptr) {
-      const Value element = array_->dynamicArrayGet(runtime, index);
+      const Value element = array_->dynamicArrayGet(index);
       std::vector<Value> callbackArguments;
       if (accumulator) callbackArguments.push_back(*accumulator);
       callbackArguments.push_back(element);
       callbackArguments.push_back(Value(static_cast<double>(index)));
       callbackArguments.push_back(Value(static_cast<BaseObject*>(array_.Get())));
-      return call(runtime, callback, std::move(callbackArguments));
+      return call(callback, std::move(callbackArguments));
     };
 
     if (method_ == u"map") {
-      auto* result = runtime.array<Value>();
+      auto* result = Runtime::array<Value>();
       for (std::size_t index = 0; index < array_->size(); ++index) result->append(invoke(index));
       return Value(static_cast<BaseObject*>(result));
     }
     if (method_ == u"filter") {
-      auto* result = runtime.array<Value>();
+      auto* result = Runtime::array<Value>();
       for (std::size_t index = 0; index < array_->size(); ++index) {
-        if (Boolean(invoke(index))) result->append(array_->dynamicArrayGet(runtime, index));
+        if (Boolean(invoke(index))) result->append(array_->dynamicArrayGet(index));
       }
       return Value(static_cast<BaseObject*>(result));
     }
     if (method_ == u"flatMap") {
-      auto* result = runtime.array<Value>();
+      auto* result = Runtime::array<Value>();
       for (std::size_t index = 0; index < array_->size(); ++index) {
         const Value mapped = invoke(index);
         if (mapped.isRuntimeObject() && mapped.object()->dynamicIsArray()) {
           auto* nested = mapped.object();
           for (std::size_t nestedIndex = 0; nestedIndex < nested->dynamicArraySize(); ++nestedIndex) {
-            result->append(nested->dynamicArrayGet(runtime, nestedIndex));
+            result->append(nested->dynamicArrayGet(nestedIndex));
           }
         } else {
           result->append(mapped);
@@ -6655,7 +6649,7 @@ class DynamicArrayMethodObject final
     }
     if (method_ == u"find") {
       for (std::size_t index = 0; index < array_->size(); ++index) {
-        if (Boolean(invoke(index))) return array_->dynamicArrayGet(runtime, index);
+        if (Boolean(invoke(index))) return array_->dynamicArrayGet(index);
       }
       return Value::undefined();
     }
@@ -6676,14 +6670,14 @@ class DynamicArrayMethodObject final
         accumulator = arguments[1];
       } else {
         if (array_->empty()) {
-          throw runtime.errorAtCurrentSource(u"Reduce of empty array with no initial value");
+          throw Runtime::errorAtCurrentSource(u"Reduce of empty array with no initial value");
         }
-        accumulator = array_->dynamicArrayGet(runtime, index++);
+        accumulator = array_->dynamicArrayGet(index++);
       }
       for (; index < array_->size(); ++index) accumulator = invoke(index, &accumulator);
       return accumulator;
     }
-    throw runtime.errorAtCurrentSource(u"Unsupported dynamic array method");
+    throw Runtime::errorAtCurrentSource(u"Unsupported dynamic array method");
   }
 
  private:
@@ -6693,8 +6687,7 @@ class DynamicArrayMethodObject final
 
 template <typename T>
 inline Value ArrayObject<T>::dynamicGet(const std::u16string& key) {
-  auto& runtime = currentRuntime();
-  if (key == u"length") return Value(static_cast<double>(size()));
+    if (key == u"length") return Value(static_cast<double>(size()));
   if (
     key == u"map" || key == u"filter" || key == u"flatMap" ||
     key == u"some" || key == u"every" || key == u"find" ||
@@ -6705,7 +6698,7 @@ inline Value ArrayObject<T>::dynamicGet(const std::u16string& key) {
     key == u"join" || key == u"slice"
   ) {
     return Value(static_cast<BaseObject*>(
-      runtime.make<DynamicArrayMethodObject<T>>(this, key)
+      Runtime::make<DynamicArrayMethodObject<T>>(this, key)
     ));
   }
   if constexpr (IsDynamicArrayElement<T>) {
@@ -6721,7 +6714,7 @@ inline Value ArrayObject<T>::dynamicGet(const std::u16string& key) {
     }
     return BaseObject::dynamicGet(key);
   } else {
-    throw runtime.errorAtCurrentSource(
+    throw Runtime::errorAtCurrentSource(
       std::u16string(u"This native array element type cannot flow through dynamic access: ") +
       utf8ToUtf16(__PRETTY_FUNCTION__)
     );
@@ -6739,16 +6732,16 @@ inline bool Boolean(const std::vector<T>&) {
 }
 
 template <typename Left, typename Right>
-inline Value add(Runtime& runtime, Left&& leftInput, Right&& rightInput) {
+inline Value add(Left&& leftInput, Right&& rightInput) {
   const Value left = convertValue<Value>(std::forward<Left>(leftInput));
   const Value right = convertValue<Value>(std::forward<Right>(rightInput));
-  if (const auto result = callDynamicOperator(runtime, left, u"__vexa_operator:+", right)) {
+  if (const auto result = callDynamicOperator(left, u"__vexa_operator:+", right)) {
     return *result;
   }
   if (left.isString() || right.isString()) {
-    const Value leftText = left.isString() ? left : runtime.string(toString(left));
-    const Value rightText = right.isString() ? right : runtime.string(toString(right));
-    return runtime.concatStrings(leftText.stringObject(), rightText.stringObject());
+    const Value leftText = left.isString() ? left : Runtime::string(toString(left));
+    const Value rightText = right.isString() ? right : Runtime::string(toString(right));
+    return Runtime::concatStrings(leftText.stringObject(), rightText.stringObject());
   }
   if (left.isBigInt() || right.isBigInt()) {
     if (!left.isBigInt() || !right.isBigInt()) {
@@ -6760,8 +6753,8 @@ inline Value add(Runtime& runtime, Left&& leftInput, Right&& rightInput) {
 }
 
 template <typename Right>
-inline Value& addAssign(Runtime& runtime, Value& left, Right&& right) {
-  left = add(runtime, left, std::forward<Right>(right));
+inline Value& addAssign(Value& left, Right&& right) {
+  left = add(left, std::forward<Right>(right));
   return left;
 }
 
@@ -6772,7 +6765,7 @@ inline void requireMatchingBigInts(const Value& left, const Value& right) {
 }
 
 inline Value subtract(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:-", right)) {
+  if (const auto result = callDynamicOperator(left, u"__vexa_operator:-", right)) {
     return *result;
   }
   requireMatchingBigInts(left, right);
@@ -6782,7 +6775,7 @@ inline Value subtract(const Value& left, const Value& right) {
 }
 
 inline Value multiply(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:*", right)) {
+  if (const auto result = callDynamicOperator(left, u"__vexa_operator:*", right)) {
     return *result;
   }
   requireMatchingBigInts(left, right);
@@ -6792,7 +6785,7 @@ inline Value multiply(const Value& left, const Value& right) {
 }
 
 inline Value divide(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:/", right)) {
+  if (const auto result = callDynamicOperator(left, u"__vexa_operator:/", right)) {
     return *result;
   }
   requireMatchingBigInts(left, right);
@@ -6802,7 +6795,7 @@ inline Value divide(const Value& left, const Value& right) {
 }
 
 inline Value power(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(currentRuntime(), left, u"__vexa_operator:**", right)) {
+  if (const auto result = callDynamicOperator(left, u"__vexa_operator:**", right)) {
     return *result;
   }
   requireMatchingBigInts(left, right);
@@ -6812,7 +6805,7 @@ inline Value power(const Value& left, const Value& right) {
 }
 
 inline Value negate(const Value& value) {
-  if (const auto result = callDynamicOperator(currentRuntime(), value, u"__vexa_operator:-")) {
+  if (const auto result = callDynamicOperator(value, u"__vexa_operator:-")) {
     return *result;
   }
   return value.isBigInt() ? Value(-value.bigint()) : Value(-Number(value));
@@ -6916,7 +6909,7 @@ inline std::int32_t compare(const Left& left, const Right& right) {
 
 inline std::int32_t compare(const Value& left, const Value& right) {
   if (const auto result = callDynamicOperator(
-        currentRuntime(), left, u"__vexa_operator:<=>", right)) {
+        left, u"__vexa_operator:<=>", right)) {
     return convertValue<std::int32_t>(*result);
   }
   if (left.isRuntimeObject() && right.isRuntimeObject()) {
@@ -6976,16 +6969,42 @@ inline bool isErrorLike(T* value) {
   return value && value->dynamicCast(nativeTypeToken<Error>()) != nullptr;
 }
 inline Value encodeURIComponent(const std::u16string& value) {
-  return Runtime::current().string(encodeUriComponentText(value));
+  return Runtime::string(encodeUriComponentText(value));
 }
 inline Value encodeURIComponent(const Value& value) {
   return encodeURIComponent(value.isString() ? value.utf16() : toString(value));
 }
 inline Value decodeURIComponent(const std::u16string& value) {
-  return Runtime::current().string(decodeUriComponentText(value));
+  return Runtime::string(decodeUriComponentText(value));
 }
 inline Value decodeURIComponent(const Value& value) {
   return decodeURIComponent(value.isString() ? value.utf16() : toString(value));
+}
+
+template <typename T, typename Executor>
+inline Task<T> createTask(Executor executor) {
+  return Task<T>::create(std::move(executor));
+}
+
+inline Runtime::TimerId setTimeout(Runtime::TimerCallback callback, double delay = 0) {
+  return Runtime::setTimeout(std::move(callback), delay);
+}
+
+inline Runtime::TimerId setInterval(Runtime::TimerCallback callback, double delay = 0) {
+  return Runtime::setInterval(std::move(callback), delay);
+}
+
+inline void clearTimeout(Runtime::TimerId id) { Runtime::clearTimeout(id); }
+inline void clearInterval(Runtime::TimerId id) { Runtime::clearInterval(id); }
+inline void clearTimeout(const Value& id) { Runtime::clearTimeout(id); }
+inline void clearInterval(const Value& id) { Runtime::clearInterval(id); }
+
+inline Value call(const Value& callable, std::initializer_list<Value> arguments) {
+  return call(callable, std::vector<Value>(arguments));
+}
+
+inline Value callOptional(const Value& callable, std::initializer_list<Value> arguments) {
+  return callOptional(callable, std::vector<Value>(arguments));
 }
 
 inline std::u16string typeOf(const Value& value) {

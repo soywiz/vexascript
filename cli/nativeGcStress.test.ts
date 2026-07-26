@@ -33,25 +33,24 @@ class FinalizationProbe final
 #define VEXA_NOINLINE __attribute__((noinline))
 #endif
 
-VEXA_NOINLINE void createCycle(vexa::Runtime& runtime) {
-  auto* record = runtime.record();
+VEXA_NOINLINE void createCycle() {
+  auto* record = vexa::Runtime::record();
   cppgc::Persistent<vexa::RecordObject> root(record);
-  auto* array = runtime.array<vexa::Value>();
-  auto* probe = runtime.make<FinalizationProbe>();
+  auto* array = vexa::Runtime::array<vexa::Value>();
+  auto* probe = vexa::Runtime::make<FinalizationProbe>();
   record->set(u"array", vexa::Value(array));
   record->set(u"probe", vexa::Value(probe));
   array->append(vexa::Value(record));
   auto* closure = vexa::makeFunction<vexa::Value>(
-      runtime,
       [record]() { return vexa::Value(record); },
       {vexa::Value(record)});
   record->set(u"closure", vexa::Value(closure));
 }
 
 int main() {
-  vexa::Runtime runtime;
-  createCycle(runtime);
-  runtime.heap().ForceGarbageCollectionSlow(
+  vexa::Runtime::initialize();
+  createCycle();
+  vexa::Runtime::heap().ForceGarbageCollectionSlow(
       "native GC cycle test", "verify traced closure captures",
       cppgc::Heap::StackState::kNoHeapPointers);
   std::cout << "finalized " << FinalizationProbe::finalized << std::endl;

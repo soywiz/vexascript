@@ -65,6 +65,23 @@ function fold(leftValue: number, rightValue: number): number {
     expect(result.code).not.toContain("vexa::toValue(leftValue)");
   });
 
+  it("caches instanceof narrowing casts instead of checking and casting twice", () => {
+    const result = transpile(`
+class Base {}
+class Child extends Base { value: number }
+function read(value: Base): number {
+  if (value instanceof Child) return value.value;
+  return 0;
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/instanceof-narrowing.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("auto* __vexa_instanceof_");
+    expect(result.code).toContain("vexa::toInstanceOrNull<Child*>(value)");
+    expect(result.code).toContain("if (__vexa_instanceof_");
+    expect(result.code).not.toContain("vexa::isInstance<Child>(value)");
+  });
+
   it("emits referenced C++ headers and raw function bodies", () => {
     const result = transpile(`
 @CppHeader("#include <native_api.h>")
@@ -113,7 +130,8 @@ console.log(pair.x, pair.y)
 `, { emit: "cpp" });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("vexa::Runtime::current().make<vexa::ArrayBufferObject>(8)");
+    expect(result.code).toContain("vexa::makeManaged<vexa::ArrayBufferObject>(8)");
+    expect(result.code).not.toContain("vexa::Runtime::current()");
     expect(result.code).toContain("std::int16_t& x;");
     expect(result.code).toContain("buffer_->data() + 4");
     expect(result.code).toContain("static_assert(4 % 4 == 0);");
@@ -129,7 +147,7 @@ const pair = Pair()
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("Pair(std::int32_t x, std::int32_t y)");
-    expect(result.code).toContain("runtime.make<Pair>(0, 0)");
+    expect(result.code).toContain("vexa::makeManaged<Pair>(0, 0)");
   });
 
   it("emits field-declared FFI structs with overlapping explicit offsets", () => {
@@ -177,7 +195,7 @@ main()
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("vexa::Task<void> wait(std::int32_t milliseconds)");
-    expect(result.code).toContain("vexa::runAsync(vexa::Runtime::current()");
+    expect(result.code).toContain("vexa::runAsync(");
   });
 
   it("emits native runtime and platform intrinsics", () => {
@@ -196,6 +214,6 @@ function positive(values: number[] | undefined): number[] | undefined {
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("vexa::optionalCall(");
-    expect(result.code).toContain("vexa::filter(vexa::Runtime::current(), __vexa_optional_receiver");
+    expect(result.code).toContain("vexa::filter(__vexa_optional_receiver");
   });
 });

@@ -238,7 +238,7 @@ describe("CLI", () => {
 
     const generatedCpp = await readFile(output, "utf8");
     expect(generatedCpp.length).toBeGreaterThan(0);
-    expect(generatedCpp).toContain("auto contextProgram = vexa::Runtime::current().make<");
+    expect(generatedCpp).toContain("auto contextProgram = vexa::makeManaged<");
     expect(generatedCpp).not.toContain("auto contextProgram = vexa::toInstance<");
     await validateNativeCppSyntax(output);
   });
@@ -280,7 +280,8 @@ describe("CLI", () => {
     await runCli(["node", "vexa", "cpp", input, "--out", output, "--native-source-locations"]);
 
     const outputCode = await readFile(output, "utf8");
-    expect(outputCode).toContain("VEXA_NATIVE_SOURCE(runtime,");
+    expect(outputCode).toContain("VEXA_NATIVE_SOURCE(u\"");
+    expect(outputCode).not.toContain("VEXA_NATIVE_SOURCE(runtime,");
     await validateNativeCppSyntax(output, { debug: true });
   });
 

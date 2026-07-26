@@ -32,8 +32,8 @@ describe("native SDL2 sample", () => {
     expect(nativeResult.code).toContain("std::int32_t& commonType;");
     expect(nativeResult.code).toContain("__vexa_module_0_SDLEvent()");
     expect(nativeResult.code).toContain("vexa::ArrayBufferObject* keyCount");
-    expect(nativeResult.code).toContain("make<__vexa_module_0_SDLRect>(368, 193, 64, 64)");
-    expect(nativeResult.code).toContain("vexa::runAsync(vexa::Runtime::current()");
+    expect(nativeResult.code).toContain("makeManaged<__vexa_module_0_SDLRect>(368, 193, 64, 64)");
+    expect(nativeResult.code).toContain("vexa::runAsync(");
     expect(nativeResult.code).toContain("vexa::FFIPointerObject*");
     expect(javaScriptResult.errors).toEqual([]);
     expect(javaScriptResult.code).toContain("globalThis.Deno?.dlopen");
