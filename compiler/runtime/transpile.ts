@@ -337,12 +337,12 @@ function parserOptionsForTranspile(options: TranspileOptions): ParserOptions {
 
 export function transpile(source: string, options: TranspileOptions = {}): TranspileResult {
   const externalDeclarations = options.externalDeclarations ?? [];
-  const importedSymbols: Map<string, ImportedSymbolResolution> =
-    normalizeImportedSymbolSources(options).importedSymbols;
   const ambientDeclarations = options.ambientDeclarations ?? [];
   const parserOptions = parserOptionsForTranspile(options);
   let artifacts = options.compilationArtifacts;
   if (!artifacts) {
+    const importedSymbols: Map<string, ImportedSymbolResolution> =
+      normalizeImportedSymbolSources(options).importedSymbols;
     const parseStartedAt = monotonicNow();
     const parsed = parseSource(source, parserOptions);
     options.profile?.({ phase: "parse", elapsedMs: monotonicNow() - parseStartedAt });

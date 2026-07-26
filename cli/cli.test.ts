@@ -301,6 +301,8 @@ describe("CLI", () => {
     await expect(runCli(["node", "vexa", "cpp", "link", input])).rejects.toThrow(
       "Native compilation expects a .vx or .ts input file"
     );
+    await expect(runCli(["node", "vexa", "cpp", "link", input, "-O0", "-O1"]))
+      .rejects.toThrow("Choose only one native optimization level");
   });
 
   it("build command uses JSX factories from vexascript.json", async () => {
@@ -357,7 +359,7 @@ describe("CLI", () => {
     expect(outputCode).toContain("exports.label = label;");
     expect(outputCode).toContain("const __vexaModules = {");
     expect(outputCode).toContain("async function (module, exports, __requireFrom)");
-    expect(outputCode).toContain('const suffix = "-from-js";');
+    expect(outputCode).toContain("const suffix = '-from-js';");
     expect(outputCode).toContain("exports.suffix = suffix;");
 
     const imported = await import(`${pathToFileURL(output).href}?${Date.now()}`) as { bundled: string };
@@ -694,6 +696,9 @@ describe("CLI", () => {
     const linkHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
     expect(linkHelp).toContain("Usage: vexa cpp link [options] <input>");
     expect(linkHelp).toContain("--build-dir <dir>");
+    expect(linkHelp).toContain("-O0");
+    expect(linkHelp).toContain("-O1");
+    expect(linkHelp).toContain("-O2");
 
     const nestedHelpStart = stdoutWriteSpy.mock.calls.length;
     await expect(runCli(["node", "vexa", "help", "cpp", "run"])).rejects.toThrow("process.exit:0");

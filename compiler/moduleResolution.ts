@@ -69,6 +69,7 @@ export interface ModuleResolutionOptions {
   vfs?: Vfs | undefined;
   importMappings?: Readonly<Record<string, string>> | undefined;
   getSessionForFilePath?: GetSessionForFilePath | undefined;
+  pnpmVirtualStore?: boolean | undefined;
 }
 
 const nodeModulesTypingsPathCache = new Map<string, string | null>();
@@ -294,19 +295,21 @@ export async function resolveNodeModulesTypingsPath(
       nodeModulesTypingsPathCache.set(cacheKey, definitelyTypedTypings);
       return definitelyTypedTypings;
     }
-    const pnpmPackageTypings = await declarationPathInPnpmVirtualStore(nodeModulesDir, rootPackageName, activeVfs);
-    if (pnpmPackageTypings) {
-      nodeModulesTypingsPathCache.set(cacheKey, pnpmPackageTypings);
-      return pnpmPackageTypings;
-    }
-    const pnpmTypesTypings = await declarationPathInPnpmVirtualStore(
-      nodeModulesDir,
-      typesPackageNameFor(rootPackageName),
-      activeVfs
-    );
-    if (pnpmTypesTypings) {
-      nodeModulesTypingsPathCache.set(cacheKey, pnpmTypesTypings);
-      return pnpmTypesTypings;
+    if (options.pnpmVirtualStore !== false) {
+      const pnpmPackageTypings = await declarationPathInPnpmVirtualStore(nodeModulesDir, rootPackageName, activeVfs);
+      if (pnpmPackageTypings) {
+        nodeModulesTypingsPathCache.set(cacheKey, pnpmPackageTypings);
+        return pnpmPackageTypings;
+      }
+      const pnpmTypesTypings = await declarationPathInPnpmVirtualStore(
+        nodeModulesDir,
+        typesPackageNameFor(rootPackageName),
+        activeVfs
+      );
+      if (pnpmTypesTypings) {
+        nodeModulesTypingsPathCache.set(cacheKey, pnpmTypesTypings);
+        return pnpmTypesTypings;
+      }
     }
     const parent = dirname(dir);
     if (parent === dir) break;

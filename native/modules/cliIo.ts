@@ -47,7 +47,12 @@ export async function resolveNativeProgramPaths(_sourcePath: string, _outputPath
   throw new Error("Native executable linking is not available in the native VexaScript CLI");
 }
 
-export async function linkNativeExecutable(_cppPath: string, _executablePath: string, _extraFlags: string[] = []): Promise<void> {
+export async function linkNativeExecutable(
+  _cppPath: string,
+  _executablePath: string,
+  _extraFlags: string[] = [],
+  _optimization?: string
+): Promise<void> {
   throw new Error("Native executable linking is not available in the native VexaScript CLI");
 }
 

@@ -41,6 +41,7 @@ import {
   startServe,
   tokenizeForCli,
 } from "./io";
+type NativeOptimization = "-O0" | "-O1" | "-O2";
 
 /** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
 export class DiagnosticError extends Error {
@@ -391,18 +392,33 @@ async function linkNativeProgram(
   target: TranspileTarget,
   typeCheck: boolean,
   emitNativeSourceLocations: boolean,
-  jsxOptions: JsxOptions = new JsxOptions()
+  jsxOptions: JsxOptions = new JsxOptions(),
+  optimization: NativeOptimization = "-O2"
 ): Promise<Awaited<ReturnType<typeof resolveNativeProgramPaths>>> {
   const compilation = await compileNativeProgram(input, out, buildDir, target, typeCheck, emitNativeSourceLocations, jsxOptions);
   const executableInfo = await vfs().stat(compilation.paths.executablePath).catch((_error) => null);
   const cppInfo = await vfs().stat(compilation.paths.cppPath).catch((_error) => null);
-  if (executableInfo && cppInfo && executableInfo.mtimeMs >= cppInfo.mtimeMs) {
+  const linkCachePath = resolve(compilation.paths.buildRoot, ".vexa-native-link-cache.json");
+  let linkCache = "";
+  try {
+    linkCache = (await vfs().readFile(linkCachePath)) ?? "";
+  } catch {
+    linkCache = "";
+  }
+  const linkCacheMatches = linkCache === `${optimization}\n${JSON.stringify(compilation.nativeCompilerFlags)}`;
+  if (executableInfo && cppInfo && executableInfo.mtimeMs >= cppInfo.mtimeMs && linkCacheMatches) {
     console.log(`Reusing cached native executable: ${compilation.paths.executablePath}`);
     return compilation.paths;
   }
-  console.log(`Compiling native executable with g++ -O2: ${compilation.paths.executablePath}`);
+  console.log(`Compiling native executable with g++ ${optimization}: ${compilation.paths.executablePath}`);
   const nativeCompileStartedAt = monotonicNow();
-  await linkNativeExecutable(compilation.paths.cppPath, compilation.paths.executablePath, compilation.nativeCompilerFlags);
+  await linkNativeExecutable(
+    compilation.paths.cppPath,
+    compilation.paths.executablePath,
+    compilation.nativeCompilerFlags,
+    optimization
+  );
+  await vfs().writeFile(linkCachePath, `${optimization}\n${JSON.stringify(compilation.nativeCompilerFlags)}`);
   console.log(
     `Linked: ${compilation.paths.cppPath} + Oilpan -> ${compilation.paths.executablePath} ` +
     `(native-compile-link ${roundedMilliseconds(monotonicNow() - nativeCompileStartedAt)}ms)`
@@ -983,9 +999,20 @@ function createProgram(): Command {
     command.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
     command.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
     command.option("--native-source-locations", "Emit per-statement native source-location hooks");
-    command.actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
+    command.option("-O0", "Disable native compiler optimizations");
+    command.option("-O1", "Enable basic native compiler optimizations");
+    command.option("-O2", "Enable standard native compiler optimizations (default)");
+    command.actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; O0?: boolean; O1?: boolean; O2?: boolean }): Promise<void> => {
+      const selectedOptimizations = [
+        opts.O0 === true ? "-O0" : undefined,
+        opts.O1 === true ? "-O1" : undefined,
+        opts.O2 === true ? "-O2" : undefined,
+      ].filter((value): value is NativeOptimization => value !== undefined);
+      if (selectedOptimizations.length > 1) {
+        throw new Error("Choose only one native optimization level: -O0, -O1, or -O2");
+      }
       const buildOptions = resolveBuildOptions(opts);
-      const paths = await linkNativeProgram(input, opts.out, opts.buildDir, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions);
+      const paths = await linkNativeProgram(input, opts.out, opts.buildDir, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, selectedOptimizations[0] ?? "-O2");
       if (name === "run") await runProcessCommand(paths.executablePath, []);
     });
   };

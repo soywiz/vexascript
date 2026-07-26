@@ -116,25 +116,30 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
         continue;
       }
       if (variable.receiverType && variable.name instanceof Identifier) {
-        const runtimeName = extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name);
+        const variableName = variable.name as Identifier;
+        const runtimeName = extensionPropertyRuntimeExportName(variable.receiverType.name, variableName.name);
         esmSpecifiers.add(runtimeName);
         commonJsLines.add(`exports.${runtimeName} = ${runtimeName};`);
         if (variable.accessors?.some((accessor) => accessor.accessorKind === "set")) {
-          const setterRuntimeName = extensionPropertySetterRuntimeExportName(variable.receiverType.name, variable.name.name);
+          const setterRuntimeName = extensionPropertySetterRuntimeExportName(variable.receiverType.name, variableName.name);
           esmSpecifiers.add(setterRuntimeName);
           commonJsLines.add(`exports.${setterRuntimeName} = ${setterRuntimeName};`);
         }
         continue;
       }
-      const declarations = variable.declarations && variable.declarations.length > 0
-        ? variable.declarations
-        : [{ name: variable.name, delegate: variable.delegate }];
-      for (const declaration of declarations) {
-        if (!(declaration.name instanceof Identifier) || declaration.delegate) {
-          continue;
+      if (variable.declarations && variable.declarations.length > 0) {
+        for (const declaration of variable.declarations) {
+          const name = declaration.name;
+          if (!(name instanceof Identifier) || declaration.delegate) {
+            continue;
+          }
+          const sourceName: string = (name as Identifier).name;
+          esmSpecifiers.add(sourceName);
+          commonJsLines.add(`exports.${sourceName} = ${sourceName};`);
         }
-        const sourceName = declaration.name.name;
-        const runtimeName = declarations.length === 1 ? (variable.jsName ?? sourceName) : sourceName;
+      } else if (variable.name instanceof Identifier && !variable.delegate) {
+        const sourceName: string = (variable.name as Identifier).name;
+        const runtimeName = variable.jsName ?? sourceName;
         esmSpecifiers.add(runtimeName === sourceName ? sourceName : `${runtimeName} as ${sourceName}`);
         commonJsLines.add(`exports.${sourceName} = ${runtimeName};`);
       }
@@ -161,24 +166,31 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
       commonJsLines.add(`exports.${exportName} = ${runtimeName};`);
       continue;
     }
-    if (statement instanceof ClassStatement || statement instanceof EnumStatement) {
-      if ((statement as { declared?: boolean }).declared) {
+    if (statement instanceof ClassStatement) {
+      if (statement.declared) {
         continue;
       }
-      const sourceName = (statement as { name?: Identifier }).name?.name;
-      if (!sourceName) {
+      const sourceName = statement.name.name;
+      const runtimeName = statement.jsName ?? sourceName;
+      esmSpecifiers.add(runtimeName === sourceName ? sourceName : `${runtimeName} as ${sourceName}`);
+      commonJsLines.add(`exports.${sourceName} = ${runtimeName};`);
+      continue;
+    }
+    if (statement instanceof EnumStatement) {
+      if (statement.declared) {
         continue;
       }
-      const runtimeName = (statement as { jsName?: string }).jsName ?? sourceName;
+      const sourceName = statement.name.name;
+      const runtimeName = statement.jsName ?? sourceName;
       esmSpecifiers.add(runtimeName === sourceName ? sourceName : `${runtimeName} as ${sourceName}`);
       commonJsLines.add(`exports.${sourceName} = ${runtimeName};`);
       continue;
     }
     if (statement instanceof NamespaceStatement) {
-      if ((statement as { declared?: boolean }).declared) {
+      if (statement.declared) {
         continue;
       }
-      const sourceName = (statement as { names?: Identifier[] }).names?.[0]?.name;
+      const sourceName = statement.names?.[0]?.name;
       if (sourceName) {
         esmSpecifiers.add(sourceName);
         commonJsLines.add(`exports.${sourceName} = ${sourceName};`);

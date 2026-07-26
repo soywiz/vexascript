@@ -370,7 +370,7 @@ async function collectGlobalSymbolFiles(paths: readonly string[], activeVfs: Vfs
   return result.sort();
 }
 
-function collectGlobalSymbolDeclarations(programs: Iterable<Program | null>): Statement[] {
+function collectGlobalSymbolDeclarations(programs: readonly (Program | null)[]): Statement[] {
   const declarations: Statement[] = [];
   for (const ast of programs) {
     if (ast) {

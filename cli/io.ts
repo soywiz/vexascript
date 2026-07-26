@@ -71,9 +71,14 @@ export async function resolveNativeProgramPaths(
   return nativeProgramPaths(sourcePath, outputPath, buildDir);
 }
 
-export async function linkNativeExecutable(cppPath: string, executablePath: string, extraFlags: string[] = []): Promise<void> {
+export async function linkNativeExecutable(
+  cppPath: string,
+  executablePath: string,
+  extraFlags: string[] = [],
+  optimization?: "-O0" | "-O1" | "-O2"
+): Promise<void> {
   const { compileNativeExecutable } = await import("./nativeBuild");
-  await compileNativeExecutable(cppPath, executablePath, extraFlags);
+  await compileNativeExecutable(cppPath, executablePath, extraFlags, optimization);
 }
 
 export async function runTestFiles(

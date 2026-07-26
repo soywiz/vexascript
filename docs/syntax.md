@@ -306,7 +306,7 @@ class Point(val x: number, val y: number) {
 
 Multiple top-level functions may share the same source name when their parameter type signatures differ. Re-declaring the exact same signature in the same file is a semantic error. During JavaScript emission, overloaded implementations are currently name-mangled with their parameter types, and typed calls are rewritten to the matching emitted name:
 
-```my
+```vexa
 function describe(value: int): string { return "int" }
 function describe(value: string): string { return value }
 
@@ -320,7 +320,7 @@ Signature-only overload declarations may be written without a body and are omitt
 
 A bodyless function may use `@JsInline` to provide a trusted JavaScript template that is inserted at each direct call site. Parameter identifiers in the template are replaced with the emitted call arguments. When an argument is omitted, its declared default value is used; otherwise it is replaced with `undefined`.
 
-```my
+```vexa
 @JsInline("if (!cond) throw new Error(message)")
 fun assert(cond: boolean, message: string = "assert failed")
 
@@ -424,7 +424,7 @@ and invokes `deno run -A`, enabling FFI and all other Deno permissions.
 
 Annotations are declared explicitly and then applied with `@`:
 
-```my
+```vexa
 annotation Benchmark
 annotation JsName(val name: string)
 annotation JsInline(val replacement: string)
@@ -432,7 +432,7 @@ annotation JsInline(val replacement: string)
 
 Zero-argument annotations may omit parentheses in both the declaration and each use site:
 
-```my
+```vexa
 annotation Benchmark
 
 @Benchmark
@@ -441,7 +441,7 @@ fun measure() {}
 
 The `@JsName("...")` annotation overrides the final JavaScript name of a declaration. It can be applied to functions, classes, enums, interfaces and variables. The source name is still used inside VexaScript, but JavaScript emission uses the supplied name for both the declaration and every reference to it:
 
-```my
+```vexa
 @JsName("rgba")
 class Color(val r: int, val g: int, val b: int, val a: int)
 
@@ -458,7 +458,7 @@ Member property names are not affected by `@JsName`; only the renamed declaratio
 
 Annotations may also be applied to individual class members (fields and methods), written immediately before the member. They stack the same way as on top-level declarations, and their arguments are checked against the declared annotation parameters. Member annotations carry no runtime semantics and are erased from JavaScript output:
 
-```my
+```vexa
 annotation Range(val min: number, val max: number)
 
 class Test extends Behaviour {
@@ -474,7 +474,7 @@ class Test extends Behaviour {
 
 The CLI `test` command discovers files ending in `.test.vx` and runs the generated modules with Node's `node:test` runner. Each test file receives `test` from `node:test` and `assert` from `node:assert/strict` without imports:
 
-```my
+```vexa
 test("arithmetic") {
   assert(1 + 1 == 2)
   assert(2 * 3 == 6)
@@ -487,7 +487,7 @@ The test name is reported by Node, and failed assertions set the CLI exit code t
 
 Inside a class method or field initializer, class members can be referenced without writing `this.`. Parameters and local variables still shadow members with the same name. JavaScript emission qualifies each resolved implicit member with `this.`:
 
-```my
+```vexa
 class Counter(val value: int) {
   increment(amount: int): int {
     return value + amount // emits as: return this.value + amount
@@ -497,7 +497,7 @@ class Counter(val value: int) {
 
 The same implicit receiver lookup is available inside extension methods and extension properties. Extension members are emitted as standalone receiver-mangled functions whose first parameter is the receiver (`$this`), so both implicit members and `this` resolve to that generated receiver parameter:
 
-```my
+```vexa
 fun Counter.doubled(): int { return value + value }
 val Counter.next => increment(1)
 ```
@@ -506,7 +506,7 @@ val Counter.next => increment(1)
 
 Classes can declare binary operator overload methods with `operator` followed by the operator token. Mangled runtime names use `$` for operator names and `$$` before the parameter-type signature. The runtime lowering rewrites matching binary expressions to method calls:
 
-```my
+```vexa
 class Point(val x: number, val y: number) {
   operator+(other: Point): Point {
     return new Point(this.x + other.x, this.y + other.y)
@@ -518,7 +518,7 @@ let c = a + b // emits as a.operator$plus$$Point(b) when a is Point
 
 Binary operators may also be declared as extension methods by placing the receiver type before `.operator`. Unlike class operators (which stay prototype methods), extension members — operators, named methods and properties — are emitted as standalone functions whose mangled runtime name begins with the receiver type and whose first argument is the receiver. They participate in the same type-directed lowering:
 
-```my
+```vexa
 fun Point.operator+(other: Point): Point => Point(this.x + other.x, this.y + other.y)
 
 let c = a + b // emits as Point$$operator$plus$$Point(a, b)
@@ -535,7 +535,7 @@ relational operators (`<`, `>`, `<=`, `>=`) and is left-associative, so
 For primitive operands (numbers, strings) it lowers to an inline comparison that
 evaluates each operand once:
 
-```my
+```vexa
 let order = 1 <=> 2 // -1
 let byName = "apple" <=> "banana" // -1
 ```
@@ -543,7 +543,7 @@ let byName = "apple" <=> "banana" // -1
 It is overloadable like the other binary operators, on classes or as an
 extension, with the mangled runtime name `operator$spaceship`:
 
-```my
+```vexa
 class Money(val cents: int) {
   operator<=>(other: Money): int => cents <=> other.cents
 }
@@ -560,7 +560,7 @@ the spaceship result as `(a <=> b) OP 0`. Separately, when a type declares
 direct overload for a specific operator always takes precedence over the derived
 form.
 
-```my
+```vexa
 class Money(val cents: int) {
   operator<=>(other: Money): int => cents <=> other.cents
 }
@@ -588,7 +588,7 @@ comparison is actually defined. A comparison is considered defined when either:
 Otherwise the operator is reported as undefined, for example comparing two
 unrelated class instances or a string against a number:
 
-```my
+```vexa
 class Test
 Test() < Test()   // error: Operator '<' is not defined for types 'Test' and 'Test'
 "test" < 10       // error: Operator '<' is not defined for types 'string' and 'int'
@@ -599,7 +599,7 @@ this way.
 
 Classes and extension methods can overload computed indexing with `operator[]` and `operator[]=`. Getter index operators receive the bracket dimensions in order. Setter index operators receive the assigned value first, followed by the bracket dimensions, so multidimensional setters keep a stable leading value parameter:
 
-```my
+```vexa
 class Array2<T>(val fallback: T) {
   operator[](x: int, y: int): T => fallback
   operator[]=(value: T, x: int, y: int): void { }
@@ -612,7 +612,7 @@ array[1, 2] = "next" // calls array.operator$set$$string$$int$$int("next", 1, 2)
 
 Rest parameters are supported for variable-dimensional indexers:
 
-```my
+```vexa
 class MultiArray<T>(val fallback: T) {
   operator[](...dimensions: int[]): T => fallback
   operator[]=(value: T, ...dimensions: int[]): void { }
@@ -624,7 +624,7 @@ multi[1, 2, 3] = item
 
 The same extension index operators can be declared on `Property<T>`, so property-reference expressions can act like lightweight bindable values:
 
-```my
+```vexa
 fun Property<number>.operator[](src: number, dst: number): TweenTarget => TweenTarget(this, src, dst)
 
 tween(view::x[0, 100], time: 1.seconds)
@@ -632,7 +632,7 @@ tween(view::x[0, 100], time: 1.seconds)
 
 Named extension methods follow the same scheme, so a call lowers to a plain function call with the receiver passed first:
 
-```my
+```vexa
 fun Counter.doubled(): int { return value + value }
 
 let n = counter.doubled() // emits as Counter$$doubled$$void(counter)
@@ -642,7 +642,7 @@ let n = counter.doubled() // emits as Counter$$doubled$$void(counter)
 
 A read-only extension property is declared with a receiver type before the property name, an optional `: Type` annotation, and `=>` before its value expression. Inside the expression, `this` is the receiver value:
 
-```my
+```vexa
 class Duration(val milliseconds: number)
 export val number.milliseconds => Duration(this)
 val number.seconds: Duration => Duration(this * 1000)
@@ -652,7 +652,7 @@ val duration = 10.milliseconds
 
 Extension properties are opt-in across files. A consumer imports the source-level property name, and access without that import is reported as a missing member:
 
-```my
+```vexa
 import { milliseconds } from "./duration"
 val duration = 10.milliseconds
 ```
@@ -663,7 +663,7 @@ At JavaScript runtime, declarations and imports are mangled with the receiver ty
 
 Extension methods and extension properties can be generic. Type parameters are written before the receiver type, and the receiver itself may carry type arguments — including built-in collection types such as `Array<T>`:
 
-```my
+```vexa
 fun <T> Array<T>.second(): T { return this[1] }
 val <T> Array<T>.doubledLength => length * 2
 // `T[]` is accepted as shorthand for `Array<T>` in extension receivers.

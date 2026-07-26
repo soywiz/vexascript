@@ -10,6 +10,10 @@ import {
   vi,
 } from "../compiler/test/expect";
 import { runCli } from "./cli";
+import {
+  ensureRuntimeDependencies,
+  resolveProjectForSource,
+} from "./cliShared";
 import { runCommandCapture } from "./io";
 
 describe("native language smoke", () => {
@@ -67,6 +71,63 @@ describe("native language smoke", () => {
       expect(logs).toContain(`Reusing cached native executable: ${executablePath}`);
     } finally {
       logSpy.mockRestore();
+      await rm(outputRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the native C++ CLI to produce fixture and Pixi JavaScript bundles", async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-cli-bundle-"));
+    const nativeCliPath = join(outputRoot, "vexa-native-cli");
+    const bundlePath = join(outputRoot, "sample.js");
+    const pixiBundlePath = join(outputRoot, "pixi.js");
+    const buildRoot = join(outputRoot, "build");
+    try {
+      await runCli([
+        "node",
+        "vexa",
+        "cpp",
+        "link",
+        join(process.cwd(), "cli", "cli.ts"),
+        "--out",
+        nativeCliPath,
+        "--build-dir",
+        buildRoot,
+        "-O0",
+      ]);
+
+      const bundle = await runCommandCapture(nativeCliPath, [
+        "bundle",
+        join(process.cwd(), "testFixtures", "sample.vx"),
+        "--platform",
+        "node",
+        "--out",
+        bundlePath,
+      ], { cwd: process.cwd() });
+      expect(bundle.code, bundle.stdout).toBe(0);
+      const executed = await runCommandCapture(process.execPath, [bundlePath], { cwd: outputRoot });
+      expect(executed.code).toBe(0);
+      expect(executed.stdout).toContain("Point { x: 4, y: 6 }");
+
+      const pixiSourcePath = join(process.cwd(), "samples", "pixi", "html.vx");
+      const pixiProject = await resolveProjectForSource(pixiSourcePath);
+      await ensureRuntimeDependencies(pixiSourcePath, pixiProject);
+      const pixiBundle = await runCommandCapture(nativeCliPath, [
+        "bundle",
+        pixiSourcePath,
+        "--platform",
+        "browser",
+        "--out",
+        pixiBundlePath,
+      ], { cwd: process.cwd() });
+      expect(pixiBundle.code, `${pixiBundle.stdout}\n${pixiBundle.stderr}`).toBe(0);
+      const pixiCode = await readFile(pixiBundlePath, "utf8");
+      expect(pixiCode).toContain("pixi-ready");
+      expect(pixiCode).toContain("new Graphics()");
+      expect(pixiCode).toContain("Container$$position$set");
+      expect(/"@pixi\/[^"]+":null/.test(pixiCode)).toBe(false);
+      const syntaxCheck = await runCommandCapture(process.execPath, ["--check", pixiBundlePath]);
+      expect(syntaxCheck.code, syntaxCheck.stderr).toBe(0);
+    } finally {
       await rm(outputRoot, { recursive: true, force: true });
     }
   });

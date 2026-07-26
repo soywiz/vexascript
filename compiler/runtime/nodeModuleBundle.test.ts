@@ -127,11 +127,12 @@ describe("collectCommonJsExports", () => {
 });
 
 describe("transpileModuleSource", () => {
-  it("preserves CommonJS .js source unchanged and returns null exportNames", () => {
+  it("preserves CommonJS .js source and defers export-name collection", () => {
     const cjs = 'const x = require("foo");\nexports.value = x;';
     const result = transpileModuleSource(cjs, "/lib/foo.js");
     expect(result.code).toBe(cjs);
-    expect(result.exportNames).toBeNull();
+    expect(result.exportNames).toEqual([]);
+    expect(result.collectCommonJsExportNames).toBe(true);
   });
 
   it("strips TypeScript type annotations through the emitter path", () => {
@@ -142,12 +143,25 @@ describe("transpileModuleSource", () => {
     expect(result.exportNames).toContain("value");
   });
 
-  it("converts JavaScript ESM imports to CommonJS require via emitter path", () => {
+  it("converts JavaScript ESM imports to CommonJS require through token rewriting", () => {
     const esm = 'import { a } from "foo";\nexport const b = a + 1;';
     const result = transpileModuleSource(esm, "/lib/foo.mjs");
     expect(result.code).toContain('require("foo")');
     expect(result.code).not.toContain("import ");
     expect(result.exportNames).toContain("b");
+  });
+
+  it("uses the module specifier rather than strings in import attributes", () => {
+    const esm = [
+      'import data from "./data.json" with { type: "json" };',
+      'import "./setup.js" with { mode: "eager" };',
+      "export default data;",
+    ].join("\n");
+    const result = transpileModuleSource(esm, "/lib/foo.mjs");
+    expect(result.code).toContain('require("./data.json")');
+    expect(result.code).toContain('require("./setup.js")');
+    expect(result.code).not.toContain('require("json")');
+    expect(result.code).not.toContain('require("eager")');
   });
 
   it("preserves JavaScript for-in loops when transpiling bundled modules", () => {
@@ -157,14 +171,14 @@ describe("transpileModuleSource", () => {
     expect(result.code).not.toContain("for (const key of obj)");
   });
 
-  it("handles export { name as default } via the emitter path", () => {
+  it("handles export { name as default } through token rewriting", () => {
     const esm = 'const impl=()=>7;\nexport{impl as default};\n';
     const result = transpileModuleSource(esm, "/lib/render.mjs");
     expect(result.code).toContain("exports.default = impl");
     expect(result.code).toContain("exports.__esModule = true");
   });
 
-  it("handles re-exports from another module via the emitter path", () => {
+  it("handles re-exports from another module through token rewriting", () => {
     const esm = 'export { version } from "./shared.js";\nexport { default } from "./shared.js";\n';
     const result = transpileModuleSource(esm, "/lib/render.js");
     expect(result.code).toContain('require("./shared.js")');
@@ -174,22 +188,21 @@ describe("transpileModuleSource", () => {
     expect(result.exportNames).toContain("default");
   });
 
-  it("handles namespace re-exports via the emitter path", () => {
+  it("handles namespace re-exports through token rewriting", () => {
     const esm = 'export * as widgets from "./shared.js";\n';
     const result = transpileModuleSource(esm, "/lib/render.js");
-    expect(result.code).toContain('const __vexa_export_0 = require("./shared.js");');
-    expect(result.code).toContain("exports.widgets = __vexa_export_0;");
+    expect(result.code).toContain('exports.widgets = require("./shared.js");');
     expect(result.exportNames).toContain("widgets");
   });
 
-  it("handles anonymous default function exports via the emitter path", () => {
+  it("handles anonymous default function exports through token rewriting", () => {
     const esm = "export default function () { return 7; }\n";
     const result = transpileModuleSource(esm, "/lib/render.mjs");
-    expect(result.code).toContain("exports.default = function()");
+    expect(result.code).toContain("exports.default = function ()");
     expect(result.code).toContain("exports.__esModule = true");
   });
 
-  it("handles anonymous default class exports via the emitter path", () => {
+  it("handles anonymous default class exports through token rewriting", () => {
     const esm = "export default class extends Base {}\n";
     const result = transpileModuleSource(esm, "/lib/render.mjs");
     expect(result.code).toContain("exports.default = class extends Base");
@@ -211,23 +224,25 @@ describe("transpileModuleSource", () => {
     expect(result.code).toContain("exports.default = Browser");
   });
 
-  it("handles regular expression default exports via the emitter path", () => {
+  it("handles regular expression default exports through token rewriting", () => {
     const esm = "export default /[\\0-\\x1F\\x7F-\\x9F]/;\n";
     const result = transpileModuleSource(esm, "/lib/regex.mjs");
     expect(result.code).toContain("exports.default = /[\\0-\\x1F\\x7F-\\x9F]/");
     expect(result.code).toContain("exports.__esModule = true");
   });
 
-  it("wraps destructuring assignment expression statements from bundled JavaScript modules", () => {
+  it("preserves destructuring assignment expression statements without parsing or reformatting them", () => {
     const source = '({ sizeLods: this._sizeLods, lodPlanes: this._lodPlanes } = createPlanes());\n';
     const result = transpileModuleSource(source, "/lib/render.js");
-    expect(result.code).toContain('({sizeLods: this._sizeLods, lodPlanes: this._lodPlanes} = createPlanes());');
+    expect(result.code).toBe(source);
   });
 
-  it("transpiles string literal property names in JavaScript object binding patterns", () => {
+  it("preserves JavaScript object binding patterns while rewriting their export", () => {
     const source = 'export function linkProps(_ref8) {\n  let {\n    "aria-current": ariaCurrentProp = "page",\n    caseSensitive = false\n  } = _ref8;\n  return ariaCurrentProp ?? caseSensitive;\n}\n';
     const result = transpileModuleSource(source, "/lib/render.js");
-    expect(result.code).toContain('let { "aria-current": ariaCurrentProp = "page", caseSensitive = false } = _ref8;');
+    expect(result.code).toContain('"aria-current": ariaCurrentProp = "page",');
+    expect(result.code).toContain("caseSensitive = false");
+    expect(result.code).toContain("exports.linkProps = linkProps;");
     expect(result.exportNames).toContain("linkProps");
   });
 });
@@ -353,7 +368,7 @@ describe("bundleNodeModuleGraph", () => {
     );
   });
 
-  it("parses JavaScript ESM default function exports through the shared emitter path", async () => {
+  it("rewrites JavaScript ESM default function exports through the token path", async () => {
     await withTempProject(
       {
         "entry.js": 'import render from "pkg/render"; export const value = render();\n',
@@ -497,7 +512,7 @@ describe("bundleNodeModuleGraph", () => {
     );
   });
 
-  it("supports bundled JavaScript ESM re-exports through the shared emitter path", async () => {
+  it("supports bundled JavaScript ESM re-exports through the token path", async () => {
     await withTempProject(
       {
         "entry.js": 'import render, { version } from "pkg/render"; export const value = render() + version;\n',
@@ -518,15 +533,15 @@ describe("bundleNodeModuleGraph", () => {
           join(dir, "entry.js")
         );
 
-        expect(result.code).toContain('const __vexa_export_0 = require("./shared.js");');
-        expect(result.code).toContain("exports.version = __vexa_export_0.version;");
-        expect(result.code).toContain("exports.default = __vexa_export_1.default;");
+        expect(result.code).toContain('const __vexa_reexport_0 = require("./shared.js");');
+        expect(result.code).toContain("exports.version = __vexa_reexport_0.version;");
+        expect(result.code).toContain("exports.default = __vexa_reexport_1.default;");
         expect(result.code).toContain("exports.__esModule = true;");
       }
     );
   });
 
-  it("supports bundled JavaScript ESM namespace re-exports through the shared emitter path", async () => {
+  it("supports bundled JavaScript ESM namespace re-exports through the token path", async () => {
     await withTempProject(
       {
         "entry.js": 'import { widgets } from "pkg/render"; export const value = widgets.answer;\n',
@@ -547,8 +562,7 @@ describe("bundleNodeModuleGraph", () => {
           join(dir, "entry.js")
         );
 
-        expect(result.code).toContain('const __vexa_export_0 = require("./shared.js");');
-        expect(result.code).toContain("exports.widgets = __vexa_export_0;");
+        expect(result.code).toContain('exports.widgets = require("./shared.js");');
         expect(result.code).toContain('const { widgets } = require("pkg/render");');
       }
     );

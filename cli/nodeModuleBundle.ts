@@ -2,13 +2,13 @@ import { ClassStatement, EnumStatement, ExportStatement, FunctionStatement, Iden
 import { builtinModules } from "node:module";
 import type { Program, Statement } from "../compiler/ast/ast";
 import { parseSource } from "../compiler/pipeline/parse";
-import { tokenize, TokenType } from "../compiler/parser/tokenizer";
+import { tokenize, TokenType, type Token } from "../compiler/parser/tokenizer";
 import { emitProgram } from "../compiler/runtime/emitter";
 import { basename, dirname, extname, relative, resolve } from "../compiler/utils/path";
 import { hasRecognizedModuleFileExtension } from "../compiler/language";
 import { vfs, type Vfs } from "../compiler/vfs";
 
-interface BundleNodeModulesOptions {
+export interface BundleNodeModulesOptions {
   vfs?: Vfs;
   virtualSources?: ReadonlyMap<string, string>;
   importMappings?: Readonly<Record<string, string>>;
@@ -16,6 +16,7 @@ interface BundleNodeModulesOptions {
   baseUrl?: string;
   incrementalCache?: NodeModuleBundleIncrementalCache;
   changedFiles?: readonly string[];
+  pnpmVirtualStore?: boolean;
 }
 
 export interface BundleNodeModulesResult {
@@ -60,6 +61,7 @@ type ResolvedDependency =
   | { kind: "external" };
 
 interface ResolutionContext {
+  pnpmVirtualStore: boolean;
   packageJsonByDir: Map<string, Record<string, unknown> | null>;
   statByPath: Map<string, VfsStatResult>;
   fileExistsByPath: Map<string, boolean>;
@@ -79,8 +81,6 @@ const NODE_BUILTIN_SET = new Set([
   ...builtinModules.map((specifier) => specifier.startsWith("node:") ? specifier : `node:${specifier}`)
 ]);
 
-const STATIC_REQUIRE_PATTERN = /\brequire\s*\(\s*(['"])([^"'`]+)\1\s*\)/g;
-const STATIC_DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*(['"])([^"'`]+)\1\s*\)/g;
 const bundledModuleArtifactCache = new Map<string, CachedBundledModuleArtifact>();
 const incrementalBundleStates = new WeakMap<NodeModuleBundleIncrementalCache, NodeModuleBundleIncrementalState>();
 
@@ -120,8 +120,40 @@ interface StaticDynamicImportOccurrence {
   endOffset: number;
 }
 
-function createResolutionContext(): ResolutionContext {
+class SourceReplacement {
+  constructor(
+    public startOffset: number,
+    public endOffset: number,
+    public text: string
+  ) {}
+}
+
+class ModuleSpecifierBinding {
+  constructor(
+    public imported: string,
+    public local: string
+  ) {}
+}
+
+class ModuleTransformResult {
+  constructor(
+    public replacement: SourceReplacement,
+    public endIndex: number,
+    public exportNames: string[] = []
+  ) {}
+}
+
+export class TranspiledModuleSource {
+  constructor(
+    public code: string,
+    public exportNames: string[],
+    public collectCommonJsExportNames = false
+  ) {}
+}
+
+function createResolutionContext(pnpmVirtualStore = true): ResolutionContext {
   return {
+    pnpmVirtualStore,
     packageJsonByDir: new Map(),
     statByPath: new Map(),
     fileExistsByPath: new Map(),
@@ -145,7 +177,12 @@ async function statInVfs(path: string, vfs: Vfs, context: ResolutionContext): Pr
   if (context.statByPath.has(path)) {
     return context.statByPath.get(path) ?? null;
   }
-  const stat = await vfs.stat(path).catch(() => null);
+  let stat: VfsStatResult = null;
+  try {
+    stat = await vfs.stat(path);
+  } catch {
+    stat = null;
+  }
   context.statByPath.set(path, stat);
   return stat;
 }
@@ -206,7 +243,12 @@ async function fileExistsInVfs(path: string, vfs: Vfs, context: ResolutionContex
     context.fileExistsByPath.set(path, true);
     return true;
   }
-  const exists = await vfs.fileExists(path).catch(() => false);
+  let exists = false;
+  try {
+    exists = await vfs.fileExists(path);
+  } catch {
+    exists = false;
+  }
   context.fileExistsByPath.set(path, exists);
   return exists;
 }
@@ -233,7 +275,12 @@ async function readDirInVfs(path: string, vfs: Vfs, context: ResolutionContext):
   if (context.readDirByPath.has(path)) {
     return context.readDirByPath.get(path) ?? null;
   }
-  const entries = await vfs.readDir(path).catch(() => null);
+  let entries: Awaited<ReturnType<Vfs["readDir"]>> | null = null;
+  try {
+    entries = await vfs.readDir(path);
+  } catch {
+    entries = null;
+  }
   context.readDirByPath.set(path, entries);
   return entries;
 }
@@ -306,10 +353,11 @@ async function resolveDirectoryModule(
     const exportsField = packageExportTarget(packageJson["exports"]);
     const moduleField = typeof packageJson["module"] === "string" ? packageJson["module"] : null;
     const mainField = typeof packageJson["main"] === "string" ? packageJson["main"] : null;
-    for (const candidate of [exportsField, moduleField, mainField]) {
-      if (!candidate) {
-        continue;
-      }
+    const candidates: string[] = [];
+    if (exportsField) candidates.push(exportsField);
+    if (moduleField) candidates.push(moduleField);
+    if (mainField) candidates.push(mainField);
+    for (const candidate of candidates) {
       const resolvedEntry = await resolveAsModulePath(resolve(directoryPath, candidate), vfs, virtualSources, context);
       if (resolvedEntry) {
         context.resolvedDirectoryModuleByPath.set(directoryPath, resolvedEntry);
@@ -367,6 +415,10 @@ async function resolveBareSpecifierInPnpmVirtualStore(
     return context.resolvedBareSpecifierInPnpmStoreByKey.get(cacheKey) ?? null;
   }
   const storeDir = resolve(nodeModulesDir, ".pnpm");
+  if (!(await isDirectoryInVfs(storeDir, vfs, context))) {
+    context.resolvedBareSpecifierInPnpmStoreByKey.set(cacheKey, null);
+    return null;
+  }
   const entries = await readDirInVfs(storeDir, vfs, context);
   if (!entries) {
     context.resolvedBareSpecifierInPnpmStoreByKey.set(cacheKey, null);
@@ -450,10 +502,12 @@ async function resolveBareSpecifier(
     }
 
     const nodeModulesDir = resolve(currentDir, "node_modules");
-    const resolvedFromPnpmStore = await resolveBareSpecifierInPnpmVirtualStore(nodeModulesDir, specifier, vfs, virtualSources, context);
-    if (resolvedFromPnpmStore) {
-      context.resolvedBareSpecifierByKey.set(cacheKey, resolvedFromPnpmStore);
-      return resolvedFromPnpmStore;
+    if (context.pnpmVirtualStore) {
+      const resolvedFromPnpmStore = await resolveBareSpecifierInPnpmVirtualStore(nodeModulesDir, specifier, vfs, virtualSources, context);
+      if (resolvedFromPnpmStore) {
+        context.resolvedBareSpecifierByKey.set(cacheKey, resolvedFromPnpmStore);
+        return resolvedFromPnpmStore;
+      }
     }
 
     const parentDir = dirname(currentDir);
@@ -535,11 +589,8 @@ async function resolveDependency(
 
 export function detectStaticRequires(source: string): string[] {
   const specifiers = new Set<string>();
-  for (const match of source.matchAll(STATIC_REQUIRE_PATTERN)) {
-    const specifier = match[2];
-    if (specifier) {
-      specifiers.add(specifier);
-    }
+  for (const occurrence of collectStaticCallOccurrences(source, "require")) {
+    specifiers.add(occurrence.specifier);
   }
   return [...specifiers];
 }
@@ -573,6 +624,13 @@ export function rewriteStaticDynamicImports(source: string): string {
 }
 
 function collectStaticDynamicImportOccurrences(source: string): StaticDynamicImportOccurrence[] {
+  return collectStaticCallOccurrences(source, "import");
+}
+
+function collectStaticCallOccurrences(
+  source: string,
+  calleeName: "require" | "import"
+): StaticDynamicImportOccurrence[] {
   try {
     const tokens = tokenize(source);
     const occurrences: StaticDynamicImportOccurrence[] = [];
@@ -583,7 +641,7 @@ function collectStaticDynamicImportOccurrences(source: string): StaticDynamicImp
       const closeParenToken = tokens[index + 3];
       if (
         importToken?.type === TokenType.IDENTIFIER
-        && importToken.value === "import"
+        && importToken.value === calleeName
         && openParenToken?.type === TokenType.SYMBOL
         && openParenToken.value === "("
         && specifierToken?.type === TokenType.STRING
@@ -599,21 +657,351 @@ function collectStaticDynamicImportOccurrences(source: string): StaticDynamicImp
     }
     return occurrences;
   } catch {
-    const occurrences: StaticDynamicImportOccurrence[] = [];
-    for (const match of source.matchAll(STATIC_DYNAMIC_IMPORT_PATTERN)) {
-      const specifier = match[2];
-      const startOffset = match.index;
-      if (!specifier || startOffset === undefined) {
+    return [];
+  }
+}
+
+function tokenIs(token: Token | undefined, value: string): boolean {
+  return token?.value === value;
+}
+
+function findStatementEnd(tokens: readonly Token[], startIndex: number): number {
+  let roundDepth = 0;
+  let squareDepth = 0;
+  let curlyDepth = 0;
+  for (let index = startIndex; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token || token.type === TokenType.END_OF_FILE) {
+      return Math.max(startIndex, index - 1);
+    }
+    if (tokenIs(token, "(")) roundDepth += 1;
+    else if (tokenIs(token, ")")) roundDepth -= 1;
+    else if (tokenIs(token, "[")) squareDepth += 1;
+    else if (tokenIs(token, "]")) squareDepth -= 1;
+    else if (tokenIs(token, "{")) curlyDepth += 1;
+    else if (tokenIs(token, "}")) curlyDepth -= 1;
+    else if (tokenIs(token, ";") && roundDepth === 0 && squareDepth === 0 && curlyDepth === 0) return index;
+  }
+  return tokens.length - 1;
+}
+
+function findTokenValue(tokens: readonly Token[], value: string, startIndex: number, endIndex: number): number {
+  let foundIndex = -1;
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    if (tokenIs(tokens[index], value)) {
+      foundIndex = index;
+      break;
+    }
+  }
+  return foundIndex;
+}
+
+function moduleSpecifierBindings(
+  tokens: readonly Token[],
+  openBraceIndex: number,
+  closeBraceIndex: number
+): ModuleSpecifierBinding[] {
+  const bindings: ModuleSpecifierBinding[] = [];
+  let index = openBraceIndex + 1;
+  while (index < closeBraceIndex) {
+    const importedToken = tokens[index];
+    if (!importedToken || tokenIs(importedToken, ",")) {
+      index += 1;
+      continue;
+    }
+    let local = importedToken.value;
+    if (tokenIs(tokens[index + 1], "as") && tokens[index + 2]) {
+      local = tokens[index + 2]!.value;
+      index += 3;
+    } else {
+      index += 1;
+    }
+    bindings.push(new ModuleSpecifierBinding(importedToken.value, local));
+  }
+  return bindings;
+}
+
+function requireExpression(specifier: string): string {
+  return `require(${JSON.stringify(specifier)})`;
+}
+
+function transformStaticImport(
+  tokens: readonly Token[],
+  startIndex: number,
+  temporaryIndex: number
+): ModuleTransformResult | null {
+  if (tokenIs(tokens[startIndex + 1], "(") || tokenIs(tokens[startIndex + 1], ".")) {
+    return null;
+  }
+  const endIndex = findStatementEnd(tokens, startIndex);
+  const importToken = tokens[startIndex]!;
+  const endToken = tokens[endIndex]!;
+  if (tokens[startIndex + 1]?.type === TokenType.STRING) {
+    const specifier = tokens[startIndex + 1]!.value;
+    return new ModuleTransformResult(
+      new SourceReplacement(
+        importToken.range.start.offset,
+        endToken.range.end.offset,
+        `${requireExpression(specifier)};`
+      ),
+      endIndex
+    );
+  }
+
+  const fromIndex = findTokenValue(tokens, "from", startIndex + 1, endIndex);
+  const sourceToken = tokens[fromIndex + 1];
+  if (fromIndex < 0 || sourceToken?.type !== TokenType.STRING) {
+    return null;
+  }
+  const specifier = sourceToken.value;
+  const declarations: string[] = [];
+  const firstClauseToken = tokens[startIndex + 1];
+  const commaIndex = findTokenValue(tokens, ",", startIndex + 1, fromIndex - 1);
+  let importTemporaryName: string | null = null;
+  if (
+    firstClauseToken?.type === TokenType.IDENTIFIER
+    && !tokenIs(firstClauseToken, "{")
+    && !tokenIs(firstClauseToken, "*")
+  ) {
+    importTemporaryName = `__vexa_import_${temporaryIndex}`;
+    declarations.push(`const ${importTemporaryName} = ${requireExpression(specifier)};`);
+    declarations.push(
+      `const ${firstClauseToken.value} = ${importTemporaryName} && ${importTemporaryName}.__esModule`
+      + ` ? ${importTemporaryName}.default : ${importTemporaryName};`
+    );
+  }
+  const openBraceIndex = findTokenValue(tokens, "{", startIndex + 1, fromIndex - 1);
+  if (openBraceIndex >= 0) {
+    const closeBraceIndex = findTokenValue(tokens, "}", openBraceIndex + 1, fromIndex - 1);
+    if (closeBraceIndex < 0) {
+      return null;
+    }
+    const bindings = moduleSpecifierBindings(tokens, openBraceIndex, closeBraceIndex);
+    const properties: string[] = [];
+    for (const binding of bindings) {
+      properties.push(
+        binding.imported === binding.local
+          ? binding.imported
+          : `${binding.imported}: ${binding.local}`
+      );
+    }
+    declarations.push(
+      `const { ${properties.join(", ")} } = ${importTemporaryName ?? requireExpression(specifier)};`
+    );
+  } else {
+    const starIndex = findTokenValue(tokens, "*", startIndex + 1, fromIndex - 1);
+    if (starIndex >= 0 && tokenIs(tokens[starIndex + 1], "as") && tokens[starIndex + 2]) {
+      declarations.push(`const ${tokens[starIndex + 2]!.value} = ${requireExpression(specifier)};`);
+    } else if (commaIndex >= 0) {
+      return null;
+    }
+  }
+  return new ModuleTransformResult(
+    new SourceReplacement(
+      importToken.range.start.offset,
+      endToken.range.end.offset,
+      declarations.join("\n")
+    ),
+    endIndex
+  );
+}
+
+function declarationExportNames(tokens: readonly Token[], declarationIndex: number): string[] {
+  const declarationKind = tokens[declarationIndex]?.value;
+  if (declarationKind === "function" || declarationKind === "class") {
+    const nameToken = tokens[declarationIndex + 1];
+    return nameToken?.type === TokenType.IDENTIFIER ? [nameToken.value] : [];
+  }
+  if (declarationKind !== "const" && declarationKind !== "let" && declarationKind !== "var") {
+    return [];
+  }
+  const endIndex = findStatementEnd(tokens, declarationIndex);
+  const names: string[] = [];
+  let expectName = true;
+  let roundDepth = 0;
+  let squareDepth = 0;
+  let curlyDepth = 0;
+  for (let index = declarationIndex + 1; index < endIndex; index += 1) {
+    const token = tokens[index];
+    if (!token) continue;
+    if (tokenIs(token, "(")) roundDepth += 1;
+    else if (tokenIs(token, ")")) roundDepth -= 1;
+    else if (tokenIs(token, "[")) squareDepth += 1;
+    else if (tokenIs(token, "]")) squareDepth -= 1;
+    else if (tokenIs(token, "{")) curlyDepth += 1;
+    else if (tokenIs(token, "}")) curlyDepth -= 1;
+    if (expectName && token.type === TokenType.IDENTIFIER && roundDepth === 0 && squareDepth === 0 && curlyDepth === 0) {
+      names.push(token.value);
+      expectName = false;
+    } else if (tokenIs(token, ",") && roundDepth === 0 && squareDepth === 0 && curlyDepth === 0) {
+      expectName = true;
+    }
+  }
+  return names;
+}
+
+function transformNamedExport(
+  tokens: readonly Token[],
+  startIndex: number,
+  temporaryIndex: number
+): ModuleTransformResult | null {
+  const openBraceIndex = startIndex + 1;
+  const endIndex = findStatementEnd(tokens, startIndex);
+  const closeBraceIndex = findTokenValue(tokens, "}", openBraceIndex + 1, endIndex);
+  if (closeBraceIndex < 0) {
+    return null;
+  }
+  const bindings = moduleSpecifierBindings(tokens, openBraceIndex, closeBraceIndex);
+  const fromIndex = findTokenValue(tokens, "from", closeBraceIndex + 1, endIndex);
+  let text: string;
+  if (fromIndex >= 0) {
+    const specifierToken = tokens[fromIndex + 1];
+    if (specifierToken?.type !== TokenType.STRING) {
+      return null;
+    }
+    const temporaryName = `__vexa_reexport_${temporaryIndex}`;
+    const statements = [`const ${temporaryName} = ${requireExpression(specifierToken.value)};`];
+    for (const binding of bindings) {
+      statements.push(`exports.${binding.local} = ${temporaryName}.${binding.imported};`);
+    }
+    text = statements.join("\n");
+  } else {
+    const statements: string[] = [];
+    for (const binding of bindings) {
+      statements.push(`exports.${binding.local} = ${binding.imported};`);
+    }
+    text = statements.join("\n");
+  }
+  const exportNames: string[] = [];
+  for (const binding of bindings) {
+    exportNames.push(binding.local);
+  }
+  return new ModuleTransformResult(
+    new SourceReplacement(
+      tokens[startIndex]!.range.start.offset,
+      tokens[endIndex]!.range.end.offset,
+      text
+    ),
+    endIndex,
+    exportNames
+  );
+}
+
+function transformJavaScriptModuleSource(source: string): TranspiledModuleSource {
+  const tokens = tokenize(source);
+  const replacements: SourceReplacement[] = [];
+  const trailingExports: ModuleSpecifierBinding[] = [];
+  const exportNames = new Set<string>();
+  let temporaryIndex = 0;
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token || token.type !== TokenType.IDENTIFIER) {
+      continue;
+    }
+    if (token.value === "import") {
+      const transformed = transformStaticImport(tokens, index, temporaryIndex);
+      if (transformed) {
+        temporaryIndex += 1;
+        replacements.push(transformed.replacement);
+        index = transformed.endIndex;
+      }
+      continue;
+    }
+    if (token.value !== "export") {
+      continue;
+    }
+
+    const nextToken = tokens[index + 1];
+    if (tokenIs(nextToken, "{")) {
+      const transformed = transformNamedExport(tokens, index, temporaryIndex);
+      if (transformed) {
+        temporaryIndex += 1;
+        replacements.push(transformed.replacement);
+        for (const name of transformed.exportNames) exportNames.add(name);
+        index = transformed.endIndex;
+      }
+      continue;
+    }
+    if (tokenIs(nextToken, "*")) {
+      const endIndex = findStatementEnd(tokens, index);
+      const fromIndex = findTokenValue(tokens, "from", index + 1, endIndex);
+      const specifierToken = fromIndex >= 0 ? tokens[fromIndex + 1] : undefined;
+      if (specifierToken?.type !== TokenType.STRING) {
         continue;
       }
-      occurrences.push({
-        specifier,
-        startOffset,
-        endOffset: startOffset + match[0].length
-      });
+      let text = `Object.assign(exports, ${requireExpression(specifierToken.value)});`;
+      if (tokenIs(tokens[index + 2], "as") && tokens[index + 3]) {
+        const name = tokens[index + 3]!.value;
+        text = `exports.${name} = ${requireExpression(specifierToken.value)};`;
+        exportNames.add(name);
+      }
+      replacements.push(new SourceReplacement(
+        token.range.start.offset,
+        tokens[endIndex]!.range.end.offset,
+        text
+      ));
+      index = endIndex;
+      continue;
     }
-    return occurrences;
+    if (tokenIs(nextToken, "default")) {
+      const declarationToken = tokens[index + 2];
+      if (
+        (tokenIs(declarationToken, "function") || tokenIs(declarationToken, "class"))
+        && tokens[index + 3]?.type === TokenType.IDENTIFIER
+        && !tokenIs(tokens[index + 3], "extends")
+      ) {
+        const name = tokens[index + 3]!.value;
+        replacements.push(new SourceReplacement(
+          token.range.start.offset,
+          nextToken!.range.end.offset,
+          ""
+        ));
+        trailingExports.push(new ModuleSpecifierBinding(name, "default"));
+      } else {
+        replacements.push(new SourceReplacement(
+          token.range.start.offset,
+          nextToken!.range.end.offset,
+          "exports.default ="
+        ));
+      }
+      exportNames.add("default");
+      continue;
+    }
+
+    const names = declarationExportNames(tokens, index + 1);
+    if (names.length > 0) {
+      replacements.push(new SourceReplacement(
+        token.range.start.offset,
+        token.range.end.offset,
+        ""
+      ));
+      for (const name of names) {
+        trailingExports.push(new ModuleSpecifierBinding(name, name));
+        exportNames.add(name);
+      }
+    }
   }
+
+  replacements.sort((left, right) => left.startOffset - right.startOffset);
+  let code = "";
+  let cursor = 0;
+  for (const replacement of replacements) {
+    if (replacement.startOffset < cursor) {
+      continue;
+    }
+    code += source.slice(cursor, replacement.startOffset);
+    code += replacement.text;
+    cursor = replacement.endOffset;
+  }
+  code += source.slice(cursor);
+  if (exportNames.size > 0) {
+    code += "\nexports.__esModule = true;";
+  }
+  for (const binding of trailingExports) {
+    code += `\nexports.${binding.local} = ${binding.imported};`;
+  }
+  return new TranspiledModuleSource(code, setValues(exportNames));
 }
 
 function collectExportedDeclarationNames(statement: Statement): string[] {
@@ -622,15 +1010,16 @@ function collectExportedDeclarationNames(statement: Statement): string[] {
     const declarations = variable.declarations ?? [{ name: variable.name }];
     const names: string[] = [];
     for (const declaration of declarations) {
-      if (declaration.name instanceof Identifier) {
-        names.push(declaration.name.name);
+      const name = declaration.name;
+      if (name instanceof Identifier) {
+        names.push(name.name);
       }
     }
     return names;
   }
-  if (statement instanceof FunctionStatement || statement instanceof ClassStatement || statement instanceof EnumStatement) {
-    return [(statement as FunctionStatement | ClassStatement | EnumStatement).name.name];
-  }
+  if (statement instanceof FunctionStatement) return [statement.name.name];
+  if (statement instanceof ClassStatement) return [statement.name.name];
+  if (statement instanceof EnumStatement) return [statement.name.name];
   return [];
 }
 
@@ -674,14 +1063,14 @@ export function shouldPreserveCommonJsSource(source: string, filePath: string): 
   return hasCommonJsMarkers && !hasEsmMarkers;
 }
 
-export function transpileModuleSource(source: string, filePath: string): { code: string; exportNames: string[] | null } {
+export function transpileModuleSource(source: string, filePath: string): TranspiledModuleSource {
   if (shouldPreserveCommonJsSource(source, filePath)) {
-    return {
-      code: source,
-      exportNames: null
-    };
+    return new TranspiledModuleSource(source, [], true);
   }
   const extension = extname(filePath).toLowerCase();
+  if (extension === ".js" || extension === ".mjs" || extension === ".cjs") {
+    return transformJavaScriptModuleSource(source);
+  }
   const parsed = parseSource(source, {
     language: "typescript",
     jsx: extension === ".tsx" || extension === ".jsx"
@@ -697,13 +1086,20 @@ export function transpileModuleSource(source: string, filePath: string): { code:
     const issue = parsed.parserIssues[0]!;
     throw new Error(`Unable to parse bundled module '${filePath}': ${issue.message}`);
   }
-  return {
-    code: emitProgram(parsed.ast, undefined, undefined, undefined, {
-      moduleFormat: "commonjs",
-      sourceLanguage: "typescript"
-    }),
-    exportNames: collectExplicitExportNames(parsed.ast)
-  };
+  return new TranspiledModuleSource(
+    emitProgram(
+      parsed.ast,
+      new Map(),
+      new Set(),
+      new Set(),
+      {
+        moduleFormat: "commonjs",
+        sourceLanguage: "typescript"
+      },
+      new Set()
+    ),
+    collectExplicitExportNames(parsed.ast)
+  );
 }
 
 function commonAncestorDirectory(paths: readonly string[]): string {
@@ -712,7 +1108,10 @@ function commonAncestorDirectory(paths: readonly string[]): string {
   }
   const segments = paths.map((path) => resolve(path).split("/").filter((segment) => segment.length > 0));
   const shared: string[] = [];
-  const minLength = Math.min(...segments.map((parts) => parts.length));
+  let minLength = segments[0]?.length ?? 0;
+  for (const parts of segments) {
+    minLength = Math.min(minLength, parts.length);
+  }
   for (let index = 0; index < minLength; index += 1) {
     const candidate = segments[0]?.[index];
     if (!candidate || !segments.every((parts) => parts[index] === candidate)) {
@@ -736,12 +1135,21 @@ function minimalBundlePath(rootDir: string, filePath: string): string {
 
 export function collectCommonJsExports(code: string): string[] {
   const exports = new Set<string>();
-  const exportPattern = /\bexports\.([A-Za-z_$][A-Za-z0-9_$]*)\s*=/g;
-  for (const match of code.matchAll(exportPattern)) {
-    const exportName = match[1];
-    if (exportName && exportName !== "__esModule") {
+  let cursor = 0;
+  while (cursor < code.length) {
+    const marker = code.indexOf("exports.", cursor);
+    if (marker < 0) {
+      break;
+    }
+    let end = marker + "exports.".length;
+    while (end < code.length && /[A-Za-z0-9_$]/.test(code[end]!)) {
+      end += 1;
+    }
+    const exportName = code.slice(marker + "exports.".length, end);
+    if (exportName.length > 0 && exportName !== "__esModule") {
       exports.add(exportName);
     }
+    cursor = end;
   }
   if (/\bexports\.default\s*=/.test(code)) {
     exports.add("default");
@@ -782,19 +1190,34 @@ async function createCachedBundledModuleArtifact(
   context: ResolutionContext
 ): Promise<CachedBundledModuleArtifact> {
   const extension = extname(filePath).toLowerCase();
-  const source = virtualSources.get(filePath) ?? await vfs.readFile(filePath);
-  if (source === null) {
+  let source = virtualSources.get(filePath);
+  if (source === undefined) {
+    source = await vfs.readFile(filePath) ?? undefined;
+  }
+  if (source === undefined) {
     throw new Error(`Unable to read bundled module '${filePath}'`);
   }
-  const transpiled = extension === ".json"
-    ? { code: `module.exports = ${source.trim()};`, exportNames: ["default"] }
-    : extension === ".txt"
-      ? { code: `module.exports = ${JSON.stringify(source)};`, exportNames: ["default"] }
-      : transpileModuleSource(source, filePath);
+  let transpiled: TranspiledModuleSource;
+  try {
+    transpiled = extension === ".json"
+      ? new TranspiledModuleSource(`module.exports = ${source.trim()};`, ["default"])
+      : extension === ".txt"
+        ? new TranspiledModuleSource(`module.exports = ${JSON.stringify(source)};`, ["default"])
+        : transpileModuleSource(source, filePath);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to transform bundled module '${filePath}': ${detail}`);
+  }
   const transpiledCode = rewriteStaticDynamicImports(transpiled.code);
   const resolvedDependencies: Record<string, string | null> = {};
   for (const specifier of [...detectStaticRequires(transpiledCode), ...detectStaticDynamicImports(transpiled.code)]) {
-    const resolved = await resolveDependency(filePath, specifier, vfs, virtualSources, importMappings, baseUrl, context);
+    let resolved: ResolvedDependency;
+    try {
+      resolved = await resolveDependency(filePath, specifier, vfs, virtualSources, importMappings, baseUrl, context);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Unable to resolve '${specifier}' imported by '${filePath}': ${detail}`);
+    }
     resolvedDependencies[specifier] = resolved.kind === "bundled" ? resolved.filePath : null;
   }
   return {
@@ -827,31 +1250,109 @@ async function loadBundledModuleArtifact(
   return artifact;
 }
 
+interface BundleTraversalContext {
+  activeVfs: Vfs;
+  virtualSources: ReadonlyMap<string, string>;
+  importMappings: Readonly<Record<string, string>>;
+  baseUrl: string | undefined;
+  resolutionContext: ResolutionContext;
+  moduleById: Map<string, BundledModuleRecord>;
+  moduleIdByPath: Map<string, string>;
+  watchedFiles: Set<string>;
+  nextModuleIndex: number;
+}
+
+async function visitResolvedFile(
+  filePath: string,
+  traversal: BundleTraversalContext
+): Promise<string> {
+  const existing = traversal.moduleIdByPath.get(filePath);
+  if (existing) {
+    return existing;
+  }
+
+  const moduleId = `__vexa_module_${traversal.nextModuleIndex}`;
+  traversal.nextModuleIndex += 1;
+  traversal.moduleIdByPath.set(filePath, moduleId);
+  if (!traversal.virtualSources.has(filePath)) {
+    traversal.watchedFiles.add(filePath);
+  }
+  const artifact = await loadBundledModuleArtifact(
+    filePath,
+    traversal.activeVfs,
+    traversal.virtualSources,
+    traversal.importMappings,
+    traversal.baseUrl,
+    traversal.resolutionContext
+  );
+  const dependencyMap: Record<string, string | null> = {};
+  let resolvedDependencyEntries: [string, string | null][];
+  try {
+    resolvedDependencyEntries = Object.entries(artifact.resolvedDependencies);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to enumerate dependencies for '${filePath}': ${detail}`);
+  }
+  for (const [specifier, resolvedFilePath] of resolvedDependencyEntries) {
+    dependencyMap[specifier] = resolvedFilePath === null
+      ? null
+      : await visitResolvedFile(resolvedFilePath, traversal);
+  }
+  traversal.moduleById.set(moduleId, {
+    id: moduleId,
+    filePath,
+    code: artifact.code,
+    dependencyMap
+  });
+  return moduleId;
+}
+
+function setValues(values: ReadonlySet<string>): string[] {
+  const result: string[] = [];
+  for (const value of values) {
+    result.push(value);
+  }
+  return result;
+}
+
+function bundledModuleRecords(
+  moduleById: ReadonlyMap<string, BundledModuleRecord>
+): BundledModuleRecord[] {
+  const records: BundledModuleRecord[] = [];
+  for (const [, record] of moduleById) {
+    records.push(record);
+  }
+  return records;
+}
+
 export async function bundleNodeModuleGraph(
   entrySource: string,
   sourcePath: string,
-  options: BundleNodeModulesOptions = {}
+  options: BundleNodeModulesOptions = {},
+  pnpmVirtualStore = options.pnpmVirtualStore !== false
 ): Promise<BundleNodeModulesResult> {
   const activeVfs = options.vfs ?? vfs();
   const virtualSources = options.virtualSources ?? new Map<string, string>();
   const importMappings = options.importMappings ?? {};
   const baseUrl = options.baseUrl;
-  const resolutionContext = createResolutionContext();
+  const resolutionContext = createResolutionContext(pnpmVirtualStore);
   const externalDependencyStrategy = options.externalDependencyStrategy ?? "runtime-error";
   const entryId = "__vexa_entry__";
   const entryTranspiled = virtualSources.has(sourcePath)
-    ? { code: entrySource, exportNames: null }
+    ? new TranspiledModuleSource(entrySource, [], true)
     : transpileModuleSource(entrySource, sourcePath);
   const entryCode = rewriteStaticDynamicImports(entryTranspiled.code);
   const entrySpecifiers = [
     ...detectStaticRequires(entryCode),
     ...detectStaticDynamicImports(entryTranspiled.code)
   ];
-  const dependencySources = dependencyVirtualSources(virtualSources, sourcePath);
+  const dependencySources = options.incrementalCache
+    ? dependencyVirtualSources(virtualSources, sourcePath)
+    : new Map<string, string>();
   const configurationKey = JSON.stringify([
     baseUrl ?? "",
     externalDependencyStrategy,
-    Object.entries(importMappings).sort(([left], [right]) => left.localeCompare(right))
+    importMappings
   ]);
   const cachedState = options.incrementalCache
     ? incrementalBundleStates.get(options.incrementalCache)
@@ -874,61 +1375,77 @@ export async function bundleNodeModuleGraph(
   const entryDependencyMap: Record<string, string | null> = reusableState
     ? { ...reusableState.entryDependencyMap }
     : {};
-  let nextModuleIndex = reusableState?.nextModuleIndex ?? 0;
-
-  const visitResolvedFile = async (filePath: string): Promise<string> => {
-    const existing = moduleIdByPath.get(filePath);
-    if (existing) {
-      return existing;
-    }
-
-    const moduleId = `__vexa_module_${nextModuleIndex++}`;
-    moduleIdByPath.set(filePath, moduleId);
-
-    if (!virtualSources.has(filePath)) {
-      watchedFiles.add(filePath);
-    }
-    const artifact = await loadBundledModuleArtifact(filePath, activeVfs, virtualSources, importMappings, baseUrl, resolutionContext);
-    const dependencyMap: Record<string, string | null> = {};
-    for (const [specifier, resolvedFilePath] of Object.entries(artifact.resolvedDependencies)) {
-      if (resolvedFilePath !== null) {
-        dependencyMap[specifier] = await visitResolvedFile(resolvedFilePath);
-      } else {
-        dependencyMap[specifier] = null;
-      }
-    }
-
-    moduleById.set(moduleId, {
-      id: moduleId,
-      filePath,
-      code: artifact.code,
-      dependencyMap
-    });
-    return moduleId;
+  const traversal: BundleTraversalContext = {
+    activeVfs,
+    virtualSources,
+    importMappings,
+    baseUrl,
+    resolutionContext,
+    moduleById,
+    moduleIdByPath,
+    watchedFiles,
+    nextModuleIndex: reusableState?.nextModuleIndex ?? 0
   };
 
   if (!canReuseDependencies) {
     for (const specifier of entrySpecifiers) {
-      const resolved = await resolveDependency(sourcePath, specifier, activeVfs, virtualSources, importMappings, baseUrl, resolutionContext);
+      let resolved: ResolvedDependency;
+      try {
+        resolved = await resolveDependency(
+          sourcePath,
+          specifier,
+          activeVfs,
+          virtualSources,
+          importMappings,
+          baseUrl,
+          resolutionContext
+        );
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`Unable to resolve bundled dependency '${specifier}': ${detail}`);
+      }
       if (resolved.kind === "bundled") {
-        entryDependencyMap[specifier] = await visitResolvedFile(resolved.filePath);
+        try {
+          entryDependencyMap[specifier] = await visitResolvedFile(resolved.filePath, traversal);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Unable to bundle resolved dependency '${specifier}' from '${resolved.filePath}': ${detail}`
+          );
+        }
       } else {
         entryDependencyMap[specifier] = null;
       }
     }
   }
 
+  const bundledPaths: string[] = [];
+  const moduleRecords = bundledModuleRecords(moduleById);
+  for (const record of moduleRecords) {
+    bundledPaths.push(record.filePath);
+  }
+  bundledPaths.push(sourcePath);
   const bundleRootDir = reusableState?.bundleRootDir
-    ?? commonAncestorDirectory([...moduleById.values()].map((record) => record.filePath).concat(sourcePath));
-  const entryExports = entryTranspiled.exportNames ?? collectCommonJsExports(entryCode);
+    ?? commonAncestorDirectory(bundledPaths);
+  const entryExports = entryTranspiled.collectCommonJsExportNames
+    ? collectCommonJsExports(entryCode)
+    : entryTranspiled.exportNames;
+  const dependencyMapChunks: string[] = [];
+  const moduleFactoryChunks: string[] = [];
+  for (const record of moduleRecords) {
+    dependencyMapChunks.push(`${JSON.stringify(record.id)}: ${JSON.stringify(record.dependencyMap)}`);
+    moduleFactoryChunks.push(
+      createModuleFactoryCode(
+        record.id,
+        minimalBundlePath(bundleRootDir, record.filePath),
+        record.code
+      )
+    );
+  }
   const cachedDependencyMapsLiteral = reusableState?.dependencyMapsLiteral
-    ?? [...moduleById.values()]
-      .map((record) => `${JSON.stringify(record.id)}: ${JSON.stringify(record.dependencyMap)}`)
-      .join(",\n");
+    ?? dependencyMapChunks.join(",\n");
   const cachedModuleFactoriesLiteral = reusableState?.moduleFactoriesLiteral
-    ?? [...moduleById.values()]
-      .map((record) => createModuleFactoryCode(record.id, minimalBundlePath(bundleRootDir, record.filePath), record.code))
-      .join(",\n");
+    ?? moduleFactoryChunks.join(",\n");
   const dependencyMapsLiteral = [
     cachedDependencyMapsLiteral,
     `${JSON.stringify(entryId)}: ${JSON.stringify(entryDependencyMap)}`
@@ -946,12 +1463,12 @@ export async function bundleNodeModuleGraph(
       virtualSources: dependencySources,
       moduleById: new Map(moduleById),
       moduleIdByPath: new Map(moduleIdByPath),
-      watchedFiles: [...watchedFiles],
+      watchedFiles: setValues(watchedFiles),
       entryDependencyMap: { ...entryDependencyMap },
       bundleRootDir,
       dependencyMapsLiteral: cachedDependencyMapsLiteral,
       moduleFactoriesLiteral: cachedModuleFactoriesLiteral,
-      nextModuleIndex,
+      nextModuleIndex: traversal.nextModuleIndex,
     });
   }
 
@@ -1031,6 +1548,6 @@ export async function bundleNodeModuleGraph(
     namedExportClause.length > 0 ? `export { ${namedExportClause} };` : `export {};`,
     defaultExportLine
   ].filter((line) => line.length > 0).join("\n"),
-    watchedFiles: [...watchedFiles]
+    watchedFiles: setValues(watchedFiles)
   };
 }

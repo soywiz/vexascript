@@ -180,10 +180,13 @@ function defaultExecutablePath(cppPath: string): string {
     : `${cppPath}.native`;
 }
 
+export type NativeOptimization = "-O0" | "-O1" | "-O2";
+
 interface NativeCompilerOptions {
   sanitizers?: boolean;
   debug?: boolean;
   gcStress?: boolean;
+  optimization?: NativeOptimization;
   mimallocObjectPath?: string;
   extraFlags?: string[];
 }
@@ -273,7 +276,7 @@ export function nativeCompilerArguments(
       gcRoot,
       platform,
       options,
-      instrumented ? "-O1" : "-O2"
+      options.optimization ?? (instrumented ? "-O1" : "-O2")
     ),
     ...(!instrumented && options.mimallocObjectPath ? [options.mimallocObjectPath] : []),
     libraryPath,
@@ -311,7 +314,8 @@ export async function validateNativeCppSyntax(
 export async function compileNativeExecutable(
   cppPath: string,
   executablePath = defaultExecutablePath(cppPath),
-  extraFlags: string[] = []
+  extraFlags: string[] = [],
+  optimization?: NativeOptimization
 ): Promise<NativeBuildResult> {
   const root = nativeRoot();
   const sanitizers = process.env["VEXA_NATIVE_SANITIZERS"] === "1";
@@ -325,6 +329,7 @@ export async function compileNativeExecutable(
     sanitizers,
     debug: process.env["VEXA_NATIVE_DEBUG"] === "1",
     gcStress: process.env["VEXA_NATIVE_GC_STRESS"] === "1",
+    ...(optimization ? { optimization } : {}),
     extraFlags,
     ...(mimallocObjectPath ? { mimallocObjectPath } : {}),
   });

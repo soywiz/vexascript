@@ -1,20 +1,24 @@
 import type { VexaProject } from "../../compiler/project";
 import type { BundledModuleArtifacts } from "../../cli/model";
-import { resolve } from "../../compiler/utils/path";
-import { vfs } from "../../compiler/vfs";
-import { environmentVariable, runCommandCapture } from "./cliIo";
+import type { Statement } from "../../compiler/ast/ast";
+import { ensureDomProgram } from "./domDeclarations";
+import { bundleModuleGraphAsModules } from "./moduleGraph";
+import { bundleNodeModuleGraph, type BundleNodeModulesOptions } from "../../cli/nodeModuleBundle";
 
-function typeScriptBuildInfoPath(sourcePath: string): string {
-  const temporaryDirectory = environmentVariable("TMPDIR") ?? environmentVariable("TEMP") ?? "/tmp";
-  const cacheName = sourcePath.replace(/[^A-Za-z0-9_-]+/g, "_");
-  return resolve(temporaryDirectory, `vexa-typescript-${cacheName}.tsbuildinfo`);
+export async function ambientDeclarationsForProject(
+  _sourcePath: string,
+  project: VexaProject | null
+): Promise<Statement[]> {
+  const declarations: Statement[] = [];
+  const requested = new Set((project?.libs ?? []).map((lib) => lib.toLowerCase()));
+  if (requested.has("dom")) {
+    const program = await ensureDomProgram();
+    declarations.push(...program.body);
+  }
+  return declarations;
 }
 
-export async function ambientDeclarationsForProject(_sourcePath: string, _project: unknown): Promise<any[]> {
-  return [];
-}
-
-export async function globalDeclarationsForProject(_project: unknown): Promise<any[]> {
+export async function globalDeclarationsForProject(_project: unknown): Promise<Statement[]> {
   return [];
 }
 
@@ -31,49 +35,61 @@ export function usesExternalTypeScriptCheck(sourcePath: string, semanticCheck: b
 }
 
 export async function vexaTypeCheckForSource(
-  sourcePath: string,
-  project: VexaProject | null,
+  _sourcePath: string,
+  _project: VexaProject | null,
   semanticCheck: boolean
 ): Promise<boolean> {
-  if (!usesExternalTypeScriptCheck(sourcePath, semanticCheck)) return semanticCheck;
-
-  const tsconfigPath = project ? resolve(project.projectDir, "tsconfig.json") : "";
-  const hasTsconfig = tsconfigPath.length > 0 && await vfs().fileExists(tsconfigPath);
-  const typeScriptArgs = [
-    "--noEmit",
-    "--pretty",
-    "false",
-    "--incremental",
-    "--tsBuildInfoFile",
-    typeScriptBuildInfoPath(sourcePath)
-  ];
-  if (hasTsconfig) typeScriptArgs.push("--project", tsconfigPath);
-  else typeScriptArgs.push(sourcePath);
-  const workingDirectory = project?.projectDir ?? process.cwd();
-  const localTypeScriptCli = resolve(workingDirectory, "node_modules/typescript/bin/tsc");
-  const hasLocalTypeScript = await vfs().fileExists(localTypeScriptCli);
-  const result = await runCommandCapture(hasLocalTypeScript ? "node" : "pnpm", hasLocalTypeScript
-    ? [localTypeScriptCli, ...typeScriptArgs]
-    : ["exec", "tsc", ...typeScriptArgs], {
-    cwd: workingDirectory
-  });
-  if (result.code !== 0) {
-    const diagnostics = result.stdout.length > 0 ? result.stdout : result.stderr;
-    throw new Error(diagnostics.length > 0
-      ? `TypeScript semantic analysis failed:\n${diagnostics}`
-      : "TypeScript semantic analysis failed");
-  }
-  return false;
+  return semanticCheck;
 }
 
 export async function createBundledModuleArtifacts(
-  _sourcePath: string,
-  _target: unknown,
-  _project: unknown,
+  sourcePath: string,
+  target: string,
+  project: VexaProject | null,
   _jsxOptions: unknown,
-  _options?: unknown
+  options: { externalDependencyStrategy?: "runtime-error" | "node-require"; typeCheck?: boolean } = {}
 ): Promise<BundledModuleArtifacts> {
-  throw new Error("JavaScript bundling is not available in the native VexaScript CLI yet");
+  const jsxOptions = _jsxOptions as { jsxFactory?: string; jsxFragmentFactory?: string } | undefined;
+  const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
+  const result = await bundleModuleGraphAsModules(sourcePath, target === "conservative" ? "conservative" : "optimized", {
+    ambientDeclarations,
+    importMappings: project?.importMappings ?? {},
+    moduleFormat: "commonjs",
+    typeCheck: options.typeCheck ?? true,
+    ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
+    ...(project?.globalSymbols ? { globalSymbols: project.globalSymbols } : {}),
+    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
+    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
+    ...(jsxOptions?.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
+    ...(jsxOptions?.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {}),
+  });
+  if (result.errors.length > 0) {
+    return {
+      code: "",
+      warnings: result.warnings,
+      errors: result.errors,
+      diagnostics: result.diagnostics,
+      watchedFiles: result.watchedFiles,
+    };
+  }
+
+  const bundleOptions: BundleNodeModulesOptions = {
+    virtualSources: result.moduleSources,
+    importMappings: project?.importMappings ?? {},
+    externalDependencyStrategy: options.externalDependencyStrategy ?? "runtime-error",
+    pnpmVirtualStore: false,
+  };
+  if (project?.baseUrl) {
+    bundleOptions.baseUrl = project.baseUrl;
+  }
+  const bundled = await bundleNodeModuleGraph(result.entrySource, sourcePath, bundleOptions, false);
+  return {
+    code: bundled.code,
+    warnings: result.warnings,
+    errors: result.errors,
+    diagnostics: result.diagnostics,
+    watchedFiles: [...new Set([...result.watchedFiles, ...bundled.watchedFiles])],
+  };
 }
 
 export async function resolveServeBundleInput(_rootDir: string, _explicitBundleInput?: string): Promise<string> {

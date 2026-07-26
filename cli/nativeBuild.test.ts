@@ -51,6 +51,23 @@ describe("native build", () => {
     expect(args.indexOf("/cache/mimalloc.o")).toBeLessThan(args.indexOf("/repo/native/oilpan/gc/build/liboilpan_gc.a"));
   });
 
+  for (const optimization of ["-O0", "-O1", "-O2"] as const) {
+    it(`passes an explicit ${optimization} optimization level to g++`, () => {
+      const args = nativeCompilerArguments(
+        "/tmp/main.cpp",
+        "/tmp/main",
+        "/repo/native",
+        "/repo/native/oilpan/gc",
+        "/repo/native/oilpan/gc/build/liboilpan_gc.a",
+        "linux",
+        { optimization }
+      );
+
+      expect(args).toContain(optimization);
+      expect(args.filter((arg) => /^-O[012]$/.test(arg))).toEqual([optimization]);
+    });
+  }
+
   it("appends source-declared compiler and linker flags without shell parsing", () => {
     const args = nativeCompilerArguments(
       "/tmp/main.cpp",

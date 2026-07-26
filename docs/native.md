@@ -22,6 +22,18 @@ The intermediate C++ file is written to `main.vx.build/main.cpp`. Use
 then executes the resulting program. TypeScript entrypoints are accepted too:
 `vexa cpp link main.ts`.
 
+Select the native C++ optimization level when linking with one of `-O0`, `-O1`,
+or `-O2` (the default):
+
+```sh
+vexa cpp link main.vx -O0
+vexa cpp link main.vx -O1
+vexa cpp link main.vx -O2
+```
+
+The selected level is part of the native executable cache key, so changing it
+relinks the executable even when the generated C++ is unchanged.
+
 All four forms use the same complete module graph. `cpp link` and `cpp run`
 cache the generated C++ and linked executable; unchanged sources reuse both
 artifacts. Measurements use the monotonic high-resolution `performance.now()`
@@ -36,10 +48,28 @@ The first native build extracts `native/oilpan-standalone-main.zip` and
 `native/mimalloc-3.4.3.zip` under the operating system's temporary directory.
 CMake builds `liboilpan_gc.a` and mimalloc's portable allocator override object;
 later builds reuse both caches. The final generated translation unit is compiled
-and linked with `g++ -std=c++20 -O2`. The trimmed mimalloc ZIP contains its
+and linked with `g++ -std=c++20` plus the selected optimization level. The
+trimmed mimalloc ZIP contains its
 source/include tree plus only the three small CMake modules needed to configure
-the object build. Sanitizer builds omit mimalloc so ASan can
+the object build. The generated translation unit uses the selected optimization
+level (default `-O2`). Sanitizer builds omit mimalloc so ASan can
 observe allocations through the system allocator.
+
+The native CLI also runs the JavaScript bundler in-process. The bundler is
+implemented in TypeScript, included in the native CLI module graph, and compiled
+to C++ with the rest of the CLI; it does not invoke Node.js or another `vexa`
+executable. Native adapters provide the asynchronous VFS-backed local-module
+graph, package declaration resolution, and embedded DOM declarations needed by
+the shared bundling pipeline.
+
+Published `.js`, `.mjs`, and `.cjs` package modules use the existing
+VexaScript tokenizer to locate and rewrite static `import`/`export` declarations
+and literal dynamic imports. Their JavaScript bodies are preserved rather than
+parsed and re-emitted. TypeScript, TSX, JSX, and VexaScript sources continue to
+use the full parser and emitter because they require syntax lowering and type
+information. `cli/nativeSmoke.test.ts` compiles the CLI with `-O0`, uses that
+native executable to bundle both a small Node fixture and the Pixi browser
+sample, and syntax-checks the Pixi result.
 
 ## Requirements
 

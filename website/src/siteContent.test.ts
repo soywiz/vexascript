@@ -100,7 +100,7 @@ test("blog single-column content is centered in the listing and article views", 
 test("embed example cards scroll independently", async () => {
   const css = await readFile(resolve(testDirectory, "assets/site.css"), "utf8");
 
-  assert.match(css, /\.embed-docs \.card \{[\s\S]*?height: min\(24rem, calc\(100vh - 12rem\)\);[\s\S]*?overflow-x: auto;[\s\S]*?overflow-y: hidden;/);
+  assert.match(css, /\.embed-docs \.card pre \{[\s\S]*?height: min\(24rem, calc\(100vh - 12rem\)\);[\s\S]*?overflow-x: auto;[\s\S]*?overflow-y: hidden;/);
   assert.match(css, /\.embed-docs \.syntax-block \{ overflow: visible; \}/);
 });
 

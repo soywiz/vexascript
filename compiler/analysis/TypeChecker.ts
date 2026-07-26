@@ -6752,14 +6752,18 @@ export class TypeChecker {
       return null;
     }
 
-    return {
-      name: attribute.name,
-      kind: "parameter",
-      node: declarationNode,
-      declaredOffset: nodeStartOffset(declarationNode) ?? -1,
-      type: expectedType,
-      valueType: typeToString(expectedType)
-    };
+    return new AnalysisSymbol(
+      attribute.name,
+      "parameter",
+      declarationNode,
+      nodeStartOffset(declarationNode) ?? -1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      expectedType,
+      typeToString(expectedType)
+    );
   }
 
   private visitJsxAttributeValues(jsxElement: JsxElement, scope: Scope): void {
@@ -8786,7 +8790,16 @@ export class TypeChecker {
       return objectTypeWithProperties(properties);
     }
 
-    const sourceObjectText = /^keyof\s+(.+)$/.exec(keySourceText.trim())?.[1]?.trim();
+    const trimmedKeySourceText = keySourceText.trim();
+    const keyofSeparator = trimmedKeySourceText.charAt("keyof".length);
+    const hasKeyofPrefix = trimmedKeySourceText.startsWith("keyof")
+      && (keyofSeparator === " "
+        || keyofSeparator === "\t"
+        || keyofSeparator === "\n"
+        || keyofSeparator === "\r");
+    const sourceObjectText = hasKeyofPrefix
+      ? trimmedKeySourceText.slice("keyof".length + 1).trim()
+      : "";
     if (!sourceObjectText) {
       return null;
     }
@@ -9726,41 +9739,49 @@ export class TypeChecker {
     const members = receiverType instanceof NamedType
       ? this.resolveNamedTypeMembers(receiverType as NamedType)
       : null;
-    for (const [name, type] of members ?? []) {
-      const extensionReceiver = this.extensionMethodsByReceiver.get(receiverName)?.has(name) === true
-        ? receiverName
-        : undefined;
-      scope.symbols.set(name, new AnalysisSymbol(
-        name,
-        type instanceof FunctionType ? "method" : "variable",
-        node,
-        -1,
-        undefined,
-        true,
-        undefined,
-        extensionReceiver,
-        type,
-        typeToString(type)
-      ));
+    if (members) {
+      for (const [name, type] of members) {
+        const extensionReceiver = this.extensionMethodsByReceiver.get(receiverName)?.has(name) === true
+          ? receiverName
+          : undefined;
+        scope.symbols.set(name, new AnalysisSymbol(
+          name,
+          type instanceof FunctionType ? "method" : "variable",
+          node,
+          -1,
+          undefined,
+          true,
+          undefined,
+          extensionReceiver,
+          type,
+          typeToString(type)
+        ));
+      }
     }
     const declaredExtensionNames = new Set<string>();
     for (const extensionReceiverName of receiverNames) {
-      for (const [name, type] of this.extensionMethodsByReceiver.get(extensionReceiverName) ?? []) {
-        if (declaredExtensionNames.has(name)) continue;
-        declaredExtensionNames.add(name);
-        const importedType = scope.parent
-          ? this.resolve(name, scope.parent, undefined)?.type
-          : undefined;
-        const resolvedType = importedType instanceof FunctionType
-          ? importedType
-          : type;
-        scope.symbols.set(name, new AnalysisSymbol(name, "method", node, -1, undefined, true, undefined, extensionReceiverName, resolvedType, typeToString(resolvedType)));
+      const extensionMethods = this.extensionMethodsByReceiver.get(extensionReceiverName);
+      if (extensionMethods) {
+        for (const [name, type] of extensionMethods) {
+          if (declaredExtensionNames.has(name)) continue;
+          declaredExtensionNames.add(name);
+          const importedType = scope.parent
+            ? this.resolve(name, scope.parent, undefined)?.type
+            : undefined;
+          const resolvedType = importedType instanceof FunctionType
+            ? importedType
+            : type;
+          scope.symbols.set(name, new AnalysisSymbol(name, "method", node, -1, undefined, true, undefined, extensionReceiverName, resolvedType, typeToString(resolvedType)));
+        }
       }
-      for (const [name, property] of this.extensionPropertiesByReceiver.get(extensionReceiverName) ?? []) {
-        if (declaredExtensionNames.has(name)) continue;
-        declaredExtensionNames.add(name);
-        const type = this.specializeExtensionPropertyType(receiverType, extensionReceiverName, property);
-        scope.symbols.set(name, new AnalysisSymbol(name, "variable", property.declaration.name, -1, undefined, true, undefined, extensionReceiverName, type, typeToString(type)));
+      const extensionProperties = this.extensionPropertiesByReceiver.get(extensionReceiverName);
+      if (extensionProperties) {
+        for (const [name, property] of extensionProperties) {
+          if (declaredExtensionNames.has(name)) continue;
+          declaredExtensionNames.add(name);
+          const type = this.specializeExtensionPropertyType(receiverType, extensionReceiverName, property);
+          scope.symbols.set(name, new AnalysisSymbol(name, "variable", property.declaration.name, -1, undefined, true, undefined, extensionReceiverName, type, typeToString(type)));
+        }
       }
     }
     for (const [name, methods] of this.genericReceiverExtensionMethods) {
@@ -11219,15 +11240,18 @@ export class TypeChecker {
     for (const receiverName of this.extensionReceiverNames(resolvedObjectType)) {
       const type = this.extensionMethodsByReceiver.get(receiverName)?.get(memberName);
       if (type) {
-        return {
-          name: memberName,
-          kind: "method",
-          node: member.property,
-          declaredOffset: -1,
-          implicitReceiverExtensionReceiver: receiverName,
+        return new AnalysisSymbol(
+          memberName,
+          "method",
+          member.property,
+          -1,
+          undefined,
+          undefined,
+          undefined,
+          receiverName,
           type,
-          valueType: typeToString(type)
-        };
+          typeToString(type)
+        );
       }
     }
     const genericExtensionSymbol = (): AnalysisSymbol | null => {
@@ -11238,15 +11262,18 @@ export class TypeChecker {
         method.receiverTypeParameter,
         resolvedObjectType
       );
-      return {
-        name: memberName,
-        kind: "method",
-        node: method.declaration.name,
-        declaredOffset: -1,
-        implicitReceiverExtensionReceiver: method.receiverTypeParameter,
+      return new AnalysisSymbol(
+        memberName,
+        "method",
+        method.declaration.name,
+        -1,
+        undefined,
+        undefined,
+        undefined,
+        method.receiverTypeParameter,
         type,
-        valueType: typeToString(type)
-      };
+        typeToString(type)
+      );
     };
 
     if (resolvedObjectType instanceof UnionType) {
@@ -11315,15 +11342,18 @@ export class TypeChecker {
       }
       if (enumStatement.members.some((member) => member.name.name === memberName)) {
         const enumType = namedType(enumStatement.name.name);
-        return {
-          name: memberName,
-          kind: "variable",
-          node: enumStatement.name,
-          isReadonly: true,
-          type: enumType,
-          valueType: typeToString(enumType),
-          declaredOffset: nodeStartOffset(enumStatement.name) ?? -1
-        };
+        return new AnalysisSymbol(
+          memberName,
+          "variable",
+          enumStatement.name,
+          nodeStartOffset(enumStatement.name) ?? -1,
+          true,
+          undefined,
+          undefined,
+          undefined,
+          enumType,
+          typeToString(enumType)
+        );
       }
     }
 

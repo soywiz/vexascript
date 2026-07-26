@@ -1105,27 +1105,34 @@ function replaceChainReceiver(expression: Expr, receiver: Expr, replacement: Ide
   switch (expression.kind) {
     case NodeKind.MemberExpression: {
       const member = expression as MemberExpression;
-      return {
-        ...member,
-        object: replaceChainReceiver(member.object, receiver, replacement),
-        property: replaceChainReceiver(member.property, receiver, replacement)
-      } as MemberExpression;
+      return new MemberExpression(
+        replaceChainReceiver(member.object, receiver, replacement),
+        replaceChainReceiver(member.property, receiver, replacement),
+        member.computed,
+        member.optional,
+        member.nonNullAsserted
+      );
     }
     case NodeKind.CallExpression: {
       const call = expression as CallExpression;
-      return {
-        ...call,
-        callee: replaceChainReceiver(call.callee, receiver, replacement),
-        args: call.args.map((argument) => replaceChainReceiver(argument, receiver, replacement))
-      } as CallExpression;
+      const rewritten = new CallExpression(
+        replaceChainReceiver(call.callee, receiver, replacement),
+        call.args.map((argument) => replaceChainReceiver(argument, receiver, replacement)),
+        call.typeArguments,
+        call.optional
+      );
+      if (call.receiverBlockShorthand) {
+        rewritten.receiverBlockShorthand = true;
+      }
+      return rewritten;
     }
     case NodeKind.AssignmentExpression: {
       const assignment = expression as AssignmentExpression;
-      return {
-        ...assignment,
-        left: replaceChainReceiver(assignment.left, receiver, replacement),
-        right: replaceChainReceiver(assignment.right, receiver, replacement)
-      } as AssignmentExpression;
+      return new AssignmentExpression(
+        assignment.operator,
+        replaceChainReceiver(assignment.left, receiver, replacement),
+        replaceChainReceiver(assignment.right, receiver, replacement)
+      );
     }
     default:
       return expression;
