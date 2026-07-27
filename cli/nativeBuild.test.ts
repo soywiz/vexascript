@@ -5,6 +5,7 @@ import {
   nativeCompiler,
   nativeMimallocCmakeConfigureArguments,
   nativeProgramPaths,
+  nativeSyntaxCompiler,
   withNativeBuildLock,
 } from "./nativeBuild";
 
@@ -30,10 +31,13 @@ describe("native build", () => {
     expect(args).toContain("-ldl");
   });
 
-  it("uses Clang for Linux native builds to avoid the GCC 13 coroutine ICE", () => {
-    expect(nativeCompiler("linux")).toBe("clang++");
+  it("uses GCC for native builds and Clang for Linux syntax validation", () => {
+    expect(nativeCompiler("linux")).toBe("g++");
     expect(nativeCompiler("darwin")).toBe("g++");
     expect(nativeCompiler("win32")).toBe("g++");
+    expect(nativeSyntaxCompiler("linux")).toBe("clang++");
+    expect(nativeSyntaxCompiler("darwin")).toBe("g++");
+    expect(nativeSyntaxCompiler("win32")).toBe("g++");
   });
 
   it("links the cached mimalloc override object in release builds", () => {

@@ -81,12 +81,11 @@ export async function createBundledModuleArtifacts(
     virtualSources: result.moduleSources,
     importMappings: project?.importMappings ?? {},
     externalDependencyStrategy: options.externalDependencyStrategy ?? "runtime-error",
-    pnpmVirtualStore: false,
   };
   if (project?.baseUrl) {
     bundleOptions.baseUrl = project.baseUrl;
   }
-  const bundled = await bundleNodeModuleGraph(result.entrySource, sourcePath, bundleOptions, false);
+  const bundled = await bundleNodeModuleGraph(result.entrySource, sourcePath, bundleOptions);
   return {
     code: bundled.code,
     warnings: result.warnings,

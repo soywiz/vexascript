@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, extname, posix, resolve, win32 } from "node:path";
 import { LANGUAGE_FILE_EXTENSION } from "../compiler/language";
 import { fileURLToPath } from "node:url";
-import { nativeCompilerCommand, runCommand } from "./io";
+import { nativeCompilerCommand, runCommand, runCommandCapture } from "./io";
 
 export interface NativeBuildResult {
   executablePath: string;
@@ -292,8 +292,12 @@ export function nativeCompilerArguments(
   ];
 }
 
-export function nativeCompiler(platform: NodeJS.Platform = process.platform): string {
+export function nativeCompiler(platform: NodeJS.Platform = process.platform): "g++" {
   return nativeCompilerCommand(platform);
+}
+
+export function nativeSyntaxCompiler(platform: NodeJS.Platform = process.platform): "clang++" | "g++" {
+  return platform === "linux" ? "clang++" : "g++";
 }
 
 export async function validateNativeCppSyntax(
@@ -302,7 +306,7 @@ export async function validateNativeCppSyntax(
 ): Promise<void> {
   const root = nativeRoot();
   const { gcRoot } = await ensureOilpanLibrary(root);
-  await runCommand(nativeCompiler(), [
+  await runCommand(nativeSyntaxCompiler(), [
     ...nativeCompilerFrontendArguments(cppPath, root, gcRoot, process.platform, options, "-O0"),
     "-fsyntax-only",
   ]);
@@ -330,10 +334,23 @@ export async function compileNativeExecutable(
     extraFlags,
     ...(mimallocObjectPath ? { mimallocObjectPath } : {}),
   });
-  await runCommand(nativeCompiler(process.platform), args);
-  return {
+  const result = await runCommandCapture(nativeCompiler(process.platform), args);
+  if (result.code === 0) return {
     executablePath,
     oilpanLibraryPath: libraryPath,
     ...(mimallocObjectPath ? { mimallocObjectPath } : {}),
   };
+
+  const compilerOutput = `${result.stdout}\n${result.stderr}`;
+  if (process.platform === "linux" && /internal compiler error/i.test(compilerOutput)) {
+    const fallback = await runCommandCapture("clang++", args);
+    if (fallback.code === 0) return {
+      executablePath,
+      oilpanLibraryPath: libraryPath,
+      ...(mimallocObjectPath ? { mimallocObjectPath } : {}),
+    };
+    throw new Error(fallback.stderr || fallback.stdout || "clang++ failed after g++ reported an internal compiler error");
+  }
+
+  throw new Error(result.stderr || result.stdout || `${nativeCompiler(process.platform)} exited with code ${result.code}`);
 }

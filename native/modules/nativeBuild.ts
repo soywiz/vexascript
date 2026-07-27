@@ -21,8 +21,18 @@ function nativeTempRoot(): string {
   return "/tmp";
 }
 
-export function nativeCompilerCommand(): "clang++" | "g++" {
-  return process.platform === "linux" ? "clang++" : "g++";
+export function nativeCompilerCommand(): "g++" {
+  return "g++";
+}
+
+async function runNativeCompiler(args: string[]): Promise<void> {
+  let result = await nativeRunCommandCapture("g++", args, process.cwd());
+  if (result.code !== 0 && process.platform === "linux" && /internal compiler error/i.test(result.stdout + result.stderr)) {
+    result = await nativeRunCommandCapture("clang++", args, process.cwd());
+  }
+  if (result.code !== 0) {
+    throw new Error(result.stdout || result.stderr || `g++ exited with code ${result.code}`);
+  }
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -152,5 +162,5 @@ export async function compileNativeExecutable(
     ...extraFlags,
     "-o", executablePath,
   ];
-  await runNativeCommand(nativeCompilerCommand(), args, process.cwd());
+  await runNativeCompiler(args);
 }

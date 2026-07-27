@@ -9,8 +9,10 @@ failure in the clean native self-host/Pixi path.
 
 The fixes keep the platform decisions at the existing adapter boundaries:
 
-- Linux native compilation uses `clang++`, while macOS and Windows retain
-  `g++`.
+- Native compilation uses `g++` on every platform. Linux syntax validation uses
+  `clang++`, and a Linux executable compile retries with Clang only when GCC
+  reports its known internal compiler error; this preserves GCC runtime
+  compatibility for ordinary native binaries.
 - Native smoke launches use repository-relative module paths, which avoids
   `tsx` treating a Windows drive path as an invalid URL.
 - Node-side package-manager invocations select `pnpm.cmd` on Windows.
@@ -18,6 +20,9 @@ The fixes keep the platform decisions at the existing adapter boundaries:
   lookup returns an ordinary string, and native build helpers select temporary
   directories, CMake generators, compiler flags, and system libraries by
   platform.
+- Native self-hosted bundling keeps pnpm's virtual-store resolution enabled;
+  disabling it made clean CI installs leave Pixi's `@pixi/*` dependency map
+  entries as `null`.
 
 The first investigation branch tried to represent the native process platform
 as a persistent string object. The generated C++ then compared that persistent

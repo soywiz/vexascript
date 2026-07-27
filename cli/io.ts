@@ -16,8 +16,8 @@ export function runtimePlatform(): string {
   return process.platform;
 }
 
-export function nativeCompilerCommand(platform: NodeJS.Platform = process.platform): "clang++" | "g++" {
-  return platform === "linux" ? "clang++" : "g++";
+export function nativeCompilerCommand(_platform: NodeJS.Platform = process.platform): "g++" {
+  return "g++";
 }
 
 export function environmentVariable(name: string): string | undefined {
@@ -166,6 +166,7 @@ export async function runCommand(
   await new Promise<void>((resolvePromise, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
+      shell: command.toLowerCase().endsWith(".cmd"),
       stdio: options.stdio ?? "inherit",
     });
 
@@ -190,6 +191,7 @@ export async function runCommandCapture(
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
+      shell: command.toLowerCase().endsWith(".cmd"),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
