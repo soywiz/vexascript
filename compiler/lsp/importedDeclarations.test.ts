@@ -35,6 +35,24 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     );
   });
 
+  it("types a local text default import as string", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-text-import-types-"));
+    const textFile = join(root, "message.txt");
+    const consumerFile = join(root, "main.vx");
+    await writeFile(textFile, "hello from text", "utf8");
+
+    const source = 'import message from "./message.txt?text"\nimport type typedMessage from "./message.txt"\nmessage.trim()\ntypedMessage\n';
+    const imported = await collectAllImportedDeclarations(parseSource(source, {}).ast!, {
+      uri: pathToFileURL(consumerFile).toString(),
+      sourceRoots: [root]
+    });
+
+    expect(imported.invalidImportedBindings.has("message")).toBe(false);
+    expect(typeToString(imported.importedSymbols.get("message")!.type!)).toBe("string");
+    expect(imported.invalidImportedBindings.has("typedMessage")).toBe(false);
+    expect(typeToString(imported.importedSymbols.get("typedMessage")!.type!)).toBe("string");
+  });
+
   it("resolves named import type from direct export function in ambient module", async () => {
     const decls = parseAmbientModule(
       `declare module "myfs" {\n  export function readFile(path: string): string;\n}\n`,

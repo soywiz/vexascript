@@ -7,6 +7,7 @@ import { uriToFilePath } from "./importFixes";
 import { nodeBuiltinSpecifierCandidates, resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { extname } from "compiler/utils/path";
 import { vfs } from "compiler/vfs";
+import { resolveTextModuleImportPath, textModuleSourceSpecifier } from "compiler/runtime/textModuleImports";
 import { importableTopLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { detectAmbientExportEqualsName, findAmbientNamespaceBody, findImportBindingByLocalName, importBindings, importStatementBindings } from "./crossFileContext";
@@ -2994,6 +2995,15 @@ async function resolveImportTargetInContext(
   importPath: string,
   context: ProjectContext
 ): Promise<string | null> {
+  const textTarget = await resolveTextModuleImportPath(
+    importerFilePath,
+    importPath,
+    context.vfs ?? vfs(),
+    context.importMappings ?? {}
+  );
+  if (textTarget) {
+    return textTarget;
+  }
   return resolveImportTargetFilePath(importerFilePath, importPath, {
     vfs: context.vfs,
     importMappings: context.importMappings,
@@ -3652,6 +3662,19 @@ export async function collectAllImportedDeclarations(
         if (importStatement.namespaceImport) {
           markInvalidImportedBinding(importedSymbols, importStatement.namespaceImport.name);
         }
+      }
+      for (const specifier of importStatement.specifiers) {
+        markInvalidImportedBinding(importedSymbols, (specifier.local ?? specifier.imported).name);
+      }
+      continue;
+    }
+
+    if (textModuleSourceSpecifier(importStatement.from.value) !== null || extname(targetFilePath).toLowerCase() === ".txt") {
+      if (importStatement.defaultImport) {
+        setImportedSymbolType(importedSymbols, importStatement.defaultImport.name, builtinType("string"));
+      }
+      if (importStatement.namespaceImport) {
+        setImportedSymbolType(importedSymbols, importStatement.namespaceImport.name, builtinType("string"));
       }
       for (const specifier of importStatement.specifiers) {
         markInvalidImportedBinding(importedSymbols, (specifier.local ?? specifier.imported).name);
