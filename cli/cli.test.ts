@@ -459,6 +459,19 @@ describe("CLI", () => {
     expect(await readFile(join(dir, "site-output", "main.js"), "utf8")).toContain('console.log("custom out dir");');
   });
 
+  it("bundle command builds configured project directories like build", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-dir-"));
+    await writeFile(join(dir, "main.vx"), 'console.log("bundled project")\n', "utf8");
+    await writeFile(join(dir, "index.html"), "<script type=\"module\" src=\"%VEXA_ENTRYPOINT%\"></script>", "utf8");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({ entrypoint: "main.vx" }), "utf8");
+
+    await runCli(["node", "vexa", "bundle", dir]);
+
+    const distDir = join(dir, "dist");
+    expect(await readFile(join(distDir, "index.html"), "utf8")).toContain('src="main.js"');
+    expect(await readFile(join(distDir, "main.js"), "utf8")).toContain('console.log("bundled project");');
+  });
+
   it("serve command serves HTML, injects the bundle, and emits reload events after source changes", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-serve-"));
     const entry = join(dir, "main.vx");

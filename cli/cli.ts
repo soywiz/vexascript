@@ -1067,9 +1067,9 @@ function createProgram(): Command {
   addCppLinkCommand("run", "Compile, link, and run a native Oilpan executable");
 
   const bundleCommand = program.command("bundle");
-  bundleCommand.description("Bundle a VexaScript entry file and its resolved local and package modules as ESM");
-  bundleCommand.argument("<input>", "Input file");
-  bundleCommand.option("-o, --out <file>", "Output file");
+  bundleCommand.description("Bundle a VexaScript entry file, or build a configured project directory");
+  bundleCommand.argument("<input>", "Input file or project directory");
+  bundleCommand.option("-o, --out <path>", "Output file for file builds, or output directory for project builds");
   bundleCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
   bundleCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
   bundleCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
@@ -1079,6 +1079,12 @@ function createProgram(): Command {
       const buildOptions = resolveBuildOptions(opts);
       const target = buildOptions.target;
       const jsxOptions = buildOptions.jsxOptions;
+      const inputPath = resolve(process.cwd(), input);
+      const inputStats = await vfs().stat(inputPath).catch((_error) => null);
+      if (inputStats?.isDirectory) {
+        await buildDirectory(input, opts.out, target, jsxOptions);
+        return;
+      }
       if (opts.platform !== "browser" && opts.platform !== "node") {
         throw new Error(`Unsupported bundle platform "${opts.platform}". Supported platforms: browser, node`);
       }
