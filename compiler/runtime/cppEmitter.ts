@@ -109,6 +109,8 @@ const cppNameCache: Map<string, string> = new Map();
 let activeClassNames: ReadonlySet<string> = new Set();
 let activeInterfaceNames: ReadonlySet<string> = new Set();
 let activeEnumNames: ReadonlySet<string> = new Set();
+let activeEnumCppTypes: ReadonlyMap<string, "std::int32_t" | "std::u16string" | "vexa::Value"> = new Map();
+let activeEnumStatements: ReadonlyMap<string, EnumStatement> = new Map();
 let activeTypeAliases: ReadonlyMap<string, string> = new Map();
 let activeCppTypeParameters: ReadonlySet<string> = new Set();
 let activeCppTypeParameterCacheKey = "";
@@ -116,6 +118,13 @@ let activeDeclaredCppTypeCache: Map<string, DeclaredCppTypeCacheEntry> = new Map
 let activeGcObjectTypes: Map<string, string> = new Map();
 let activeGcArrayTypes: Map<string, string> = new Map();
 let activeDynamicValueNames: Set<string> = new Set();
+type CppVariableDelegateKind = "function" | "objectValue";
+interface CppVariableDelegateInfo {
+  backingName: string;
+  kind: CppVariableDelegateKind;
+  valueType: string;
+}
+let activeVariableDelegates: ReadonlyMap<string, CppVariableDelegateInfo> = new Map();
 let activeFunctionObjectCapture = false;
 let activeFunctionObjectCaptureNames: ReadonlySet<string> | null = null;
 let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> = new Map();
@@ -184,6 +193,7 @@ let activeExceptionTemporaryCounter = 0;
 let activeSwitchTemporaryCounter = 0;
 let activeDestructureTemporaryCounter = 0;
 let activeInstanceofTemporaryCounter = 0;
+let activeDelegateTemporaryCounter = 0;
 let activeSourceFilePath: string | null = null;
 let activeEmitSourceLocations = false;
 let activeExpectedExpressionCppType: string | null = null;
@@ -312,7 +322,16 @@ function emitIdentifier(identifier: Identifier): string {
   }
   const staticClassName = activeStaticImplicitReceiverIdentifiers.get(identifier as Node);
   if (staticClassName) {
-    return `${cppName(staticClassName)}::${cppName(identifier.name)}`;
+    const staticClass = activeClassStatements.get(staticClassName);
+    const staticField = staticClass?.members.find((candidate): candidate is ClassFieldMember =>
+      candidate instanceof ClassFieldMember && candidate.isStatic === true && candidate.name.name === identifier.name);
+    return `${cppName(staticClassName)}::${staticField ? staticFieldAccessorName(staticField) : cppName(identifier.name)}${staticField ? "()" : ""}`;
+  }
+  const variableDelegate = activeVariableDelegates.get(identifier.name);
+  if (variableDelegate) {
+    return variableDelegate.kind === "function"
+      ? `${variableDelegate.backingName}()`
+      : `vexa::recordGet<${variableDelegate.valueType}>(${variableDelegate.backingName}, u"value")`;
   }
   if (activeImplicitReceiverIdentifiers.has(identifier as Node)) {
     if (identifier.name === "length" && activeCurrentClassName === "Array") {
@@ -323,6 +342,12 @@ function emitIdentifier(identifier: Identifier): string {
       : undefined);
     if (currentClass && classGetterForName(currentClass, identifier.name)) {
       return `${activeThisExpression}->${cppName(identifier.name)}()`;
+    }
+    const delegatedReceiver = currentClass
+      ? classDelegateReceiverForMember(currentClass, identifier.name)
+      : null;
+    if (delegatedReceiver) {
+      return `${delegatedReceiver}->${interfacePropertyGetterName(identifier.name)}()`;
     }
     return `${activeThisExpression}->${cppName(identifier.name)}`;
   }
@@ -540,6 +565,10 @@ function cppTypeForBuiltin(typeName: BuiltinTypeName): string | null {
 
 const nativeWeakObjectKeyCppType = "cppgc::GarbageCollectedMixin*";
 
+function enumCppType(name: string): "std::int32_t" | "std::u16string" | "vexa::Value" {
+  return activeEnumCppTypes.get(name) ?? "std::int32_t";
+}
+
 function cppTypeForWeakAnalysisKey(type: AnalysisType): string | null {
   return type instanceof BuiltinType && type.name === "object"
     ? nativeWeakObjectKeyCppType
@@ -619,8 +648,9 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
   if (type instanceof NamedType && type.name === "ArrayBuffer") return "vexa::ArrayBufferObject*";
   if (type instanceof NamedType && type.name === "FFIPointer") return "vexa::FFIPointerObject*";
   if (type instanceof NamedType && type.name === "Uint8Array") return "vexa::Uint8ArrayObject*";
+  if (type instanceof NamedType && type.name === "Uint32Array") return "vexa::Uint32ArrayObject*";
   if (type instanceof NamedType && type.name === "DataView") return "vexa::DataViewObject*";
-  if (type instanceof NamedType && activeEnumNames.has(type.name)) return "std::int32_t";
+  if (type instanceof NamedType && activeEnumNames.has(type.name)) return enumCppType(type.name);
   if (type instanceof NamedType && isNativeObjectTypeName(type.name)) {
     const statement = activeClassStatements.get(type.name) ?? activeInterfaceStatements.get(type.name);
     const parameters = statement?.typeParameters ?? [];
@@ -770,7 +800,7 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
   if (activeCppTypeParameters.has(typeName)) return cppName(typeName);
   const builtin = cppTypeForBuiltin(typeName as BuiltinTypeName);
   if (builtin) return builtin;
-  if (activeEnumNames.has(typeName)) return "std::int32_t";
+  if (activeEnumNames.has(typeName)) return enumCppType(typeName);
   const shape = parseTypeNameShape(typeName);
   if (isRecordUtilityTypeName(shape.baseName)) {
     return "vexa::RecordObject*";
@@ -811,6 +841,7 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
   if (shape.baseName === "ArrayBuffer") return "vexa::ArrayBufferObject*";
   if (shape.baseName === "FFIPointer") return "vexa::FFIPointerObject*";
   if (shape.baseName === "Uint8Array") return "vexa::Uint8ArrayObject*";
+  if (shape.baseName === "Uint32Array") return "vexa::Uint32ArrayObject*";
   if (shape.baseName === "DataView") return "vexa::DataViewObject*";
   if (activeClassNames.has(shape.baseName) || activeInterfaceNames.has(shape.baseName)) {
     const statement = activeClassStatements.get(shape.baseName) ?? activeInterfaceStatements.get(shape.baseName);
@@ -944,6 +975,10 @@ function computeCppTypeForExpression(expression: Expr): string {
   if (expression instanceof SatisfiesExpression || expression instanceof NonNullExpression) {
     return cppTypeForExpression((expression as SatisfiesExpression | NonNullExpression).expression);
   }
+  if (expression instanceof ArrayLiteral) {
+    const elementType = arrayLiteralCppElementType(expression as ArrayLiteral);
+    if (elementType === "double") return `vexa::ArrayObject<${elementType}>*`;
+  }
   if (expression instanceof Identifier) {
     const identifier = expression as Identifier;
     const name = identifier.name;
@@ -1019,6 +1054,7 @@ function computeCppTypeForExpression(expression: Expr): string {
     }
     if (name === "ArrayBuffer") return "vexa::ArrayBufferObject*";
     if (name === "Uint8Array") return "vexa::Uint8ArrayObject*";
+    if (name === "Uint32Array") return "vexa::Uint32ArrayObject*";
     if (name === "DataView") return "vexa::DataViewObject*";
   }
   const analysisType = activeExpressionTypes.get(expression as Node);
@@ -1227,7 +1263,7 @@ function isStringExpression(expression: Expr): boolean {
     interfaceProperty?.typeAnnotation.name === "string";
 }
 
-function nativeBinaryObjectKind(expression: Expr): "buffer" | "uint8" | "dataView" | null {
+function nativeBinaryObjectKind(expression: Expr): "buffer" | "uint8" | "uint32" | "dataView" | null {
   const type = activeExpressionTypes.get(expression as Node);
   const declaredName = declaredTypeNameForExpression(expression);
   const mappedType = expression instanceof Identifier
@@ -1241,11 +1277,14 @@ function nativeBinaryObjectKind(expression: Expr): "buffer" | "uint8" | "dataVie
         ? "ArrayBuffer"
         : mappedType === "vexa::Uint8ArrayObject*"
           ? "Uint8Array"
-          : mappedType === "vexa::DataViewObject*"
-            ? "DataView"
-            : null;
+          : mappedType === "vexa::Uint32ArrayObject*"
+            ? "Uint32Array"
+            : mappedType === "vexa::DataViewObject*"
+              ? "DataView"
+              : null;
   if (name === "ArrayBuffer") return "buffer";
   if (name === "Uint8Array") return "uint8";
+  if (name === "Uint32Array") return "uint32";
   if (name === "DataView") return "dataView";
   return null;
 }
@@ -1368,7 +1407,22 @@ function emitNativeCollectionConstruction(call: CallExpression | NewExpression, 
   }
   if (argumentsList.length === 1) {
     if (name === "WeakMap") {
-      throw new CppEmitError("C++ WeakMap iterable construction is not implemented yet", call);
+      const values = argumentsList[0]!;
+      const mappedTypes = cppTemplateArguments(mapped, "vexa::WeakMapObject<");
+      const analysisType = activeExpressionTypes.get(call as Node);
+      let inferred: string[] = [];
+      if (analysisType instanceof NamedType) {
+        inferred = (analysisType.typeArguments ?? []).map(
+          (argument: AnalysisType): string => cppTypeForAnalysisType(argument) ?? "vexa::Value"
+        );
+      }
+      let types = inferred;
+      if (mappedTypes) types = mappedTypes;
+      if (explicit.length === 2) types = explicit;
+      if (types.length < 2 || !types[0]!.endsWith("*")) {
+        throw new CppEmitError("C++ cannot infer WeakMap entry types", call);
+      }
+      return `vexa::weakMapFromIterable<${types[0]}, ${types[1]}>(${emitExpression(values)})`;
     }
     const values = argumentsList[0]!;
     if (name === "WeakSet") {
@@ -1712,7 +1766,7 @@ function emitArrayElements(elements: readonly Expr[], elementType: string): stri
 function arrayLiteralElementCppType(element: Expr): string {
   if (element instanceof ArrayHole) return "vexa::Value";
   if (element instanceof StringLiteral) return "std::u16string";
-  if (element instanceof IntLiteral) return "std::int32_t";
+  if (element instanceof IntLiteral) return element.value > 0x7fffffff ? "double" : "std::int32_t";
   if (element instanceof FloatLiteral) return "double";
   if (element instanceof LongLiteral) return "std::int64_t";
   if (element instanceof BooleanLiteral) return "bool";
@@ -1731,6 +1785,11 @@ function arrayLiteralElementCppType(element: Expr): string {
 
 function arrayLiteralCppElementType(array: ArrayLiteral): string {
   if (array.elements.length === 0) return "vexa::Value";
+  if (array.elements.every((element) => element instanceof IntLiteral)) {
+    return array.elements.some((element) => (element as IntLiteral).value > 0x7fffffff)
+      ? "double"
+      : "std::int32_t";
+  }
   const elementTypes = new Set(array.elements.map((element) => arrayLiteralElementCppType(element as Expr)));
   return elementTypes.size === 1 ? [...elementTypes][0]! : "vexa::Value";
 }
@@ -1747,7 +1806,8 @@ function arrayElementCanUseCppType(element: Expr, expectedElementType: string): 
     return expectedElementType === "std::u16string" || expectedElementType === "vexa::Value";
   }
   if (element instanceof IntLiteral || element instanceof FloatLiteral || element instanceof LongLiteral) {
-    return expectedElementType === "std::int32_t" || expectedElementType === "std::int64_t" ||
+    const integerFitsSigned32 = !(element instanceof IntLiteral) || element.value <= 0x7fffffff;
+    return (integerFitsSigned32 && expectedElementType === "std::int32_t") || expectedElementType === "std::int64_t" ||
       expectedElementType === "double" || expectedElementType === "vexa::Value";
   }
   if (element instanceof BooleanLiteral) {
@@ -2586,7 +2646,9 @@ function emitArguments(
       : parameterType && activeInterfaceNames.has(parameterType) && isRecordExpression(argument)
       ? emitRecordInterfaceAdaptation(argument, parameterType)
       : parameterIsInterface && parameterCppType !== argumentCppType
-        ? emitConvertedValue(argument, parameterCppType!)
+        ? canStaticallyConvertClassToInterface(argument, parameterCppType!)
+          ? `static_cast<${parameterCppType}>(${emitExpression(argument)})`
+          : emitConvertedValue(argument, parameterCppType!)
       : argument instanceof UndefinedLiteral && parameterCppType?.endsWith("*")
         ? "nullptr"
       : parameterCppType?.endsWith("*") && argumentCppType?.endsWith("*") &&
@@ -2974,6 +3036,14 @@ function canStaticallyConvertClassPointer(expression: Expr, resultType: string):
   if (!resultType.endsWith("*")) return false;
   const sourceType = emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
   return commonClassPointerType(sourceType, resultType) === resultType;
+}
+
+function canStaticallyConvertClassToInterface(expression: Expr, resultType: string): boolean {
+  const sourceType = emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
+  const sourceClass = classStatementForCppType(sourceType);
+  if (!sourceClass || interfaceStatementForCppType(resultType) === null) return false;
+  return implementedInterfaceTypes(sourceClass).some((implementedType) =>
+    cppTypeForDeclaredName(implementedType.name) === resultType);
 }
 
 function isClassStoredPropertyMember(member: MemberExpression): boolean {
@@ -3549,6 +3619,13 @@ function classMethodForMember(
   if (mappedClass) {
     const method = classMethodForName(mappedClass, member.propertyName);
     if (method) return method;
+    for (const implementedType of implementedInterfaceTypes(mappedClass)) {
+      const interfaceStatement = activeInterfaceStatements.get(parseTypeNameShape(implementedType.name).baseName);
+      const delegatedMethod = interfaceStatement
+        ? interfaceMethods(interfaceStatement).find((candidate) => candidate.name.name === member.propertyName)
+        : undefined;
+      if (delegatedMethod) return delegatedMethod;
+    }
   }
   const mappedInterface = interfaceStatementForCppType(objectType);
   if (mappedInterface) {
@@ -4625,6 +4702,10 @@ function emitNativeBufferConstruction(name: string, args: readonly Expr[], expre
     const emitted = isManagedArrayExpression(argument) ? emitManagedArrayPointer(argument) : emitExpression(argument);
     return `vexa::makeUint8Array(${emitted})`;
   }
+  if (name === "Uint32Array") {
+    if (args.length !== 1) throw new CppEmitError("C++ Uint32Array construction expects a length", expression);
+    return `vexa::makeUint32Array(${emitExpression(args[0]!)})`;
+  }
   if (name === "DataView") {
     if (args.length < 1 || args.length > 3) throw new CppEmitError("C++ DataView construction expects a buffer and optional offset/length", expression);
     return `vexa::makeDataView(${args.map((argument) => emitExpression(argument)).join(", ")})`;
@@ -4680,6 +4761,19 @@ function emitCall(call: CallExpression, resultUsed = true): string {
   let cachedArgumentsText: string | null = null;
   const argumentsText = (): string => cachedArgumentsText ??= emitAnalyzedCallArguments(call);
   const member = memberParts(call.callee);
+  const textEncoderObject = member?.object instanceof CallExpression
+    ? member.object as CallExpression
+    : null;
+  const textEncoderCallee = textEncoderObject?.callee;
+  if (
+    member?.propertyName === "encode" &&
+    textEncoderObject !== null &&
+    (textEncoderCallee !== undefined && identifierName(textEncoderCallee) === "TextEncoder" ||
+      (textEncoderCallee instanceof Identifier && textEncoderCallee.__vexaNativeOriginalName === "TextEncoder"))
+  ) {
+    if (call.args.length !== 1) throw new CppEmitError("C++ TextEncoder.encode expects one string", call);
+    return `vexa::makeUint8Array(vexa::toText(${emitExpression(call.args[0]!)}))`;
+  }
   if (member?.objectName === "console") {
     const supported = new Set(["log", "info", "warn", "error"]);
     if (!supported.has(member.propertyName)) {
@@ -5114,8 +5208,12 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       const numericArguments = new Set(["substring", "stringSlice", "charAt", "charCodeAt", "stringRepeat"])
         .has(primitiveMethod);
       let emittedArguments: string;
-      if (numericArguments) {
+      if (primitiveMethod === "toString" && call.args.length > 1) {
+        throw new CppEmitError("C++ toString expects at most one radix", call);
+      } else if (numericArguments) {
         emittedArguments = call.args.map((argument) => emitConvertedValue(argument, "double")).join(", ");
+      } else if (primitiveMethod === "toString" && call.args.length === 1) {
+        emittedArguments = emitConvertedValue(call.args[0]!, "double");
       } else {
         emittedArguments = argumentsText();
       }
@@ -5721,6 +5819,9 @@ function emitBinary(expression: BinaryExpression): string {
     if (targetName === "Set") return `vexa::isSetLike(${emitExpression(expression.left)})`;
     if (targetName === "WeakMap") return `vexa::isWeakMapLike(${emitExpression(expression.left)})`;
     if (targetName === "WeakSet") return `vexa::isWeakSetLike(${emitExpression(expression.left)})`;
+    if (targetName === "ArrayBuffer" || targetName === "Uint8Array" || targetName === "DataView") {
+      return `vexa::isInstance<vexa::${targetName}Object>(${emitExpression(expression.left)})`;
+    }
     const targetType = cppTypeForDeclaredName(targetName);
     if (targetType?.endsWith("*") &&
       (activeClassNames.has(parseTypeNameShape(targetName).baseName) ||
@@ -5996,6 +6097,16 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
     }
     case NodeKind.UpdateExpression: {
       const update = expression as UpdateExpression;
+      const variableDelegate = update.argument instanceof Identifier
+        ? activeVariableDelegates.get(update.argument.name)
+        : undefined;
+      if (variableDelegate) {
+        const currentName = `__vexa_delegate_current_${activeDelegateTemporaryCounter++}`;
+        const valueName = `__vexa_delegate_value_${activeDelegateTemporaryCounter++}`;
+        const delta = update.operator === "++" ? "+" : "-";
+        const write = emitVariableDelegateWrite(variableDelegate, valueName);
+        return `([&]() { auto ${currentName} = ${emitExpression(update.argument)}; auto ${valueName} = (${currentName} ${delta} 1); ${write}; return ${update.prefix ? valueName : currentName}; }())`;
+      }
       if (update.argument instanceof MemberExpression) {
         const member = update.argument as MemberExpression;
         if (member.computed && isManagedArrayExpression(member.object)) {
@@ -6029,6 +6140,20 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
     case NodeKind.AssignmentExpression: {
       const assignment = expression as AssignmentExpression;
       const overloaded: ClassMethodMember | null = resolvedClassOperator(assignment);
+      const variableDelegate = assignment.left instanceof Identifier
+        ? activeVariableDelegates.get(assignment.left.name)
+        : undefined;
+      if (variableDelegate) {
+        if (assignment.operator === "=") {
+          return emitVariableDelegateWrite(variableDelegate, emitExpression(assignment.right));
+        }
+        const operator = compoundAssignmentBinaryOperator(assignment.operator);
+        if (!operator) throw new CppEmitError(`C++ variable delegates do not support '${assignment.operator}'`, assignment);
+        return emitVariableDelegateWrite(
+          variableDelegate,
+          `(${emitExpression(assignment.left)} ${operator} ${emitExpression(assignment.right)})`
+        );
+      }
       if (overloaded?.operator === "[]=" && assignment.left instanceof MemberExpression) {
         const member = assignment.left as MemberExpression;
         return emitClassOperatorCall(overloaded, member.object, [assignment.right, ...computedMemberArguments(member)]);
@@ -6044,9 +6169,12 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
           const body = `auto* __vexa_array = ${receiver}; auto __vexa_array_length = ${size}; __vexa_array->resize(static_cast<std::size_t>(__vexa_array_length));`;
           return resultUsed ? `([&]() { ${body} return __vexa_array_length; }())` : `{ ${body} }`;
         }
-        if (member.computed && nativeBinaryObjectKind(member.object) === "uint8") {
-          if (assignment.operator !== "=") throw new CppEmitError("C++ Uint8Array compound index assignment is not implemented yet", assignment);
-          return `${emitExpression(member.object)}->set(${emitExpression(member.property)}, ${emitExpression(assignment.right)})`;
+        if (member.computed) {
+          const binaryKind = nativeBinaryObjectKind(member.object);
+          if (binaryKind === "uint8" || binaryKind === "uint32") {
+            if (assignment.operator !== "=") throw new CppEmitError(`C++ ${binaryKind === "uint8" ? "Uint8Array" : "Uint32Array"} compound index assignment is not implemented yet`, assignment);
+            return `${emitExpression(member.object)}->set(${emitExpression(member.property)}, ${emitExpression(assignment.right)})`;
+          }
         }
         if (member.computed && isManagedArrayExpression(member.object)) {
           const receiver = emitManagedArrayPointer(member.object);
@@ -6110,8 +6238,16 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
           return `vexa::assignWith(${target}, [&](const vexa::Value& __vexa_compound_current) { return ${value}; })`;
         }
       }
+      if (assignment.operator === "%=") {
+        const target = emitExpression(assignment.left);
+        const value = emitExpression(assignment.right);
+        return `vexa::assignWith(${target}, [&](auto __vexa_compound_current) { return vexa::remainder(__vexa_compound_current, ${value}); })`;
+      }
       if (compoundOperator) {
         const targetType = emittedCppTypeForExpression(assignment.left) ?? cppTypeForExpression(assignment.left);
+        const resolvedTargetType = assignment.left instanceof Identifier
+          ? activeLocalCppTypes.get(assignment.left.name) ?? targetType
+          : targetType;
         if (targetType === "std::u16string") {
           const target = emitExpression(assignment.left);
           if (assignment.operator === "+=" && isStringExpression(assignment.right)) {
@@ -6125,6 +6261,23 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
           if (value) {
             return `vexa::assignWith(${target}, [&](const std::u16string& __vexa_compound_current) { return vexa::toText(${value}); })`;
           }
+        }
+        if ((resolvedTargetType === "double" || resolvedTargetType === "std::int32_t" || resolvedTargetType === "std::int64_t") &&
+          (cppTypeForExpression(assignment.right) === "vexa::Value" || isDynamicValueExpression(assignment.right))) {
+          const target = emitExpression(assignment.left);
+          const value = emitConvertedValue(assignment.right, resolvedTargetType);
+          return `(${target} ${assignment.operator} ${value})`;
+        }
+      }
+      if (compoundOperator && assignment.left instanceof Identifier) {
+        const analyzedTargetType = activeExpressionTypes.get(assignment.left as Node);
+        const targetType = activeLocalCppTypes.get(assignment.left.name) ??
+          cppTypeForAnalysisType(analyzedTargetType ?? builtinType("unknown")) ??
+          cppTypeForExpression(assignment.left);
+        if (targetType === "double" || targetType === "std::int32_t" || targetType === "std::int64_t") {
+          const target = emitExpression(assignment.left);
+          const value = emitConvertedValue(assignment.right, targetType);
+          return `(${target} ${assignment.operator} ${value})`;
         }
       }
       if (compoundOperator && !activeHasExpressionTypes) {
@@ -6292,6 +6445,14 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       if (enumName && activeEnumNames.has(enumName) && member.property instanceof Identifier) {
         return `${cppName(enumName)}::${cppName((member.property as Identifier).name)}`;
       }
+      if (member.computed && member.object instanceof Identifier && member.property instanceof StringLiteral) {
+        const enumStatement = activeEnumStatements.get(member.object.name);
+        const enumMember = enumStatement
+          ? enumStatement.members.find((candidate) =>
+            candidate.name.name === (member.property as StringLiteral).value)
+          : undefined;
+        if (enumMember) return `${cppName(member.object.name)}::${cppName(enumMember.name.name)}`;
+      }
       const staticField = staticClassFieldForMember(member);
       if (staticField) {
         return `${cppName(staticField.statement.name.name)}::${staticFieldAccessorName(staticField.field)}()`;
@@ -6365,19 +6526,31 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       if (!member.computed && binaryKind && member.property instanceof Identifier) {
         const propertyName = (member.property as Identifier).name;
         if (propertyName === "byteLength") return `static_cast<double>(${emitExpression(member.object)}->byteLength())`;
-        if ((binaryKind === "uint8") && propertyName === "length") return `static_cast<double>(${emitExpression(member.object)}->length())`;
-        if ((binaryKind === "uint8" || binaryKind === "dataView") && propertyName === "byteOffset") {
+        if ((binaryKind === "uint8" || binaryKind === "uint32") && propertyName === "length") return `static_cast<double>(${emitExpression(member.object)}->length())`;
+        if ((binaryKind === "uint8" || binaryKind === "uint32" || binaryKind === "dataView") && propertyName === "byteOffset") {
           return `static_cast<double>(${emitExpression(member.object)}->byteOffset())`;
         }
-        if ((binaryKind === "uint8" || binaryKind === "dataView") && propertyName === "buffer") {
+        if ((binaryKind === "uint8" || binaryKind === "uint32" || binaryKind === "dataView") && propertyName === "buffer") {
           return `${emitExpression(member.object)}->buffer()`;
         }
       }
-      if (member.computed && binaryKind === "uint8") {
+      if (member.computed && (binaryKind === "uint8" || binaryKind === "uint32")) {
         return `static_cast<double>(${emitExpression(member.object)}->get(static_cast<std::size_t>(${emitExpression(member.property)})))`;
       }
       if (member.computed && isManagedArrayExpression(member.object)) {
         return emitManagedArrayIndexGet(member);
+      }
+      if (!member.computed && member.property instanceof Identifier) {
+        const delegatedPropertyName = (member.property as Identifier).name;
+        const receiverClass = classStatementForCppType(cppTypeForExpression(member.object));
+        const delegatedProperty = receiverClass
+          ? implementedInterfaceProperties(receiverClass).find((candidate) =>
+            candidate.property.name.name === delegatedPropertyName &&
+            classDelegateReceiverForMember(receiverClass, candidate.property.name.name))
+          : undefined;
+        if (delegatedProperty) {
+          return `${emitExpression(member.object)}->${interfacePropertyGetterName(delegatedPropertyName)}()`;
+        }
       }
       if (!isOptionalChainExpression(member.object) && !member.optional && isDynamicValueExpression(member.object) && isClassStoredPropertyMember(member)) {
         const receiverClassName = classNameForExpression(member.object)!;
@@ -6549,6 +6722,7 @@ function emitDestructuredBindings(
 ): void {
   if (binding instanceof Identifier) {
     activeLocalNames.add(binding.name);
+    if (!sourceType) activeDynamicValueNames.add(binding.name);
     if (sourceType && sourceType !== "auto") {
       activeLocalCppTypes.set(binding.name, sourceType);
       if (sourceType === "vexa::Value") activeDynamicValueNames.add(binding.name);
@@ -6640,7 +6814,7 @@ function emitTypedArrayDestructuredBindings(
     index += 1;
     if (element instanceof BindingHole) continue;
     if (!(element.name instanceof Identifier)) continue;
-    const type = elementTypes[elementIndex] ?? "vexa::Value";
+    const type = elementTypes[elementIndex] || "vexa::Value";
     const name = element.name.name;
     activeLocalNames.add(name);
     activeLocalCppTypes.set(name, type);
@@ -6662,7 +6836,44 @@ function emitTypedArrayDestructuredBindings(
   }
 }
 
+function variableDelegateBackingName(sourceName: string): string {
+  return `__vexa_delegate_${cppName(sourceName)}`;
+}
+
+function cppVariableDelegateInfo(statement: VarStatement): CppVariableDelegateInfo | null {
+  if (!(statement.name instanceof Identifier) || !statement.delegate) return null;
+  const delegateType = activeExpressionTypes.get(statement.delegate as Node);
+  if (delegateType instanceof FunctionType) {
+    return {
+      backingName: variableDelegateBackingName(statement.name.name),
+      kind: "function",
+      valueType: cppTypeForAnalysisType(delegateType.returnType) ?? "vexa::Value",
+    };
+  }
+  if (delegateType instanceof ObjectType) {
+    const valueType = delegateType.properties.get("value");
+    if (valueType) {
+      return {
+        backingName: variableDelegateBackingName(statement.name.name),
+        kind: "objectValue",
+        valueType: cppTypeForAnalysisType(valueType) ?? "vexa::Value",
+      };
+    }
+  }
+  return null;
+}
+
+function emitVariableDelegateWrite(delegate: CppVariableDelegateInfo, value: string): string {
+  if (delegate.kind === "function") {
+    return `${delegate.backingName}(${value})`;
+  }
+  return `vexa::recordSet(${delegate.backingName}, u"value", ${value})`;
+}
+
 function emitVariable(statement: VarStatement, forInitializer = false): string {
+  if (statement.delegate) {
+    throw new CppEmitError("C++ local variable delegates are not implemented yet", statement);
+  }
   if (!(statement.name instanceof Identifier)) {
     if (forInitializer || !statement.initializer) {
       throw new CppEmitError("C++ loop destructuring requires a separate declaration", statement);
@@ -6945,8 +7156,9 @@ function emitFor(statement: ForStatement, indent: string, label?: string): strin
         (iterableCppType.startsWith("vexa::MapObject<") ? "map" :
           iterableCppType.startsWith("vexa::SetObject<") ? "set" : null);
       const stringIterable = isStringExpression(statement.iterable);
+      const binaryIterable = nativeBinaryObjectKind(statement.iterable) === "uint8";
       const deferredNativeArray = !stringIterable && (iterableCppType === "auto" || iterableCppType === "vexa::Value");
-      if (!stringIterable && !isArrayExpression(statement.iterable) && !isGeneratorExpression(statement.iterable) && collection !== "map" && collection !== "set" && !deferredNativeArray) {
+      if (!stringIterable && !binaryIterable && !isArrayExpression(statement.iterable) && !isGeneratorExpression(statement.iterable) && collection !== "map" && collection !== "set" && !deferredNativeArray) {
         const sourcePath = statement.__vexaNativeSourcePath;
         throw new CppEmitError(
           `C++ for-of emission does not support iterable '${statement.iterable.kind}' with type '${cppTypeForExpression(statement.iterable)}'${sourcePath ? ` in ${sourcePath}` : ""}`,
@@ -6959,6 +7171,8 @@ function emitFor(statement: ForStatement, indent: string, label?: string): strin
         : iterable;
       const range = stringIterable
         ? `vexa::stringCharacters(${iterable})`
+        : binaryIterable
+          ? `*vexa::uint8ArrayValues(${iterable})`
         : collection === "map"
         ? `*vexa::mapEntries(${nativeCollectionReceiver})`
         : collection === "set"
@@ -6985,9 +7199,13 @@ function emitFor(statement: ForStatement, indent: string, label?: string): strin
       const mapTypes: string[] | null = collection === "map"
         ? cppTemplateArguments(iterableCppType, "vexa::MapObject<")
         : null;
-      if (mapTypes && iteratorBinding instanceof ArrayBindingPattern) {
+      const iterableAnalysisType = activeExpressionTypes.get(statement.iterable as Node);
+      const tupleTypes = iterableAnalysisType instanceof ArrayType && iterableAnalysisType.elementType instanceof TupleType
+        ? iterableAnalysisType.elementType.elements.map(cppArrayElementType).filter((type): type is string => type !== null)
+        : null;
+      if ((mapTypes ?? tupleTypes) && iteratorBinding instanceof ArrayBindingPattern) {
         const arrayBinding = iteratorBinding as ArrayBindingPattern;
-        emitTypedArrayDestructuredBindings(arrayBinding, temporary, mapTypes, bindingLines);
+        emitTypedArrayDestructuredBindings(arrayBinding, temporary, mapTypes ?? tupleTypes!, bindingLines);
       } else {
         emitDestructuredBindings(iteratorBinding, temporary, bindingLines);
       }
@@ -8046,6 +8264,8 @@ function emitEnumConstantExpression(expression: Expr): string {
   switch (expression.kind) {
     case NodeKind.IntLiteral:
       return String((expression as IntLiteral).value);
+    case NodeKind.StringLiteral:
+      return cppUtf16String((expression as StringLiteral).value);
     case NodeKind.Identifier:
       return cppName((expression as Identifier).name);
     case NodeKind.UnaryExpression: {
@@ -8079,14 +8299,33 @@ function emitEnum(statement: EnumStatement): string {
   if (statement.declared) {
     throw new CppEmitError("C++ emission does not support ambient enum declarations", statement);
   }
+  const type = enumCppType(statement.name.name);
   const lines = [`struct ${cppName(statement.name.name)} final {`];
   statement.members.forEach((member, index) => {
-    const value = member.initializer
-      ? emitEnumConstantExpression(member.initializer)
-      : index === 0
-        ? "0"
+    let value: string;
+    if (member.initializer) {
+      const raw = emitEnumConstantExpression(member.initializer);
+      value = type === "vexa::Value"
+        ? `vexa::toValue(${member.initializer instanceof StringLiteral ? `std::u16string(${raw})` : raw})`
+        : raw;
+    } else if (index === 0) {
+      if (type === "std::u16string") {
+        throw new CppEmitError("C++ string enums require an initializer for every member", statement);
+      }
+      value = type === "vexa::Value" ? "vexa::toValue(0.0)" : "0";
+    } else {
+      const previous = `${cppName(statement.name.name)}::${cppName(statement.members[index - 1]!.name.name)}`;
+      if (type === "std::u16string") {
+        throw new CppEmitError("C++ string enums require an initializer for every member", statement);
+      }
+      value = type === "vexa::Value"
+        ? `vexa::toValue(vexa::toNativeInt32(${previous}) + 1)`
         : `(${cppName(statement.members[index - 1]!.name.name)} + 1)`;
-    lines.push(`  static constexpr std::int32_t ${cppName(member.name.name)} = ${value};`);
+    }
+    const declaration = type === "std::int32_t"
+      ? `static constexpr ${type}`
+      : `inline static const ${type}`;
+    lines.push(`  ${declaration} ${cppName(member.name.name)} = ${value};`);
   });
   lines.push("};");
   return lines.join("\n");
@@ -8422,6 +8661,13 @@ function classPropertyImplementationKind(
   if (primaryProperty) {
     return primaryProperty.declarationKind !== "val" && primaryProperty.declarationKind !== "const" ? 2 : 1;
   }
+  const constructor = statement.members.find((candidate): candidate is ClassMethodMember =>
+    candidate instanceof ClassMethodMember && candidate.name.name === "constructor");
+  const constructorProperty = constructor?.parameters.find((parameter) =>
+    parameter.name instanceof Identifier && parameter.name.name === propertyName && parameter.accessModifier !== undefined);
+  if (constructorProperty) {
+    return constructorProperty.accessModifier && !constructorProperty.isReadonly ? 2 : 1;
+  }
   let field: ClassFieldMember | null = null;
   for (const member of statement.members) {
     if (member instanceof ClassFieldMember && member.name.name === propertyName) {
@@ -8432,7 +8678,27 @@ function classPropertyImplementationKind(
   if (field) {
     return field.declarationKind !== "val" && field.declarationKind !== "const" && !field.isReadonly ? 2 : 1;
   }
+  if (classDelegateReceiverForMember(statement, propertyName)) return 4;
   return classGetterForName(statement, propertyName) ? 3 : 0;
+}
+
+function classDelegateReceiverForMember(statement: ClassStatement, memberName: string): string | null {
+  for (const delegate of statement.classDelegates ?? []) {
+    const interfaceStatement = activeInterfaceStatements.get(parseTypeNameShape(delegate.typeAnnotation.name).baseName);
+    if (!interfaceStatement) continue;
+    const hasMember = interfaceProperties(interfaceStatement).some((property) => property.name.name === memberName) ||
+      interfaceMethods(interfaceStatement).some((method) => method.name.name === memberName);
+    if (!hasMember) continue;
+    if (delegate.expression instanceof ObjectLiteral) {
+      const property = delegate.expression.properties.find((candidate) =>
+        candidate instanceof ObjectProperty && candidate.value instanceof Identifier);
+      if (property instanceof ObjectProperty && property.value instanceof Identifier) {
+        return `this->${cppName(property.value.name)}`;
+      }
+    }
+    if (delegate.expression instanceof Identifier) return `this->${cppName(delegate.expression.name)}`;
+  }
+  return null;
 }
 
 function emitInterfacePropertyBridges(statement: ClassStatement): string[] {
@@ -8458,9 +8724,14 @@ function emitInterfacePropertyBridges(statement: ClassStatement): string[] {
       );
     }
     const propertyName = cppName(property.name.name);
+    const delegatedReceiver = implementationKind === 4
+      ? classDelegateReceiverForMember(statement, property.name.name)
+      : null;
     const getterValue = implementationKind === 3
       ? `this->${propertyName}()`
-      : `this->${propertyName}`;
+      : implementationKind === 4 && delegatedReceiver
+        ? `${delegatedReceiver}->${interfacePropertyGetterName(property.name.name)}()`
+        : `this->${propertyName}`;
     const returnedValue = property.optional
       ? `vexa::toValue(${getterValue})`
       : getterValue;
@@ -8482,6 +8753,21 @@ function emitInterfacePropertyBridges(statement: ClassStatement): string[] {
         lines.push(
           `  void ${interfacePropertySetterName(property.name.name)}(${type} __vexa_property_value) override { this->${propertyName}(${value}); }`
         );
+      } else if (implementationKind === 4 && delegatedReceiver) {
+        const value = property.optional
+          ? emitNativeConversion("__vexa_property_value", implementationType)
+          : "__vexa_property_value";
+        lines.push(
+          `  void ${interfacePropertySetterName(property.name.name)}(${type} __vexa_property_value) override { ${delegatedReceiver}->${interfacePropertySetterName(property.name.name)}(${value}); }`
+        );
+      } else if (implementationKind === 3) {
+        lines.push(
+          `  void ${interfacePropertySetterName(property.name.name)}(${type}) override { throw vexa::runtimeError(${cppUtf16String(`Cannot assign to read-only property '${property.name.name}'`)}); }`
+        );
+      } else if (implementationKind === 1) {
+        lines.push(
+          `  void ${interfacePropertySetterName(property.name.name)}(${type}) override { throw vexa::runtimeError(${cppUtf16String(`Cannot assign to read-only property '${property.name.name}'`)}); }`
+        );
       } else {
         throw new CppEmitError(
           `C++ mutable interface property '${property.name.name}' requires a mutable field or setter accessor`,
@@ -8490,6 +8776,31 @@ function emitInterfacePropertyBridges(statement: ClassStatement): string[] {
       }
     }
     result.push(...lines);
+  }
+  return result;
+}
+
+function emitClassDelegateMethodBridges(statement: ClassStatement, methods: readonly ClassMethodMember[]): string[] {
+  const existingMethods = new Set(methods.map((method) => method.name.name));
+  const result: string[] = [];
+  for (const delegate of statement.classDelegates ?? []) {
+    const interfaceStatement = activeInterfaceStatements.get(parseTypeNameShape(delegate.typeAnnotation.name).baseName);
+    if (!interfaceStatement) continue;
+    for (const method of interfaceMethods(interfaceStatement)) {
+      if (existingMethods.has(method.name.name)) continue;
+      const receiver = classDelegateReceiverForMember(statement, method.name.name);
+      if (!receiver) continue;
+      const resultType = method.returnType ? cppTypeForDeclaredName(method.returnType.name) : "void";
+      if (!resultType || resultType === "void" && method.returnType) {
+        throw new CppEmitError(`C++ cannot map delegated method '${method.name.name}'`, statement);
+      }
+      const parameters = callableParameters(method.parameters, statement, false).text;
+      const argumentsText = method.parameters.map((parameter) =>
+        parameter.name instanceof Identifier ? cppName(parameter.name.name) : "").join(", ");
+      const invocation = `${receiver}->${cppName(method.name.name)}(${argumentsText})`;
+      result.push(`  ${resultType} ${cppName(method.name.name)}(${parameters}) override { ${resultType === "void" ? `${invocation};` : `return ${invocation};`} }`);
+      existingMethods.add(method.name.name);
+    }
   }
   return result;
 }
@@ -8731,6 +9042,7 @@ function emitForeignStructCppClass(statement: ClassStatement): string {
 }
 
 function emitClass(statement: ClassStatement): string {
+  if (statement.declared && (statement.name.name === "TextEncoder" || statement.name.__vexaNativeOriginalName === "TextEncoder")) return "";
   if (foreignLibraryForClass(statement)) return emitForeignLibraryCppClass(statement);
   if (foreignStructForClass(statement)) return emitForeignStructCppClass(statement);
   return withCppTypeParameters(statement.typeParameters, () => emitClassWithActiveTypeParameters(statement));
@@ -8784,7 +9096,6 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     statement.declared ||
     (extendedBaseName && !nativeErrorBase && !activeInterfaceNames.has(extendedBaseName) && !activeClassNames.has(extendedBaseName)) ||
     hasUnsupportedImplementedType ||
-    statement.classDelegates?.length ||
     statement.members.some((member) => !(member instanceof ClassMethodMember) && !(member instanceof ClassFieldMember))
   ) {
     const unsupportedMembers = statement.members
@@ -9086,6 +9397,14 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
       activeAccess = "public";
     }
     methodLines.push(...propertyBridges);
+  }
+  const delegatedMethodBridges = emitClassDelegateMethodBridges(statement, methods);
+  if (delegatedMethodBridges.length > 0) {
+    if (activeAccess !== "public") {
+      methodLines.push(" public:");
+      activeAccess = "public";
+    }
+    methodLines.push(...delegatedMethodBridges);
   }
   for (const method of methods) {
     const access = method.accessModifier ?? "public";
@@ -9598,8 +9917,22 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeInterfaceStatementsByCppBase = interfaceStatementsByCppBase;
   activeInterfaceNames = new Set(activeInterfaceStatements.keys());
   const enumNames = new Set<string>();
-  for (const statement of enums) enumNames.add(statement.name.name);
+  const enumCppTypes = new Map<string, "std::int32_t" | "std::u16string" | "vexa::Value">();
+  for (const statement of enums) {
+    enumNames.add(statement.name.name);
+    const hasStringMember = statement.members.some((member) => member.initializer instanceof StringLiteral);
+    const hasNonStringMember = statement.members.some((member) =>
+      member.initializer !== undefined && !(member.initializer instanceof StringLiteral));
+    enumCppTypes.set(
+      statement.name.name,
+      hasStringMember
+        ? hasNonStringMember ? "vexa::Value" : "std::u16string"
+        : "std::int32_t"
+    );
+  }
   activeEnumNames = enumNames;
+  activeEnumCppTypes = enumCppTypes;
+  activeEnumStatements = new Map(enums.map((statement) => [statement.name.name, statement]));
   const typeAliasTargets = new Map<string, string>();
   for (const statement of typeAliases) {
     if (statement.typeParameters?.length) continue;
@@ -9641,6 +9974,14 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeFunctionObjectCaptureNames = null;
   activeExpressionTypes = semantics.expressionTypes ?? new Map();
   activeHasExpressionTypes = activeExpressionTypes.size > 0;
+  const variableDelegates = new Map<string, CppVariableDelegateInfo>();
+  for (const statement of statements) {
+    const delegate = statement instanceof VarStatement ? cppVariableDelegateInfo(statement) : null;
+    if (delegate && statement instanceof VarStatement && statement.name instanceof Identifier) {
+      variableDelegates.set(statement.name.name, delegate);
+    }
+  }
+  activeVariableDelegates = variableDelegates;
   activeImplicitReceiverIdentifiers = semantics.implicitReceiverIdentifiers ?? new Set<Node>();
   activeReceiverLambdas = semantics.receiverLambdas ?? new Map();
   activeReceiverLabels = new Map();
@@ -9673,6 +10014,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeSwitchTemporaryCounter = 0;
   activeDestructureTemporaryCounter = 0;
   activeInstanceofTemporaryCounter = 0;
+  activeDelegateTemporaryCounter = 0;
   activeCurrentClassName = null;
   activeCurrentClassStatement = null;
   clearExpressionTypeCaches();
@@ -9832,6 +10174,15 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
     ) continue;
     if (statement instanceof VarStatement) {
       const variable = statement as VarStatement;
+      if (variable.delegate && variable.name instanceof Identifier) {
+        const delegate = activeVariableDelegates.get(variable.name.name);
+        if (!delegate) {
+          throw new CppEmitError("C++ variable delegate requires a function or object with a value property", variable);
+        }
+        if (activeEmitSourceLocations) appendStatementPreamble(entryStatements, statement, "    ");
+        entryStatements.push(`    auto ${delegate.backingName} = ${emitExpression(variable.delegate)};`);
+        continue;
+      }
       if (!(variable.name instanceof Identifier)) {
         const emitted = emitStatement(variable, "    ");
         if (emitted) {

@@ -1,0 +1,100 @@
+// Keep this fixture intentionally small. Each construct here previously
+// generated C++ that either failed to compile or linked with the wrong ABI.
+import message from "./native-constructs-smoke.txt"
+
+class HexValue {
+  static val BASE = 65521
+  private var value = 1
+
+  fun update() {
+    value += 1
+    value %= BASE
+  }
+
+  fun asHex() => value.toString(16)
+}
+
+interface Shape {
+  area: number
+  fill(color: string): string
+}
+
+class Rectangle(val width: number, val height: number) : Shape {
+  override area => width * height
+  override fill(color: string) => `${color}:${width}x${height}`
+}
+
+class ShapeLogger(val shape: Shape, val label: string) : Shape by { shape } {
+  describe() => `${label}:${area}`
+}
+
+fun box<T>(initial: T) {
+  return { value: initial }
+}
+
+enum Color {
+  Red,
+  Green = 2,
+  Blue = "blue"
+}
+
+enum Direction {
+  North = 1,
+  South
+}
+
+declare class TextEncoder {
+  encode(str: string): Uint8Array
+}
+
+const buffer = ArrayBuffer(4)
+const view = DataView(buffer)
+view.setUint16(0, 0x1234)
+view.setUint16(2, 0xabcd)
+
+const bytes = Uint8Array(buffer)
+const byteSet = Set<int>([bytes[0], bytes[1], bytes[2], bytes[3]])
+const metadataKey = { kind: "buffer" }
+const metadata = WeakMap<object, string>([[metadataKey, "ready"]])
+
+val rectangle = Rectangle(4, 5)
+val logger = ShapeLogger(rectangle, "demo")
+
+var source = 1
+var observed by () => source
+var total by box(0)
+total = observed + 2
+source = 5
+total += observed
+total++
+
+const entries: [string, number][] = [["a", 3], ["b", 4]]
+var entryTotal = 0
+for (const [, value] of entries) {
+  entryTotal += value
+}
+
+const lookup = [1996959894, 3993919788, 2567524794]
+const encoded = TextEncoder().encode("A")
+const uint32 = Uint32Array(1)
+uint32[0] = -1
+
+console.log(HexValue().asHex())
+const hexValue = HexValue()
+hexValue.update()
+console.log(hexValue.asHex())
+console.log(logger.area)
+console.log(logger.fill("blue"))
+console.log(logger.describe())
+console.log(`delegated:${total}`)
+console.log(Color.Red, Color.Green, Color.Blue)
+console.log(Direction["North"], Direction["South"])
+console.log(entryTotal)
+console.log(lookup[2])
+console.log(encoded[0], uint32[0])
+console.log(buffer.byteLength)
+console.log(`${view.getUint8(0)},${view.getUint8(1)},${view.getUint8(2)},${view.getUint8(3)}`)
+console.log([...byteSet].join(","))
+console.log(metadata.get(metadataKey))
+console.log(view instanceof DataView, bytes instanceof Uint8Array)
+console.log(message.trim())

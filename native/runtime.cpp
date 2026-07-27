@@ -857,6 +857,7 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   }
   T get(std::size_t index) const {
     if (dynamic_backing_) {
+      if (index >= size()) return T{};
       if constexpr (IsDynamicArrayElement<T>) {
         return convertValue<T>(dynamic_backing_->dynamicArrayGet(index));
       } else {
@@ -1802,6 +1803,61 @@ class Uint8ArrayObject final : public cppgc::GarbageCollected<Uint8ArrayObject>,
   Value dynamicSet(const std::u16string& key, const Value& value) override {
     const auto index = propertyIndex(key);
     if (!index) throw runtimeError(u"Invalid Uint8Array index");
+    return Value(static_cast<double>(set(*index, Number(value))));
+  }
+  void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
+    visitor->Trace(buffer_);
+  }
+
+ private:
+  cppgc::Member<ArrayBufferObject> buffer_;
+  std::size_t byte_offset_;
+  std::size_t length_;
+};
+
+class Uint32ArrayObject final : public cppgc::GarbageCollected<Uint32ArrayObject>, public BaseObject {
+ public:
+  Uint32ArrayObject(ArrayBufferObject* buffer, std::size_t byteOffset, std::size_t length)
+      : buffer_(buffer), byte_offset_(byteOffset), length_(length) {
+    if (!buffer || length > (buffer->byteLength() - std::min(byteOffset, buffer->byteLength())) / sizeof(std::uint32_t)) {
+      throw std::out_of_range("Uint32Array view is outside its ArrayBuffer");
+    }
+  }
+  std::size_t size() const { return length_; }
+  std::size_t length() const { return length_; }
+  std::size_t byteLength() const { return length_ * sizeof(std::uint32_t); }
+  std::size_t byteOffset() const { return byte_offset_; }
+  ArrayBufferObject* buffer() const { return buffer_.Get(); }
+  std::uint32_t get(std::size_t index) const {
+    if (index >= length_) throw std::out_of_range("Uint32Array index is out of range");
+    std::uint32_t value = 0;
+    std::memcpy(&value, buffer_->data() + byte_offset_ + index * sizeof(std::uint32_t), sizeof(value));
+    return value;
+  }
+  std::uint32_t set(std::size_t index, double value) {
+    if (index >= length_) throw std::out_of_range("Uint32Array index is out of range");
+    double modulo = std::isfinite(value) ? std::fmod(std::trunc(value), 4294967296.0) : 0.0;
+    if (modulo < 0) modulo += 4294967296.0;
+    const auto converted = static_cast<std::uint32_t>(modulo);
+    std::memcpy(buffer_->data() + byte_offset_ + index * sizeof(converted), &converted, sizeof(converted));
+    return converted;
+  }
+  const void* dynamicTypeToken() const override { return nativeTypeToken<Uint32ArrayObject>(); }
+  void* dynamicCast(const void* type) override {
+    return type == nativeTypeToken<Uint32ArrayObject>() ? this : nullptr;
+  }
+  std::u16string dynamicToString() const override { return u"[object Uint32Array]"; }
+  Value dynamicGet(const std::u16string& key) override {
+    if (key == u"length") return Value(static_cast<double>(length_));
+    if (key == u"byteLength") return Value(static_cast<double>(byteLength()));
+    if (key == u"byteOffset") return Value(static_cast<double>(byte_offset_));
+    const auto index = propertyIndex(key);
+    return index && *index < length_ ? Value(static_cast<double>(get(*index))) : Value::undefined();
+  }
+  Value dynamicSet(const std::u16string& key, const Value& value) override {
+    const auto index = propertyIndex(key);
+    if (!index) throw runtimeError(u"Invalid Uint32Array index");
     return Value(static_cast<double>(set(*index, Number(value))));
   }
   void Trace(cppgc::Visitor* visitor) const override {
@@ -3161,6 +3217,50 @@ inline MapObject<K, V>* mapFromIterable(const Value& source) {
   return result;
 }
 
+template <typename K, typename V, typename Entry>
+inline WeakMapObject<K, V>* weakMapFromEntries(
+    const ArrayObject<ArrayObject<Entry>*>* entries) {
+  auto* result = Runtime::make<WeakMapObject<K, V>>();
+  if (!entries) return result;
+  for (auto* entry : *entries) {
+    if (!entry || entry->size() < 2) {
+      throw runtimeError(u"VexaScript WeakMap entry must contain a key and value");
+    }
+    result->set(
+        convertValue<K>(entry->get(0)),
+        convertValue<V>(entry->get(1)));
+  }
+  return result;
+}
+
+template <typename K, typename V, typename Entry>
+inline WeakMapObject<K, V>* weakMapFromIterable(
+    const ArrayObject<ArrayObject<Entry>*>* entries) {
+  return weakMapFromEntries<K, V, Entry>(entries);
+}
+
+template <typename K, typename V>
+inline WeakMapObject<K, V>* weakMapFromIterable(const Value& source) {
+  auto* result = Runtime::make<WeakMapObject<K, V>>();
+  std::size_t index = 0;
+  for (const auto& entryValue : dynamicIterationRange(source)) {
+    if (!entryValue.isRuntimeObject() || !entryValue.object()->dynamicIsArray()) {
+      throw runtimeError(
+          std::u16string(u"VexaScript WeakMap entry at index ") + formatIntegerText(index) +
+          u" is not an array: " + toString(entryValue));
+    }
+    auto* entry = entryValue.object();
+    if (entry->dynamicArraySize() < 2) {
+      throw runtimeError(u"VexaScript WeakMap entry must contain a key and value");
+    }
+    result->set(
+        convertValue<K>(entry->dynamicArrayGet(0)),
+        convertValue<V>(entry->dynamicArrayGet(1)));
+    ++index;
+  }
+  return result;
+}
+
 template <typename T, typename Input>
 inline SetObject<T>* setAdd(SetObject<T>* set, Input&& value) {
   return set->add(convertValue<T>(std::forward<Input>(value)));
@@ -3298,6 +3398,28 @@ template <typename T>
 inline Uint8ArrayObject* makeUint8Array(const ArrayObject<T>* values) {
   auto* result = makeUint8Array(static_cast<double>(values->size()));
   for (std::size_t index = 0; index < values->size(); ++index) result->set(index, Number(convertValue<Value>(values->get(index))));
+  return result;
+}
+
+inline Uint8ArrayObject* makeUint8Array(const std::u16string& value) {
+  const auto encoded = utf16ToUtf8(value);
+  auto* result = makeUint8Array(static_cast<double>(encoded.size()));
+  for (std::size_t index = 0; index < encoded.size(); ++index) {
+    result->set(index, static_cast<double>(static_cast<unsigned char>(encoded[index])));
+  }
+  return result;
+}
+
+inline Uint32ArrayObject* makeUint32Array(double length) {
+  const auto size = static_cast<std::size_t>(std::max(0.0, length));
+  auto* buffer = Runtime::make<ArrayBufferObject>(size * sizeof(std::uint32_t));
+  return Runtime::make<Uint32ArrayObject>(buffer, 0, size);
+}
+
+inline ArrayObject<std::uint8_t>* uint8ArrayValues(const Uint8ArrayObject* values) {
+  auto* result = Runtime::array<std::uint8_t>();
+  if (!values) return result;
+  for (std::size_t index = 0; index < values->length(); ++index) result->append(values->get(index));
   return result;
 }
 
@@ -5430,6 +5552,31 @@ inline std::u16string numberToString(double value) {
   return formatNumberText(value);
 }
 
+inline std::u16string numberToString(double value, double radix) {
+  if (!std::isfinite(radix) || std::trunc(radix) != radix || radix < 2 || radix > 36) {
+    throw runtimeError(u"Number.toString radix must be an integer between 2 and 36");
+  }
+  if (!std::isfinite(value) || value == 0 || std::trunc(value) != value) {
+    return numberToString(value);
+  }
+
+  const auto base = static_cast<std::uint32_t>(radix);
+  const bool negative = value < 0;
+  const long double magnitude = std::abs(static_cast<long double>(value));
+  if (magnitude > static_cast<long double>(std::numeric_limits<std::uint64_t>::max())) {
+    return numberToString(value);
+  }
+  auto remaining = static_cast<std::uint64_t>(magnitude);
+  static constexpr char16_t digits[] = u"0123456789abcdefghijklmnopqrstuvwxyz";
+  std::u16string result;
+  do {
+    result.insert(result.begin(), digits[remaining % base]);
+    remaining /= base;
+  } while (remaining != 0);
+  if (negative) result.insert(result.begin(), u'-');
+  return result;
+}
+
 inline std::u16string toString(const Value& value) {
   if (value.isUndefined()) return u"undefined";
   if (value.isNull()) return u"null";
@@ -5441,11 +5588,18 @@ inline std::u16string toString(const Value& value) {
   return u"[object Object]";
 }
 
+inline std::u16string toString(const Value& value, double radix) {
+  return value.isNumber() ? numberToString(value.number(), radix) : toString(value);
+}
+
 inline std::u16string toString(const BigInt& value) { return value.toString(); }
 
 inline std::u16string toString(double value) { return numberToString(value); }
+inline std::u16string toString(double value, double radix) { return numberToString(value, radix); }
 inline std::u16string toString(int value) { return formatIntegerText(value); }
+inline std::u16string toString(int value, double radix) { return numberToString(static_cast<double>(value), radix); }
 inline std::u16string toString(std::int64_t value) { return formatIntegerText(value); }
+inline std::u16string toString(std::int64_t value, double radix) { return numberToString(static_cast<double>(value), radix); }
 inline std::u16string toString(bool value) { return value ? u"true" : u"false"; }
 inline const std::u16string& toString(const std::u16string& value) { return value; }
 

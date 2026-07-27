@@ -75,6 +75,84 @@ describe("native language smoke", () => {
     }
   });
 
+  it("compiles, links, and runs the deterministic native sample matrix", async () => {
+    const root = process.cwd();
+    const sampleNames = [
+      "adler32",
+      "binary-buffer-constructors",
+      "class-delegate",
+      "collections",
+      "crc32",
+      "defer",
+      "delegated-state",
+      "json-text-import",
+      "map-constructor-call",
+      "native-oilpan",
+      "sync-orchestration",
+      "typescript-import",
+      "typed-array-constructor",
+      "virtual-dom",
+    ];
+    const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-sample-matrix-"));
+    const normalizeOutput = (value: string): string => value
+      .replace(/\[\s+/g, "[")
+      .replace(/\s+\]/g, "]")
+      .replace(/,\s+/g, ",");
+
+    try {
+      for (const sampleName of sampleNames) {
+        const sampleRoot = join(root, "samples", sampleName);
+        const executablePath = join(outputRoot, sampleName);
+        const link = await runCommandCapture("node", [
+          "--import", "tsx",
+          "--import", join(root, "scripts", "registerTextModuleLoader.cjs"),
+          join(root, "cli", "cli.ts"),
+          "cpp", "link", join(sampleRoot, "main.vx"),
+          "--out", executablePath,
+          "--build-dir", join(outputRoot, `${sampleName}-build`),
+          "-O0",
+        ], { cwd: root });
+        expect(link.code, `${sampleName} link failed.\n${link.stdout}\n${link.stderr}`).toBe(0);
+
+        const run = await runCommandCapture(executablePath, [], { cwd: outputRoot });
+        const expected = await readFile(join(sampleRoot, "expected.txt"), "utf8");
+        expect(run.code, `${sampleName} run failed.\n${run.stdout}\n${run.stderr}`).toBe(0);
+        expect(run.stderr).toBe("");
+        expect(normalizeOutput(run.stdout.trim())).toBe(normalizeOutput(expected.trim()));
+      }
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("compiles, links, and runs the minimal native construct regression fixture", async () => {
+    const root = process.cwd();
+    const sourcePath = join(root, "testFixtures", "native-constructs-smoke.vx");
+    const expectedPath = join(root, "testFixtures", "native-constructs-smoke.expected.txt");
+    const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-constructs-smoke-"));
+    const executablePath = join(outputRoot, "smoke");
+    try {
+      const link = await runCommandCapture("node", [
+        "--import", "tsx",
+        "--import", join(root, "scripts", "registerTextModuleLoader.cjs"),
+        join(root, "cli", "cli.ts"),
+        "cpp", "link", sourcePath,
+        "--out", executablePath,
+        "--build-dir", join(outputRoot, "build"),
+        "-O0",
+      ], { cwd: root });
+      expect(link.code, `${link.stdout}\n${link.stderr}`).toBe(0);
+
+      const run = await runCommandCapture(executablePath, [], { cwd: outputRoot });
+      const expected = await readFile(expectedPath, "utf8");
+      expect(run.code, `${run.stdout}\n${run.stderr}`).toBe(0);
+      expect(run.stderr).toBe("");
+      expect(run.stdout.trim()).toBe(expected.trim());
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true });
+    }
+  });
+
   it("uses the native C++ CLI to produce fixture and Pixi JavaScript bundles", async () => {
     const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-cli-bundle-"));
     const nativeCliPath = join(outputRoot, "vexa-native-cli");

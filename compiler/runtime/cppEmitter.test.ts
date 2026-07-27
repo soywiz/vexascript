@@ -2,6 +2,52 @@ import { describe, expect, it } from "../test/expect";
 import { transpile } from "./transpile";
 
 describe("C++ emitter", () => {
+  it("lowers WeakMap iterables, radix string conversion, and native binary helpers", () => {
+    const result = transpile(`
+const key = { kind: "buffer" }
+const metadata = WeakMap<object, string>([[key, "ready"]])
+const value = 255
+console.log(metadata.get(key), value.toString(16))
+`, { emit: "cpp", sourceFilePath: "/tmp/native-collections-and-binary.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::weakMapFromIterable<");
+    expect(result.code).toContain("vexa::toString(value, static_cast<double>(16))");
+  });
+
+  it("forwards interface members through class delegation", () => {
+    const result = transpile(`
+interface Shape { area: number; fill(color: string): string }
+class Rectangle(val width: number, val height: number): Shape {
+  override area => width * height
+  override fill(color: string) => color
+}
+class Logger(val shape: Shape): Shape by { shape }
+const logger = Logger(Rectangle(2, 3))
+console.log(logger.area, logger.fill("ok"))
+`, { emit: "cpp", sourceFilePath: "/tmp/class-delegation.vx", parserOptions: { language: "vexa" } });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("this->shape->__vexa_property_get_area()");
+    expect(result.code).toContain("this->shape->fill(color)");
+  });
+
+  it("lowers top-level delegated state reads and writes", () => {
+    const result = transpile(`
+fun box<T>(initial: T) { return { value: initial } }
+var source = 1
+var observed by () => source
+var total by box(0)
+total = observed + 2
+total++
+console.log(total)
+`, { emit: "cpp", sourceFilePath: "/tmp/delegated-state.vx", parserOptions: { language: "vexa" } });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("__vexa_delegate_total");
+    expect(result.code).toContain("recordGet<std::int32_t>");
+  });
+
   it("does not turn an empty C++ annotation list into an empty C++ body", () => {
     const result = transpile(`
 async function readFile(path: string): Promise<string> {

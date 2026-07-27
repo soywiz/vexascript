@@ -1,7 +1,7 @@
 import { Identifier, ImportStatement, StringLiteral, VarStatement } from "../ast/ast";
 import type { Program, Statement } from "../ast/ast";
 import type { Vfs } from "../vfs";
-import { dirname, resolve } from "../utils/path";
+import { dirname, extname, resolve } from "../utils/path";
 
 export const TEXT_MODULE_SUFFIX = "?text";
 
@@ -25,18 +25,14 @@ export function asTextModulePath(filePath: string): string {
   return isTextModulePath(filePath) ? filePath : `${filePath}${TEXT_MODULE_SUFFIX}`;
 }
 
-export async function resolveTextModuleImportPath(
+async function resolveTextModuleSourcePath(
   importerFilePath: string,
-  specifier: string,
+  sourceSpecifier: string,
   activeVfs: Vfs,
-  importMappings: Readonly<Record<string, string>> = {},
+  importMappings: Readonly<Record<string, string>>,
   baseUrl?: string
 ): Promise<string | null> {
-  const sourceSpecifier = textModuleSourceSpecifier(specifier);
-  if (sourceSpecifier === null) {
-    return null;
-  }
-  const mapped = importMappings[sourceSpecifier] ?? importMappings[specifier];
+  const mapped = importMappings[sourceSpecifier];
   let candidate = "";
   if (mapped) {
     candidate = resolve(mapped);
@@ -51,6 +47,35 @@ export async function resolveTextModuleImportPath(
     return null;
   }
   return await activeVfs.fileExists(candidate) ? candidate : null;
+}
+
+export async function resolveTextModuleImportPath(
+  importerFilePath: string,
+  specifier: string,
+  activeVfs: Vfs,
+  importMappings: Readonly<Record<string, string>> = {},
+  baseUrl?: string
+): Promise<string | null> {
+  const explicitSourceSpecifier = textModuleSourceSpecifier(specifier);
+  if (explicitSourceSpecifier !== null) {
+    return await resolveTextModuleSourcePath(
+      importerFilePath,
+      explicitSourceSpecifier,
+      activeVfs,
+      importMappings,
+      baseUrl
+    );
+  }
+  if (extname(specifier).toLowerCase() === ".txt") {
+    return await resolveTextModuleSourcePath(
+      importerFilePath,
+      specifier,
+      activeVfs,
+      importMappings,
+      baseUrl
+    );
+  }
+  return null;
 }
 
 export class InlineTextModuleImportsResult {
@@ -97,19 +122,24 @@ export async function inlineTextModuleImports(
   const watchedFiles: string[] = [];
   const body: Statement[] = [];
   for (const statement of program.body) {
-    if (!(statement instanceof ImportStatement) || textModuleSourceSpecifier(statement.from.value) === null) {
+    if (!(statement instanceof ImportStatement)) {
+      body.push(statement);
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    if (textModuleSourceSpecifier(importStatement.from.value) === null && extname(importStatement.from.value).toLowerCase() !== ".txt") {
       body.push(statement);
       continue;
     }
     const targetPath = await resolveTextModuleImportPath(
       importerFilePath,
-      statement.from.value,
+      importStatement.from.value,
       activeVfs,
       importMappings,
       baseUrl
     );
     if (!targetPath) {
-      errors.push(`Text import '${statement.from.value}' from '${importerFilePath}' did not resolve to a file`);
+      errors.push(`Text import '${importStatement.from.value}' from '${importerFilePath}' did not resolve to a file`);
       continue;
     }
     const source = await activeVfs.readFile(targetPath);
@@ -117,9 +147,9 @@ export async function inlineTextModuleImports(
       errors.push(`Unable to read text import '${targetPath}'`);
       continue;
     }
-    const binding = textImportBinding(statement, source);
+    const binding = textImportBinding(importStatement, source);
     if (!binding) {
-      errors.push(`Text import '${statement.from.value}' must use exactly one default import`);
+      errors.push(`Text import '${importStatement.from.value}' must use exactly one default import`);
       continue;
     }
     watchedFiles.push(targetPath);
