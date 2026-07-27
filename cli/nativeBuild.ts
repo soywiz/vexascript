@@ -180,7 +180,7 @@ function defaultExecutablePath(cppPath: string): string {
     : `${cppPath}.native`;
 }
 
-export type NativeOptimization = "-O0" | "-O1" | "-O2";
+export type NativeOptimization = "-O0" | "-O1" | "-O2" | "-O3" | "-Os" | "-Oz" | "-Og";
 
 interface NativeCompilerOptions {
   sanitizers?: boolean;
@@ -234,7 +234,7 @@ function nativeCompilerFrontendArguments(
   gcRoot: string,
   platform: NodeJS.Platform,
   options: NativeCompilerOptions,
-  optimization: "-O0" | "-O1" | "-O2"
+  optimization: NativeOptimization
 ): string[] {
   const instrumented = options.sanitizers === true;
   const path = platform === "win32" ? win32 : posix;

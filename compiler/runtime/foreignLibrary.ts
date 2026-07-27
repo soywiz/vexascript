@@ -20,7 +20,7 @@ export function foreignLibraryForClass(statement: ClassStatement): ForeignLibrar
 
 export function foreignSymbolName(method: ClassMethodMember): string {
   const annotation = (method.annotations ?? []).find((candidate) => candidate.name.name === "FFIName");
-  const argument = annotation?.args[0];
+  const argument = annotation ? annotation.args[0] : undefined;
   return argument instanceof StringLiteral ? argument.value : method.name.name;
 }
 

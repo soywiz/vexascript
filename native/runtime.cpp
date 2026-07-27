@@ -2602,6 +2602,7 @@ inline std::u16string toText(const Value& value) {
 }
 
 inline bool toBoolean(bool value) { return value; }
+inline bool toBoolean(Undefined) { return false; }
 inline bool toBoolean(double value) { return value != 0 && !std::isnan(value); }
 inline bool toBoolean(std::int32_t value) { return value != 0; }
 inline bool toBoolean(const Value& value) {
@@ -4526,6 +4527,13 @@ inline Value nativeEnvironmentVariable(const std::u16string& name) {
   return value ? Value(Runtime::string(*value)) : Value::undefined();
 }
 
+inline std::u16string nativeRuntimeRoot() {
+  std::error_code error;
+  auto path = std::filesystem::path(__FILE__).parent_path();
+  if (path.is_relative()) path = std::filesystem::absolute(path, error);
+  return path.u16string();
+}
+
 inline Task<Value> dynamicImportUnavailable(std::u16string specifier) {
   return Task<Value>::create([specifier = std::move(specifier)](auto, auto reject) mutable {
     reject(Error(u"Dynamic import is not available in native C++: " + specifier));
@@ -4550,7 +4558,11 @@ class Process final {
   }
 
   std::u16string cwd() const { return currentPathText(); }
-  [[noreturn]] void exit(double code = 0) const { std::exit(static_cast<int>(code)); }
+  [[noreturn]] void exit(double code = 0) const {
+    std::cout.flush();
+    std::cerr.flush();
+    std::_Exit(static_cast<int>(code));
+  }
 
   cppgc::Persistent<ArrayObject<std::u16string>> argv;
   cppgc::Persistent<RecordObject> env;
@@ -6515,6 +6527,7 @@ inline std::u16string String(const T& value) {
 }
 
 inline bool Boolean(bool value) { return value; }
+inline bool Boolean(Undefined) { return false; }
 inline bool Boolean(double value) { return value != 0 && !std::isnan(value); }
 inline bool Boolean(const std::u16string& value) { return !value.empty(); }
 template <typename Result, typename... Arguments>

@@ -1,3 +1,12 @@
+import {
+  compileNativeExecutable,
+  resolveNativeProgramPaths as resolveNativeProgramPathsImpl,
+  type NativeOptimization,
+  type NativeProgramPaths,
+} from "./nativeBuild";
+
+export type { NativeProgramPaths } from "./nativeBuild";
+
 export interface CommandOutput {
   code: number | null;
   stdout: string;
@@ -36,24 +45,17 @@ export async function startLanguageServer(): Promise<void> {
   throw new Error("The language server is not available in the native VexaScript CLI");
 }
 
-export interface NativeProgramPaths {
-  sourcePath: string;
-  buildRoot: string;
-  cppPath: string;
-  executablePath: string;
-}
-
-export async function resolveNativeProgramPaths(_sourcePath: string, _outputPath?: string, _buildDir?: string): Promise<NativeProgramPaths> {
-  throw new Error("Native executable linking is not available in the native VexaScript CLI");
+export async function resolveNativeProgramPaths(sourcePath: string, outputPath?: string, buildDir?: string): Promise<NativeProgramPaths> {
+  return resolveNativeProgramPathsImpl(sourcePath, outputPath, buildDir);
 }
 
 export async function linkNativeExecutable(
-  _cppPath: string,
-  _executablePath: string,
-  _extraFlags: string[] = [],
-  _optimization?: string
+  cppPath: string,
+  executablePath: string,
+  extraFlags: string[] = [],
+  optimization?: NativeOptimization
 ): Promise<void> {
-  throw new Error("Native executable linking is not available in the native VexaScript CLI");
+  await compileNativeExecutable(cppPath, executablePath, extraFlags, optimization ?? "-O2");
 }
 
 export async function runTestFiles(

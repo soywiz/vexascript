@@ -96,6 +96,52 @@ describe("native language smoke", () => {
         "-O0",
       ]);
 
+      const selfExecutablePath = join(outputRoot, "vexa-self-hosted");
+      const selfLink = await runCommandCapture(nativeCliPath, [
+        "cpp",
+        "link",
+        join(process.cwd(), "cli", "cli.ts"),
+        "--out",
+        selfExecutablePath,
+        "--build-dir",
+        join(outputRoot, "self-build"),
+        "-O0",
+      ], { cwd: process.cwd() });
+      expect(selfLink.code, `${selfLink.stdout}\n${selfLink.stderr}`).toBe(0);
+      const selfVersion = await runCommandCapture(selfExecutablePath, ["--version"], { cwd: process.cwd() });
+      expect(selfVersion.code).toBe(0);
+      expect(selfVersion.stdout.trim()).toBe("0.10.0");
+
+      const ffiSourcePath = join(process.cwd(), "testFixtures", "native-ffi-smoke.vx");
+      const ffiCppPath = join(outputRoot, "native-ffi-smoke.cpp");
+      const ffiBuild = await runCommandCapture(nativeCliPath, [
+        "cpp",
+        "build",
+        ffiSourcePath,
+        "--out",
+        ffiCppPath,
+      ], { cwd: process.cwd() });
+      expect(ffiBuild.code, `${ffiBuild.stdout}\n${ffiBuild.stderr}`).toBe(0);
+      const ffiCode = await readFile(ffiCppPath, "utf8");
+      expect(ffiCode).toContain("makeManaged<vexa::ArrayBufferObject>(8)");
+      expect(ffiCode).toContain("NativePair");
+
+      const ffiExecutablePath = join(outputRoot, "native-ffi-smoke");
+      const ffiLink = await runCommandCapture(nativeCliPath, [
+        "cpp",
+        "link",
+        ffiSourcePath,
+        "--out",
+        ffiExecutablePath,
+        "--build-dir",
+        join(outputRoot, "ffi-build"),
+        "-O0",
+      ], { cwd: process.cwd() });
+      expect(ffiLink.code, `${ffiLink.stdout}\n${ffiLink.stderr}`).toBe(0);
+      const ffiRun = await runCommandCapture(ffiExecutablePath, [], { cwd: outputRoot });
+      expect(ffiRun.code, `${ffiRun.stdout}\n${ffiRun.stderr}`).toBe(0);
+      expect(ffiRun.stdout.trim()).toBe("7");
+
       const bundle = await runCommandCapture(nativeCliPath, [
         "bundle",
         join(process.cwd(), "testFixtures", "sample.vx"),

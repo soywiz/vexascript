@@ -5,8 +5,8 @@ the C++-compiled CLI still routed `bundle` to an explicit “not available”
 error. This made native compiler measurements and debug-oriented native CLI
 workflows unnecessarily dependent on the Node-hosted CLI.
 
-The link commands now accept exactly one of `-O0`, `-O1`, or `-O2`, with `-O2`
-as the default. The selected level is passed through the Node adapter into the
+The link commands now accept exactly one of `-O0`, `-O1`, `-O2`, `-O3`, `-Os`,
+`-Oz`, or `-Og`, with `-O2` as the default. The selected level is passed through the Node adapter into the
 native compiler argument builder and is stored with the executable cache key.
 Without that cache key, changing optimization could silently reuse an older
 binary when the generated C++ had not changed.
@@ -140,3 +140,35 @@ is no `Runtime` instance, `Runtime::current()`, `currentRuntime()`, or
 static API directly. This also fixes native processes that previously crashed
 when a runtime reference was removed from generated code but remained in
 low-level continuations.
+
+## Native linking must survive native self-hosting
+
+The native CLI initially rejected `cpp link`, and its first self-hosted C++
+build exposed failures that the Node compiler did not see. Empty arrays returned
+the C++ default string from `Array.at(-1)` instead of JavaScript `undefined`, so
+`cppBodyForFunction()` falsely detected `@CppBody` on async functions. A
+missing-cache `catch` also lowered `toText(null)` in the native compiler. The
+native runtime now handles the empty-array path explicitly, and the CLI keeps
+string fallbacks string-shaped.
+
+The native build adapter now resolves Oilpan and mimalloc from the runtime root,
+invokes CMake and g++, caches the generated translation unit and link result,
+and accepts `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, `-Oz`, and `-Og`. A self-hosted binary successfully rebuilt
+and linked `cli/cli.ts` on macOS; the generated executable reported version
+`0.10.0`. The self-host path also showed that long-lived native callbacks must
+not retain references to stack locals: the link command determines its native
+exit path from `process.argv` instead of a dangling captured option.
+
+The same self-hosted path later exposed two native-only regressions while
+compiling an FFI-struct smoke fixture (the original report was
+`samples/ffi-sdl2/dynamic.vx`). Promise unwrapping narrowed a local
+variable to `NamedType*` and then assigned the more general `AnalysisType*`,
+which generated an invalid native cast. Separately, optional indexing of a
+missing FFI annotation lowered `annotation?.args[0]` through `arrayPointer(Value)`
+and threw `Value is not an array`. Keeping the Promise check independent from
+the narrowed variable and using an explicit nullable branch for annotation
+arguments fixes both cases. The native CLI smoke test now compiles a
+dependency-free FFI-struct fixture and checks its generated buffer layout,
+then links and runs a Promise-returning `abs` call through the platform C
+library, preventing the self-hosted compiler or native FFI loader from
+regressing silently without requiring SDL2 on the CI machine.

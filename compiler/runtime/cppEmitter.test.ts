@@ -2,6 +2,18 @@ import { describe, expect, it } from "../test/expect";
 import { transpile } from "./transpile";
 
 describe("C++ emitter", () => {
+  it("does not turn an empty C++ annotation list into an empty C++ body", () => {
+    const result = transpile(`
+async function readFile(path: string): Promise<string> {
+  return path;
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/empty-cpp-annotation.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::Task<std::u16string> readFile");
+    expect(result.code).not.toContain("@CppBody supports synchronous functions only");
+  });
+
   it("emits console arguments in a braced list so their side effects run left to right", () => {
     const result = transpile(`
 var value = 1

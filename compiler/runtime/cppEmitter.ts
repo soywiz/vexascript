@@ -54,7 +54,7 @@ const CPP_RESERVED_WORDS = new Set([
 ]);
 const NATIVE_RUNTIME_FUNCTION_NAMES = new Set([
   "readTextFile", "writeTextFile", "commandLineArguments",
-  "nativeStatPath", "nativeReadDirectory", "nativeCreateDirectory", "nativeRemovePath", "nativeCopyFile", "nativeRunCommandCapture", "nativeRunTask", "nativeEnvironmentVariable",
+  "nativeStatPath", "nativeReadDirectory", "nativeCreateDirectory", "nativeRemovePath", "nativeCopyFile", "nativeRunCommandCapture", "nativeRunTask", "nativeEnvironmentVariable", "nativeRuntimeRoot",
   "setTimeout", "setInterval", "clearTimeout", "clearInterval",
 ]);
 
@@ -5245,6 +5245,12 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     }
     return `vexa::nativeEnvironmentVariable(vexa::toString(${emitExpression(call.args[0]!)}))`;
   }
+  if (calleeName === "nativeRuntimeRoot") {
+    if (call.args.length !== 0) {
+      throw new CppEmitError("C++ nativeRuntimeRoot expects no arguments");
+    }
+    return "vexa::nativeRuntimeRoot()";
+  }
   const runtimeGlobals = new Set([
     "String", "Number", "Boolean", "BigInt", "Error", "parseInt", "parseFloat", "isNaN", "isFinite",
     "encodeURIComponent", "decodeURIComponent",
@@ -5827,11 +5833,14 @@ function applyInstanceofNarrowings(
     activeLocalCppTypes.set(narrowing.sourceName, narrowing.targetType);
     activeGcObjectTypes.set(narrowing.sourceName, narrowing.targetName);
     activeDynamicValueNames.delete(narrowing.sourceName);
+    const temporary = activeInstanceofTemporaryExpressions.get(
+      instanceofNarrowingKey(narrowing.sourceName, narrowing.targetName)
+    );
     activeNarrowedIdentifierExpressions.set(
       narrowing.sourceName,
       useNarrowedLocal
         ? cppName(narrowing.sourceName)
-        : `vexa::toInstance<${narrowing.targetType}>(${cppName(narrowing.sourceName)})`
+        : temporary ?? `vexa::toInstance<${narrowing.targetType}>(${cppName(narrowing.sourceName)})`
     );
   }
   activeCppExpressionTypeCache = new Map();
@@ -8795,10 +8804,10 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     ? activeClassStatements.get(parseTypeNameShape(statement.extendsType.name).baseName)
     : undefined;
   const mappedBaseType: string | null = statement.extendsType
-    ? cppTypeForDeclaredName(statement.extendsType.name)
+    ? cppTypeForDeclaredName(statement.extendsType.name) ?? null
     : null;
   let mappedBaseClassType: string = "";
-  if (mappedBaseType !== null) {
+  if (mappedBaseType) {
     mappedBaseClassType = mappedBaseType.slice(0, -1) as string;
   }
   const constructorMethod = classConstructorMethod(statement);
@@ -8855,7 +8864,7 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     }
     typedConstructorProperties.push(new TypedConstructorProperty(
       parameter,
-      typeName!,
+      typeName ?? "",
       type,
       cppName(parameter.name.name)
     ));
@@ -9890,9 +9899,13 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
     "    const auto location = vexa::Runtime::sourceLocation();",
     '    if (!location.empty()) std::cerr << " at " << vexa::utf16ToUtf8(location);',
     "    std::cerr << std::endl;",
-    "    return 1;",
+    "    std::cout.flush();",
+    "    std::cerr.flush();",
+    "    std::_Exit(1);",
     "  }",
-    "  return static_cast<int>(process.exitCode);",
+    "  std::cout.flush();",
+    "  std::cerr.flush();",
+    "  std::_Exit(static_cast<int>(process.exitCode));",
     "}",
     ""
   );

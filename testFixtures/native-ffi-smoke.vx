@@ -1,0 +1,19 @@
+@FFIStruct(8)
+@FFIAlign(4)
+class NativePair(
+  @FFIOffset(0) @FFISize(4) var left: int = 0,
+  @FFIOffset(4) @FFISize(4) var right: int = 0
+)
+
+const pair = NativePair(1, 2)
+
+@FFILibrary("libc.so.6", "libSystem.B.dylib", "msvcrt.dll")
+declare class NativeC {
+  @FFIName("abs") static abs(value: int): Promise<int>
+}
+
+sync function main(): void {
+  console.log(NativeC.abs(-7))
+}
+
+main()

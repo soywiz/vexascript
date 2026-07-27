@@ -23,12 +23,16 @@ then executes the resulting program. TypeScript entrypoints are accepted too:
 `vexa cpp link main.ts`.
 
 Select the native C++ optimization level when linking with one of `-O0`, `-O1`,
-or `-O2` (the default):
+`-O2`, `-O3`, `-Os`, `-Oz`, or `-Og` (`-O2` is the default):
 
 ```sh
 vexa cpp link main.vx -O0
 vexa cpp link main.vx -O1
 vexa cpp link main.vx -O2
+vexa cpp link main.vx -O3
+vexa cpp link main.vx -Os
+vexa cpp link main.vx -Oz
+vexa cpp link main.vx -Og
 ```
 
 The selected level is part of the native executable cache key, so changing it

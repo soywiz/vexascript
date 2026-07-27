@@ -52,6 +52,7 @@ declare fun nativeCopyFile(source: string, target: string): Promise<void>
 declare fun nativeRunCommandCapture(command: string, args: string[], cwd: string): Promise<any>
 declare fun nativeRunTask(task: Promise<void>): void
 declare fun nativeEnvironmentVariable(name: string): string | undefined
+declare fun nativeRuntimeRoot(): string
 
 declare interface Process {
   argv: string[]

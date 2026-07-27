@@ -51,7 +51,7 @@ describe("native build", () => {
     expect(args.indexOf("/cache/mimalloc.o")).toBeLessThan(args.indexOf("/repo/native/oilpan/gc/build/liboilpan_gc.a"));
   });
 
-  for (const optimization of ["-O0", "-O1", "-O2"] as const) {
+  for (const optimization of ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "-Og"] as const) {
     it(`passes an explicit ${optimization} optimization level to g++`, () => {
       const args = nativeCompilerArguments(
         "/tmp/main.cpp",
@@ -64,7 +64,7 @@ describe("native build", () => {
       );
 
       expect(args).toContain(optimization);
-      expect(args.filter((arg) => /^-O[012]$/.test(arg))).toEqual([optimization]);
+      expect(args.filter((arg) => /^-O(?:[0123]|[szg])$/.test(arg))).toEqual([optimization]);
     });
   }
 

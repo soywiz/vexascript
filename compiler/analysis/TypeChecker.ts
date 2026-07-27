@@ -3608,13 +3608,13 @@ export class TypeChecker {
     // type, while the set of auto-awaited nodes tells the emitter where to insert `await`. `go expr`
     // opts out (it is never added here), and positions such as `await`/`go` operands, `.then`-style
     // member receivers and `return` expressions pass `suppressAutoAwait`.
+    const resultIsPromise = result instanceof NamedType && result.name === "Promise";
     if (
       !suppressAutoAwait &&
       this.isInsideSyncFunction() &&
       !this.isGoExpression(expression) &&
       !this.isLocalValueReference(expression, scope) &&
-      result instanceof NamedType &&
-      result.name === "Promise"
+      resultIsPromise
     ) {
       this.autoAwaitExpressions.add(expression);
       result = unwrapPromiseType(result) ?? result;

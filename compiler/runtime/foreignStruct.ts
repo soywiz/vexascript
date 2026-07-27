@@ -30,7 +30,7 @@ export function isForeignStructClass(statement: ClassStatement): boolean {
 }
 
 function integerArgument(annotation: AnnotationApplication | undefined): number | undefined {
-  const argument = annotation?.args[0];
+  const argument = annotation ? annotation.args[0] : undefined;
   return argument instanceof IntLiteral ? argument.value : undefined;
 }
 

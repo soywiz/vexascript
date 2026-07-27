@@ -62,6 +62,8 @@ export interface NativeProgramPaths {
   executablePath: string;
 }
 
+export type NativeOptimization = "-O0" | "-O1" | "-O2" | "-O3" | "-Os" | "-Oz" | "-Og";
+
 export async function resolveNativeProgramPaths(
   sourcePath: string,
   outputPath?: string,
@@ -75,7 +77,7 @@ export async function linkNativeExecutable(
   cppPath: string,
   executablePath: string,
   extraFlags: string[] = [],
-  optimization?: "-O0" | "-O1" | "-O2"
+  optimization?: NativeOptimization
 ): Promise<void> {
   const { compileNativeExecutable } = await import("./nativeBuild");
   await compileNativeExecutable(cppPath, executablePath, extraFlags, optimization);

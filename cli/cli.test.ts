@@ -704,6 +704,10 @@ describe("CLI", () => {
     expect(linkHelp).toContain("-O0");
     expect(linkHelp).toContain("-O1");
     expect(linkHelp).toContain("-O2");
+    expect(linkHelp).toContain("-O3");
+    expect(linkHelp).toContain("-Os");
+    expect(linkHelp).toContain("-Oz");
+    expect(linkHelp).toContain("-Og");
 
     const nestedHelpStart = stdoutWriteSpy.mock.calls.length;
     await expect(runCli(["node", "vexa", "help", "cpp", "run"])).rejects.toThrow("process.exit:0");

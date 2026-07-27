@@ -18,7 +18,8 @@ function annotationStrings(statement: FunctionStatement, name: string): string[]
 }
 
 export function cppBodyForFunction(statement: FunctionStatement): string | undefined {
-  return annotationStrings(statement, "CppBody").at(-1);
+  const values = annotationStrings(statement, "CppBody");
+  return values.length === 0 ? undefined : values[values.length - 1];
 }
 
 /** Collects native build metadata from modules selected by the native graph. */
