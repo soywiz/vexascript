@@ -1,11 +1,13 @@
 import {
   compileNativeExecutable,
+  nativeCompilerCommand,
   resolveNativeProgramPaths as resolveNativeProgramPathsImpl,
   type NativeOptimization,
   type NativeProgramPaths,
 } from "./nativeBuild";
 
 export type { NativeProgramPaths } from "./nativeBuild";
+export { nativeCompilerCommand } from "./nativeBuild";
 
 export interface CommandOutput {
   code: number | null;

@@ -28,6 +28,7 @@ import {
   isBootstrappedCliExecution,
   isDirectModuleExecution,
   linkNativeExecutable,
+  nativeCompilerCommand,
   openUrlInDefaultBrowser,
   renderSyntaxForCli,
   resolveNativeProgramPaths,
@@ -423,7 +424,7 @@ async function linkNativeProgram(
     console.log(`Reusing cached native executable: ${paths.executablePath}`);
     return linkedExecutablePath;
   }
-  console.log(`Compiling native executable with g++ ${optimization}: ${paths.executablePath}`);
+  console.log(`Compiling native executable with ${nativeCompilerCommand()} ${optimization}: ${paths.executablePath}`);
   const nativeCompileStartedAt = monotonicNow();
   await linkNativeExecutable(
     paths.cppPath,

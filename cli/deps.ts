@@ -3,6 +3,10 @@ import { resolve } from "../compiler/utils/path";
 import { vfs } from "../compiler/vfs";
 import { runCommand } from "./io";
 
+export function packageManagerCommand(platform: NodeJS.Platform = process.platform): "pnpm" | "pnpm.cmd" {
+  return platform === "win32" ? "pnpm.cmd" : "pnpm";
+}
+
 async function isPackageInstalled(projectDir: string, pkg: string): Promise<boolean> {
   //console.error('isPackageInstalled', resolve(projectDir, "node_modules", pkg))
   return fileExists(resolve(projectDir, "node_modules", pkg));
@@ -42,5 +46,5 @@ export async function ensureDependencies(
 
   console.error(`Installing dependencies: ${specs.join(", ")}`);
   const args = pm === "pnpm" ? ["add", ...specs] : ["install", ...specs];
-  await runCommand(pm, args, { cwd: projectDir });
+  await runCommand(pm === "pnpm" ? packageManagerCommand() : pm, args, { cwd: projectDir });
 }

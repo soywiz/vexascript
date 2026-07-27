@@ -5,7 +5,7 @@ import type { BundledModuleArtifacts } from "./model";
 import { dirname, resolve } from "../compiler/utils/path";
 import { loadProject, type VexaProject } from "../compiler/project";
 import { vfs } from "../compiler/vfs";
-import { ensureDependencies } from "./deps";
+import { ensureDependencies, packageManagerCommand } from "./deps";
 import { runCommandCapture } from "./io";
 import type { NodeModuleBundleIncrementalCache } from "./nodeModuleBundle";
 import type { ModuleGraphIncrementalCache } from "../compiler/runtime/moduleGraph";
@@ -41,7 +41,7 @@ export async function vexaTypeCheckForSource(
   } else {
     args.push(sourcePath);
   }
-  const result = await runCommandCapture("pnpm", args, {
+  const result = await runCommandCapture(packageManagerCommand(), args, {
     cwd: project?.projectDir ?? process.cwd()
   });
   if (result.code !== 0) {

@@ -4644,9 +4644,9 @@ inline void nativeRunTask(const Task<void>& task) {
   task.get();
 }
 
-inline Value nativeEnvironmentVariable(const std::u16string& name) {
+inline std::u16string nativeEnvironmentVariable(const std::u16string& name) {
   const auto value = environmentVariable(name);
-  return value ? Value(Runtime::string(*value)) : Value::undefined();
+  return value.value_or(u"");
 }
 
 inline std::u16string nativeRuntimeRoot() {
@@ -4667,7 +4667,15 @@ class Process final {
   Process(
       const std::vector<std::u16string>& arguments,
       const std::vector<std::pair<std::u16string, std::u16string>>& environment)
-      : argv(Runtime::array<std::u16string>()), env(Runtime::record()) {
+      : argv(Runtime::array<std::u16string>()), env(Runtime::record()), platform(Runtime::string(
+#if defined(_WIN32)
+          u"win32"
+#elif defined(__APPLE__)
+          u"darwin"
+#else
+          u"linux"
+#endif
+      ).stringObject()) {
     const std::u16string executable = arguments.empty() ? u"vexa" : arguments.front();
     argv->append(executable);
     argv->append(executable);
@@ -4688,6 +4696,7 @@ class Process final {
 
   cppgc::Persistent<ArrayObject<std::u16string>> argv;
   cppgc::Persistent<RecordObject> env;
+  Value platform;
   double exitCode = 0;
 };
 

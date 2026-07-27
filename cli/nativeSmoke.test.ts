@@ -16,6 +16,14 @@ import {
 } from "./cliShared";
 import { runCommandCapture } from "./io";
 
+function nativeCliModuleArgs(): string[] {
+  return [
+    "--import", "tsx",
+    "--import", "./scripts/registerTextModuleLoader.cjs",
+    "./cli/cli.ts",
+  ];
+}
+
 describe("native language smoke", () => {
   it("compiles the complete native sample, runs it, and matches its expected output", async () => {
     const root = process.cwd();
@@ -65,7 +73,7 @@ describe("native language smoke", () => {
       expect(/Compiled: .*\(project-load [\d.]+ms, declarations [\d.]+ms, load-and-parse [\d.]+ms,/.test(logs)).toBe(true);
       expect(/cpp-emission [\d.]+ms/.test(logs)).toBe(true);
       expect(/type-check [\d.]+ms, write [\d.]+ms, cpp-generation-total [\d.]+ms/.test(logs)).toBe(true);
-      expect(/Compiling native executable with g\+\+ -O2:/.test(logs)).toBe(true);
+      expect(/Compiling native executable with (?:g\+\+|clang\+\+) -O2:/.test(logs)).toBe(true);
       expect(/native-compile-link [\d.]+ms/.test(logs)).toBe(true);
       expect(logs).toContain(`Reusing cached C++: ${join(buildRoot, "main.cpp")}`);
       expect(logs).toContain(`Reusing cached native executable: ${executablePath}`);
@@ -104,9 +112,7 @@ describe("native language smoke", () => {
         const sampleRoot = join(root, "samples", sampleName);
         const executablePath = join(outputRoot, sampleName);
         const link = await runCommandCapture("node", [
-          "--import", "tsx",
-          "--import", join(root, "scripts", "registerTextModuleLoader.cjs"),
-          join(root, "cli", "cli.ts"),
+          ...nativeCliModuleArgs(),
           "cpp", "link", join(sampleRoot, "main.vx"),
           "--out", executablePath,
           "--build-dir", join(outputRoot, `${sampleName}-build`),
@@ -133,9 +139,7 @@ describe("native language smoke", () => {
     const executablePath = join(outputRoot, "smoke");
     try {
       const link = await runCommandCapture("node", [
-        "--import", "tsx",
-        "--import", join(root, "scripts", "registerTextModuleLoader.cjs"),
-        join(root, "cli", "cli.ts"),
+        ...nativeCliModuleArgs(),
         "cpp", "link", sourcePath,
         "--out", executablePath,
         "--build-dir", join(outputRoot, "build"),

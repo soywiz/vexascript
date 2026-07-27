@@ -11,7 +11,18 @@ export interface NativeProgramPaths {
 export type NativeOptimization = "-O0" | "-O1" | "-O2" | "-O3" | "-Os" | "-Oz" | "-Og";
 
 function nativeTempRoot(): string {
+  if (process.platform === "win32") {
+    const temp = nativeEnvironmentVariable("TEMP");
+    if (temp.length > 0) return temp;
+    const tmp = nativeEnvironmentVariable("TMP");
+    if (tmp.length > 0) return tmp;
+    return ".";
+  }
   return "/tmp";
+}
+
+export function nativeCompilerCommand(): "clang++" | "g++" {
+  return process.platform === "linux" ? "clang++" : "g++";
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -73,6 +84,7 @@ async function ensureOilpan(root: string): Promise<{ gcRoot: string; libraryPath
   await ensureDependencySources(archive, cacheRoot, resolve(gcRoot, "CMakeLists.txt"));
   if (!(await pathExists(libraryPath))) {
     await runNativeCommand("cmake", [
+      ...(process.platform === "win32" ? ["-G", "MinGW Makefiles"] : []),
       "-S", gcRoot,
       "-B", buildRoot,
       "-DCMAKE_BUILD_TYPE=Release",
@@ -95,6 +107,7 @@ async function ensureMimalloc(root: string): Promise<string> {
   await ensureDependencySources(archive, cacheRoot, resolve(extractedRoot, "CMakeLists.txt"));
   if (!(await pathExists(objectPath))) {
     await runNativeCommand("cmake", [
+      ...(process.platform === "win32" ? ["-G", "MinGW Makefiles"] : []),
       "-S", extractedRoot,
       "-B", buildRoot,
       "-DCMAKE_BUILD_TYPE=Release",
@@ -124,7 +137,8 @@ export async function compileNativeExecutable(
     "-DNDEBUG",
     "-fno-rtti",
     "-DCPPGC_IS_STANDALONE=1",
-    "-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO",
+    ...(process.platform === "darwin" ? ["-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO"] : []),
+    ...(process.platform === "win32" ? ["-D_WIN32_WINNT=0x0A00"] : []),
     "-DV8_LOGGING_LEVEL=0",
     cppPath,
     `-I${root}`,
@@ -132,11 +146,11 @@ export async function compileNativeExecutable(
     `-I${resolve(oilpan.gcRoot, "include")}`,
     mimallocObjectPath,
     oilpan.libraryPath,
-    "-pthread",
-    "-framework", "CoreFoundation",
-    "-ldl",
+    ...(process.platform === "win32"
+      ? ["-ldbghelp", "-lshlwapi", "-lwinmm"]
+      : ["-pthread", ...(process.platform === "darwin" ? ["-framework", "CoreFoundation"] : ["-ldl"])]),
     ...extraFlags,
     "-o", executablePath,
   ];
-  await runNativeCommand("g++", args, process.cwd());
+  await runNativeCommand(nativeCompilerCommand(), args, process.cwd());
 }

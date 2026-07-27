@@ -16,6 +16,10 @@ export function runtimePlatform(): string {
   return process.platform;
 }
 
+export function nativeCompilerCommand(platform: NodeJS.Platform = process.platform): "clang++" | "g++" {
+  return platform === "linux" ? "clang++" : "g++";
+}
+
 export function environmentVariable(name: string): string | undefined {
   return process.env[name];
 }
