@@ -1,5 +1,5 @@
 import { ArrayType, NamedType, BuiltinType, UnionType, IntersectionType } from "../analysis/types";
-import { ClassStatement, Identifier } from "compiler/ast/ast";
+import { ClassStatement, Identifier, MemberExpression } from "compiler/ast/ast";
 export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
 
 /**
@@ -19,6 +19,8 @@ import {
   declarationRangeForName,
   findModuleReceiverImport,
   findImportForSymbolNode,
+  findImportBindingByLocalName,
+  readTextDocument,
   resolveCanonicalSymbol,
   type ResolveContext
 } from "./crossFileContext";
@@ -60,6 +62,8 @@ import {
 import { findAmbientNamespaceLocation } from "./crossFileContext";
 import { candidateCharacters, createDefinitionLocation, createHover } from "./navigation";
 import { findNodeModuleExportLocation, findNodeModuleMemberLocation, type NodeModuleMemberLocation } from "./nodeModulesTypings";
+import { extname } from "compiler/utils/path";
+import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 
 function resolveImportedSymbolDefinitionLocation(
   context: ResolveContext,
@@ -376,6 +380,154 @@ function collectNodeModulesReceiverTypeNames(objectType: AnalysisType): string[]
   return names;
 }
 
+interface JsonMemberAccess {
+  receiverName: string;
+  propertyPath: string[];
+}
+
+function jsonMemberAccess(memberExpression: MemberExpression): JsonMemberAccess | null {
+  const propertyPath: string[] = [];
+  let current: unknown = memberExpression;
+  while (current instanceof MemberExpression) {
+    if (current.computed || !(current.property instanceof Identifier)) {
+      return null;
+    }
+    propertyPath.unshift(current.property.name);
+    current = current.object;
+  }
+  return current instanceof Identifier && propertyPath.length > 0
+    ? { receiverName: current.name, propertyPath }
+    : null;
+}
+
+function jsonWhitespace(source: string, offset: number): number {
+  while (/\s/.test(source[offset] ?? "")) {
+    offset += 1;
+  }
+  return offset;
+}
+
+function jsonStringEnd(source: string, offset: number): number {
+  let escaped = false;
+  for (let index = offset + 1; index < source.length; index += 1) {
+    const character = source[index];
+    if (escaped) {
+      escaped = false;
+    } else if (character === "\\") {
+      escaped = true;
+    } else if (character === "\"") {
+      return index + 1;
+    }
+  }
+  return source.length;
+}
+
+function jsonPosition(source: string, offset: number): { line: number; character: number } {
+  const lineStart = source.lastIndexOf("\n", offset - 1) + 1;
+  return {
+    line: source.slice(0, offset).split("\n").length - 1,
+    character: offset - lineStart
+  };
+}
+
+function findJsonPropertyRange(source: string, targetPath: readonly string[]): Location["range"] | null {
+  try {
+    JSON.parse(source);
+  } catch {
+    return null;
+  }
+
+  let found: Location["range"] | null = null;
+  const scanValue = (initialOffset: number, path: readonly string[]): number => {
+    const offset = jsonWhitespace(source, initialOffset);
+    const character = source[offset];
+    if (character === "\"") {
+      return jsonStringEnd(source, offset);
+    }
+    if (character === "{") {
+      let next = jsonWhitespace(source, offset + 1);
+      while (source[next] !== "}" && next < source.length) {
+        next = jsonWhitespace(source, next);
+        const keyStart = next;
+        const keyEnd = jsonStringEnd(source, keyStart);
+        let key: string;
+        try {
+          key = JSON.parse(source.slice(keyStart, keyEnd)) as string;
+        } catch {
+          return source.length;
+        }
+        next = jsonWhitespace(source, keyEnd);
+        if (source[next] !== ":") {
+          return source.length;
+        }
+        next = jsonWhitespace(source, next + 1);
+        const memberPath = [...path, key];
+        if (!found && memberPath.length === targetPath.length && memberPath.every((part, index) => part === targetPath[index])) {
+          found = {
+            start: jsonPosition(source, keyStart + 1),
+            end: jsonPosition(source, keyEnd - 1)
+          };
+        }
+        next = scanValue(next, memberPath);
+        next = jsonWhitespace(source, next);
+        if (source[next] === ",") {
+          next += 1;
+        }
+      }
+      return next + 1;
+    }
+    if (character === "[") {
+      let next = jsonWhitespace(source, offset + 1);
+      while (source[next] !== "]" && next < source.length) {
+        next = scanValue(next, path);
+        next = jsonWhitespace(source, next);
+        if (source[next] === ",") {
+          next += 1;
+        }
+      }
+      return next + 1;
+    }
+    let next = offset;
+    while (next < source.length && !",]}".includes(source[next] ?? "")) {
+      next += 1;
+    }
+    return next;
+  };
+
+  scanValue(0, []);
+  return found;
+}
+
+async function resolveJsonMemberDefinition(
+  context: ResolveContext,
+  memberExpression: MemberExpression
+): Promise<Location | null> {
+  if (!context.session.ast) {
+    return null;
+  }
+  const access = jsonMemberAccess(memberExpression);
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!access || !currentFilePath) {
+    return null;
+  }
+  const importBinding = findImportBindingByLocalName(context.session.ast.body, access.receiverName);
+  if (!importBinding || (importBinding.kind !== "default" && importBinding.kind !== "namespace")) {
+    return null;
+  }
+  const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importBinding.from, {
+    vfs: context.vfs,
+    importMappings: context.importMappings
+  });
+  if (!targetFilePath || extname(targetFilePath).toLowerCase() !== ".json") {
+    return null;
+  }
+  const source = await readTextDocument(context, targetFilePath);
+  const range = source ? findJsonPropertyRange(source, access.propertyPath) : null;
+  return range
+    ? { uri: pathToUri(targetFilePath), range }
+    : null;
+}
+
 async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Promise<Location | null> {
   if (!context.session.ast || !context.session.analysis) {
     return null;
@@ -387,6 +539,11 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
   );
   if (!memberExpression || !(memberExpression.property instanceof Identifier)) {
     return null;
+  }
+
+  const jsonDefinition = await resolveJsonMemberDefinition(context, memberExpression);
+  if (jsonDefinition) {
+    return jsonDefinition;
   }
 
   const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);

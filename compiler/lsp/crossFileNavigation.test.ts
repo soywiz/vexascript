@@ -54,6 +54,67 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
 }
 
 describe("cross-file navigation", () => {
+  it("provides member hover for properties imported from local JSON", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-json-import-hover-"));
+    const jsonFile = join(root, "data.json");
+    const mainFile = join(root, "main.vx");
+    const source = 'import data from "./data.json"\n\ndata.title\n';
+    await writeFile(jsonFile, JSON.stringify({ title: "ready", count: 3, enabled: true }), "utf8");
+    await writeFile(mainFile, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainFile).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+    const hover = await resolveHoverWithLocalFallback({
+      uri: pathToFileURL(mainFile).toString(),
+      line: 2,
+      character: source.split("\n")[2]!.indexOf("title") + 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect((hover?.contents as { value?: string } | undefined)?.value).toBe("title: string");
+  });
+
+  it("navigates JSON member access to the property key in the JSON file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-json-import-definition-"));
+    const jsonFile = join(root, "data.json");
+    const mainFile = join(root, "main.vx");
+    const source = 'import data from "./data.json"\n\ndata.title\n';
+    const jsonSource = '{\n  "title": "ready",\n  "count": 3\n}\n';
+    await writeFile(jsonFile, jsonSource, "utf8");
+    await writeFile(mainFile, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainFile).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+    const definition = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainFile).toString(),
+      line: 2,
+      character: source.split("\n")[2]!.indexOf("title") + 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(definition?.uri).toBe(pathToFileURL(jsonFile).toString());
+    expect(definition?.range).toEqual({
+      start: { line: 1, character: 3 },
+      end: { line: 1, character: 8 }
+    });
+  });
+
   it("resolves go-to-definition from imported symbol usage to original declaration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
     const fileA = join(root, "a.vx");

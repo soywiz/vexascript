@@ -3,7 +3,7 @@
 20
 blue:4x5
 demo:20
-delegated:14
+delegated:9
 0 2 blue
 1 2
 7

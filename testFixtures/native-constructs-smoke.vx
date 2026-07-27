@@ -69,7 +69,7 @@ total += observed
 total++
 
 const entries: [string, number][] = [["a", 3], ["b", 4]]
-var entryTotal = 0
+var entryTotal: number = 0
 for (const [, value] of entries) {
   entryTotal += value
 }

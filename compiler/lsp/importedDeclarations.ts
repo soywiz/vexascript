@@ -5,6 +5,8 @@ import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
 import { nodeBuiltinSpecifierCandidates, resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { extname } from "compiler/utils/path";
+import { vfs } from "compiler/vfs";
 import { importableTopLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { detectAmbientExportEqualsName, findAmbientNamespaceBody, findImportBindingByLocalName, importBindings, importStatementBindings } from "./crossFileContext";
@@ -3130,6 +3132,45 @@ function markInvalidImportedBinding(
   resolution.invalid = true;
 }
 
+function jsonValueAnalysisType(value: unknown): AnalysisType {
+  if (value === null) {
+    return builtinType("null");
+  }
+  if (Array.isArray(value)) {
+    return arrayType(
+      value.length === 0
+        ? UNKNOWN_TYPE
+        : combineTypes(value.map((element) => jsonValueAnalysisType(element)))
+    );
+  }
+  switch (typeof value) {
+    case "string":
+      return builtinType("string");
+    case "number":
+      return builtinType("number");
+    case "boolean":
+      return builtinType("boolean");
+    case "object":
+      return objectTypeWithProperties(
+        new Map(Object.entries(value as Record<string, unknown>).map(([name, member]) => [
+          name,
+          jsonValueAnalysisType(member)
+        ]))
+      );
+    default:
+      return UNKNOWN_TYPE;
+  }
+}
+
+async function jsonModuleAnalysisType(filePath: string, context: ProjectContext): Promise<AnalysisType | null> {
+  try {
+    const source = await (context.vfs ?? vfs()).readFile(filePath);
+    return jsonValueAnalysisType(JSON.parse(source) as unknown);
+  } catch {
+    return null;
+  }
+}
+
 function shouldIncludeNodeModuleExternalDeclaration(
   statement: Statement,
   wantedNames: ReadonlySet<string>
@@ -3591,6 +3632,29 @@ export async function collectAllImportedDeclarations(
             markInvalidImportedBinding(importedSymbols, importStatement.namespaceImport.name);
           }
         }
+      }
+      continue;
+    }
+
+    if (extname(targetFilePath).toLowerCase() === ".json") {
+      const jsonType = await jsonModuleAnalysisType(targetFilePath, context);
+      if (jsonType) {
+        if (importStatement.defaultImport) {
+          setImportedSymbolType(importedSymbols, importStatement.defaultImport.name, jsonType);
+        }
+        if (importStatement.namespaceImport) {
+          setImportedSymbolType(importedSymbols, importStatement.namespaceImport.name, jsonType);
+        }
+      } else {
+        if (importStatement.defaultImport) {
+          markInvalidImportedBinding(importedSymbols, importStatement.defaultImport.name);
+        }
+        if (importStatement.namespaceImport) {
+          markInvalidImportedBinding(importedSymbols, importStatement.namespaceImport.name);
+        }
+      }
+      for (const specifier of importStatement.specifiers) {
+        markInvalidImportedBinding(importedSymbols, (specifier.local ?? specifier.imported).name);
       }
       continue;
     }

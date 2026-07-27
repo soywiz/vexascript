@@ -17,6 +17,24 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
 }
 
 describe("collectAllImportedDeclarations — ambient module type resolution", () => {
+  it("infers the shape of a local JSON default import", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-json-import-types-"));
+    const jsonFile = join(root, "data.json");
+    const consumerFile = join(root, "main.vx");
+    await writeFile(jsonFile, JSON.stringify({ title: "ready", count: 3, enabled: true }), "utf8");
+
+    const source = 'import data from "./data.json"\ndata.title\n';
+    const imported = await collectAllImportedDeclarations(parseSource(source, {}).ast!, {
+      uri: pathToFileURL(consumerFile).toString(),
+      sourceRoots: [root]
+    });
+
+    expect(imported.invalidImportedBindings.has("data")).toBe(false);
+    expect(typeToString(imported.importedSymbols.get("data")!.type!)).toBe(
+      "{ title: string, count: number, enabled: boolean }"
+    );
+  });
+
   it("resolves named import type from direct export function in ambient module", async () => {
     const decls = parseAmbientModule(
       `declare module "myfs" {\n  export function readFile(path: string): string;\n}\n`,
