@@ -13,26 +13,36 @@
   <body>
     {% set currentUrl = page.url or "/" %}
     <header class="site-header">
-      <a class="brand" href="/">
-        <img class="brand-icon" src="/favicon.svg" alt="" aria-hidden="true">
-        <span>VexaScript</span>
-      </a>
-      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-navigation">
-        <span class="nav-toggle-icon" aria-hidden="true"><span></span><span></span><span></span></span>
-        <span class="visually-hidden">Toggle navigation menu</span>
-      </button>
-      <nav id="primary-navigation" class="nav" aria-label="Primary navigation">
-        <a href="/blog"{% if currentUrl.startsWith("/blog") %} aria-current="page"{% endif %}>Blog</a>
-        <a href="/quickstart"{% if currentUrl.startsWith("/quickstart") %} aria-current="page"{% endif %}>Quickstart</a>
-        <a href="/syntax"{% if currentUrl.startsWith("/syntax") %} aria-current="page"{% endif %}>Syntax</a>
-        <a href="/cli"{% if currentUrl.startsWith("/cli") %} aria-current="page"{% endif %}>CLI</a>
-        <a href="/samples"{% if currentUrl.startsWith("/samples") %} aria-current="page"{% endif %}>Samples</a>
-        <a href="/playground"{% if currentUrl.startsWith("/playground") %} aria-current="page"{% endif %}>Playground</a>
-        <a href="/embed"{% if currentUrl.startsWith("/embed") %} aria-current="page"{% endif %}>Embed</a>
-      </nav>
+      <div class="site-header-inner">
+        <a class="brand" href="/">
+          <img class="brand-icon" src="/favicon.svg" alt="" aria-hidden="true">
+          <span>VexaScript</span>
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-navigation">
+          <span class="nav-toggle-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="visually-hidden">Toggle navigation menu</span>
+        </button>
+        <nav id="primary-navigation" class="nav" aria-label="Primary navigation">
+          <a href="/blog"{% if currentUrl.startsWith("/blog") %} aria-current="page"{% endif %}>Blog</a>
+          <a href="/quickstart"{% if currentUrl.startsWith("/quickstart") %} aria-current="page"{% endif %}>Quickstart</a>
+          <a href="/syntax"{% if currentUrl.startsWith("/syntax") %} aria-current="page"{% endif %}>Syntax</a>
+          <a href="/samples"{% if currentUrl.startsWith("/samples") %} aria-current="page"{% endif %}>Samples</a>
+          <a href="/playground"{% if currentUrl.startsWith("/playground") %} aria-current="page"{% endif %}>Playground</a>
+          <a href="/cli"{% if currentUrl.startsWith("/cli") %} aria-current="page"{% endif %}>CLI</a>
+          <a href="/embed"{% if currentUrl.startsWith("/embed") %} aria-current="page"{% endif %}>Embed</a>
+        </nav>
+      </div>
     </header>
     <main>{{ content | safe }}</main>
-    <footer class="site-footer">© {% year %} VexaScript by Soywiz Software. Built with 11ty and Monaco.</footer>
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <a class="footer-brand" href="/">
+          <img class="brand-icon" src="/favicon.svg" alt="" aria-hidden="true">
+          <span>VexaScript</span>
+        </a>
+        <p>© {% year %} Soywiz Software. Built with 11ty and Monaco.</p>
+      </div>
+    </footer>
     <script
       src="{{ generatedAssetHrefs.generatedEmbedJs }}"
       onload="if (window.VexaScriptEmbeds) window.dispatchEvent(new Event('vexa-embeds-ready'))"
@@ -47,7 +57,7 @@
           toggle.setAttribute("aria-expanded", expanded ? "false" : "true");
         });
 
-        window.matchMedia("(min-width: 801px)").addEventListener("change", function (event) {
+        window.matchMedia("(min-width: 981px)").addEventListener("change", function (event) {
           if (event.matches) toggle.setAttribute("aria-expanded", "false");
         });
       })();

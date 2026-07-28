@@ -70,15 +70,14 @@ Apply these rules:
 
 ## Validate content and rendering
 
-Use test-driven content checks when adding a series or enforcing a house style. Update or add a focused test before the posts, then make it pass. For milestone articles, validate the expected title/permalink, bold subsection structure, real table presence, and a substantive-content floor without testing exact prose.
+Do not add automated tests that pin article titles, prose, section structure, tables, length, templates, generated HTML, CSS, or visual layout. Review those editorial qualities directly; website automation is reserved for functional playground/editor behavior.
 
 Before handing off:
 
-1. Run the focused website content test.
-2. Run `pnpm website:build`.
-3. Serve the website and inspect the blog index plus changed posts in a real browser at desktop and mobile widths. Check navigation, tables, code blocks, overflow, and console errors.
-4. Run the repository-required full `pnpm test` suite.
-5. Run `pnpm cli vexa testFixtures/sample.vx`.
-6. If publication was requested, follow the `deploy-vexascript-website` skill after committing and pushing the source branch.
+1. Run `pnpm website:build`.
+2. Serve the website and smoke-test the real `/playground`.
+3. Run the repository-required full `pnpm test` suite.
+4. Run `pnpm cli vexa testFixtures/sample.vx`.
+5. If publication was requested, follow the `deploy-vexascript-website` skill after committing and pushing the source branch.
 
 Keep `docs/file.structure.md` current when this workflow or the blog architecture changes. Add a journal entry if the writing or deployment work reveals a recurring evidence, rendering, or release-process failure.

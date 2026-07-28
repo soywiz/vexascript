@@ -372,5 +372,68 @@ declare class NativeC {
 val distance = NativeC.abs(-42)
 {% endhighlightVexaScript %}
     </article>
+    <article class="card">
+      <h3>Renamed FFI symbols</h3>
+      <p><code>@FFIName</code> maps a clean VexaScript method name to the exported C symbol without changing call sites.</p>
+{% highlightVexaScript %}
+@FFILibrary("SDL2.dll", "libSDL2.so", "SDL2.framework/SDL2")
+declare class SDL2 {
+  @FFIName("SDL_Init")
+  static Init(flags: int): int
+}
+
+val status = SDL2.Init(32)
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>FFI struct layouts</h3>
+      <p><code>@FFIStruct</code> creates an <code>ArrayBuffer</code>-backed ABI layout. Alignment, offsets, and field sizes remain explicit and portable.</p>
+{% highlightVexaScript %}
+@FFIStruct(16)
+@FFIAlign(4)
+class Rect(
+  @FFIOffset(0) @FFISize(4) var x: int = 0,
+  @FFIOffset(4) @FFISize(4) var y: int = 0,
+  @FFIOffset(8) @FFISize(4) var width: int = 0,
+  @FFIOffset(12) @FFISize(4) var height: int = 0
+)
+
+val rect = Rect(x: 10, y: 20, width: 320, height: 180)
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>FFI pointers &amp; buffers</h3>
+      <p><code>FFIPointer</code> exposes typed memory access, while <code>ArrayBuffer</code> arguments pass their backing bytes without a copy.</p>
+{% highlightVexaScript %}
+@FFILibrary("libSystem.B.dylib", "libc.so.6", "msvcrt.dll")
+declare class NativeMemory {
+  static malloc(size: long): FFIPointer
+  static memset(bytes: ArrayBuffer, value: int, size: long): FFIPointer
+  static free(pointer: FFIPointer): void
+}
+
+val pointer = NativeMemory.malloc(8L)
+pointer.setInt32(0, 1234)
+
+val bytes = ArrayBuffer(4)
+NativeMemory.memset(bytes, 65, 4L)
+NativeMemory.free(pointer)
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Nonblocking FFI calls</h3>
+      <p>A foreign method returning <code>Promise&lt;T&gt;</code> runs without blocking the main event loop and works naturally inside a <code>sync</code> function.</p>
+{% highlightVexaScript %}
+@FFILibrary("SDL2.dll", "libSDL2.so", "SDL2.framework/SDL2")
+declare class SDL2Async {
+  @FFIName("SDL_Delay")
+  static Delay(milliseconds: int): Promise<void>
+}
+
+sync fun nextFrame(): void {
+  SDL2Async.Delay(16)
+}
+{% endhighlightVexaScript %}
+    </article>
   </div>
 </section>

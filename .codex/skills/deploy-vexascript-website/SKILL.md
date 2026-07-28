@@ -20,18 +20,14 @@ Do not deploy uncommitted changes. Never force-push the `web` branch.
 
 1. Run `pnpm website:build` and require a successful production bundle and Eleventy build.
 2. Start the repository server with `pnpm website`. Keep it running while testing.
-3. Use a real browser against `http://127.0.0.1:7070/`. Validate at minimum:
-   - the home page and primary navigation;
-   - `/playground` initialization without console errors;
-   - Monaco editor, workspace files, runtime declarations, and workers loading successfully;
-   - switching workspace files and using Back/Forward;
-   - clearing and running the sample, with the canvas and console output returning;
-   - the narrow viewport workspace drawer and the desktop workbench layout;
-   - no failed browser requests for pages, bundles, workers, declarations, fonts, or preview blobs.
+3. Use a real browser against `http://127.0.0.1:7070/playground`. Smoke-test that:
+   - the playground initializes without critical console errors;
+   - Monaco, the bundled workspace, runtime declarations, and workers load;
+   - running the bundled sample produces its preview or console output.
 4. Use the Eleventy server for clean URLs. A basic static server does not rewrite `/playground` to `playground.html` and can produce a misleading 404.
 5. Stop the server after browser validation.
 
-If a defect appears, reproduce it in a focused automated test before changing implementation code. Fix it, rerun the focused test, and repeat the browser flow.
+Do not add source-inspection tests that pin website copy, template structure, generated HTML, CSS selectors, declarations, or visual layout. The production build and functional playground smoke test are the website acceptance boundary. If the defect is in functional playground/editor or shared compiler logic, reproduce it in a focused behavioral test before changing implementation code.
 
 ## Validate the Repository
 

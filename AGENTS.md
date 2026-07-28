@@ -47,6 +47,8 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 
 - We follow TDD (Test-Driven Development).
 - Every new feature must include tests in the same change.
+- Website content and visual styling are an exception to the automated-test requirement. Do not add tests that read templates, Markdown, generated HTML, or CSS merely to assert that particular copy, sections, selectors, declarations, or layout rules exist.
+- Validate website changes by running `pnpm website:build` and smoke-testing the real `/playground` in a browser. Keep automated tests only for functional playground/editor behavior or shared compiler behavior; do not test the presentation or source shape of documentation pages.
 - The official test suite runs with node tests.
 - Do not modify repository samples just to make tests pass. Changing sample code is only acceptable when it reflects the real intended user-facing API or behavior. Sample-side workarounds that hide compiler, runtime, or LSP bugs do not satisfy project goals.
 - When a bug is first observed through a larger sample, reproduce it in a small, isolated, fast automated test in the same change whenever possible. The sample regression may remain as broader coverage, but the minimal test is required so the bug stays covered even if the sample later changes or is removed.
@@ -55,7 +57,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - Focused or partial test runs are useful during development, but they never replace the final full-suite run.
 - Do not finish a task, report success, commit, or hand off work until `pnpm test` has been run successfully in the current state of the branch.
 - In LSP/editor tests, prefer the `^^^` cursor-marker style with the shared helper in `compiler/test/sourceWithCursor.ts` instead of hardcoded line/column coordinates whenever practical.
-- For UI-facing changes (Monaco plugin, browser flows, visual interactions), validate the final behavior in a real browser before handing off. Use Playwright or another browser automation path when available, and treat that browser check as part of completion rather than an optional extra.
+- For UI-facing changes outside the website content/style exception (Monaco plugin, browser flows, visual interactions), validate the final behavior in a real browser before handing off. Use Playwright or another browser automation path when available, and treat that browser check as part of completion rather than an optional extra.
 - If tests fail, they must be fixed before finishing the task.
 - If requirements change, update tests to match the new expected behavior instead of preserving outdated assertions.
 - For editor/LSP cursor-position tests, prefer the shared `^^^` marker helper in `compiler/test/sourceWithCursor.ts` over hardcoded line/column pairs.

@@ -199,7 +199,6 @@ This section is the fast onboarding map for agents and contributors.
   - Website build orchestrator, which ensures the compiler CLI bundle exists, regenerates the website-safe JS syntax module from the compiler's canonical syntax source, then runs the esbuild embed bundler and 11ty: `website/scripts/build.ts`
   - Shared website content loaders/renderers, including the `/syntax/` page sourced from `docs/syntax.md`, the `/differences/` page sourced from `docs/syntax.differences.md`, and the `/syntax/ai` page sourced from `docs/syntax.ai.md`: `website/src/siteContent.ts`, `website/src/siteContent.mjs`
   - Website-only syntax highlighter sources used by Eleventy without importing TypeScript sources during `--watch`: `website/src/syntaxHighlight.ts`, `website/src/syntaxHighlight.mjs`
-  - Website content-loader tests: `website/src/siteContent.test.ts`
   - Esbuild-powered embeddable Monaco helper sources for single-file, tabbed, workspace, and full workbench tutorial editors, plus the preview-iframe document builder that captures compile/runtime errors inside the embedded console: `website/scripts/buildEmbed.ts`, `website/src/assets/vexa-embed.ts`, `website/src/assets/previewDocument.ts`
   - Browser History API snapshot helpers that keep the website playground workbench file navigation in sync with browser back/forward: `website/src/assets/workbenchBrowserHistory.ts`
   - Responsive workbench-sidebar state helpers used by the website embed/playground when the editor viewport becomes narrow: `website/src/assets/workbenchSidebar.ts`
