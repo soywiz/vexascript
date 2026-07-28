@@ -1,5 +1,5 @@
 import { describe, expect, it, join, mkdir, mkdtemp, tmpdir, writeFile } from "../test/expect";
-import { discoverVexaScriptTestFiles, prependTestTypeDeclarations } from "../../cli/testRunner";
+import { discoverVexaScriptTestFiles, prependTestTypeDeclarations, testRuntimeImports } from "../../cli/testRunner";
 import { transpile } from "./transpile";
 
 describe("VexaScript test runner", () => {
@@ -26,6 +26,18 @@ describe("VexaScript test runner", () => {
     expect(source).toContain("declare fun test(name: string");
     expect(source).toContain("declare fun assert(condition: boolean");
     expect(source).toContain('test("arithmetic")');
+  });
+
+  it("does not inject runtime bindings already supplied by the test module", () => {
+    const source = prependTestTypeDeclarations(`import { test } from "node:test"
+import { assert } from "node:assert"
+
+test("works") { assert(true) }`);
+
+    expect(testRuntimeImports(source)).toBe("");
+    expect(testRuntimeImports(prependTestTypeDeclarations('test("works") { assert(true) }'))).toBe(
+      'import test from "node:test";\nimport assert from "node:assert/strict";'
+    );
   });
 
   it("type-checks named tests and rejects invalid assert conditions", () => {

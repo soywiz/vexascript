@@ -195,6 +195,46 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     expect(typeToString(importedSymbols.get("readFile")!.type!)).toContain("(path: string | Buffer | URL | object, options: { encoding: string }) => Promise<string>");
   });
 
+  it("selects an ambient overload for a trailing closure after positional arguments", async () => {
+    const testDeclarations = parseAmbientModule(
+      `declare module "node:test" {
+        function test(name?: string, fn?: TestFn): Promise<void>;
+        function test(name?: string, options?: TestOptions, fn?: TestFn): Promise<void>;
+        function test(options?: TestOptions, fn?: TestFn): Promise<void>;
+        function test(fn?: TestFn): Promise<void>;
+        namespace test {
+          export { test };
+        }
+        namespace test {
+          type TestFn = (context: TestContext, done: (result?: any) => void) => void | Promise<void>;
+          interface TestContext {}
+          interface TestOptions {}
+        }
+      }`,
+      "node:test"
+    );
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:test", testDeclarations]
+    ]);
+    const source = `import { test } from "node:test"
+
+test("supports trailing closures") {
+}`;
+    const ast = parseSource(source, {}).ast!;
+    const collected = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(collected.importedSymbols.get("test")?.type?.kind).toBe(AnalysisTypeKind.Union);
+    expect(session.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("resolves an ambient type reference through a renamed named import", async () => {
     const fsDecls = parseAmbientModule(
       `declare module "node:fs" {

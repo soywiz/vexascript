@@ -36,6 +36,16 @@ normal environment for all other CLI subprocesses.
 
 - Keep the generated Node imports and the embedded VexaScript declarations in
   the same test-runner preparation path.
+- Resolve explicit imports before compiling test sources. The single-file test
+  path must use the same imported-symbol resolver as the runtime module graph;
+  otherwise an explicit `node:test` binding can degrade to `unknown` and let
+  the injected test declaration win overload selection.
+- Only inject the runtime `test` and `assert` imports when the source does not
+  already import those local names. Emitting both creates duplicate ESM
+  bindings even when type checking succeeds.
+- Ambient function/namespace merges can span multiple namespace blocks.
+  Function parameter aliases such as Node's `test.TestFn` must resolve against
+  the combined bodies of every matching namespace declaration.
 - Forward Node test flags before generated file paths, including separate
   values for flags such as `--test-name-pattern` and `--test-reporter`.
 - Do not let the test runner's temporary generated modules remain beside user

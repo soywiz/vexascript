@@ -677,6 +677,7 @@ export function findAmbientNamespaceBody(
   declarations: readonly Statement[],
   namespaceName: string
 ): Statement[] | null {
+  const body: Statement[] = [];
   for (const statement of declarations) {
     const candidate =
       statement instanceof ExportStatement
@@ -687,10 +688,10 @@ export function findAmbientNamespaceBody(
     }
     const namespaceStatement = candidate as NamespaceStatement;
     if (namespaceStatement.names?.[0]?.name === namespaceName) {
-      return namespaceStatement.body.body;
+      body.push(...namespaceStatement.body.body);
     }
   }
-  return null;
+  return body.length > 0 ? body : null;
 }
 
 export function findAmbientNamespaceMemberRange(

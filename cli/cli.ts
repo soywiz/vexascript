@@ -32,6 +32,7 @@ import {
   openUrlInDefaultBrowser,
   renderSyntaxForCli,
   resolveNativeProgramPaths,
+  resolveNodeModuleImportsForCli,
   runCommand as runProcessCommand,
   runAsyncMain,
   runTestFiles,
@@ -40,6 +41,7 @@ import {
   startLanguageServer,
   startMcpServer,
   startServe,
+  testRuntimeImportsForCli,
   tokenizeForCli,
   type NativeProgramPaths,
 } from "./io";
@@ -708,12 +710,15 @@ async function transpileSource(
   const project = await loadProject(sourcePath);
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
+  const imported = await resolveNodeModuleImportsForCli(source, sourcePath);
   return transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
     preserveSourceLineOffsets: true,
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
+    externalDeclarations: imported.externalDeclarations,
+    importedSymbols: imported.importedSymbols,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {})
   });
@@ -761,8 +766,11 @@ async function compileTestSource(source: string, testFile: string, outputFile: s
     printDiagnostics(result.errors, result.diagnostics, testFile);
     throw new DiagnosticError();
   }
-  const nodeTestImports = `import test from "node:test";\nimport assert from "node:assert/strict";\n`;
-  await vfs().writeFile(outputFile, `${nodeTestImports}${result.code}\n//# sourceURL=${testFile}`);
+  const nodeTestImports = await testRuntimeImportsForCli(source);
+  await vfs().writeFile(
+    outputFile,
+    `${nodeTestImports}${nodeTestImports.length > 0 ? "\n" : ""}${result.code}\n//# sourceURL=${testFile}`
+  );
   for (const warning of result.warnings) console.warn(`warning: ${warning}`);
 }
 

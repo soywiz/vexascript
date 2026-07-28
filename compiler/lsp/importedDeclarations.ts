@@ -2308,18 +2308,22 @@ function buildAmbientFunctionTypeFromStatement(
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
   ambientGlobalDeclarations: readonly Statement[] = []
 ): AnalysisType {
+  const mergedNamespaceDeclarations = findAmbientNamespaceBody(declarations, fn.name.name);
+  const typeDeclarations = mergedNamespaceDeclarations
+    ? [...declarations, ...mergedNamespaceDeclarations]
+    : declarations;
   return functionType(
     mapFunctionParameters(
       fn.parameters,
-      (name) => typeFromAmbientAnnotationText(name, declarations, ambientModuleDeclarations, ambientGlobalDeclarations)
+      (name) => typeFromAmbientAnnotationText(name, typeDeclarations, ambientModuleDeclarations, ambientGlobalDeclarations)
     ),
-    typeFromAmbientAnnotationText(fn.returnType?.name, declarations, ambientModuleDeclarations, ambientGlobalDeclarations),
+    typeFromAmbientAnnotationText(fn.returnType?.name, typeDeclarations, ambientModuleDeclarations, ambientGlobalDeclarations),
     fn.typeParameters?.map((tp) => tp.name.name),
     undefined,
     undefined,
     importedAssertionTypeFromText(
       fn.returnType?.name,
-      declarations,
+      typeDeclarations,
       new Set(),
       ambientModuleDeclarations,
       ambientGlobalDeclarations

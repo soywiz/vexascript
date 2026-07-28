@@ -928,6 +928,46 @@ describe("CLI", () => {
     expect(logs).toContain("1 test file passed");
   });
 
+  it("test command preserves explicit Node test imports", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-tests-"));
+    const nodeTypesDir = join(dir, "node_modules", "@types", "node");
+    await mkdir(nodeTypesDir, { recursive: true });
+    await writeFile(
+      join(nodeTypesDir, "package.json"),
+      JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(nodeTypesDir, "index.d.ts"),
+      `declare module "node:test" {
+        function test(name?: string, fn?: TestFn): Promise<void>;
+        function test(fn?: TestFn): Promise<void>;
+        namespace test {
+          export { test };
+        }
+        namespace test {
+          type TestFn = (context: TestContext) => void | Promise<void>;
+          interface TestContext {}
+        }
+      }`,
+      "utf8"
+    );
+    const testFile = join(dir, "node-import.test.vx");
+    await writeFile(
+      testFile,
+      'import { test } from "node:test"\n\ntest("explicit import") {\n}',
+      "utf8"
+    );
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "vexa", "test", testFile]);
+
+    const logs = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(logs).toContain("explicit import");
+    expect(logs).toContain("1 test file passed");
+  });
+
   it("test command fails when an inline assertion fails", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-tests-"));
     const testFile = join(dir, "failure.test.vx");

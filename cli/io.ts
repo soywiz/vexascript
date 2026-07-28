@@ -4,6 +4,8 @@ import { unlink } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { basename, dirname, resolve } from "../compiler/utils/path";
 import { vfs } from "../compiler/vfs";
+import type { Statement } from "../compiler/ast/ast";
+import type { ImportedSymbolResolution } from "../compiler/importedSymbols";
 export { fileExists, isDirectory } from "../compiler/utils/fs";
 
 export interface CommandOutput {
@@ -125,6 +127,24 @@ export async function runTestFiles(
   } finally {
     await Promise.all(outputFiles.map((outputFile) => unlink(outputFile).catch(() => undefined)));
   }
+}
+
+export async function resolveNodeModuleImportsForCli(source: string, sourcePath: string): Promise<{
+  externalDeclarations: Statement[];
+  importedSymbols: Map<string, ImportedSymbolResolution>;
+}> {
+  const { parseSource } = await import("../compiler/pipeline/parse");
+  const parsed = parseSource(source, {});
+  if (!parsed.ast) {
+    return { externalDeclarations: [], importedSymbols: new Map() };
+  }
+  const { resolveNodeModuleImportsForRuntime } = await import("../compiler/nodeModuleImportResolution");
+  return await resolveNodeModuleImportsForRuntime(parsed.ast, sourcePath, vfs());
+}
+
+export async function testRuntimeImportsForCli(source: string): Promise<string> {
+  const { testRuntimeImports } = await import("./testRunner");
+  return testRuntimeImports(source);
 }
 
 export async function tokenizeForCli(source: string): Promise<unknown> {

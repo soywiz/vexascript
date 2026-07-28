@@ -1,5 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
+import { ImportStatement } from "../compiler/ast/ast";
 import { LANGUAGE_FILE_EXTENSION } from "../compiler/language";
+import { parseSource } from "../compiler/pipeline/parse";
 import { resolve } from "../compiler/utils/path";
 
 const TEST_TYPE_SOURCE = `interface VexaTestContext {
@@ -15,6 +17,29 @@ const TEST_FILE_SUFFIX = `.test${LANGUAGE_FILE_EXTENSION}`;
 
 export function prependTestTypeDeclarations(source: string): string {
   return `${TEST_TYPE_SOURCE}\n${source}`;
+}
+
+export function testRuntimeImports(source: string): string {
+  const importedNames = new Set<string>();
+  for (const statement of parseSource(source, {}).ast?.body ?? []) {
+    if (!(statement instanceof ImportStatement)) {
+      continue;
+    }
+    if (statement.defaultImport) {
+      importedNames.add(statement.defaultImport.name);
+    }
+    if (statement.namespaceImport) {
+      importedNames.add(statement.namespaceImport.name);
+    }
+    for (const specifier of statement.specifiers) {
+      importedNames.add((specifier.local ?? specifier.imported).name);
+    }
+  }
+
+  return [
+    importedNames.has("test") ? null : 'import test from "node:test";',
+    importedNames.has("assert") ? null : 'import assert from "node:assert/strict";'
+  ].filter((line): line is string => line !== null).join("\n");
 }
 
 export async function discoverVexaScriptTestFiles(path: string, cwd = process.cwd()): Promise<string[]> {

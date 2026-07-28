@@ -68,6 +68,17 @@ export async function runTestFiles(
   throw new Error("The test runner is not available in the native VexaScript CLI");
 }
 
+export async function resolveNodeModuleImportsForCli(
+  _source: string,
+  _sourcePath: string
+): Promise<any> {
+  return { externalDeclarations: [], importedSymbols: new Map() };
+}
+
+export async function testRuntimeImportsForCli(_source: string): Promise<string> {
+  return "";
+}
+
 export async function tokenizeForCli(_source: string): Promise<unknown> {
   throw new Error("Token inspection is not available in the native VexaScript CLI");
 }
