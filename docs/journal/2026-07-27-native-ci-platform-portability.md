@@ -30,3 +30,21 @@ handle with a UTF-16 string and failed to compile. A plain runtime `Value`
 preserves the generated property contract without introducing a special
 comparison path. The complete test suite, native smoke suite, and CLI fixture
 validation now pass locally.
+
+The next CI run showed that cross-platform native validation also needs
+platform-sized coverage. The Linux job completed the full suite, but macOS
+spent about twelve minutes building every native smoke executable and then
+started the same complete suite again with GC stress enabled. It reached the
+job's fifteen-minute timeout during that redundant second pass. Windows built
+Oilpan, mimalloc, and the smaller native smoke programs successfully, but
+MinGW GCC 15.2.0 hit an internal `gimple-low.cc` compiler error on the very
+large generated self-hosted CLI translation unit.
+
+Increasing timeouts alone would only address the macOS symptom and would leave
+the Windows compiler crash unchanged. Native CI now keeps the exhaustive
+sample matrix and self-hosted CLI coverage in the faster Linux job. macOS
+builds one representative native program normally and once with Oilpan stress,
+while Windows keeps the build-argument and package-portability tests plus one
+minimal native executable. This preserves real compile-link-run coverage on
+every platform without making the slow platforms repeatedly build the largest
+translation units.
