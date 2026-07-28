@@ -53,12 +53,17 @@ val key = PathKey()[2, 4, 8]
     </article>
     <article class="card">
       <h3>JSX with Preact</h3>
-      <p>Destructuring with types to avoid duplication while being concise.</p>
+      <p>Typed prop destructuring stays concise, while a delegated <code>useState</code> tuple turns mutable state into direct reads and assignments.</p>
 {% highlightVexaScript %}
 import { h } from "preact"
+import { useState } from "preact/hooks"
 
-fun Welcome({ name: string }) {
-  return <section>Hello {name}</section>
+fun Counter({ initial: number }) {
+  var count by useState(initial)
+
+  return <button onClick={ { count++ } }>
+    Count: {count}
+  </button>
 }
 {% endhighlightVexaScript %}
     </article>
@@ -349,6 +354,22 @@ function describe(value: string): string { return "str:" + value }
 
 console.log(describe(42))       // "int:42"
 console.log(describe("hello"))  // "str:hello"
+{% endhighlightVexaScript %}
+    </article>
+  </div>
+
+  <h2 class="samples-group-heading">Native &amp; Interop</h2>
+  <div class="grid">
+    <article class="card">
+      <h3>Cross-backend FFI</h3>
+      <p>Declare a C ABI once and try platform library candidates in order. The same typed call uses Deno FFI or the native C++ runtime.</p>
+{% highlightVexaScript %}
+@FFILibrary("libSystem.B.dylib", "libc.so.6", "msvcrt.dll")
+declare class NativeC {
+  static abs(value: int): int
+}
+
+val distance = NativeC.abs(-42)
 {% endhighlightVexaScript %}
     </article>
   </div>

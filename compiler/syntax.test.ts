@@ -53,4 +53,25 @@ describe("portable monarch syntax", () => {
       match: "^#!.*$\\n?",
     });
   });
+
+  it("enters type-parameter state before JSX for generic declarations", () => {
+    const language = createPortableMonarchLanguage();
+    const rootRules = language.tokenizer["root"] ?? [];
+    const genericDeclarationIndex = rootRules.findIndex(
+      (rule) => rule.match === String.raw`(?:fun|function|val|var|let|const)(?=\s*<)`
+    );
+    const jsxTagIndex = rootRules.findIndex(
+      (rule) => rule.match === String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`
+    );
+
+    expect(genericDeclarationIndex).toBeGreaterThan(-1);
+    expect(genericDeclarationIndex).toBeLessThan(jsxTagIndex);
+    expect(language.tokenizer["generic_declaration"]).toEqual([
+      { match: String.raw`\s+`, token: "" },
+      { match: String.raw`<`, token: "operator", switchTo: "@type_parameters" },
+    ]);
+    expect(language.tokenizer["type_parameters"]?.some(
+      (rule) => rule.match === String.raw`>` && rule.next === "@pop"
+    )).toBe(true);
+  });
 });

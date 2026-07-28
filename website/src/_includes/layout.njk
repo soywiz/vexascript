@@ -17,7 +17,11 @@
         <img class="brand-icon" src="/favicon.svg" alt="" aria-hidden="true">
         <span>VexaScript</span>
       </a>
-      <nav class="nav" aria-label="Primary navigation">
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-navigation">
+        <span class="nav-toggle-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span class="visually-hidden">Toggle navigation menu</span>
+      </button>
+      <nav id="primary-navigation" class="nav" aria-label="Primary navigation">
         <a href="/blog"{% if currentUrl.startsWith("/blog") %} aria-current="page"{% endif %}>Blog</a>
         <a href="/quickstart"{% if currentUrl.startsWith("/quickstart") %} aria-current="page"{% endif %}>Quickstart</a>
         <a href="/syntax"{% if currentUrl.startsWith("/syntax") %} aria-current="page"{% endif %}>Syntax</a>
@@ -33,5 +37,20 @@
       src="{{ generatedAssetHrefs.generatedEmbedJs }}"
       onload="if (window.VexaScriptEmbeds) window.dispatchEvent(new Event('vexa-embeds-ready'))"
     ></script>
+    <script>
+      (function () {
+        var toggle = document.querySelector(".nav-toggle");
+        if (!toggle) return;
+
+        toggle.addEventListener("click", function () {
+          var expanded = toggle.getAttribute("aria-expanded") === "true";
+          toggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+        });
+
+        window.matchMedia("(min-width: 801px)").addEventListener("change", function (event) {
+          if (event.matches) toggle.setAttribute("aria-expanded", "false");
+        });
+      })();
+    </script>
   </body>
 </html>

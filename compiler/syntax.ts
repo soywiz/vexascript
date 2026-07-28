@@ -74,6 +74,25 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     (keyword) => !modifierKeywords.includes(keyword) && !functionKeywords.includes(keyword) && !typeKeywords.includes(keyword)
   ) as string[];
   const controlKeywords = [...VEXA_KEYWORD_CONTROLS, ...VEXA_CONSTANTS] as string[];
+  const identifierCases = {
+    "@modifierKeywords": "keywordModifier",
+    "@functionKeywords": "keywordFunction",
+    "@typeKeywords": "keywordType",
+    "@declarationKeywords": "keyword.declaration",
+    "@controlKeywords": "keyword.control",
+    "@default": "identifier",
+  };
+  const identifierRule: PortableMonarchRule = {
+    match: String.raw`[A-Za-z_$][\w$]*`,
+    token: "@cases",
+    cases: identifierCases,
+  };
+  const genericDeclarationRule: PortableMonarchRule = {
+    match: String.raw`(?:fun|function|val|var|let|const)(?=\s*<)`,
+    token: "@cases",
+    cases: identifierCases,
+    next: "@generic_declaration",
+  };
   return {
     defaultToken: "",
     keywords: [...declarationKeywords, ...modifierKeywords, ...functionKeywords, ...typeKeywords, ...controlKeywords],
@@ -90,16 +109,30 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`\/\*\*`, token: "comment.doc", next: "@doc_block_comment" },
         { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
         { match: String.raw`@[A-Za-z_$][\w$]*`, token: "annotation" },
+        genericDeclarationRule,
         { match: String.raw`(?<![\w)\]])<>`, token: "tag", next: "@jsx_children" },
         { match: String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
-        { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@modifierKeywords": "keywordModifier", "@functionKeywords": "keywordFunction", "@typeKeywords": "keywordType", "@declarationKeywords": "keyword.declaration", "@controlKeywords": "keyword.control", "@default": "identifier" } },
+        identifierRule,
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
         { match: String.raw`(\.\.\.|\.\.<|\.\.)`, token: "operator" },
         { match: String.raw`[;,.]`, token: "delimiter" },
         { match: String.raw`[+\-*/%&|^~<>!=?:]+`, token: "operator" },
+      ],
+      generic_declaration: [
+        { match: String.raw`\s+`, token: "" },
+        { match: String.raw`<`, token: "operator", switchTo: "@type_parameters" },
+      ],
+      type_parameters: [
+        { match: String.raw`\s+`, token: "" },
+        { match: String.raw`<`, token: "operator", next: "@type_parameters" },
+        { match: String.raw`>`, token: "operator", next: "@pop" },
+        identifierRule,
+        { match: String.raw`[{}()\[\]]`, token: "delimiter" },
+        { match: String.raw`[;,.]`, token: "delimiter" },
+        { match: String.raw`[+\-*/%&|^~!=?:]+`, token: "operator" },
       ],
       block_comment: [
         { match: String.raw`[^/*]+`, token: "comment" },
@@ -147,7 +180,8 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
-        { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@modifierKeywords": "keywordModifier", "@functionKeywords": "keywordFunction", "@typeKeywords": "keywordType", "@declarationKeywords": "keyword.declaration", "@controlKeywords": "keyword.control", "@default": "identifier" } },
+        genericDeclarationRule,
+        identifierRule,
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
         { match: String.raw`(\.\.\.|\.\.<|\.\.)`, token: "operator" },
         { match: String.raw`[;,.]`, token: "delimiter" },
