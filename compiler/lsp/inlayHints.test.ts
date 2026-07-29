@@ -242,6 +242,24 @@ dedent`
     expect(labels).not.toContain(": HTMLElementTagNameMap[K]");
   });
 
+  it("flattens promise-returning then callbacks in variable inlay hints", async () => {
+    const source = dedent`
+      const result = fetch(input: "").then({ it.text() })
+      `;
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const session = createAnalysisSession(source, { ambientDeclarations });
+
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 20, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": Promise<string>");
+    expect(labels).not.toContain(": Promise<Promise<string> | never>");
+  });
+
   it("uses default generic DOM type arguments for querySelector variable inlay hints", async () => {
     const source = dedent`
       sync fun main() {

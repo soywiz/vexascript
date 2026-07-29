@@ -1860,6 +1860,7 @@ function createEditor(
     model,
     theme: VEXA_MONACO_THEME_NAME,
     automaticLayout: true,
+    fixedOverflowWidgets: true,
     minimap: { enabled: false },
     fontSize: 14,
     lineNumbers: "on",

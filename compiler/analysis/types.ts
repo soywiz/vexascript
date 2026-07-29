@@ -387,7 +387,10 @@ function dedupeUnionDisplayMembers(members: AnalysisType[]): AnalysisType[] {
     }
     deduped.push(member);
   }
-  return deduped;
+  const nonNeverMembers = deduped.filter(
+    (member) => !(member instanceof BuiltinType && member.name === "never")
+  );
+  return nonNeverMembers.length > 0 ? nonNeverMembers : deduped;
 }
 
 function optionalTypeMember(members: AnalysisType[]): AnalysisType | null {

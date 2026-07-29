@@ -5857,7 +5857,11 @@ export class TypeChecker {
       const argumentNamed = argumentType as NamedType;
       const parameterTypeArguments: AnalysisType[] = parameterNamed.typeArguments ?? [];
       const argumentTypeArguments: AnalysisType[] = argumentNamed.typeArguments ?? [];
-      if (parameterNamed.name !== argumentNamed.name || parameterTypeArguments.length !== argumentTypeArguments.length) {
+      const promiseLikeArgument = parameterNamed.name === "PromiseLike" && argumentNamed.name === "Promise";
+      if (
+        (parameterNamed.name !== argumentNamed.name && !promiseLikeArgument) ||
+        parameterTypeArguments.length !== argumentTypeArguments.length
+      ) {
         return;
       }
       for (let index = 0; index < parameterTypeArguments.length; index += 1) {
@@ -5964,7 +5968,10 @@ export class TypeChecker {
     }
 
     if (expandedParameterType instanceof NamedType && expandedArgumentType instanceof NamedType) {
-      if (expandedParameterType.name !== expandedArgumentType.name) {
+      if (
+        expandedParameterType.name !== expandedArgumentType.name &&
+        !(expandedParameterType.name === "PromiseLike" && expandedArgumentType.name === "Promise")
+      ) {
         return false;
       }
       const parameterTypeArguments = expandedParameterType.typeArguments ?? [];

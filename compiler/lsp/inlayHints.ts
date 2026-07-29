@@ -1,6 +1,6 @@
 import { NamedType } from "../analysis/types";
-import { CallExpression, ClassFieldMember, ClassMethodMember, Identifier, NamedArgument, NodeKind, ObjectSpreadProperty, VarStatement } from "compiler/ast/ast";
-import type { ArrayLiteral, AsExpression, AssignmentExpression, BinaryExpression, BlockStatement, ChainExpression, ClassStatement, CommaExpression, ConditionalExpression, DoWhileStatement, Expr, ExprStatement, ForStatement, FunctionParameter, FunctionStatement, IfStatement, LabeledStatement, MemberExpression, NewExpression, NonNullExpression, ObjectLiteral, Program, RangeExpression, ReturnStatement, SatisfiesExpression, Statement, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, WhileStatement, WithStatement } from "compiler/ast/ast";
+import { CallExpression, ClassFieldMember, ClassMethodMember, Identifier, MemberExpression, NamedArgument, NodeKind, ObjectSpreadProperty, VarStatement } from "compiler/ast/ast";
+import type { ArrayLiteral, AsExpression, AssignmentExpression, BinaryExpression, BlockStatement, ChainExpression, ClassStatement, CommaExpression, ConditionalExpression, DoWhileStatement, Expr, ExprStatement, ForStatement, FunctionParameter, FunctionStatement, IfStatement, LabeledStatement, NewExpression, NonNullExpression, ObjectLiteral, Program, RangeExpression, ReturnStatement, SatisfiesExpression, Statement, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisType } from "compiler/analysis/types";
 import { typeToString } from "compiler/analysis/types";
@@ -84,6 +84,13 @@ function callableReturnTypeNameFromValueType(valueType: string | undefined): str
   return null;
 }
 
+function typeNameReferencesAnyTypeParameter(typeName: string, typeParameters: readonly string[] | undefined): boolean {
+  if (!typeParameters || typeParameters.length === 0) {
+    return false;
+  }
+  return typeParameters.some((typeParameter) => new RegExp(`\\b${typeParameter}\\b`).test(typeName));
+}
+
 function selectedCallableReturnTypeNameFromValueType(
   valueType: string | undefined,
   overloadIndex: number
@@ -95,17 +102,7 @@ function selectedCallableReturnTypeNameFromValueType(
     .map((part) => part.trim())
     .filter((part) => part.length > 0 && part.includes("=>"));
   const selected = candidates[overloadIndex];
-  if (!selected) {
-    return null;
-  }
-  return callableReturnTypeNameFromValueType(selected);
-}
-
-function typeNameReferencesAnyTypeParameter(typeName: string, typeParameters: readonly string[] | undefined): boolean {
-  if (!typeParameters || typeParameters.length === 0) {
-    return false;
-  }
-  return typeParameters.some((typeParameter) => new RegExp(`\\b${typeParameter}\\b`).test(typeName));
+  return selected ? callableReturnTypeNameFromValueType(selected) : null;
 }
 
 async function resolveVariableInlayTypeName(
@@ -116,7 +113,17 @@ async function resolveVariableInlayTypeName(
 ): Promise<string | null> {
   if (expression instanceof CallExpression) {
     const callExpression = expression as CallExpression;
-    const calleeToken = callExpression.callee.firstToken;
+    const analyzedExpressionType = analysis.getExpressionTypes().get(expression);
+    const analyzedDisplayTypeName = analyzedExpressionType
+      ? typeToString(
+          analysis.getAutoAwaitExpressions().has(expression)
+            ? unwrapPromiseTypeForDisplay(analyzedExpressionType)
+            : analyzedExpressionType
+        )
+      : null;
+    const calleeToken = callExpression.callee instanceof MemberExpression
+      ? callExpression.callee.property.firstToken
+      : callExpression.callee.firstToken;
     if (calleeToken) {
       const resolution = analysis.getSelectedCallResolutionAt(
         calleeToken.range.start.line,
@@ -127,26 +134,14 @@ async function resolveVariableInlayTypeName(
           calleeToken.range.start.line,
           calleeToken.range.start.column
         )?.symbol;
-        const analyzedExpressionType = analysis.getExpressionTypes().get(expression);
-        const analyzedDisplayTypeName = analyzedExpressionType
-          ? typeToString(
-              analysis.getAutoAwaitExpressions().has(expression)
-                ? unwrapPromiseTypeForDisplay(analyzedExpressionType)
-                : analyzedExpressionType
-            )
-          : null;
         const selectedReturnTypeName = selectedCallableReturnTypeNameFromValueType(
           symbol?.valueType,
           resolution.overloadIndex
         );
-        if (selectedReturnTypeName) {
-          if (
-            analyzedDisplayTypeName &&
-            analyzedDisplayTypeName !== "unknown" &&
-            typeNameReferencesAnyTypeParameter(selectedReturnTypeName, resolution.overload.typeParameters)
-          ) {
-            return analyzedDisplayTypeName;
-          }
+        if (
+          selectedReturnTypeName &&
+          !typeNameReferencesAnyTypeParameter(selectedReturnTypeName, resolution.overload.typeParameters)
+        ) {
           return analysis.getAutoAwaitExpressions().has(expression)
             ? unwrapPromiseTypeNameForDisplay(selectedReturnTypeName)
             : selectedReturnTypeName;
@@ -162,8 +157,13 @@ async function resolveVariableInlayTypeName(
         ) {
           return analyzedDisplayTypeName;
         }
-        return resolvedReturnTypeName;
+        if (resolvedReturnTypeName !== "unknown") {
+          return resolvedReturnTypeName;
+        }
       }
+    }
+    if (analyzedDisplayTypeName && analyzedDisplayTypeName !== "unknown") {
+      return analyzedDisplayTypeName;
     }
     if (callExpression.callee instanceof Identifier && callExpression.callee.firstToken) {
       const symbol = analysis.getSymbolAt(
@@ -175,16 +175,6 @@ async function resolveVariableInlayTypeName(
         return analysis.getAutoAwaitExpressions().has(expression)
           ? unwrapPromiseTypeNameForDisplay(returnTypeName)
           : returnTypeName;
-      }
-    }
-    const analyzedExpressionType = analysis.getExpressionTypes().get(expression);
-    if (analyzedExpressionType) {
-      const displayType = analysis.getAutoAwaitExpressions().has(expression)
-        ? unwrapPromiseTypeForDisplay(analyzedExpressionType)
-        : analyzedExpressionType;
-      const displayTypeName = typeToString(displayType);
-      if (displayTypeName !== "unknown") {
-        return displayTypeName;
       }
     }
     const signature = await resolveCallableSignature(callExpression.callee, analysis, ast, options);

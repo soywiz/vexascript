@@ -21,6 +21,10 @@ describe("analysis type factories", () => {
     assert.equal(union.types[0], UNKNOWN_TYPE);
   });
 
+  it("omits never when rendering a union with a reachable member", () => {
+    assert.equal(typeToString(unionType([builtinType("string"), builtinType("never")])), "string");
+  });
+
   it("rejects missing runtime values before using the recursive-pair WeakMap", () => {
     assert.equal(isSameType(undefined, builtinType("string")), false);
     assert.equal(isSameType(builtinType("string"), null), false);
