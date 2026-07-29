@@ -2638,7 +2638,7 @@ export class TypeChecker {
     const discriminantKey = this.stableExpressionKey(statement.discriminant);
     const discriminantType = this.expressionTypeForNarrowing(statement.discriminant, switchScope);
     const caseTypes = statement.cases
-      .map((switchCase) => switchCase.test
+      .map((switchCase): AnalysisType | null => switchCase.test
         ? this.literalArgumentType(switchCase.test, this.expressionTypeForNarrowing(switchCase.test, switchScope))
         : null)
       .filter((type): type is LiteralType => type instanceof LiteralType);
@@ -12274,7 +12274,9 @@ export class TypeChecker {
   private enumMemberNamed(enumStatement: EnumStatement, name: string): EnumMember | undefined {
     let memberMap = this.enumStatementMemberMapCache.get(enumStatement);
     if (!memberMap) {
-      memberMap = new Map(enumStatement.members.map((member) => [member.name.name, member]));
+      memberMap = new Map(
+        enumStatement.members.map((member): [string, EnumMember] => [member.name.name, member])
+      );
       this.enumStatementMemberMapCache.set(enumStatement, memberMap);
     }
     return memberMap.get(name);

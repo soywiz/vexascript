@@ -9937,7 +9937,9 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   }
   activeEnumNames = enumNames;
   activeEnumCppTypes = enumCppTypes;
-  activeEnumStatements = new Map(enums.map((statement) => [statement.name.name, statement]));
+  activeEnumStatements = new Map(
+    enums.map((statement): [string, EnumStatement] => [statement.name.name, statement])
+  );
   const typeAliasTargets = new Map<string, string>();
   for (const statement of typeAliases) {
     if (statement.typeParameters?.length) continue;
