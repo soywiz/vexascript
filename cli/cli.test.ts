@@ -24,7 +24,7 @@ async function buildBundledCli(): Promise<{
   );
 }
 
-async function readSseEvent(url: string, eventName: string, options: { waitForReady?: boolean } = {}): Promise<string> {
+async function readSseEvent(url: string, eventName: string, options: { waitForReady?: boolean; onReady?: () => void } = {}): Promise<string> {
   const controller = new AbortController();
   const response = await fetch(url, {
     headers: {
@@ -55,6 +55,7 @@ async function readSseEvent(url: string, eventName: string, options: { waitForRe
         const data = rawEvent.match(/^data:\s*(.+)$/m)?.[1]?.trim() ?? "";
         if (eventType === "ready") {
           readyReceived = true;
+          options.onReady?.();
         }
         if (!readyReceived) {
           continue;
@@ -461,7 +462,12 @@ describe("CLI", () => {
       const initialBundle = await fetchText(`${baseUrl}/__vexa_bundle__.js`);
       expect(initialBundle).toContain('console.log("hello");');
 
-      const reloadPromise = readSseEvent(`${baseUrl}/__vexa_live_reload`, "reload", { waitForReady: true });
+      let markReady!: () => void;
+      const ready = new Promise<void>((resolvePromise) => {
+        markReady = resolvePromise;
+      });
+      const reloadPromise = readSseEvent(`${baseUrl}/__vexa_live_reload`, "reload", { waitForReady: true, onReady: markReady });
+      await ready;
       await writeFile(entry, 'console.log("updated")\n', "utf8");
       expect(await reloadPromise).toBeTruthy();
       expect(/^Bundled in [\d.]+ms \(parse [\d.]+ms, analysis [\d.]+ms, emit [\d.]+ms\)$/.test(String(logSpy.mock.calls.at(-1)?.[0] ?? ""))).toBe(true);
