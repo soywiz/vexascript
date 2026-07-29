@@ -168,6 +168,8 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
   const pendingChangedFiles = new Set<string>();
   const forcedChangedFiles = new Set<string>();
   let pendingRebuildTimer: NodeJS.Timeout | null = null;
+  let watchedFileVersionPollTimer: NodeJS.Timeout | null = null;
+  let watchedFileVersionPollInProgress = false;
   let rebuildInProgress = false;
   let closed = false;
   let bundleCode = "";
@@ -225,6 +227,20 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
     if (closed) return;
     pendingChangedFiles.add(filePath);
     schedulePendingRebuild();
+  };
+
+  const pollWatchedFileVersions = (): void => {
+    if (closed || watchedFileVersionPollInProgress) return;
+    watchedFileVersionPollInProgress = true;
+    void (async () => {
+      for (const [filePath, knownVersion] of watchedFileVersions) {
+        if (await fileVersion(filePath) !== knownVersion) {
+          scheduleRebuild(filePath);
+        }
+      }
+    })().finally(() => {
+      watchedFileVersionPollInProgress = false;
+    });
   };
 
   const syncWatchers = (filePaths: readonly string[]): void => {
@@ -323,6 +339,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
   };
 
   await rebuildBundle("initial", []);
+  watchedFileVersionPollTimer = setInterval(pollWatchedFileVersions, REBUILD_DEBOUNCE_MS);
 
   const server = createServer(async (request, response) => {
     const requestUrl = request.url ?? "/";
@@ -398,6 +415,10 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
       if (pendingRebuildTimer) {
         clearTimeout(pendingRebuildTimer);
         pendingRebuildTimer = null;
+      }
+      if (watchedFileVersionPollTimer) {
+        clearInterval(watchedFileVersionPollTimer);
+        watchedFileVersionPollTimer = null;
       }
       closeWatchers();
       for (const client of clients) {
