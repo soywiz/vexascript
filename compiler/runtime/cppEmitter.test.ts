@@ -2,6 +2,16 @@ import { describe, expect, it } from "../test/expect";
 import { transpile } from "./transpile";
 
 describe("C++ emitter", () => {
+  it("keeps concrete Set storage when an explicit semantic type lowers dynamically", () => {
+    const result = transpile(`
+type Name = "alpha" | "beta";
+export const names: ReadonlySet<string> = new Set<Name>(["alpha", "beta"]);
+`, { emit: "cpp", sourceFilePath: "/tmp/readonly-set.ts", typeCheck: false });
+
+    expect(result.code).toContain("vexa::setFromIterable<std::u16string>");
+    expect(result.code).not.toContain("vexa::setFromIterable<vexa::Value>");
+  });
+
   it("lowers WeakMap iterables, radix string conversion, and native binary helpers", () => {
     const result = transpile(`
 const key = { kind: "buffer" }

@@ -1764,6 +1764,18 @@ let bad = "Ada" satisfies number
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("narrows compound conditions in conditional expressions", () => {
+    const source = dedent`
+      type Result = { kind: "a", a: int } | { kind: "b", b: int } | { kind: "c", c: int }
+      fun handle(result: Result) {
+        const kind: "a" | "b" = (result.kind === "a" || result.kind === "b") ? result.kind : "a"
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("reports members missing from part of an unnarrowed union", () => {
     const source = dedent`
       fun format(value: int | string) {

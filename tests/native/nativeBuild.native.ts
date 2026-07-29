@@ -15,13 +15,19 @@ import {
 
 describe("native build", () => {
   it("stores reusable native dependencies under the VexaScript home directory", () => {
-    expect(nativeDependencyCacheRoot("/home/tester")).toBe("/home/tester/.vexascript/native");
-    expect(nativeDependencyCachePath("oilpan-20260622", "/home/tester")).toBe("/home/tester/.vexascript/native/oilpan-20260622");
-    expect(nativeDependencyCachePath("mimalloc-3.4.3", "/home/tester")).toBe("/home/tester/.vexascript/native/mimalloc-3.4.3");
+    expect(nativeDependencyCacheRoot("/home/tester", "linux")).toBe("/home/tester/.vexascript/native");
+    expect(nativeDependencyCachePath("oilpan-20260622", "/home/tester", "linux")).toBe("/home/tester/.vexascript/native/oilpan-20260622");
+    expect(nativeDependencyCachePath("mimalloc-3.4.3", "/home/tester", "linux")).toBe("/home/tester/.vexascript/native/mimalloc-3.4.3");
     expect(nativeDependencyArtifactPath("liboilpan-20260622", ".a", "linux", "x64", "/home/tester"))
       .toBe("/home/tester/.vexascript/native/liboilpan-20260622-linux-x86_64.a");
     expect(nativeDependencyArtifactPath("libmimalloc-3.4.3", ".a", "darwin", "arm64", "/home/tester"))
       .toBe("/home/tester/.vexascript/native/libmimalloc-3.4.3-darwin-aarch64.a");
+    expect(nativeDependencyCacheRoot("C:\\Users\\tester", "win32"))
+      .toBe("C:\\Users\\tester\\.vexascript\\native");
+    expect(nativeDependencyCachePath("oilpan-20260622", "C:\\Users\\tester", "win32"))
+      .toBe("C:\\Users\\tester\\.vexascript\\native\\oilpan-20260622");
+    expect(nativeDependencyArtifactPath("liboilpan-20260622", ".a", "win32", "x64", "C:\\Users\\tester"))
+      .toBe("C:\\Users\\tester\\.vexascript\\native\\liboilpan-20260622-win32-x86_64.a");
     expect(nativeTargetArchitecture("ia32")).toBe("x86");
   });
 

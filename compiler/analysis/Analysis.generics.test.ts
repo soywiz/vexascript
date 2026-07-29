@@ -986,6 +986,21 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("Type argument 'User' does not satisfy"))).toBe(false);
   });
 
+  it("accepts tuple type arguments that satisfy collapsed rest constraints", () => {
+    const source = dedent`
+      type NonEmptyStrings<T extends readonly [string, ...string[]]> = T
+      type Pair = NonEmptyStrings<[string, string]>
+      type Element<T extends readonly [string, ...string[]]> = T[number]
+      const value: Element<Pair> = "ok"
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 3, 6).get("value")?.valueType).toBe("string");
+  });
+
   it("validates inferred generic class constraints for constructor calls", () => {
     const source = dedent`
       class Entity(val id: int)
@@ -1970,6 +1985,21 @@ describe("Analysis", () => {
           return "missing"
         }
         return payload.title
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows optional indexed values after an undefined throw guard", () => {
+    const source = dedent`
+      fun read(values: int[], index: int): int {
+        const value = values?.[index]
+        if (value === undefined) throw new Error("missing")
+        return value + 1
       }
     `;
 

@@ -1330,7 +1330,10 @@ function nativeCollectionCppType(
         : `vexa::WeakSetObject<${explicit[0]}>*`;
     }
   }
-  if (activeExpectedExpressionCppType && explicit.length === 0) {
+  if (
+    activeExpectedExpressionCppType &&
+    (explicit.length === 0 || explicit.every((type) => type === "vexa::Value"))
+  ) {
     const expectedPrefix = `vexa::${name}Object<`;
     if (activeExpectedExpressionCppType.startsWith(expectedPrefix) && activeExpectedExpressionCppType.endsWith(">*")) {
       mapped = activeExpectedExpressionCppType;
@@ -1461,7 +1464,9 @@ function emitNativeCollectionConstruction(call: CallExpression | NewExpression, 
       : "vexa::Value";
     let selectedType: string = inferred;
     if (mappedTypes && mappedTypes.length > 0) selectedType = mappedTypes[0]!;
-    if (explicit.length > 0) selectedType = explicit[0]!;
+    if (explicit.length > 0 && (explicit[0] !== "vexa::Value" || selectedType === "vexa::Value")) {
+      selectedType = explicit[0]!;
+    }
     const iterableType: string | null = managedArrayCppTypeForExpression(values);
     const elementType: string | null = iterableType ? managedArrayElementType(iterableType) : null;
     let iterableCollectionType: string | null = null;

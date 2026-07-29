@@ -2297,6 +2297,10 @@ export class TypeChecker {
     if (condition instanceof UnaryExpression && condition.operator === "!") {
       return this.isRuntimeTypeNarrowingCondition(condition.argument);
     }
+    if (condition instanceof BinaryExpression && (condition.operator === "&&" || condition.operator === "||")) {
+      return this.isRuntimeTypeNarrowingCondition(condition.left) ||
+        this.isRuntimeTypeNarrowingCondition(condition.right);
+    }
     return condition instanceof BinaryExpression &&
       (
         condition.operator === "instanceof" ||
@@ -2475,7 +2479,11 @@ export class TypeChecker {
     }
     const prefix = `${objectKey}.`;
     for (let current: Scope | undefined = scope; current; current = current.parent) {
-      for (const [key, narrowedType] of current.narrowedExpressionTypes ?? []) {
+      const narrowedExpressionTypes = current.narrowedExpressionTypes;
+      if (!narrowedExpressionTypes) {
+        continue;
+      }
+      for (const [key, narrowedType] of narrowedExpressionTypes) {
         if (!key.startsWith(prefix)) {
           continue;
         }
@@ -3645,7 +3653,7 @@ export class TypeChecker {
             }
           }
           const receiverInfo = this.receiverLambdas.get(arrow);
-          const valueParameters = receiverInfo?.implicitReceiverAlias ? arrow.parameters.slice(1) : arrow.parameters;
+          const valueParameters = this.contextualValueParameters(arrow, arrow.parameters, expectedFunctionType);
           const inferredFunction = this.buildFunctionType(
             valueParameters,
             returnType,
@@ -4568,15 +4576,7 @@ export class TypeChecker {
     }
 
     if (sourceType instanceof TupleType && targetType instanceof TupleType) {
-      if (sourceType.isReadonly === true && targetType.isReadonly !== true) {
-        return false;
-      }
-      if (sourceType.elements.length !== targetType.elements.length) {
-        return false;
-      }
-      return sourceType.elements.every((element, index) =>
-        this.isTypeAssignable(element, targetType.elements[index]!)
-      );
+      return this.tupleTypeIsAssignableToTuple(sourceType, targetType);
     }
 
     if (sourceType instanceof ArrayType && targetType instanceof TupleType) {
@@ -4838,6 +4838,33 @@ export class TypeChecker {
     }
 
     return targetType.elements.every((element) => this.isTypeAssignable(sourceElementType, element));
+  }
+
+  private tupleTypeIsAssignableToTuple(
+    sourceType: TupleType,
+    targetType: TupleType
+  ): boolean {
+    if (sourceType.isReadonly === true && targetType.isReadonly !== true) {
+      return false;
+    }
+
+    const collapsedRestElementType = this.collapsedRestTupleElementType(targetType);
+    if (!collapsedRestElementType) {
+      return sourceType.elements.length === targetType.elements.length
+        && sourceType.elements.every((element, index) =>
+          this.isTypeAssignable(element, targetType.elements[index]!)
+        );
+    }
+
+    const fixedElements = targetType.elements.slice(0, -1);
+    if (sourceType.elements.length < fixedElements.length) {
+      return false;
+    }
+    return fixedElements.every((element, index) =>
+      this.isTypeAssignable(sourceType.elements[index]!, element)
+    ) && sourceType.elements.slice(fixedElements.length).every((element) =>
+      this.isTypeAssignable(element, collapsedRestElementType)
+    );
   }
 
   private collapsedRestTupleElementType(targetType: TupleType): AnalysisType | null {
@@ -8663,6 +8690,14 @@ export class TypeChecker {
       return elementType;
     }
 
+    const indexedAccess = splitIndexedAccessTypeName(normalizedTypeName);
+    if (indexedAccess) {
+      return this.indexedAccessType(
+        this.typeFromTypeNameLoose(indexedAccess.objectTypeName),
+        this.typeFromTypeNameLoose(indexedAccess.indexTypeName)
+      );
+    }
+
     const tupleTypeMatch = /^\[(.*)\]$/.exec(normalizedTypeName);
     if (tupleTypeMatch) {
       const tupleBody = tupleTypeMatch[1] ?? "";
@@ -8687,14 +8722,6 @@ export class TypeChecker {
 
     if (normalizedTypeName.startsWith("typeof ")) {
       return UNKNOWN_TYPE;
-    }
-
-    const indexedAccess = splitIndexedAccessTypeName(normalizedTypeName);
-    if (indexedAccess) {
-      return this.indexedAccessType(
-        this.typeFromTypeNameLoose(indexedAccess.objectTypeName),
-        this.typeFromTypeNameLoose(indexedAccess.indexTypeName)
-      );
     }
 
     return null;
@@ -10155,7 +10182,7 @@ export class TypeChecker {
     if (receiverInfo && receiverParameter) {
       this.declareReceiverLambdaSymbols(functionScope, node, parameters, receiverInfo);
     }
-    const valueParameters = receiverInfo?.implicitReceiverAlias ? parameters.slice(1) : parameters;
+    const valueParameters = this.contextualValueParameters(node, parameters, expectedFunctionType);
     const expectedValueParameters = expectedParameters.filter((parameter) => parameter.receiver !== true);
     for (let index = 0; index < valueParameters.length; index += 1) {
       const parameter = valueParameters[index]!;
@@ -10173,6 +10200,24 @@ export class TypeChecker {
       this.defineBindingParameterSymbols(functionScope, parameter.name, parameterType);
     }
     return functionScope;
+  }
+
+  private contextualValueParameters(
+    node: Node,
+    parameters: FunctionParameter[],
+    expectedFunctionType?: FunctionType
+  ): FunctionParameter[] {
+    const receiverInfo = this.receiverLambdas.get(node);
+    const valueParameters = receiverInfo?.implicitReceiverAlias ? parameters.slice(1) : parameters;
+    if (
+      !(node instanceof ArrowFunctionExpression)
+      || !expectedFunctionType
+      || !this.hasImplicitBraceLambdaParameter(node)
+    ) {
+      return valueParameters;
+    }
+    const expectsValueParameter = expectedFunctionType.parameters.some((parameter) => parameter.receiver !== true);
+    return expectsValueParameter ? valueParameters : [];
   }
 
   private declareReceiverLambdaSymbols(

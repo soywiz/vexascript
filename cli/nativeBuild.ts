@@ -50,12 +50,23 @@ function nativeRoot(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), "../native");
 }
 
-export function nativeDependencyCacheRoot(homeDirectory = homedir()): string {
-  return resolve(homeDirectory, ".vexascript", "native");
+function pathForPlatform(platform: NodeJS.Platform): typeof posix | typeof win32 {
+  return platform === "win32" ? win32 : posix;
 }
 
-export function nativeDependencyCachePath(cachePrefix: string, homeDirectory = homedir()): string {
-  return resolve(nativeDependencyCacheRoot(homeDirectory), cachePrefix);
+export function nativeDependencyCacheRoot(
+  homeDirectory = homedir(),
+  platform: NodeJS.Platform = process.platform
+): string {
+  return pathForPlatform(platform).resolve(homeDirectory, ".vexascript", "native");
+}
+
+export function nativeDependencyCachePath(
+  cachePrefix: string,
+  homeDirectory = homedir(),
+  platform: NodeJS.Platform = process.platform
+): string {
+  return pathForPlatform(platform).resolve(nativeDependencyCacheRoot(homeDirectory, platform), cachePrefix);
 }
 
 export function nativeDependencyArtifactPath(
@@ -65,7 +76,10 @@ export function nativeDependencyArtifactPath(
   architecture = process.arch,
   homeDirectory = homedir()
 ): string {
-  return resolve(nativeDependencyCacheRoot(homeDirectory), `${name}-${platform}-${nativeTargetArchitecture(architecture)}${extension}`);
+  return pathForPlatform(platform).resolve(
+    nativeDependencyCacheRoot(homeDirectory, platform),
+    `${name}-${platform}-${nativeTargetArchitecture(architecture)}${extension}`
+  );
 }
 
 export function nativeTargetArchitecture(architecture = process.arch): string {

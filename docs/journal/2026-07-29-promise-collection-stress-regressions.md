@@ -204,3 +204,30 @@ or validating the property. This preserves valid discriminated `if` and
 `int | string` as a direct missing-property error. Literal evidence must be
 retained explicitly because ordinary expression typing intentionally widens
 literal values to their primitive types.
+
+The full CI regression also exposed four contracts that the focused collection
+tests did not cover. Brace lambdas carry a parser-created implicit `it`
+parameter, but contextual typing must remove it when the target callback has no
+value parameters. Optional indexed access produces a nullish built-in type, so
+equality narrowing must recognize `undefined` and `null` in addition to literal
+types. Collapsed rest tuples such as `[T, T[]]` need rest-aware tuple
+assignability, and computed names such as `[string, string][number]` must be
+parsed as indexed access before the broader tuple-text pattern. Finally,
+platform-modeling tests cannot use the host `node:path` implementation:
+native cache helpers now choose `posix` or `win32` from the same explicit
+platform argument used in artifact names. The unauthenticated Actions API
+identified failing jobs but withheld raw logs, so the reliable investigation
+path was the last-green commit boundary plus local focused reproductions.
+
+Native self-hosting exposed two additional representation traps. An explicit
+generic argument can lower to dynamic `vexa::Value` even when contextual or
+inferred collection storage is concrete; constructor emission must not let
+that lossy mapping replace a known `Set<string>` representation. A first
+attempt to infer storage directly from every array literal compiled the CLI
+but changed genuinely dynamic collections and failed when the native CLI ran
+itself, so it was replaced with the narrower expected-storage precedence rule.
+The source-location-enabled native build then traced a separate runtime map
+conversion to `optionalMap ?? []` in a compiler loop: the array fallback was
+contextually converted to `Map` and failed at runtime. Keeping the optional
+check separate from Map iteration avoids the mixed collection representation
+and makes native self-host tests a necessary part of collection changes.
