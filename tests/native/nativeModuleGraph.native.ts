@@ -1,5 +1,5 @@
-import { describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } from "../test/expect";
-import { compileNativeModuleGraph } from "./nativeModuleGraph";
+import { describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } from "../../compiler/test/expect";
+import { compileNativeModuleGraph } from "../../compiler/runtime/nativeModuleGraph";
 
 describe("native module graph profiling", () => {
   it("preserves TypeScript semantic rules while checking a native module graph", async () => {

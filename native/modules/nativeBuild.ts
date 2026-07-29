@@ -10,15 +10,18 @@ export interface NativeProgramPaths {
 
 export type NativeOptimization = "-O0" | "-O1" | "-O2" | "-O3" | "-Os" | "-Oz" | "-Og";
 
-function nativeTempRoot(): string {
-  if (process.platform === "win32") {
-    const temp = nativeEnvironmentVariable("TEMP");
-    if (temp.length > 0) return temp;
-    const tmp = nativeEnvironmentVariable("TMP");
-    if (tmp.length > 0) return tmp;
-    return ".";
+function nativeVexaCacheRoot(): string {
+  const home = nativeEnvironmentVariable(process.platform === "win32" ? "USERPROFILE" : "HOME");
+  return resolve(home.length > 0 ? home : ".", ".vexascript", "native");
+}
+
+function nativeTargetArchitecture(): string {
+  switch (process.arch) {
+    case "arm64": return "aarch64";
+    case "x64": return "x86_64";
+    case "ia32": return "x86";
+    default: return process.arch;
   }
-  return "/tmp";
 }
 
 export function nativeCompilerCommand(): "g++" {
@@ -82,16 +85,16 @@ async function ensureDependencySources(
 }
 
 async function ensureOilpan(root: string): Promise<{ gcRoot: string; libraryPath: string }> {
-  const archive = resolve(root, "oilpan-standalone-main.zip");
-  const info = await nativeStatPath(archive);
-  const cacheRoot = resolve(nativeTempRoot(), "vexascript-native", `oilpan-${info.mtimeMs}`);
-  const extractedRoot = resolve(cacheRoot, "oilpan-standalone-main");
+  const archive = resolve(root, "oilpan-20260622.zip");
+  const dependencyRoot = resolve(nativeVexaCacheRoot(), "oilpan-20260622");
+  const extractedRoot = resolve(dependencyRoot, "oilpan-standalone-main");
   const gcRoot = resolve(extractedRoot, "gc");
   const buildRoot = resolve(gcRoot, "build-vexa");
-  const libraryPath = resolve(buildRoot, "liboilpan_gc.a");
+  const generatedLibraryPath = resolve(nativeVexaCacheRoot(), "liboilpan_gc.a");
+  const libraryPath = resolve(nativeVexaCacheRoot(), `liboilpan-20260622-${process.platform}-${nativeTargetArchitecture()}.a`);
   if (await pathExists(libraryPath)) return { gcRoot, libraryPath };
 
-  await ensureDependencySources(archive, cacheRoot, resolve(gcRoot, "CMakeLists.txt"));
+  await ensureDependencySources(archive, dependencyRoot, resolve(gcRoot, "CMakeLists.txt"));
   if (!(await pathExists(libraryPath))) {
     await runNativeCommand("cmake", [
       ...(process.platform === "win32" ? ["-G", "MinGW Makefiles"] : []),
@@ -99,23 +102,26 @@ async function ensureOilpan(root: string): Promise<{ gcRoot: string; libraryPath
       "-B", buildRoot,
       "-DCMAKE_BUILD_TYPE=Release",
       "-DCMAKE_CXX_COMPILER=g++",
+      `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${nativeVexaCacheRoot()}`,
     ], process.cwd());
     await runNativeCommand("cmake", ["--build", buildRoot, "--parallel"], process.cwd());
+    await nativeCopyFile(generatedLibraryPath, libraryPath);
+    await nativeRemovePath(generatedLibraryPath, false);
   }
   return { gcRoot, libraryPath };
 }
 
 async function ensureMimalloc(root: string): Promise<string> {
   const archive = resolve(root, "mimalloc-3.4.3.zip");
-  const info = await nativeStatPath(archive);
-  const cacheRoot = resolve(nativeTempRoot(), "vexascript-native", `mimalloc-3.4.3-${info.mtimeMs}`);
-  const extractedRoot = resolve(cacheRoot, "mimalloc-3.4.3");
+  const dependencyRoot = resolve(nativeVexaCacheRoot(), "mimalloc-3.4.3");
+  const extractedRoot = resolve(dependencyRoot, "mimalloc-3.4.3");
   const buildRoot = resolve(extractedRoot, "build-vexa");
-  const objectPath = resolve(buildRoot, "mimalloc.o");
-  if (await pathExists(objectPath)) return objectPath;
+  const generatedLibraryPath = resolve(buildRoot, "libmimalloc.a");
+  const libraryPath = resolve(nativeVexaCacheRoot(), `libmimalloc-3.4.3-${process.platform}-${nativeTargetArchitecture()}.a`);
+  if (await pathExists(libraryPath)) return libraryPath;
 
-  await ensureDependencySources(archive, cacheRoot, resolve(extractedRoot, "CMakeLists.txt"));
-  if (!(await pathExists(objectPath))) {
+  await ensureDependencySources(archive, dependencyRoot, resolve(extractedRoot, "CMakeLists.txt"));
+  if (!(await pathExists(libraryPath))) {
     await runNativeCommand("cmake", [
       ...(process.platform === "win32" ? ["-G", "MinGW Makefiles"] : []),
       "-S", extractedRoot,
@@ -126,9 +132,10 @@ async function ensureMimalloc(root: string): Promise<string> {
       "-DMI_BUILD_TESTS=OFF",
       "-DMI_OVERRIDE=ON",
     ], process.cwd());
-    await runNativeCommand("cmake", ["--build", buildRoot, "--target", "mimalloc-obj-target", "--parallel"], process.cwd());
+    await runNativeCommand("cmake", ["--build", buildRoot, "--target", "mimalloc-static", "--parallel"], process.cwd());
+    await nativeCopyFile(generatedLibraryPath, libraryPath);
   }
-  return objectPath;
+  return libraryPath;
 }
 
 export async function compileNativeExecutable(
@@ -139,7 +146,7 @@ export async function compileNativeExecutable(
 ): Promise<void> {
   const root = nativeRuntimeRoot();
   const oilpan = await ensureOilpan(root);
-  const mimallocObjectPath = await ensureMimalloc(root);
+  const mimallocLibraryPath = await ensureMimalloc(root);
   await nativeCreateDirectory(dirname(executablePath), true);
   const args = [
     "-std=c++20",
@@ -154,7 +161,9 @@ export async function compileNativeExecutable(
     `-I${root}`,
     `-I${oilpan.gcRoot}`,
     `-I${resolve(oilpan.gcRoot, "include")}`,
-    mimallocObjectPath,
+    ...(process.platform === "darwin"
+      ? [`-Wl,-force_load,${mimallocLibraryPath}`]
+      : ["-Wl,--whole-archive", mimallocLibraryPath, "-Wl,--no-whole-archive"]),
     oilpan.libraryPath,
     ...(process.platform === "win32"
       ? ["-ldbghelp", "-lshlwapi", "-lwinmm"]

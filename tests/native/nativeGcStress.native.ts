@@ -7,9 +7,9 @@ import {
   rm,
   tmpdir,
   writeFile,
-} from "../compiler/test/expect";
-import { compileNativeExecutable } from "./nativeBuild";
-import { runCommandCapture } from "./io";
+} from "../../compiler/test/expect";
+import { compileNativeExecutable } from "../../cli/nativeBuild";
+import { runCommandCapture } from "../../cli/io";
 
 const GC_CYCLE_PROGRAM = `#include "runtime.cpp"
 

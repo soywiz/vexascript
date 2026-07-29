@@ -12,7 +12,7 @@
     "native/runtime.cpp",
     "native/bigint.h",
     "native/utf.h",
-    "native/oilpan-standalone-main.zip",
+    "native/oilpan-20260622.zip",
     "native/mimalloc-3.4.3.zip"
   ],
   "scripts": {
@@ -21,8 +21,9 @@
     "cli": "pnpm --silent build && node dist/vexa.js",
     "build": "node --import tsx scripts/build.ts",
     "test": "tsc --noEmit && node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --test-reporter spec",
-    "test:native:sanitized": "VEXA_NATIVE_SANITIZERS=1 node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --test-reporter spec cli/nativeSmoke.test.ts",
-    "test:native:stress": "VEXA_NATIVE_GC_STRESS=1 node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --test-reporter spec cli/nativeSmoke.test.ts",
+    "test:native": "tsc --noEmit --project tsconfig.native.json && node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --test-reporter spec tests/native/index.native.ts",
+    "test:native:sanitized": "VEXA_NATIVE_SANITIZERS=1 node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --test-reporter spec tests/native/nativeSmoke.native.ts",
+    "test:native:stress": "VEXA_NATIVE_GC_STRESS=1 node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --test-reporter spec tests/native/nativeSmoke.native.ts",
     "benchmark:native": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs scripts/nativeBenchmark.ts",
     "self-host": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs scripts/selfHostCompiler.ts",
     "coverage": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --experimental-test-coverage",

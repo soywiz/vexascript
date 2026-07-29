@@ -180,6 +180,13 @@ describe("elementTypeFromIterable", () => {
     assert.equal(result, inner);
   });
 
+  it("returns entry tuples from Map<K, V>", () => {
+    assert.deepEqual(
+      elementTypeFromIterable(namedType("Map", [builtin("string"), builtin("int")])),
+      tuple(builtin("string"), builtin("int"))
+    );
+  });
+
   it("returns unknown for non-iterable types", () => {
     const result = elementTypeFromIterable(builtin("string"));
     assert.equal(result.kind, AnalysisTypeKind.Unknown);

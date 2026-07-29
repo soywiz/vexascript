@@ -48,10 +48,12 @@ parse, analysis, emission, write, and total timings. For `.ts` inputs the
 external `tsc --noEmit` check runs concurrently with VexaScript compilation, so
 the individual durations intentionally do not add up to the total.
 
-The first native build extracts `native/oilpan-standalone-main.zip` and
-`native/mimalloc-3.4.3.zip` under the operating system's temporary directory.
-CMake builds `liboilpan_gc.a` and mimalloc's portable allocator override object;
-later builds reuse both caches. The final generated translation unit is compiled
+The first native build extracts `native/oilpan-20260622.zip` and
+`native/mimalloc-3.4.3.zip` under `~/.vexascript/native`. CMake builds and
+reuses platform- and architecture-named static libraries such as
+`liboilpan-20260622-darwin-aarch64.a` and
+`libmimalloc-3.4.3-darwin-aarch64.a`; later builds reuse both caches. The final
+generated translation unit is compiled
 and linked with `g++ -std=c++20` plus the selected optimization level. The
 trimmed mimalloc ZIP contains its
 source/include tree plus only the three small CMake modules needed to configure
@@ -71,7 +73,7 @@ VexaScript tokenizer to locate and rewrite static `import`/`export` declarations
 and literal dynamic imports. Their JavaScript bodies are preserved rather than
 parsed and re-emitted. TypeScript, TSX, JSX, and VexaScript sources continue to
 use the full parser and emitter because they require syntax lowering and type
-information. `cli/nativeSmoke.test.ts` compiles the CLI with `-O0`, uses that
+information. `tests/native/nativeSmoke.native.ts` compiles the CLI with `-O0`, uses that
 native executable to bundle both a small Node fixture and the Pixi browser
 sample, and syntax-checks the Pixi result.
 
@@ -105,7 +107,7 @@ x86_64, and for 64-bit Windows with MinGW-w64. On Windows, `g++` and
 The end-to-end regression lives in `samples/native-language-smoke/`. It is a
 multi-file program covering functions, classes, interfaces, operators, managed
 arrays and records, control flow, exceptions, generators, promises, timers, and
-local imports. `cli/nativeSmoke.test.ts` compiles it through the public
+local imports. `tests/native/nativeSmoke.native.ts` compiles it through the public
 `cpp link` command, runs the resulting process, and compares its complete
 stdout with `expected.native.txt`. The ordinary sample harness separately runs
 the same entry through JavaScript and compares it with `expected.txt`.

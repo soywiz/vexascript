@@ -6,7 +6,6 @@ import { ensureLspTransportArg, runCli } from "./cli";
 import { startServeSession } from "./cliServe";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
 import { runCommandCapture } from "./io";
-import { validateNativeCppSyntax } from "./nativeBuild";
 import { textModulePlugin } from "../scripts/textModulePlugin";
 
 async function buildBundledCli(): Promise<{
@@ -220,29 +219,6 @@ describe("CLI", () => {
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });
 
-  it("cpp build accepts the complete TypeScript CLI", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-self-host-"));
-    const output = join(dir, "vexa-cli.cpp");
-
-    await runCli([
-      "node",
-      "vexa",
-      "cpp",
-      "build",
-      join(process.cwd(), "cli", "cli.ts"),
-      "--target",
-      "optimized",
-      "--out",
-      output,
-    ]);
-
-    const generatedCpp = await readFile(output, "utf8");
-    expect(generatedCpp.length).toBeGreaterThan(0);
-    expect(generatedCpp).toContain("auto contextProgram = vexa::makeManaged<");
-    expect(generatedCpp).not.toContain("auto contextProgram = vexa::toInstance<");
-    await validateNativeCppSyntax(output);
-  });
-
   it("uses TypeScript semantic analysis for JavaScript and C++ emission without transpile-only", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-typescript-semantics-"));
     const validInput = join(dir, "valid.ts");
@@ -269,20 +245,6 @@ describe("CLI", () => {
       .rejects.toThrow("TypeScript semantic analysis failed");
     await expect(runCli(["node", "vexa", "cpp", invalidInput, "--out", join(dir, "invalid.cpp")]))
       .rejects.toThrow("TypeScript semantic analysis failed");
-  });
-
-  it("cpp command emits native source locations only when requested", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-source-locations-"));
-    const input = join(dir, "input.vx");
-    const output = join(dir, "output.cpp");
-    await writeFile(input, "console.log('debug cpp')", "utf8");
-
-    await runCli(["node", "vexa", "cpp", input, "--out", output, "--native-source-locations"]);
-
-    const outputCode = await readFile(output, "utf8");
-    expect(outputCode).toContain("VEXA_NATIVE_SOURCE(u\"");
-    expect(outputCode).not.toContain("VEXA_NATIVE_SOURCE(runtime,");
-    await validateNativeCppSyntax(output, { debug: true });
   });
 
   it("cpp link rejects unsupported native source inputs", async () => {

@@ -523,4 +523,4 @@ incorrect native programs.
   that explicit dynamic representation instead of relying on C++ deduction or
   silent coercion.
 - Packaged CLI releases must continue including both `native/runtime.cpp` and
-  `native/oilpan-standalone-main.zip`.
+  `native/oilpan-20260622.zip`.

@@ -4675,6 +4675,16 @@ class Process final {
 #else
           u"linux"
 #endif
+      ).stringObject()), arch(Runtime::string(
+#if defined(__aarch64__) || defined(_M_ARM64)
+          u"aarch64"
+#elif defined(__x86_64__) || defined(_M_X64)
+          u"x86_64"
+#elif defined(__i386__) || defined(_M_IX86)
+          u"x86"
+#else
+          u"unknown"
+#endif
       ).stringObject()) {
     const std::u16string executable = arguments.empty() ? u"vexa" : arguments.front();
     argv->append(executable);
@@ -4697,6 +4707,7 @@ class Process final {
   cppgc::Persistent<ArrayObject<std::u16string>> argv;
   cppgc::Persistent<RecordObject> env;
   Value platform;
+  Value arch;
   double exitCode = 0;
 };
 

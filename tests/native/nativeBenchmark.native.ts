@@ -1,5 +1,5 @@
-import { describe, expect, it } from "../compiler/test/expect";
-import { formatNativeBenchmarkMarkdown, median, NATIVE_BENCHMARK_SOURCE } from "./nativeBenchmark";
+import { describe, expect, it } from "../../compiler/test/expect";
+import { formatNativeBenchmarkMarkdown, median, NATIVE_BENCHMARK_SOURCE } from "../../cli/nativeBenchmark";
 
 describe("native benchmark", () => {
   it("covers the runtime workloads tracked by production hardening", () => {

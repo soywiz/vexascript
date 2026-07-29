@@ -9,9 +9,9 @@ import {
   rm,
   tmpdir,
   writeFile,
-} from "../compiler/test/expect";
-import { runCli } from "./cli";
-import { runCommandCapture } from "./io";
+} from "../../compiler/test/expect";
+import { runCli } from "../../cli/cli";
+import { runCommandCapture } from "../../cli/io";
 
 describe("native module executable smoke", () => {
   it("compiles aliases, default imports, namespaces, and colliding private names", async () => {

@@ -1,6 +1,6 @@
-import { describe, expect, it, join, readFile } from "../compiler/test/expect";
-import { compileNativeModuleGraph } from "../compiler/runtime/nativeModuleGraph";
-import { transpile } from "../compiler/runtime/transpile";
+import { describe, expect, it, join, readFile } from "../../compiler/test/expect";
+import { compileNativeModuleGraph } from "../../compiler/runtime/nativeModuleGraph";
+import { transpile } from "../../compiler/runtime/transpile";
 
 describe("native SDL2 sample", () => {
   it("emits its SDL2 bridge and native build flags without requiring SDL2 during tests", async () => {

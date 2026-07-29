@@ -23,4 +23,4 @@ GCC still has to parse the full preprocessor expression. Because it does not pro
 
 ## Regression protection
 
-`cli/nativePackaging.test.ts` now inspects the packaged Oilpan header and requires the Clang capability guard and builtin invocation to remain nested. The focused native smoke test also forces extraction of the changed archive and rebuilds the complete Oilpan library before compiling and running generated C++.
+`tests/native/nativePackaging.native.ts` now inspects the packaged Oilpan header and requires the Clang capability guard and builtin invocation to remain nested. The focused native smoke test also forces extraction of the changed archive and rebuilds the complete Oilpan library before compiling and running generated C++.

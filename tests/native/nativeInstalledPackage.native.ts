@@ -8,9 +8,9 @@ import {
   rm,
   tmpdir,
   writeFile,
-} from "../compiler/test/expect";
+} from "../../compiler/test/expect";
 import { symlink } from "node:fs/promises";
-import { runCommand, runCommandCapture } from "./io";
+import { runCommand, runCommandCapture } from "../../cli/io";
 
 describe("installed native package", () => {
   it("builds and runs an executable outside the repository", async () => {

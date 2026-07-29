@@ -1758,6 +1758,20 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("int[]");
   });
 
+  it("infers entry tuples from Map iterables", () => {
+    const source = dedent`
+      declare const map: Map<string, int>
+      const values = Array.from(map)
+      const entries = [...map]
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    const symbols = symbolsOfVisibleSymbolsAt(source, 1, 6);
+    expect(symbols.get("values")?.valueType).toBe("[string, int][]");
+    expect(symbols.get("entries")?.valueType).toBe("[string, int][]");
+  });
+
   it("infers Set union element types from Set arguments", () => {
     const source = dedent`
       const values = new Set([1]).union(new Set([2]))

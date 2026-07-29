@@ -8,9 +8,9 @@ import {
   tmpdir,
   vi,
   writeFile,
-} from "../compiler/test/expect";
-import { runCli } from "./cli";
-import { runCommandCapture } from "./io";
+} from "../../compiler/test/expect";
+import { runCli } from "../../cli/cli";
+import { runCommandCapture } from "../../cli/io";
 
 describe("native foreign libraries", () => {
   it("opens fallback paths, resumes async calls, and reads and writes pointers", async () => {

@@ -3,7 +3,7 @@
  * on their parameters plus the shared AnalysisType algebra.
  */
 import { type AnalysisType, NamedType, UnionType, ArrayType, TupleType, RangeType } from "./types";
-import { UNKNOWN_TYPE, builtinType, isSameType, literalType, unionType } from "./types";
+import { UNKNOWN_TYPE, builtinType, isSameType, literalType, tupleType, unionType } from "./types";
 import { isNullishType } from "./typeClassifiers";
 
 const ASYNC_ITERATOR_TYPE_NAMES = new Set([
@@ -82,6 +82,13 @@ export function elementTypeFromIterable(type: AnalysisType): AnalysisType {
   }
   if (type instanceof NamedType && ITERABLE_TYPE_NAMES.has(type.name) && (type.typeArguments?.length ?? 0) >= 1) {
     return type.typeArguments![0]!;
+  }
+  if (
+    type instanceof NamedType &&
+    (type.name === "Map" || type.name === "ReadonlyMap") &&
+    (type.typeArguments?.length ?? 0) >= 2
+  ) {
+    return tupleType([type.typeArguments![0]!, type.typeArguments![1]!]);
   }
   return UNKNOWN_TYPE;
 }

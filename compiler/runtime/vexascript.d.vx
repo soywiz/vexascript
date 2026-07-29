@@ -58,6 +58,7 @@ declare interface Process {
   argv: string[]
   env: { [key: string]: string | undefined }
   platform: string
+  arch: string
   exitCode: number
   cwd(): string
   exit(code?: number): void

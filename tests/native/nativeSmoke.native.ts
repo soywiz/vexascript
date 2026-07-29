@@ -8,13 +8,13 @@ import {
   rm,
   tmpdir,
   vi,
-} from "../compiler/test/expect";
-import { runCli } from "./cli";
+} from "../../compiler/test/expect";
+import { runCli } from "../../cli/cli";
 import {
   ensureRuntimeDependencies,
   resolveProjectForSource,
-} from "./cliShared";
-import { runCommandCapture } from "./io";
+} from "../../cli/cliShared";
+import { runCommandCapture } from "../../cli/io";
 
 function nativeCliModuleArgs(): string[] {
   return [

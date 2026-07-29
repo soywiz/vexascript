@@ -7,13 +7,13 @@ import {
   readFile,
   rm,
   tmpdir,
-} from "../compiler/test/expect";
-import { runCommand } from "./io";
+} from "../../compiler/test/expect";
+import { runCommand } from "../../cli/io";
 
 async function readOilpanArchiveFile(path: string): Promise<string> {
   const outputRoot = await mkdtemp(join(tmpdir(), "vexa-oilpan-package-"));
   try {
-    await runCommand("cmake", ["-E", "tar", "xf", join(process.cwd(), "native/oilpan-standalone-main.zip")], {
+    await runCommand("cmake", ["-E", "tar", "xf", join(process.cwd(), "native/oilpan-20260622.zip")], {
       cwd: outputRoot,
       stdio: "ignore",
     });
@@ -31,7 +31,7 @@ describe("native package contents", () => {
       "native/runtime.cpp",
       "native/bigint.h",
       "native/utf.h",
-      "native/oilpan-standalone-main.zip",
+      "native/oilpan-20260622.zip",
       "native/mimalloc-3.4.3.zip",
     ];
     for (const path of required) {

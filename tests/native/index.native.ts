@@ -1,0 +1,12 @@
+import "./nativeBenchmark.native";
+import "./nativeBigInt.native";
+import "./nativeBuild.native";
+import "./nativeCliSyntax.native";
+import "./nativeForeignLibrary.native";
+import "./nativeGcStress.native";
+import "./nativeInstalledPackage.native";
+import "./nativeModuleGraph.native";
+import "./nativeModulesSmoke.native";
+import "./nativePackaging.native";
+import "./nativeSdlSample.native";
+import "./nativeSmoke.native";

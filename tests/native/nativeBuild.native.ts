@@ -1,5 +1,9 @@
-import { describe, expect, it, join, mkdtemp, rm, tmpdir } from "../compiler/test/expect";
+import { describe, expect, it, join, mkdtemp, rm, tmpdir } from "../../compiler/test/expect";
 import {
+  nativeDependencyCacheRoot,
+  nativeDependencyCachePath,
+  nativeDependencyArtifactPath,
+  nativeTargetArchitecture,
   nativeCmakeConfigureArguments,
   nativeCompilerArguments,
   nativeCompiler,
@@ -7,9 +11,20 @@ import {
   nativeProgramPaths,
   nativeSyntaxCompiler,
   withNativeBuildLock,
-} from "./nativeBuild";
+} from "../../cli/nativeBuild";
 
 describe("native build", () => {
+  it("stores reusable native dependencies under the VexaScript home directory", () => {
+    expect(nativeDependencyCacheRoot("/home/tester")).toBe("/home/tester/.vexascript/native");
+    expect(nativeDependencyCachePath("oilpan-20260622", "/home/tester")).toBe("/home/tester/.vexascript/native/oilpan-20260622");
+    expect(nativeDependencyCachePath("mimalloc-3.4.3", "/home/tester")).toBe("/home/tester/.vexascript/native/mimalloc-3.4.3");
+    expect(nativeDependencyArtifactPath("liboilpan-20260622", ".a", "linux", "x64", "/home/tester"))
+      .toBe("/home/tester/.vexascript/native/liboilpan-20260622-linux-x86_64.a");
+    expect(nativeDependencyArtifactPath("libmimalloc-3.4.3", ".a", "darwin", "arm64", "/home/tester"))
+      .toBe("/home/tester/.vexascript/native/libmimalloc-3.4.3-darwin-aarch64.a");
+    expect(nativeTargetArchitecture("ia32")).toBe("x86");
+  });
+
   it("uses Oilpan's portable GC info table on Linux", () => {
     const args = nativeCompilerArguments(
       "/tmp/main.cpp",
@@ -31,6 +46,14 @@ describe("native build", () => {
     expect(args).toContain("-ldl");
   });
 
+  it("writes Oilpan archives into the platform-named native cache root", () => {
+    const args = nativeCmakeConfigureArguments("/repo/oilpan/gc", "/repo/oilpan/gc/build", "linux", {
+      archiveOutputDirectory: "/home/tester/.vexascript/native",
+    });
+
+    expect(args).toContain("-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=/home/tester/.vexascript/native");
+  });
+
   it("uses GCC for native builds and Clang for Linux syntax validation", () => {
     expect(nativeCompiler("linux")).toBe("g++");
     expect(nativeCompiler("darwin")).toBe("g++");
@@ -40,7 +63,7 @@ describe("native build", () => {
     expect(nativeSyntaxCompiler("win32")).toBe("g++");
   });
 
-  it("links the cached mimalloc override object in release builds", () => {
+  it("force-links the cached mimalloc static library in release builds", () => {
     const args = nativeCompilerArguments(
       "/tmp/main.cpp",
       "/tmp/main",
@@ -48,11 +71,13 @@ describe("native build", () => {
       "/repo/native/oilpan/gc",
       "/repo/native/oilpan/gc/build/liboilpan_gc.a",
       "linux",
-      { mimallocObjectPath: "/cache/mimalloc.o" }
+      { mimallocLibraryPath: "/cache/libmimalloc.a" }
     );
 
-    expect(args).toContain("/cache/mimalloc.o");
-    expect(args.indexOf("/cache/mimalloc.o")).toBeLessThan(args.indexOf("/repo/native/oilpan/gc/build/liboilpan_gc.a"));
+    expect(args).toContain("-Wl,--whole-archive");
+    expect(args).toContain("/cache/libmimalloc.a");
+    expect(args).toContain("-Wl,--no-whole-archive");
+    expect(args.indexOf("/cache/libmimalloc.a")).toBeLessThan(args.indexOf("/repo/native/oilpan/gc/build/liboilpan_gc.a"));
   });
 
   for (const optimization of ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "-Og"] as const) {
@@ -86,7 +111,7 @@ describe("native build", () => {
     expect(args.slice(-5)).toEqual(["-I/native include", "-L/native lib", "-lnative", "-o", "/tmp/main"]);
   });
 
-  it("builds only the portable mimalloc object and static dependency", () => {
+  it("builds the portable mimalloc static library", () => {
     const args = nativeMimallocCmakeConfigureArguments("/cache/mimalloc", "/cache/mimalloc/build");
 
     expect(args).toContain("-DMI_BUILD_SHARED=OFF");
@@ -102,7 +127,7 @@ describe("native build", () => {
       "/repo/native/oilpan/gc",
       "/repo/native/oilpan/gc/build/liboilpan_gc.a",
       "linux",
-      { sanitizers: true, mimallocObjectPath: "/cache/mimalloc.o" }
+      { sanitizers: true, mimallocLibraryPath: "/cache/libmimalloc.a" }
     );
     expect(args).toContain("-O1");
     expect(args).toContain("-g");
@@ -110,7 +135,7 @@ describe("native build", () => {
     expect(args).toContain("-fsanitize=address,undefined");
     expect(args).toContain("-fno-omit-frame-pointer");
     expect(args).toContain("-DVEXA_NATIVE_DEBUG=1");
-    expect(args).not.toContain("/cache/mimalloc.o");
+    expect(args).not.toContain("/cache/libmimalloc.a");
   });
 
   it("offers an Oilpan collection stress mode independently of sanitizers", () => {

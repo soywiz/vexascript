@@ -1,8 +1,8 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "../compiler/test/expect";
-import { runCommandCapture } from "./io";
+import { describe, expect, it } from "../../compiler/test/expect";
+import { runCommandCapture } from "../../cli/io";
 
 describe("native bigint", () => {
   it("preserves signed quotient and remainder semantics for single-limb divisors", async () => {

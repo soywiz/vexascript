@@ -72,7 +72,7 @@ without speculative optimization.
 * `native/runtime.cpp`
 * `native/bigint.h`
 * `cli/nativeBuild.ts`
-* `cli/nativeSmoke.test.ts`
+* `tests/native/nativeSmoke.native.ts`
 * `.github/workflows/tests.yml`
 * `package.json`
 * `docs/native.md`
