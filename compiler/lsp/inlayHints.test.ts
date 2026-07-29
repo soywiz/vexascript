@@ -334,6 +334,24 @@ dedent`
     expect(labels).not.toContain(": Promise<PromiseFulfilledResult<int> | PromiseRejectedResult[]>");
   });
 
+  it("uses inferred Map entry types in Array.from variable hints", async () => {
+    const source = dedent`
+      const entries = Array.from(new Map([["name", 1]]))
+      `;
+    const session = createAnalysisSession(source);
+
+    expect(session.semanticIssues).toEqual([]);
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 5, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": [string, int][]");
+    expect(labels).not.toContain(": [K, V][]");
+  });
+
   it("uses default generic DOM type arguments for querySelector variable inlay hints", async () => {
     const source = dedent`
       sync fun main() {
