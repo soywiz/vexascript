@@ -298,6 +298,11 @@ h3 { font-size: 1.25rem; margin: 0.55rem 0; }
   padding: clamp(4.5rem, 7vw, 6.5rem) var(--page-padding) 2rem;
 }
 .page-hero p { max-width: 72ch; }
+.config-hero h1 {
+  font-size: clamp(1.95rem, 8.5vw, 5.5rem);
+  letter-spacing: -0.06em;
+  white-space: nowrap;
+}
 
 .command_switch {
   color: grey;

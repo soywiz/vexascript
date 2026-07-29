@@ -27,3 +27,4 @@ website/src/assets/generated
 /cli/cli.js
 /cli/cli.js.map
 /cli/cli.ts.build/*
+/.playwright-cli

@@ -12,6 +12,7 @@ import {
 import type { ImportedSymbolResolution } from "compiler/importedSymbols";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { namedType } from "compiler/analysis/types";
+import { sourceWithCursor } from "../test/sourceWithCursor";
 
 describe("lsp analysis session", () => {
   it("builds analysis even when parser recovered from syntax errors", () => {
@@ -289,6 +290,21 @@ describe("lsp analysis session", () => {
     const session = await cache.getForDocumentAsync(TextDocument.create(`file://${filePath}`, "vexa", 1, source));
 
     expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("contextually types arrow and brace Promise.then callbacks from DOM fetch results", async () => {
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const cursorSources = [
+      sourceWithCursor('fetch("https://example.com").then(it^^^ => it.text())\n'),
+      sourceWithCursor('fetch("https://example.com").then({ it^^^.text() })\n')
+    ];
+
+    for (const cursorSource of cursorSources) {
+      const session = createAnalysisSession(cursorSource.source, { ambientDeclarations });
+      expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+      expect(session.analysis?.getHoverAt(cursorSource.line, cursorSource.character)?.contents)
+        .toContain("Response");
+    }
   });
 
   it("getForDocumentAsync reuses its own in-flight resolution instead of duplicating work", async () => {

@@ -1,0 +1,247 @@
+---
+layout: layout.njk
+title: vexascript.json Configuration Reference
+permalink: /config.html
+---
+<section class="page-hero config-hero">
+  <p class="eyebrow">Project configuration</p>
+  <h1><code>vexascript.json</code></h1>
+  <p class="lead">Configure project entrypoints, build output, module aliases, ambient types, JSX, global scripts, and static files in one project-level file.</p>
+</section>
+
+<section class="doc-shell">
+  <article class="doc-content">
+    <h2>Start with a project file</h2>
+    <p>Place <code>vexascript.json</code> in your project directory. VexaScript searches from the input file or directory upward and uses the nearest configuration file. Relative paths in this file are resolved from the directory containing it.</p>
+{% highlightVexaScript %}
+{
+  "entrypoint": "src/main.vx",
+  "outDir": "dist",
+  "compilerOptions": {
+    "lib": ["es2025", "dom"],
+    "types": [],
+    "baseUrl": ".",
+    "jsxImportSource": "preact"
+  },
+  "importMappings": {
+    "@app/state": "src/state.vx"
+  },
+  "serveMappings": {
+    "public/assets": "assets"
+  }
+}
+{% endhighlightVexaScript %}
+    <p>The CLI reads the nearest <code>package.json</code> separately for runtime dependencies. Dependencies belong in <code>package.json</code>, not in <code>vexascript.json</code>.</p>
+
+    <h2>Top-level options</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Option</th>
+          <th>Type</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>entrypoint</code></td>
+          <td>string</td>
+          <td>The <code>.vx</code> or <code>.ts</code> entry file used when a CLI command receives a project directory. Required for directory builds, bundles, and native project builds; also used by <code>serve</code> when <code>--bundle</code> is omitted.</td>
+        </tr>
+        <tr>
+          <td><code>outDir</code></td>
+          <td>string</td>
+          <td>Output directory for project builds. The default is <code>dist</code>. A command-line <code>--out</code> value takes precedence.</td>
+        </tr>
+        <tr>
+          <td><code>outputDir</code></td>
+          <td>string</td>
+          <td>Alias for <code>outDir</code>. Prefer <code>outDir</code> in new projects.</td>
+        </tr>
+        <tr>
+          <td><code>compilerOptions</code></td>
+          <td>object</td>
+          <td>TypeScript-compatible options currently consumed by VexaScript. See the dedicated table below.</td>
+        </tr>
+        <tr>
+          <td><code>importMappings</code></td>
+          <td>object</td>
+          <td>Maps exact module specifiers to local source files for JavaScript and native compilation, module resolution, and editor navigation.</td>
+        </tr>
+        <tr>
+          <td><code>imports</code></td>
+          <td>object</td>
+          <td>Alias for <code>importMappings</code>. Prefer <code>importMappings</code> in new projects.</td>
+        </tr>
+        <tr>
+          <td><code>nativeImports</code></td>
+          <td>object</td>
+          <td>Adds or overrides module mappings only for the native C++ backend.</td>
+        </tr>
+        <tr>
+          <td><code>globalSymbols</code></td>
+          <td>object or string[]</td>
+          <td>Loads source files whose declarations should be available globally, without imports.</td>
+        </tr>
+        <tr>
+          <td><code>serveMappings</code></td>
+          <td>object or array</td>
+          <td>Publishes files or directories at public paths during <code>serve</code> and copies them into project build output.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Compiler options</h2>
+    <p>VexaScript currently reads the following properties from <code>compilerOptions</code>:</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Option</th>
+          <th>Type</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>lib</code></td>
+          <td>string[]</td>
+          <td>Selects built-in declaration libraries. For example, <code>["es2025", "dom"]</code> makes browser APIs available.</td>
+        </tr>
+        <tr>
+          <td><code>types</code></td>
+          <td>string[]</td>
+          <td>Loads ambient declaration packages such as <code>node</code>, <code>react</code>, or <code>react-dom</code>. Use an explicit empty array to disable types inherited from <code>tsconfig.json</code>.</td>
+        </tr>
+        <tr>
+          <td><code>baseUrl</code></td>
+          <td>string</td>
+          <td>Base directory for non-relative source imports. It is resolved relative to the configuration file that declares it.</td>
+        </tr>
+        <tr>
+          <td><code>jsxFactory</code></td>
+          <td>string</td>
+          <td>Function used to emit JSX elements, such as <code>h</code>. The default is <code>React.createElement</code>.</td>
+        </tr>
+        <tr>
+          <td><code>jsxFragmentFactory</code></td>
+          <td>string</td>
+          <td>Value used to emit JSX fragments, such as <code>Fragment</code>. The default is <code>React.Fragment</code>.</td>
+        </tr>
+        <tr>
+          <td><code>jsxImportSource</code></td>
+          <td>string</td>
+          <td>When set to <code>"preact"</code>, VexaScript maps JSX emission to the classic <code>h</code> and <code>Fragment</code> factories. Automatic JSX runtime emission is not yet supported.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Relationship with <code>tsconfig.json</code></h3>
+    <p>VexaScript also searches upward for the nearest <code>tsconfig.json</code>. Its <code>compilerOptions</code> provide defaults, while properties in <code>vexascript.json.compilerOptions</code> override matching properties. Top-level VexaScript options such as <code>entrypoint</code>, <code>outDir</code>, and <code>serveMappings</code> are read only from <code>vexascript.json</code>.</p>
+{% highlightVexaScript %}
+{
+  "compilerOptions": {
+    "lib": ["es2025", "dom"],
+    "types": ["node"],
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment"
+  }
+}
+{% endhighlightVexaScript %}
+
+    <h2>Module mappings</h2>
+    <p><code>importMappings</code> maps an exact import specifier to a local source file. Both the specifier and target are strings; targets are resolved relative to <code>vexascript.json</code>.</p>
+{% highlightVexaScript %}
+{
+  "importMappings": {
+    "@app/config": "src/config.vx",
+    "myengine": "runtime/myengine-runtime.vx"
+  },
+  "nativeImports": {
+    "myengine": "native/myengine.vx",
+    "commander": "native/commander.vx"
+  }
+}
+{% endhighlightVexaScript %}
+    <p>JavaScript builds use <code>importMappings</code>. Native builds start with the same mappings and then apply <code>nativeImports</code>, so a native-specific entry can replace the target for the same specifier.</p>
+
+    <h2>Global source files</h2>
+    <p>Use <code>globalSymbols</code> for source files whose declarations should be visible without imports. The recommended object form accepts <code>paths</code> and an <code>emit</code> mode:</p>
+{% highlightVexaScript %}
+{
+  "globalSymbols": {
+    "paths": ["runtime/browser-globals.vx"],
+    "emit": "globalThis"
+  }
+}
+{% endhighlightVexaScript %}
+    <ul>
+      <li><code>"globalThis"</code> is the default. Global declarations are emitted onto <code>globalThis</code>.</li>
+      <li><code>"assume"</code> makes declarations available to analysis while assuming that the runtime host provides the values.</li>
+    </ul>
+    <p>The shorter array form, <code>"globalSymbols": ["runtime/browser-globals.vx"]</code>, uses <code>"globalThis"</code>. The object keys <code>files</code> and <code>include</code> are accepted as aliases for <code>paths</code>.</p>
+
+    <h2>Static and served files</h2>
+    <p>The recommended object form maps a source file or directory to a public path. Source paths are relative to <code>vexascript.json</code>; destination paths are relative to the served or built site root.</p>
+{% highlightVexaScript %}
+{
+  "entrypoint": "src/main.vx",
+  "serveMappings": {
+    "public/assets": "assets",
+    "node_modules/pixi.js/dist/pixi.js": "vendor/pixi.js"
+  }
+}
+{% endhighlightVexaScript %}
+    <p><code>vexa serve</code> exposes these mappings directly. A directory build with <code>vexa build .</code> or <code>vexa bundle .</code> copies the same files into <code>outDir</code>.</p>
+    <p>The legacy array form remains supported:</p>
+{% highlightVexaScript %}
+{
+  "serveMappings": [
+    { "from": "public/assets", "to": "assets" },
+    { "from": "vendor/runtime.js", "to": "vendor/runtime.js" }
+  ]
+}
+{% endhighlightVexaScript %}
+
+    <h2>Common project shapes</h2>
+    <h3>Browser project</h3>
+{% highlightVexaScript %}
+{
+  "entrypoint": "src/main.vx",
+  "outDir": "dist",
+  "compilerOptions": {
+    "lib": ["es2025", "dom"],
+    "types": []
+  },
+  "serveMappings": {
+    "public/assets": "assets"
+  }
+}
+{% endhighlightVexaScript %}
+
+    <h3>Node.js project</h3>
+{% highlightVexaScript %}
+{
+  "entrypoint": "src/main.vx",
+  "compilerOptions": {
+    "types": ["node"]
+  }
+}
+{% endhighlightVexaScript %}
+
+    <h3>Preact project</h3>
+{% highlightVexaScript %}
+{
+  "entrypoint": "src/main.vx",
+  "compilerOptions": {
+    "jsxImportSource": "preact",
+    "lib": ["es2025", "dom"],
+    "types": []
+  }
+}
+{% endhighlightVexaScript %}
+
+    <h2>CLI precedence</h2>
+    <p>Explicit command-line options take precedence over project defaults. In particular, <code>--out</code>, <code>--jsx-factory</code>, and <code>--jsx-fragment-factory</code> override the corresponding values from the project configuration for that invocation.</p>
+    <p>See the <a href="/cli">CLI guide</a> for command-specific flags and the <a href="/samples">samples</a> for complete projects.</p>
+  </article>
+</section>

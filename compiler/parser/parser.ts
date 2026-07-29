@@ -3414,6 +3414,13 @@ export class Parser {
         }
         const first = this.peekToken(1);
         const second = this.peekToken(2);
+        if (
+            first?.type === TokenType.IDENTIFIER &&
+            first.value === "it" &&
+            !(second?.type === TokenType.SYMBOL && second.value === ":")
+        ) {
+            return true;
+        }
         if (first?.type === TokenType.IDENTIFIER && second?.type === TokenType.SYMBOL && second.value === "}") {
             return true;
         }

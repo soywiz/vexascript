@@ -588,6 +588,13 @@ go = 7
             kind: NodeKind.CallExpression,
             args: [{ kind: NodeKind.ArrowFunctionExpression, contextualObjectLiteral: { kind: NodeKind.ObjectLiteral } }]
         });
+        expect(parseExpression(tokenizeReader("apply({ it.text() })"))).toMatchObject({
+            kind: NodeKind.CallExpression,
+            args: [{
+                kind: NodeKind.ArrowFunctionExpression,
+                parameters: [{ name: { name: "it" } }]
+            }]
+        });
         expect(parseExpression(tokenizeReader("apply({ value: 1 })"))).toMatchObject({
             kind: NodeKind.CallExpression,
             args: [{ kind: NodeKind.ObjectLiteral }]

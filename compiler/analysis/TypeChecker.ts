@@ -2953,6 +2953,7 @@ export class TypeChecker {
             explicitTypeArguments,
             inferenceArgumentTypes,
             expectedType,
+            false,
             false
           );
           const contextualArgumentTypes = hasNamedArguments
@@ -2984,7 +2985,12 @@ export class TypeChecker {
             }
           }
           const instantiatedCalleeType = contextualArgumentTypes === argumentTypes
-            ? firstPassCalleeType
+            ? this.instantiateFunctionType(
+                bestCallableType,
+                explicitTypeArguments,
+                inferenceArgumentTypes,
+                expectedType
+              )
             : this.instantiateFunctionType(bestCallableType, explicitTypeArguments, contextualArgumentTypes, expectedType);
           const constraintDiagnosticNode = call.callee instanceof MemberExpression
             ? (call.callee as MemberExpression).property
@@ -5016,7 +5022,11 @@ export class TypeChecker {
     if (normalizedTypeName === "this" && contextualThisTypeName) {
       return this.typeFromTypeNameLoose(contextualThisTypeName);
     }
-    const functionType = this.functionTypeFromAnnotationText(typeName);
+    const functionType = this.functionTypeFromAnnotationText(
+      typeName,
+      localTypeParameterNames,
+      contextualThisTypeName
+    );
     if (functionType) {
       return functionType;
     }
@@ -5027,9 +5037,6 @@ export class TypeChecker {
     const typeQueryType = this.typeFromTypeQueryNameLoose(typeName);
     if (typeQueryType) {
       return typeQueryType;
-    }
-    if (looksLikeFunctionTypeAnnotation(typeName)) {
-      return UNKNOWN_TYPE;
     }
     const readonlyContainer: ReadonlyContainerTypeText | null = parseReadonlyContainerTypeText(normalizedTypeName);
     if (readonlyContainer?.kind === "tuple") {
@@ -5120,6 +5127,9 @@ export class TypeChecker {
       return intersectionType(intersectionParts.map((part): AnalysisType =>
         this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
       ));
+    }
+    if (looksLikeFunctionTypeAnnotation(typeName)) {
+      return UNKNOWN_TYPE;
     }
     if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
       const tupleBody = normalizedTypeName.slice(1, -1).trim();
@@ -5521,7 +5531,8 @@ export class TypeChecker {
     explicitTypeArguments: AnalysisType[],
     argumentTypes: AnalysisType[],
     expectedReturnType?: AnalysisType,
-    resolveDependentSubstitutions: boolean = true
+    resolveDependentSubstitutions: boolean = true,
+    applyTypeParameterDefaults: boolean = true
   ): FunctionType {
     const typeParameters = calleeType.typeParameters ?? [];
     if (typeParameters.length === 0) {
@@ -5578,7 +5589,7 @@ export class TypeChecker {
       if (!substitutions.has(typeParameter)) {
         const defaultType = calleeType.typeParameterDefaults?.get(typeParameter);
         let resolvedType: AnalysisType = namedType(typeParameter);
-        if (defaultType !== undefined) resolvedType = defaultType;
+        if (applyTypeParameterDefaults && defaultType !== undefined) resolvedType = defaultType;
         substitutions.set(typeParameter, resolvedType);
       }
     }
@@ -6361,14 +6372,26 @@ export class TypeChecker {
             call.args,
             baseInferenceArgumentTypes
           );
-      const firstPass = this.instantiateFunctionType(candidate, explicitTypeArguments, inferenceArgumentTypes, expectedType, false);
+      const firstPass = this.instantiateFunctionType(
+        candidate,
+        explicitTypeArguments,
+        inferenceArgumentTypes,
+        expectedType,
+        false,
+        false
+      );
       const contextualArgumentTypes = hasNamedArguments
         ? inferenceArgumentTypes
         : this.applyCallArgumentContext(call, scope, firstPass, argumentTypes);
       const contextualIssueCount = this.issues.length - baseline;
       this.issues.length = baseline;
       const instantiated = contextualArgumentTypes === argumentTypes
-        ? firstPass
+        ? this.instantiateFunctionType(
+            candidate,
+            explicitTypeArguments,
+            inferenceArgumentTypes,
+            expectedType
+          )
         : this.instantiateFunctionType(candidate, explicitTypeArguments, contextualArgumentTypes, expectedType);
       const score =
         contextualIssueCount +
@@ -13990,24 +14013,36 @@ export class TypeChecker {
     return objectTypeWithProperties(properties);
   }
 
-  private functionTypeFromAnnotationText(typeName: string): AnalysisType | null {
+  private functionTypeFromAnnotationText(
+    typeName: string,
+    localTypeParameterNames?: ReadonlySet<string>,
+    contextualThisTypeName?: string
+  ): AnalysisType | null {
     const parsed = parseFunctionTypeAnnotation(stripEnclosingTypeParens(typeName.trim()));
     if (!parsed) {
       return null;
     }
+    const resolveNestedType = (nestedTypeName: string): AnalysisType =>
+      localTypeParameterNames
+        ? this.typeFromTypeNameLooseWithTypeParameters(
+            nestedTypeName,
+            localTypeParameterNames,
+            contextualThisTypeName
+          ) ?? UNKNOWN_TYPE
+        : this.typeFromTypeNameLoose(nestedTypeName);
     const parsedAssertion = parseAssertionTypePredicateText(parsed.returnTypeName) as AssertionTypePredicateText | null;
     const parameters: FunctionTypeParameter[] = [];
     if (parsed.receiverTypeName) {
       parameters.push(new FunctionTypeParameter(
         "this",
-        this.typeFromTypeNameLoose(parsed.receiverTypeName),
+        resolveNestedType(parsed.receiverTypeName),
         true
       ));
     }
     for (const parameter of parsed.parameters) {
       parameters.push(new FunctionTypeParameter(
         parameter.name,
-        this.typeFromTypeNameLoose(parameter.typeName),
+        resolveNestedType(parameter.typeName),
         undefined,
         parameter.optional === true,
         parameter.rest === true
@@ -14015,7 +14050,7 @@ export class TypeChecker {
     }
     return functionType(
       parameters,
-      this.typeFromTypeNameLoose(parsed.returnTypeName),
+      resolveNestedType(parsed.returnTypeName),
       undefined,
       undefined,
       undefined,
@@ -14023,7 +14058,7 @@ export class TypeChecker {
         ? {
             target: parsedAssertion.targetText,
             ...(parsedAssertion.assertedTypeText
-              ? { type: this.typeFromTypeNameLoose(parsedAssertion.assertedTypeText) }
+              ? { type: resolveNestedType(parsedAssertion.assertedTypeText) }
               : {})
           }
         : undefined

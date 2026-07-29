@@ -1,6 +1,6 @@
 import { join } from "node:path"
 import { test } from "node:test"
-import { assert } from "node:assert"
+import assert from "node:assert"
 
 test("Node test runner supports VexaScript assertions") {
   assert.equal(join("hello", "world"), "hello/world")
