@@ -114,3 +114,7 @@ iterable values, and recognize `Promise<T>` as assignable to `PromiseLike<T>`.
 Keeping those rules in generic inference and assignability restores
 `Promise.all([Promise<int>, Promise<string>])` as `Promise<[int, string]>`
 without a Promise-specific diagnostic exception.
+
+The same positional preservation applies to `Promise.allSettled`: a typed
+tuple must produce a tuple of independently awaited settled-result unions,
+not one array whose fulfilled member contains the union of every position.

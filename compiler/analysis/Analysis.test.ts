@@ -1900,6 +1900,19 @@ let bad = "Ada" satisfies number
     );
   });
 
+  it("preserves typed tuple shapes in Promise.allSettled", () => {
+    const source = dedent`
+      const promises: [Promise<int>, Promise<string>] = [Promise.resolve(1), Promise.resolve("ok")]
+      const values = Promise.allSettled(promises)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 1, 6).get("values")?.valueType).toBe(
+      "Promise<[PromiseFulfilledResult<int> | PromiseRejectedResult, PromiseFulfilledResult<string> | PromiseRejectedResult]>"
+    );
+  });
+
   it("infers array spreads from Set instances", () => {
     const source = dedent`
       const values = [...new Set([1])]

@@ -3045,10 +3045,13 @@ export class TypeChecker {
                     ? tupleType(argumentTypes[0].elements.map((element) => this.awaitedUtilityType(element)))
                     : arrayType(awaitedElementType);
                 } else if ((property as Identifier).name === "allSettled") {
-                  resultValueType = arrayType(unionType([
-                    namedType("PromiseFulfilledResult", [awaitedElementType]),
+                  const settledResultType = (element: AnalysisType): AnalysisType => unionType([
+                    namedType("PromiseFulfilledResult", [this.awaitedUtilityType(element)]),
                     namedType("PromiseRejectedResult")
-                  ]));
+                  ]);
+                  resultValueType = argumentTypes[0] instanceof TupleType
+                    ? tupleType(argumentTypes[0].elements.map(settledResultType))
+                    : arrayType(settledResultType(awaitedElementType));
                 }
                 resolvedReturnType = namedType("Promise", [
                   resultValueType
