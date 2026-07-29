@@ -1749,6 +1749,21 @@ let bad = "Ada" satisfies number
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("combines discriminant narrowings across false conjunctions", () => {
+    const source = dedent`
+      type Result = { kind: "a", a: int } | { kind: "b", b: int } | { kind: "c", c: int }
+      fun handle(result: Result) {
+        if (result.kind !== "a" && result.kind !== "b") {
+        } else {
+          const kind: "a" | "b" = result.kind
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("reports members missing from part of an unnarrowed union", () => {
     const source = dedent`
       fun format(value: int | string) {

@@ -2233,6 +2233,12 @@ export class TypeChecker {
         this.conditionNarrowings(binary.right, scope, true)
       );
     }
+    if (binary.operator === "&&" && !truthy) {
+      return this.unionSharedNarrowings(
+        this.conditionNarrowings(binary.left, scope, false),
+        this.conditionNarrowings(binary.right, scope, false)
+      );
+    }
     if ((binary.operator === "&&" && truthy) || (binary.operator === "||" && !truthy)) {
       return new Map([
         ...this.conditionNarrowings(binary.left, scope, truthy),
@@ -2339,6 +2345,12 @@ export class TypeChecker {
         return this.unionSharedNarrowings(
           this.conditionExpressionNarrowings(binary.left, scope, true),
           this.conditionExpressionNarrowings(binary.right, scope, true)
+        );
+      }
+      if (binary.operator === "&&" && !truthy) {
+        return this.unionSharedNarrowings(
+          this.conditionExpressionNarrowings(binary.left, scope, false),
+          this.conditionExpressionNarrowings(binary.right, scope, false)
         );
       }
       if ((binary.operator === "&&" && truthy) || (binary.operator === "||" && !truthy)) {
