@@ -148,3 +148,11 @@ relation and inspects each tuple element for an array parameter. Non-Promise
 interface constructors then use the standard function-instantiation path after
 contextualizing their arguments. This preserves `Map<string, int>` and its
 iterable entry type through `Array.from` without a Map-specific special case.
+
+Tuple-to-array inference still retained its first candidate when later tuple
+elements were unrelated. Consequently a heterogeneous Map entry list inferred
+`K = int` from its first entry and rejected a later `string` key. That specific
+covariant collection path now forms a deduplicated union from its independent
+element substitutions. Applying the rule to all generic evidence was ruled out:
+it incorrectly mixed a contextual expected Promise type with an executor's
+actual type, weakening a useful incompatibility diagnostic.

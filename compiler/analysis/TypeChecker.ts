@@ -5876,13 +5876,26 @@ export class TypeChecker {
 
     if (parameterType instanceof ArrayType && argumentType instanceof TupleType) {
       for (const elementType of argumentType.elements) {
+        const elementSubstitutions = new Map<string, AnalysisType>();
         this.inferTypeParameterSubstitutions(
           parameterType.elementType,
           elementType,
           typeParameters,
           explicitlyProvidedTypeParameters,
-          substitutions
+          elementSubstitutions
         );
+        for (const [typeParameter, inferredType] of elementSubstitutions) {
+          const previousType = substitutions.get(typeParameter);
+          if (
+            previousType &&
+            !this.isTypeAssignable(inferredType, previousType) &&
+            !this.isTypeAssignable(previousType, inferredType)
+          ) {
+            substitutions.set(typeParameter, combineTypes([previousType, inferredType]));
+            continue;
+          }
+          this.mergeInferredTypeParameterSubstitution(typeParameter, inferredType, substitutions);
+        }
       }
       return;
     }
