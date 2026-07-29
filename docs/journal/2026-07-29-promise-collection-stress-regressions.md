@@ -165,3 +165,10 @@ incompatible element candidates as a union for inference. A first attempt to
 make every array literal use unions broke existing tuple-based constructor
 inference, so the preservation is deliberately limited to this contextual
 generic collection path.
+
+`Promise.all` has a static result-type specialization which was still reading
+the widened array argument directly. A heterogeneous literal therefore became
+`Promise<any[]>` even after collection inference improved. That specialization
+now reads the literal's structural element types solely to derive its awaited
+element union, while retaining TypeScript's ordinary array result for an
+unannotated literal and reserving tuple results for an already typed tuple.

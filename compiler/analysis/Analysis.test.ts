@@ -1891,6 +1891,16 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Set<int | string>");
   });
 
+  it("preserves heterogeneous value types through Promise.all", () => {
+    const source = dedent`
+      const values = Promise.all([Promise.resolve(1), "two"])
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<(int | string)[]>");
+  });
+
   it("infers constrained WeakMap constructor type parameters", () => {
     const source = dedent`
       const key = {}

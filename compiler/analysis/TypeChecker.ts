@@ -3036,21 +3036,24 @@ export class TypeChecker {
               (memberExpression.object as Identifier).name === "Promise" &&
               argumentTypes[0]
             ) {
-              const elementType = elementTypeFromIterable(argumentTypes[0]!);
+              const collectionArgumentType = call.args[0] instanceof ArrayLiteral
+                ? this.tupleTypeFromArrayLiteral(call.args[0] as ArrayLiteral)
+                : argumentTypes[0]!;
+              const elementType = elementTypeFromIterable(collectionArgumentType);
               if (!isUnknownType(elementType)) {
                 const awaitedElementType = this.awaitedUtilityType(elementType);
                 let resultValueType: AnalysisType = awaitedElementType;
                 if ((property as Identifier).name === "all") {
-                  resultValueType = argumentTypes[0] instanceof TupleType
-                    ? tupleType(argumentTypes[0].elements.map((element) => this.awaitedUtilityType(element)))
+                  resultValueType = collectionArgumentType instanceof TupleType && !(call.args[0] instanceof ArrayLiteral)
+                    ? tupleType(collectionArgumentType.elements.map((element) => this.awaitedUtilityType(element)))
                     : arrayType(awaitedElementType);
                 } else if ((property as Identifier).name === "allSettled") {
                   const settledResultType = (element: AnalysisType): AnalysisType => unionType([
                     namedType("PromiseFulfilledResult", [this.awaitedUtilityType(element)]),
                     namedType("PromiseRejectedResult")
                   ]);
-                  resultValueType = argumentTypes[0] instanceof TupleType
-                    ? tupleType(argumentTypes[0].elements.map(settledResultType))
+                  resultValueType = collectionArgumentType instanceof TupleType && !(call.args[0] instanceof ArrayLiteral)
+                    ? tupleType(collectionArgumentType.elements.map(settledResultType))
                     : arrayType(settledResultType(awaitedElementType));
                 }
                 resolvedReturnType = namedType("Promise", [
