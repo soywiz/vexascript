@@ -87,6 +87,11 @@ export function elementTypeFromIterable(type: AnalysisType): AnalysisType {
   if (type instanceof BuiltinType && type.name === "string") {
     return type;
   }
+  // `new String(value)` has the boxed standard-library `String` type, which
+  // remains iterable over primitive string elements just like `string`.
+  if (type instanceof NamedType && type.name === "String") {
+    return builtinType("string");
+  }
   if (type instanceof TupleType) {
     return type.elements.length === 1 ? type.elements[0]! : unionType(type.elements);
   }

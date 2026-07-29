@@ -133,3 +133,9 @@ Typed arrays encode their element type in their nominal class name rather than
 as a collection type argument. A single shared map now lets `ArrayLike<T>` and
 iterable consumers infer `number` or `bigint` from all standard TypedArray
 classes, covering `Array.from(new Uint8Array(...))` without API-specific logic.
+
+Boxed strings are a distinct nominal `String` type even though their iterator
+yields primitive strings. Treating only the primitive `string` as iterable left
+`Array.from(new String("Ada"))` as unresolved `T[]`. The shared element helper
+now normalizes that standard boxed collection contract to `string`, so every
+consumer that already relies on the helper receives the same result.
