@@ -5403,11 +5403,22 @@ export class TypeChecker {
     argumentTypes: AnalysisType[]
   ): AnalysisType[] {
     const constraints = calleeType.typeParameterConstraints;
-    if (!constraints || args.length === 0) {
+    if (args.length === 0) {
       return argumentTypes;
     }
     let preserved: AnalysisType[] | null = null;
     for (let index = 0; index < args.length && index < calleeType.parameters.length; index += 1) {
+      const argument = args[index]!;
+      if (argument instanceof ArrayLiteral) {
+        const narrowed = this.tupleTypeFromArrayLiteral(argument as ArrayLiteral);
+        if (narrowed !== argumentTypes[index]) {
+          preserved ??= [...argumentTypes];
+          preserved[index] = narrowed;
+        }
+      }
+      if (!constraints) {
+        continue;
+      }
       const parameterType = calleeType.parameters[index]?.type;
       if (!(parameterType instanceof NamedType)) {
         continue;
@@ -5416,7 +5427,7 @@ export class TypeChecker {
       if (!constraint || !this.expectedTypeDependsOnLiteral(constraint)) {
         continue;
       }
-      const narrowed = this.literalArgumentType(args[index]!, argumentTypes[index] ?? UNKNOWN_TYPE);
+      const narrowed = this.literalArgumentType(argument, argumentTypes[index] ?? UNKNOWN_TYPE);
       if (narrowed === argumentTypes[index]) {
         continue;
       }
@@ -5537,7 +5548,7 @@ export class TypeChecker {
     }
     if (
       expandedExpectedType instanceof NamedType &&
-      expandedExpectedType.name === "Iterable" &&
+      (expandedExpectedType.name === "Iterable" || expandedExpectedType.name === "ArrayLike") &&
       (expandedExpectedType.typeArguments?.length ?? 0) === 1
     ) {
       return arrayType(expandedExpectedType.typeArguments![0]!);
@@ -5546,8 +5557,11 @@ export class TypeChecker {
       return null;
     }
     const nonNullishMembers = expandedExpectedType.types.filter((member) => !isNullishType(member));
-    return nonNullishMembers.length === 1
-      ? this.contextualArrayLiteralExpectedType(nonNullishMembers[0]!)
+    const contextualMembers = nonNullishMembers
+      .map((member) => this.contextualArrayLiteralExpectedType(member))
+      .filter((member): member is AnalysisType => member !== null);
+    return contextualMembers.length > 0 && contextualMembers.every((member) => isSameType(member, contextualMembers[0]!))
+      ? contextualMembers[0]!
       : null;
   }
 
@@ -11435,11 +11449,12 @@ export class TypeChecker {
       if (unionObjectType.types.some((type: AnalysisType): boolean => this.isBuiltinTypeNamed(type, "any"))) {
         return builtinType("any");
       }
-      const memberTypes = unionObjectType.types
-        .filter((type: AnalysisType): boolean => !isNullishType(type))
+      const nonNullishMembers = unionObjectType.types
+        .filter((type: AnalysisType): boolean => !isNullishType(type));
+      const memberTypes = nonNullishMembers
         .map((type: AnalysisType): AnalysisType | null => this.resolveKnownMemberType(member, type))
         .filter((type: AnalysisType | null): type is AnalysisType => type !== null);
-      if (memberTypes.length === 0) {
+      if (memberTypes.length !== nonNullishMembers.length) {
         return null;
       }
       return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);

@@ -1901,6 +1901,26 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<(int | string)[]>");
   });
 
+  it("contextually types heterogeneous Array.from mapper values", () => {
+    const validSource = dedent`
+      const values = Array.from([1, "two"], (value) => value.toString())
+    `;
+    const validAnalysis = new Analysis(parseFile(tokenizeReader(validSource)));
+
+    expect(validAnalysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(validSource, 0, 45).get("value")?.valueType).toBe("int | string");
+    expect(symbolsOfVisibleSymbolsAt(validSource, 0, 6).get("values")?.valueType).toBe("string[]");
+
+    const invalidSource = dedent`
+      const values = Array.from([1, "two"], (value) => value.toFixed())
+    `;
+    const invalidAnalysis = new Analysis(parseFile(tokenizeReader(invalidSource)));
+
+    expect(invalidAnalysis.getIssues().map((issue) => issue.message)).toContain(
+      "Argument 2 of type '(value: int | string) => unknown' is not assignable to parameter 'mapfn' of type '(v: int | string, k: number) => U'"
+    );
+  });
+
   it("preserves empty Promise collection result types", () => {
     const source = dedent`
       const all = Promise.all([])

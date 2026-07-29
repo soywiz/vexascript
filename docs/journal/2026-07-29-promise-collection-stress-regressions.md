@@ -177,3 +177,12 @@ The same static path had no empty-literal case and converted `[]` to `void`.
 It now preserves the positional empty tuple for `Promise.all([])` and
 `Promise.allSettled([])`, while `Promise.race([])` and `Promise.any([])` use
 the standard unreachable `Promise<never>` result.
+
+Array literals passed to overloaded generic APIs were widened before their
+first inference pass. In `Array.from([1, "two"], mapper)`, that made the
+mapper parameter `any` and hid invalid member access. Generic inference now
+retains an array literal's tuple shape just for its initial evidence, and
+equivalent `Iterable<T>`/`ArrayLike<T>` contextual branches share an array
+context. Union-member lookup also now requires a member on every non-nullish
+branch; accepting a method that existed on only one branch masked errors after
+the contextual type was restored.
