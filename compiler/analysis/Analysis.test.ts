@@ -1718,6 +1718,23 @@ let bad = "Ada" satisfies number
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("narrows discriminated object unions for reversed and inequality comparisons", () => {
+    const source = dedent`
+      type Result = { kind: "ok", value: int } | { kind: "error", message: string }
+      fun handle(result: Result) {
+        if ("ok" === result.kind) {
+          const value: int = result.value
+        }
+        if (result.kind !== "ok") {
+          const message: string = result.message
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("reports members missing from part of an unnarrowed union", () => {
     const source = dedent`
       fun format(value: int | string) {

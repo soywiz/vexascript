@@ -2233,13 +2233,35 @@ export class TypeChecker {
         ...this.conditionNarrowings(binary.right, scope, truthy)
       ]);
     }
-    if (!(binary.left instanceof Identifier)) return new Map();
-    const identifier = binary.left as Identifier;
+    const narrowing = this.conditionNarrowingInfo(binary, scope);
+    if (!(narrowing?.expression instanceof Identifier)) return new Map();
+    const identifier = narrowing.expression as Identifier;
     const originalType = this.resolve(identifier.name, scope, nodeStartOffset(identifier))?.type ?? UNKNOWN_TYPE;
-    const checkedType = this.checkedTypeForNarrowing(binary, scope);
-    if (!checkedType) return new Map();
-    const narrowedType = this.narrowedTypeForCheck(originalType, checkedType, truthy);
+    const narrowedType = this.narrowedTypeForCheck(
+      originalType,
+      narrowing.checkedType,
+      narrowing.matchesWhenTruthy ? truthy : !truthy
+    );
     return narrowedType ? this.singleNarrowing(identifier.name, narrowedType) : new Map();
+  }
+
+  private conditionNarrowingInfo(
+    binary: BinaryExpression,
+    scope: Scope
+  ): { expression: Expr; checkedType: AnalysisType; matchesWhenTruthy: boolean } | null {
+    const matchesWhenTruthy = binary.operator !== "!=" && binary.operator !== "!==";
+    const checkedType = this.checkedTypeForNarrowing(binary, scope);
+    if (checkedType) {
+      return { expression: binary.left, checkedType, matchesWhenTruthy };
+    }
+    if (binary.operator !== "==" && binary.operator !== "===" && binary.operator !== "!=" && binary.operator !== "!==") {
+      return null;
+    }
+    const leftType = this.literalArgumentType(binary.left, this.visitExpression(binary.left, scope));
+    if (!(leftType instanceof LiteralType) && !isNullishType(leftType)) {
+      return null;
+    }
+    return { expression: binary.right, checkedType: leftType, matchesWhenTruthy };
   }
 
   private checkedTypeForNarrowing(binary: BinaryExpression, scope: Scope): AnalysisType | null {
@@ -2299,11 +2321,15 @@ export class TypeChecker {
           ...this.conditionExpressionNarrowings(binary.right, scope, truthy)
         ]);
       }
-      const stableKey = this.stableExpressionKey(binary.left);
-      const checkedType = this.checkedTypeForNarrowing(binary, scope);
-      if (!stableKey || !checkedType) return new Map();
-      const originalType = this.expressionTypeForNarrowing(binary.left, scope);
-      const narrowedType = this.narrowedTypeForCheck(originalType, checkedType, truthy);
+      const narrowing = this.conditionNarrowingInfo(binary, scope);
+      const stableKey = narrowing && this.stableExpressionKey(narrowing.expression);
+      if (!stableKey || !narrowing) return new Map();
+      const originalType = this.expressionTypeForNarrowing(narrowing.expression, scope);
+      const narrowedType = this.narrowedTypeForCheck(
+        originalType,
+        narrowing.checkedType,
+        narrowing.matchesWhenTruthy ? truthy : !truthy
+      );
       return narrowedType ? this.singleNarrowing(stableKey, narrowedType) : new Map();
     }
 
