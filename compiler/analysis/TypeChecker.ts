@@ -3215,16 +3215,17 @@ export class TypeChecker {
             provisionalConstructorType
           );
           if (!isPromiseConstructor) {
-            const typeParameterSet = new Set(typeParameterNames);
-            for (let index = 0; index < provisionalConstructorType.parameters.length && index < argumentTypes.length; index += 1) {
-              this.inferTypeParameterSubstitutions(
-                provisionalConstructorType.parameters[index]!.type,
-                argumentTypes[index]!,
-                typeParameterSet,
-                explicitTypeParameterNames,
-                substitutions
-              );
+            const instantiatedConstructorType = this.instantiateFunctionType(
+              constructorInterfaceType,
+              explicitTypeArguments,
+              argumentTypes,
+              expectedType
+            );
+            if (this.validateTypes) {
+              this.validateCallArguments(newExpression, instantiatedConstructorType, argumentTypes);
             }
+            result = instantiatedConstructorType.returnType;
+            break;
           }
           const finalConstructorType = this.substituteTypeParameters(
             constructorInterfaceType,
@@ -5512,9 +5513,27 @@ export class TypeChecker {
       return this.contextualObjectLiteralExpectedType(expectedType);
     }
     if (argument instanceof ArrayLiteral) {
-      return expectedType instanceof ArrayType || expectedType instanceof RangeType || expectedType instanceof TupleType ? expectedType : null;
+      return this.contextualArrayLiteralExpectedType(expectedType);
     }
     return null;
+  }
+
+  private contextualArrayLiteralExpectedType(expectedType: AnalysisType): AnalysisType | null {
+    const expandedExpectedType = this.expandTypeAliases(this.normalizeLooseNamedType(expectedType));
+    if (
+      expandedExpectedType instanceof ArrayType ||
+      expandedExpectedType instanceof RangeType ||
+      expandedExpectedType instanceof TupleType
+    ) {
+      return expandedExpectedType;
+    }
+    if (!(expandedExpectedType instanceof UnionType)) {
+      return null;
+    }
+    const nonNullishMembers = expandedExpectedType.types.filter((member) => !isNullishType(member));
+    return nonNullishMembers.length === 1
+      ? this.contextualArrayLiteralExpectedType(nonNullishMembers[0]!)
+      : null;
   }
 
   private contextualObjectLiteralExpectedType(expectedType: AnalysisType): AnalysisType | null {
@@ -5855,6 +5874,19 @@ export class TypeChecker {
       return;
     }
 
+    if (parameterType instanceof ArrayType && argumentType instanceof TupleType) {
+      for (const elementType of argumentType.elements) {
+        this.inferTypeParameterSubstitutions(
+          parameterType.elementType,
+          elementType,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+      return;
+    }
+
     if (parameterType instanceof RangeType && argumentType instanceof RangeType) {
       this.inferTypeParameterSubstitutions(
         parameterType.elementType,
@@ -6130,6 +6162,9 @@ export class TypeChecker {
     }
 
     if (expandedParameterType instanceof ArrayType && expandedArgumentType instanceof ArrayType) {
+      return true;
+    }
+    if (expandedParameterType instanceof ArrayType && expandedArgumentType instanceof TupleType) {
       return true;
     }
     if (

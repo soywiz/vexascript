@@ -1861,6 +1861,16 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("string[]");
   });
 
+  it("preserves Map entry tuple types through Array.from", () => {
+    const source = dedent`
+      const entries = Array.from(new Map([["name", 1]]))
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("entries")?.valueType).toBe("[string, int][]");
+  });
+
   it("contextually types Array.from mapping callbacks for iterable inputs", () => {
     const source = dedent`
       const values = Array.from(new Set([1]), { it + 1 })

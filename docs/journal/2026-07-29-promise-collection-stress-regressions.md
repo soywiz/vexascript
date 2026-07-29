@@ -139,3 +139,12 @@ yields primitive strings. Treating only the primitive `string` as iterable left
 `Array.from(new String("Ada"))` as unresolved `T[]`. The shared element helper
 now normalizes that standard boxed collection contract to `string`, so every
 consumer that already relies on the helper receives the same result.
+
+Generic interface constructors had drifted from ordinary generic calls. Their
+first contextual pass was followed by a separate manual inference path, which
+missed tuple arguments and left `new Map([["name", 1]])` as `Map<K, V>`. A
+tuple is assignable to an array, so generic inference now follows that same
+relation and inspects each tuple element for an array parameter. Non-Promise
+interface constructors then use the standard function-instantiation path after
+contextualizing their arguments. This preserves `Map<string, int>` and its
+iterable entry type through `Array.from` without a Map-specific special case.
