@@ -4636,7 +4636,7 @@ export class TypeChecker {
       sourceType instanceof BuiltinType &&
       sourceType.name === "string" &&
       targetType instanceof NamedType &&
-      targetType.name === "ArrayLike" &&
+      (targetType.name === "ArrayLike" || targetType.name === "Iterable") &&
       (targetType.typeArguments?.length ?? 0) === 1
     ) {
       return this.isTypeAssignable(sourceType, targetType.typeArguments![0]!);

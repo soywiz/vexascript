@@ -124,3 +124,7 @@ library. The shared collection path had modeled neither relation, so
 `Array.from("Ada")` selected an overload but rejected its argument. Element
 extraction, generic inference, and assignability now agree on this primitive
 collection contract.
+
+The iterable overload is independently exercised by `Promise.all("Ada")`.
+Accepting strings as `ArrayLike` was insufficient until assignability also
+recognized `string` as `Iterable<string>`.

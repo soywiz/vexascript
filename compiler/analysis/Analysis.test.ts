@@ -1851,6 +1851,16 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<int[]>");
   });
 
+  it("infers Promise.all values from strings", () => {
+    const source = dedent`
+      const values = Promise.all("Ada")
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<string[]>");
+  });
+
   it("infers Promise.race values from Set instances", () => {
     const source = dedent`
       const value = Promise.race(new Set([Promise.resolve(1)]))
