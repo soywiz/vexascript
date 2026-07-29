@@ -12,7 +12,8 @@ const ASYNC_ITERATOR_TYPE_NAMES = new Set([
 
 const ITERABLE_TYPE_NAMES = new Set([
   "AsyncGenerator", "AsyncIterator", "AsyncIteratorObject",
-  "Generator", "Iterator", "IteratorObject", "IterableIterator", "Iterable"
+  "Generator", "Iterator", "IteratorObject", "IterableIterator", "Iterable",
+  "Array", "ReadonlyArray", "Set", "ReadonlySet"
 ]);
 
 /** Builds a deduplicated union from a list of types, collapsing singletons. */
@@ -59,7 +60,7 @@ export function removeNullishFromType(type: AnalysisType): AnalysisType {
 
 /**
  * Returns the element type carried by a spread argument. Handles array
- * literals, tuples, and `Array<T>` generics; falls back to `unknown`.
+ * literals, tuples, and iterable generics; falls back to `unknown`.
  */
 export function spreadArgumentElementType(argumentType: AnalysisType): AnalysisType {
   if (argumentType instanceof ArrayType) {
@@ -68,10 +69,7 @@ export function spreadArgumentElementType(argumentType: AnalysisType): AnalysisT
   if (argumentType instanceof TupleType) {
     return argumentType.elements.length === 1 ? argumentType.elements[0]! : unionType(argumentType.elements);
   }
-  if (argumentType instanceof NamedType && argumentType.name === "Array" && argumentType.typeArguments?.[0]) {
-    return argumentType.typeArguments[0];
-  }
-  return UNKNOWN_TYPE;
+  return elementTypeFromIterable(argumentType);
 }
 
 /** Returns the element type for an iterable type, or `unknown` when not iterable. */

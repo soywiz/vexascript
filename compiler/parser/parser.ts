@@ -2780,7 +2780,7 @@ export class Parser {
                 }
             }
         }
-        return this.attachContextualObjectLiteralToBraceLambda(this.parseBraceLambdaExpressionFromConsumedOpen(openBrace, null));
+        return this.attachContextualObjectLiteralToBraceLambda(this.parseBraceLambdaExpressionFromConsumedOpen(openBrace));
     }
 
 

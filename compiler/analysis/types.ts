@@ -333,7 +333,8 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
     const receiver = type.parameters.find((parameter) => parameter.receiver);
     result = `${typeParameterPrefix}${receiver ? `${typeToStringInternal(receiver.type, seen)}.` : ""}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
   } else if (type instanceof ArrayType) {
-    result = `${type.isReadonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;
+    const elementType = typeToStringInternal(type.elementType, seen);
+    result = `${type.isReadonly === true ? "readonly " : ""}${needsParensForArrayElement(type.elementType) ? `(${elementType})` : elementType}[]`;
   } else if (type instanceof ObjectType) {
     if (type.properties.size === 0) {
       result = "object";
@@ -412,6 +413,10 @@ function optionalTypeMember(members: AnalysisType[]): AnalysisType | null {
 }
 
 function needsParensForOptionalType(type: AnalysisType): boolean {
+  return type instanceof FunctionType || type instanceof IntersectionType || type instanceof UnionType;
+}
+
+function needsParensForArrayElement(type: AnalysisType): boolean {
   return type instanceof FunctionType || type instanceof IntersectionType || type instanceof UnionType;
 }
 

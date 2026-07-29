@@ -4554,6 +4554,15 @@ export class TypeChecker {
       if (sourceType.name === "JSX.Element" && targetType.name === "VNode") {
         return true;
       }
+      if (
+        targetType.name === "ReadonlySetLike" &&
+        (sourceType.name === "Set" || sourceType.name === "ReadonlySet")
+      ) {
+        return this.isTypeAssignable(
+          sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE,
+          targetType.typeArguments?.[0] ?? UNKNOWN_TYPE
+        );
+      }
       if (sourceType.name === targetType.name) {
         const sourceTypeArguments = sourceType.typeArguments ?? [];
         const targetTypeArguments = targetType.typeArguments ?? [];
@@ -5407,13 +5416,9 @@ export class TypeChecker {
     returnType: AnalysisType,
     typeParameters: string[]
   ): boolean {
-    if (!(returnType instanceof NamedType)) {
-      return false;
-    }
-    if (typeParameters.includes(returnType.name)) {
-      return true;
-    }
-    return this.isTypePredicateType(returnType);
+    return this.typeContainsTypeParameterReference(returnType, new Set(typeParameters)) ||
+      this.typeContainsUnknown(returnType) ||
+      this.isTypePredicateType(returnType);
   }
 
   private isTypePredicateType(type: AnalysisType): boolean {
@@ -5867,6 +5872,44 @@ export class TypeChecker {
       }
     }
 
+    if (
+      parameterType instanceof NamedType &&
+      (parameterType.name === "Array" || parameterType.name === "ReadonlyArray") &&
+      argumentType instanceof ArrayType
+    ) {
+      const parameterElementType = parameterType.typeArguments?.[0];
+      if (parameterElementType) {
+        this.inferTypeParameterSubstitutions(
+          parameterElementType,
+          argumentType.elementType,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+      return;
+    }
+
+    if (
+      parameterType instanceof NamedType &&
+      parameterType.name === "ReadonlySetLike" &&
+      argumentType instanceof NamedType &&
+      (argumentType.name === "Set" || argumentType.name === "ReadonlySet")
+    ) {
+      const parameterElementType = parameterType.typeArguments?.[0];
+      const argumentElementType = argumentType.typeArguments?.[0];
+      if (parameterElementType && argumentElementType) {
+        this.inferTypeParameterSubstitutions(
+          parameterElementType,
+          argumentElementType,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+      return;
+    }
+
     if (parameterType instanceof NamedType && argumentType instanceof NamedType) {
       const parameterNamed = parameterType as NamedType;
       const argumentNamed = argumentType as NamedType;
@@ -5997,6 +6040,13 @@ export class TypeChecker {
     if (expandedParameterType instanceof ArrayType && expandedArgumentType instanceof ArrayType) {
       return true;
     }
+    if (
+      expandedParameterType instanceof NamedType &&
+      (expandedParameterType.name === "Array" || expandedParameterType.name === "ReadonlyArray") &&
+      expandedArgumentType instanceof ArrayType
+    ) {
+      return (expandedParameterType.typeArguments?.length ?? 0) === 1;
+    }
     if (expandedParameterType instanceof RangeType && expandedArgumentType instanceof RangeType) {
       return true;
     }
@@ -6121,6 +6171,32 @@ export class TypeChecker {
         if (this.typeContainsTypeParameterReference(property, typeParameters)) return true;
       }
       return false;
+    }
+    return false;
+  }
+
+  private typeContainsUnknown(type: AnalysisType): boolean {
+    if (isUnknownType(type)) {
+      return true;
+    }
+    if (type instanceof NamedType) {
+      return (type.typeArguments ?? []).some((argument) => this.typeContainsUnknown(argument));
+    }
+    if (type instanceof ArrayType || type instanceof RangeType) {
+      return this.typeContainsUnknown(type.elementType);
+    }
+    if (type instanceof TupleType) {
+      return type.elements.some((element) => this.typeContainsUnknown(element));
+    }
+    if (type instanceof UnionType || type instanceof IntersectionType) {
+      return type.types.some((member) => this.typeContainsUnknown(member));
+    }
+    if (type instanceof FunctionType) {
+      return type.parameters.some((parameter) => this.typeContainsUnknown(parameter.type)) ||
+        this.typeContainsUnknown(type.returnType);
+    }
+    if (type instanceof ObjectType) {
+      return [...type.properties.values()].some((property) => this.typeContainsUnknown(property));
     }
     return false;
   }

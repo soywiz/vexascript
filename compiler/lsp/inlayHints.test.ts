@@ -277,6 +277,24 @@ dedent`
     expect(labels).toContain(": Promise<string>");
   });
 
+  it("parenthesizes union element types in Promise.allSettled variable hints", async () => {
+    const source = dedent`
+      const settled = Promise.allSettled([Promise.resolve(1)])
+      `;
+    const session = createAnalysisSession(source);
+
+    expect(session.semanticIssues).toEqual([]);
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 20, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": Promise<(PromiseFulfilledResult<int> | PromiseRejectedResult)[]>");
+    expect(labels).not.toContain(": Promise<PromiseFulfilledResult<int> | PromiseRejectedResult[]>");
+  });
+
   it("uses default generic DOM type arguments for querySelector variable inlay hints", async () => {
     const source = dedent`
       sync fun main() {

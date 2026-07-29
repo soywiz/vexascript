@@ -146,6 +146,11 @@ describe("spreadArgumentElementType", () => {
     assert.equal(result, inner);
   });
 
+  it("returns T from Set<T> named type", () => {
+    const inner = builtin("int");
+    assert.equal(spreadArgumentElementType(namedType("Set", [inner])), inner);
+  });
+
   it("returns unknown for unrecognized types", () => {
     const result = spreadArgumentElementType(builtin("int"));
     assert.equal(result.kind, AnalysisTypeKind.Unknown);

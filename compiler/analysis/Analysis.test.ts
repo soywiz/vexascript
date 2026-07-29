@@ -1686,6 +1686,88 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<int[]>");
   });
 
+  it("contextually types flatMap brace callbacks with generic return unions", () => {
+    const source = dedent`
+      const flattened = [1].flatMap({ [it, it + 1] })
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("flattened")?.valueType).toBe("int[]");
+  });
+
+  it("infers Array.from element types from Set instances", () => {
+    const source = dedent`
+      const values = Array.from(new Set([1]))
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("int[]");
+  });
+
+  it("infers Promise.all values from Set instances", () => {
+    const source = dedent`
+      const values = Promise.all(new Set([Promise.resolve(1)]))
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<int[]>");
+  });
+
+  it("infers Promise.race values from Set instances", () => {
+    const source = dedent`
+      const value = Promise.race(new Set([Promise.resolve(1)]))
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("value")?.valueType).toBe("Promise<int>");
+  });
+
+  it("infers Promise.any values from Set instances", () => {
+    const source = dedent`
+      const value = Promise.any(new Set([Promise.resolve(1)]))
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("value")?.valueType).toBe("Promise<int>");
+  });
+
+  it("infers Promise.allSettled values from Set instances", () => {
+    const source = dedent`
+      const values = Promise.allSettled(new Set([Promise.resolve(1)]))
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe(
+      "Promise<(PromiseFulfilledResult<int> | PromiseRejectedResult)[]>"
+    );
+  });
+
+  it("infers array spreads from Set instances", () => {
+    const source = dedent`
+      const values = [...new Set([1])]
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("int[]");
+  });
+
+  it("infers Set union element types from Set arguments", () => {
+    const source = dedent`
+      const values = new Set([1]).union(new Set([2]))
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Set<int>");
+  });
+
   it("auto-wraps non-Promise annotations on async functions as Promise<T>", () => {
     const source = dedent`
       async function inferred(): number {

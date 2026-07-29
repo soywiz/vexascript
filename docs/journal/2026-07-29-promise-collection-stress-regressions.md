@@ -32,3 +32,35 @@ Applying callable-union normalization to an already bare function changed the
 representation of tuple-rest callbacks and caused diagnostics in the native
 language sample. Restricting normalization to union-wrapped callback types keeps
 the existing tuple-rest path intact.
+
+## Follow-up collection and display regressions
+
+Further adversarial probes found that the same standard declarations exposed
+several independent weak boundaries:
+
+- A TypeScript `this: Context` parameter inside a function-type annotation was
+  treated as an ordinary callback argument. This shifted `flatMap` callback
+  parameters and broke implicit `it` typing. It must be erased, not converted
+  into a Vexa receiver parameter.
+- Brace lambdas beginning with an array expression took the object-literal
+  disambiguation route and lost their implicit `it` parameter.
+- First-pass generic callback inference kept an `unknown`-shaped return type,
+  causing a valid `flatMap` result to be rejected before final inference.
+- The display layer rendered an array of a union as `A | B[]`, changing the
+  apparent type in inlay hints.
+- `Set<T>` was omitted from the common iterable and spread paths, leaving
+  `Array.from`, all Promise collection combinators, and array spreads with
+  unresolved element types.
+- ES2025 set operations accepted `ReadonlySetLike<T>`, but both generic
+  inference and assignability failed for ordinary `Set<T>` inputs.
+
+The resolution keeps these at shared boundaries: the function-type parser
+erases a leading TypeScript `this` parameter, brace-lambda fallback restores
+the implicit parameter, contextual callbacks erase unresolved return shapes,
+array displays parenthesize union elements, and `Set` participates in shared
+iterable/spread extraction. `ReadonlySetLike<T>` is handled as the structural
+collection contract it is, rather than by adding method-specific exceptions.
+
+Regression tests cover checker diagnostics, collection result types, the
+low-level iterable helper, parser type text, and the LSP inlay label for
+`Promise.allSettled`.

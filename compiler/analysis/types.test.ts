@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { AnalysisType, builtinType, isSameType, namedType, typeToString, UNKNOWN_TYPE, unionType } from "./types";
+import { AnalysisType, arrayType, builtinType, isSameType, namedType, typeToString, UNKNOWN_TYPE, unionType } from "./types";
 
 describe("analysis type factories", () => {
   it("uses AnalysisType as the runtime base class", () => {
@@ -23,6 +23,13 @@ describe("analysis type factories", () => {
 
   it("omits never when rendering a union with a reachable member", () => {
     assert.equal(typeToString(unionType([builtinType("string"), builtinType("never")])), "string");
+  });
+
+  it("parenthesizes union array elements", () => {
+    assert.equal(
+      typeToString(arrayType(unionType([namedType("PromiseFulfilledResult", [builtinType("int")]), namedType("PromiseRejectedResult")]))),
+      "(PromiseFulfilledResult<int> | PromiseRejectedResult)[]"
+    );
   });
 
   it("rejects missing runtime values before using the recursive-pair WeakMap", () => {

@@ -824,6 +824,10 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
     }
   }
 
+  if (!receiverTypeName && parameters[0]?.name === "this") {
+    parameters.shift();
+  }
+
   return {
     ...(receiverTypeName ? { receiverTypeName } : {}),
     parameters,

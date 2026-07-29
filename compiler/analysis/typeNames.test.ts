@@ -98,6 +98,13 @@ describe("parseFunctionTypeAnnotation", () => {
     });
   });
 
+  it("omits a leading TypeScript this parameter", () => {
+    expect(parseFunctionTypeAnnotation("(this: Context, value: string) => boolean")).toEqual({
+      parameters: [{ name: "value", typeName: "string" }],
+      returnTypeName: "boolean"
+    });
+  });
+
   it("parses a function type with no parameters", () => {
     const result = parseFunctionTypeAnnotation("() => void");
     expect(result).toEqual({ parameters: [], returnTypeName: "void" });
