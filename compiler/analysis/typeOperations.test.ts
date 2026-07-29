@@ -192,8 +192,12 @@ describe("elementTypeFromIterable", () => {
     );
   });
 
+  it("returns string elements from strings", () => {
+    assert.equal(elementTypeFromIterable(builtin("string")), builtin("string"));
+  });
+
   it("returns unknown for non-iterable types", () => {
-    const result = elementTypeFromIterable(builtin("string"));
+    const result = elementTypeFromIterable(builtin("int"));
     assert.equal(result.kind, AnalysisTypeKind.Unknown);
   });
 });

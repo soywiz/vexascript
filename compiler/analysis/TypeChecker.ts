@@ -4632,6 +4632,16 @@ export class TypeChecker {
       return this.isNamedTypeStructurallyAssignable(sourceType, targetType);
     }
 
+    if (
+      sourceType instanceof BuiltinType &&
+      sourceType.name === "string" &&
+      targetType instanceof NamedType &&
+      targetType.name === "ArrayLike" &&
+      (targetType.typeArguments?.length ?? 0) === 1
+    ) {
+      return this.isTypeAssignable(sourceType, targetType.typeArguments![0]!);
+    }
+
     if (isIntType(sourceType) && isNumberType(targetType)) {
       return true;
     }
@@ -5949,6 +5959,25 @@ export class TypeChecker {
         this.inferTypeParameterSubstitutions(
           parameterElementType,
           argumentType.elementType,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+      return;
+    }
+
+    if (
+      parameterType instanceof NamedType &&
+      parameterType.name === "ArrayLike" &&
+      argumentType instanceof BuiltinType &&
+      argumentType.name === "string"
+    ) {
+      const parameterElementType = parameterType.typeArguments?.[0];
+      if (parameterElementType) {
+        this.inferTypeParameterSubstitutions(
+          parameterElementType,
+          argumentType,
           typeParameters,
           explicitlyProvidedTypeParameters,
           substitutions

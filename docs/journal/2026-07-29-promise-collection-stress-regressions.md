@@ -118,3 +118,9 @@ without a Promise-specific diagnostic exception.
 The same positional preservation applies to `Promise.allSettled`: a typed
 tuple must produce a tuple of independently awaited settled-result unions,
 not one array whose fulfilled member contains the union of every position.
+
+Strings are both `Iterable<string>` and `ArrayLike<string>` in the standard
+library. The shared collection path had modeled neither relation, so
+`Array.from("Ada")` selected an overload but rejected its argument. Element
+extraction, generic inference, and assignability now agree on this primitive
+collection contract.

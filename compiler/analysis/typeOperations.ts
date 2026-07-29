@@ -2,7 +2,7 @@
  * Pure type-manipulation helpers. All functions are stateless and depend only
  * on their parameters plus the shared AnalysisType algebra.
  */
-import { type AnalysisType, NamedType, UnionType, ArrayType, TupleType, RangeType } from "./types";
+import { type AnalysisType, NamedType, UnionType, ArrayType, TupleType, RangeType, BuiltinType } from "./types";
 import { UNKNOWN_TYPE, builtinType, isSameType, literalType, tupleType, unionType } from "./types";
 import { isNullishType } from "./typeClassifiers";
 
@@ -76,6 +76,9 @@ export function spreadArgumentElementType(argumentType: AnalysisType): AnalysisT
 export function elementTypeFromIterable(type: AnalysisType): AnalysisType {
   if (type instanceof ArrayType) {
     return type.elementType;
+  }
+  if (type instanceof BuiltinType && type.name === "string") {
+    return type;
   }
   if (type instanceof TupleType) {
     return type.elements.length === 1 ? type.elements[0]! : unionType(type.elements);
