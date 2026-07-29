@@ -5527,6 +5527,13 @@ export class TypeChecker {
     ) {
       return expandedExpectedType;
     }
+    if (
+      expandedExpectedType instanceof NamedType &&
+      expandedExpectedType.name === "Iterable" &&
+      (expandedExpectedType.typeArguments?.length ?? 0) === 1
+    ) {
+      return arrayType(expandedExpectedType.typeArguments![0]!);
+    }
     if (!(expandedExpectedType instanceof UnionType)) {
       return null;
     }
@@ -10183,6 +10190,8 @@ export class TypeChecker {
 
     let inferredElementType: AnalysisType | undefined;
     const expectedElementType = this.expectedArrayElementType(expectedType);
+    const preservesUnresolvedExpectedElement = expectedElementType instanceof NamedType
+      && this.typeContainsUnresolvedNamedReference(expectedElementType, scope, new Set<string>());
     const actualElementTypes: AnalysisType[] = [];
     let hasExpectedElementMismatch = false;
 
@@ -10209,7 +10218,9 @@ export class TypeChecker {
         continue;
       }
 
-      inferredElementType = this.commonSupertype(inferredElementType, currentType);
+      inferredElementType = preservesUnresolvedExpectedElement
+        ? combineTypes([inferredElementType, currentType])
+        : this.commonSupertype(inferredElementType, currentType);
     }
 
     if (hasExpectedElementMismatch) {

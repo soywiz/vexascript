@@ -156,3 +156,12 @@ covariant collection path now forms a deduplicated union from its independent
 element substitutions. Applying the rule to all generic evidence was ruled out:
 it incorrectly mixed a contextual expected Promise type with an executor's
 actual type, weakening a useful incompatibility diagnostic.
+
+Plain heterogeneous array literals intentionally widened to `any[]`, but this
+also made `new Set([1, "two"])` infer `Set<any>`. The constructor's
+`Iterable<T>` parameter now gives an array literal an `Array<T>` context; while
+that element target remains an unresolved generic, the literal keeps its
+incompatible element candidates as a union for inference. A first attempt to
+make every array literal use unions broke existing tuple-based constructor
+inference, so the preservation is deliberately limited to this contextual
+generic collection path.
