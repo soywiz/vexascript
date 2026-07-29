@@ -1748,6 +1748,19 @@ let bad = "Ada" satisfies number
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("narrows contradictory literal-union conjunctions to never", () => {
+    const source = dedent`
+      fun handle(kind: "ok" | "error") {
+        if (kind === "ok" && kind === "error") {
+          const unreachable: never = kind
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("combines discriminant narrowings across true disjunctions", () => {
     const source = dedent`
       type Result = { kind: "a", a: int } | { kind: "b", b: int } | { kind: "c", c: int }

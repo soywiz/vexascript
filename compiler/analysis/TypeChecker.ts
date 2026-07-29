@@ -2240,10 +2240,10 @@ export class TypeChecker {
       );
     }
     if ((binary.operator === "&&" && truthy) || (binary.operator === "||" && !truthy)) {
-      return new Map([
-        ...this.conditionNarrowings(binary.left, scope, truthy),
-        ...this.conditionNarrowings(binary.right, scope, truthy)
-      ]);
+      return this.intersectNarrowings(
+        this.conditionNarrowings(binary.left, scope, truthy),
+        this.conditionNarrowings(binary.right, scope, truthy)
+      );
     }
     const narrowing = this.conditionNarrowingInfo(binary, scope);
     if (!(narrowing?.expression instanceof Identifier)) return new Map();
@@ -2346,6 +2346,26 @@ export class TypeChecker {
     return result;
   }
 
+  private intersectNarrowings(
+    left: Map<string, AnalysisType>,
+    right: Map<string, AnalysisType>
+  ): Map<string, AnalysisType> {
+    const result = new Map(left);
+    for (const [key, rightType] of right) {
+      const leftType = result.get(key);
+      if (!leftType) {
+        result.set(key, rightType);
+      } else if (this.isTypeAssignable(leftType, rightType)) {
+        result.set(key, leftType);
+      } else if (this.isTypeAssignable(rightType, leftType)) {
+        result.set(key, rightType);
+      } else {
+        result.set(key, builtinType("never"));
+      }
+    }
+    return result;
+  }
+
   private conditionExpressionNarrowings(condition: Expr, scope: Scope, truthy: boolean): Map<string, AnalysisType> {
     if (condition instanceof UnaryExpression && (condition as UnaryExpression).operator === "!") {
       return this.conditionExpressionNarrowings((condition as UnaryExpression).argument, scope, !truthy);
@@ -2365,10 +2385,10 @@ export class TypeChecker {
         );
       }
       if ((binary.operator === "&&" && truthy) || (binary.operator === "||" && !truthy)) {
-        return new Map([
-          ...this.conditionExpressionNarrowings(binary.left, scope, truthy),
-          ...this.conditionExpressionNarrowings(binary.right, scope, truthy)
-        ]);
+        return this.intersectNarrowings(
+          this.conditionExpressionNarrowings(binary.left, scope, truthy),
+          this.conditionExpressionNarrowings(binary.right, scope, truthy)
+        );
       }
       const narrowing = this.conditionNarrowingInfo(binary, scope);
       const stableKey = narrowing && this.stableExpressionKey(narrowing.expression);

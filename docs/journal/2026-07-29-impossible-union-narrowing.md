@@ -10,3 +10,9 @@ at least one member of the original union. It returns `never` when none match,
 while retaining the checked literal for compatible unions such as `string |
 number`. The regression assigns the unreachable value to `never`, matching
 TypeScript's control-flow result.
+
+The same issue affected compound conditions: the later fact in `kind === "ok"
+&& kind === "error"` overwrote the earlier fact. The checker now intersects
+facts for branches that require both conditions to hold, for both identifiers
+and stable member expressions. Incompatible facts reduce to `never` instead of
+pretending the final comparison is reachable.
