@@ -107,3 +107,10 @@ The auto-await detector originally recognized only a direct `Promise` or
 therefore escaped auto-await in a `sync` function. It now compares the shared
 recursive awaited result to the original type, which also covers unions without
 adding a second Promise-shape classifier.
+
+Typed Promise tuples exposed a related generic boundary: the iterable overload
+had to infer `T` from `Iterable<T | PromiseLike<T>>`, accept tuple elements as
+iterable values, and recognize `Promise<T>` as assignable to `PromiseLike<T>`.
+Keeping those rules in generic inference and assignability restores
+`Promise.all([Promise<int>, Promise<string>])` as `Promise<[int, string]>`
+without a Promise-specific diagnostic exception.

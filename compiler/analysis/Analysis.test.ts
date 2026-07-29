@@ -1780,6 +1780,17 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 1, 6).get("values")?.valueType).toBe("Promise<int[]>");
   });
 
+  it("preserves typed tuple shapes in Promise.all", () => {
+    const source = dedent`
+      const promises: [Promise<int>, Promise<string>] = [Promise.resolve(1), Promise.resolve("ok")]
+      const values = Promise.all(promises)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 1, 6).get("values")?.valueType).toBe("Promise<[int, string]>");
+  });
+
   it("contextually types flatMap brace callbacks with generic return unions", () => {
     const source = dedent`
       const flattened = [1].flatMap({ [it, it + 1] })

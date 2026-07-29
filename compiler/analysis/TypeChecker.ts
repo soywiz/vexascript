@@ -3041,7 +3041,9 @@ export class TypeChecker {
                 const awaitedElementType = this.awaitedUtilityType(elementType);
                 let resultValueType: AnalysisType = awaitedElementType;
                 if ((property as Identifier).name === "all") {
-                  resultValueType = arrayType(awaitedElementType);
+                  resultValueType = argumentTypes[0] instanceof TupleType
+                    ? tupleType(argumentTypes[0].elements.map((element) => this.awaitedUtilityType(element)))
+                    : arrayType(awaitedElementType);
                 } else if ((property as Identifier).name === "allSettled") {
                   resultValueType = arrayType(unionType([
                     namedType("PromiseFulfilledResult", [awaitedElementType]),
@@ -4397,6 +4399,15 @@ export class TypeChecker {
       return sourceType.elements.every((element) => this.isTypeAssignable(element, targetType.elementType));
     }
 
+    if (
+      sourceType instanceof TupleType &&
+      targetType instanceof NamedType &&
+      targetType.name === "Iterable" &&
+      (targetType.typeArguments?.length ?? 0) === 1
+    ) {
+      return sourceType.elements.every((element) => this.isTypeAssignable(element, targetType.typeArguments![0]!));
+    }
+
     if (sourceType instanceof TupleType && targetType instanceof TupleType) {
       if (sourceType.isReadonly === true && targetType.isReadonly !== true) {
         return false;
@@ -4592,6 +4603,15 @@ export class TypeChecker {
       if (
         targetType.name === "ReadonlySetLike" &&
         (sourceType.name === "Set" || sourceType.name === "ReadonlySet")
+      ) {
+        return this.isTypeAssignable(
+          sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE,
+          targetType.typeArguments?.[0] ?? UNKNOWN_TYPE
+        );
+      }
+      if (
+        targetType.name === "PromiseLike" &&
+        (sourceType.name === "Promise" || sourceType.name === "PromiseLike")
       ) {
         return this.isTypeAssignable(
           sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE,
@@ -5896,6 +5916,15 @@ export class TypeChecker {
       const elementType = elementTypeFromIterable(argumentType);
       const parameterElementType = parameterType.typeArguments?.[0];
       if (parameterElementType && !isUnknownType(elementType)) {
+        const promiseValueTypeParameter = this.promiseLikeIterableValueTypeParameter(parameterElementType, typeParameters);
+        if (promiseValueTypeParameter) {
+          this.mergeInferredTypeParameterSubstitution(
+            promiseValueTypeParameter,
+            this.awaitedUtilityType(elementType),
+            substitutions
+          );
+          return;
+        }
         this.inferTypeParameterSubstitutions(
           parameterElementType,
           elementType,
@@ -13560,6 +13589,25 @@ export class TypeChecker {
     const unwrapped = unwrapPromiseType(sourceType)
       ?? (sourceType instanceof NamedType && sourceType.name === "PromiseLike" ? namedTypeArgument(sourceType, 0) ?? UNKNOWN_TYPE : null);
     return unwrapped ? this.awaitedUtilityType(unwrapped) : sourceType;
+  }
+
+  private promiseLikeIterableValueTypeParameter(
+    elementType: AnalysisType,
+    typeParameters: Set<string>
+  ): string | null {
+    if (!(elementType instanceof UnionType)) {
+      return null;
+    }
+    for (const member of elementType.types) {
+      if (!(member instanceof NamedType) || member.name !== "PromiseLike") {
+        continue;
+      }
+      const valueType = member.typeArguments?.[0];
+      if (valueType instanceof NamedType && typeParameters.has(valueType.name)) {
+        return valueType.name;
+      }
+    }
+    return null;
   }
 
   private constructorParametersUtilityType(sourceType: AnalysisType): AnalysisType | null {
