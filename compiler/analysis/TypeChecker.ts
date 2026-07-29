@@ -2742,7 +2742,7 @@ export class TypeChecker {
           result = consequentType;
           break;
         }
-        result = UNKNOWN_TYPE;
+        result = combineTypes([consequentType, alternateType]);
         break;
       }
       case NodeKind.MemberExpression: {
@@ -3017,6 +3017,40 @@ export class TypeChecker {
               const syntheticOutputType = this.syntheticSchemaOutputType(receiverType);
               if (syntheticOutputType) {
                 resolvedReturnType = syntheticOutputType;
+              }
+            }
+            if (
+              property instanceof Identifier &&
+              (property as Identifier).name === "resolve" &&
+              memberExpression.object instanceof Identifier &&
+              (memberExpression.object as Identifier).name === "Promise" &&
+              argumentTypes.length > 0
+            ) {
+              const resolvedValueType = explicitTypeArguments[0] ?? argumentTypes[0]!;
+              resolvedReturnType = namedType("Promise", [this.awaitedUtilityType(resolvedValueType)]);
+            }
+            if (
+              property instanceof Identifier &&
+              ["all", "race", "any", "allSettled"].includes((property as Identifier).name) &&
+              memberExpression.object instanceof Identifier &&
+              (memberExpression.object as Identifier).name === "Promise" &&
+              argumentTypes[0]
+            ) {
+              const elementType = elementTypeFromIterable(argumentTypes[0]!);
+              if (!isUnknownType(elementType)) {
+                const awaitedElementType = this.awaitedUtilityType(elementType);
+                let resultValueType: AnalysisType = awaitedElementType;
+                if ((property as Identifier).name === "all") {
+                  resultValueType = arrayType(awaitedElementType);
+                } else if ((property as Identifier).name === "allSettled") {
+                  resultValueType = arrayType(unionType([
+                    namedType("PromiseFulfilledResult", [awaitedElementType]),
+                    namedType("PromiseRejectedResult")
+                  ]));
+                }
+                resolvedReturnType = namedType("Promise", [
+                  resultValueType
+                ]);
               }
             }
           }
@@ -3614,16 +3648,16 @@ export class TypeChecker {
     // type, while the set of auto-awaited nodes tells the emitter where to insert `await`. `go expr`
     // opts out (it is never added here), and positions such as `await`/`go` operands, `.then`-style
     // member receivers and `return` expressions pass `suppressAutoAwait`.
-    const resultIsPromise = result instanceof NamedType && result.name === "Promise";
+    const resultIsAwaitable = result instanceof NamedType && (result.name === "Promise" || result.name === "PromiseLike");
     if (
       !suppressAutoAwait &&
       this.isInsideSyncFunction() &&
       !this.isGoExpression(expression) &&
       !this.isLocalValueReference(expression, scope) &&
-      resultIsPromise
+      resultIsAwaitable
     ) {
       this.autoAwaitExpressions.add(expression);
-      result = unwrapPromiseType(result) ?? result;
+      result = this.evaluateAwaitedType(result);
     }
 
     this.expressionTypes.set(expression, result);
@@ -14048,13 +14082,17 @@ export class TypeChecker {
   }
 
   private evaluateAwaitedType(inner: AnalysisType): AnalysisType {
-    if (inner instanceof NamedType) {
-      const namedInner = inner as NamedType;
-      if ((namedInner.name === "Promise" || namedInner.name === "PromiseLike") && namedInner.typeArguments?.length === 1) {
-        return namedInner.typeArguments[0]!;
+    const seen = new Set<AnalysisType>();
+    let current = inner;
+    while (current instanceof NamedType) {
+      if (seen.has(current)) return current;
+      seen.add(current);
+      if ((current.name !== "Promise" && current.name !== "PromiseLike") || current.typeArguments?.length !== 1) {
+        return current;
       }
+      current = current.typeArguments[0]!;
     }
-    return inner;
+    return current;
   }
 
   private substituteTypeParametersInComputedName(

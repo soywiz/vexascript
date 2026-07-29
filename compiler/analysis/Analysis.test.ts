@@ -1666,6 +1666,66 @@ let bad = "Ada" satisfies number
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("recursively unwraps nested Promise values in Promise.resolve", () => {
+    const source = dedent`
+      const value = Promise.resolve(Promise.resolve(10))
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("value")?.valueType).toBe("Promise<int>");
+  });
+
+  it("recursively unwraps awaitable values in sync functions", () => {
+    const source = dedent`
+      declare fun read(): PromiseLike<Promise<string>>
+      sync fun main() {
+        val contents = read()
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 2, 10).get("contents")?.valueType).toBe("string");
+  });
+
+  it("narrows discriminated object unions after checking a member", () => {
+    const source = dedent`
+      type Result = { kind: "ok", value: int } | { kind: "error", message: string }
+      fun handle(result: Result) {
+        if (result.kind === "ok") {
+          const value: int = result.value
+        } else {
+          const message: string = result.message
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows discriminated object unions in switch cases", () => {
+    const source = dedent`
+      type Result = { kind: "ok", value: int } | { kind: "error", message: string }
+      fun handle(result: Result) {
+        switch (result.kind) {
+          case "ok": {
+            const value: int = result.value
+            break
+          }
+          case "error": {
+            const message: string = result.message
+            break
+          }
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("accepts zero-parameter Promise.catch callbacks", () => {
     const source = dedent`
       const recovered = Promise.resolve("value").catch({ "fallback" })
@@ -1686,6 +1746,17 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<int[]>");
   });
 
+  it("recursively unwraps declared nested Promise values in Promise.all", () => {
+    const source = dedent`
+      declare const nested: Promise<Promise<int>>[]
+      const values = Promise.all(nested)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 1, 6).get("values")?.valueType).toBe("Promise<int[]>");
+  });
+
   it("contextually types flatMap brace callbacks with generic return unions", () => {
     const source = dedent`
       const flattened = [1].flatMap({ [it, it + 1] })
@@ -1699,6 +1770,16 @@ let bad = "Ada" satisfies number
   it("infers Array.from element types from Set instances", () => {
     const source = dedent`
       const values = Array.from(new Set([1]))
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("int[]");
+  });
+
+  it("contextually types Array.from mapping callbacks for iterable inputs", () => {
+    const source = dedent`
+      const values = Array.from(new Set([1]), { it + 1 })
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -1736,6 +1817,20 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("value")?.valueType).toBe("Promise<int>");
   });
 
+  it("recursively unwraps declared nested Promise values in Promise.race and Promise.any", () => {
+    const source = dedent`
+      declare const nested: Promise<Promise<int>>
+      const raced = Promise.race([nested])
+      const any = Promise.any([nested])
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    const symbols = symbolsOfVisibleSymbolsAt(source, 1, 6);
+    expect(symbols.get("raced")?.valueType).toBe("Promise<int>");
+    expect(symbols.get("any")?.valueType).toBe("Promise<int>");
+  });
+
   it("infers Promise.allSettled values from Set instances", () => {
     const source = dedent`
       const values = Promise.allSettled(new Set([Promise.resolve(1)]))
@@ -1744,6 +1839,19 @@ let bad = "Ada" satisfies number
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe(
+      "Promise<(PromiseFulfilledResult<int> | PromiseRejectedResult)[]>"
+    );
+  });
+
+  it("recursively unwraps declared nested Promise values in Promise.allSettled", () => {
+    const source = dedent`
+      declare const nested: Promise<Promise<int>>[]
+      const values = Promise.allSettled(nested)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 1, 6).get("values")?.valueType).toBe(
       "Promise<(PromiseFulfilledResult<int> | PromiseRejectedResult)[]>"
     );
   });
@@ -3112,6 +3220,7 @@ let bad = "Ada" satisfies number
   it("infers types for ternary, nullish coalescing, relational keywords, and unary word operators", () => {
     const source = dedent`
       let a = true ? 1 : 2
+      let mixed = true ? 1 : "fallback"
       let b = maybe ?? 10
       let c = item in obj
       let d = item instanceof Point
@@ -3123,6 +3232,7 @@ let bad = "Ada" satisfies number
     const symbols = symbolsOfVisibleSymbolsAt(source, 6, 5);
 
     expect(symbols.get("a")?.valueType).toBe("int");
+    expect(symbols.get("mixed")?.valueType).toBe("int | string");
     expect(symbols.get("b")?.valueType).toBe("int");
     expect(symbols.get("c")?.valueType).toBe("boolean");
     expect(symbols.get("d")?.valueType).toBe("boolean");

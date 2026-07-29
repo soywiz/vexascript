@@ -8,11 +8,27 @@ import type { ClassResolverOptions } from "./classResolver";
 import { pickFunctionReturnTypeFromBody } from "./inlayHints";
 import { findBestMatchAtPosition } from "./nodeSearch";
 import { nodeRange, rangeSize, tokenRange, type Position } from "./ranges";
+import { parseTypeNameShape } from "compiler/analysis/typeNames";
 
 type FunctionLikeNode = FunctionStatement | ClassMethodMember;
 
 interface ReturnTypeTarget {
   node: FunctionLikeNode;
+}
+
+function awaitedTypeName(typeName: string): string {
+  let current = typeName;
+  while (true) {
+    const parsed = parseTypeNameShape(current);
+    if ((parsed.baseName !== "Promise" && parsed.baseName !== "PromiseLike") || parsed.typeArguments.length === 0) {
+      return current;
+    }
+    const next = parsed.typeArguments[0]!;
+    if (next === current) {
+      return current;
+    }
+    current = next;
+  }
 }
 
 /**
@@ -94,7 +110,7 @@ export async function createReturnTypeCodeActions(params: {
     return [];
   }
 
-  const returnType = target.node.async === true ? `Promise<${inferred}>` : inferred;
+  const returnType = target.node.async === true ? `Promise<${awaitedTypeName(inferred)}>` : inferred;
 
   const closeParenRange = tokenRange(target.node.parametersCloseParen);
   if (!closeParenRange) {

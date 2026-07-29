@@ -158,6 +158,11 @@ describe("spreadArgumentElementType", () => {
 });
 
 describe("elementTypeFromIterable", () => {
+  it("returns a union from tuple elements", () => {
+    const result = elementTypeFromIterable(tuple(builtin("int"), builtin("string")));
+    assert.equal(result.kind, AnalysisTypeKind.Union);
+  });
+
   it("returns element type from array types", () => {
     const inner = builtin("int");
     assert.equal(elementTypeFromIterable(array(inner)), inner);

@@ -260,6 +260,27 @@ dedent`
     expect(labels).not.toContain(": Promise<Promise<string> | never>");
   });
 
+  it("recursively unwraps auto-awaited Promise values in variable hints", async () => {
+    const source = dedent`
+      declare fun read(): PromiseLike<Promise<string>>
+      sync fun main() {
+        val contents = read()
+      }
+      `;
+    const session = createAnalysisSession(source);
+
+    expect(session.semanticIssues).toEqual([]);
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 20, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": string");
+    expect(labels).not.toContain(": Promise<string>");
+  });
+
   it("keeps zero-parameter catch callbacks valid in variable inlay hints", async () => {
     const source = dedent`
       const recovered = Promise.resolve("value").catch({ "fallback" })

@@ -87,6 +87,57 @@ describe("explicit return type quick fixes", () => {
     );
   });
 
+  it("does not double-wrap Promise values returned by async functions", async () => {
+    const source = "async function load() {\n  return Promise.resolve(1)\n}\n";
+    const session = createAnalysisSession(source);
+    const actions = await createReturnTypeCodeActions({
+      uri: URI,
+      ast: session.ast,
+      analysis: session.analysis,
+      position: { line: 0, character: 21 }
+    });
+
+    expect(actions).toHaveLength(1);
+    const edits = actions[0]?.edit?.changes?.[URI] ?? [];
+    expect(applyEdits(source, edits)).toBe(
+      "async function load(): Promise<int> {\n  return Promise.resolve(1)\n}\n"
+    );
+  });
+
+  it("uses a union when return statements infer different types", async () => {
+    const source = "function format(ok: boolean) {\n  if (ok) return 1\n  return \"fallback\"\n}\n";
+    const session = createAnalysisSession(source);
+    const actions = await createReturnTypeCodeActions({
+      uri: URI,
+      ast: session.ast,
+      analysis: session.analysis,
+      position: { line: 0, character: 28 }
+    });
+
+    expect(actions).toHaveLength(1);
+    const edits = actions[0]?.edit?.changes?.[URI] ?? [];
+    expect(applyEdits(source, edits)).toBe(
+      "function format(ok: boolean): int | string {\n  if (ok) return 1\n  return \"fallback\"\n}\n"
+    );
+  });
+
+  it("deduplicates members contributed by union return expressions", async () => {
+    const source = "function format(ok: boolean, other: boolean) {\n  if (ok) return 1\n  return other ? 2 : \"fallback\"\n}\n";
+    const session = createAnalysisSession(source);
+    const actions = await createReturnTypeCodeActions({
+      uri: URI,
+      ast: session.ast,
+      analysis: session.analysis,
+      position: { line: 0, character: 44 }
+    });
+
+    expect(actions).toHaveLength(1);
+    const edits = actions[0]?.edit?.changes?.[URI] ?? [];
+    expect(applyEdits(source, edits)).toBe(
+      "function format(ok: boolean, other: boolean): int | string {\n  if (ok) return 1\n  return other ? 2 : \"fallback\"\n}\n"
+    );
+  });
+
   it("adds a return type to a class method", async () => {
     const source = "class C {\n  greet() {\n    return \"hi\"\n  }\n}\n";
     const session = createAnalysisSession(source);

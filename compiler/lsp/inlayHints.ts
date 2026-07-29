@@ -21,23 +21,36 @@ const InlayHintKind = {
 } as const;
 
 function unwrapPromiseTypeForDisplay(type: AnalysisType): AnalysisType {
-  if (
-    type instanceof NamedType &&
-    type.name === "Promise" &&
-    type.typeArguments &&
-    type.typeArguments.length > 0
+  const seen = new Set<AnalysisType>();
+  let current = type;
+  while (
+    current instanceof NamedType &&
+    (current.name === "Promise" || current.name === "PromiseLike") &&
+    current.typeArguments &&
+    current.typeArguments.length > 0
   ) {
-    return type.typeArguments[0]!;
+    if (seen.has(current)) {
+      break;
+    }
+    seen.add(current);
+    current = current.typeArguments[0]!;
   }
-  return type;
+  return current;
 }
 
 function unwrapPromiseTypeNameForDisplay(typeName: string): string {
-  const parsed = parseTypeNameShape(typeName);
-  if (parsed.baseName === "Promise" && parsed.typeArguments.length > 0) {
-    return parsed.typeArguments[0]!;
+  let current = typeName;
+  while (true) {
+    const parsed = parseTypeNameShape(current);
+    if ((parsed.baseName !== "Promise" && parsed.baseName !== "PromiseLike") || parsed.typeArguments.length === 0) {
+      return current;
+    }
+    const next = parsed.typeArguments[0]!;
+    if (next === current) {
+      return current;
+    }
+    current = next;
   }
-  return typeName;
 }
 
 function callableReturnTypeNameFromValueType(valueType: string | undefined): string | null {
@@ -220,19 +233,17 @@ export async function pickFunctionReturnTypeFromBody(
   ast: Program,
   options: ClassResolverOptions
 ): Promise<string | null> {
-  let resolved: string | null = null;
-  let conflict = false;
+  const returnTypes: string[] = [];
 
   const consider = (typeName: string | null): void => {
     if (!typeName || typeName === "unknown") {
       return;
     }
-    if (!resolved) {
-      resolved = typeName;
-      return;
-    }
-    if (resolved !== typeName) {
-      conflict = true;
+    for (const branch of splitTopLevelTypeText(typeName, "|")) {
+      const normalized = branch.trim();
+      if (normalized && !returnTypes.includes(normalized)) {
+        returnTypes.push(normalized);
+      }
     }
   };
 
@@ -276,10 +287,10 @@ export async function pickFunctionReturnTypeFromBody(
     await visitStatement(statement);
   }
 
-  if (conflict) {
+  if (returnTypes.length === 0) {
     return null;
   }
-  return resolved;
+  return returnTypes.join(" | ");
 }
 
 interface FunctionLikeSignatureNode {

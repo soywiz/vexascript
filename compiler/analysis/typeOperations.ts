@@ -77,6 +77,9 @@ export function elementTypeFromIterable(type: AnalysisType): AnalysisType {
   if (type instanceof ArrayType) {
     return type.elementType;
   }
+  if (type instanceof TupleType) {
+    return type.elements.length === 1 ? type.elements[0]! : unionType(type.elements);
+  }
   if (type instanceof RangeType) {
     return type.elementType;
   }

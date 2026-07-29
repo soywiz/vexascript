@@ -64,3 +64,32 @@ collection contract it is, rather than by adding method-specific exceptions.
 Regression tests cover checker diagnostics, collection result types, the
 low-level iterable helper, parser type text, and the LSP inlay label for
 `Promise.allSettled`.
+
+## Awaited values and return-type actions
+
+Additional probes found a second family of bugs around values that are already
+awaitable:
+
+- Static `Promise.resolve`, `all`, `race`, `any`, and `allSettled` did not
+  consistently apply recursive `Awaited<T>` when their generic overload fell
+  back to the iterable declaration. Declared nested promises were therefore
+  displayed as `Promise<Promise<T>>` after a single combinator call.
+- Pervasive auto-await inside `sync` functions only removed one `Promise`
+  layer and did not recognize `PromiseLike<T>`. The checker and the inlay
+  display could consequently disagree about the visible local type.
+- The "add explicit return type" action wrapped an already promised return
+  value from an `async` function, generating `Promise<Promise<T>>`. It also
+  refused to offer a fix when return statements had different compatible
+  types, despite a union being a valid annotation.
+- Conditional expressions with unrelated branch types were inferred as
+  `unknown`, which hid the second return type from the action and weakened
+  normal diagnostics.
+
+The checker now uses its recursive awaited-type operation for implicit awaits,
+the LSP presentation follows the same recursive Promise/PromiseLike rule, and
+the return-type utility builds a deduplicated top-level union. Conditional
+expressions retain the nearest common assignable type when one exists and use
+a union otherwise. A discarded investigation tried to broaden generic
+substitution merging globally for tuple Promise calls; it changed unrelated
+Promise constructor inference, so the change was reverted rather than leaving
+a broad compatibility regression.
