@@ -186,3 +186,11 @@ equivalent `Iterable<T>`/`ArrayLike<T>` contextual branches share an array
 context. Union-member lookup also now requires a member on every non-nullish
 branch; accepting a method that existed on only one branch masked errors after
 the contextual type was restored.
+
+An attempted direct validation of every union member access was rolled back:
+the existing discriminated-union narrowing records a narrowed discriminator
+expression such as `result.kind`, rather than an eagerly narrowed `result`
+object. Enforcing the rule before that structural refinement rejected valid
+`switch` branches. The contextual callback path remains protected because an
+unknown member result cannot satisfy its inferred mapper return type; direct
+union-member diagnostics need to be coupled to the discriminant refinement.
