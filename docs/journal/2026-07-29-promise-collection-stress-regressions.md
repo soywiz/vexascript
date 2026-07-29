@@ -172,3 +172,8 @@ the widened array argument directly. A heterogeneous literal therefore became
 now reads the literal's structural element types solely to derive its awaited
 element union, while retaining TypeScript's ordinary array result for an
 unannotated literal and reserving tuple results for an already typed tuple.
+
+The same static path had no empty-literal case and converted `[]` to `void`.
+It now preserves the positional empty tuple for `Promise.all([])` and
+`Promise.allSettled([])`, while `Promise.race([])` and `Promise.any([])` use
+the standard unreachable `Promise<never>` result.

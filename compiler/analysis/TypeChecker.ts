@@ -3039,12 +3039,15 @@ export class TypeChecker {
               const collectionArgumentType = call.args[0] instanceof ArrayLiteral
                 ? this.tupleTypeFromArrayLiteral(call.args[0] as ArrayLiteral)
                 : argumentTypes[0]!;
+              const isEmptyArrayLiteral = call.args[0] instanceof ArrayLiteral && (call.args[0] as ArrayLiteral).elements.length === 0;
               const elementType = elementTypeFromIterable(collectionArgumentType);
               if (!isUnknownType(elementType)) {
                 const awaitedElementType = this.awaitedUtilityType(elementType);
-                let resultValueType: AnalysisType = awaitedElementType;
+                let resultValueType: AnalysisType = isEmptyArrayLiteral ? builtinType("never") : awaitedElementType;
                 if ((property as Identifier).name === "all") {
-                  resultValueType = collectionArgumentType instanceof TupleType && !(call.args[0] instanceof ArrayLiteral)
+                  resultValueType = isEmptyArrayLiteral
+                    ? tupleType([])
+                    : collectionArgumentType instanceof TupleType && !(call.args[0] instanceof ArrayLiteral)
                     ? tupleType(collectionArgumentType.elements.map((element) => this.awaitedUtilityType(element)))
                     : arrayType(awaitedElementType);
                 } else if ((property as Identifier).name === "allSettled") {
@@ -3052,7 +3055,9 @@ export class TypeChecker {
                     namedType("PromiseFulfilledResult", [this.awaitedUtilityType(element)]),
                     namedType("PromiseRejectedResult")
                   ]);
-                  resultValueType = collectionArgumentType instanceof TupleType && !(call.args[0] instanceof ArrayLiteral)
+                  resultValueType = isEmptyArrayLiteral
+                    ? tupleType([])
+                    : collectionArgumentType instanceof TupleType && !(call.args[0] instanceof ArrayLiteral)
                     ? tupleType(collectionArgumentType.elements.map(settledResultType))
                     : arrayType(settledResultType(awaitedElementType));
                 }

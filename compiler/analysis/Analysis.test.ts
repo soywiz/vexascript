@@ -1901,6 +1901,21 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<(int | string)[]>");
   });
 
+  it("preserves empty Promise collection result types", () => {
+    const source = dedent`
+      const all = Promise.all([])
+      const race = Promise.race([])
+      const settled = Promise.allSettled([])
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const symbols = symbolsOfVisibleSymbolsAt(source, 0, 6);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbols.get("all")?.valueType).toBe("Promise<[]>");
+    expect(symbols.get("race")?.valueType).toBe("Promise<never>");
+    expect(symbols.get("settled")?.valueType).toBe("Promise<[]>");
+  });
+
   it("infers constrained WeakMap constructor type parameters", () => {
     const source = dedent`
       const key = {}
