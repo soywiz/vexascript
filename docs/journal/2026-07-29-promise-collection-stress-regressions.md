@@ -93,3 +93,17 @@ a union otherwise. A discarded investigation tried to broaden generic
 substitution merging globally for tuple Promise calls; it changed unrelated
 Promise constructor inference, so the change was reverted rather than leaving
 a broad compatibility regression.
+
+A follow-up async quick-fix probe showed that `Awaited` must distribute over a
+top-level union: returning either `Promise<int>` or `int` from an `async`
+function should produce `Promise<int>`, not `Promise<Promise<int> | int>`.
+The return-type action now splits only top-level union members before applying
+the same recursive Promise/PromiseLike unwrapping. The shared return collector
+also powers inlay return hints, so a function with `int` and `string` returns
+now receives the useful `: int | string` hint instead of no hint.
+
+The auto-await detector originally recognized only a direct `Promise` or
+`PromiseLike` named type. A call returning `Promise<int> | Promise<string>`
+therefore escaped auto-await in a `sync` function. It now compares the shared
+recursive awaited result to the original type, which also covers unions without
+adding a second Promise-shape classifier.

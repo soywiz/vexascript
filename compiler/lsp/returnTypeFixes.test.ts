@@ -104,6 +104,23 @@ describe("explicit return type quick fixes", () => {
     );
   });
 
+  it("distributes awaiting across mixed async return unions", async () => {
+    const source = "async function load(ok: boolean) {\n  return ok ? Promise.resolve(1) : 2\n}\n";
+    const session = createAnalysisSession(source);
+    const actions = await createReturnTypeCodeActions({
+      uri: URI,
+      ast: session.ast,
+      analysis: session.analysis,
+      position: { line: 0, character: 32 }
+    });
+
+    expect(actions).toHaveLength(1);
+    const edits = actions[0]?.edit?.changes?.[URI] ?? [];
+    expect(applyEdits(source, edits)).toBe(
+      "async function load(ok: boolean): Promise<int> {\n  return ok ? Promise.resolve(1) : 2\n}\n"
+    );
+  });
+
   it("uses a union when return statements infer different types", async () => {
     const source = "function format(ok: boolean) {\n  if (ok) return 1\n  return \"fallback\"\n}\n";
     const session = createAnalysisSession(source);

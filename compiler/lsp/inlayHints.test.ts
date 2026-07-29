@@ -48,6 +48,24 @@ dedent`
     );
   });
 
+  it("uses unions for inferred function return hints", async () => {
+    const source = dedent`
+      fun format(ok: boolean) {
+        if (ok) return 1
+        return "fallback"
+      }
+      `;
+    const session = createAnalysisSession(source);
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 10, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": int | string");
+  });
+
   it("provides constructor parameter name hints for new expressions", async () => {
     const source =
 dedent`

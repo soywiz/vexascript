@@ -3648,7 +3648,8 @@ export class TypeChecker {
     // type, while the set of auto-awaited nodes tells the emitter where to insert `await`. `go expr`
     // opts out (it is never added here), and positions such as `await`/`go` operands, `.then`-style
     // member receivers and `return` expressions pass `suppressAutoAwait`.
-    const resultIsAwaitable = result instanceof NamedType && (result.name === "Promise" || result.name === "PromiseLike");
+    const awaitedResult = this.awaitedUtilityType(result);
+    const resultIsAwaitable = !isSameType(awaitedResult, result);
     if (
       !suppressAutoAwait &&
       this.isInsideSyncFunction() &&
@@ -3657,7 +3658,7 @@ export class TypeChecker {
       resultIsAwaitable
     ) {
       this.autoAwaitExpressions.add(expression);
-      result = this.evaluateAwaitedType(result);
+      result = awaitedResult;
     }
 
     this.expressionTypes.set(expression, result);

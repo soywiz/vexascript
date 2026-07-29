@@ -1689,6 +1689,19 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 2, 10).get("contents")?.valueType).toBe("string");
   });
 
+  it("auto-awaits Promise unions in sync functions", () => {
+    const source = dedent`
+      declare fun pending(): Promise<int> | Promise<string>
+      sync fun main() {
+        val value = pending()
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 2, 10).get("value")?.valueType).toBe("int | string");
+  });
+
   it("narrows discriminated object unions after checking a member", () => {
     const source = dedent`
       type Result = { kind: "ok", value: int } | { kind: "error", message: string }
@@ -1734,6 +1747,16 @@ let bad = "Ada" satisfies number
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("recovered")?.valueType).toBe("Promise<string>");
+  });
+
+  it("preserves Promise values through finally callbacks that return promises", () => {
+    const source = dedent`
+      const value = Promise.resolve(1).finally({ Promise.resolve("cleanup") })
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("value")?.valueType).toBe("Promise<int>");
   });
 
   it("infers Promise.all element types from promise arrays", () => {
@@ -1785,6 +1808,16 @@ let bad = "Ada" satisfies number
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("int[]");
+  });
+
+  it("contextually types Array.reduce callbacks with an initial accumulator", () => {
+    const source = dedent`
+      const total = [1, 2].reduce({ acc, value -> acc + value }, 0)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("total")?.valueType).toBe("int");
   });
 
   it("infers Promise.all values from Set instances", () => {

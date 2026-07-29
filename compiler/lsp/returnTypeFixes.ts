@@ -8,7 +8,7 @@ import type { ClassResolverOptions } from "./classResolver";
 import { pickFunctionReturnTypeFromBody } from "./inlayHints";
 import { findBestMatchAtPosition } from "./nodeSearch";
 import { nodeRange, rangeSize, tokenRange, type Position } from "./ranges";
-import { parseTypeNameShape } from "compiler/analysis/typeNames";
+import { parseTypeNameShape, splitTopLevelTypeText } from "compiler/analysis/typeNames";
 
 type FunctionLikeNode = FunctionStatement | ClassMethodMember;
 
@@ -17,6 +17,20 @@ interface ReturnTypeTarget {
 }
 
 function awaitedTypeName(typeName: string): string {
+  const unionMembers = splitTopLevelTypeText(typeName, "|")
+    .map((member) => member.trim())
+    .filter((member) => member.length > 0);
+  if (unionMembers.length > 1) {
+    const awaitedMembers: string[] = [];
+    for (const member of unionMembers) {
+      const awaitedMember = awaitedTypeName(member);
+      if (!awaitedMembers.includes(awaitedMember)) {
+        awaitedMembers.push(awaitedMember);
+      }
+    }
+    return awaitedMembers.join(" | ");
+  }
+
   let current = typeName;
   while (true) {
     const parsed = parseTypeNameShape(current);
