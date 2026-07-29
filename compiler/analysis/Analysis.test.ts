@@ -1871,6 +1871,18 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("entries")?.valueType).toBe("[string, int][]");
   });
 
+  it("infers constrained WeakMap constructor type parameters", () => {
+    const source = dedent`
+      const key = {}
+      const values = new WeakMap([[key, "value"]])
+      const value = values.get(key)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 2, 6).get("value")?.valueType).toBe("string?");
+  });
+
   it("contextually types Array.from mapping callbacks for iterable inputs", () => {
     const source = dedent`
       const values = Array.from(new Set([1]), { it + 1 })
