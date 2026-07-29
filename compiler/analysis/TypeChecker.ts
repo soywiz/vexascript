@@ -2313,7 +2313,14 @@ export class TypeChecker {
   }
 
   private narrowedTypeForCheck(originalType: AnalysisType, checkedType: AnalysisType, truthy: boolean): AnalysisType | null {
-    if (truthy) return checkedType;
+    if (truthy) {
+      if (originalType instanceof UnionType) {
+        return originalType.types.some((member) => this.isTypeAssignable(checkedType, member))
+          ? checkedType
+          : builtinType("never");
+      }
+      return checkedType;
+    }
     if (!(originalType instanceof UnionType)) return null;
     const remaining = originalType.types.filter((member) => !this.isTypeAssignable(member, checkedType));
     return remaining.length === 1 ? remaining[0]! : unionType(remaining);
