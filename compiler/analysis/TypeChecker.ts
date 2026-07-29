@@ -2227,6 +2227,12 @@ export class TypeChecker {
     }
     if (!(condition instanceof BinaryExpression)) return new Map();
     const binary = condition as BinaryExpression;
+    if (binary.operator === "||" && truthy) {
+      return this.unionSharedNarrowings(
+        this.conditionNarrowings(binary.left, scope, true),
+        this.conditionNarrowings(binary.right, scope, true)
+      );
+    }
     if ((binary.operator === "&&" && truthy) || (binary.operator === "||" && !truthy)) {
       return new Map([
         ...this.conditionNarrowings(binary.left, scope, truthy),
@@ -2276,7 +2282,7 @@ export class TypeChecker {
       (binary.operator === "==" || binary.operator === "===" || binary.operator === "!=" || binary.operator === "!==")
     ) {
       const checkedType = this.literalArgumentType(binary.right, this.visitExpression(binary.right, scope));
-      return checkedType instanceof LiteralType ? checkedType : null;
+      return checkedType instanceof LiteralType || isNullishType(checkedType) ? checkedType : null;
     }
     return null;
   }
@@ -2309,12 +2315,32 @@ export class TypeChecker {
     return result;
   }
 
+  private unionSharedNarrowings(
+    left: Map<string, AnalysisType>,
+    right: Map<string, AnalysisType>
+  ): Map<string, AnalysisType> {
+    const result = new Map<string, AnalysisType>();
+    for (const [key, leftType] of left) {
+      const rightType = right.get(key);
+      if (rightType) {
+        result.set(key, unionType([leftType, rightType]));
+      }
+    }
+    return result;
+  }
+
   private conditionExpressionNarrowings(condition: Expr, scope: Scope, truthy: boolean): Map<string, AnalysisType> {
     if (condition instanceof UnaryExpression && (condition as UnaryExpression).operator === "!") {
       return this.conditionExpressionNarrowings((condition as UnaryExpression).argument, scope, !truthy);
     }
     if (condition instanceof BinaryExpression) {
       const binary = condition as BinaryExpression;
+      if (binary.operator === "||" && truthy) {
+        return this.unionSharedNarrowings(
+          this.conditionExpressionNarrowings(binary.left, scope, true),
+          this.conditionExpressionNarrowings(binary.right, scope, true)
+        );
+      }
       if ((binary.operator === "&&" && truthy) || (binary.operator === "||" && !truthy)) {
         return new Map([
           ...this.conditionExpressionNarrowings(binary.left, scope, truthy),
