@@ -2562,23 +2562,45 @@ export class TypeChecker {
       flow.inGenerator,
       flow.contextualVoidReturn
     );
+    const discriminantKey = this.stableExpressionKey(statement.discriminant);
+    const discriminantType = this.expressionTypeForNarrowing(statement.discriminant, switchScope);
+    const caseTypes = statement.cases
+      .map((switchCase) => switchCase.test
+        ? this.literalArgumentType(switchCase.test, this.expressionTypeForNarrowing(switchCase.test, switchScope))
+        : null)
+      .filter((type): type is LiteralType => type instanceof LiteralType);
 
     for (const switchCase of statement.cases) {
       const caseScope = this.scopeFor(switchCase, switchScope);
       if (switchCase.test) {
         this.visitExpression(switchCase.test, caseScope);
       }
-      const discriminantKey = this.stableExpressionKey(statement.discriminant);
       const caseType = switchCase.test
         ? this.literalArgumentType(switchCase.test, this.expressionTypeForNarrowing(switchCase.test, caseScope))
-        : null;
-      const narrowedCaseScope = discriminantKey && caseType instanceof LiteralType
+        : this.remainingSwitchDiscriminantType(discriminantType, caseTypes);
+      const narrowedCaseScope = discriminantKey && caseType
         ? this.scopeWithNarrowings(caseScope, new Map(), this.singleNarrowing(discriminantKey, caseType))
         : caseScope;
       for (const consequent of switchCase.consequent) {
         this.visitStatement(consequent, narrowedCaseScope, switchFlow);
       }
     }
+  }
+
+  private remainingSwitchDiscriminantType(
+    discriminantType: AnalysisType,
+    caseTypes: readonly LiteralType[]
+  ): AnalysisType | null {
+    if (!(discriminantType instanceof UnionType) || caseTypes.length === 0) {
+      return null;
+    }
+    const remaining = discriminantType.types.filter((member) =>
+      !caseTypes.some((caseType) => this.isTypeAssignable(member, caseType))
+    );
+    if (remaining.length === 0) {
+      return null;
+    }
+    return remaining.length === 1 ? remaining[0]! : unionType(remaining);
   }
 
   private visitTryStatement(statement: TryStatement, scope: Scope, flow: FlowContext): void {

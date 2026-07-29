@@ -1769,6 +1769,26 @@ let bad = "Ada" satisfies number
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("narrows discriminated object unions in switch default cases", () => {
+    const source = dedent`
+      type Result = { kind: "ok", value: int } | { kind: "error", message: string }
+      fun handle(result: Result) {
+        switch (result.kind) {
+          case "ok": {
+            const value: int = result.value
+            break
+          }
+          default: {
+            const message: string = result.message
+          }
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("accepts zero-parameter Promise.catch callbacks", () => {
     const source = dedent`
       const recovered = Promise.resolve("value").catch({ "fallback" })
