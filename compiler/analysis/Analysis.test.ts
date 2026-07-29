@@ -1718,6 +1718,19 @@ let bad = "Ada" satisfies number
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("reports members missing from part of an unnarrowed union", () => {
+    const source = dedent`
+      fun format(value: int | string) {
+        value.toFixed()
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "Property 'toFixed' does not exist on type 'int | string'"
+    );
+  });
+
   it("narrows discriminated object unions in switch cases", () => {
     const source = dedent`
       type Result = { kind: "ok", value: int } | { kind: "error", message: string }
@@ -1917,7 +1930,7 @@ let bad = "Ada" satisfies number
     const invalidAnalysis = new Analysis(parseFile(tokenizeReader(invalidSource)));
 
     expect(invalidAnalysis.getIssues().map((issue) => issue.message)).toContain(
-      "Argument 2 of type '(value: int | string) => unknown' is not assignable to parameter 'mapfn' of type '(v: int | string, k: number) => U'"
+      "Property 'toFixed' does not exist on type 'int | string'"
     );
   });
 

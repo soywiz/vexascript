@@ -2250,6 +2250,12 @@ export class TypeChecker {
       const range = this.visitExpression(binary.right, scope);
       return range instanceof RangeType ? range.elementType : null;
     }
+    if (
+      (binary.operator === "==" || binary.operator === "===" || binary.operator === "!=" || binary.operator === "!==")
+    ) {
+      const checkedType = this.literalArgumentType(binary.right, this.visitExpression(binary.right, scope));
+      return checkedType instanceof LiteralType ? checkedType : null;
+    }
     return null;
   }
 
@@ -2258,7 +2264,14 @@ export class TypeChecker {
       return this.isRuntimeTypeNarrowingCondition(condition.argument);
     }
     return condition instanceof BinaryExpression &&
-      (condition.operator === "instanceof" || condition.operator === "is");
+      (
+        condition.operator === "instanceof" ||
+        condition.operator === "is" ||
+        condition.operator === "==" ||
+        condition.operator === "===" ||
+        condition.operator === "!=" ||
+        condition.operator === "!=="
+      );
   }
 
   private narrowedTypeForCheck(originalType: AnalysisType, checkedType: AnalysisType, truthy: boolean): AnalysisType | null {
@@ -2384,6 +2397,43 @@ export class TypeChecker {
     return null;
   }
 
+  private narrowedDiscriminatedObjectUnionType(
+    scope: Scope,
+    expression: Expr,
+    type: AnalysisType
+  ): AnalysisType | null {
+    if (!(type instanceof UnionType)) {
+      return null;
+    }
+    const objectKey = this.stableExpressionKey(expression);
+    if (!objectKey) {
+      return null;
+    }
+    const prefix = `${objectKey}.`;
+    for (let current: Scope | undefined = scope; current; current = current.parent) {
+      for (const [key, narrowedType] of current.narrowedExpressionTypes ?? []) {
+        if (!key.startsWith(prefix)) {
+          continue;
+        }
+        const propertyName = key.slice(prefix.length);
+        if (!propertyName || propertyName.includes(".")) {
+          continue;
+        }
+        const matchingMembers = type.types.filter((member): member is ObjectType => {
+          if (!(member instanceof ObjectType)) {
+            return false;
+          }
+          const propertyType = member.properties.get(propertyName);
+          return propertyType !== undefined && this.isTypeAssignable(narrowedType, propertyType);
+        });
+        if (matchingMembers.length > 0) {
+          return matchingMembers.length === 1 ? matchingMembers[0]! : unionType(matchingMembers);
+        }
+      }
+    }
+    return null;
+  }
+
   private assertionEffectForCall(
     call: CallExpression,
     calleeType: FunctionType,
@@ -2492,8 +2542,15 @@ export class TypeChecker {
       if (switchCase.test) {
         this.visitExpression(switchCase.test, caseScope);
       }
+      const discriminantKey = this.stableExpressionKey(statement.discriminant);
+      const caseType = switchCase.test
+        ? this.literalArgumentType(switchCase.test, this.expressionTypeForNarrowing(switchCase.test, caseScope))
+        : null;
+      const narrowedCaseScope = discriminantKey && caseType instanceof LiteralType
+        ? this.scopeWithNarrowings(caseScope, new Map(), this.singleNarrowing(discriminantKey, caseType))
+        : caseScope;
       for (const consequent of switchCase.consequent) {
-        this.visitStatement(consequent, caseScope, switchFlow);
+        this.visitStatement(consequent, narrowedCaseScope, switchFlow);
       }
     }
   }
@@ -2755,7 +2812,10 @@ export class TypeChecker {
           this.isPromiseMethodName((member.property as Identifier).name);
         const rawObjectType = this.visitExpression(member.object, scope, undefined, suppressObjectAutoAwait);
         this.validateNullableMemberAccess(member, rawObjectType);
-        const objectType = member.nonNullAsserted === true ? removeNullishFromType(rawObjectType) : rawObjectType;
+        const narrowedObjectType = this.narrowedDiscriminatedObjectUnionType(scope, member.object, rawObjectType);
+        const objectType = member.nonNullAsserted === true
+          ? removeNullishFromType(narrowedObjectType ?? rawObjectType)
+          : narrowedObjectType ?? rawObjectType;
         if (member.computed) {
           const computedEnum = objectType instanceof NamedType
             ? this.enumStatementsByName.get(objectType.name)
@@ -2817,12 +2877,13 @@ export class TypeChecker {
         const member = memberExpressionFromPropertyReference(propertyReference);
         const rawObjectType = this.visitExpression(propertyReference.object, scope);
         this.validateNullableMemberAccess(member, rawObjectType);
-        this.validateKnownMemberAccess(member, rawObjectType, scope);
-        const memberSymbol = this.validateTypes ? this.resolveKnownMemberSymbol(member, rawObjectType) : null;
+        const objectType = this.narrowedDiscriminatedObjectUnionType(scope, propertyReference.object, rawObjectType) ?? rawObjectType;
+        this.validateKnownMemberAccess(member, objectType, scope);
+        const memberSymbol = this.validateTypes ? this.resolveKnownMemberSymbol(member, objectType) : null;
         if (memberSymbol) {
           this.identifierResolutions.push(new IdentifierResolution(propertyReference.property, memberSymbol));
         }
-        result = namedType("Property", [this.resolveKnownMemberType(member, rawObjectType) ?? UNKNOWN_TYPE]);
+        result = namedType("Property", [this.resolveKnownMemberType(member, objectType) ?? UNKNOWN_TYPE]);
         break;
       }
       case NodeKind.CallExpression: {
@@ -11198,6 +11259,17 @@ export class TypeChecker {
     if (this.enumValueMemberAccessType(member, resolvedObjectType) !== null) {
       this.issues.push({
         message: `Property '${propertyName}' does not exist on type '${resolvedObjectType instanceof NamedType ? resolvedObjectType.name : typeToString(resolvedObjectType)}'`,
+        node: member.property
+      });
+      return;
+    }
+
+    if (
+      resolvedObjectType instanceof UnionType &&
+      this.resolveKnownMemberType(member, resolvedObjectType) === null
+    ) {
+      this.issues.push({
+        message: `Property '${propertyName}' does not exist on type '${typeToString(resolvedObjectType)}'`,
         node: member.property
       });
       return;

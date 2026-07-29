@@ -194,3 +194,13 @@ object. Enforcing the rule before that structural refinement rejected valid
 `switch` branches. The contextual callback path remains protected because an
 unknown member result cannot satisfy its inferred mapper return type; direct
 union-member diagnostics need to be coupled to the discriminant refinement.
+
+That refinement is now shared rather than special-cased in diagnostics.
+Equality against literal values produces expression narrowing, and each literal
+`switch` case records the same narrowing for its discriminant. Member access
+uses that evidence to select compatible object-union branches before resolving
+or validating the property. This preserves valid discriminated `if` and
+`switch` branches while reporting `value.toFixed()` for an unnarrowed
+`int | string` as a direct missing-property error. Literal evidence must be
+retained explicitly because ordinary expression typing intentionally widens
+literal values to their primitive types.
