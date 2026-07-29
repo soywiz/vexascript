@@ -260,6 +260,23 @@ dedent`
     expect(labels).not.toContain(": Promise<Promise<string> | never>");
   });
 
+  it("keeps zero-parameter catch callbacks valid in variable inlay hints", async () => {
+    const source = dedent`
+      const recovered = Promise.resolve("value").catch({ "fallback" })
+      `;
+    const session = createAnalysisSession(source);
+
+    expect(session.semanticIssues).toEqual([]);
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 20, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": Promise<string>");
+  });
+
   it("uses default generic DOM type arguments for querySelector variable inlay hints", async () => {
     const source = dedent`
       sync fun main() {

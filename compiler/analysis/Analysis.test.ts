@@ -1666,6 +1666,26 @@ let bad = "Ada" satisfies number
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("accepts zero-parameter Promise.catch callbacks", () => {
+    const source = dedent`
+      const recovered = Promise.resolve("value").catch({ "fallback" })
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("recovered")?.valueType).toBe("Promise<string>");
+  });
+
+  it("infers Promise.all element types from promise arrays", () => {
+    const source = dedent`
+      const values = Promise.all([Promise.resolve(1), Promise.resolve(2)])
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<int[]>");
+  });
+
   it("auto-wraps non-Promise annotations on async functions as Promise<T>", () => {
     const source = dedent`
       async function inferred(): number {

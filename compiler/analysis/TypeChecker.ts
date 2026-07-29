@@ -5852,6 +5852,21 @@ export class TypeChecker {
       return;
     }
 
+    if (parameterType instanceof NamedType && parameterType.name === "Iterable") {
+      const elementType = elementTypeFromIterable(argumentType);
+      const parameterElementType = parameterType.typeArguments?.[0];
+      if (parameterElementType && !isUnknownType(elementType)) {
+        this.inferTypeParameterSubstitutions(
+          parameterElementType,
+          elementType,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+        return;
+      }
+    }
+
     if (parameterType instanceof NamedType && argumentType instanceof NamedType) {
       const parameterNamed = parameterType as NamedType;
       const argumentNamed = argumentType as NamedType;
@@ -6565,10 +6580,14 @@ export class TypeChecker {
   }
 
   private isCallArgumentAssignable(argumentType: AnalysisType, expectedType: AnalysisType): boolean {
-    if (!(argumentType instanceof FunctionType) || !(expectedType instanceof FunctionType)) {
-      return this.isTypeAssignable(argumentType, expectedType);
+    const expectedFunctionType = argumentType instanceof FunctionType && !(expectedType instanceof FunctionType)
+      ? this.contextualFunctionExpectedType(expectedType)
+      : undefined;
+    const effectiveExpectedType = expectedFunctionType ?? expectedType;
+    if (!(argumentType instanceof FunctionType) || !(effectiveExpectedType instanceof FunctionType)) {
+      return this.isTypeAssignable(argumentType, effectiveExpectedType);
     }
-    if (expectedType.parameters.length === 0 && this.returnValueIsOptional(expectedType.returnType)) {
+    if (effectiveExpectedType.parameters.length === 0 && this.returnValueIsOptional(effectiveExpectedType.returnType)) {
       return true;
     }
 
@@ -6588,7 +6607,7 @@ export class TypeChecker {
       return expanded;
     };
     const argumentParameters = expandTupleRestParameters(argumentType.parameters);
-    const expectedParameters = expandTupleRestParameters(expectedType.parameters);
+    const expectedParameters = expandTupleRestParameters(effectiveExpectedType.parameters);
     const argumentRequiredCount = argumentParameters.filter((parameter) => !parameter.optional).length;
     if (argumentRequiredCount > expectedParameters.length) {
       return false;
@@ -6608,10 +6627,10 @@ export class TypeChecker {
       }
     }
 
-    if (expectedType.returnType instanceof BuiltinType && expectedType.returnType.name === "void") {
+    if (effectiveExpectedType.returnType instanceof BuiltinType && effectiveExpectedType.returnType.name === "void") {
       return true;
     }
-    return this.isTypeAssignable(argumentType.returnType, expectedType.returnType);
+    return this.isTypeAssignable(argumentType.returnType, effectiveExpectedType.returnType);
   }
 
   private effectiveArgumentTypeForValidation(
