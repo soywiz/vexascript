@@ -128,3 +128,8 @@ collection contract.
 The iterable overload is independently exercised by `Promise.all("Ada")`.
 Accepting strings as `ArrayLike` was insufficient until assignability also
 recognized `string` as `Iterable<string>`.
+
+Typed arrays encode their element type in their nominal class name rather than
+as a collection type argument. A single shared map now lets `ArrayLike<T>` and
+iterable consumers infer `number` or `bigint` from all standard TypedArray
+classes, covering `Array.from(new Uint8Array(...))` without API-specific logic.

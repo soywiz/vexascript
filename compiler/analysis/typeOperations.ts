@@ -16,6 +16,13 @@ const ITERABLE_TYPE_NAMES = new Set([
   "Array", "ReadonlyArray", "Set", "ReadonlySet"
 ]);
 
+const TYPED_ARRAY_ELEMENT_TYPES = new Map<string, "number" | "bigint">([
+  ["Int8Array", "number"], ["Uint8Array", "number"], ["Uint8ClampedArray", "number"],
+  ["Int16Array", "number"], ["Uint16Array", "number"], ["Int32Array", "number"],
+  ["Uint32Array", "number"], ["Float16Array", "number"], ["Float32Array", "number"],
+  ["Float64Array", "number"], ["BigInt64Array", "bigint"], ["BigUint64Array", "bigint"]
+]);
+
 /** Builds a deduplicated union from a list of types, collapsing singletons. */
 export function combineTypes(types: AnalysisType[]): AnalysisType {
   const uniqueTypes: AnalysisType[] = [];
@@ -88,6 +95,12 @@ export function elementTypeFromIterable(type: AnalysisType): AnalysisType {
   }
   if (type instanceof NamedType && ITERABLE_TYPE_NAMES.has(type.name) && (type.typeArguments?.length ?? 0) >= 1) {
     return type.typeArguments![0]!;
+  }
+  if (type instanceof NamedType) {
+    const elementTypeName = TYPED_ARRAY_ELEMENT_TYPES.get(type.name);
+    if (elementTypeName) {
+      return builtinType(elementTypeName);
+    }
   }
   if (
     type instanceof NamedType &&

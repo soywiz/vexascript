@@ -196,6 +196,10 @@ describe("elementTypeFromIterable", () => {
     assert.equal(elementTypeFromIterable(builtin("string")), builtin("string"));
   });
 
+  it("returns numeric elements from typed arrays", () => {
+    assert.equal(elementTypeFromIterable(namedType("Uint8Array")), builtin("number"));
+  });
+
   it("returns unknown for non-iterable types", () => {
     const result = elementTypeFromIterable(builtin("int"));
     assert.equal(result.kind, AnalysisTypeKind.Unknown);

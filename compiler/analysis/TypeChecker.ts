@@ -5967,17 +5967,13 @@ export class TypeChecker {
       return;
     }
 
-    if (
-      parameterType instanceof NamedType &&
-      parameterType.name === "ArrayLike" &&
-      argumentType instanceof BuiltinType &&
-      argumentType.name === "string"
-    ) {
+    if (parameterType instanceof NamedType && parameterType.name === "ArrayLike") {
       const parameterElementType = parameterType.typeArguments?.[0];
-      if (parameterElementType) {
+      const argumentElementType = elementTypeFromIterable(argumentType);
+      if (parameterElementType && !isUnknownType(argumentElementType)) {
         this.inferTypeParameterSubstitutions(
           parameterElementType,
-          argumentType,
+          argumentElementType,
           typeParameters,
           explicitlyProvidedTypeParameters,
           substitutions
