@@ -1,5 +1,5 @@
-import { BreakStatement, ContinueStatement, DoWhileStatement, ForStatement, LabeledStatement, NodeKind, WhileStatement } from "compiler/ast/ast";
-import type { BlockStatement, IfStatement, Statement, SwitchStatement, TryStatement, WithStatement } from "compiler/ast/ast";
+import { BreakStatement, ContinueStatement, DoWhileStatement, ExprStatement, ForStatement, LabeledStatement, NodeKind, WhileStatement } from "compiler/ast/ast";
+import type { BinaryExpression, BlockStatement, CommaExpression, ConditionalExpression, Expr, IfStatement, Statement, SwitchStatement, TryStatement, WithStatement } from "compiler/ast/ast";
 /**
  * Pure control-flow predicates over AST statement nodes. These helpers have
  * no dependency on checker state and can be used by any analysis pass.
@@ -40,6 +40,9 @@ export function statementPreventsSwitchFallthrough(statement: Statement): boolea
     case NodeKind.ReturnStatement:
     case NodeKind.ThrowStatement:
       return true;
+    case NodeKind.ExprStatement:
+      return Boolean((statement as ExprStatement).expression) &&
+        expressionPreventsFallthrough((statement as ExprStatement).expression);
     case NodeKind.BlockStatement:
       return statementListPreventsSwitchFallthrough((statement as BlockStatement).body);
     case NodeKind.IfStatement: {
@@ -87,6 +90,9 @@ export function statementAlwaysExits(statement: Statement): boolean {
     case NodeKind.ReturnStatement:
     case NodeKind.ThrowStatement:
       return true;
+    case NodeKind.ExprStatement:
+      return Boolean((statement as ExprStatement).expression) &&
+        expressionAlwaysExits((statement as ExprStatement).expression);
     case NodeKind.BlockStatement:
       return statementListAlwaysExits((statement as BlockStatement).body);
     case NodeKind.IfStatement: {
@@ -137,6 +143,65 @@ export function statementAlwaysExits(statement: Statement): boolean {
       return statementAlwaysExits((statement as WithStatement).body);
     case NodeKind.LabeledStatement:
       return statementAlwaysExits((statement as LabeledStatement).body);
+    default:
+      return false;
+  }
+}
+
+export function expressionPreventsFallthrough(expression: Expr): boolean {
+  switch (expression.kind) {
+    case NodeKind.ReturnStatement:
+    case NodeKind.ThrowStatement:
+    case NodeKind.BreakStatement:
+    case NodeKind.ContinueStatement:
+      return true;
+    case NodeKind.IfStatement: {
+      const conditional = expression as IfStatement;
+      return conditional.elseBranch !== undefined &&
+        statementPreventsSwitchFallthrough(conditional.thenBranch) &&
+        statementPreventsSwitchFallthrough(conditional.elseBranch);
+    }
+    case NodeKind.ConditionalExpression: {
+      const conditional = expression as ConditionalExpression;
+      return expressionPreventsFallthrough(conditional.consequent) &&
+        expressionPreventsFallthrough(conditional.alternate);
+    }
+    case NodeKind.CommaExpression:
+      return (expression as CommaExpression).expressions.some(expressionPreventsFallthrough);
+    case NodeKind.BinaryExpression: {
+      const binary = expression as BinaryExpression;
+      if (expressionPreventsFallthrough(binary.left)) return true;
+      return binary.operator !== "&&" && binary.operator !== "||" && binary.operator !== "??" &&
+        expressionPreventsFallthrough(binary.right);
+    }
+    default:
+      return false;
+  }
+}
+
+function expressionAlwaysExits(expression: Expr): boolean {
+  switch (expression.kind) {
+    case NodeKind.ReturnStatement:
+    case NodeKind.ThrowStatement:
+      return true;
+    case NodeKind.IfStatement: {
+      const conditional = expression as IfStatement;
+      return conditional.elseBranch !== undefined &&
+        statementAlwaysExits(conditional.thenBranch) &&
+        statementAlwaysExits(conditional.elseBranch);
+    }
+    case NodeKind.ConditionalExpression: {
+      const conditional = expression as ConditionalExpression;
+      return expressionAlwaysExits(conditional.consequent) && expressionAlwaysExits(conditional.alternate);
+    }
+    case NodeKind.CommaExpression:
+      return (expression as CommaExpression).expressions.some(expressionAlwaysExits);
+    case NodeKind.BinaryExpression: {
+      const binary = expression as BinaryExpression;
+      if (expressionAlwaysExits(binary.left)) return true;
+      return binary.operator !== "&&" && binary.operator !== "||" && binary.operator !== "??" &&
+        expressionAlwaysExits(binary.right);
+    }
     default:
       return false;
   }

@@ -59,7 +59,7 @@ This section is the fast onboarding map for agents and contributors.
   - Shared declaration-program loader plumbing (parse-with-error-check, node membership index, and the single-in-flight-load/retry-after-failure contract) used by async declaration modules such as DOM: `compiler/runtime/declarationProgramCache.ts`, tests: `compiler/runtime/declarationProgramCache.test.ts`
   - DOM declaration-cache concurrency tests (single in-flight load shared across concurrent callers): `compiler/runtime/declarationsConcurrency.test.ts`
 - Emitter / transpilation:
-  - Lowering pass boundary: `compiler/runtime/lowering.ts`
+  - Shared lowering pass boundary, including evaluation-order-preserving CPS lowering of VexaScript control-flow expressions (`if`, `return`, `throw`, `break`, and `continue`) before either JavaScript or C++ emission: `compiler/runtime/lowering.ts`
   - Lowering tests: `compiler/runtime/lowering.test.ts`
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - Browser-compatible C++ emission backend, sharing the normal parse and analysis pipeline; native behavior is validated by the compiled executable smoke rather than generated-code string assertions: `compiler/runtime/cppEmitter.ts`, smoke test: `tests/native/nativeSmoke.native.ts`, fixture: `samples/native-language-smoke/`

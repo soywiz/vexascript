@@ -1959,6 +1959,10 @@ describe("parseStatement", () => {
             kind: NodeKind.VarStatement,
             typeAnnotation: { kind: NodeKind.Identifier, name: "any?" }
         });
+        expect(parseStatement(tokenizeReader("let values: T?[]"))).toMatchObject({
+            kind: NodeKind.VarStatement,
+            typeAnnotation: { kind: NodeKind.Identifier, name: "T?[]" }
+        });
         expect(parseStatement(tokenizeReader("let callback: (() => void)?"))).toMatchObject({
             kind: NodeKind.VarStatement,
             typeAnnotation: { kind: NodeKind.Identifier, name: "(() => void)?" }

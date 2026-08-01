@@ -1,17 +1,17 @@
-import { ArrayHole, ArrowFunctionExpression, AssignmentExpression, BindingHole, BlockStatement, CallExpression, ClassFieldMember, ClassMethodMember, Identifier, IfStatement, ImportStatement, InterfacePropertyMember, MemberExpression, NodeKind, ObjectSpreadProperty, ReturnStatement, VarStatement } from "compiler/ast/ast";
+import { ArrayHole, ArrowFunctionExpression, AssignmentExpression, BindingHole, BlockStatement, BreakStatement, CallExpression, ClassFieldMember, ClassMethodMember, ContinueStatement, ExprStatement, Identifier, IfStatement, ImportStatement, InterfacePropertyMember, MemberExpression, NodeKind, ObjectSpreadProperty, ReturnStatement, ThrowStatement, VarStatement } from "compiler/ast/ast";
 import { parseSource } from "../pipeline/parse";
 import type {
   AnnotationApplication, ArrayBindingPattern, ArrayLiteral,
   AsExpression,
   BigIntLiteral, BinaryExpression, BindingElement, BindingName,
-  BooleanLiteral, BreakStatement,
+  BooleanLiteral,
   ChainExpression,
   ClassExpression,
   ClassPrimaryConstructorParameter,
   ClassStatement, CommaExpression, ConditionalExpression,
-  ContinueStatement, DeferStatement, DoWhileStatement,
+  DeferStatement, DoWhileStatement,
   EnumStatement, ExportSpecifier, ExportStatement,
-  Expr, ExprStatement, ForStatement,
+  Expr, ForStatement,
   FunctionExpression, FunctionParameter, FunctionStatement,
   
   InterfaceStatement, IntLiteral, JsxElement, JsxFragment,
@@ -22,7 +22,7 @@ import type {
   Program, RangeExpression, RegExpLiteral,
   SatisfiesExpression,
   SpreadExpression, Statement, StringLiteral, SwitchStatement,
-  ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter,
+  TryStatement, TypeAliasStatement, TypeParameter,
   TypeReference, ArrayTypeAnnotation,
   UnaryExpression, UpdateExpression, WhileStatement,
   WithStatement
@@ -2585,6 +2585,29 @@ class AstFormatter {
       case NodeKind.MemberExpression: this.emitMemberExpr(expr as MemberExpression); break;
       case NodeKind.NewExpression: this.emitNewExpr(expr as NewExpression); break;
       case NodeKind.ConditionalExpression: this.emitCondExpr(expr as ConditionalExpression); break;
+      case NodeKind.IfStatement: this.emitIfExpr(expr as IfStatement); break;
+      case NodeKind.ReturnStatement: {
+        const returned = expr as ReturnStatement;
+        this.write("return");
+        if (returned.expression) { this.sp(); this.emitExpr(returned.expression); }
+        break;
+      }
+      case NodeKind.ThrowStatement: {
+        this.write("throw"); this.sp(); this.emitExpr((expr as ThrowStatement).expression);
+        break;
+      }
+      case NodeKind.BreakStatement: {
+        const broken = expr as BreakStatement;
+        this.write("break");
+        if (broken.label) { this.sp(); this.write(broken.label.name); }
+        break;
+      }
+      case NodeKind.ContinueStatement: {
+        const continued = expr as ContinueStatement;
+        this.write("continue");
+        if (continued.label) { this.sp(); this.write(continued.label.name); }
+        break;
+      }
       case NodeKind.ArrowFunctionExpression: this.emitArrowFnExpr(expr as ArrowFunctionExpression); break;
       case NodeKind.FunctionExpression: this.emitFunctionExpr(expr as FunctionExpression); break;
       case NodeKind.ClassExpression: this.emitClassExpr(expr as ClassExpression); break;
@@ -2645,6 +2668,37 @@ class AstFormatter {
     this.emitExpr(expr.left);
     this.sp(); this.write(expr.operator); this.sp();
     this.emitExpr(expr.right);
+  }
+
+  private emitIfExpr(expr: IfStatement): void {
+    this.write("if ("); this.emitExpr(expr.condition); this.write(") ");
+    this.emitIfValueBranch(expr.thenBranch);
+    if (expr.elseBranch) {
+      this.write(" else ");
+      this.emitIfValueBranch(expr.elseBranch);
+    }
+  }
+
+  private emitIfValueBranch(branch: Statement): void {
+    if (branch instanceof ExprStatement) {
+      this.emitExpr(branch.expression);
+      return;
+    }
+    if (branch instanceof BlockStatement) {
+      this.emitBlock(branch);
+      return;
+    }
+    if (
+      branch instanceof IfStatement ||
+      branch instanceof ReturnStatement ||
+      branch instanceof ThrowStatement ||
+      branch instanceof BreakStatement ||
+      branch instanceof ContinueStatement
+    ) {
+      this.emitExpr(branch);
+      return;
+    }
+    this.emitStmt(branch);
   }
 
   private emitAssignExpr(expr: AssignmentExpression): void {

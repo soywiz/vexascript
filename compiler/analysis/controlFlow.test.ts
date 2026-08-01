@@ -3,10 +3,12 @@ import {
   ContinueStatement,
   DoWhileStatement,
   EmptyStatement,
+  ExprStatement,
   ForStatement,
   Identifier,
   LabeledStatement,
   NodeKind,
+  ReturnStatement,
   WhileStatement,
 } from "compiler/ast/ast";
 import { describe, it } from "node:test";
@@ -97,6 +99,10 @@ describe("statementPreventsSwitchFallthrough", () => {
     assert.equal(statementPreventsSwitchFallthrough(stmt(NodeKind.ExprStatement)), false);
   });
 
+  it("recognizes a parenthesized control-flow expression that prevents fallthrough", () => {
+    assert.equal(statementPreventsSwitchFallthrough(new ExprStatement(new BreakStatement())), true);
+  });
+
   it("returns true for BlockStatement containing a break", () => {
     const block = stmt(NodeKind.BlockStatement, { body: [stmt(NodeKind.BreakStatement)] });
     assert.equal(statementPreventsSwitchFallthrough(block), true);
@@ -180,6 +186,10 @@ describe("statementAlwaysExits", () => {
 
   it("returns false for ExpressionStatement", () => {
     assert.equal(statementAlwaysExits(stmt(NodeKind.ExprStatement)), false);
+  });
+
+  it("recognizes a parenthesized return expression that always exits", () => {
+    assert.equal(statementAlwaysExits(new ExprStatement(new ReturnStatement())), true);
   });
 
   it("returns false for DeferStatement", () => {

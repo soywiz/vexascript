@@ -21,6 +21,25 @@ function analysisOf(source: string): Analysis {
 }
 
 describe("lsp navigation", () => {
+  it("hovers the generic value produced by a nullish continue guard", () => {
+    const marked = sourceWithCursor(dedent`
+      fun scan<T>(array: T?[]) {
+        for (item of array) {
+          val it = item ?? continue
+          ^^^it
+        }
+      }
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(createHover(analysis, marked.line, marked.character, ast)?.contents).toEqual({
+      kind: "plaintext",
+      value: "variable it: T"
+    });
+  });
+
   it("resolves go-to-definition for variable usage", () => {
     const source = "let value = 1\nfun demo() {\n  let local = value\n  return local\n}\n";
     const analysis = analysisOf(source);

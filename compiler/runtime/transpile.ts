@@ -20,8 +20,8 @@ import {
 } from "./emitter";
 import { lowerProgram } from "./lowering";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
-import { Program, type Node, type Statement } from "compiler/ast/ast";
-import type { AnalysisType } from "compiler/analysis/types";
+import { Program, type Expr, type Node, type Statement } from "compiler/ast/ast";
+import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import type { SourceRange } from "compiler/parser/tokenizer";
 import {
@@ -424,14 +424,20 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
 
   const emissionStartedAt = monotonicNow();
   const target = options.target ?? "optimized";
+  const expressionTypes = artifacts.analysis.getExpressionTypes();
+  const expressionTypeName = (expression: Expr): string | undefined => {
+    const type = expressionTypes.get(expression);
+    return type ? typeToString(type) : undefined;
+  };
   const programForEmission = lowerProgram(artifacts.ast, {
-    lowerRangeForLoops: target !== "conservative"
+    lowerRangeForLoops: target !== "conservative",
+    expressionTypeName
   });
   if (options.emit === "cpp") {
     try {
       const result: TranspileResult = {
         code: emitCppProgram(
-          lowerProgram(artifacts.ast, { lowerRangeForLoops: true }),
+          lowerProgram(artifacts.ast, { lowerRangeForLoops: true, expressionTypeName }),
           {
             ...(options.sourceFilePath ? { sourceFilePath: options.sourceFilePath } : {}),
             ...(options.emitNativeSourceLocations ? { emitSourceLocations: true } : {}),
@@ -495,7 +501,6 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
         ],
     programForEmission.__vexaRecoveryMarkers
   );
-  const expressionTypes = artifacts.analysis.getExpressionTypes();
   const implicitReceiverIdentifiers = artifacts.analysis.getImplicitReceiverIdentifiers();
   const staticImplicitReceiverIdentifiers = artifacts.analysis.getStaticImplicitReceiverIdentifiers();
   const implicitReceiverExtensionIdentifiers = artifacts.analysis.getImplicitReceiverExtensionIdentifiers();

@@ -5,6 +5,48 @@ import { ParseError, parseExpression, parseFile, parseProgram } from "./parser";
 import { tokenizeReader } from "./tokenizer";
 
 describe("parseExpression", () => {
+    it("parses control-flow forms as expressions in VexaScript", () => {
+        expect(parseExpression(tokenizeReader("value || throw Error(\"Not found\")"))).toMatchObject({
+            kind: NodeKind.BinaryExpression,
+            operator: "||",
+            right: {
+                kind: NodeKind.ThrowStatement,
+                expression: { kind: NodeKind.CallExpression }
+            }
+        });
+        expect(parseExpression(tokenizeReader("ready && return result"))).toMatchObject({
+            kind: NodeKind.BinaryExpression,
+            operator: "&&",
+            right: {
+                kind: NodeKind.ReturnStatement,
+                expression: { kind: NodeKind.Identifier, name: "result" }
+            }
+        });
+        expect(parseExpression(tokenizeReader("if (ready) value else throw Error()"))).toMatchObject({
+            kind: NodeKind.IfStatement,
+            condition: { kind: NodeKind.Identifier, name: "ready" },
+            thenBranch: {
+                kind: NodeKind.ExprStatement,
+                expression: { kind: NodeKind.Identifier, name: "value" }
+            },
+            elseBranch: { kind: NodeKind.ThrowStatement }
+        });
+        expect(parseExpression(tokenizeReader("continue outer"))).toMatchObject({
+            kind: NodeKind.ContinueStatement,
+            label: { kind: NodeKind.Identifier, name: "outer" }
+        });
+        expect(parseExpression(tokenizeReader("break"))).toMatchObject({
+            kind: NodeKind.BreakStatement
+        });
+    });
+
+    it("keeps control-flow forms statement-only in TypeScript parser mode", () => {
+        expect(parseExpression(tokenizeReader("throw Error()"), { language: "typescript" })).toMatchObject({
+            kind: NodeKind.Identifier,
+            name: "throw"
+        });
+    });
+
     it("builds an AST for a single literal", () => {
         expect(parseExpression(tokenizeReader("10"))).toEqual(
             { kind: NodeKind.IntLiteral, value: 10 }

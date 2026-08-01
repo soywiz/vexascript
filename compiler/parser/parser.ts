@@ -1430,14 +1430,24 @@ export class Parser {
             suffix += `[${indexType}]`;
         }
         if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
+            const questionToken = this.tokens.peek()!;
             const nextToken = this.peekToken(1);
+            const previousToken = this.getLastReadToken();
+            const optionalBeforeArray =
+                nextToken?.type === TokenType.SYMBOL &&
+                nextToken.value === "[" &&
+                previousToken?.range.end.offset === questionToken.range.start.offset;
             const canEndOptionalType =
                 !nextToken ||
                 nextToken.type === TokenType.END_OF_FILE ||
+                optionalBeforeArray ||
                 (nextToken.type === TokenType.SYMBOL && ["|", "&", ")", "]", "}", ",", ";", "="].includes(nextToken.value));
             if (canEndOptionalType) {
                 this.tokens.skip();
                 suffix += "?";
+                if (optionalBeforeArray) {
+                    suffix += this.parseTypeAnnotationSuffixText();
+                }
             }
         }
         return suffix;
@@ -3528,6 +3538,20 @@ export class Parser {
         }
 
         const token = this.tokens.peek();
+        if (this.language === "vexa" && token?.type === TokenType.IDENTIFIER) {
+            switch (token.value) {
+                case "if":
+                    return this.parseIfStatement();
+                case "return":
+                    return this.parseReturnStatement();
+                case "throw":
+                    return this.parseThrowStatement();
+                case "continue":
+                    return this.parseContinueStatement();
+                case "break":
+                    return this.parseBreakStatement();
+            }
+        }
         if (token?.type === TokenType.IDENTIFIER && token.value === "new") {
             const newKeyword = this.tokens.read();
             const constructorTarget = this.parseNewTarget(newKeyword);

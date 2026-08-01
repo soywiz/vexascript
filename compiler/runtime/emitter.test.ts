@@ -159,6 +159,46 @@ describe("emitProgram", () => {
     expect(emitProgram(lowerProgram(program))).toContain("for (let a = 0; a < 10; a++) console.log(a);");
   });
 
+  it("lowers control-flow expressions before JavaScript emission", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      fun ensure(value: string | undefined) {
+        value || throw "Not found"
+      }
+      fun early(flag: boolean): int {
+        flag || return 1
+        return 2
+      }
+      fun pick(flag: boolean): int {
+        val result = if (flag) 3 else throw "No result"
+        return result
+      }
+    `));
+
+    const emitted = emitProgram(lowerProgram(program));
+
+    expect(emitted).toContain("const __vexa_control_0 = value;");
+    expect(emitted).toContain("if (!__vexa_control_0) throw \"Not found\"; else __vexa_control_0;");
+    expect(emitted).toContain("if (!__vexa_control_1) return 1; else __vexa_control_1;");
+    expect(emitted).toContain("let result;");
+    expect(emitted).toContain("if (flag) result = 3; else throw \"No result\";");
+  });
+
+  it("lowers break and continue expressions inside loop short-circuit expressions", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      fun scan(values: int[]) {
+        for (val value of values) {
+          value > 0 || continue
+          value < 10 || break
+        }
+      }
+    `));
+
+    const emitted = emitProgram(lowerProgram(program));
+
+    expect(emitted).toContain("if (!__vexa_control_0) continue; else __vexa_control_0;");
+    expect(emitted).toContain("if (!__vexa_control_1) break; else __vexa_control_1;");
+  });
+
   it("emits with statements and statement labels", () => {
     const program = parseFile(tokenizeReader("outer: while (ok) { with (scope) { break outer }; continue outer }"));
     expect(emitProgram(program)).toBe("outer: while (ok) {\nwith (scope) {\nbreak outer;\n}\ncontinue outer;\n}");

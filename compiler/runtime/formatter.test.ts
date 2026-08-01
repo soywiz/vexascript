@@ -292,6 +292,15 @@ describe("formatSource", () => {
       `.trimEnd());
   });
 
+  it("formats control-flow expressions", () => {
+    expect(formatSource("val value=items[key]||throw Error(\"Not found\")"))
+      .toBe("val value = items[key] || throw Error(\"Not found\")");
+    expect(formatSource("val value=if(ok) 1 else return 0"))
+      .toBe("val value = if (ok) 1 else return 0");
+    expect(formatSource("while(ok){ready||continue outer;valid||break}"))
+      .toBe("while (ok) {\n  ready || continue outer;\n  valid || break\n}");
+  });
+
   it("formats defer statements", () => {
     expect(formatSource("defer file.close()"))
       .toBe("defer file.close()");

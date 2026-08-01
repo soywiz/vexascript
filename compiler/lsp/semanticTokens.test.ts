@@ -57,6 +57,29 @@ function decodeTokens(source: string, data: number[]): DecodedToken[] {
 }
 
 describe("semantic tokens", () => {
+  it("highlights control-flow keywords nested inside expressions", () => {
+    const source = dedent`
+      fun read(value: string | undefined): string {
+        value || throw "missing"
+        return if (value) value else throw "missing"
+      }
+      while (true) {
+        ready || continue
+        valid || break
+      }
+    `;
+    const session = createAnalysisSession(source);
+    const decoded = decodeTokens(source, createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    }).data);
+
+    for (const keyword of ["throw", "return", "if", "continue", "break"]) {
+      expect(decoded.some((token) => token.lexeme === keyword && token.tokenType === "keywordControl")).toBe(true);
+    }
+  });
+
   it("highlights debugger as a keyword", () => {
     const source = "debugger\n";
     const session = createAnalysisSession(source);

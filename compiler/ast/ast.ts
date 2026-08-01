@@ -215,15 +215,20 @@ export function nodeStartOffset(node: Node): number | undefined {
     return token ? token.range.start.offset : undefined
 }
 
-export abstract class Expr extends Node {
-    protected constructor(kind: NodeKind) {
-        super(kind)
-    }
-}
 export abstract class Statement extends Node {
     // Final JavaScript name supplied via the `@JsName("...")` annotation.
     protected constructor(kind: NodeKind, public annotations?: AnnotationApplication[], public jsName?: string) {
         super(kind)
+    }
+}
+/**
+ * Expressions are also valid statement-shaped nodes so control-flow forms can
+ * share one AST node in both expression and statement positions. Ordinary
+ * expressions are still wrapped in ExprStatement by the parser.
+ */
+export abstract class Expr extends Statement {
+    protected constructor(kind: NodeKind, annotations?: AnnotationApplication[], jsName?: string) {
+        super(kind, annotations, jsName)
     }
 }
 
@@ -827,7 +832,7 @@ export class ForStatement extends Statement {
         super(NodeKind.ForStatement, annotations, jsName)
     }
 }
-export class IfStatement extends Statement {
+export class IfStatement extends Expr {
     declare kind: NodeKind.IfStatement
 
     constructor(public condition: Expr, public thenBranch: Statement, public elseBranch?: Statement, annotations?: AnnotationApplication[], jsName?: string) {
@@ -848,14 +853,14 @@ export class SwitchStatement extends Statement {
         super(NodeKind.SwitchStatement, annotations, jsName)
     }
 }
-export class ReturnStatement extends Statement {
+export class ReturnStatement extends Expr {
     declare kind: NodeKind.ReturnStatement
 
     constructor(public expression?: Expr, annotations?: AnnotationApplication[], jsName?: string) {
         super(NodeKind.ReturnStatement, annotations, jsName)
     }
 }
-export class ThrowStatement extends Statement {
+export class ThrowStatement extends Expr {
     declare kind: NodeKind.ThrowStatement
 
     constructor(public expression: Expr, annotations?: AnnotationApplication[], jsName?: string) {
@@ -869,14 +874,14 @@ export class DeferStatement extends Statement {
         super(NodeKind.DeferStatement, annotations, jsName)
     }
 }
-export class ContinueStatement extends Statement {
+export class ContinueStatement extends Expr {
     declare kind: NodeKind.ContinueStatement
 
     constructor(public label?: Identifier, annotations?: AnnotationApplication[], jsName?: string) {
         super(NodeKind.ContinueStatement, annotations, jsName)
     }
 }
-export class BreakStatement extends Statement {
+export class BreakStatement extends Expr {
     declare kind: NodeKind.BreakStatement
 
     constructor(public label?: Identifier, annotations?: AnnotationApplication[], jsName?: string) {

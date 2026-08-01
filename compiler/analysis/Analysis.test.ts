@@ -1417,6 +1417,163 @@ let bad = "Ada" satisfies number
     expect(messages.filter((message) => message === "Illegal 'break' statement outside of a loop or switch")).toHaveLength(1);
   });
 
+  it("type-checks control-flow expressions with the enclosing function and loop context", () => {
+    const source = dedent`
+      fun ensure(value: string | undefined) {
+        value || throw "Not found"
+      }
+      fun pick(flag: boolean): int {
+        return if (flag) 1 else throw "No value"
+      }
+      fun early(flag: boolean): int {
+        flag || return 0
+        return 1
+      }
+      fun scan(values: int[]) {
+        for (val value of values) {
+          value > 0 || continue
+          value < 10 || break
+        }
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("infers reachable operand values for logical control-flow expressions", () => {
+    const source = dedent`
+      fun lookup<T>(array: (T | undefined)[], index: int): T {
+        val result = array[index] || throw Error("Not found")
+        return result
+      }
+      fun early(value: string | undefined): string {
+        val result = value || return "fallback"
+        return result
+      }
+      fun scan<T>(array: T?[]) {
+        for (item of array) {
+          val continued: T = item ?? continue
+          val broken: T = item ?? break
+          continued
+        }
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(analysis.getVisibleSymbolsAt(2, 15).find((symbol) => symbol.name === "result")?.valueType).toBe("T");
+    expect(analysis.getVisibleSymbolsAt(6, 15).find((symbol) => symbol.name === "result")?.valueType).toBe("string");
+    expect(analysis.getVisibleSymbolsAt(12, 10).find((symbol) => symbol.name === "continued")?.valueType).toBe("T");
+    expect(analysis.getVisibleSymbolsAt(12, 10).find((symbol) => symbol.name === "broken")?.valueType).toBe("T");
+  });
+
+  it("infers truthy, falsy, and nullish logical result branches", () => {
+    const source = dedent`
+      fun inspect(value: "" | "present" | undefined) {
+        val fallback = value || ("fallback" as "fallback")
+        val chained = value && (1 as 1)
+        val nullish = value ?? ("fallback" as "fallback")
+        val knownTruthy = ("yes" as "yes") || (1 as 1)
+        val knownFalsy = (0 as 0) || ("fallback" as "fallback")
+        val falseBranch = (false as false) && (1 as 1)
+        val booleanOr = (true as boolean) || (1 as 1)
+        val booleanAnd = (false as boolean) && (1 as 1)
+        val nullFallback = (null as null) ?? ("fallback" as "fallback")
+        val undefinedBranch = (undefined as undefined) && (1 as 1)
+        val guarded = value || throw Error("missing")
+        guarded
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const symbols = analysis.getVisibleSymbolsAt(12, 8);
+    const typeOf = (name: string): string | undefined => symbols.find((symbol) => symbol.name === name)?.valueType;
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(typeOf("guarded")).toBe("\"present\"");
+    expect(typeOf("fallback")).toBe("\"present\" | \"fallback\"");
+    expect(typeOf("chained")).toBe("\"\" | undefined | 1");
+    expect(typeOf("nullish")).toBe("\"\" | \"present\" | \"fallback\"");
+    expect(typeOf("knownTruthy")).toBe("\"yes\"");
+    expect(typeOf("knownFalsy")).toBe("\"fallback\"");
+    expect(typeOf("falseBranch")).toBe("false");
+    expect(typeOf("booleanOr")).toBe("true | 1");
+    expect(typeOf("booleanAnd")).toBe("false | 1");
+    expect(typeOf("nullFallback")).toBe("\"fallback\"");
+    expect(typeOf("undefinedBranch")).toBe("undefined");
+  });
+
+  it("propagates logical guard narrowings after normal completion", () => {
+    const source = dedent`
+      fun use(value: string | undefined, nested: { name: string } | undefined, payload: { name: string | undefined }): int {
+        value || throw Error("missing")
+        val length: int = value.length
+        nested ?? return 0
+        val nestedLength: int = nested.name.length
+        payload.name ?? throw Error("missing name")
+        val memberLength: int = payload.name.length
+        return length + nestedLength + memberLength
+      }
+      fun scan(values: (string | undefined)[]) {
+        for (value of values) {
+          value ?? continue
+          val length: int = value.length
+        }
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(analysis.getHoverAt(2, 20)?.contents).toContain("value: string");
+    expect(analysis.getHoverAt(4, 26)?.contents).toContain("nested: { name: string }");
+    expect(analysis.getHoverAt(6, 32)?.contents).toContain("name: string");
+    expect(analysis.getHoverAt(12, 22)?.contents).toContain("value: string");
+  });
+
+  it("reports illegal control-flow expressions using their enclosing context", () => {
+    const source = dedent`
+      true || return 1
+      true || break
+      true || continue
+      while (true) {
+        true || continue missing
+      }
+    `;
+
+    const messages = new Analysis(parseFile(tokenizeReader(source)))
+      .getIssues()
+      .map((issue) => issue.message);
+
+    expect(messages).toContain("Illegal 'return' outside of a function");
+    expect(messages).toContain("Illegal 'break' statement outside of a loop or switch");
+    expect(messages).toContain("Illegal 'continue' statement outside of a loop");
+    expect(messages).toContain("Undefined statement label 'missing'");
+  });
+
+  it("includes return expressions in inferred function return types and path checks", () => {
+    const source = dedent`
+      fun mixed(flag: boolean) {
+        flag || return "early"
+        return 1
+      }
+      val numeric: int = mixed(false)
+      fun incomplete(flag: boolean): int {
+        flag || return 1
+      }
+    `;
+
+    const messages = new Analysis(parseFile(tokenizeReader(source)))
+      .getIssues()
+      .map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("string") && message.includes("not assignable"))).toBe(true);
+    expect(messages).toContain("Not all code paths return a value");
+  });
+
   it("validates labeled break and continue targets", () => {
     const source = dedent`
       outer: while (ok) {

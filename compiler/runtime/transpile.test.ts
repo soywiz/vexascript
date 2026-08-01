@@ -55,6 +55,75 @@ function decodeSourceLinesFromMappings(mappings: string): number[] {
 }
 
 describe("transpile", () => {
+  it("executes control-flow expressions with short-circuit semantics", () => {
+    const result = transpile(`
+fun get(items: string[], index: int): string {
+  items[index] || throw Error("Not found")
+  return items[index]
+}
+fun early(flag: boolean): int {
+  flag || return 7
+  return 9
+}
+fun pick(flag: boolean): int {
+  return if (flag) 11 else throw Error("No pick")
+}
+fun blockPick(flag: boolean): int {
+  val result = if (flag) { val base = 10; base + 2 } else { 13 }
+  return result
+}
+class ControlExpressionTarget(val base: int) {
+  fun add(value: int): int { return base + value }
+}
+fun invoke(flag: boolean): int {
+  val target = ControlExpressionTarget(20)
+  return target.add(if (flag) 2 else return 0)
+}
+val decide = (flag: boolean): boolean => flag || return false
+console.log(get(["ok"], 0), early(false), early(true), pick(true), blockPick(true), blockPick(false), invoke(true), invoke(false), decide(false), decide(true))
+try { get([], 0) } catch (error) { console.log(error.message) }
+`, { emitSourceMap: false });
+    const logged: unknown[][] = [];
+
+    expect(result.errors).toEqual([]);
+    new Function("console", result.code)({ log: (...values: unknown[]) => logged.push(values) });
+    expect(logged).toEqual([["ok", 7, 9, 11, 12, 13, 22, 0, false, true], ["Not found"]]);
+  });
+
+  it("preserves loop behavior for break and continue expressions", () => {
+    const result = transpile(`
+val kept: int[] = []
+for (val value of [0, 1, 2, 10, 3]) {
+  value > 0 || continue
+  value < 10 || break
+  kept.push(value)
+}
+console.log(...kept)
+`, { emitSourceMap: false });
+    const logged: unknown[][] = [];
+
+    expect(result.errors).toEqual([]);
+    new Function("console", result.code)({ log: (...values: unknown[]) => logged.push(values) });
+    expect(logged).toEqual([[1, 2]]);
+  });
+
+  it("executes nullable loop guards while keeping the reachable value", () => {
+    const result = transpile(`
+val kept: string[] = []
+val values: string?[] = [undefined, "first", undefined, "second"]
+for (item of values) {
+  val it: string = item ?? continue
+  kept.push(it)
+}
+console.log(...kept)
+`, { emitSourceMap: false });
+    const logged: unknown[][] = [];
+
+    expect(result.errors).toEqual([]);
+    new Function("console", result.code)({ log: (...values: unknown[]) => logged.push(values) });
+    expect(logged).toEqual([["first", "second"]]);
+  });
+
   it("reports parse, analysis, and emission timings for single-file compilation", () => {
     const events: Array<{ phase: string; elapsedMs: number }> = [];
 

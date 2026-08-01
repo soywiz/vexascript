@@ -2,6 +2,37 @@ import { describe, expect, it } from "../test/expect";
 import { transpile } from "./transpile";
 
 describe("C++ emitter", () => {
+  it("emits shared lowering for control-flow expressions", () => {
+    const result = transpile(`
+fun early(flag: boolean): int {
+  flag || return 1
+  return 2
+}
+fun scan(values: int[]) {
+  for (val value of values) {
+    value > 0 || continue
+    value < 10 || break
+  }
+}
+fun pick(flag: boolean): int {
+  val result = if (flag) 3 else throw "No result"
+  return result
+}
+fun requireValue(value: string | undefined): string {
+  val result = value || throw Error("missing")
+  return result
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/control-expressions.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("__vexa_control_0");
+    expect(result.code).toContain("return 1;");
+    expect(result.code).toContain("continue;");
+    expect(result.code).toContain("break;");
+    expect(result.code).toContain("vexa::throwValue(__vexa_literal_0->value())");
+    expect(result.code).toContain("std::u16string result");
+  });
+
   it("keeps concrete Set storage when an explicit semantic type lowers dynamically", () => {
     const result = transpile(`
 type Name = "alpha" | "beta";

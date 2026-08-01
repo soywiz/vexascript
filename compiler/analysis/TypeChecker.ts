@@ -1,4 +1,4 @@
-import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, ClassDelegate, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
+import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 
@@ -79,7 +79,7 @@ import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
 import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations.shared";
 import { declarationIndexForStatements } from "./declarationIndex";
-import { walkAst } from "compiler/ast/traversal";
+import { childNodes, walkAst } from "compiler/ast/traversal";
 import { boxedInterfaceNameForBuiltin, expressionSnippet, isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
 import {
   isDynamicPropertyName,
@@ -93,7 +93,7 @@ import {
   toReadonlyPropertyName
 } from "./propertyNames";
 import { isBigIntType, isIntType, isLongType, isNullishType, isNumberType, isNumericFamilyType, isNumericType, isPrimitiveLikeOperatorType, isStringLikeType } from "./typeClassifiers";
-import { isAsyncLike, statementAllowsLabeledContinue, statementAlwaysExits, statementListAlwaysExits, statementListPreventsSwitchFallthrough } from "./controlFlow";
+import { expressionPreventsFallthrough, isAsyncLike, statementAllowsLabeledContinue, statementAlwaysExits, statementListAlwaysExits, statementListPreventsSwitchFallthrough } from "./controlFlow";
 import { combineTypes, elementTypeFromIterable, hasNullishUnionMember, isAsyncIteratorType, removeNullishFromType, resolveLiteralTypeName, spreadArgumentElementType, unwrapPromiseType } from "./typeOperations";
 
 function typeParameterNameList(typeParameters: readonly TypeParameter[]): string[] {
@@ -252,6 +252,7 @@ export class TypeChecker {
   // `await` is permitted in those bodies, and they participate in pervasive auto-await of
   // Promise-typed expressions. Plain functions do not (the stack handles nesting).
   private readonly asyncLikeFunctionStack: boolean[] = [];
+  private readonly activeFlowContexts: FlowContext[] = [];
   private readonly assignabilityChecksInProgress: Set<string> = new Set();
   private readonly assignabilityCache: Map<string, boolean> = new Map();
   private readonly analysisTypeIds: WeakMap<object, number> = new WeakMap<object, number>();
@@ -640,8 +641,10 @@ export class TypeChecker {
   }
 
   private visitStatement(statement: Statement, scope: Scope, flow: FlowContext): void {
-    this.visitStatementAnnotations(statement, scope);
-    switch (statement.kind) {
+    this.activeFlowContexts.push(flow);
+    try {
+      this.visitStatementAnnotations(statement, scope);
+      switch (statement.kind) {
       case NodeKind.ExportStatement: {
         const exportStatement = statement as ExportStatement;
         if (!exportStatement.from) {
@@ -767,49 +770,11 @@ export class TypeChecker {
         return;
       }
       case NodeKind.ReturnStatement: {
-        const returnStatement = statement as ReturnStatement;
-        const expectedReturnType = flow.expectedReturnType;
-        const preservesInferredReturnType = this.preservesInferredContextualReturnType(expectedReturnType, scope);
-        const asyncReturnValueType =
-          flow.inAsync === true && expectedReturnType && !preservesInferredReturnType
-            ? this.getAsyncReturnValueType(expectedReturnType)
-            : null;
-        if (returnStatement.expression) {
-          // A returned Promise is flattened by the surrounding async/sync function, so it is not
-          // auto-awaited (mirroring plain `async` semantics).
-          const actualReturnType = this.visitExpression(
-            returnStatement.expression,
-            scope,
-            preservesInferredReturnType ? undefined : (asyncReturnValueType ?? expectedReturnType),
-            true
-          );
-          if (
-            expectedReturnType &&
-            flow.contextualVoidReturn !== true &&
-            !preservesInferredReturnType &&
-            !isUnknownType(expectedReturnType) &&
-            !isUnknownType(actualReturnType) &&
-            !this.returnExpressionIsAssignable(actualReturnType, expectedReturnType, asyncReturnValueType, flow.inAsync === true)
-          ) {
-            this.reportReturnTypeMismatch(actualReturnType, expectedReturnType, returnStatement);
-          }
-        } else if (
-          expectedReturnType &&
-          !(flow.inAsync === true
-            ? this.asyncReturnValueIsOptional(expectedReturnType, asyncReturnValueType)
-            : this.returnValueIsOptional(expectedReturnType))
-        ) {
-          this.issues.push({
-            message: "A function whose declared return type is neither 'undefined' nor 'void' must return a value",
-            node: returnStatement,
-            code: ANALYSIS_ISSUE_CODES.RETURN_VALUE_REQUIRED
-          });
-        }
+        this.visitReturnControl(statement as ReturnStatement, scope, flow);
         return;
       }
       case NodeKind.ThrowStatement: {
-        const throwStatement = statement as ThrowStatement;
-        this.visitExpression(throwStatement.expression, scope);
+        this.visitThrowControl(statement as ThrowStatement, scope);
         return;
       }
       case NodeKind.DeferStatement:
@@ -819,64 +784,24 @@ export class TypeChecker {
         this.visitTryStatement(statement as TryStatement, scope, flow);
         return;
       case NodeKind.ContinueStatement: {
-        const continueStatement = statement as ContinueStatement;
-        const statementLabel = continueStatement.label;
-        if (statementLabel) {
-          const labelName = statementLabel.name;
-          const targetExists = flow.labels?.some((label) => label.name === labelName) ?? false;
-          const targetAllowsContinue = flow.labels?.some(
-            (label) => label.name === labelName && label.allowsContinue
-          ) ?? false;
-          if (!targetExists) {
-            this.issues.push({
-              message: `Undefined statement label '${labelName}'`,
-              node: statementLabel
-            });
-          } else if (!targetAllowsContinue) {
-            this.issues.push({
-              message: `Illegal 'continue' target '${labelName}' because the label does not reference a loop`,
-              node: statementLabel
-            });
-          }
-          return;
-        }
-        if (flow.loopDepth <= 0) {
-          this.issues.push({
-            message: "Illegal 'continue' statement outside of a loop",
-            node: statement
-          });
-        }
+        this.visitContinueControl(statement as ContinueStatement, flow);
         return;
       }
       case NodeKind.BreakStatement: {
-        const breakStatement = statement as BreakStatement;
-        const statementLabel = breakStatement.label;
-        if (statementLabel) {
-          const labelName = statementLabel.name;
-          const targetExists = flow.labels?.some((label) => label.name === labelName) ?? false;
-          if (!targetExists) {
-            this.issues.push({
-              message: `Undefined statement label '${labelName}'`,
-              node: statementLabel
-            });
-          }
-          return;
-        }
-        if (flow.loopDepth <= 0 && flow.switchDepth <= 0) {
-          this.issues.push({
-            message: "Illegal 'break' statement outside of a loop or switch",
-            node: statement
-          });
-        }
+        this.visitBreakControl(statement as BreakStatement, flow);
         return;
       }
-      default:
-        return;
+        default:
+          return;
+      }
+    } finally {
+      this.activeFlowContexts.pop();
     }
   }
 
   private visitExprStatement(statement: ExprStatement, scope: Scope): void {
     this.visitExpression(statement.expression, scope);
+    this.applyExpressionContinuationNarrowings(statement.expression, scope);
     if (!(statement.expression instanceof CallExpression)) {
       return;
     }
@@ -888,6 +813,93 @@ export class TypeChecker {
     scope.symbols = narrowedScope.symbols;
     if (narrowedScope.narrowedExpressionTypes) {
       scope.narrowedExpressionTypes = narrowedScope.narrowedExpressionTypes;
+    }
+  }
+
+  private visitReturnControl(statement: ReturnStatement, scope: Scope, flow: FlowContext): void {
+    if (!this.isInsideFunction() && flow.expectedReturnType === undefined) {
+      this.issues.push({ message: "Illegal 'return' outside of a function", node: statement });
+    }
+    const expectedReturnType = flow.expectedReturnType;
+    const preservesInferredReturnType = this.preservesInferredContextualReturnType(expectedReturnType, scope);
+    const asyncReturnValueType =
+      flow.inAsync === true && expectedReturnType && !preservesInferredReturnType
+        ? this.getAsyncReturnValueType(expectedReturnType)
+        : null;
+    if (statement.expression) {
+      // A returned Promise is flattened by the surrounding async/sync function, so it is not
+      // auto-awaited (mirroring plain `async` semantics).
+      const actualReturnType = this.visitExpression(
+        statement.expression,
+        scope,
+        preservesInferredReturnType ? undefined : (asyncReturnValueType ?? expectedReturnType),
+        true
+      );
+      if (
+        expectedReturnType &&
+        flow.contextualVoidReturn !== true &&
+        !preservesInferredReturnType &&
+        !isUnknownType(expectedReturnType) &&
+        !isUnknownType(actualReturnType) &&
+        !this.returnExpressionIsAssignable(actualReturnType, expectedReturnType, asyncReturnValueType, flow.inAsync === true)
+      ) {
+        this.reportReturnTypeMismatch(actualReturnType, expectedReturnType, statement);
+      }
+      return;
+    }
+    if (
+      expectedReturnType &&
+      !(flow.inAsync === true
+        ? this.asyncReturnValueIsOptional(expectedReturnType, asyncReturnValueType)
+        : this.returnValueIsOptional(expectedReturnType))
+    ) {
+      this.issues.push({
+        message: "A function whose declared return type is neither 'undefined' nor 'void' must return a value",
+        node: statement,
+        code: ANALYSIS_ISSUE_CODES.RETURN_VALUE_REQUIRED
+      });
+    }
+  }
+
+  private visitThrowControl(statement: ThrowStatement, scope: Scope): void {
+    this.visitExpression(statement.expression, scope);
+  }
+
+  private visitContinueControl(statement: ContinueStatement, flow: FlowContext): void {
+    const statementLabel = statement.label;
+    if (statementLabel) {
+      const labelName = statementLabel.name;
+      const targetExists = flow.labels?.some((label) => label.name === labelName) ?? false;
+      const targetAllowsContinue = flow.labels?.some(
+        (label) => label.name === labelName && label.allowsContinue
+      ) ?? false;
+      if (!targetExists) {
+        this.issues.push({ message: `Undefined statement label '${labelName}'`, node: statementLabel });
+      } else if (!targetAllowsContinue) {
+        this.issues.push({
+          message: `Illegal 'continue' target '${labelName}' because the label does not reference a loop`,
+          node: statementLabel
+        });
+      }
+      return;
+    }
+    if (flow.loopDepth <= 0) {
+      this.issues.push({ message: "Illegal 'continue' statement outside of a loop", node: statement });
+    }
+  }
+
+  private visitBreakControl(statement: BreakStatement, flow: FlowContext): void {
+    const statementLabel = statement.label;
+    if (statementLabel) {
+      const labelName = statementLabel.name;
+      const targetExists = flow.labels?.some((label) => label.name === labelName) ?? false;
+      if (!targetExists) {
+        this.issues.push({ message: `Undefined statement label '${labelName}'`, node: statementLabel });
+      }
+      return;
+    }
+    if (flow.loopDepth <= 0 && flow.switchDepth <= 0) {
+      this.issues.push({ message: "Illegal 'break' statement outside of a loop or switch", node: statement });
     }
   }
 
@@ -1260,6 +1272,9 @@ export class TypeChecker {
         this.validateBindingPatternSource(declaration.name, inferredType);
         this.ensureVariableBindingSymbols(scope, declaration.name, statement.declarationKind, inferredType);
         this.updateBindingSymbolTypes(scope, declaration.name, inferredType);
+        if (declaration.initializer) {
+          this.applyExpressionContinuationNarrowings(declaration.initializer, scope);
+        }
       }
       return;
     }
@@ -1305,6 +1320,9 @@ export class TypeChecker {
     this.validateBindingPatternSource(statement.name, inferredType);
     this.ensureVariableBindingSymbols(scope, statement.name, statement.declarationKind, inferredType);
     this.updateBindingSymbolTypes(scope, statement.name, inferredType);
+    if (statement.initializer) {
+      this.applyExpressionContinuationNarrowings(statement.initializer, scope);
+    }
   }
 
   private ensureVariableBindingSymbols(
@@ -2161,6 +2179,82 @@ export class TypeChecker {
     }
   }
 
+  private activeFlowContext(): FlowContext {
+    return this.activeFlowContexts.at(-1) ?? new FlowContext(0, 0, []);
+  }
+
+  private withActiveFlowContext<T>(flow: FlowContext, run: () => T): T {
+    this.activeFlowContexts.push(flow);
+    try {
+      return run();
+    } finally {
+      this.activeFlowContexts.pop();
+    }
+  }
+
+  private visitValueBranch(
+    statement: Statement,
+    scope: Scope,
+    flow: FlowContext,
+    expectedType?: AnalysisType
+  ): AnalysisType {
+    if (statement instanceof ExprStatement) {
+      return this.visitExpression(statement.expression, scope, expectedType);
+    }
+    if (statement instanceof BlockStatement) {
+      const blockScope = this.scopeFor(statement, scope);
+      const lastIndex = statement.body.length - 1;
+      for (let index = 0; index < lastIndex; index += 1) {
+        this.visitStatement(statement.body[index]!, blockScope, flow);
+      }
+      const last = statement.body[lastIndex];
+      return last
+        ? this.visitValueBranch(last, blockScope, flow, expectedType)
+        : builtinType("undefined");
+    }
+    if (
+      statement instanceof IfStatement ||
+      statement instanceof ReturnStatement ||
+      statement instanceof ThrowStatement ||
+      statement instanceof BreakStatement ||
+      statement instanceof ContinueStatement
+    ) {
+      return this.visitExpression(statement, scope, expectedType);
+    }
+    this.visitStatement(statement, scope, flow);
+    return builtinType("undefined");
+  }
+
+  private visitIfExpression(
+    statement: IfStatement,
+    scope: Scope,
+    expectedType?: AnalysisType
+  ): AnalysisType {
+    const flow = this.activeFlowContext();
+    this.visitExpression(statement.condition, scope);
+    const thenScope = this.scopeWithNarrowings(
+      this.scopeFor(statement.thenBranch, scope),
+      this.conditionNarrowings(statement.condition, scope, true),
+      this.conditionExpressionNarrowings(statement.condition, scope, true)
+    );
+    const thenType = this.visitValueBranch(statement.thenBranch, thenScope, flow, expectedType);
+    const elseType = statement.elseBranch
+      ? this.visitValueBranch(
+          statement.elseBranch,
+          this.scopeWithNarrowings(
+            this.scopeFor(statement.elseBranch, scope),
+            this.conditionNarrowings(statement.condition, scope, false),
+            this.conditionExpressionNarrowings(statement.condition, scope, false)
+          ),
+          flow,
+          expectedType
+        )
+      : builtinType("undefined");
+    if (this.isTypeAssignable(thenType, elseType)) return elseType;
+    if (this.isTypeAssignable(elseType, thenType)) return thenType;
+    return combineTypes([thenType, elseType]);
+  }
+
   private applyFlowNarrowings(
     scope: Scope,
     narrowings: Map<string, AnalysisType>,
@@ -2171,6 +2265,34 @@ export class TypeChecker {
     if (narrowedScope.narrowedExpressionTypes) {
       scope.narrowedExpressionTypes = narrowedScope.narrowedExpressionTypes;
     }
+  }
+
+  private applyExpressionContinuationNarrowings(expression: Expr, scope: Scope): void {
+    if (!(expression instanceof BinaryExpression)) {
+      return;
+    }
+    const binary = expression as BinaryExpression;
+    if (
+      (binary.operator !== "||" && binary.operator !== "&&" && binary.operator !== "??") ||
+      !expressionPreventsFallthrough(binary.right)
+    ) {
+      return;
+    }
+
+    if (binary.operator === "??") {
+      this.applyFlowNarrowings(
+        scope,
+        this.nullishNarrowings(binary.left, scope, false),
+        this.nullishExpressionNarrowings(binary.left, scope, false)
+      );
+      return;
+    }
+    const leftMustBeTruthy = binary.operator === "||";
+    this.applyFlowNarrowings(
+      scope,
+      this.conditionNarrowings(binary.left, scope, leftMustBeTruthy),
+      this.conditionExpressionNarrowings(binary.left, scope, leftMustBeTruthy)
+    );
   }
 
   private scopeWithNarrowings(
@@ -2257,6 +2379,19 @@ export class TypeChecker {
     return narrowedType ? this.singleNarrowing(identifier.name, narrowedType) : new Map();
   }
 
+  private nullishNarrowings(expression: Expr, scope: Scope, nullish: boolean): Map<string, AnalysisType> {
+    if (!(expression instanceof Identifier)) {
+      return new Map();
+    }
+    const identifier = expression as Identifier;
+    const originalType = this.resolve(identifier.name, scope, nodeStartOffset(identifier))?.type ?? UNKNOWN_TYPE;
+    const narrowedType = this.nullishNarrowedType(originalType, nullish);
+    if (isSameType(narrowedType, originalType)) {
+      return new Map();
+    }
+    return this.singleNarrowing(identifier.name, narrowedType);
+  }
+
   private conditionNarrowingInfo(
     binary: BinaryExpression,
     scope: Scope
@@ -2291,25 +2426,6 @@ export class TypeChecker {
       return checkedType instanceof LiteralType || isNullishType(checkedType) ? checkedType : null;
     }
     return null;
-  }
-
-  private isRuntimeTypeNarrowingCondition(condition: Expr): boolean {
-    if (condition instanceof UnaryExpression && condition.operator === "!") {
-      return this.isRuntimeTypeNarrowingCondition(condition.argument);
-    }
-    if (condition instanceof BinaryExpression && (condition.operator === "&&" || condition.operator === "||")) {
-      return this.isRuntimeTypeNarrowingCondition(condition.left) ||
-        this.isRuntimeTypeNarrowingCondition(condition.right);
-    }
-    return condition instanceof BinaryExpression &&
-      (
-        condition.operator === "instanceof" ||
-        condition.operator === "is" ||
-        condition.operator === "==" ||
-        condition.operator === "===" ||
-        condition.operator === "!=" ||
-        condition.operator === "!=="
-      );
   }
 
   private narrowedTypeForCheck(originalType: AnalysisType, checkedType: AnalysisType, truthy: boolean): AnalysisType | null {
@@ -2414,6 +2530,23 @@ export class TypeChecker {
     return this.singleNarrowing(stableKey, narrowedType);
   }
 
+  private nullishExpressionNarrowings(
+    expression: Expr,
+    scope: Scope,
+    nullish: boolean
+  ): Map<string, AnalysisType> {
+    const stableKey = this.stableExpressionKey(expression);
+    if (!stableKey) {
+      return new Map();
+    }
+    const originalType = this.expressionTypeForNarrowing(expression, scope);
+    const narrowedType = this.nullishNarrowedType(originalType, nullish);
+    if (isSameType(narrowedType, originalType)) {
+      return new Map();
+    }
+    return this.singleNarrowing(stableKey, narrowedType);
+  }
+
   private expressionTypeForNarrowing(expression: Expr, scope: Scope): AnalysisType {
     const cached = this.expressionTypes.get(expression);
     if (cached) {
@@ -2423,24 +2556,136 @@ export class TypeChecker {
   }
 
   private truthinessNarrowedType(type: AnalysisType, truthy: boolean): AnalysisType | null {
-    if (!hasNullishUnionMember(type)) {
-      return null;
+    const narrowedType = this.narrowTypeByTruthiness(type, truthy);
+    return isSameType(narrowedType, type) ? null : narrowedType;
+  }
+
+  private narrowTypeByTruthiness(type: AnalysisType, truthy: boolean): AnalysisType {
+    if (type instanceof UnionType) {
+      return this.combineReachableTypes(
+        type.types.map((member) => this.narrowTypeByTruthiness(member, truthy))
+      );
+    }
+
+    const possibilities = this.truthinessPossibilities(type);
+    if (!(truthy ? possibilities.truthy : possibilities.falsy)) {
+      return builtinType("never");
     }
     if (truthy) {
-      return removeNullishFromType(type);
+      if (type instanceof BuiltinType && type.name === "boolean") {
+        return literalType("boolean", true);
+      }
+      return type;
     }
-    if (!(type instanceof UnionType)) {
-      return null;
+    if (type instanceof BuiltinType) {
+      if (type.name === "boolean") return literalType("boolean", false);
+      if (type.name === "string") return literalType("string", "");
+      if (type.name === "int") return literalType("number", 0);
     }
-    const union = type as UnionType;
-    const nullishMembers: AnalysisType[] = [];
-    for (const member of union.types) {
-      if (isNullishType(member)) nullishMembers.push(member);
+    return type;
+  }
+
+  private truthinessPossibilities(type: AnalysisType): { truthy: boolean; falsy: boolean } {
+    if (type instanceof UnionType) {
+      let truthy = false;
+      let falsy = false;
+      for (const member of type.types) {
+        const possibilities = this.truthinessPossibilities(member);
+        truthy ||= possibilities.truthy;
+        falsy ||= possibilities.falsy;
+      }
+      return { truthy, falsy };
     }
-    if (nullishMembers.length === 0) {
-      return null;
+    if (type instanceof IntersectionType) {
+      let truthy = true;
+      let falsy = true;
+      for (const member of type.types) {
+        const possibilities = this.truthinessPossibilities(member);
+        truthy &&= possibilities.truthy;
+        falsy &&= possibilities.falsy;
+      }
+      return { truthy, falsy };
     }
-    return nullishMembers.length === 1 ? nullishMembers[0]! : unionType(nullishMembers);
+    if (type instanceof LiteralType) {
+      return { truthy: Boolean(type.value), falsy: !type.value };
+    }
+    if (type instanceof UnknownType) {
+      return { truthy: true, falsy: true };
+    }
+    if (type instanceof BuiltinType) {
+      switch (type.name) {
+        case "never":
+          return { truthy: false, falsy: false };
+        case "null":
+        case "undefined":
+        case "void":
+          return { truthy: false, falsy: true };
+        case "object":
+        case "symbol":
+          return { truthy: true, falsy: false };
+        default:
+          return { truthy: true, falsy: true };
+      }
+    }
+    if (type instanceof NamedType && this.isActiveTypeParameter(type.name)) {
+      return { truthy: true, falsy: true };
+    }
+    return { truthy: true, falsy: false };
+  }
+
+  private nullishNarrowedType(type: AnalysisType, nullish: boolean): AnalysisType {
+    if (type instanceof UnionType) {
+      return this.combineReachableTypes(
+        type.types.map((member) => this.nullishNarrowedType(member, nullish))
+      );
+    }
+    if (type instanceof UnknownType ||
+      (type instanceof BuiltinType && (type.name === "unknown" || type.name === "any"))) {
+      return type;
+    }
+    const memberIsNullish = isNullishType(type);
+    return memberIsNullish === nullish ? type : builtinType("never");
+  }
+
+  private combineReachableTypes(types: AnalysisType[]): AnalysisType {
+    const flattened: AnalysisType[] = [];
+    const append = (type: AnalysisType): void => {
+      if (type instanceof UnionType) {
+        for (const member of type.types) append(member);
+        return;
+      }
+      if (type instanceof BuiltinType && type.name === "never") {
+        return;
+      }
+      flattened.push(type);
+    };
+    for (const type of types) append(type);
+    if (flattened.length === 0) {
+      return builtinType("never");
+    }
+    const anyType = flattened.find(
+      (type) => type instanceof BuiltinType && type.name === "any"
+    );
+    if (anyType) return anyType;
+    const unknownType = flattened.find(
+      (type) => type instanceof UnknownType ||
+        (type instanceof BuiltinType && type.name === "unknown")
+    );
+    if (unknownType) return unknownType;
+
+    const result: AnalysisType[] = [];
+    for (const candidate of flattened) {
+      if (result.some((existing) => this.isTypeAssignable(candidate, existing))) {
+        continue;
+      }
+      for (let index = result.length - 1; index >= 0; index -= 1) {
+        if (this.isTypeAssignable(result[index]!, candidate)) {
+          result.splice(index, 1);
+        }
+      }
+      result.push(candidate);
+    }
+    return combineTypes(result);
   }
 
   private stableExpressionKey(expression: Expr): string | null {
@@ -2717,21 +2962,30 @@ export class TypeChecker {
       case NodeKind.BinaryExpression: {
         const binary = expression as BinaryExpression;
         const leftType = this.visitExpression(binary.left, scope);
-        const rightExpectedType = binary.operator === "??" && !isUnknownType(leftType)
-          ? removeNullishFromType(leftType)
-          : undefined;
+        const rightExpectedType =
+          (binary.operator === "||" || binary.operator === "&&" || binary.operator === "??") && expectedType
+            ? expectedType
+            : binary.operator === "??" && !isUnknownType(leftType)
+              ? removeNullishFromType(leftType)
+              : undefined;
         let rightScope = scope;
-        if (this.isRuntimeTypeNarrowingCondition(binary.left) && binary.operator === "&&") {
+        if (binary.operator === "&&") {
           rightScope = this.scopeWithNarrowings(
             scope,
             this.conditionNarrowings(binary.left, scope, true),
             this.conditionExpressionNarrowings(binary.left, scope, true)
           );
-        } else if (this.isRuntimeTypeNarrowingCondition(binary.left) && binary.operator === "||") {
+        } else if (binary.operator === "||") {
           rightScope = this.scopeWithNarrowings(
             scope,
             this.conditionNarrowings(binary.left, scope, false),
             this.conditionExpressionNarrowings(binary.left, scope, false)
+          );
+        } else if (binary.operator === "??") {
+          rightScope = this.scopeWithNarrowings(
+            scope,
+            this.nullishNarrowings(binary.left, scope, true),
+            this.nullishExpressionNarrowings(binary.left, scope, true)
           );
         }
         const rightType = this.visitExpression(binary.right, rightScope, rightExpectedType);
@@ -2893,23 +3147,38 @@ export class TypeChecker {
         result = this.visitExpression((expression as NamedArgument).value, scope, expectedType);
         break;
       }
+      case NodeKind.IfStatement:
+        result = this.visitIfExpression(expression as IfStatement, scope, expectedType);
+        break;
+      case NodeKind.ReturnStatement:
+        this.visitReturnControl(expression as ReturnStatement, scope, this.activeFlowContext());
+        result = builtinType("never");
+        break;
+      case NodeKind.ThrowStatement:
+        this.visitThrowControl(expression as ThrowStatement, scope);
+        result = builtinType("never");
+        break;
+      case NodeKind.ContinueStatement:
+        this.visitContinueControl(expression as ContinueStatement, this.activeFlowContext());
+        result = builtinType("never");
+        break;
+      case NodeKind.BreakStatement:
+        this.visitBreakControl(expression as BreakStatement, this.activeFlowContext());
+        result = builtinType("never");
+        break;
       case NodeKind.ConditionalExpression: {
         const conditional = expression as ConditionalExpression;
         this.visitExpression(conditional.test, scope);
-        const consequentScope = this.isRuntimeTypeNarrowingCondition(conditional.test)
-          ? this.scopeWithNarrowings(
-              scope,
-              this.conditionNarrowings(conditional.test, scope, true),
-              this.conditionExpressionNarrowings(conditional.test, scope, true)
-            )
-          : scope;
-        const alternateScope = this.isRuntimeTypeNarrowingCondition(conditional.test)
-          ? this.scopeWithNarrowings(
-              scope,
-              this.conditionNarrowings(conditional.test, scope, false),
-              this.conditionExpressionNarrowings(conditional.test, scope, false)
-            )
-          : scope;
+        const consequentScope = this.scopeWithNarrowings(
+          scope,
+          this.conditionNarrowings(conditional.test, scope, true),
+          this.conditionExpressionNarrowings(conditional.test, scope, true)
+        );
+        const alternateScope = this.scopeWithNarrowings(
+          scope,
+          this.conditionNarrowings(conditional.test, scope, false),
+          this.conditionExpressionNarrowings(conditional.test, scope, false)
+        );
         const consequentType = this.visitExpression(conditional.consequent, consequentScope, expectedType);
         const alternateType = this.visitExpression(conditional.alternate, alternateScope, expectedType);
         if (this.isTypeAssignable(consequentType, alternateType)) {
@@ -3658,7 +3927,17 @@ export class TypeChecker {
             );
             this.reportMissingReturnPath(arrow.body as BlockStatement, returnType, arrow, arrowIsAsyncLike);
           } else {
-            returnType = this.visitExpression(arrow.body as Expr, arrowScope, expectedFunctionType?.returnType);
+            const expressionFlow = new FlowContext(
+              0,
+              0,
+              [],
+              expectedFunctionType?.returnType ?? UNKNOWN_TYPE,
+              arrowIsAsyncLike,
+              false
+            );
+            returnType = this.withActiveFlowContext(expressionFlow, () =>
+              this.visitExpression(arrow.body as Expr, arrowScope, expectedFunctionType?.returnType)
+            );
             if (arrowIsAsyncLike && (!expectedFunctionType || isUnknownType(expectedFunctionType.returnType))) {
               returnType = namedType("Promise", [returnType]);
             }
@@ -4393,6 +4672,40 @@ export class TypeChecker {
     leftType: AnalysisType,
     rightType: AnalysisType
   ): AnalysisType {
+    if (operator === "||") {
+      if (!this.truthinessPossibilities(leftType).falsy) {
+        return leftType;
+      }
+      return this.combineReachableTypes([
+        this.narrowTypeByTruthiness(leftType, true),
+        rightType
+      ]);
+    }
+
+    if (operator === "&&") {
+      if (!this.truthinessPossibilities(leftType).truthy) {
+        return leftType;
+      }
+      return this.combineReachableTypes([
+        this.narrowTypeByTruthiness(leftType, false),
+        rightType
+      ]);
+    }
+
+    if (operator === "??") {
+      if (isUnknownType(leftType)) {
+        return rightType;
+      }
+      const nullishLeftType = this.nullishNarrowedType(leftType, true);
+      if (nullishLeftType instanceof BuiltinType && nullishLeftType.name === "never") {
+        return leftType;
+      }
+      return this.combineReachableTypes([
+        this.nullishNarrowedType(leftType, false),
+        rightType
+      ]);
+    }
+
     if (
       operator === "+" &&
       (isStringLikeType(leftType) || isStringLikeType(rightType))
@@ -4453,23 +4766,6 @@ export class TypeChecker {
       return UNKNOWN_TYPE;
     }
 
-    if (operator === "??") {
-      if (isUnknownType(leftType) || isNullishType(leftType)) {
-        return rightType;
-      }
-      if (!hasNullishUnionMember(leftType)) {
-        return leftType;
-      }
-      const definedLeftType = removeNullishFromType(leftType);
-      if (this.isTypeAssignable(rightType, definedLeftType)) {
-        return definedLeftType;
-      }
-      if (this.isTypeAssignable(definedLeftType, rightType)) {
-        return rightType;
-      }
-      return unionType([definedLeftType, rightType]);
-    }
-
     // The three-way comparison (spaceship) operator yields an ordering: -1, 0,
     // or 1.
     if (operator === "<=>") {
@@ -4487,9 +4783,7 @@ export class TypeChecker {
       operator === "==" ||
       operator === "!=" ||
       operator === "===" ||
-      operator === "!==" ||
-      operator === "||" ||
-      operator === "&&"
+      operator === "!=="
     ) {
       return builtinType("boolean");
     }
@@ -8224,10 +8518,14 @@ export class TypeChecker {
 
   private collectReturnExpressionTypesFromStatement(statement: Statement, collected: AnalysisType[]): void {
     switch (statement.kind) {
+      case NodeKind.ExprStatement:
+        this.collectReturnExpressionTypesFromExpression((statement as ExprStatement).expression, collected);
+        return;
       case NodeKind.ReturnStatement: {
         const expression = (statement as ReturnStatement).expression;
         if (expression) {
           collected.push(this.returnExpressionType(expression));
+          this.collectReturnExpressionTypesFromExpression(expression, collected);
         } else {
           collected.push(builtinType("undefined"));
         }
@@ -8278,6 +8576,32 @@ export class TypeChecker {
         return;
       default:
         return;
+    }
+  }
+
+  private collectReturnExpressionTypesFromExpression(expression: Expr, collected: AnalysisType[]): void {
+    const pending: Node[] = [expression];
+    const visited = new WeakSet<object>();
+    while (pending.length > 0) {
+      const node = pending.pop()!;
+      if (visited.has(node)) continue;
+      visited.add(node);
+      if (
+        node instanceof ArrowFunctionExpression ||
+        node instanceof FunctionExpression ||
+        node instanceof ClassExpression
+      ) {
+        continue;
+      }
+      if (node instanceof ReturnStatement) {
+        collected.push(node.expression
+          ? this.returnExpressionType(node.expression)
+          : builtinType("undefined"));
+      }
+      const children = childNodes(node);
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        pending.push(children[index]!);
+      }
     }
   }
 

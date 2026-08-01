@@ -1284,7 +1284,7 @@ Supported type annotation forms in declarations/members:
 - generic type references (`Map<K, V>`)
 - array suffixes (`K[]`, `Map<K, V>[]`, `[int, number, Animation][]`)
 - readonly container shorthand (`readonly string[]`, `readonly [string, int]`)
-- optional type suffixes (`User?`, `(() => void)?`), equivalent to `User | undefined`
+- optional type suffixes (`User?`, `(() => void)?`), equivalent to `User | undefined`; the suffix may appear before an array suffix (`T?[]`) to describe an array of optional elements
 - union types (`string | number`)
 - intersection types (`Named & Serializable`)
 - function types (`(value: int) => string`, constructor signatures like `new (value: int) => Box`, and optional/rest parameters)
@@ -1351,6 +1351,31 @@ Supported binary operators:
 - equality: `==`, `!=`, `===`, `!==`
 - bitwise: `&`, `^`, `|`
 - logical: `&&`, `||`, `??`
+
+Logical operators return operand values rather than coercing their result to
+`boolean`. Their inferred type contains only branches that can complete and
+produce a value: `a || b` combines the truthy part of `a` with `b`, `a && b`
+combines the falsy part of `a` with `b`, and `a ?? b` combines the non-nullish
+part of `a` with `b`. An abrupt control-flow expression has type `never` and
+therefore does not widen the result:
+
+```vexa
+fun lookup<T>(array: T?[], index: int): T {
+  val result = array[index] || throw Error("Not found") // T
+  return result
+}
+
+for (item of array) {
+  val it: T = item ?? continue
+  consume(it)
+}
+```
+
+Use `??` when only `null` or `undefined` should trigger the right operand.
+`||` also takes its right branch for falsy values such as `false`, `0`, and the
+empty string. A guard whose right operand returns, throws, breaks, or continues
+also narrows the guarded identifier or stable member expression on the normal
+continuation path.
 
 ### Assignment operators
 
@@ -1714,6 +1739,22 @@ if (condition) {
 }
 ```
 
+In VexaScript mode, `if` is also an expression. A single-expression branch
+evaluates to that expression, and a block branch evaluates to its final
+expression statement. A branch that returns, throws, breaks, or continues has
+type `never`, so it does not widen the type of the reachable branch. An omitted
+`else` contributes `undefined` to the result type.
+
+```vexa
+val label = if (enabled) "ready" else "disabled"
+val port = if (configured) {
+  log("using configured port")
+  configuredPort
+} else {
+  8080
+}
+```
+
 ### Switch / case / default
 
 VexaScript supports TypeScript-style `switch` statements with `case` and optional `default`. Non-empty cases must end control flow explicitly before the next label:
@@ -1727,9 +1768,10 @@ switch (value) {
 }
 ```
 
-### Return, continue, break, debugger, and empty statements
+### Control-flow statements and expressions
 
-Supported statements:
+The following forms are statements, and in VexaScript mode they may also be
+used wherever an expression is accepted:
 
 - `return`
 - `return expression`
@@ -1738,6 +1780,31 @@ Supported statements:
 - `continue label` for labeled loop targets
 - `break`
 - `break label` for active statement labels
+
+`return`, `throw`, `continue`, and `break` expressions have type `never`. They
+preserve normal short-circuit and evaluation-order behavior, which makes guard
+expressions concise without introducing a helper closure:
+
+```vexa
+array[item] || throw Error("Not found")
+ready || return fallback
+
+for (val item of items) {
+  item.isVisible || continue
+  item.isTerminal || break
+  render(item)
+}
+```
+
+The same label and enclosing-context rules apply in expression position:
+labeled `continue` must target a loop, `break` must target an active loop,
+switch, or label, and `return` must be inside a function. These expression
+forms are lowered to ordinary target-language control-flow statements before
+both JavaScript and C++ emission. TypeScript parser mode keeps the standard
+TypeScript statement-only grammar.
+
+The remaining statement-only forms are:
+
 - `debugger`
 - empty statements (`;`), including as loop bodies such as `while (condition);`
 
@@ -1912,7 +1979,9 @@ try {
 - Regular expression literals have the named type `RegExp`.
 - `+`, `-`, `*`, `/`, `%`, shifts and bitwise operators on `int` operands infer `int`.
 - `+` with at least one `string` operand infers `string`.
-- Comparisons/equality/logical operators infer `boolean`.
+- Comparisons and equality operators infer `boolean`. Logical `&&`, `||`, and
+  `??` expressions infer their reachable operand value types, excluding
+  `never` branches and applying truthy/falsy/nullish narrowing.
 - `start ... end` infers `range<int>` and is end-inclusive; `start ..< end` infers `range<int>` and is end-exclusive.
 
 ### Long runtime lowering
