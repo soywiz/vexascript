@@ -106,7 +106,8 @@
     "launch": "pnpm run bundle-extension && code --extensionDevelopmentPath=$(pwd)",
     "install": "pnpm package && (NODE_OPTIONS=--disable-warning=DEP0169 code --uninstall-extension soywiz.vexascript-vscodeext || true) && NODE_OPTIONS=--disable-warning=DEP0169 code --install-extension vexascript.vsix --force",
     "uninstall": "NODE_OPTIONS=--disable-warning=DEP0169 code --uninstall-extension soywiz.vexascript-vscodeext",
-    "publish": "vsce publish"
+    "publish": "vsce publish",
+    "publish:url": "open 'https://marketplace.visualstudio.com/manage/publishers/soywiz/extensions/vexascript-vscodeext/hub'"
   },
   "devDependencies": {
     "vscode-languageclient": "^9.0.1"

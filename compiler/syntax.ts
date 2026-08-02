@@ -22,7 +22,7 @@ export const VEXA_PRIMITIVE_TYPES = [
   "unknown", "any", "void", "never", "object"
 ] as const;
 
-const VEXA_REGEXP_LITERAL_PATTERN = String.raw`/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+/[dgimsuvy]*`;
+const VEXA_REGEXP_LITERAL_PATTERN = String.raw`(?<!\boperator)/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+/[dgimsuvy]*`;
 
 export interface PortableMonarchRule {
   match: string;

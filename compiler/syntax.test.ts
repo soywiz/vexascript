@@ -49,7 +49,7 @@ describe("portable monarch syntax", () => {
     const codeMirror = createCodeMirrorLegacyModeSource();
     const literalPattern = new RegExp(monacoRule!.match);
 
-    expect(monacoRule?.match).toBe(String.raw`/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+/[dgimsuvy]*`);
+    expect(monacoRule?.match).toBe(String.raw`(?<!\boperator)/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+/[dgimsuvy]*`);
     expect(jsxRule?.match).toBe(monacoRule?.match);
     expect(literalPattern.test("/^hell[ao]+$/")).toBe(true);
     expect(literalPattern.test("/hello\\/world/i")).toBe(true);
@@ -60,7 +60,17 @@ describe("portable monarch syntax", () => {
       match: monacoRule?.match,
     });
     expect(codeMirror).toContain('token: "regexp"');
-    expect(codeMirror).toContain(String.raw`\/(?![\/*])`);
+    expect(codeMirror).toContain(String.raw`(?<!\boperator)\/(?![\/*])`);
+  });
+
+  it("does not classify an imported operator/ name and its closing brace as a regexp", () => {
+    const source = 'import { TimeSpan, operator+, operator/ } from "./time.vx"';
+    const regexpRule = createPortableMonarchLanguage().tokenizer["root"]
+      ?.find((rule) => rule.token === "regexp");
+    const regexpPattern = new RegExp(regexpRule!.match, "y");
+    regexpPattern.lastIndex = source.indexOf("/");
+
+    expect(regexpPattern.exec(source)).toBe(null);
   });
 
   it("classifies annotation applications without swallowing their arguments", () => {
