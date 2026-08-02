@@ -27,10 +27,11 @@ describe("VS Code extension packaging", () => {
     expect(extension.version).toBe(root.version);
   });
 
-  it("defines install, bundle, launch, and package wrapper scripts at the repo root", async () => {
+  it("defines release and VS Code extension wrapper scripts at the repo root", async () => {
     const packageJsonPath = resolve(process.cwd(), "package.json");
     const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as RootPackageJson;
 
+    expect(pkg.scripts?.["bump"]).toBe("tsx scripts/bumpVersion.ts");
     expect(pkg.scripts?.["vscodeext:install"]).toBe("pnpm --dir plugins/vscode run install");
     expect(pkg.scripts?.["vscodeext:uninstall"]).toBe("pnpm --dir plugins/vscode run uninstall");
     expect(pkg.scripts?.["vscodeext:bundle"]).toBe("pnpm --dir plugins/vscode run bundle-extension");

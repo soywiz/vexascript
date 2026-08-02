@@ -116,6 +116,7 @@ This section is the fast onboarding map for agents and contributors.
 ### Tooling and Integration Pieces
 
 - Distribution builds: `scripts/build.ts` bundles the Node CLI with esbuild and copies its runtime declarations through asynchronous Node APIs, while `scripts/buildVscodeServer.ts` performs the equivalent plugin-aware server bundle for the VS Code extension; `scripts/build.test.ts` and `compiler/vscodeext-packaging.test.ts` validate the emitted package contracts.
+- Release version synchronization: `scripts/bumpVersion.ts`, exposed as `pnpm bump <version>`, validates a semantic version and updates the root package plus VS Code extension manifests together; `scripts/bumpVersion.test.ts` covers synchronized updates and rejection without partial writes.
 - Compilation pipeline (separate shared parse and parse + analysis artifacts):
   - Parse phase: `compiler/pipeline/parse.ts`
   - Parse phase tests: `compiler/pipeline/parse.test.ts`

@@ -1,6 +1,6 @@
 {
   "name": "vexascript",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Node.js CLI project for VexaScript, a TypeScript-like language with compiler and language server",
   "license": "Apache-2.0",
   "type": "module",
@@ -17,6 +17,7 @@
   ],
   "scripts": {
     "clean": "tsx scripts/clean.ts",
+    "bump": "tsx scripts/bumpVersion.ts",
     "prepack": "pnpm build",
     "cli": "pnpm --silent build && node dist/vexa.js",
     "build": "node --import tsx scripts/build.ts",
