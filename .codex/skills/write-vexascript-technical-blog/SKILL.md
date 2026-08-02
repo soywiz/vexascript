@@ -25,6 +25,46 @@ Choose one question the article answers, such as why an incremental rebuild stil
 
 Write for a reader who wants to understand or reproduce the engineering decision. Explain mechanisms, boundaries, and tradeoffs at the level needed to distinguish the chosen design from plausible alternatives.
 
+## Use direct titles and headings
+
+State the subject plainly. A reader should understand a title or heading without
+interpreting a metaphor, contrast, or rhetorical claim.
+
+- Name the version, feature, subsystem, result, or question directly.
+- Prefer concrete nouns and verbs over abstractions such as “boundary,” “model,”
+  “artifact,” “foundation,” or “path” when the specific component can be named.
+- Do not turn an implementation detail into a slogan. Avoid constructions such
+  as “X becomes Y without Z,” “X is syntax over one model,” “X forced explicit
+  boundaries,” or “X is now an operational artifact.”
+- Keep headings short. Put the explanation and tradeoffs in the section body.
+
+Prefer titles and headings such as:
+
+- `VexaScript 0.11.0: control-flow expressions and pattern matching`
+- `How match expressions are compiled`
+- `Character literals, template strings, and receiver blocks`
+- `Version bumping and Git tags`
+
+## Use plain, accessible language
+
+Write for a developer who does not already know the compiler architecture.
+Keep the technical detail, but explain it in ordinary language.
+
+- Use short sentences and familiar words.
+- Introduce one idea per paragraph.
+- Explain what a compiler term means the first time it appears. For example,
+  describe lowering as converting new syntax into simpler existing syntax.
+- State what changed before explaining why it matters.
+- Prefer active voice and concrete subjects: “The parser converts `match` to
+  nested `if` expressions” is clearer than “`match` converges on conditional
+  lowering.”
+- Remove sentences that only add tone, emphasis, or drama.
+- Avoid rhetorical contrasts such as “This is not just X; it is Y,” unless the
+  distinction prevents a real misunderstanding.
+- Do not assume that longer or more abstract prose sounds more technical.
+- After drafting, reread every paragraph and replace jargon that is not needed
+  for accuracy.
+
 ## Structure the article
 
 Keep the existing Eleventy frontmatter contract:
@@ -44,7 +84,7 @@ permalink: /blog/stable-slug.html
 Then use this editorial shape:
 
 1. Open with the date, exact milestone, and scope. Include the relevant commit when known.
-2. Add three to six descriptive level-two subsections formatted as `## **Subsection title**`.
+2. Add three to six direct, descriptive level-two subsections formatted as `## **Subsection title**`.
 3. Include at least one Markdown table containing real measurements, mappings, timelines, or design comparisons.
 4. Include short source or command examples when they materially clarify the mechanism.
 5. Explain at least one rejected approach, failure, or constraint when the evidence contains one.
@@ -55,7 +95,7 @@ Prefer paragraphs for causal explanation and tables for exact repeated-field com
 
 ## Write from evidence, not milestone rhetoric
 
-Avoid generic claims such as “a major leap,” “game-changing,” “seamless,” or “blazing fast.” Replace them with the mechanism and its measured consequence.
+Avoid generic claims such as “a major leap,” “game-changing,” “seamless,” or “blazing fast.” Also avoid editorial flourishes that make a straightforward fact sound like a slogan. Replace them with the feature, mechanism, and measured consequence.
 
 Apply these rules:
 
