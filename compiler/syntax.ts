@@ -22,7 +22,8 @@ export const VEXA_PRIMITIVE_TYPES = [
   "unknown", "any", "void", "never", "object"
 ] as const;
 
-const VEXA_REGEXP_LITERAL_PATTERN = String.raw`(?<!\boperator)/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+/[dgimsuvy]*`;
+const VEXA_OPERATOR_NAME_PATTERN = String.raw`\boperator(?:\[\]=?|[+\-*/%&|^~<>!=?:]+)`;
+const VEXA_REGEXP_LITERAL_PATTERN = String.raw`/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+/[dgimsuvy]*`;
 
 export interface PortableMonarchRule {
   match: string;
@@ -89,6 +90,10 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     token: "@cases",
     cases: identifierCases,
   };
+  const operatorNameRule: PortableMonarchRule = {
+    match: VEXA_OPERATOR_NAME_PATTERN,
+    token: "identifier",
+  };
   const genericDeclarationRule: PortableMonarchRule = {
     match: String.raw`(?:fun|function|val|var|let|const)(?=\s*<)`,
     token: "@cases",
@@ -110,6 +115,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`\/\/.*$`, token: "comment" },
         { match: String.raw`\/\*\*`, token: "comment.doc", next: "@doc_block_comment" },
         { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
+        operatorNameRule,
         { match: VEXA_REGEXP_LITERAL_PATTERN, token: "regexp" },
         { match: String.raw`@[A-Za-z_$][\w$]*`, token: "annotation" },
         genericDeclarationRule,
@@ -180,6 +186,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
         { match: String.raw`\/\/.*$`, token: "comment" },
         { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
+        operatorNameRule,
         { match: VEXA_REGEXP_LITERAL_PATTERN, token: "regexp" },
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
@@ -243,6 +250,7 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
     patterns: [
       { include: "#comments" },
       { include: "#strings" },
+      { include: "#operator-names" },
       { include: "#regexps" },
       { include: "#jsx" },
       { include: "#annotations" },
@@ -415,6 +423,9 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
           { name: "keyword.operator.assignment.vexa", match: "=" },
         ],
       },
+      "operator-names": {
+        patterns: [{ name: "entity.name.function.operator.vexa", match: VEXA_OPERATOR_NAME_PATTERN }],
+      },
       members: {
         patterns: [
           { name: "variable.other.property.vexa", match: "\\b[_$A-Za-z][_$A-Za-z0-9]*\\b(?=\\s*:)" },
@@ -513,6 +524,7 @@ export function createVscodeLanguageConfiguration(): Record<string, unknown> {
 }
 
 export function createCodeMirrorLegacyModeSource(): string {
+  const operatorNamePattern = VEXA_OPERATOR_NAME_PATTERN.replace(/\//g, String.raw`\/`);
   const regexpLiteralPattern = VEXA_REGEXP_LITERAL_PATTERN.replace(/\//g, String.raw`\/`);
   return `export const vexaMode = {
   start: [
@@ -520,6 +532,7 @@ export function createCodeMirrorLegacyModeSource(): string {
     { regex: /\\/\\/\\/.*/, token: "comment meta" },
     { regex: /\\/\\/.*/, token: "comment" },
     { regex: /\\/\\*/, token: "comment", next: "blockComment" },
+    { regex: /${operatorNamePattern}/, token: "variableName" },
     { regex: /${regexpLiteralPattern}/, token: "regexp" },
     { regex: /"([^"\\\\]|\\\\.)*"/, token: "string" },
     { regex: /'([^'\\\\]|\\\\.)*'/, token: "string" },

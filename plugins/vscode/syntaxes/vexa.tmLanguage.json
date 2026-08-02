@@ -9,6 +9,9 @@
       "include": "#strings"
     },
     {
+      "include": "#operator-names"
+    },
+    {
       "include": "#regexps"
     },
     {
@@ -353,6 +356,14 @@
         }
       ]
     },
+    "operator-names": {
+      "patterns": [
+        {
+          "name": "entity.name.function.operator.vexa",
+          "match": "\\boperator(?:\\[\\]=?|[+\\-*/%&|^~<>!=?:]+)"
+        }
+      ]
+    },
     "members": {
       "patterns": [
         {
@@ -385,7 +396,7 @@
       "patterns": [
         {
           "name": "string.regexp.vexa",
-          "match": "(?<!\\boperator)/(?![/*])(?:\\\\.|\\[(?:\\\\.|[^\\]\\\\])*\\]|[^/\\\\\\r\\n])+/[dgimsuvy]*"
+          "match": "/(?![/*])(?:\\\\.|\\[(?:\\\\.|[^\\]\\\\])*\\]|[^/\\\\\\r\\n])+/[dgimsuvy]*"
         }
       ]
     },
