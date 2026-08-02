@@ -3221,10 +3221,14 @@ export class Parser {
         const declarations: VarStatement[] = [];
         this.collectMatcherBindings(pattern, subject, declarations);
         if (declarations.length === 0) return body;
-        return new BlockStatement([
-            ...declarations,
-            ...(body instanceof BlockStatement ? body.body : [body])
-        ]);
+        const statements: Statement[] = [];
+        for (const declaration of declarations) statements.push(declaration);
+        if (body instanceof BlockStatement) {
+            for (const statement of body.body) statements.push(statement);
+        } else {
+            statements.push(body);
+        }
+        return new BlockStatement(statements);
     }
 
     private parseMatchExpression(matchKeyword: Token): Expr {

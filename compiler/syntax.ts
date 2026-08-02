@@ -22,6 +22,8 @@ export const VEXA_PRIMITIVE_TYPES = [
   "unknown", "any", "void", "never", "object"
 ] as const;
 
+const VEXA_REGEXP_LITERAL_PATTERN = String.raw`/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+/[dgimsuvy]*`;
+
 export interface PortableMonarchRule {
   match: string;
   token: string;
@@ -108,6 +110,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`\/\/.*$`, token: "comment" },
         { match: String.raw`\/\*\*`, token: "comment.doc", next: "@doc_block_comment" },
         { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
+        { match: VEXA_REGEXP_LITERAL_PATTERN, token: "regexp" },
         { match: String.raw`@[A-Za-z_$][\w$]*`, token: "annotation" },
         genericDeclarationRule,
         { match: String.raw`(?<![\w)\]])<>`, token: "tag", next: "@jsx_children" },
@@ -177,6 +180,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
         { match: String.raw`\/\/.*$`, token: "comment" },
         { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
+        { match: VEXA_REGEXP_LITERAL_PATTERN, token: "regexp" },
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
@@ -429,7 +433,7 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
         patterns: [{ name: "variable.other.vexa", match: "\\b[_A-Za-z][_A-Za-z0-9]*\\b" }],
       },
       regexps: {
-        patterns: [{ name: "string.regexp.vexa", match: "/(?:\\\\.|\\[(?:\\\\.|[^\\]\\\\])*\\]|[^/\\\\\\r\\n])+/[A-Za-z]*" }],
+        patterns: [{ name: "string.regexp.vexa", match: VEXA_REGEXP_LITERAL_PATTERN }],
       },
       jsx: { patterns: [{ include: "#jsx-fragment" }, { include: "#jsx-self-closing-element" }, { include: "#jsx-paired-element" }] },
       "jsx-fragment": {
@@ -509,12 +513,14 @@ export function createVscodeLanguageConfiguration(): Record<string, unknown> {
 }
 
 export function createCodeMirrorLegacyModeSource(): string {
+  const regexpLiteralPattern = VEXA_REGEXP_LITERAL_PATTERN.replace(/\//g, String.raw`\/`);
   return `export const vexaMode = {
   start: [
     { regex: /^#!.*/, token: "comment" },
     { regex: /\\/\\/\\/.*/, token: "comment meta" },
     { regex: /\\/\\/.*/, token: "comment" },
     { regex: /\\/\\*/, token: "comment", next: "blockComment" },
+    { regex: /${regexpLiteralPattern}/, token: "regexp" },
     { regex: /"([^"\\\\]|\\\\.)*"/, token: "string" },
     { regex: /'([^'\\\\]|\\\\.)*'/, token: "string" },
     { regex: /\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nNL])?\\b/, token: "number" },

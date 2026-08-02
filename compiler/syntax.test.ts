@@ -1,5 +1,5 @@
 import { describe, expect, it } from "./test/expect";
-import { createPortableMonarchLanguage, createVscodeTmLanguageGrammar } from "./syntax";
+import { createCodeMirrorLegacyModeSource, createPortableMonarchLanguage, createVscodeTmLanguageGrammar } from "./syntax";
 
 describe("portable monarch syntax", () => {
   it("classifies type declaration keywords separately from identifiers", () => {
@@ -24,6 +24,43 @@ describe("portable monarch syntax", () => {
       "extends",
       "implements"
     ]));
+  });
+
+  it("classifies match and when as keywords in every generated highlighter", () => {
+    const language = createPortableMonarchLanguage();
+    const vscodeGrammar = createVscodeTmLanguageGrammar();
+    const repository = vscodeGrammar["repository"] as Record<string, unknown>;
+    const keywords = repository["keywords"] as { patterns: Array<{ name: string; match: string }> };
+    const controlPattern = keywords.patterns.find((pattern) => pattern.name === "keyword.control.vexa");
+    const codeMirror = createCodeMirrorLegacyModeSource();
+
+    expect(language.controlKeywords).toEqual(expect.arrayContaining(["match", "when"]));
+    expect(controlPattern?.match).toContain("match|when");
+    expect(codeMirror).toContain("case|match|when|default");
+  });
+
+  it("classifies regular-expression literals distinctly in every generated highlighter", () => {
+    const language = createPortableMonarchLanguage();
+    const vscodeGrammar = createVscodeTmLanguageGrammar();
+    const repository = vscodeGrammar["repository"] as Record<string, unknown>;
+    const regexps = repository["regexps"] as { patterns: Array<{ name: string; match: string }> };
+    const monacoRule = language.tokenizer["root"]?.find((rule) => rule.token === "regexp");
+    const jsxRule = language.tokenizer["jsx_expression"]?.find((rule) => rule.token === "regexp");
+    const codeMirror = createCodeMirrorLegacyModeSource();
+    const literalPattern = new RegExp(monacoRule!.match);
+
+    expect(monacoRule?.match).toBe(String.raw`/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+/[dgimsuvy]*`);
+    expect(jsxRule?.match).toBe(monacoRule?.match);
+    expect(literalPattern.test("/^hell[ao]+$/")).toBe(true);
+    expect(literalPattern.test("/hello\\/world/i")).toBe(true);
+    expect(literalPattern.test("// comment")).toBe(false);
+    expect(literalPattern.test("/* comment */")).toBe(false);
+    expect(regexps.patterns[0]).toEqual({
+      name: "string.regexp.vexa",
+      match: monacoRule?.match,
+    });
+    expect(codeMirror).toContain('token: "regexp"');
+    expect(codeMirror).toContain(String.raw`\/(?![\/*])`);
   });
 
   it("classifies annotation applications without swallowing their arguments", () => {

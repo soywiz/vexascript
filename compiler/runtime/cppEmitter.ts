@@ -1650,13 +1650,23 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
       ? expression as ArrowFunctionExpression | FunctionExpression
       : null;
     const functionType = sourceType instanceof FunctionType ? sourceType as FunctionType : null;
-    const callableResult = functionType
+    const localCallableType = expression instanceof Identifier
+      ? activeLocalCppTypes.get((expression as Identifier).name) ?? null
+      : null;
+    const localCallableResult = localCallableType ? stdFunctionResultCppType(localCallableType) : null;
+    const localCallableParameters = localCallableType ? stdFunctionParameterCppTypes(localCallableType) : null;
+    const declaredCallableResult = callableExpression?.returnType
+      ? cppTypeForDeclaredName(callableExpression.returnType.name)
+      : "";
+    const callableResult = declaredCallableResult || localCallableResult || (functionType
       ? cppTypeForAnalysisType(functionType.returnType) ?? "vexa::Value"
       : callableExpression
         ? callableExpressionResultCppType(callableExpression) ?? "vexa::Value"
-        : "vexa::Value";
+        : "vexa::Value");
     const callableParameters: string[] = [];
-    if (functionType) {
+    if (localCallableParameters) {
+      callableParameters.push(...localCallableParameters);
+    } else if (functionType) {
       for (const parameter of functionType.parameters) {
         callableParameters.push(cppTypeForAnalysisType(parameter.type) ?? "vexa::Value");
       }
@@ -2169,6 +2179,11 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
       dynamicBinaryHelper((expression as BinaryExpression).operator)) {
     return "vexa::Value";
   }
+  if (expression instanceof BinaryExpression && dynamicBinaryHelper(expression.operator)) {
+    const left = emittedCppTypeForExpression(expression.left);
+    const right = emittedCppTypeForExpression(expression.right);
+    if (left === "vexa::Value" || right === "vexa::Value") return "vexa::Value";
+  }
   if (expression instanceof Identifier) {
     const name = (expression as Identifier).name;
     const defaultArgument = resolvedDefaultArgument(name);
@@ -2496,6 +2511,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
           "replace", "substring", "slice",
         ]).has(member.propertyName)) return "std::u16string";
         if (new Set(["includes", "startsWith", "endsWith", "test"]).has(member.propertyName)) return "bool";
+        if (member.propertyName === "codePointAt") return "vexa::Value";
         if (new Set(["charCodeAt", "lastIndexOf", "indexOf"]).has(member.propertyName)) return "double";
       }
       if (member && isArrayExpression(member.object)) {
@@ -4649,7 +4665,7 @@ function primitiveRuntimeMethodName(name: string): string | null {
   switch (name) {
     case "toString": case "valueOf": case "toFixed": case "toUpperCase":
     case "toLowerCase": case "trim": case "trimStart": case "trimEnd":
-    case "startsWith": case "endsWith": case "charAt": case "charCodeAt":
+    case "startsWith": case "endsWith": case "charAt": case "charCodeAt": case "codePointAt":
     case "substring": case "split":
       return name;
     case "includes": return "stringIncludes";
@@ -5217,7 +5233,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     const primitiveMethod = primitiveRuntimeMethodName(member.propertyName);
     if (primitiveMethod) {
       const receiver = emitExpression(member.object);
-      const numericArguments = new Set(["substring", "stringSlice", "charAt", "charCodeAt", "stringRepeat"])
+      const numericArguments = new Set(["substring", "stringSlice", "charAt", "charCodeAt", "codePointAt", "stringRepeat"])
         .has(primitiveMethod);
       let emittedArguments: string;
       if (primitiveMethod === "toString" && call.args.length > 1) {
@@ -6370,6 +6386,17 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       const property = resolvedNativePropertyMember(assignment.left);
       if (property) {
         return emitPropertyAssignment(assignment, property, resultUsed);
+      }
+      if (assignment.operator === "&&=" || assignment.operator === "||=") {
+        const target = emitExpression(assignment.left);
+        const targetType = emittedCppTypeForExpression(assignment.left) ?? cppTypeForExpression(assignment.left);
+        const value = targetType !== "auto"
+          ? emitConvertedValue(assignment.right, targetType)
+          : emitExpression(assignment.right);
+        const condition = assignment.operator === "&&="
+          ? "vexa::toBoolean(vexa::toValue(__vexa_logical_current))"
+          : "!vexa::toBoolean(vexa::toValue(__vexa_logical_current))";
+        return `vexa::assignWith(${target}, [&](const auto& __vexa_logical_current) { return ${condition} ? ${value} : __vexa_logical_current; })`;
       }
       const compoundOperator = compoundAssignmentBinaryOperator(assignment.operator);
       if (overloaded?.operator === compoundOperator) {

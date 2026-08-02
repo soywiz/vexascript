@@ -78,6 +78,7 @@ switch compiled
 strings VEXA true
 string concatenation abcd bcd
 string builder abc
+self-host regressions true:false A|😀 128512 matched 2 callback
 typed static access true true it missing ok:1:0:7 true value-changed true true false base guarded
 string index e 4
 utf16 string 4 55357 56832 é

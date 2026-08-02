@@ -792,6 +792,45 @@ builtString += "a"
 builtString += "b"
 builtString += "c"
 console.log("string builder", builtString)
+
+fun logicalAssignmentSummary(values: boolean[]): string {
+  let any = false
+  let every = true
+  for (value of values) {
+    any ||= value
+    every &&= value
+  }
+  return `${any}:${every}`
+}
+
+fun selfHostMatch(value: any): string {
+  return match (value) {
+    { kind: "ok", payload: val payload: string } -> payload
+    [string, val count: number, ...] -> count.toString()
+    else -> "unknown"
+  }
+}
+
+interface OptionalTextCallback {
+  val transform: (value: string) -> string | undefined
+}
+
+fun runOptionalTextCallback(options: OptionalTextCallback): string {
+  return options.transform("callback") ?? "missing"
+}
+
+val optionalTextCallback = (value: string): string | undefined => value
+
+val spreadCodePoints = [..."A😀"]
+console.log(
+  "self-host regressions",
+  logicalAssignmentSummary([false, true]),
+  spreadCodePoints.join("|"),
+  "😀".codePointAt(0) ?? 0,
+  selfHostMatch({ kind: "ok", payload: "matched" }),
+  selfHostMatch(["batch", 2, true]),
+  runOptionalTextCallback({ transform: optionalTextCallback })
+)
 val smokeParameter = SmokeFunctionParameter(SmokeNodeName(SmokeNodeKind.ExprStatement, "it"))
 val smokeCallable = SmokeCallableShape([smokeParameter])
 console.log(

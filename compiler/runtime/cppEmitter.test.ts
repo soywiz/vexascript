@@ -14,6 +14,66 @@ val matches = "aaa".charCodeAt(0) == 'a'
     expect(result.code).toContain("== 97");
   });
 
+  it("lowers logical assignments without emitting invalid C++ operators", () => {
+    const result = transpile(`
+function merge(values: boolean[]): boolean {
+  let any = false;
+  let every = true;
+  for (const value of values) {
+    any ||= value;
+    every &&= value;
+  }
+  return any && every;
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/logical-assignment.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).not.toContain("||=");
+    expect(result.code).not.toContain("&&=");
+    expect(result.code).toContain("vexa::assignWith");
+  });
+
+  it("emits string iteration and codePointAt through native runtime helpers", () => {
+    const result = transpile(`
+function inspect(value: string): number {
+  const characters = [...value];
+  return characters.length + (value.codePointAt(0) ?? 0);
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/string-iteration.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::appendAll(__vexa_array, value)");
+    expect(result.code).toContain("vexa::codePointAt(value");
+  });
+
+  it("converts dynamically emitted arithmetic into declared primitive locals", () => {
+    const result = transpile(`
+function offset(index: any, fixed: any): number {
+  const restIndex: number = index - fixed;
+  return restIndex;
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/dynamic-arithmetic-local.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("double restIndex = vexa::toDouble(vexa::subtract(");
+  });
+
+  it("uses explicit callable return annotations when boxing interface callbacks", () => {
+    const result = transpile(`
+class Expr {}
+interface Options {
+  callback?: (expression: Expr) => string | undefined;
+}
+function consume(options: Options): void {}
+const callback = (expression: Expr): string | undefined => expression ? "ok" : undefined;
+consume({ callback: callback });
+`, { emit: "cpp", sourceFilePath: "/tmp/explicit-callback-return.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::makeFunction<vexa::Value, Expr*>");
+    expect(result.code).not.toContain("vexa::makeFunction<vexa::Undefined, Expr*>");
+  });
+
   it("emits shared lowering for control-flow expressions", () => {
     const result = transpile(`
 fun early(flag: boolean): int {

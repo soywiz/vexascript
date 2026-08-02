@@ -3556,6 +3556,11 @@ FunctionObject<Result, Arguments...>* makeFunction(
   return Runtime::make<FunctionObject<Result, Arguments...>>(std::move(callback), roots);
 }
 
+template <typename Result, typename... Arguments>
+inline Value toValue(const std::function<Result(Arguments...)>& callback) {
+  return Value(makeFunction<Result, Arguments...>(callback));
+}
+
 inline Value call(const Value& callable, std::vector<Value> arguments) {
   if (!callable.isRuntimeObject()) {
     throw errorAtCurrentSource(u"VexaScript value is not callable");
@@ -3976,7 +3981,7 @@ inline bool numberIsInteger(T value) {
 template <typename Callback>
 Value nullishCoalesce(Value value, Callback&& fallback) {
   return value.isNull() || value.isUndefined()
-      ? std::forward<Callback>(fallback)()
+      ? toValue(std::forward<Callback>(fallback)())
       : value;
 }
 
@@ -4963,6 +4968,17 @@ inline void appendAll(ArrayObject<T>* target, SetObject<U>* source) {
   });
 }
 
+inline void appendAll(ArrayObject<std::u16string>* target, const std::u16string& source) {
+  target->reserve(target->size() + source.size());
+  for (std::size_t index = 0; index < source.size(); ++index) {
+    const char16_t first = source[index];
+    const bool hasSurrogatePair = first >= 0xD800 && first <= 0xDBFF &&
+      index + 1 < source.size() && source[index + 1] >= 0xDC00 && source[index + 1] <= 0xDFFF;
+    target->append(source.substr(index, hasSurrogatePair ? 2 : 1));
+    if (hasSurrogatePair) ++index;
+  }
+}
+
 template <typename T>
 inline void appendAll(ArrayObject<T>* target, const Value& source) {
     for (const auto value : dynamicIterationRange(source)) {
@@ -4987,6 +5003,17 @@ inline void appendAllConverted(ArrayObject<Value>* target, const ArrayObject<T>*
   target->reserve(target->size() + source->size());
   for (std::size_t index = 0; index < source->size(); ++index) {
     target->append(convertValue<Value>(source->get(index)));
+  }
+}
+
+inline void appendAllConverted(ArrayObject<Value>* target, const std::u16string& source) {
+  target->reserve(target->size() + source.size());
+  for (std::size_t index = 0; index < source.size(); ++index) {
+    const char16_t first = source[index];
+    const bool hasSurrogatePair = first >= 0xD800 && first <= 0xDBFF &&
+      index + 1 < source.size() && source[index + 1] >= 0xDC00 && source[index + 1] <= 0xDFFF;
+    target->append(Runtime::string(source.substr(index, hasSurrogatePair ? 2 : 1)));
+    if (hasSurrogatePair) ++index;
   }
 }
 
@@ -6482,6 +6509,24 @@ inline double charCodeAt(const std::u16string& value, double index = 0) {
 }
 inline double charCodeAt(const Value& value, double index = 0) {
   return charCodeAt(requireString(value), index);
+}
+
+inline Value codePointAt(const std::u16string& value, double index = 0) {
+  const auto position = static_cast<std::int64_t>(std::trunc(index));
+  if (position < 0 || static_cast<std::size_t>(position) >= value.size()) {
+    return Value::undefined();
+  }
+  const auto first = static_cast<std::uint16_t>(value[static_cast<std::size_t>(position)]);
+  if (first >= 0xD800 && first <= 0xDBFF && static_cast<std::size_t>(position + 1) < value.size()) {
+    const auto second = static_cast<std::uint16_t>(value[static_cast<std::size_t>(position + 1)]);
+    if (second >= 0xDC00 && second <= 0xDFFF) {
+      return Value(static_cast<double>(0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00)));
+    }
+  }
+  return Value(static_cast<double>(first));
+}
+inline Value codePointAt(const Value& value, double index = 0) {
+  return codePointAt(requireString(value), index);
 }
 
 template <typename T>

@@ -59,8 +59,8 @@ permalink: /playground.html
         activePath: "/src/main.vx",
         height: mobileViewport ? "auto" : "calc(100dvh - 5.5rem)",
         inlayHints: true,
-        storageKey: "vexa.playground.workbench.v7",
-        sessionStorageKey: "vexa.playground.workbench.session.v7",
+        storageKey: "vexa.playground.workbench.v8",
+        sessionStorageKey: "vexa.playground.workbench.session.v8",
         files: [
           {
             path: "/src/main.vx",
@@ -74,6 +74,16 @@ permalink: /playground.html
                 return ${BACKTICK}(\${point.x}, \${point.y})${BACKTICK}
               }
 
+              fun classify(value: any): string {
+                return match (value) {
+                  { kind: "ok", payload: val payload: string } -> ${BACKTICK}ok: \$payload${BACKTICK}
+                  [string, val count: number, ...] -> ${BACKTICK}batch: \$count${BACKTICK}
+                  /^user-[0-9]+$/i -> "user id"
+                  >= 10 and < 20 -> "teen"
+                  else -> "unknown"
+                }
+              }
+
               val cardOrigin = Point(36, 28)
               val cardSize = Point(248, 116)
               val pulseCenter = cardOrigin + Point(190, 58)
@@ -84,6 +94,7 @@ permalink: /playground.html
                 console.log(current.toString())
                 console.log(describe(pulseCenter))
                 console.log("character literal", "VexaScript".charCodeAt(0) == 'V')
+                console.log(classify({ kind: "ok", payload: "pattern matching" }))
 
                 val app = document.querySelector("#app")!
                 val canvas = document.createElement("canvas")

@@ -2949,17 +2949,20 @@ export class TypeChecker {
 
   private combineReachableTypes(types: AnalysisType[]): AnalysisType {
     const flattened: AnalysisType[] = [];
-    const append = (type: AnalysisType): void => {
+    const pending: AnalysisType[] = [...types].reverse();
+    while (pending.length > 0) {
+      const type = pending.pop()!;
       if (type instanceof UnionType) {
-        for (const member of type.types) append(member);
-        return;
+        for (let index = type.types.length - 1; index >= 0; index -= 1) {
+          pending.push(type.types[index]!);
+        }
+        continue;
       }
       if (type instanceof BuiltinType && type.name === "never") {
-        return;
+        continue;
       }
       flattened.push(type);
-    };
-    for (const type of types) append(type);
+    }
     if (flattened.length === 0) {
       return builtinType("never");
     }
@@ -6202,7 +6205,8 @@ export class TypeChecker {
       ? calleeType.parameters.length - 1
       : calleeType.parameters.length;
     if (restParameter && index >= fixedParameterCount) {
-      return this.restParameterExpectedTypeAt(restParameter.type, index - fixedParameterCount);
+      const restIndex: number = index - fixedParameterCount;
+      return this.restParameterExpectedTypeAt(restParameter.type, restIndex);
     }
     return calleeType.parameters[index]?.type;
   }
