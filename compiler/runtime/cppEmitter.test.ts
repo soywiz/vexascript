@@ -45,6 +45,26 @@ fun requireValue(value: string | undefined): string {
     expect(result.code).toContain("std::u16string result");
   });
 
+  it("emits match expressions through the shared C++ conditional lowering", () => {
+    const result = transpile(`
+fun pick(value: int): string {
+  return match {
+    when value == 1 -> "one"
+    value == 2 -> {
+      val label = "two"
+      label
+    }
+    default -> "other"
+  }
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/match-expression.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("if (value == 1)");
+    expect(result.code).toContain("if (value == 2)");
+    expect(result.code).toContain("return __vexa_literal_");
+  });
+
   it("keeps concrete Set storage when an explicit semantic type lowers dynamically", () => {
     const result = transpile(`
 type Name = "alpha" | "beta";

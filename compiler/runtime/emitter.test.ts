@@ -189,6 +189,27 @@ describe("emitProgram", () => {
     expect(emitted).toContain("if (flag) result = 3; else throw \"No result\";");
   });
 
+  it("lowers match expressions to ordered JavaScript conditionals", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      fun pick(value: int): string {
+        return match {
+          value == 1 -> "one"
+          value == 2 -> {
+            val label = "two"
+            label
+          }
+          else -> "other"
+        }
+      }
+    `));
+
+    const emitted = emitProgram(lowerProgram(program));
+
+    expect(emitted).toContain('if (value == 1) return "one"; else if (value == 2) {');
+    expect(emitted).toContain('const label = "two";');
+    expect(emitted).toContain('return "other";');
+  });
+
   it("lowers break and continue expressions inside loop short-circuit expressions", () => {
     const program = parseFile(tokenizeReader(dedent`
       fun scan(values: int[]) {

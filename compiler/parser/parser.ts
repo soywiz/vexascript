@@ -3022,6 +3022,9 @@ export class Parser {
         }
 
         if (token?.type === TokenType.IDENTIFIER) {
+            if (token.value === "match" && this.language !== "typescript") {
+                return this.parseMatchExpression(token);
+            }
             if (token.value === "function") {
                 return this.parseFunctionExpression(token);
             }
@@ -3075,6 +3078,145 @@ export class Parser {
         }
 
         this.fail("Expected a number literal, string literal, identifier, '(', '[' or '{'", this.tokenAt(token));
+    }
+
+    private isMatchArmStart(): boolean {
+        const startOffset = this.tokens.offset;
+        const first = this.tokens.peek();
+        if (first?.type === TokenType.IDENTIFIER && (first.value === "else" || first.value === "default")) {
+            return true;
+        }
+        try {
+            if (first?.type === TokenType.IDENTIFIER && first.value === "when") {
+                this.tokens.skip();
+            }
+            this.parseExpressionOrThrow();
+            const arrow = this.tokens.peek();
+            return arrow?.type === TokenType.SYMBOL && arrow.value === "->";
+        } catch {
+            return false;
+        } finally {
+            this.tokens.offset = startOffset;
+        }
+    }
+
+    private parseMatchExpression(matchKeyword: Token): Expr {
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
+            this.fail("Expected '{' after 'match'", this.tokenAt(openBrace));
+        }
+
+        const arms: Array<{ condition?: Expr; body: Statement }> = [];
+        let hasDefault = false;
+        let closeBrace: Token | undefined;
+
+        while (this.tokens.hasMore) {
+            const next = this.tokens.peek();
+            if (next?.type === TokenType.SYMBOL && next.value === "}") {
+                closeBrace = this.tokens.read();
+                break;
+            }
+            if (next?.type === TokenType.SYMBOL && next.value === ";") {
+                this.tokens.skip();
+                continue;
+            }
+            if (hasDefault) {
+                this.fail("The 'else' or 'default' match arm must be last", this.tokenAt(next));
+            }
+
+            const armStart = this.tokens.peek();
+            let condition: Expr | undefined;
+            if (
+                armStart?.type === TokenType.IDENTIFIER &&
+                (armStart.value === "else" || armStart.value === "default")
+            ) {
+                hasDefault = true;
+                this.tokens.skip();
+            } else {
+                if (armStart?.type === TokenType.IDENTIFIER && armStart.value === "when") {
+                    this.tokens.skip();
+                }
+                condition = this.parseExpressionOrThrow();
+            }
+
+            const arrow = this.tokens.read();
+            if (arrow?.type !== TokenType.SYMBOL || arrow.value !== "->") {
+                this.fail("Expected '->' after match condition", this.tokenAt(arrow));
+            }
+
+            const statements: Statement[] = [];
+            const bodyStart = this.tokens.peek();
+            if (bodyStart?.type === TokenType.SYMBOL && bodyStart.value === "{") {
+                statements.push(this.parseBlockStatement());
+            } else {
+                while (this.tokens.hasMore) {
+                    const statement = this.parseStatementOrThrow();
+                    statements.push(statement);
+                    const previousToken = this.tokens.offset > 0
+                        ? this.tokens.items[this.tokens.offset - 1]
+                        : undefined;
+                    const following = this.tokens.peek();
+                    if (
+                        following?.type === TokenType.SYMBOL && following.value === "}" ||
+                        this.isMatchArmStart()
+                    ) {
+                        break;
+                    }
+                    this.consumeStatementSeparator("block", previousToken);
+                }
+            }
+
+            if (statements.length === 0) {
+                this.fail("Expected a statement after '->'", this.tokenAt(arrow));
+            }
+            const body = statements.length === 1
+                ? statements[0]!
+                : this.attachNodeBounds(
+                    new BlockStatement(statements),
+                    statements[0]!.firstToken ?? arrow,
+                    statements[statements.length - 1]!.lastToken ?? this.getLastReadToken() ?? arrow
+                );
+            arms.push(condition === undefined ? { body } : { condition, body });
+
+            const previousToken = this.tokens.offset > 0
+                ? this.tokens.items[this.tokens.offset - 1]
+                : undefined;
+            const following = this.tokens.peek();
+            if (following?.type === TokenType.SYMBOL && following.value === ";") {
+                this.tokens.skip();
+            } else if (
+                !(following?.type === TokenType.SYMBOL && following.value === "}") &&
+                !this.isMatchArmStart()
+            ) {
+                this.consumeStatementSeparator("block", previousToken);
+            }
+        }
+
+        if (!closeBrace) {
+            this.fail("Expected '}' to close match expression", this.tokenAt(openBrace), "block");
+        }
+        if (arms.length === 0) {
+            this.fail("Expected at least one arm in match expression", this.tokenAt(openBrace));
+        }
+
+        let fallback: Statement | undefined;
+        let expression: Expr | undefined;
+        for (let index = arms.length - 1; index >= 0; index -= 1) {
+            const arm = arms[index]!;
+            if (arm.condition === undefined) {
+                fallback = arm.body;
+                continue;
+            }
+            expression = this.attachNodeBounds(
+                new IfStatement(arm.condition, arm.body, expression ?? fallback),
+                arm.condition.firstToken,
+                (expression ?? fallback)?.lastToken ?? this.getLastReadToken() ?? arm.condition.lastToken
+            );
+        }
+        if (!expression) {
+            expression = new IfStatement(new BooleanLiteral(true), fallback!);
+        }
+        return this.attachNodeBounds(expression, matchKeyword, closeBrace);
     }
 
     private parsePostfix(): Expr {

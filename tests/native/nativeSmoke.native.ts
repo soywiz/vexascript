@@ -5,6 +5,7 @@ import {
   join,
   mkdtemp,
   readFile,
+  writeFile,
   rm,
   tmpdir,
   vi,
@@ -25,6 +26,48 @@ function nativeCliModuleArgs(): string[] {
 }
 
 describe("native language smoke", () => {
+  it("compiles and runs match expressions with value-producing arms", async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-match-expression-"));
+    const sourcePath = join(outputRoot, "match.vx");
+    const executablePath = join(outputRoot, "match");
+    try {
+      await writeFile(sourcePath, `
+fun pick(value: int): string {
+  return match {
+    when value == 1 -> "one"
+    value == 2 -> {
+      val label = "two"
+      label
+    }
+    default -> "other"
+  }
+}
+
+console.log(pick(1), pick(2), pick(3))
+`, "utf8");
+
+      await runCli([
+        "node",
+        "vexa",
+        "cpp",
+        "link",
+        sourcePath,
+        "--out",
+        executablePath,
+        "--build-dir",
+        join(outputRoot, "build"),
+        "-O0",
+      ]);
+
+      const result = await runCommandCapture(executablePath, [], { cwd: outputRoot });
+      expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout.trim()).toBe("one two other");
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true });
+    }
+  });
+
   it("compiles the complete native sample, runs it, and matches its expected output", async () => {
     const root = process.cwd();
     const sampleRoot = join(root, "samples", "native-language-smoke");

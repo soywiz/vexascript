@@ -1810,6 +1810,32 @@ switch (value) {
 }
 ```
 
+### Match expressions
+
+VexaScript supports an expression-oriented conditional match form. Arms are
+checked from top to bottom, and the first truthy condition supplies the value
+of the whole expression. `when` is optional in an arm; `else` and `default` are
+equivalent fallback arms.
+
+```vexa
+val label = match {
+  value == 1 -> "one"
+  when value == 2 -> {
+    val name = "two"
+    name
+  }
+  else -> "other"
+}
+```
+
+The last expression in a braced arm is its value, so the arm does not need an
+explicit `do` keyword. An arm may also be a single expression or a control
+statement such as `throw`. This initial form deliberately uses ordinary
+boolean conditions rather than custom matcher objects or structural pattern
+bindings. The compiler lowers it to the existing `if` expression path before
+JavaScript or C++ emission, preserving short-circuit evaluation and branch
+scoping.
+
 ### Control-flow statements and expressions
 
 The following forms are statements, and in VexaScript mode they may also be

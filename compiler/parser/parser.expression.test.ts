@@ -41,6 +41,45 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses match arms as a lowered if-expression chain", () => {
+        const expression = parseExpression(tokenizeReader(dedent`
+            match {
+                when value == 1 -> "one"
+                value == 2 -> {
+                    val label = "two"
+                    label
+                }
+                default -> "other"
+            }
+        `));
+
+        expect(expression).toMatchObject({
+            kind: NodeKind.IfStatement,
+            condition: {
+                kind: NodeKind.BinaryExpression,
+                operator: "=="
+            },
+            thenBranch: {
+                kind: NodeKind.ExprStatement,
+                expression: { kind: NodeKind.StringLiteral, value: "one" }
+            },
+            elseBranch: {
+                kind: NodeKind.IfStatement,
+                thenBranch: {
+                    kind: NodeKind.BlockStatement,
+                    body: [
+                        { kind: NodeKind.VarStatement },
+                        { kind: NodeKind.ExprStatement, expression: { kind: NodeKind.Identifier, name: "label" } }
+                    ]
+                },
+                elseBranch: {
+                    kind: NodeKind.ExprStatement,
+                    expression: { kind: NodeKind.StringLiteral, value: "other" }
+                }
+            }
+        });
+    });
+
     it("keeps control-flow forms statement-only in TypeScript parser mode", () => {
         expect(parseExpression(tokenizeReader("throw Error()"), { language: "typescript" })).toMatchObject({
             kind: NodeKind.Identifier,
