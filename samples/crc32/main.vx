@@ -18,7 +18,7 @@ export class CRC32 {
     for (const byte of bytes) {
       const tableIndex = (crc ^ byte) & 0xFF;
       const tableVal = LOOKUP_TABLE?.[tableIndex];
-      if (tableVal === undefined) throw new Error('tableIndex out of range 0-255');
+      if (tableVal === undefined) throw new Error("tableIndex out of range 0-255");
       crc = (crc >>> 8) ^ tableVal;
     }
 
@@ -40,4 +40,4 @@ export class CRC32 {
 }
 
 val crc = new CRC32();
-console.log(crc.calculate('hello crc32')); // 2560021400 (0x9896d398)
+console.log(crc.calculate("hello crc32")); // 2560021400 (0x9896d398)

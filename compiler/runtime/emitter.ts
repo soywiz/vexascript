@@ -1,4 +1,4 @@
-import { ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingHole, BlockStatement, BooleanLiteral, CallExpression, ChainExpression, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MemberExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, VarDeclarator, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
+import { ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingHole, BlockStatement, BooleanLiteral, CallExpression, ChainExpression, CharacterLiteral, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MemberExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, VarDeclarator, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { BindingElement, BindingName, Node } from "compiler/ast/ast";
 
 
@@ -1334,6 +1334,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
     switch (expression.kind) {
       case NodeKind.IntLiteral:
         return String((expression as IntLiteral).value);
+      case NodeKind.CharacterLiteral:
+        return String((expression as CharacterLiteral).value);
       case NodeKind.FloatLiteral:
         return String((expression as FloatLiteral).value);
       case NodeKind.BigIntLiteral:
@@ -2224,8 +2226,8 @@ function emitEnumStatement(statement: EnumStatement): string {
       } else {
         lines.push(`  ${name}[${name}[${JSON.stringify(memberName)}] = ${initializer}] = ${JSON.stringify(memberName)};`);
       }
-      if (member.initializer instanceof IntLiteral) {
-        nextNumericValue = (member.initializer as IntLiteral).value + 1;
+      if (member.initializer instanceof IntLiteral || member.initializer instanceof CharacterLiteral) {
+        nextNumericValue = member.initializer.value + 1;
       } else {
         nextNumericValue = 0;
       }
@@ -3030,9 +3032,9 @@ export function createEmitProgramRuntimeSeed(
           nextNumericValue += 1;
           continue;
         }
-        if (member.initializer instanceof IntLiteral) {
-          rawValues.push((member.initializer as IntLiteral).value);
-          nextNumericValue = (member.initializer as IntLiteral).value + 1;
+        if (member.initializer instanceof IntLiteral || member.initializer instanceof CharacterLiteral) {
+          rawValues.push(member.initializer.value);
+          nextNumericValue = member.initializer.value + 1;
           continue;
         }
         if (member.initializer instanceof StringLiteral) {

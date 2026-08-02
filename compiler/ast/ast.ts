@@ -15,6 +15,7 @@ export const enum NodeKind {
     ArrayTypeAnnotation,
     TypeParameter,
     StringLiteral,
+    CharacterLiteral,
     RegExpLiteral,
     CommaExpression,
     BinaryExpression,
@@ -109,6 +110,7 @@ const NODE_KIND_NAMES = [
     "ArrayTypeAnnotation",
     "TypeParameter",
     "StringLiteral",
+    "CharacterLiteral",
     "RegExpLiteral",
     "CommaExpression",
     "BinaryExpression",
@@ -325,6 +327,13 @@ export class StringLiteral extends Expr {
 
     constructor(public value: string) {
         super(NodeKind.StringLiteral)
+    }
+}
+export class CharacterLiteral extends Expr {
+    declare kind: NodeKind.CharacterLiteral
+
+    constructor(public value: number) {
+        super(NodeKind.CharacterLiteral)
     }
 }
 export class RegExpLiteral extends Expr {

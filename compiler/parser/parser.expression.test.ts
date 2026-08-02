@@ -3,6 +3,7 @@ import { describe, expect, it } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { ParseError, parseExpression, parseFile, parseProgram } from "./parser";
 import { tokenizeReader } from "./tokenizer";
+import { parseSource } from "compiler/pipeline/parse";
 
 describe("parseExpression", () => {
     it("parses control-flow forms as expressions in VexaScript", () => {
@@ -276,8 +277,32 @@ describe("parseExpression", () => {
         );
     });
 
-    it("builds an AST for single-quoted string literal", () => {
-        expect(parseExpression(tokenizeReader("'abc'"))).toEqual(
+    it("parses VexaScript single-quoted literals as Unicode code-point integers", () => {
+        expect(parseExpression(tokenizeReader("'a'"))).toEqual(
+            { kind: NodeKind.CharacterLiteral, value: 97 }
+        );
+        expect(parseExpression(tokenizeReader("'😀'"))).toEqual(
+            { kind: NodeKind.CharacterLiteral, value: 0x1f600 }
+        );
+        expect(parseExpression(tokenizeReader("'\\u0061'"))).toEqual(
+            { kind: NodeKind.CharacterLiteral, value: 97 }
+        );
+    });
+
+    it("rejects VexaScript single-quoted literals that do not contain exactly one code point", () => {
+        const multiCharacter = parseSource("val text = 'aaa'");
+        const empty = parseSource("val text = ''");
+
+        expect(multiCharacter.parserIssues.map((issue) => issue.message)).toContain(
+            "Character literals must contain exactly one Unicode code point; use double quotes for strings"
+        );
+        expect(empty.parserIssues.map((issue) => issue.message)).toContain(
+            "Character literals must contain exactly one Unicode code point; use double quotes for strings"
+        );
+    });
+
+    it("keeps single-quoted literals as strings in TypeScript mode", () => {
+        expect(parseExpression(tokenizeReader("'abc'", { language: "typescript" }), { language: "typescript" })).toEqual(
             { kind: NodeKind.StringLiteral, value: "abc" }
         );
     });

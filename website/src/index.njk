@@ -4,11 +4,11 @@ title: VexaScript — Modern language for the JavaScript ecosystem
 ---
 <section class="hero">
   <div class="hero-copy">
-    <p class="eyebrow">TypeScript superset · JavaScript and native C++</p>
+    <p class="eyebrow">TypeScript-derived · JavaScript and native C++</p>
     <h1>VexaScript</h1>
     <div class="lead">
       <p>
-        A modern language built on TypeScript. Concise for humans, efficient for AI — less syntactic noise, same expressive power, full compatibility with the JS/TS ecosystem.
+        A modern language built on TypeScript. Concise for humans, efficient for AI — less syntactic noise, the same expressive power, and compatibility with the JS/TS ecosystem.
       </p>
       <p>
         Operator overloading, await-less async, primary-constructor classes, delegated variables, new-less instantiation, and more — without leaving the tools you already use.
@@ -58,9 +58,18 @@ sync fun loadUser(id: string): User {
   <div class="section-heading">
     <p class="eyebrow">Language features</p>
     <h2>Familiar syntax, modern ergonomics</h2>
-    <p class="lead">VexaScript is a non-strict TypeScript superset. Every valid TypeScript file is a valid VexaScript file. The additions are opt-in and stack on top of each other naturally.</p>
+    <p class="lead">VexaScript is derived from TypeScript and keeps its ecosystem while adding deliberate, efficient language features. TypeScript files retain TypeScript semantics; <code>.vx</code> files opt into VexaScript syntax.</p>
   </div>
   <div class="grid">
+    <article class="card">
+      <h3>Integer character literals</h3>
+      <p>Single quotes hold exactly one Unicode code point and compile directly to an integer in JavaScript and C++. Double quotes remain strings.</p>
+{% highlightVexaScript %}
+val letter: int = 'a' // 97
+val emoji: int = '😀' // 128512
+val matches = "aaa".charCodeAt(0) == 'a'
+{% endhighlightVexaScript %}
+    </article>
     <article class="card">
       <h3>Primary-constructor classes</h3>
       <p>Declare class members directly in the constructor signature. <code>val</code> for read-only, <code>var</code> for mutable. No boilerplate.</p>

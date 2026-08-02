@@ -53,6 +53,25 @@ function applyFirstEdit(text: string, action: NonNullable<Awaited<ReturnType<typ
 }
 
 describe("collectCodeActions aggregator", () => {
+  it("offers to convert an invalid character literal to a double-quoted string", async () => {
+    const source = "val text = 'say \\\"hi\\\"'\n";
+    const session = createAnalysisSession(source);
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) => positionAt(source, offset));
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(0, 15),
+      diagnostics,
+      sourceRoots: []
+    });
+    const action = actions.find((candidate) => candidate.title === "Convert to double-quoted string");
+
+    expect(action).toBeTruthy();
+    expect(applyFirstEdit(source, action!)).toBe('val text = "say \\\"hi\\\""\n');
+  });
+
   it("returns no actions when there is no AST", async () => {
     expect(
       await collectCodeActions({

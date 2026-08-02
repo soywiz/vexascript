@@ -618,6 +618,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
     switch (expression.kind) {
       case NodeKind.Identifier:
       case NodeKind.IntLiteral:
+      case NodeKind.CharacterLiteral:
       case NodeKind.FloatLiteral:
       case NodeKind.BigIntLiteral:
       case NodeKind.LongLiteral:
@@ -839,6 +840,9 @@ function classifyToken(
   analysis?: Analysis | null
 ): TokenTypeName | null {
   if (token.type === TokenType.NUMBER) {
+    return "number";
+  }
+  if (token.type === TokenType.STRING && token.stringQuote === "single" && [...token.value].length === 1) {
     return "number";
   }
   if (token.type === TokenType.STRING || token.type === TokenType.REGEXP) {

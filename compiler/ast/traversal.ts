@@ -134,6 +134,7 @@ export function appendChildNodes(node: Node, children: Node[], keys?: string[]):
     case NodeKind.MissingExpression:
     case NodeKind.Identifier:
     case NodeKind.StringLiteral:
+    case NodeKind.CharacterLiteral:
     case NodeKind.RegExpLiteral:
     case NodeKind.ArrayHole:
     case NodeKind.BindingHole:

@@ -7,6 +7,12 @@ import { lowerProgram } from "./lowering";
 import { Analysis } from "compiler/analysis/Analysis";
 
 describe("emitProgram", () => {
+  it("emits VexaScript character literals as code-point integers", () => {
+    const program = parseFile(tokenizeReader("val matches = \"aaa\".charCodeAt(0) == 'a'"));
+
+    expect(emitProgram(program)).toContain('const matches = "aaa".charCodeAt(0) == 97;');
+  });
+
   it("lowers runtime namespaces to JavaScript objects and IIFEs", () => {
     const program = parseFile(tokenizeReader("namespace Tools { export const version = 1; export function read() { return version } }"));
     expect(emitProgram(program)).toBe([

@@ -11,7 +11,7 @@ sync fun main() {
   writeFile(file, "test")
   console.log(readFile(file, "utf-8"))
   val bytes = readFile(file)
-  val hex = readFile(file, 'hex')
+  val hex = readFile(file, "hex")
   console.log(util.format("00%d", 10))
   console.log(hex)
   console.log(bytes[0])

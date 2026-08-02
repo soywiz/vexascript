@@ -1,6 +1,6 @@
 # VexaScript
 
-VexaScript is a modern language derived from TypeScript. It is a non-strict TypeScript superset that compiles to JavaScript and, for a growing native subset, C++ backed by Oilpan GC.
+VexaScript is a modern language derived from TypeScript. It keeps the TypeScript ecosystem while introducing deliberate `.vx` syntax differences, and compiles to JavaScript and, for a growing native subset, C++ backed by Oilpan GC. TypeScript inputs retain TypeScript semantics through the dedicated `.ts`/`.tsx` parser mode.
 
 It is designed to be concise for humans and efficient for AI: less syntactic noise, fewer tokens, same expressive power.
 

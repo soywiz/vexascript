@@ -22,6 +22,15 @@ function symbolsOfVisibleSymbolsAt(source: string, line: number, character: numb
 }
 
 describe("Analysis", () => {
+  it("types VexaScript character literals as int", () => {
+    const ast = parseFile(tokenizeReader("val code: int = 'a'"));
+    const analysis = new Analysis(ast);
+    const initializer = (ast.body[0] as VarStatement).initializer!;
+
+    expect(typeToString(analysis.getExpressionTypes().get(initializer)!)).toBe("int");
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
   it("reports binding and type-checking profile phases", () => {
     const ast = parseFile(tokenizeReader("const value: int = 1"));
     const phases: string[] = [];

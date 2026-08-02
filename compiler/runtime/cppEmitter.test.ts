@@ -2,6 +2,18 @@ import { describe, expect, it } from "../test/expect";
 import { transpile } from "./transpile";
 
 describe("C++ emitter", () => {
+  it("emits VexaScript character literals as code-point integers", () => {
+    const result = transpile(`
+val code: int = '😀'
+val matches = "aaa".charCodeAt(0) == 'a'
+`, { emit: "cpp", sourceFilePath: "/tmp/character-literal.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("std::int32_t code");
+    expect(result.code).toContain("code = 128512;");
+    expect(result.code).toContain("== 97");
+  });
+
   it("emits shared lowering for control-flow expressions", () => {
     const result = transpile(`
 fun early(flag: boolean): int {

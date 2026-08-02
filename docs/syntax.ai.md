@@ -1,6 +1,18 @@
 # VexaScript for AI Agents
 
-VexaScript (`.vx` files) is a TypeScript superset — all valid TypeScript works. This reference only lists additions and changes.
+VexaScript (`.vx` files) is derived from TypeScript and keeps its ecosystem, with the deliberate syntax differences below.
+
+## Character and string literals
+
+- `"text"` is a `string`.
+- `'a'` is the `int` Unicode code point `97`; `'😀'` is `128512`.
+- Single quotes must contain exactly one decoded code point. `'aaa'` and `''` are errors; use `"aaa"` (the editor offers a quick fix).
+- Character literals emit as direct integer constants in JavaScript and C++.
+- TypeScript mode is unchanged: single quotes remain strings in `.ts`, `.tsx`, and `.d.ts`.
+
+```vexa
+val matches = "aaa".charCodeAt(0) == 'a'
+```
 
 ## Variables
 

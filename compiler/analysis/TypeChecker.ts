@@ -1,4 +1,4 @@
-import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
+import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 
@@ -2707,8 +2707,8 @@ export class TypeChecker {
         if (member.property instanceof StringLiteral) {
           return `${objectKey}.${(member.property as StringLiteral).value}`;
         }
-        if (member.property instanceof IntLiteral || member.property instanceof FloatLiteral) {
-          return `${objectKey}.${String((member.property as IntLiteral | FloatLiteral).value)}`;
+        if (member.property instanceof IntLiteral || member.property instanceof CharacterLiteral || member.property instanceof FloatLiteral) {
+          return `${objectKey}.${String(member.property.value)}`;
         }
         return null;
       }
@@ -4046,6 +4046,12 @@ export class TypeChecker {
       case NodeKind.IntLiteral:
         result = this.contextualLiteralType(
           literalType("number", (expression as IntLiteral).value),
+          expectedType
+        ) ?? builtinType("int");
+        break;
+      case NodeKind.CharacterLiteral:
+        result = this.contextualLiteralType(
+          literalType("number", (expression as CharacterLiteral).value),
           expectedType
         ) ?? builtinType("int");
         break;
@@ -12348,7 +12354,7 @@ export class TypeChecker {
     propertyExpression: Expr | undefined,
     propertyType: AnalysisType
   ): AnalysisType {
-    if (propertyExpression instanceof IntLiteral) {
+    if (propertyExpression instanceof IntLiteral || propertyExpression instanceof CharacterLiteral) {
       return unionType([namedType(enumStatement.name.name), builtinType("undefined")]);
     }
     if (propertyExpression instanceof StringLiteral) {
@@ -12472,6 +12478,8 @@ export class TypeChecker {
     switch (expression.kind) {
       case NodeKind.IntLiteral:
         return new ConstantIntEnumResolvedValue((expression as IntLiteral).value);
+      case NodeKind.CharacterLiteral:
+        return new ConstantIntEnumResolvedValue((expression as CharacterLiteral).value);
       case NodeKind.StringLiteral:
         return new ConstantStringEnumResolvedValue((expression as StringLiteral).value);
       case NodeKind.UnaryExpression: {

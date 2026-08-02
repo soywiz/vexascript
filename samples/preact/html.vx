@@ -49,7 +49,7 @@ fun App() {
 		val timeout = setTimeout({
 			//console.log(countRef.current)
 			
-			countRef.current?.style?.background = 'grey'
+			countRef.current?.style?.background = "grey"
 			count++
 		}, 1000)
 		return { clearTimeout(timeout) }
@@ -57,15 +57,15 @@ fun App() {
 
 	return (
 		<div style="font: 16px Arial; font-weight: bold;">
-			<p class="count" style={count < 0 ? 'color:red' : 'color:black'}>
+			<p class="count" style={count < 0 ? "color:red" : "color:black"}>
 				<span ref={countRef} style="padding: 4px 8px; margin-right: 8px;">Count: {count}</span>
 				
-				<MyButton style={{ color: 'red' }} onClick={{ count-- }}>-</MyButton>
-				<MyButton style={{ color: 'green' }} onClick={{ count++ }}>+</MyButton>
+				<MyButton style={{ color: "red" }} onClick={{ count-- }}>-</MyButton>
+				<MyButton style={{ color: "green" }} onClick={{ count++ }}>+</MyButton>
 			</p>
 			{<Clock />}
 		</div>
 	)
 }
 
-render(<App />, document.getElementById('app')!)
+render(<App />, document.getElementById("app")!)

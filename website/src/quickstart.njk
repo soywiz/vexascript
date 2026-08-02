@@ -32,7 +32,7 @@ npx vexascript run hello.vx
         <span class="step-badge">2</span>
         <h3>Write your first file</h3>
       </div>
-      <p>Create a <code>hello.vx</code> file. VexaScript is a TypeScript superset — valid TypeScript is valid VexaScript.</p>
+      <p>Create a <code>hello.vx</code> file. VexaScript is derived from TypeScript and keeps its ecosystem, with deliberate <code>.vx</code> syntax differences; <code>.ts</code> and <code>.tsx</code> inputs retain TypeScript semantics.</p>
 {% highlightVexaScript %}
 class Greeter(val name: string) {
   fun greet() => `Hello, ${name}!`

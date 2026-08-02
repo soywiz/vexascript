@@ -14,6 +14,7 @@ permalink: /playground.html
     width: 100vw;
     height: calc(100dvh - 5.5rem);
     min-height: 0;
+    scroll-margin-top: 5rem;
   }
 
   @media (max-width: 800px) {
@@ -24,6 +25,9 @@ permalink: /playground.html
 </style>
 
 <script>
+  const playgroundWorkbench = document.querySelector("#playground-workbench")
+  playgroundWorkbench?.scrollIntoView({ behavior: "instant", block: "start" })
+
   window.addEventListener("DOMContentLoaded", () => {
     function withEmbeds(callback) {
       if (window.VexaScriptEmbeds) {
@@ -79,6 +83,7 @@ permalink: /playground.html
                 val current = increment(41)
                 console.log(current.toString())
                 console.log(describe(pulseCenter))
+                console.log("character literal", "VexaScript".charCodeAt(0) == 'V')
 
                 val app = document.querySelector("#app")!
                 val canvas = document.createElement("canvas")
@@ -87,7 +92,7 @@ permalink: /playground.html
                   ..height = 180
                 app.append(canvas)
 
-                const c2d = (canvas.getContext("2d")!). {
+                const c2d = canvas.getContext("2d")!. {
                   fillStyle = "#f4f8fc"
                   fillRect(0, 0, canvas.width, canvas.height)
                   drawCard(cardOrigin, cardSize, "#8cb3d9", "VexaScript")
@@ -153,7 +158,7 @@ permalink: /playground.html
               export class LoggedProperty<T>(var current: T) {
                 get value(): T => current
                 set value(newValue: T) {
-                  console.log('changed value', current, '->', newValue)
+                  console.log("changed value", current, "->", newValue)
                   current = newValue
                 }
               }

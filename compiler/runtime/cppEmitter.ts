@@ -1,4 +1,4 @@
-import { ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallableExpression, CallableMember, CallExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, LabeledStatement, LongLiteral, MemberExpression, NamedArgument, NewExpression, Node, NodeKind, nodeKindName, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarStatement, WhileStatement } from "compiler/ast/ast";
+import { ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallableExpression, CallableMember, CallExpression, CharacterLiteral, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, LabeledStatement, LongLiteral, MemberExpression, NamedArgument, NewExpression, Node, NodeKind, nodeKindName, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarStatement, WhileStatement } from "compiler/ast/ast";
 
 
 import { bindingElementPropertyName, bindingIdentifiers } from "compiler/ast/bindingPatterns";
@@ -1078,7 +1078,7 @@ function computeCppTypeForExpression(expression: Expr): string {
       if (mapped) return mapped;
     }
   }
-  if (expression instanceof IntLiteral) return "std::int32_t";
+  if (expression instanceof IntLiteral || expression instanceof CharacterLiteral) return "std::int32_t";
   if (expression instanceof LongLiteral) return "std::int64_t";
   if (expression instanceof BigIntLiteral) return "vexa::BigInt";
   if (expression instanceof FloatLiteral) return "double";
@@ -1535,6 +1535,8 @@ function directlyEmittedCppType(expression: Expr): string | null {
       return directlyEmittedMemberCppType(expression as MemberExpression);
     case NodeKind.IntLiteral:
       return "std::int32_t";
+    case NodeKind.CharacterLiteral:
+      return "std::int32_t";
     case NodeKind.FloatLiteral:
       return "double";
     case NodeKind.LongLiteral:
@@ -1772,6 +1774,7 @@ function arrayLiteralElementCppType(element: Expr): string {
   if (element instanceof ArrayHole) return "vexa::Value";
   if (element instanceof StringLiteral) return "std::u16string";
   if (element instanceof IntLiteral) return element.value > 0x7fffffff ? "double" : "std::int32_t";
+  if (element instanceof CharacterLiteral) return "std::int32_t";
   if (element instanceof FloatLiteral) return "double";
   if (element instanceof LongLiteral) return "std::int64_t";
   if (element instanceof BooleanLiteral) return "bool";
@@ -1790,8 +1793,8 @@ function arrayLiteralElementCppType(element: Expr): string {
 
 function arrayLiteralCppElementType(array: ArrayLiteral): string {
   if (array.elements.length === 0) return "vexa::Value";
-  if (array.elements.every((element) => element instanceof IntLiteral)) {
-    return array.elements.some((element) => (element as IntLiteral).value > 0x7fffffff)
+  if (array.elements.every((element) => element instanceof IntLiteral || element instanceof CharacterLiteral)) {
+    return array.elements.some((element) => element instanceof IntLiteral && element.value > 0x7fffffff)
       ? "double"
       : "std::int32_t";
   }
@@ -1810,7 +1813,7 @@ function arrayElementCanUseCppType(element: Expr, expectedElementType: string): 
   if (element instanceof StringLiteral) {
     return expectedElementType === "std::u16string" || expectedElementType === "vexa::Value";
   }
-  if (element instanceof IntLiteral || element instanceof FloatLiteral || element instanceof LongLiteral) {
+  if (element instanceof IntLiteral || element instanceof CharacterLiteral || element instanceof FloatLiteral || element instanceof LongLiteral) {
     const integerFitsSigned32 = !(element instanceof IntLiteral) || element.value <= 0x7fffffff;
     return (integerFitsSigned32 && expectedElementType === "std::int32_t") || expectedElementType === "std::int64_t" ||
       expectedElementType === "double" || expectedElementType === "vexa::Value";
@@ -4367,7 +4370,7 @@ function extensionReceiverNamesForExpression(expression: Expr): string[] {
   const type = activeExpressionTypes.get(expression as Node);
   if (!type) {
     if (isManagedArrayExpression(expression) || expression instanceof ArrayLiteral) return ["Array"];
-    if (expression instanceof IntLiteral) return ["int", "number"];
+    if (expression instanceof IntLiteral || expression instanceof CharacterLiteral) return ["int", "number"];
     if (expression instanceof FloatLiteral) return ["number"];
     if (expression instanceof StringLiteral) return ["string"];
     if (expression instanceof BooleanLiteral) return ["boolean"];
@@ -5527,6 +5530,7 @@ function emitManagedArrayEmptyComparison(expression: BinaryExpression): string |
 function isStableStaticComparisonOperand(expression: Expr): boolean {
   if (expression instanceof Identifier ||
       expression instanceof IntLiteral ||
+      expression instanceof CharacterLiteral ||
       expression instanceof LongLiteral ||
       expression instanceof FloatLiteral ||
       expression instanceof BooleanLiteral ||
@@ -5614,6 +5618,7 @@ function isDirectNativePrimitiveExpression(operand: Expr): boolean {
   switch (operand.kind) {
     case NodeKind.Identifier:
     case NodeKind.IntLiteral:
+    case NodeKind.CharacterLiteral:
     case NodeKind.LongLiteral:
     case NodeKind.FloatLiteral:
     case NodeKind.BooleanLiteral:
@@ -6013,6 +6018,8 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
     case NodeKind.IntLiteral:
     case NodeKind.FloatLiteral:
       return String((expression as IntLiteral | FloatLiteral).value);
+    case NodeKind.CharacterLiteral:
+      return String((expression as CharacterLiteral).value);
     case NodeKind.BigIntLiteral:
       return `vexa::BigInt(${cppString(String((expression as BigIntLiteral).value))})`;
     case NodeKind.LongLiteral:
@@ -8269,6 +8276,8 @@ function emitEnumConstantExpression(expression: Expr): string {
   switch (expression.kind) {
     case NodeKind.IntLiteral:
       return String((expression as IntLiteral).value);
+    case NodeKind.CharacterLiteral:
+      return String((expression as CharacterLiteral).value);
     case NodeKind.StringLiteral:
       return cppUtf16String((expression as StringLiteral).value);
     case NodeKind.Identifier:

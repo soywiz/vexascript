@@ -43,9 +43,12 @@ export class Token {
     public value: string,
     public index: number,
     public range: SourceRange,
-    public leadingComments?: TokenComment[]
+    public leadingComments?: TokenComment[],
+    public stringQuote?: StringLiteralQuote
   ) {}
 }
+
+export type StringLiteralQuote = "single" | "double";
 
 export class TokenComment {
   constructor(
@@ -596,7 +599,8 @@ class TokenFragment {
     public type: TokenType,
     public value: string,
     public range: SourceRange,
-    public leadingComments?: TokenComment[]
+    public leadingComments?: TokenComment[],
+    public stringQuote?: StringLiteralQuote
   ) {}
 }
 
@@ -787,6 +791,7 @@ function readTemplateAsConcatenation(
 
         let type: Token["type"];
         let value: string;
+        let stringQuote: StringLiteralQuote | undefined;
         if (
           interpolationCode === CODE_SLASH &&
           reader.offset + 1 < reader.str.length &&
@@ -800,6 +805,7 @@ function readTemplateAsConcatenation(
         } else if (interpolationCode === CODE_DOUBLE_QUOTE || interpolationCode === CODE_SINGLE_QUOTE) {
           type = TokenType.STRING;
           value = readEscapedString(reader, interpolationCode, tokenStart);
+          stringQuote = interpolationCode === CODE_SINGLE_QUOTE ? "single" : "double";
         } else if (interpolationCode === CODE_BACKTICK) {
           const nestedFragments = readTemplateAsConcatenation(reader, tokenStart, shorthandInterpolationEnabled);
           for (const fragment of nestedFragments) {
@@ -809,7 +815,8 @@ function readTemplateAsConcatenation(
               fragment.range,
               interpolationPendingComments.length > 0
                 ? interpolationPendingComments
-                : fragment.leadingComments
+                : fragment.leadingComments,
+              fragment.stringQuote
             ));
             interpolationPendingComments = [];
             interpolationPreviousToken = new Token(
@@ -817,7 +824,8 @@ function readTemplateAsConcatenation(
               fragment.value,
               -1,
               fragment.range,
-              fragment.leadingComments
+              fragment.leadingComments,
+              fragment.stringQuote
             );
           }
           continue;
@@ -840,9 +848,10 @@ function readTemplateAsConcatenation(
           type,
           value,
           range,
-          interpolationPendingComments.length > 0 ? interpolationPendingComments : undefined
+          interpolationPendingComments.length > 0 ? interpolationPendingComments : undefined,
+          stringQuote
         ));
-        interpolationPreviousToken = new Token(type, value, -1, range);
+        interpolationPreviousToken = new Token(type, value, -1, range, undefined, stringQuote);
         interpolationPendingComments = [];
       }
 
@@ -1051,6 +1060,7 @@ function readNonTemplateCodeFragment(
   const start = snapshot(reader);
   let type: Token["type"];
   let value: string;
+  let stringQuote: StringLiteralQuote | undefined;
   if (
     code === CODE_SLASH &&
     peekNextCode(reader) !== CODE_SLASH &&
@@ -1063,6 +1073,7 @@ function readNonTemplateCodeFragment(
   } else if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
     type = TokenType.STRING;
     value = readEscapedString(reader, code, start);
+    stringQuote = code === CODE_SINGLE_QUOTE ? "single" : "double";
   } else if (isIdentifierStartCode(code)) {
     type = TokenType.IDENTIFIER;
     value = readIdentifier(reader);
@@ -1073,7 +1084,7 @@ function readNonTemplateCodeFragment(
     type = TokenType.SYMBOL;
     value = readSymbol(reader);
   }
-  return new TokenFragment(type, value, sourceRange(start, snapshot(reader)));
+  return new TokenFragment(type, value, sourceRange(start, snapshot(reader)), undefined, stringQuote);
 }
 
 export function tokenize(input: string, options: TokenizeOptions = {}): Token[] {
@@ -1093,7 +1104,8 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       fragment.value,
       tokens.length,
       fragment.range,
-      leadingComments && leadingComments.length > 0 ? leadingComments : undefined
+      leadingComments && leadingComments.length > 0 ? leadingComments : undefined,
+      fragment.stringQuote
     );
     tokens.push(token);
     previousSignificantToken = token;
@@ -1226,7 +1238,13 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         if (valueCode === CODE_DOUBLE_QUOTE || valueCode === CODE_SINGLE_QUOTE) {
           const stringStart = snapshot(reader);
           const value = readEscapedString(reader, valueCode, stringStart);
-          pushFragment(new TokenFragment(TokenType.STRING, value, sourceRange(stringStart, snapshot(reader))));
+          pushFragment(new TokenFragment(
+            TokenType.STRING,
+            value,
+            sourceRange(stringStart, snapshot(reader)),
+            undefined,
+            valueCode === CODE_SINGLE_QUOTE ? "single" : "double"
+          ));
         } else if (valueCode === CODE_LBRACE) {
           readJsxExpressionContainer();
         } else {

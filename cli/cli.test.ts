@@ -210,7 +210,7 @@ describe("CLI", () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-command-"));
     const input = join(dir, "input.vx");
     const output = join(dir, "output.cpp");
-    await writeFile(input, "console.log('cpp')", "utf8");
+    await writeFile(input, 'console.log("cpp")', "utf8");
 
     await runCli(["node", "vexa", "cpp", input, "--out", output]);
 

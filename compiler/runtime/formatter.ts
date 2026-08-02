@@ -4,7 +4,7 @@ import type {
   AnnotationApplication, ArrayBindingPattern, ArrayLiteral,
   AsExpression,
   BigIntLiteral, BinaryExpression, BindingElement, BindingName,
-  BooleanLiteral,
+  BooleanLiteral, CharacterLiteral,
   ChainExpression,
   ClassExpression,
   ClassPrimaryConstructorParameter,
@@ -2549,6 +2549,13 @@ class AstFormatter {
       case NodeKind.IntLiteral: case NodeKind.FloatLiteral:
         this.write(ftok(expr as Node)?.value ?? String((expr as IntLiteral).value));
         break;
+      case NodeKind.CharacterLiteral: {
+        const character = expr as CharacterLiteral;
+        const first = ftok(character as Node);
+        const last = ltok(character as Node);
+        this.write(first && last ? this.srcSlice(first, last) : `'${String.fromCodePoint(character.value)}'`);
+        break;
+      }
       case NodeKind.BigIntLiteral:
         this.write(ftok(expr as Node)?.value ?? `${(expr as BigIntLiteral).value}n`);
         break;

@@ -299,7 +299,7 @@ console.log(await asyncSection())
 ;
 
 fun useState2(value: number) {
-  return [() => value, (v: number) => { console.log('update value to', value, '->', v); value = v }]
+  return [() => value, (v: number) => { console.log("update value to", value, "->", v); value = v }]
 }
 
 var count by useState2(0)
