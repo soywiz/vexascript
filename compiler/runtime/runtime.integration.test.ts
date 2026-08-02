@@ -20,6 +20,88 @@ function executeTranspiled(source: string, target: TranspileTarget = "optimized"
 }
 
 describe("runtime integration", () => {
+  it("executes literal, object, nested, array, and nominal is patterns inside match", () => {
+    const output = executeTranspiled(`
+class Box(val value: int)
+
+fun classify(value: any): string {
+  return match {
+    value is ({ payload } and { payload: { kind: "ready", values: [1, 2] } }) -> "ready pair"
+    value is ["error", 500] -> "array error"
+    value is ("plain" or "simple") -> "literal"
+    value is Box -> "box"
+    else -> "other"
+  }
+}
+
+console.log(classify({ payload: { kind: "ready", values: [1, 2] } }))
+console.log(classify({ payload: { kind: "ready", values: [1, 3] } }))
+console.log(classify(["error", 500]))
+console.log(classify(["error", 404]))
+console.log(classify("plain"))
+console.log(classify("simple"))
+console.log(classify(Box(3)))
+
+fun range(value: int): string {
+  return match (value) {
+    when >= 10 and < 20: "inside"
+    else: "outside"
+  }
+}
+console.log(range(9), range(10), range(19), range(20))
+
+var subjectEvaluations = 0
+fun nextSubject(): int {
+  subjectEvaluations += 1
+  return 15
+}
+val captured = match (nextSubject()) {
+  >= 10 and < 20 -> "captured"
+  else -> "missed"
+}
+console.log(captured, subjectEvaluations)
+
+fun updateMatchedSubject(value: int): int {
+  match (value) {
+    >= 10 -> value = 99
+    else -> value = 0
+  }
+  return value
+}
+console.log(updateMatchedSubject(15), updateMatchedSubject(5))
+
+fun variableArray(value: any): string {
+  return match (value) {
+    ["prefix", ..., "suffix"] -> "wrapped"
+    ["prefix", ...] -> "prefixed"
+    [..., "suffix"] -> "suffixed"
+    else -> "other"
+  }
+}
+console.log(
+  variableArray(["prefix", "suffix"]),
+  variableArray(["prefix", 1, 2, "suffix"]),
+  variableArray(["prefix", 1]),
+  variableArray([1, 2, "suffix"]),
+  variableArray(["prefix"])
+)
+`);
+
+    expect(output).toEqual([
+      ["ready pair"],
+      ["other"],
+      ["array error"],
+      ["other"],
+      ["literal"],
+      ["literal"],
+      ["box"],
+      ["outside", "inside", "inside", "outside"],
+      ["captured", 1],
+      [99, 0],
+      ["wrapped", "wrapped", "prefixed", "suffixed", "prefixed"]
+    ]);
+  });
+
   it("executes receiver lambdas, receiver-block shorthand, and labeled receivers", () => {
     const output = executeTranspiled(`
 fun <T> T.apply(block: T.() -> void): T { block(this); return this }

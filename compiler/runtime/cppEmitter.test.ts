@@ -49,7 +49,7 @@ fun requireValue(value: string | undefined): string {
     const result = transpile(`
 fun pick(value: int): string {
   return match {
-    when value == 1 -> "one"
+    value == 1 -> "one"
     value == 2 -> {
       val label = "two"
       label
@@ -63,6 +63,35 @@ fun pick(value: int): string {
     expect(result.code).toContain("if (value == 1)");
     expect(result.code).toContain("if (value == 2)");
     expect(result.code).toContain("return __vexa_literal_");
+  });
+
+  it("emits structural and combined is patterns with single-evaluation captures", () => {
+    const result = transpile(`
+fun classify(value: any): string {
+  return match {
+    value is ({ kind: "ok" } and { payload: [1, 2] }) -> "object"
+    value is (["error", ..., 500] or ["error", ..., 503]) -> "array"
+    value is "plain" -> "literal"
+    else -> "other"
+  }
+}
+fun range(value: int): string {
+  return match (value) {
+    when >= 10 and < 20: "inside"
+    else -> "outside"
+  }
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/is-patterns.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("[&](vexa::Value __vexa_pattern) -> bool");
+    expect(result.code).toContain("vexa::hasProperty(__vexa_pattern, u\"kind\")");
+    expect(result.code).toContain("dynamicIsArray()");
+    expect(result.code).toContain("dynamicArraySize() >= 2");
+    expect(result.code).toContain("vexa::strictEquals(__vexa_pattern");
+    expect(result.code).toContain("&&");
+    expect(result.code).toContain("||");
+    expect(result.code).toContain("vexa::compare(__vexa_pattern");
   });
 
   it("keeps concrete Set storage when an explicit semantic type lowers dynamically", () => {

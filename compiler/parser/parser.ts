@@ -136,6 +136,7 @@ export class Parser {
     public readonly jsx: boolean;
     private readonly recoveryMarkers: ParseRecoveryMarker[] = [];
     private readonly tokenCheckpoints: TokenCheckpoint[] = [];
+    private matcherPatternDepth = 0;
 
     constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
         this.language = options.language ?? "vexa";
@@ -2018,11 +2019,20 @@ export class Parser {
 
     private buildBinary(operator: BinaryOperator, operatorToken: Token, left: Expr, right: Expr): BinaryExpression {
         const binary = this.attachNodeBounds(new BinaryExpression(operator, left, right), left.firstToken, right.lastToken ?? this.getLastReadToken());
+        if (operatorToken.type === TokenType.IDENTIFIER && (operatorToken.value === "and" || operatorToken.value === "or")) {
+            binary.matcherCombinator = true;
+        }
         return this.attachNonEnumerableToken(binary, "operatorToken", operatorToken);
     }
 
     private binaryOperatorFromToken(token: Token | undefined): InfixOperator | undefined {
         if (!token) {
+            return undefined;
+        }
+
+        if (this.matcherPatternDepth > 0) {
+            if (token.type === TokenType.IDENTIFIER && token.value === "and") return "&&";
+            if (token.type === TokenType.IDENTIFIER && token.value === "or") return "||";
             return undefined;
         }
 
@@ -2055,7 +2065,9 @@ export class Parser {
 
             this.tokens.skip();
             const nextMinPrecedence = info.assoc === "left" ? info.precedence + 1 : info.precedence;
-            const right = this.parseBinaryExpression(nextMinPrecedence);
+            const right = operator === "is"
+                ? this.parseMatcherPattern()
+                : this.parseBinaryExpression(nextMinPrecedence);
 
             if (operator === "..." || operator === "..<") {
                 left = this.attachNodeBounds(new RangeExpression(left, right, operator === "..<"), left.firstToken, right.lastToken ?? this.getLastReadToken());
@@ -2068,9 +2080,19 @@ export class Parser {
         return left;
     }
 
+    private parseMatcherPattern(): Expr {
+        this.matcherPatternDepth += 1;
+        try {
+            return this.parseBinaryExpression();
+        } finally {
+            this.matcherPatternDepth -= 1;
+        }
+    }
+
     private parseArrayLiteral(): ArrayLiteral {
         const startToken = this.getLastReadToken();
         const elements: Expr[] = [];
+        let hasMatcherWildcard = false;
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
@@ -2087,7 +2109,21 @@ export class Parser {
                 continue;
             }
 
-            elements.push(this.parseAssignment());
+            const nextToken = this.peekToken(1);
+            const standaloneMatcherWildcard = this.matcherPatternDepth > 0 &&
+                token?.type === TokenType.SYMBOL && token.value === "..." &&
+                nextToken?.type === TokenType.SYMBOL && (nextToken.value === "," || nextToken.value === "]");
+            if (standaloneMatcherWildcard) {
+                if (hasMatcherWildcard) {
+                    this.fail("Array matcher patterns may contain only one '...' wildcard", this.tokenAt(token));
+                }
+                hasMatcherWildcard = true;
+                this.tokens.skip();
+                const missing = this.attachNodeBounds(new MissingExpression(), token, token);
+                elements.push(this.attachNodeBounds(new SpreadExpression(missing, true), token, token));
+            } else {
+                elements.push(this.parseAssignment());
+            }
 
             const separator = this.tokens.peek();
             if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
@@ -2959,6 +2995,9 @@ export class Parser {
         }
 
         if (token?.type === TokenType.SYMBOL && token.value === "{") {
+            if (this.matcherPatternDepth > 0) {
+                return this.parseObjectLiteralFromConsumedOpen(token);
+            }
             return this.parseBraceExpressionFromConsumedOpen(token);
         }
 
@@ -3080,19 +3119,25 @@ export class Parser {
         this.fail("Expected a number literal, string literal, identifier, '(', '[' or '{'", this.tokenAt(token));
     }
 
-    private isMatchArmStart(): boolean {
+    private isMatchArmStart(subjectPattern = false): boolean {
         const startOffset = this.tokens.offset;
         const first = this.tokens.peek();
         if (first?.type === TokenType.IDENTIFIER && (first.value === "else" || first.value === "default")) {
             return true;
         }
         try {
+            let explicitWhen = false;
             if (first?.type === TokenType.IDENTIFIER && first.value === "when") {
+                explicitWhen = true;
                 this.tokens.skip();
             }
-            this.parseExpressionOrThrow();
-            const arrow = this.tokens.peek();
-            return arrow?.type === TokenType.SYMBOL && arrow.value === "->";
+            if (subjectPattern) {
+                this.parseMatcherPattern();
+            } else {
+                this.parseExpressionOrThrow();
+            }
+            const delimiter = this.tokens.peek();
+            return delimiter?.type === TokenType.SYMBOL && delimiter.value === (explicitWhen ? ":" : "->");
         } catch {
             return false;
         } finally {
@@ -3101,12 +3146,30 @@ export class Parser {
     }
 
     private parseMatchExpression(matchKeyword: Token): Expr {
+        let subject: Expr | undefined;
+        if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "(") {
+            this.tokens.skip();
+            subject = this.parseExpressionOrThrow();
+            const closeParen = this.tokens.read();
+            if (closeParen?.type !== TokenType.SYMBOL || closeParen.value !== ")") {
+                this.fail("Expected ')' after match subject", this.tokenAt(closeParen));
+            }
+        }
+
+        const subjectName = subject instanceof Identifier ? subject.name : "__vexa_match_subject";
+        const subjectIdentifier = (): Identifier => new Identifier(subjectName);
         const openBrace = this.tokens.read();
         if (openBrace?.type !== TokenType.SYMBOL || openBrace.value !== "{") {
             this.fail("Expected '{' after 'match'", this.tokenAt(openBrace));
         }
 
-        const arms: Array<{ condition?: Expr; body: Statement }> = [];
+        const arms: Array<{
+            condition?: Expr;
+            body: Statement;
+            defaultKeyword?: "else" | "default";
+            explicitWhen?: boolean;
+            delimiter: "->" | ":";
+        }> = [];
         let hasDefault = false;
         let closeBrace: Token | undefined;
 
@@ -3126,22 +3189,38 @@ export class Parser {
 
             const armStart = this.tokens.peek();
             let condition: Expr | undefined;
+            let defaultKeyword: "else" | "default" | undefined;
+            let explicitWhen = false;
             if (
                 armStart?.type === TokenType.IDENTIFIER &&
                 (armStart.value === "else" || armStart.value === "default")
             ) {
                 hasDefault = true;
+                defaultKeyword = armStart.value as "else" | "default";
                 this.tokens.skip();
             } else {
                 if (armStart?.type === TokenType.IDENTIFIER && armStart.value === "when") {
+                    explicitWhen = true;
                     this.tokens.skip();
                 }
-                condition = this.parseExpressionOrThrow();
+                condition = subject
+                    ? this.parseMatcherPattern()
+                    : this.parseExpressionOrThrow();
             }
 
-            const arrow = this.tokens.read();
-            if (arrow?.type !== TokenType.SYMBOL || arrow.value !== "->") {
-                this.fail("Expected '->' after match condition", this.tokenAt(arrow));
+            const delimiterToken = this.tokens.read();
+            const delimiter = delimiterToken?.type === TokenType.SYMBOL &&
+                (delimiterToken.value === "->" || delimiterToken.value === ":")
+                ? delimiterToken.value as "->" | ":"
+                : undefined;
+            if (!delimiter) {
+                this.fail("Expected '->' or ':' after match condition", this.tokenAt(delimiterToken));
+            }
+            if (condition !== undefined && delimiter === "->" && explicitWhen) {
+                this.fail("Match arms using '->' must omit 'when'", this.tokenAt(delimiterToken));
+            }
+            if (condition !== undefined && delimiter === ":" && !explicitWhen) {
+                this.fail("Match arms using ':' require 'when'", this.tokenAt(delimiterToken));
             }
 
             const statements: Statement[] = [];
@@ -3158,7 +3237,7 @@ export class Parser {
                     const following = this.tokens.peek();
                     if (
                         following?.type === TokenType.SYMBOL && following.value === "}" ||
-                        this.isMatchArmStart()
+                        this.isMatchArmStart(subject !== undefined)
                     ) {
                         break;
                     }
@@ -3167,16 +3246,18 @@ export class Parser {
             }
 
             if (statements.length === 0) {
-                this.fail("Expected a statement after '->'", this.tokenAt(arrow));
+                this.fail(`Expected a statement after '${delimiter}'`, this.tokenAt(delimiterToken));
             }
             const body = statements.length === 1
                 ? statements[0]!
                 : this.attachNodeBounds(
                     new BlockStatement(statements),
-                    statements[0]!.firstToken ?? arrow,
-                    statements[statements.length - 1]!.lastToken ?? this.getLastReadToken() ?? arrow
+                    statements[0]!.firstToken ?? delimiterToken,
+                    statements[statements.length - 1]!.lastToken ?? this.getLastReadToken() ?? delimiterToken
                 );
-            arms.push(condition === undefined ? { body } : { condition, body });
+            arms.push(condition === undefined
+                ? { body, defaultKeyword: defaultKeyword!, delimiter }
+                : { condition, body, explicitWhen, delimiter });
 
             const previousToken = this.tokens.offset > 0
                 ? this.tokens.items[this.tokens.offset - 1]
@@ -3186,7 +3267,7 @@ export class Parser {
                 this.tokens.skip();
             } else if (
                 !(following?.type === TokenType.SYMBOL && following.value === "}") &&
-                !this.isMatchArmStart()
+                !this.isMatchArmStart(subject !== undefined)
             ) {
                 this.consumeStatementSeparator("block", previousToken);
             }
@@ -3207,16 +3288,41 @@ export class Parser {
                 fallback = arm.body;
                 continue;
             }
+            const loweredCondition = subject
+                ? this.buildBinary("is", arm.condition.firstToken ?? matchKeyword, subjectIdentifier(), arm.condition)
+                : arm.condition;
             expression = this.attachNodeBounds(
-                new IfStatement(arm.condition, arm.body, expression ?? fallback),
-                arm.condition.firstToken,
-                (expression ?? fallback)?.lastToken ?? this.getLastReadToken() ?? arm.condition.lastToken
+                new IfStatement(loweredCondition, arm.body, expression ?? fallback),
+                loweredCondition.firstToken,
+                (expression ?? fallback)?.lastToken ?? this.getLastReadToken() ?? loweredCondition.lastToken
             );
         }
         if (!expression) {
             expression = new IfStatement(new BooleanLiteral(true), fallback!);
         }
-        return this.attachNodeBounds(expression, matchKeyword, closeBrace);
+        if (!subject) {
+            const lowered = this.attachNodeBounds(expression, matchKeyword, closeBrace);
+            lowered.matchSyntax = { arms };
+            return lowered;
+        }
+        if (subject instanceof Identifier) {
+            const lowered = this.attachNodeBounds(expression, matchKeyword, closeBrace);
+            lowered.matchSyntax = { subject, arms };
+            return lowered;
+        }
+
+        const parameterName = this.attachNodeBounds(subjectIdentifier(), matchKeyword, matchKeyword);
+        const parameter = this.attachNodeBounds(new FunctionParameter(parameterName), matchKeyword, matchKeyword);
+        const arrow = this.attachNodeBounds(
+            new ArrowFunctionExpression(expression, [parameter]),
+            matchKeyword,
+            closeBrace
+        );
+        const call = new CallExpression(arrow, [subject]);
+        call.matchSubjectLowering = true;
+        const lowered = this.attachNodeBounds(call, matchKeyword, closeBrace);
+        lowered.matchSyntax = { subject, arms };
+        return lowered;
     }
 
     private parsePostfix(): Expr {
@@ -3678,6 +3784,20 @@ export class Parser {
     }
 
     private parseUnary(): Expr {
+        const matcherOperator = this.tokens.peek();
+        if (
+            this.matcherPatternDepth > 0 &&
+            matcherOperator?.type === TokenType.SYMBOL &&
+            (matcherOperator.value === "<" || matcherOperator.value === "<=" || matcherOperator.value === ">" || matcherOperator.value === ">=")
+        ) {
+            this.tokens.skip();
+            const right = this.parseUnary();
+            const missing = this.attachNodeBounds(new MissingExpression(), matcherOperator, matcherOperator);
+            const comparison = this.buildBinary(matcherOperator.value as BinaryOperator, matcherOperator, missing, right);
+            comparison.matcherRelational = true;
+            return comparison;
+        }
+
         if (this.jsx) {
             const token = this.tokens.peek();
             if (token?.type === TokenType.SYMBOL && token.value === "<") {

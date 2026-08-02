@@ -229,6 +229,9 @@ export abstract class Statement extends Node {
  * expressions are still wrapped in ExprStatement by the parser.
  */
 export abstract class Expr extends Statement {
+    /** Original surface syntax retained when an expression is lowered during parsing. */
+    matchSyntax?: MatchExpressionSyntax
+
     protected constructor(kind: NodeKind, annotations?: AnnotationApplication[], jsName?: string) {
         super(kind, annotations, jsName)
     }
@@ -352,6 +355,10 @@ export class CommaExpression extends Expr {
 }
 export class BinaryExpression extends Expr {
     declare kind: NodeKind.BinaryExpression
+    /** `and` / `or` inside the right-hand matcher pattern of an `is` expression. */
+    matcherCombinator?: boolean
+    /** A matcher comparison with the subject supplied by the surrounding `is`. */
+    matcherRelational?: boolean
 
     constructor(public operator: "+" | "-" | "*" | "/" | "%" | "**" | "<<" | ">>" | ">>>" | "<" | ">" | "<=" | ">=" | "<=>" | "in" | "is" | "instanceof" | "==" | "!=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&" | "??", public left: Expr, public right: Expr, public operatorToken?: Token) {
         super(NodeKind.BinaryExpression)
@@ -456,6 +463,8 @@ export class CallExpression extends Expr {
 
     /** `receiver. { ... }`, represented as a marked call-shaped node for shared traversal. */
     receiverBlockShorthand?: boolean
+    /** `match (subject) { ... }`, lowered to an immediately invoked arrow. */
+    matchSubjectLowering?: boolean
 
     constructor(public callee: Expr, public args: Expr[], public typeArguments?: Identifier[], public optional?: boolean) {
         super(NodeKind.CallExpression)
@@ -499,7 +508,7 @@ export class NewExpression extends Expr {
 export class SpreadExpression extends Expr {
     declare kind: NodeKind.SpreadExpression
 
-    constructor(public argument: Expr) {
+    constructor(public argument: Expr, /** Standalone `...` used as a non-binding array matcher wildcard. */ public matcherWildcard?: boolean) {
         super(NodeKind.SpreadExpression)
     }
 }
@@ -847,6 +856,17 @@ export class IfStatement extends Expr {
     constructor(public condition: Expr, public thenBranch: Statement, public elseBranch?: Statement, annotations?: AnnotationApplication[], jsName?: string) {
         super(NodeKind.IfStatement, annotations, jsName)
     }
+}
+export interface MatchArmSyntax {
+    condition?: Expr
+    body: Statement
+    defaultKeyword?: "else" | "default"
+    explicitWhen?: boolean
+    delimiter: "->" | ":"
+}
+export interface MatchExpressionSyntax {
+    subject?: Expr
+    arms: MatchArmSyntax[]
 }
 export class SwitchCase extends Node {
     declare kind: NodeKind.SwitchCase

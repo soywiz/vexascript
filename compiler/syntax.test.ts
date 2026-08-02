@@ -15,6 +15,7 @@ describe("portable monarch syntax", () => {
     expect(language.modifierKeywords).toContain("readonly");
     expect(language.modifierKeywords).toContain("fun");
     expect(language.functionKeywords).toEqual([]);
+    expect(language.controlKeywords).toEqual(expect.arrayContaining(["match", "when", "is", "and", "or"]));
     expect(language.typeKeywords).toEqual(expect.arrayContaining([
       "class",
       "interface",

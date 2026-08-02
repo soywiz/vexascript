@@ -3,6 +3,33 @@ import dedent from "compiler/utils/dedent";
 import { formatSource } from "./formatter";
 
 describe("formatSource", () => {
+  it("preserves condition and subject match syntax with matcher patterns", () => {
+    expect(formatSource('val label=match(value){>=10 and <20->"range" else->"other"}')).toBe(dedent`
+      val label = match (value) {
+        >= 10 and < 20 -> "range"
+        else -> "other"
+      }
+    `);
+    expect(formatSource('val label=match(value){when {kind:"ok"}:value.payload default:"other"}')).toBe(dedent`
+      val label = match (value) {
+        when { kind: "ok" }: value.payload
+        default: "other"
+      }
+    `);
+    expect(formatSource('val label=match{value is ({kind:"ok"} and {payload})->"ok" default->"other"}')).toBe(dedent`
+      val label = match {
+        value is ({ kind: "ok" } and { payload }) -> "ok"
+        default -> "other"
+      }
+    `);
+    expect(formatSource('val label=match(value){["ok",...,500]->"hit" else->"other"}')).toBe(dedent`
+      val label = match (value) {
+        ["ok", ..., 500] -> "hit"
+        else -> "other"
+      }
+    `);
+  });
+
   it("keeps named imports on a single line", () => {
     expect(formatSource('import {a,b,c} from "test"')).toBe(
       'import { a, b, c } from "test"'

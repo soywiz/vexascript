@@ -8,6 +8,7 @@ import { builtinType, typeToString, NamedType, BuiltinType } from "./types";
 import type { VarStatement } from "compiler/ast/ast";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import dedent from "compiler/utils/dedent";
+import { sourceWithCursor } from "compiler/test/sourceWithCursor";
 
 function namesOfVisibleSymbolsAt(source: string, line: number, character: number): string[] {
   const ast = parseFile(tokenizeReader(source));
@@ -1882,6 +1883,270 @@ let bad = "Ada" satisfies number
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("preserves cumulative discriminant narrowing through match arms", () => {
+    const source = dedent`
+      type Result =
+        | { kind: "ok", value: int }
+        | { kind: "error", message: string }
+        | { kind: "pending", progress: number }
+      fun describe(result: Result): string {
+        return match {
+          result.kind === "ok" -> {
+            const value: int = result.value
+            value.toString()
+          }
+          result.kind === "error" -> {
+            const message: string = result.message
+            message
+          }
+          else -> {
+            const progress: number = result.progress
+            progress.toString()
+          }
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("preserves nullish narrowing in match fallback arms", () => {
+    const source = dedent`
+      fun normalize(value: string | undefined): string {
+        return match {
+          value === undefined -> "missing"
+          else -> value.trim()
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("preserves generic and contextual result types through match expressions", () => {
+    const source = dedent`
+      interface Choice { value: string }
+      fun <T> choose(flag: boolean, left: T, right: T): T {
+        return match {
+          flag -> left
+          else -> right
+        }
+      }
+      fun makeChoice(flag: boolean): Choice {
+        return match {
+          flag -> ({ value: "left" })
+          else -> ({ value: "right" })
+        }
+      }
+      const selected: int = choose(true, 1, 2)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("infers match result unions and includes undefined without a fallback", () => {
+    const source = dedent`
+      const flag: boolean = true
+      const union = match {
+        flag -> 1
+        else -> "fallback"
+      }
+      const optional = match {
+        flag -> 1
+      }
+      const fallbackOnly = match {
+        default -> 2
+      }
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const union = (ast.body[1] as VarStatement).initializer!;
+    const optional = (ast.body[2] as VarStatement).initializer!;
+    const fallbackOnly = (ast.body[3] as VarStatement).initializer!;
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(typeToString(analysis.getExpressionTypes().get(union)!)).toBe("int | string");
+    expect(typeToString(analysis.getExpressionTypes().get(optional)!)).toBe("int?");
+    expect(typeToString(analysis.getExpressionTypes().get(fallbackOnly)!)).toBe("int");
+  });
+
+  it("narrows ordered match arms with structural is patterns", () => {
+    const source = dedent`
+      type Result =
+        | { kind: "ok", value: int }
+        | { kind: "error", message: string }
+        | { kind: "pending", progress: number }
+      fun describe(result: Result): string {
+        return match {
+          result is { kind: "ok" } -> result.value.toString()
+          result is { kind: "error" } -> result.message
+          else -> result.progress.toString()
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("exposes structurally narrowed match types to editor hover", () => {
+    const marked = sourceWithCursor(dedent`
+      type Result = { kind: "ok", value: int } | { kind: "error", message: string }
+      fun describe(result: Result): string {
+        return match {
+          result is { kind: "ok" } -> result.^^^kind
+          else -> result.message
+        }
+      }
+    `);
+    const analysis = new Analysis(parseFile(tokenizeReader(marked.source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(analysis.getHoverAt(marked.line, marked.character)?.contents).toBe('expression: "ok"');
+  });
+
+  it("combines matcher patterns with and and or while preserving narrowing", () => {
+    const source = dedent`
+      type Event =
+        | { kind: "ready", payload: { value: int } }
+        | { kind: "pending", eta: int }
+        | { kind: "error", message: string }
+      fun inspect(event: Event): string {
+        return match {
+          event is ({ kind: "ready" } and { payload }) -> event.payload.value.toString()
+          event is ({ kind: "pending" } or { kind: "error" }) -> event.kind
+          else -> "unreachable"
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows literal unions in relational subject matches", () => {
+    const source = dedent`
+      fun classify(value: 5 | 10 | 15 | 20): string {
+        return match (value) {
+          >= 10 and < 20 -> {
+            const inside: 10 | 15 = value
+            "inside"
+          }
+          else -> {
+            const outside: 5 | 20 = value
+            "outside"
+          }
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("preserves discriminated object types inside subject match arms", () => {
+    const source = dedent`
+      type Result = { kind: "ok", value: int } | { kind: "error", message: string }
+      fun describe(result: Result): string {
+        return match (result) {
+          when { kind: "ok" }: result.value.toString()
+          else -> result.message
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("preserves discriminated tuple element types inside array pattern arms", () => {
+    const source = dedent`
+      type Packet = ["ok", int] | ["error", string]
+      fun inspect(packet: Packet): string {
+        return match (packet) {
+          ["ok", ,] -> {
+            const value: int = packet[1]
+            value.toString()
+          }
+          else -> {
+            const message: string = packet[1]
+            message
+          }
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows variable-length tuple unions through array rest wildcards", () => {
+    const source = dedent`
+      type Packet = ["ok", int] | ["ok", int, int] | ["error", string]
+      fun inspect(packet: Packet): string {
+        return match (packet) {
+          ["ok", ...] -> {
+            const tag: "ok" = packet[0]
+            const value: int = packet[1]
+            value.toString()
+          }
+          else -> {
+            const tag: "error" = packet[0]
+            const message: string = packet[1]
+            message
+          }
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("supports nested object and array is patterns without treating shorthand properties as values", () => {
+    const source = dedent`
+      type Event =
+        | { payload: { kind: "data", values: [int, int] } }
+        | { payload: { kind: "error", message: string } }
+      fun inspect(event: Event): int {
+        return match {
+          event is { payload: { kind: "data", values } } -> event.payload.values[0]
+          else -> event.payload.message.length
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("reports unsupported matcher features instead of silently changing their meaning", () => {
+    const source = dedent`
+      const key = "kind"
+      const rest = {}
+      const value: any = {}
+      const computed = value is { [key]: "ok" }
+      const objectRest = value is { kind: "ok", ...rest }
+      const arrayRest = value is [1, ...rest]
+      const custom = value is makeMatcher()
+      const customObject = value is rest
+      fun makeMatcher(): any => ({})
+    `;
+    const messages = new Analysis(parseFile(tokenizeReader(source)))
+      .getIssues()
+      .map((issue) => issue.message);
+
+    expect(messages).toContain("Computed object keys are not supported in matcher patterns yet");
+    expect(messages).toContain("Object rest patterns are not supported yet");
+    expect(messages).toContain("Array rest bindings are not supported; use a standalone '...' wildcard");
+    expect(messages.filter((message) =>
+      message === "The right side of 'is' must be a class name or built-in matcher pattern"
+    ).length).toBe(2);
   });
 
   it("narrows discriminated object unions for reversed and inequality comparisons", () => {

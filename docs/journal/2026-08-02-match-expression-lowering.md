@@ -19,7 +19,9 @@ semantics in the two backends.
 
 ## Resolution
 
-The parser recognizes `match { condition -> body }`, accepts optional `when`,
+The initial parser recognized `match { condition -> body }` with optional
+`when`. The finalized syntax deliberately separates `condition -> body` from
+`when condition: body`, rejecting mismatched keyword/delimiter combinations,
 and recognizes `else` or `default` as the final fallback. It immediately
 desugars the arm list to the existing nested `IfStatement` expression. This
 keeps type checking, control-flow analysis, branch-value handling, and the
@@ -28,12 +30,12 @@ emitters therefore receive the same lowered tree.
 
 The implementation supports a single expression arm, a braced multi-statement
 arm whose final expression is its value, and unbraced statement sequences
-terminated by the next arm. Structural matcher patterns, subject binding, and
-custom matcher protocols remain intentionally out of scope for this first
-increment.
+terminated by the next arm. Later increments added built-in structural matcher
+patterns and subject matching through the same lowering; custom matcher
+protocols remain intentionally unsupported.
 
 ## Regression coverage
 
-Parser tests cover optional `when`, `default`, nested arm blocks, and the
+Parser tests cover both delimiter forms, `default`, nested arm blocks, and the
 lowered AST shape. JavaScript and C++ emitter tests verify ordered conditional
 emission and the value of a multi-statement branch.

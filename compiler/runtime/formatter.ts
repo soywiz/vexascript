@@ -2544,6 +2544,10 @@ class AstFormatter {
   }
 
   private emitExprSwitch(expr: Expr): void {
+    if (expr.matchSyntax) {
+      this.emitMatchExpr(expr);
+      return;
+    }
     const kind = (expr as Node).kind;
     switch (kind) {
       case NodeKind.IntLiteral: case NodeKind.FloatLiteral:
@@ -2672,9 +2676,69 @@ class AstFormatter {
   }
 
   private emitBinaryExpr(expr: BinaryExpression): void {
+    if (expr.matcherRelational === true) {
+      this.write(expr.operator);
+      this.sp();
+      this.emitExpr(expr.right);
+      return;
+    }
     this.emitExpr(expr.left);
-    this.sp(); this.write(expr.operator); this.sp();
+    const operator = expr.matcherCombinator === true
+      ? expr.operator === "&&" ? "and" : "or"
+      : expr.operator;
+    this.sp(); this.write(operator); this.sp();
     this.emitExpr(expr.right);
+  }
+
+  private emitMatchExpr(expr: Expr): void {
+    const syntax = expr.matchSyntax!;
+    this.write("match");
+    if (syntax.subject) {
+      this.sp();
+      this.write("(");
+      this.emitExpr(syntax.subject);
+      this.write(")");
+    }
+    this.sp();
+    this.write("{");
+    this.nl();
+    this.indentLvl++;
+    for (const arm of syntax.arms) {
+      this.applyIndent();
+      if (arm.condition) {
+        if (arm.delimiter === ":") {
+          this.write("when");
+          this.sp();
+        }
+        this.emitExpr(arm.condition);
+      } else {
+        this.write(arm.defaultKeyword ?? "else");
+      }
+      if (arm.delimiter === "->") this.sp();
+      this.write(arm.delimiter);
+      this.sp();
+      this.emitMatchArmBody(arm.body);
+      this.nl();
+    }
+    this.indentLvl--;
+    this.applyIndent();
+    this.write("}");
+  }
+
+  private emitMatchArmBody(body: Statement): void {
+    if (body instanceof ExprStatement) {
+      this.emitExpr(body.expression);
+      return;
+    }
+    if (body instanceof BlockStatement) {
+      this.emitBlock(body);
+      return;
+    }
+    if (body instanceof IfStatement || body instanceof ReturnStatement || body instanceof ThrowStatement) {
+      this.emitExpr(body as Expr);
+      return;
+    }
+    this.emitStmt(body);
   }
 
   private emitIfExpr(expr: IfStatement): void {

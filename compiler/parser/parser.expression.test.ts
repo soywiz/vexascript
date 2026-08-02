@@ -44,7 +44,7 @@ describe("parseExpression", () => {
     it("parses match arms as a lowered if-expression chain", () => {
         const expression = parseExpression(tokenizeReader(dedent`
             match {
-                when value == 1 -> "one"
+                when value == 1: "one"
                 value == 2 -> {
                     val label = "two"
                     label
@@ -78,6 +78,124 @@ describe("parseExpression", () => {
                 }
             }
         });
+    });
+
+    it("parses structural is patterns as binary-expression operands", () => {
+        expect(parseExpression(tokenizeReader(`event is { payload: { kind: "data" }, values }`))).toMatchObject({
+            kind: NodeKind.BinaryExpression,
+            operator: "is",
+            left: { kind: NodeKind.Identifier, name: "event" },
+            right: {
+                kind: NodeKind.ObjectLiteral,
+                properties: [
+                    {
+                        kind: NodeKind.ObjectProperty,
+                        value: {
+                            kind: NodeKind.ObjectLiteral,
+                            properties: [{ kind: NodeKind.ObjectProperty }]
+                        }
+                    },
+                    { kind: NodeKind.ObjectProperty, shorthand: true }
+                ]
+            }
+        });
+        expect(parseExpression(tokenizeReader(`value is ["ok", 1]`))).toMatchObject({
+            kind: NodeKind.BinaryExpression,
+            operator: "is",
+            right: { kind: NodeKind.ArrayLiteral }
+        });
+        expect(parseExpression(tokenizeReader(`value is ({ kind: "ok" } and { payload })`))).toMatchObject({
+            kind: NodeKind.BinaryExpression,
+            operator: "is",
+            right: {
+                kind: NodeKind.BinaryExpression,
+                operator: "&&",
+                matcherCombinator: true,
+                left: { kind: NodeKind.ObjectLiteral },
+                right: { kind: NodeKind.ObjectLiteral }
+            }
+        });
+        expect(parseExpression(tokenizeReader(`value is ("ok" or "ready")`))).toMatchObject({
+            kind: NodeKind.BinaryExpression,
+            operator: "is",
+            right: { kind: NodeKind.BinaryExpression, operator: "||", matcherCombinator: true }
+        });
+        expect(parseExpression(tokenizeReader(`value is (>= 10 and < 20)`))).toMatchObject({
+            kind: NodeKind.BinaryExpression,
+            operator: "is",
+            right: {
+                kind: NodeKind.BinaryExpression,
+                operator: "&&",
+                matcherCombinator: true,
+                left: { kind: NodeKind.BinaryExpression, operator: ">=", matcherRelational: true },
+                right: { kind: NodeKind.BinaryExpression, operator: "<", matcherRelational: true }
+            }
+        });
+    });
+
+    it("lowers subject match patterns through a single-evaluation arrow call", () => {
+        expect(parseExpression(tokenizeReader(dedent`
+            match (read()) {
+                >= 10 and < 20 -> "range"
+                else -> "other"
+            }
+        `))).toMatchObject({
+            kind: NodeKind.CallExpression,
+            matchSubjectLowering: true,
+            args: [{ kind: NodeKind.CallExpression }],
+            callee: {
+                kind: NodeKind.ArrowFunctionExpression,
+                parameters: [{ name: { name: "__vexa_match_subject" } }],
+                body: {
+                    kind: NodeKind.IfStatement,
+                    condition: {
+                        kind: NodeKind.BinaryExpression,
+                        operator: "is",
+                        right: { kind: NodeKind.BinaryExpression, matcherCombinator: true }
+                    }
+                }
+            }
+        });
+    });
+
+    it("requires when for colon arms and omits it for arrow arms", () => {
+        expect(parseExpression(tokenizeReader(dedent`
+            match (value) {
+                when { kind: "ok" }: value.payload
+                { kind: "error" } -> value.message
+                default: "pending"
+            }
+        `))).toMatchObject({
+            kind: NodeKind.IfStatement,
+            matchSyntax: {
+                arms: [
+                    { delimiter: ":", explicitWhen: true },
+                    { delimiter: "->", explicitWhen: false },
+                    { delimiter: ":", defaultKeyword: "default" }
+                ]
+            }
+        });
+
+        expect(() => parseExpression(tokenizeReader('match { when ready -> "yes" else -> "no" }')))
+            .toThrow("Match arms using '->' must omit 'when'");
+        expect(() => parseExpression(tokenizeReader('match { ready: "yes" else: "no" }')))
+            .toThrow("Match arms using ':' require 'when'");
+    });
+
+    it("parses a standalone array rest wildcard only in matcher patterns", () => {
+        expect(parseExpression(tokenizeReader('value is ["ok", ..., 500]'))).toMatchObject({
+            kind: NodeKind.BinaryExpression,
+            right: {
+                kind: NodeKind.ArrayLiteral,
+                elements: [
+                    { kind: NodeKind.StringLiteral },
+                    { kind: NodeKind.SpreadExpression, matcherWildcard: true },
+                    { kind: NodeKind.IntLiteral }
+                ]
+            }
+        });
+        expect(() => parseExpression(tokenizeReader('value is [1, ..., ...]')))
+            .toThrow("Array matcher patterns may contain only one '...' wildcard");
     });
 
     it("keeps control-flow forms statement-only in TypeScript parser mode", () => {

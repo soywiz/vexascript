@@ -2250,6 +2250,9 @@ export class TypeChecker {
           expectedType
         )
       : builtinType("undefined");
+    if (statement.condition instanceof BooleanLiteral) {
+      return statement.condition.value ? thenType : elseType;
+    }
     if (this.isTypeAssignable(thenType, elseType)) return elseType;
     if (this.isTypeAssignable(elseType, thenType)) return thenType;
     return combineTypes([thenType, elseType]);
@@ -2367,6 +2370,11 @@ export class TypeChecker {
         this.conditionNarrowings(binary.right, scope, truthy)
       );
     }
+    if (binary.operator === "is" && this.isStructuralMatcherPattern(binary.right) && binary.left instanceof Identifier) {
+      const identifier = binary.left as Identifier;
+      const originalType = this.resolve(identifier.name, scope, nodeStartOffset(identifier))?.type ?? UNKNOWN_TYPE;
+      return this.singleNarrowing(identifier.name, this.narrowedTypeForPattern(originalType, binary.right, truthy));
+    }
     const narrowing = this.conditionNarrowingInfo(binary, scope);
     if (!(narrowing?.expression instanceof Identifier)) return new Map();
     const identifier = narrowing.expression as Identifier;
@@ -2442,6 +2450,250 @@ export class TypeChecker {
     return remaining.length === 1 ? remaining[0]! : unionType(remaining);
   }
 
+  private isStructuralMatcherPattern(pattern: Expr): boolean {
+    return (pattern instanceof BinaryExpression && (pattern.matcherCombinator === true || pattern.matcherRelational === true)) ||
+      pattern instanceof ObjectLiteral ||
+      pattern instanceof ArrayLiteral ||
+      pattern.kind === NodeKind.IntLiteral ||
+      pattern.kind === NodeKind.CharacterLiteral ||
+      pattern.kind === NodeKind.FloatLiteral ||
+      pattern.kind === NodeKind.BigIntLiteral ||
+      pattern.kind === NodeKind.LongLiteral ||
+      pattern.kind === NodeKind.StringLiteral ||
+      pattern.kind === NodeKind.BooleanLiteral ||
+      pattern.kind === NodeKind.NullLiteral ||
+      pattern.kind === NodeKind.UndefinedLiteral;
+  }
+
+  private visitMatcherPattern(pattern: Expr, scope: Scope): void {
+    if (pattern instanceof BinaryExpression && pattern.matcherRelational === true) {
+      this.visitMatcherPattern(pattern.right, scope);
+      return;
+    }
+    if (pattern instanceof BinaryExpression && pattern.matcherCombinator === true) {
+      this.visitMatcherPattern(pattern.left, scope);
+      this.visitMatcherPattern(pattern.right, scope);
+      return;
+    }
+    if (pattern instanceof ObjectLiteral) {
+      for (const property of pattern.properties) {
+        if (property instanceof ObjectSpreadProperty) {
+          this.issues.push({ message: "Object rest patterns are not supported yet", node: property });
+          continue;
+        }
+        const objectProperty = property as ObjectProperty;
+        if (objectProperty.computed) {
+          this.visitExpression(objectProperty.key, scope);
+          this.issues.push({ message: "Computed object keys are not supported in matcher patterns yet", node: objectProperty.key });
+        }
+        if (!objectProperty.shorthand) {
+          this.visitMatcherPattern(objectProperty.value, scope);
+        }
+      }
+      return;
+    }
+    if (pattern instanceof ArrayLiteral) {
+      for (const element of pattern.elements) {
+        if (element instanceof ArrayHole) continue;
+        if (element instanceof SpreadExpression) {
+          if (element.matcherWildcard === true) continue;
+          this.issues.push({
+            message: "Array rest bindings are not supported; use a standalone '...' wildcard",
+            node: element
+          });
+          continue;
+        }
+        this.visitMatcherPattern(element, scope);
+      }
+      return;
+    }
+    this.visitExpression(pattern, scope);
+  }
+
+  private matcherPatternType(pattern: Expr): AnalysisType {
+    if (pattern instanceof BinaryExpression && pattern.matcherRelational === true) {
+      const comparedType = this.matcherPatternType(pattern.right);
+      if (comparedType instanceof LiteralType) {
+        return builtinType(comparedType.base === "number" ? "number" : comparedType.base);
+      }
+      return comparedType;
+    }
+    if (pattern instanceof BinaryExpression && pattern.matcherCombinator === true) {
+      const types = [this.matcherPatternType(pattern.left), this.matcherPatternType(pattern.right)];
+      return pattern.operator === "&&" ? intersectionType(types) : unionType(types);
+    }
+    switch (pattern.kind) {
+      case NodeKind.IntLiteral:
+      case NodeKind.CharacterLiteral:
+        return literalType("number", (pattern as IntLiteral | CharacterLiteral).value);
+      case NodeKind.FloatLiteral:
+        return literalType("number", (pattern as FloatLiteral).value);
+      case NodeKind.StringLiteral:
+        return literalType("string", (pattern as StringLiteral).value);
+      case NodeKind.BooleanLiteral:
+        return literalType("boolean", (pattern as BooleanLiteral).value);
+      case NodeKind.BigIntLiteral:
+        return builtinType("bigint");
+      case NodeKind.LongLiteral:
+        return builtinType("long");
+      case NodeKind.NullLiteral:
+        return builtinType("null");
+      case NodeKind.UndefinedLiteral:
+        return builtinType("undefined");
+      case NodeKind.Identifier:
+        return namedType((pattern as Identifier).name);
+      case NodeKind.ObjectLiteral: {
+        const properties = new Map<string, AnalysisType>();
+        for (const property of (pattern as ObjectLiteral).properties) {
+          if (!(property instanceof ObjectProperty)) continue;
+          const name = this.staticObjectPropertyName(property);
+          if (!name) continue;
+          properties.set(name, property.shorthand ? UNKNOWN_TYPE : this.matcherPatternType(property.value));
+        }
+        return objectTypeWithProperties(properties);
+      }
+      case NodeKind.ArrayLiteral: {
+        const arrayPattern = pattern as ArrayLiteral;
+        if (arrayPattern.elements.some((element) =>
+          element instanceof SpreadExpression && element.matcherWildcard === true
+        )) {
+          return arrayType(UNKNOWN_TYPE);
+        }
+        return tupleType(arrayPattern.elements.map((element) =>
+          element instanceof ArrayHole || element instanceof SpreadExpression
+            ? UNKNOWN_TYPE
+            : this.matcherPatternType(element)
+        ));
+      }
+      default:
+        return UNKNOWN_TYPE;
+    }
+  }
+
+  private matcherPatternPossibility(
+    type: AnalysisType,
+    pattern: Expr
+  ): "always" | "maybe" | "never" {
+    if (pattern instanceof BinaryExpression && pattern.matcherRelational === true) {
+      const comparedType = this.matcherPatternType(pattern.right);
+      if (type instanceof LiteralType && comparedType instanceof LiteralType && type.base === comparedType.base) {
+        const left = type.value;
+        const right = comparedType.value;
+        const matches = pattern.operator === "<" ? left < right
+          : pattern.operator === ">" ? left > right
+            : pattern.operator === "<=" ? left <= right
+              : left >= right;
+        return matches ? "always" : "never";
+      }
+      const patternType = this.matcherPatternType(pattern);
+      if (this.isTypeAssignable(type, patternType) || this.isTypeAssignable(patternType, type)) return "maybe";
+      return "never";
+    }
+    if (pattern instanceof BinaryExpression && pattern.matcherCombinator === true) {
+      const left = this.matcherPatternPossibility(type, pattern.left);
+      const right = this.matcherPatternPossibility(type, pattern.right);
+      if (pattern.operator === "&&") {
+        if (left === "never" || right === "never") return "never";
+        return left === "always" && right === "always" ? "always" : "maybe";
+      }
+      if (left === "always" || right === "always") return "always";
+      return left === "never" && right === "never" ? "never" : "maybe";
+    }
+    if (type instanceof UnionType) {
+      const possibilities = type.types.map((member) => this.matcherPatternPossibility(member, pattern));
+      if (possibilities.every((possibility) => possibility === "always")) return "always";
+      if (possibilities.every((possibility) => possibility === "never")) return "never";
+      return "maybe";
+    }
+    if (isUnknownType(type) || (type instanceof BuiltinType && (type.name === "any" || type.name === "unknown"))) {
+      return "maybe";
+    }
+    if (pattern instanceof ObjectLiteral) {
+      if (!(type instanceof ObjectType)) {
+        return type instanceof NamedType || (type instanceof BuiltinType && type.name === "object") ? "maybe" : "never";
+      }
+      let result: "always" | "maybe" = "always";
+      for (const property of pattern.properties) {
+        if (!(property instanceof ObjectProperty)) return "maybe";
+        const name = this.staticObjectPropertyName(property);
+        if (!name) return "maybe";
+        const propertyType = type.properties.get(name);
+        if (!propertyType) return "never";
+        if (property.shorthand) continue;
+        const possibility = this.matcherPatternPossibility(propertyType, property.value);
+        if (possibility === "never") return "never";
+        if (possibility === "maybe") result = "maybe";
+      }
+      return result;
+    }
+    if (pattern instanceof ArrayLiteral) {
+      const wildcardIndex = pattern.elements.findIndex((element) =>
+        element instanceof SpreadExpression && element.matcherWildcard === true
+      );
+      const minimumLength = pattern.elements.length - (wildcardIndex >= 0 ? 1 : 0);
+      if (type instanceof TupleType) {
+        if (wildcardIndex >= 0
+          ? type.elements.length < minimumLength
+          : type.elements.length !== pattern.elements.length) return "never";
+        let result: "always" | "maybe" = "always";
+        for (let index = 0; index < pattern.elements.length; index += 1) {
+          const element = pattern.elements[index]!;
+          if (element instanceof ArrayHole) continue;
+          if (element instanceof SpreadExpression) {
+            if (element.matcherWildcard === true) continue;
+            return "maybe";
+          }
+          const tupleIndex = wildcardIndex >= 0 && index > wildcardIndex
+            ? type.elements.length - (pattern.elements.length - index)
+            : index;
+          const possibility = this.matcherPatternPossibility(type.elements[tupleIndex]!, element);
+          if (possibility === "never") return "never";
+          if (possibility === "maybe") result = "maybe";
+        }
+        return result;
+      }
+      if (type instanceof ArrayType) {
+        for (const element of pattern.elements) {
+          if (element instanceof ArrayHole || element instanceof SpreadExpression) continue;
+          if (this.matcherPatternPossibility(type.elementType, element) === "never") return "never";
+        }
+        return "maybe";
+      }
+      return "never";
+    }
+    const matcherType = this.matcherPatternType(pattern);
+    if (type instanceof LiteralType && matcherType instanceof LiteralType) {
+      return isSameType(type, matcherType) ? "always" : "never";
+    }
+    if (pattern instanceof Identifier) {
+      if (this.isTypeAssignable(type, matcherType)) return "always";
+      return this.isTypeAssignable(matcherType, type) ? "maybe" : "never";
+    }
+    return this.isTypeAssignable(matcherType, type) ? "maybe" : "never";
+  }
+
+  private narrowedTypeForPattern(originalType: AnalysisType, pattern: Expr, truthy: boolean): AnalysisType {
+    if (originalType instanceof UnionType) {
+      const remaining = originalType.types.filter((member) => {
+        const possibility = this.matcherPatternPossibility(member, pattern);
+        return truthy ? possibility !== "never" : possibility !== "always";
+      });
+      if (remaining.length === 0) return builtinType("never");
+      return remaining.length === 1 ? remaining[0]! : unionType(remaining);
+    }
+    const possibility = this.matcherPatternPossibility(originalType, pattern);
+    if ((truthy && possibility === "never") || (!truthy && possibility === "always")) {
+      return builtinType("never");
+    }
+    if (
+      truthy &&
+      (isUnknownType(originalType) || (originalType instanceof BuiltinType && (originalType.name === "any" || originalType.name === "unknown")))
+    ) {
+      return this.matcherPatternType(pattern);
+    }
+    return originalType;
+  }
+
   private singleNarrowing(name: string, type: AnalysisType): Map<string, AnalysisType> {
     const result = new Map<string, AnalysisType>();
     result.set(name, type);
@@ -2505,6 +2757,12 @@ export class TypeChecker {
           this.conditionExpressionNarrowings(binary.left, scope, truthy),
           this.conditionExpressionNarrowings(binary.right, scope, truthy)
         );
+      }
+      if (binary.operator === "is" && this.isStructuralMatcherPattern(binary.right)) {
+        const stableKey = this.stableExpressionKey(binary.left);
+        if (!stableKey) return new Map();
+        const originalType = this.expressionTypeForNarrowing(binary.left, scope);
+        return this.singleNarrowing(stableKey, this.narrowedTypeForPattern(originalType, binary.right, truthy));
       }
       const narrowing = this.conditionNarrowingInfo(binary, scope);
       const stableKey = narrowing && this.stableExpressionKey(narrowing.expression);
@@ -2962,6 +3220,40 @@ export class TypeChecker {
       case NodeKind.BinaryExpression: {
         const binary = expression as BinaryExpression;
         const leftType = this.visitExpression(binary.left, scope);
+        if (binary.operator === "is" && this.isStructuralMatcherPattern(binary.right)) {
+          this.visitMatcherPattern(binary.right, scope);
+          result = builtinType("boolean");
+          break;
+        }
+        if (binary.operator === "is" && binary.right instanceof Identifier) {
+          const identifier = binary.right as Identifier;
+          const symbol = this.resolve(identifier.name, scope, nodeStartOffset(identifier));
+          const rightType = this.visitExpression(identifier, scope);
+          const namedClass = rightType instanceof NamedType && (
+            this.classStatementsByName.has(rightType.name) ||
+            this.classStatementsByName.has(parseTypeNameShape(rightType.name).baseName)
+          );
+          const nominalConstructor = this.classStatementsByName.has(identifier.name) ||
+            namedClass ||
+            rightType instanceof FunctionType;
+          if (symbol && !nominalConstructor) {
+            this.issues.push({
+              message: "The right side of 'is' must be a class name or built-in matcher pattern",
+              node: binary.right
+            });
+          }
+          result = builtinType("boolean");
+          break;
+        }
+        if (binary.operator === "is" && !(binary.right instanceof Identifier)) {
+          this.visitExpression(binary.right, scope);
+          this.issues.push({
+            message: "The right side of 'is' must be a class name or built-in matcher pattern",
+            node: binary.right
+          });
+          result = builtinType("boolean");
+          break;
+        }
         const rightExpectedType =
           (binary.operator === "||" || binary.operator === "&&" || binary.operator === "??") && expectedType
             ? expectedType
@@ -3244,7 +3536,7 @@ export class TypeChecker {
             this.reportMissingOperatorOverload("[]", member, objectType, indexArgumentTypes);
           }
           result = this.resolveOptionalAccessType(
-            this.resolveComputedMemberType(objectType, propertyType),
+            this.resolveComputedMemberType(objectType, this.computedPropertyType(member.property, propertyType)),
             this.hasOptionalAssignmentTarget(member)
           );
           result = this.narrowedExpressionType(scope, member) ?? result;
@@ -3278,6 +3570,24 @@ export class TypeChecker {
       }
       case NodeKind.CallExpression: {
         const call = expression as CallExpression;
+        if (
+          call.matchSubjectLowering === true &&
+          call.callee instanceof ArrowFunctionExpression &&
+          call.args.length === 1
+        ) {
+          const subjectType = this.visitExpression(call.args[0]!, scope);
+          const arrow = call.callee as ArrowFunctionExpression;
+          const parameterName = arrow.parameters[0]?.name instanceof Identifier
+            ? arrow.parameters[0].name.name
+            : "subject";
+          const expectedArrowType = functionType(
+            [new FunctionTypeParameter(parameterName, subjectType)],
+            expectedType ?? UNKNOWN_TYPE
+          );
+          const arrowType = this.visitExpression(arrow, scope, expectedArrowType);
+          result = arrowType instanceof FunctionType ? arrowType.returnType : UNKNOWN_TYPE;
+          break;
+        }
         if (
           call.receiverBlockShorthand === true &&
           call.args[0] instanceof ArrowFunctionExpression
@@ -9122,6 +9432,14 @@ export class TypeChecker {
     }
 
     if (indexType instanceof LiteralType) {
+      if (indexType.base === "number" && typeof indexType.value === "number" && Number.isInteger(indexType.value)) {
+        if (objectType instanceof ArrayType) {
+          return objectType.elementType;
+        }
+        if (objectType instanceof RangeType) {
+          return objectType.elementType;
+        }
+      }
       const propertyName = String(indexType.value);
       if (propertyName === "_output") {
         const syntheticOutputType = this.syntheticSchemaOutputType(objectType);
@@ -12347,6 +12665,20 @@ export class TypeChecker {
       return this.resolveEnumComputedAccessType(enumStatement, undefined, normalizedPropertyType);
     }
     return UNKNOWN_TYPE;
+  }
+
+  private computedPropertyType(property: Expr, fallback: AnalysisType): AnalysisType {
+    switch (property.kind) {
+      case NodeKind.IntLiteral:
+      case NodeKind.CharacterLiteral:
+        return literalType("number", (property as IntLiteral | CharacterLiteral).value);
+      case NodeKind.FloatLiteral:
+        return literalType("number", (property as FloatLiteral).value);
+      case NodeKind.StringLiteral:
+        return literalType("string", (property as StringLiteral).value);
+      default:
+        return fallback;
+    }
   }
 
   private resolveEnumComputedAccessType(

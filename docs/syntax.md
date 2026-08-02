@@ -1637,13 +1637,44 @@ new hello.world[0].test(arg1, arg2)
 
 ### Smart casts
 
-Within `if` and `else` branches, stable identifier and member-expression types are narrowed by `is`, `instanceof`, and range-membership (`in`) checks. The false branch excludes the checked member from union types, and negated checks reverse the branch narrowing. `is` is the shorter spelling of `instanceof`; both have the same smart-cast behavior, and `is` is emitted as JavaScript `instanceof`.
+Within `if`, `else`, and ordered `match` branches, stable identifier and
+member-expression types are narrowed by `is`, `instanceof`, and
+range-membership (`in`) checks. The false branch excludes definitely matched
+members from union types, and negated checks reverse the branch narrowing.
+
+The basic nominal form of `is` remains a shorter spelling of `instanceof`:
+`value is Cat` emits a JavaScript `instanceof` check and uses the equivalent
+native class check in C++. `is` additionally accepts matcher patterns without
+custom matcher objects:
+
+- primitive literals use exact matching;
+- object patterns require each listed property and recursively match values;
+- a shorthand object property such as `{ payload }` checks presence without
+  introducing a binding;
+- array patterns require an array of exactly the written length, with holes as
+  unchecked positions; one standalone `...` wildcard permits any number of
+  elements at that position, as in `[first, ..., last]`;
+- `and` and `or` apply multiple patterns to the same subject;
+- leading relational patterns such as `>= 10` compare the same subject.
+
+The subject and each recursively inspected property are captured before their
+nested checks, so a source expression is evaluated once. Matcher patterns use
+the same lowering in JavaScript and C++.
 
 ```vexa
 if (value is Cat) {
   value.meow()
 } else {
   value.bark()
+}
+
+if (result is ({ kind: "ok" } and { payload })) {
+  // result.kind is narrowed to the literal type "ok" here.
+  consume(result.payload)
+}
+
+if (temperature is (>= 10 and < 20)) {
+  log("between ten and twenty")
 }
 
 if (value in 0 ... 10) {
@@ -1814,13 +1845,18 @@ switch (value) {
 
 VexaScript supports an expression-oriented conditional match form. Arms are
 checked from top to bottom, and the first truthy condition supplies the value
-of the whole expression. `when` is optional in an arm; `else` and `default` are
-equivalent fallback arms.
+of the whole expression. There are two deliberate arm spellings:
+
+- the compact `->` form omits `when`: `condition -> body`;
+- the colon form requires `when`: `when condition: body`.
+
+Writing `when condition -> body` or `condition: body` is an error. `else` and
+`default` are equivalent fallback arms and may use either delimiter.
 
 ```vexa
 val label = match {
   value == 1 -> "one"
-  when value == 2 -> {
+  when value == 2: {
     val name = "two"
     name
   }
@@ -1828,13 +1864,47 @@ val label = match {
 }
 ```
 
+`match` also accepts a subject. Subject arms use the same delimiter rule and
+interpret their conditions as matcher patterns. The subject is evaluated
+exactly once. For an identifier subject, references to that identifier inside
+the selected arm see the narrowed type:
+
+```vexa
+val label = match (result) {
+  { kind: "ok" } -> result.value
+  when { kind: "error" }: result.message
+  else -> "pending"
+}
+
+val bucket = match (score) {
+  >= 10 and < 20 -> "teens"
+  when 20 or 30: "exact milestone"
+  default -> "other"
+}
+
+val framed = match (parts) {
+  ["start", ..., "end"] -> "framed"
+  else -> "other"
+}
+```
+
+A standalone `...` in an array pattern is a non-binding wildcard for zero or
+more elements. It may appear once, including at the beginning, middle, or end.
+Without it, array patterns continue to require exact length. Rest bindings such
+as `[head, ...tail]` are not supported.
+
 The last expression in a braced arm is its value, so the arm does not need an
 explicit `do` keyword. An arm may also be a single expression or a control
-statement such as `throw`. This initial form deliberately uses ordinary
-boolean conditions rather than custom matcher objects or structural pattern
-bindings. The compiler lowers it to the existing `if` expression path before
-JavaScript or C++ emission, preserving short-circuit evaluation and branch
-scoping.
+statement such as `throw`. The compiler lowers condition matches to nested
+`if` expressions and subject matches to a single-evaluation immediately
+invoked expression around the same `if` chain. This preserves contextual result
+types, cumulative false-branch narrowing, short-circuit evaluation, and branch
+scoping in both backends.
+
+Custom matcher objects are never invoked and are not supported. Pattern
+bindings, computed object keys, object rest, and array rest bindings are also
+unsupported. Use ordinary arm blocks for local bindings after a successful
+structural check.
 
 ### Control-flow statements and expressions
 

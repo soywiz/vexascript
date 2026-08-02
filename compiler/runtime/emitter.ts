@@ -1327,6 +1327,91 @@ function emitObjectPropertyKey(property: ObjectProperty): string {
   return emitExpression(property.key);
 }
 
+function isStructuralMatcherPattern(expression: Expr): boolean {
+  return (expression instanceof BinaryExpression && (expression.matcherCombinator === true || expression.matcherRelational === true)) ||
+    expression instanceof ObjectLiteral ||
+    expression instanceof ArrayLiteral ||
+    expression.kind === NodeKind.IntLiteral ||
+    expression.kind === NodeKind.CharacterLiteral ||
+    expression.kind === NodeKind.FloatLiteral ||
+    expression.kind === NodeKind.BigIntLiteral ||
+    expression.kind === NodeKind.LongLiteral ||
+    expression.kind === NodeKind.StringLiteral ||
+    expression.kind === NodeKind.BooleanLiteral ||
+    expression.kind === NodeKind.NullLiteral ||
+    expression.kind === NodeKind.UndefinedLiteral;
+}
+
+function emittedPatternPropertyKey(property: ObjectProperty): string | null {
+  if (property.computed) return null;
+  if (property.key instanceof Identifier) return JSON.stringify(property.key.name);
+  if (property.key instanceof StringLiteral) return JSON.stringify(property.key.value);
+  if (property.key instanceof IntLiteral || property.key instanceof FloatLiteral) {
+    return JSON.stringify(String(property.key.value));
+  }
+  return null;
+}
+
+function emitPatternTest(pattern: Expr, subject: string): string {
+  if (pattern instanceof BinaryExpression && pattern.matcherRelational === true) {
+    return `${subject} ${pattern.operator} ${emitExpression(pattern.right)}`;
+  }
+  if (pattern instanceof BinaryExpression && pattern.matcherCombinator === true) {
+    const operator = pattern.operator === "&&" ? "&&" : "||";
+    return `(${emitPatternTest(pattern.left, subject)}) ${operator} (${emitPatternTest(pattern.right, subject)})`;
+  }
+  if (pattern instanceof ObjectLiteral) {
+    const checks = [
+      `${subject} !== null`,
+      `${subject} !== undefined`,
+      `(typeof ${subject} === "object" || typeof ${subject} === "function")`
+    ];
+    for (const property of pattern.properties) {
+      if (!(property instanceof ObjectProperty)) return "false";
+      const key = emittedPatternPropertyKey(property);
+      if (!key) return "false";
+      checks.push(`${key} in ${subject}`);
+      if (!property.shorthand) {
+        checks.push(emitCapturedPatternTest(property.value, `${subject}[${key}]`));
+      }
+    }
+    return checks.join(" && ");
+  }
+  if (pattern instanceof ArrayLiteral) {
+    const wildcardIndex = pattern.elements.findIndex((element) =>
+      element instanceof SpreadExpression && element.matcherWildcard === true
+    );
+    const minimumLength = pattern.elements.length - (wildcardIndex >= 0 ? 1 : 0);
+    const checks = [
+      `Array.isArray(${subject})`,
+      wildcardIndex >= 0
+        ? `${subject}.length >= ${minimumLength}`
+        : `${subject}.length === ${pattern.elements.length}`
+    ];
+    for (let index = 0; index < pattern.elements.length; index += 1) {
+      const element = pattern.elements[index]!;
+      if (element instanceof ArrayHole) continue;
+      if (element instanceof SpreadExpression) {
+        if (element.matcherWildcard === true) continue;
+        return "false";
+      }
+      const subjectIndex = wildcardIndex >= 0 && index > wildcardIndex
+        ? `${subject}.length - ${pattern.elements.length - index}`
+        : String(index);
+      checks.push(emitCapturedPatternTest(element, `${subject}[${subjectIndex}]`));
+    }
+    return checks.join(" && ");
+  }
+  if (isStructuralMatcherPattern(pattern)) {
+    return `Object.is(${subject}, ${emitExpression(pattern)})`;
+  }
+  return `${subject} instanceof ${emitExpression(pattern)}`;
+}
+
+function emitCapturedPatternTest(pattern: Expr, value: string): string {
+  return `(($_pattern) => ${emitPatternTest(pattern, "$_pattern")})(${value})`;
+}
+
 function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "left" | "right" = "left"): string {
   const currentPrecedence = expressionPrecedence(expression);
 
@@ -1400,6 +1485,9 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         // the result is -1 / 0 / 1 (works for numbers and strings).
         if (binary.operator === "<=>") {
           return `(($l, $r) => $l < $r ? -1 : $l > $r ? 1 : 0)(${leftText}, ${rightText})`;
+        }
+        if (binary.operator === "is" && isStructuralMatcherPattern(binary.right)) {
+          return emitCapturedPatternTest(binary.right, leftText);
         }
         const emittedOperator = binary.operator === "is" ? "instanceof" : binary.operator;
         const binaryText = `${leftText} ${emittedOperator} ${rightText}`;

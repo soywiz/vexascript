@@ -11,7 +11,7 @@ export const VEXA_KEYWORD_DECLARATIONS = [
 export const VEXA_KEYWORD_CONTROLS = [
   "if", "else", "return", "throw", "while", "for", "switch", "case", "match", "when",
   "default", "break", "continue", "do", "try", "catch", "finally", "defer",
-  "new", "in", "is", "instanceof", "typeof", "void", "delete",
+  "new", "in", "is", "and", "or", "instanceof", "typeof", "void", "delete",
   "await", "yield"
 ] as const;
 

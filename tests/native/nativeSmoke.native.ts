@@ -34,7 +34,7 @@ describe("native language smoke", () => {
       await writeFile(sourcePath, `
 fun pick(value: int): string {
   return match {
-    when value == 1 -> "one"
+    when value == 1: "one"
     value == 2 -> {
       val label = "two"
       label
@@ -43,7 +43,60 @@ fun pick(value: int): string {
   }
 }
 
+type Result =
+  | { kind: "ok", value: int }
+  | { kind: "error", message: string }
+
+class Box(val value: int)
+
+fun describe(result: Result): string {
+  return match (result) {
+    { kind: "ok" } -> result.value.toString()
+    else -> result.message
+  }
+}
+
+fun classify(value: any): string {
+  return match {
+    value is ({ kind: "ok" } and { value }) -> "object"
+    value is (["error", 500] or ["error", 503]) -> "array"
+    value is "plain" -> "literal"
+    value is Box -> "box"
+    value is ["open", ..., "close"] -> "variable-array"
+    else -> "other"
+  }
+}
+
+fun range(value: int): string {
+  return match (value) {
+    when >= 10 and < 20: "inside"
+    else -> "outside"
+  }
+}
+
+var subjectEvaluations = 0
+fun nextSubject(): int {
+  subjectEvaluations += 1
+  return 15
+}
+
+fun updateMatchedSubject(value: int): int {
+  match (value) {
+    >= 10 -> value = 99
+    else -> value = 0
+  }
+  return value
+}
+
 console.log(pick(1), pick(2), pick(3))
+console.log(describe({ kind: "ok", value: 7 }), describe({ kind: "error", message: "failed" }))
+console.log(classify({ kind: "ok", value: 1 }), classify(["error", 503]), classify("plain"), classify(Box(1)), classify(["open", 1, 2, "close"]), classify(false))
+console.log(range(9), range(10), range(19), range(20))
+val captured = match (nextSubject()) {
+  >= 10 and < 20 -> "captured"
+  else -> "missed"
+}
+console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatchedSubject(5))
 `, "utf8");
 
       await runCli([
@@ -62,7 +115,13 @@ console.log(pick(1), pick(2), pick(3))
       const result = await runCommandCapture(executablePath, [], { cwd: outputRoot });
       expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(0);
       expect(result.stderr).toBe("");
-      expect(result.stdout.trim()).toBe("one two other");
+      expect(result.stdout.trim()).toBe([
+        "one two other",
+        "7 failed",
+        "object array literal box variable-array other",
+        "outside inside inside outside",
+        "captured 1 99 0"
+      ].join("\n"));
     } finally {
       await rm(outputRoot, { recursive: true, force: true });
     }

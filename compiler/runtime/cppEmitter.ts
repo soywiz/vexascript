@@ -5687,9 +5687,122 @@ function emitNativeNumericBitwise(expression: BinaryExpression): string | null {
   return `vexa::${helper}(${emitExpression(expression.left)}, ${emitExpression(expression.right)})`;
 }
 
+function isStructuralMatcherPattern(expression: Expr): boolean {
+  return (expression instanceof BinaryExpression && (expression.matcherCombinator === true || expression.matcherRelational === true)) ||
+    expression instanceof ObjectLiteral ||
+    expression instanceof ArrayLiteral ||
+    expression.kind === NodeKind.IntLiteral ||
+    expression.kind === NodeKind.CharacterLiteral ||
+    expression.kind === NodeKind.FloatLiteral ||
+    expression.kind === NodeKind.BigIntLiteral ||
+    expression.kind === NodeKind.LongLiteral ||
+    expression.kind === NodeKind.StringLiteral ||
+    expression.kind === NodeKind.BooleanLiteral ||
+    expression.kind === NodeKind.NullLiteral ||
+    expression.kind === NodeKind.UndefinedLiteral;
+}
+
+function cppPatternPropertyKey(property: ObjectProperty): string | null {
+  if (property.computed) return null;
+  if (property.key instanceof Identifier) return cppUtf16String(property.key.name);
+  if (property.key instanceof StringLiteral) return cppUtf16String(property.key.value);
+  if (property.key instanceof IntLiteral || property.key instanceof FloatLiteral) {
+    return cppUtf16String(String(property.key.value));
+  }
+  return null;
+}
+
+function emitCppNominalPatternTest(pattern: Identifier, subject: string): string {
+  const targetName = pattern.name;
+  if (targetName === "Error" || targetName === "TypeError" || targetName === "RangeError" || targetName === "SyntaxError") {
+    return `vexa::isErrorLike(${subject})`;
+  }
+  if (targetName === "Map") return `vexa::isMapLike(${subject})`;
+  if (targetName === "Set") return `vexa::isSetLike(${subject})`;
+  if (targetName === "WeakMap") return `vexa::isWeakMapLike(${subject})`;
+  if (targetName === "WeakSet") return `vexa::isWeakSetLike(${subject})`;
+  if (targetName === "ArrayBuffer" || targetName === "Uint8Array" || targetName === "DataView") {
+    return `vexa::isInstance<vexa::${targetName}Object>(${subject})`;
+  }
+  const targetType = cppTypeForDeclaredName(targetName);
+  if (targetType?.endsWith("*") &&
+    (activeClassNames.has(parseTypeNameShape(targetName).baseName) ||
+      activeInterfaceNames.has(parseTypeNameShape(targetName).baseName))) {
+    return `vexa::isInstance<${targetType.slice(0, -1)}>(${subject})`;
+  }
+  throw new CppEmitError(`C++ emission does not support matcher pattern '${targetName}' yet`);
+}
+
+function emitCppPatternTest(pattern: Expr, subject: string): string {
+  if (pattern instanceof BinaryExpression && pattern.matcherRelational === true) {
+    const relation = pattern.operator === "<" ? "< 0"
+      : pattern.operator === ">" ? "> 0"
+        : pattern.operator === "<=" ? "<= 0"
+          : ">= 0";
+    return `(vexa::compare(${subject}, vexa::toValue(${emitExpression(pattern.right)})) ${relation})`;
+  }
+  if (pattern instanceof BinaryExpression && pattern.matcherCombinator === true) {
+    const operator = pattern.operator === "&&" ? "&&" : "||";
+    return `(${emitCppPatternTest(pattern.left, subject)}) ${operator} (${emitCppPatternTest(pattern.right, subject)})`;
+  }
+  if (pattern instanceof ObjectLiteral) {
+    const checks = [`(${subject}.isRecord() || ${subject}.isRuntimeObject())`];
+    for (const property of pattern.properties) {
+      if (!(property instanceof ObjectProperty)) return "false";
+      const key = cppPatternPropertyKey(property);
+      if (!key) return "false";
+      checks.push(`vexa::hasProperty(${subject}, ${key})`);
+      if (!property.shorthand) {
+        checks.push(emitCapturedCppPatternTest(property.value, `vexa::dynamicGet(${subject}, ${key})`));
+      }
+    }
+    return checks.join(" && ");
+  }
+  if (pattern instanceof ArrayLiteral) {
+    const wildcardIndex = pattern.elements.findIndex((element) =>
+      element instanceof SpreadExpression && element.matcherWildcard === true
+    );
+    const minimumLength = pattern.elements.length - (wildcardIndex >= 0 ? 1 : 0);
+    const checks = [
+      `${subject}.isRuntimeObject()`,
+      `${subject}.object()->dynamicIsArray()`,
+      wildcardIndex >= 0
+        ? `${subject}.object()->dynamicArraySize() >= ${minimumLength}`
+        : `${subject}.object()->dynamicArraySize() == ${pattern.elements.length}`
+    ];
+    for (let index = 0; index < pattern.elements.length; index += 1) {
+      const element = pattern.elements[index]!;
+      if (element instanceof ArrayHole) continue;
+      if (element instanceof SpreadExpression) {
+        if (element.matcherWildcard === true) continue;
+        return "false";
+      }
+      const subjectIndex = wildcardIndex >= 0 && index > wildcardIndex
+        ? `${subject}.object()->dynamicArraySize() - ${pattern.elements.length - index}`
+        : String(index);
+      checks.push(emitCapturedCppPatternTest(element, `${subject}.object()->dynamicArrayGet(${subjectIndex})`));
+    }
+    return checks.join(" && ");
+  }
+  if (pattern instanceof Identifier) {
+    return emitCppNominalPatternTest(pattern, subject);
+  }
+  if (isStructuralMatcherPattern(pattern)) {
+    return `vexa::strictEquals(${subject}, vexa::toValue(${emitExpression(pattern)}))`;
+  }
+  throw new CppEmitError(`C++ emission does not support matcher pattern '${nodeKindName(pattern.kind)}' yet`);
+}
+
+function emitCapturedCppPatternTest(pattern: Expr, value: string): string {
+  return `(([&](vexa::Value __vexa_pattern) -> bool { return ${emitCppPatternTest(pattern, "__vexa_pattern")}; })(vexa::toValue(${value})))`;
+}
+
 function emitBinary(expression: BinaryExpression): string {
   const overloaded = emitResolvedBinaryOperator(expression);
   if (overloaded) return overloaded;
+  if (expression.operator === "is" && isStructuralMatcherPattern(expression.right)) {
+    return emitCapturedCppPatternTest(expression.right, emitExpression(expression.left));
+  }
   const pointerNullishEquality = emitPointerNullishEquality(expression);
   if (pointerNullishEquality) return pointerNullishEquality;
   const managedArrayEmptyComparison = emitManagedArrayEmptyComparison(expression);
