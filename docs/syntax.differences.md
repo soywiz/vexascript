@@ -179,6 +179,11 @@ members and `this` refer to the receiver. Implicit `it` is the first visible
 parameter when one exists; for `T.() -> R`, it aliases the receiver. Nested
 receivers can be selected explicitly with `this@functionName`.
 
+Optional and non-null asserted member access use the same extension-method
+resolution as ordinary member access. `value?.method(args)` guards the
+extension call for a nullish receiver, while `value!.method(args)` resolves it
+after removing nullish types.
+
 ### `@JsInline` annotation
 
 A bodyless function with `@JsInline` provides a raw JavaScript template inserted at each call site.
@@ -667,6 +672,17 @@ configuration and mutation without introducing a temporary variable or an
 val point = Point(10, 20). {
   x *= 2
   y += x / 2
+}
+```
+
+VexaScript also supports `value?. { ... }`. This form evaluates `value` once,
+executes the receiver block only when the value is not `null` or `undefined`,
+and returns `undefined` for a nullish value. The block's receiver is narrowed to
+the non-nullish type:
+
+```vexa
+canvas.getContext("2d")?. {
+  fillStyle = "#f4f8fc"
 }
 ```
 

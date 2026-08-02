@@ -2,9 +2,11 @@ import { describe, expect, it } from "compiler/test/expect";
 import { createAnalysisSession } from "compiler/lsp/analysisSession";
 import { collectAllImportedDeclarations } from "compiler/lsp/importedDeclarations";
 import { resolveDefinitionWithLocalFallback, resolveMemberHoverAcrossFiles } from "compiler/lsp/crossFileNavigation";
+import { VEXA_DIAGNOSTIC_CODES } from "compiler/lsp/diagnosticCodes";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import { parseSource } from "compiler/pipeline/parse";
 import { setVfs } from "compiler/vfs";
+import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   createFileEntry,
   createFolderEntry,
@@ -13,6 +15,7 @@ import {
 } from "./workspace";
 import { createCachedWorkspaceSessionResolver } from "./workspaceSessions";
 import { WorkspaceVfs } from "./workspaceVfs";
+import { collectWorkspaceDiagnostics } from "./workspaceDiagnostics";
 
 function median(values: readonly number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
@@ -62,12 +65,12 @@ sync fun example() {
     ..height = 180
   app.append(canvas)
 
-  const c2d = canvas.getContext("2d")!
-  c2d
-    ..fillStyle = "#f4f8fc"
-    ..fillRect(0, 0, canvas.width, canvas.height)
-    ..drawCard(cardOrigin, cardSize, "#8cb3d9", "VexaScript")
-    ..drawDot(pulseCenter, 12, "#17324d")
+  const c2d = canvas.getContext("2d")!. {
+    fillStyle = "#f4f8fc"
+    fillRect(0, 0, canvas.width, canvas.height)
+    drawCard(cardOrigin, cardSize, "#8cb3d9", "VexaScript")
+    drawDot(pulseCenter, 12, "#17324d")
+  }
 
   let prop by LoggedProperty(10)
   prop++
@@ -115,32 +118,45 @@ export fun CanvasRenderingContext2D.drawDot(center: Point, radius: number, fill:
 }
 `.trim()],
     ["/src/counter.vx", `
-export fun increment(value: int): int = value + 1
+export fun increment(value: int): int {
+  return value + 1
+}
 
-class LoggedProperty(initialValue: int) {
-  private var current = initialValue
-
-  getter => current
-  setter(newValue) {
-    console.log("changed value " + current.toString() + " -> " + newValue.toString())
-    current = newValue
+export class LoggedProperty<T>(var current: T) {
+  value: T {
+    get => current
+    set {
+      console.log("changed value", current, "->", newValue)
+      current = newValue
+    }
   }
 }
 `.trim()],
-    ["/src/point.vx", `class Point(var x: number, var y: number)`],
+    ["/src/point.vx", `
+export class Point(val x: number, val y: number) {
+  operator+() => this
+  operator-() => Point(-x, -y)
+  operator+(other: Point) => Point(x + other.x, y + other.y)
+  operator-(other: Point) => Point(x - other.x, y - other.y)
+  operator*(scale: number) => Point(x * scale, y * scale)
+}
+`.trim()],
     ["/src/time.vx", `
-class TimeSpan(val ms: number)
+export class TimeSpan(val ms: number)
 
-export val number.seconds: TimeSpan
-  getter => TimeSpan(this * 1000)
+export val number.seconds => TimeSpan(this * 1000.0)
+export val number.milliseconds => TimeSpan(this)
 
-export val number.milliseconds: TimeSpan
-  getter => TimeSpan(this)
+fun TimeSpan.operator+(other: TimeSpan): TimeSpan => TimeSpan(ms + other.ms)
+fun TimeSpan.operator-(other: TimeSpan): TimeSpan => TimeSpan(ms - other.ms)
+fun TimeSpan.operator*(scale: number): TimeSpan => TimeSpan(ms * scale)
+fun TimeSpan.operator/(scale: number): TimeSpan => TimeSpan(ms / scale)
 
-export fun delay(milliseconds: TimeSpan) {}
-
-export fun TimeSpan.operator+(other: TimeSpan): TimeSpan = TimeSpan(ms + other.ms)
-export fun TimeSpan.operator/(divisor: number): TimeSpan = TimeSpan(ms / divisor)
+export fun delay(time: TimeSpan) {
+  return new Promise { resolve, reject ->
+    setTimeout(resolve, time.ms)
+  }
+}
 `.trim()],
   ]);
 }
@@ -193,7 +209,7 @@ async function createPlaygroundHarness() {
     getSessionForFilePath,
     getExportedSymbols: async () => [],
   };
-  const lineIndex = mainSource.split("\n").findIndex((line) => line.includes('..drawDot(pulseCenter, 12, "#17324d")'));
+  const lineIndex = mainSource.split("\n").findIndex((line) => line.includes('c2d.drawDot(pulseCenter, 18'));
   const character = mainSource.split("\n")[lineIndex]!.indexOf("drawDot") + 2;
 
   return {
@@ -253,6 +269,35 @@ async function buildLegacyPlaygroundSession(
 }
 
 describe("workspace session cache", () => {
+  it("does not report imports used by receiver blocks or operator overloads as unused", async () => {
+    const harness = await createPlaygroundHarness();
+    const mainSession = await buildOptimizedPlaygroundSession(
+      harness.mainSource,
+      harness.mainAst,
+      harness.ambientDeclarations,
+      harness.resolverContext,
+    );
+    const document = TextDocument.create(harness.resolverContext.uri, "vexa", 1, harness.mainSource);
+
+    const diagnostics = await collectWorkspaceDiagnostics(
+      {
+        uri: { toString: () => harness.resolverContext.uri },
+        getValue: () => harness.mainSource,
+        getPositionAt: (offset) => {
+          const position = document.positionAt(offset);
+          return { lineNumber: position.line + 1, column: position.character + 1 };
+        },
+      },
+      mainSession,
+      { getSessionForFilePath: harness.getSessionForFilePath },
+    );
+    const unusedImports = diagnostics
+      .filter((diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.STYLE_UNUSED_IMPORT)
+      .map((diagnostic) => diagnostic.message);
+
+    expect(unusedImports).toEqual([]);
+  });
+
   it("reuses imported workspace sessions across repeated hover and definition requests", async () => {
     const harness = await createPlaygroundHarness();
     const mainSession = await buildOptimizedPlaygroundSession(

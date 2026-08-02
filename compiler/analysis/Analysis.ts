@@ -1,7 +1,7 @@
-import { BinaryExpression, Identifier, ImportStatement, MemberExpression, nodeStartOffset, UnaryExpression } from "compiler/ast/ast";
+import { BinaryExpression, Identifier, ImportStatement, nodeStartOffset, UnaryExpression } from "compiler/ast/ast";
 import type { JsxAttribute, Node, Program, Statement } from "compiler/ast/ast";
 
-import { childNodes, walkAst } from "compiler/ast/traversal";
+import { childNodes } from "compiler/ast/traversal";
 import { Binder } from "./Binder";
 import type {
   AnalysisIssue,
@@ -131,6 +131,7 @@ export class Analysis {
   private readonly extensionMethodsByReceiver: ReadonlyMap<string, ReadonlyMap<string, AnalysisType>>;
   private readonly autoAwaitExpressions: Set<Node>;
   private readonly asyncForStatements: Set<Node>;
+  private readonly importedSymbols: ReadonlyMap<string, ImportedSymbolResolution>;
 
   constructor(program: Program, options: AnalysisOptions = {}) {
     this.program = program;
@@ -139,6 +140,7 @@ export class Analysis {
     const invalidImportedBindings = options.invalidImportedBindings ?? new Set<string>();
     const importedSymbolViews = normalizeImportedSymbolSources(options);
     const importedSymbols: Map<string, ImportedSymbolResolution> = importedSymbolViews.importedSymbols;
+    this.importedSymbols = importedSymbols;
     let phaseStartedAt: number = monotonicNow();
     const bound = new Binder(
       program,
@@ -241,23 +243,61 @@ export class Analysis {
 
   getUnusedImportIdentifiers(): readonly Identifier[] {
     const usedImportedBindings = new Set<Node>();
+    const usedImportedNames = new Set<string>();
+    const importedNamesByDeclaration = new Map<Node, string[]>();
+    const addImportedDeclarationName = (declaration: Node, localName: string): void => {
+      const names = importedNamesByDeclaration.get(declaration) ?? [];
+      names.push(localName);
+      importedNamesByDeclaration.set(declaration, names);
+    };
+    for (const [localName, resolution] of this.importedSymbols) {
+      const declaration = resolution.declarationOrigin?.statement;
+      if (!declaration) {
+        continue;
+      }
+      addImportedDeclarationName(declaration, localName);
+      if ("name" in declaration && declaration.name instanceof Identifier) {
+        addImportedDeclarationName(declaration.name, localName);
+      }
+    }
+    const markDeclarationUsed = (declaration: Node): void => {
+      for (const localName of importedNamesByDeclaration.get(declaration) ?? []) {
+        usedImportedNames.add(localName);
+      }
+    };
+    const markImportedExtensionNameUsed = (resolvedName: string, receiverName: string): void => {
+      for (const [localName, resolution] of this.importedSymbols) {
+        const origin = resolution.declarationOrigin;
+        const declaration = origin?.statement;
+        const declarationReceiver = declaration && "receiverType" in declaration
+          ? (declaration as Statement & { receiverType?: Identifier }).receiverType
+          : undefined;
+        if (
+          origin?.exportedName === resolvedName
+          && declarationReceiver?.name === receiverName
+        ) {
+          usedImportedNames.add(localName);
+        }
+      }
+    };
     for (const resolution of this.identifierResolutions) {
       if (resolution.symbol.node !== resolution.identifier) {
         usedImportedBindings.add(resolution.symbol.node);
+        markDeclarationUsed(resolution.symbol.node);
+      }
+      if (resolution.symbol.implicitReceiverExtensionReceiver) {
+        markImportedExtensionNameUsed(
+          resolution.symbol.name,
+          resolution.symbol.implicitReceiverExtensionReceiver
+        );
       }
     }
-    const memberPropertyNames = new Set<string>();
-    walkAst(this.program, (node) => {
-      if (!(node instanceof MemberExpression)) {
-        return;
-      }
-      const member: MemberExpression = node;
-      const property = member.property;
-      if (!member.computed && property instanceof Identifier) {
-        const identifierProperty: Identifier = property;
-        memberPropertyNames.add(identifierProperty.name);
-      }
-    });
+    for (const resolution of this.operatorResolutions) {
+      markDeclarationUsed(resolution.symbol.node);
+    }
+    for (const resolution of this.extensionPropertyResolutions) {
+      markDeclarationUsed(resolution.declaration);
+    }
 
     const unused: Identifier[] = [];
     for (const statement of this.program.body) {
@@ -276,10 +316,7 @@ export class Analysis {
         bindings.push(specifier.local ?? specifier.imported);
       }
       for (const binding of bindings) {
-        if (memberPropertyNames.has(binding.name)) {
-          continue;
-        }
-        if (!usedImportedBindings.has(binding)) {
+        if (!usedImportedBindings.has(binding) && !usedImportedNames.has(binding.name)) {
           unused.push(binding);
         }
       }

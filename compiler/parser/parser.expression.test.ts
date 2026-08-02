@@ -1191,6 +1191,16 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses optional receiver blocks", () => {
+        expect(parseExpression(tokenizeReader('canvas.getContext("2d")?. { fillStyle = "#f4f8fc" }'))).toMatchObject({
+            kind: NodeKind.CallExpression,
+            optional: true,
+            receiverBlockShorthand: true,
+            callee: { kind: NodeKind.CallExpression },
+            args: [{ kind: NodeKind.ArrowFunctionExpression, body: { kind: NodeKind.AssignmentExpression } }]
+        });
+    });
+
     it("builds an AST for mixed safe access and computed member access", () => {
         expect(parseExpression(tokenizeReader("b?.c[\"d\"]"))).toEqual({
             kind: NodeKind.MemberExpression,

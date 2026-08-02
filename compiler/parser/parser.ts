@@ -3465,6 +3465,23 @@ export class Parser {
                 continue;
             }
 
+            if (
+                token?.type === TokenType.SYMBOL && token.value === "?." &&
+                this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "{"
+            ) {
+                this.tokens.skip();
+                const tailLambda = this.parseTailLambdaArgument();
+                const receiverBlock = new CallExpression(expr, [tailLambda], pendingTypeArguments, true);
+                receiverBlock.receiverBlockShorthand = true;
+                expr = this.attachNodeBounds(
+                    receiverBlock,
+                    expr.firstToken,
+                    tailLambda.lastToken ?? this.getLastReadToken()
+                );
+                pendingTypeArguments = undefined;
+                continue;
+            }
+
             if (token?.type === TokenType.SYMBOL && token.value === "?." && this.peekToken(1)?.type === TokenType.SYMBOL && this.peekToken(1)?.value === "[") {
                 this.tokens.skip();
                 this.tokens.skip();

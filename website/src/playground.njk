@@ -167,10 +167,12 @@ permalink: /playground.html
               }
 
               export class LoggedProperty<T>(var current: T) {
-                get value(): T => current
-                set value(newValue: T) {
-                  console.log("changed value", current, "->", newValue)
-                  current = newValue
+                value: T {
+                  get => current
+                  set {
+                    console.log("changed value", current, "->", newValue)
+                    current = newValue
+                  }
                 }
               }
             `

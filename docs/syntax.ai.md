@@ -81,7 +81,12 @@ argument but is implicit inside a contextually typed lambda: unqualified members
 and `this` refer to it. If visible parameters exist, `it` is the first one; for
 `T.() -> R`, `it` aliases the receiver. Use `this@functionName` for a labeled
 outer receiver. `value. { ... }` evaluates `value` once, runs a receiver block,
-and returns that same value; it does not call `apply`.
+and returns that same value; it does not call `apply`. `value?. { ... }` uses the
+same receiver block but skips it and returns `undefined` when `value` is
+`null` or `undefined`; inside that block the receiver is narrowed to its
+non-nullish type. Extension methods follow the same rule: `value?.method(args)`
+guards the extension call, and `value!.method(args)` resolves it against the
+non-nullish receiver.
 
 ## Classes
 

@@ -115,7 +115,7 @@ VexaScriptEmbeds.createWorkbenchEditor("#workbench", {
       counter.increment()
 
       sync fun loadBytes(): Uint8Array {
-        return Uint8Array(fetch('file.bin').arrayBuffer())
+        return Uint8Array(fetch("file.bin").arrayBuffer())
       }
     `
     const counterSelection = {

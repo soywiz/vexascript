@@ -792,6 +792,19 @@ Point(10, 20). {
 }
 ```
 
+The optional form `value?. { ... }` has the same receiver semantics but only
+executes the block when `value` is neither `null` nor `undefined`. It evaluates
+the receiver once and returns `undefined` when the receiver is nullish. The
+receiver is non-nullish inside the block, so its members can be accessed
+without an additional assertion:
+
+```vexa
+canvas.getContext("2d")?. {
+  fillStyle = "#f4f8fc"
+  fillRect(0, 0, canvas.width, canvas.height)
+}
+```
+
 Conceptually the compiler-generated function has type `T.() -> T` and is immediately invoked with `value` as its first argument. JavaScript and C++ emit it directly at the use site, so no helper function is required at runtime.
 
 Nested receiver lambdas select the nearest receiver for unqualified access. Use `this@functionName` to select the receiver introduced by a particular call:
@@ -1575,6 +1588,11 @@ Supported member access forms:
 - optional computed access: `obj?.[index]`
 
 Optional member and computed access include `undefined` in their inferred result type. Non-null asserted access removes `null` and `undefined` from the receiver type before resolving the member and is erased to normal dot access during JavaScript emission.
+
+These access forms also resolve extension methods. For `value?.method(args)`,
+the receiver is checked once and the extension method is skipped for a nullish
+receiver; `value!.method(args)` resolves the extension against the non-nullish
+receiver type.
 
 Assignments may also target optional member chains such as `countRef.current?.style?.background = "grey"`. These are emitted as guarded JavaScript expressions that first capture the nullable receiver into a temporary and only perform the final write when that receiver is non-nullish.
 
