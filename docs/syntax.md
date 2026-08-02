@@ -1661,6 +1661,9 @@ The basic nominal form of `is` remains a shorter spelling of `instanceof`:
 native class check in C++. `is` additionally accepts matcher patterns without
 custom matcher objects:
 
+- primitive type patterns use runtime type tests: `string`, `number`/`int`,
+  `boolean`, and `bigint`/`long` lower to JavaScript `typeof` checks and the
+  equivalent native value-kind checks;
 - primitive literals use exact matching;
 - regular-expression literals search string subjects and narrow successful
   branches to `string`;
@@ -1691,6 +1694,10 @@ if (result is ({ kind: "ok" } and { payload })) {
 
 if (temperature is (>= 10 and < 20)) {
   log("between ten and twenty")
+}
+
+if (input is string) {
+  val text: string = input
 }
 
 if (value in 0 ... 10) {
@@ -1903,6 +1910,12 @@ val framed = match (parts) {
   else -> "other"
 }
 
+val packetLabel = match (packet) {
+  [string, val amount: number, 3] -> "amount=" + amount
+  { kind: "ok", payload: val payload } -> consume(payload)
+  else -> "invalid"
+}
+
 val route = match (path) {
   /^\/users\/[0-9]+$/i -> "user"
   else -> "other"
@@ -1914,6 +1927,14 @@ more elements. It may appear once, including at the beginning, middle, or end.
 Without it, array patterns continue to require exact length. Rest bindings such
 as `[head, ...tail]` are not supported.
 
+Subject patterns may introduce branch-local bindings. `val name` captures the
+matched value and infers its narrowed type. `val name: Type` first applies the
+same primitive or nominal type pattern and then captures the value with that
+type. Bindings may be nested in array elements and object property values, and
+are available only in the selected arm. They are deliberately limited to
+subject `match` arms; a boolean `is` expression performs matching and narrowing
+but does not introduce names.
+
 The last expression in a braced arm is its value, so the arm does not need an
 explicit `do` keyword. An arm may also be a single expression or a control
 statement such as `throw`. The compiler lowers condition matches to nested
@@ -1922,11 +1943,10 @@ invoked expression around the same `if` chain. This preserves contextual result
 types, cumulative false-branch narrowing, short-circuit evaluation, and branch
 scoping in both backends.
 
-Custom matcher objects are never invoked and are not supported. Pattern
-bindings, computed object keys, object rest, and array rest bindings are also
-unsupported. Use ordinary arm blocks for local bindings after a successful
-structural check. Regular-expression matcher patterns accept only the portable
-`g` and `i` flags (or no flags) and never coerce non-string subjects.
+Custom matcher objects are never invoked and are not supported. Computed object
+keys, object rest, and array rest bindings are also unsupported. Regular-expression
+matcher patterns accept only the portable `g` and `i` flags (or no flags) and
+never coerce non-string subjects.
 
 ### Control-flow statements and expressions
 

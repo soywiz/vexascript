@@ -73,7 +73,7 @@ export function findMemberAccessDot(
     return { dotCharacter, receiverEndCharacter: null, prefix: match[2] ?? "" };
   }
   const lastChar = beforeDot[beforeDot.length - 1];
-  if (!lastChar || !/[A-Za-z0-9_)\]"'`}!]/.test(lastChar)) {
+  if (!lastChar || !/[A-Za-z0-9_)\]"'`}!/]/.test(lastChar)) {
     return null;
   }
   return { dotCharacter, receiverEndCharacter: beforeDot.length, prefix: match[2] ?? "" };

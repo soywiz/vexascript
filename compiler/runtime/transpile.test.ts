@@ -994,6 +994,8 @@ let c = consume({ it })
 let cat: Cat | string = new Cat()
 if (cat is Cat) { transform({ it }) }
 if (cat instanceof Cat) { transform({ it }) }
+let primitive: any = "cat"
+if (primitive is string) { transform({ it }) }
 `;
     const result = transpile(source);
     expect(result.errors).toEqual([]);
@@ -1002,6 +1004,8 @@ if (cat instanceof Cat) { transform({ it }) }
     expect(result.code).toContain("consume({it})");
     expect(result.code).toContain("cat instanceof Cat");
     expect(result.code.match(/cat instanceof Cat/g)?.length).toBe(2);
+    expect(result.code).toContain('typeof primitive === "string"');
+    expect(result.code).not.toContain("primitive instanceof string");
   });
 
   it("inlines @JsInline functions and substitutes arguments and defaults", () => {

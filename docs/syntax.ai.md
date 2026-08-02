@@ -181,11 +181,13 @@ if (x is Circle) { x.radius }      // basic `is` is instanceof; both smart-cast
 missing `else` adds `undefined`, and `return`/`throw`/`break`/`continue` can be
 used as `never`-typed expressions.
 
-`is` additionally accepts built-in patterns: literals, objects, exact arrays,
-one standalone `...` array wildcard, `and`, `or`, relational patterns, and regex
-literals. Regex patterns only match strings and allow no flags or `g`/`i`.
-Successful checks narrow the subject; custom matchers and pattern bindings are
-not supported.
+`is` additionally accepts built-in patterns: primitive types, literals,
+objects, exact arrays, one standalone `...` array wildcard, `and`, `or`,
+relational patterns, and regex literals. `string`, `number`/`int`, `boolean`,
+and `bigint`/`long` lower to runtime primitive-kind checks; class names keep
+`instanceof` semantics. Regex patterns only match strings and allow no flags or
+`g`/`i`. Successful checks narrow the subject; custom matchers are not
+supported.
 
 ```vexa
 if (result is ({ kind: "ok" } and { payload })) {
@@ -208,12 +210,19 @@ val label = match {
 }
 
 val result = match (value) {
-  { kind: "ok" } -> value.payload
+  { kind: "ok", payload: val payload } -> payload
+  [string, val count: number, ...] -> "count=" + count
   ["start", ..., "end"] -> "framed"
   when /^error:/i: "error"
   default -> "other"
 }
 ```
+
+In subject arms, `val name` captures with the inferred narrowed type and
+`val name: Type` checks then captures that primitive or class type. Bindings are
+arm-local and may be nested in arrays or object property values. `is` does not
+introduce bindings. Computed object keys, object rest, array rest bindings such
+as `...tail`, and custom matcher protocols are unsupported.
 
 ## Cascade operator
 

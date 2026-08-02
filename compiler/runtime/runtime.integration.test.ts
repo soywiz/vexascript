@@ -101,6 +101,33 @@ console.log(
   regularExpression("pending-42"),
   regularExpression(0)
 )
+
+fun typedPattern(value: any): string {
+  return match (value) {
+    [string, val bound: number, 3] -> "typed:" + bound
+    [1, val bound, ...] -> "captured:" + bound
+    ["tail", ..., val ending: string] -> "ending:" + ending
+    [val box: Box] -> "box:" + box.value
+    { kind: val kind: string, value: val amount: number } -> kind + ":" + amount
+    string -> "string"
+    number -> "number"
+    boolean -> "boolean"
+    bigint -> "bigint"
+    else -> "other"
+  }
+}
+console.log(
+  typedPattern(["test", 2, 3]),
+  typedPattern([1, "value", 9]),
+  typedPattern(["tail", 1, 2, "done"]),
+  typedPattern([Box(8)]),
+  typedPattern({ kind: "object", value: 7 }),
+  typedPattern("text"),
+  typedPattern(4),
+  typedPattern(true),
+  typedPattern(4n),
+  typedPattern({})
+)
 `);
 
     expect(output).toEqual([
@@ -115,7 +142,8 @@ console.log(
       ["captured", 1],
       [99, 0],
       ["wrapped", "wrapped", "prefixed", "suffixed", "prefixed"],
-      ["nested", "ready", "empty", "other", "other"]
+      ["nested", "ready", "empty", "other", "other"],
+      ["typed:2", "captured:value", "ending:done", "box:8", "object:7", "string", "number", "boolean", "bigint", "other"]
     ]);
   });
 

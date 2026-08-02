@@ -57,6 +57,12 @@ matcher pattern. This immediately exercised the new contract: all three files
 document string-only matching, positive-branch narrowing, portable flags, and
 the absence of a custom matcher protocol.
 
+The subsequent primitive-pattern and branch-binding work exercised the contract
+again. The complete, TypeScript-differences, and AI-oriented references were all
+updated together to describe `typeof`-style primitive matching, nominal class
+matching, `val` captures, branch scope, and the remaining unsupported rest and
+custom matcher forms.
+
 ## Dead ends and useful evidence
 
 Treating every one-file historical commit as a missing compact-language entry

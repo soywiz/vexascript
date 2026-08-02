@@ -1,4 +1,4 @@
-import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, CatchClause, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, ConditionalExpression, ContinueStatement, DebuggerStatement, DeferStatement, DoWhileStatement, EmptyStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionDeclarationKind, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportSpecifier, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MemberExpression, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, Node, NodeKind, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectLiteralProperty, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchCase, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarDeclarator, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
+import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, CatchClause, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, ConditionalExpression, ContinueStatement, DebuggerStatement, DeferStatement, DoWhileStatement, EmptyStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionDeclarationKind, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportSpecifier, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MatcherBindingPattern, MemberExpression, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, Node, NodeKind, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectLiteralProperty, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchCase, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarDeclarator, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import { ListReader } from "compiler/utils/ListReader";
 import { SourcePosition, SourceRange, Token, TokenType, type TokenizeLanguage } from "./tokenizer";
 import { hasLineBreakBetween, isClassMemberModifier, isEofToken, isLikelyStatementStart, typeTokenText } from "./tokenHelpers";
@@ -137,6 +137,8 @@ export class Parser {
     private readonly recoveryMarkers: ParseRecoveryMarker[] = [];
     private readonly tokenCheckpoints: TokenCheckpoint[] = [];
     private matcherPatternDepth = 0;
+    private matcherBindingDepth = 0;
+    private subjectMatchArmBodyDepth = 0;
 
     constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
         this.language = options.language ?? "vexa";
@@ -2053,6 +2055,16 @@ export class Parser {
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
+            if (
+                this.subjectMatchArmBodyDepth > 0 &&
+                token?.type === TokenType.SYMBOL &&
+                (token.value === "<" || token.value === "<=" || token.value === ">" || token.value === ">=") &&
+                left.lastToken &&
+                hasLineBreakBetween(left.lastToken, token) &&
+                this.isMatchArmStart(true)
+            ) {
+                break;
+            }
             const operator = this.binaryOperatorFromToken(token);
             if (!operator) {
                 break;
@@ -2080,11 +2092,13 @@ export class Parser {
         return left;
     }
 
-    private parseMatcherPattern(): Expr {
+    private parseMatcherPattern(allowBindings = false): Expr {
         this.matcherPatternDepth += 1;
+        if (allowBindings) this.matcherBindingDepth += 1;
         try {
             return this.parseBinaryExpression();
         } finally {
+            if (allowBindings) this.matcherBindingDepth -= 1;
             this.matcherPatternDepth -= 1;
         }
     }
@@ -3061,6 +3075,23 @@ export class Parser {
         }
 
         if (token?.type === TokenType.IDENTIFIER) {
+            if (token.value === "val" && this.matcherBindingDepth > 0) {
+                const nameToken = this.tokens.read();
+                if (nameToken?.type !== TokenType.IDENTIFIER) {
+                    this.fail("Expected a binding name after 'val' in matcher pattern", this.tokenAt(nameToken));
+                }
+                const name = this.buildIdentifierFromToken(nameToken);
+                let typeAnnotation: Identifier | undefined;
+                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
+                    this.tokens.skip();
+                    typeAnnotation = this.parseTypeAnnotationNode();
+                }
+                return this.attachNodeBounds(
+                    new MatcherBindingPattern(name, typeAnnotation),
+                    token,
+                    typeAnnotation?.lastToken ?? name.lastToken ?? nameToken
+                );
+            }
             if (token.value === "match" && this.language !== "typescript") {
                 return this.parseMatchExpression(token);
             }
@@ -3132,7 +3163,7 @@ export class Parser {
                 this.tokens.skip();
             }
             if (subjectPattern) {
-                this.parseMatcherPattern();
+                this.parseMatcherPattern(true);
             } else {
                 this.parseExpressionOrThrow();
             }
@@ -3143,6 +3174,57 @@ export class Parser {
         } finally {
             this.tokens.offset = startOffset;
         }
+    }
+
+    private collectMatcherBindings(pattern: Expr, value: Expr, declarations: VarStatement[]): void {
+        if (pattern instanceof MatcherBindingPattern) {
+            declarations.push(new VarStatement(
+                "val",
+                pattern.name,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                pattern.typeAnnotation,
+                value
+            ));
+            return;
+        }
+        if (pattern instanceof ObjectLiteral) {
+            for (const property of pattern.properties) {
+                if (!(property instanceof ObjectProperty) || property.shorthand || property.computed) continue;
+                const propertyValue = new MemberExpression(value, property.key, !(property.key instanceof Identifier));
+                this.collectMatcherBindings(property.value, propertyValue, declarations);
+            }
+            return;
+        }
+        if (!(pattern instanceof ArrayLiteral)) return;
+        const wildcardIndex = pattern.elements.findIndex((element) =>
+            element instanceof SpreadExpression && element.matcherWildcard === true
+        );
+        for (let index = 0; index < pattern.elements.length; index += 1) {
+            const element = pattern.elements[index]!;
+            if (element instanceof ArrayHole || element instanceof SpreadExpression) continue;
+            const subjectIndex: Expr = wildcardIndex >= 0 && index > wildcardIndex
+                ? new BinaryExpression(
+                    "-",
+                    new MemberExpression(value, new Identifier("length"), false),
+                    new IntLiteral(pattern.elements.length - index)
+                )
+                : new IntLiteral(index);
+            this.collectMatcherBindings(element, new MemberExpression(value, subjectIndex, true), declarations);
+        }
+    }
+
+    private lowerMatcherBindings(pattern: Expr, subject: Expr, body: Statement): Statement {
+        const declarations: VarStatement[] = [];
+        this.collectMatcherBindings(pattern, subject, declarations);
+        if (declarations.length === 0) return body;
+        return new BlockStatement([
+            ...declarations,
+            ...(body instanceof BlockStatement ? body.body : [body])
+        ]);
     }
 
     private parseMatchExpression(matchKeyword: Token): Expr {
@@ -3204,7 +3286,7 @@ export class Parser {
                     this.tokens.skip();
                 }
                 condition = subject
-                    ? this.parseMatcherPattern()
+                    ? this.parseMatcherPattern(true)
                     : this.parseExpressionOrThrow();
             }
 
@@ -3229,7 +3311,13 @@ export class Parser {
                 statements.push(this.parseBlockStatement());
             } else {
                 while (this.tokens.hasMore) {
-                    const statement = this.parseStatementOrThrow();
+                    if (subject) this.subjectMatchArmBodyDepth += 1;
+                    let statement: Statement;
+                    try {
+                        statement = this.parseStatementOrThrow();
+                    } finally {
+                        if (subject) this.subjectMatchArmBodyDepth -= 1;
+                    }
                     statements.push(statement);
                     const previousToken = this.tokens.offset > 0
                         ? this.tokens.items[this.tokens.offset - 1]
@@ -3291,8 +3379,11 @@ export class Parser {
             const loweredCondition = subject
                 ? this.buildBinary("is", arm.condition.firstToken ?? matchKeyword, subjectIdentifier(), arm.condition)
                 : arm.condition;
+            const loweredBody = subject
+                ? this.lowerMatcherBindings(arm.condition, subjectIdentifier(), arm.body)
+                : arm.body;
             expression = this.attachNodeBounds(
-                new IfStatement(loweredCondition, arm.body, expression ?? fallback),
+                new IfStatement(loweredCondition, loweredBody, expression ?? fallback),
                 loweredCondition.firstToken,
                 (expression ?? fallback)?.lastToken ?? this.getLastReadToken() ?? loweredCondition.lastToken
             );

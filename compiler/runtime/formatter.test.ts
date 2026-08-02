@@ -34,6 +34,12 @@ describe("formatSource", () => {
         else -> "other"
       }
     `);
+    expect(formatSource('val label=match(value){[string,val b:number,3]->b else->0}')).toBe(dedent`
+      val label = match (value) {
+        [string, val b: number, 3] -> b
+        else -> 0
+      }
+    `);
   });
 
   it("keeps named imports on a single line", () => {

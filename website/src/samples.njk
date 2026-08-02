@@ -247,7 +247,7 @@ val badge = new Graphics(). {
     </article>
     <article class="card">
       <h3>Smart casts</h3>
-      <p><code>is</code> is the shorter spelling of <code>instanceof</code>; both narrow the type of a stable identifier automatically inside <code>if</code> branches.</p>
+      <p><code>is</code> keeps nominal <code>instanceof</code> behavior for classes and also accepts primitive, literal, object, array, regular-expression, relational, <code>and</code>, and <code>or</code> patterns.</p>
 {% highlightVexaScript %}
 class Cat { meow() {} }
 class Dog { bark() {} }
@@ -270,6 +270,38 @@ fun clamp(value: int | string) {
   if (value in 0 ... 100) {
     const safe: int = value
   }
+}
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Subject match and bindings</h3>
+      <p>A subject is evaluated once. <code>val name</code> captures a matched value; <code>val name: Type</code> checks and captures it with a branch-local type.</p>
+{% highlightVexaScript %}
+fun describe(packet: any): string {
+  return match (packet) {
+    { kind: "ok", payload: [val first: string, ...] } ->
+      "first=" + first
+    [string, val count: number, 3] ->
+      "count=" + count
+    else -> "unknown"
+  }
+}
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Composable matcher patterns</h3>
+      <p>Use literals, primitive types, regular expressions, open array shapes, relational checks, and <code>and</code>/<code>or</code>. The compact arrow form omits <code>when</code>; the colon form requires it.</p>
+{% highlightVexaScript %}
+val label = match (value) {
+  /^user-[0-9]+$/i -> "user id"
+  >= 10 and < 20 -> "teen"
+  "ready" or "running" -> "active"
+  string -> "other text"
+  else -> "unknown"
+}
+
+if (value is ({ kind: "ok" } and { payload })) {
+  console.log(value.payload)
 }
 {% endhighlightVexaScript %}
     </article>

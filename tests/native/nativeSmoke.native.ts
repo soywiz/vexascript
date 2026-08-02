@@ -77,6 +77,21 @@ fun range(value: int): string {
   }
 }
 
+fun typedPattern(value: any): string {
+  return match (value) {
+    [string, val bound: number, 3] -> "typed:" + bound
+    [1, val bound, ...] -> "captured:" + bound
+    ["tail", ..., val ending: string] -> "ending:" + ending
+    [val box: Box] -> "box:" + box.value
+    { kind: val kind: string, value: val amount: number } -> kind + ":" + amount
+    string -> "string"
+    number -> "number"
+    boolean -> "boolean"
+    bigint -> "bigint"
+    else -> "other"
+  }
+}
+
 var subjectEvaluations = 0
 fun nextSubject(): int {
   subjectEvaluations += 1
@@ -95,6 +110,7 @@ console.log(pick(1), pick(2), pick(3))
 console.log(describe({ kind: "ok", value: 7 }), describe({ kind: "error", message: "failed" }))
 console.log(classify({ kind: "ok", value: 1 }), classify(["error", 503]), classify("plain"), classify(Box(1)), classify(["open", 1, 2, "close"]), classify({ kind: "READY-now" }), classify("REGEX-42"), classify(""), classify(0), classify(false))
 console.log(range(9), range(10), range(19), range(20))
+console.log(typedPattern(["test", 2, 3]), typedPattern([1, "value", 9]), typedPattern(["tail", 1, 2, "done"]), typedPattern([Box(8)]), typedPattern({ kind: "object", value: 7 }), typedPattern("text"), typedPattern(4), typedPattern(true), typedPattern(4n), typedPattern({}))
 val captured = match (nextSubject()) {
   >= 10 and < 20 -> "captured"
   else -> "missed"
@@ -123,6 +139,7 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
         "7 failed",
         "object array literal box variable-array nested-regexp regexp empty-regexp other other",
         "outside inside inside outside",
+        "typed:2 captured:value ending:done box:8 object:7 string number boolean bigint other",
         "captured 1 99 0"
       ].join("\n"));
     } finally {

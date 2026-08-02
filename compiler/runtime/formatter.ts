@@ -1,4 +1,4 @@
-import { ArrayHole, ArrowFunctionExpression, AssignmentExpression, BindingHole, BlockStatement, BreakStatement, CallExpression, ClassFieldMember, ClassMethodMember, ContinueStatement, ExprStatement, Identifier, IfStatement, ImportStatement, InterfacePropertyMember, MemberExpression, NodeKind, ObjectSpreadProperty, ReturnStatement, ThrowStatement, VarStatement } from "compiler/ast/ast";
+import { ArrayHole, ArrowFunctionExpression, AssignmentExpression, BindingHole, BlockStatement, BreakStatement, CallExpression, ClassFieldMember, ClassMethodMember, ContinueStatement, ExprStatement, Identifier, IfStatement, ImportStatement, InterfacePropertyMember, MatcherBindingPattern, MemberExpression, NodeKind, ObjectSpreadProperty, ReturnStatement, ThrowStatement, VarStatement } from "compiler/ast/ast";
 import { parseSource } from "../pipeline/parse";
 import type {
   AnnotationApplication, ArrayBindingPattern, ArrayLiteral,
@@ -2584,6 +2584,17 @@ class AstFormatter {
       case NodeKind.Identifier:
         this.write(`${(expr as Identifier).name}${(expr as Identifier).receiverLabel ? `@${(expr as Identifier).receiverLabel}` : ""}`);
         break;
+      case NodeKind.MatcherBindingPattern: {
+        const binding = expr as MatcherBindingPattern;
+        this.write("val ");
+        this.write(binding.name.name);
+        if (binding.typeAnnotation) {
+          this.write(":");
+          this.sp();
+          this.emitTypeAnno(binding.typeAnnotation as Node);
+        }
+        break;
+      }
       case NodeKind.MissingExpression: break;
       case NodeKind.ArrayHole: break;
       case NodeKind.BinaryExpression: this.emitBinaryExpr(expr as BinaryExpression); break;

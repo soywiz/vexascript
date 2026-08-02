@@ -49,6 +49,7 @@ import type {
   JsxSpreadAttribute,
   LabeledStatement,
   MemberExpression,
+  MatcherBindingPattern,
   NamedArgument,
   NamespaceStatement,
   NewExpression,
@@ -140,6 +141,12 @@ export function appendChildNodes(node: Node, children: Node[], keys?: string[]):
     case NodeKind.BindingHole:
     case NodeKind.JsxText:
       break;
+    case NodeKind.MatcherBindingPattern: {
+      const current = node as MatcherBindingPattern;
+      appendNode(children, current.name, "name", keys);
+      appendNode(children, current.typeAnnotation, "typeAnnotation", keys);
+      break;
+    }
     case NodeKind.EmptyStatement:
       appendNodes(children, (node as EmptyStatement).annotations, "annotations", keys);
       break;

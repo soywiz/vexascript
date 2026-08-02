@@ -922,6 +922,22 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("toLocaleLowerCase");
   });
 
+  it("offers RegExp members for regular-expression literal receivers", async () => {
+    const { source, line, character } = sourceWithCursor("/.el.*/.^^^");
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["test", "exec", "source", "lastIndex"]));
+  });
+
   it("offers Number members for variables annotated as number", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun demo(value: number) {

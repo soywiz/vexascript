@@ -214,6 +214,38 @@ describe("parseExpression", () => {
         `))).not.toThrow();
     });
 
+    it("separates a relational subject arm after a regular-expression arm", () => {
+        const expression = parseExpression(tokenizeReader(dedent`
+            match (value) {
+              /^user-[0-9]+$/i -> "regexp"
+              >= 10 and < 20 -> "range"
+              else -> "other"
+            }
+        `));
+
+        expect(expression?.matchSyntax?.arms).toMatchObject([
+            { condition: { kind: NodeKind.RegExpLiteral } },
+            {
+                condition: {
+                    kind: NodeKind.BinaryExpression,
+                    operator: "&&",
+                    matcherCombinator: true
+                }
+            },
+            { defaultKeyword: "else" }
+        ]);
+    });
+
+    it("parses primitive type patterns and typed bindings in subject arrays", () => {
+        expect(() => parseExpression(tokenizeReader(dedent`
+            match (["test", 2, 3]) {
+                [string, val b: number, 3] -> b
+                [1, val value, ...] -> value
+                else -> undefined
+            }
+        `))).not.toThrow();
+    });
+
     it("keeps control-flow forms statement-only in TypeScript parser mode", () => {
         expect(parseExpression(tokenizeReader("throw Error()"), { language: "typescript" })).toMatchObject({
             kind: NodeKind.Identifier,

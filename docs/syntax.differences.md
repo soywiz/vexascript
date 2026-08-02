@@ -593,10 +593,12 @@ if (path is /^\/users\/[0-9]+$/i) {
 }
 ```
 
-Supported built-ins are literal equality, object property patterns, exact
-arrays, one standalone non-binding `...` array wildcard, relational patterns,
-`and`/`or`, and regular-expression literals. Regex patterns only match strings
-and accept no flags or the portable `g`/`i` flags. Pattern bindings, computed
+Supported built-ins are primitive type tests, literal equality, object property
+patterns, exact arrays, one standalone non-binding `...` array wildcard,
+relational patterns, `and`/`or`, and regular-expression literals. Primitive
+patterns (`string`, `number`/`int`, `boolean`, and `bigint`/`long`) lower to
+`typeof` rather than `instanceof`; class names remain nominal. Regex patterns
+only match strings and accept no flags or the portable `g`/`i` flags. Computed
 keys, object rest, array rest bindings, and custom matcher protocols are not
 supported. Subjects and recursively inspected values are evaluated once in
 both JavaScript and C++.
@@ -635,7 +637,8 @@ val label = match {
 }
 
 val result = match (value) {
-  { kind: "ok" } -> value.payload
+  { kind: "ok", payload: val payload } -> payload
+  [string, val count: number, ...] -> "count=" + count
   when /^error:/i: "error"
   default -> "other"
 }
@@ -647,6 +650,11 @@ the same built-in patterns as `is`, including `>= 10 and < 20`, objects, arrays,
 the standalone `...` wildcard, and regex literals. Successful arms preserve
 their narrowed subject types; later arms retain only exclusions that are
 logically definite.
+
+Only subject `match` arms introduce bindings. `val name` captures with its
+inferred narrowed type, while `val name: Type` checks that primitive or class
+type and captures it. The name is scoped to that arm. Boolean `is` patterns
+narrow existing values but do not declare bindings.
 
 ### Postfix receiver blocks
 

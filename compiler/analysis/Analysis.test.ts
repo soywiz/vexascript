@@ -2147,6 +2147,50 @@ let bad = "Ada" satisfies number
     expect(messages).toContain("Type 'string | int' is not assignable to type 'int'");
   });
 
+  it("narrows primitive array patterns and types match bindings inside each arm", () => {
+    const source = dedent`
+      type Packet = [string, int, 3] | [int, string, 3]
+      fun inspect(packet: Packet): string {
+        return match (packet) {
+          [string, val value: number, 3] -> {
+            const tag: string = packet[0]
+            const bound: number = value
+            bound.toString()
+          }
+          [int, val value: string, 3] -> {
+            const tag: int = packet[0]
+            const bound: string = value
+            bound
+          }
+          else -> "none"
+        }
+      }
+
+      val captured = match ([1, 2, 3]) {
+        [1, val value, 3] -> {
+          const inferred: int = value
+          inferred
+        }
+        else -> 0
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("contextually types a match expression passed directly to a rest parameter", () => {
+    const source = dedent`
+      console.log(match (["test", 2, 3]) {
+        [string, val value: number, 3] -> value
+        else -> 0
+      })
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("supports nested object and array is patterns without treating shorthand properties as values", () => {
     const source = dedent`
       type Event =

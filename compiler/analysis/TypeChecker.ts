@@ -1,4 +1,4 @@
-import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
+import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MatcherBindingPattern, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 
@@ -81,6 +81,7 @@ import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarat
 import { declarationIndexForStatements } from "./declarationIndex";
 import { childNodes, walkAst } from "compiler/ast/traversal";
 import { boxedInterfaceNameForBuiltin, expressionSnippet, isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
+import { primitiveMatcherKind } from "./matcherPatterns";
 import {
   isDynamicPropertyName,
   isReadonlyPropertyName,
@@ -2455,6 +2456,8 @@ export class TypeChecker {
       pattern instanceof ObjectLiteral ||
       pattern instanceof ArrayLiteral ||
       pattern instanceof RegExpLiteral ||
+      pattern instanceof MatcherBindingPattern ||
+      (pattern instanceof Identifier && primitiveMatcherKind(pattern.name) !== null) ||
       pattern.kind === NodeKind.IntLiteral ||
       pattern.kind === NodeKind.CharacterLiteral ||
       pattern.kind === NodeKind.FloatLiteral ||
@@ -2467,6 +2470,8 @@ export class TypeChecker {
   }
 
   private visitMatcherPattern(pattern: Expr, scope: Scope): void {
+    if (pattern instanceof MatcherBindingPattern) return;
+    if (pattern instanceof Identifier && primitiveMatcherKind(pattern.name) !== null) return;
     if (pattern instanceof BinaryExpression && pattern.matcherRelational === true) {
       this.visitMatcherPattern(pattern.right, scope);
       return;
@@ -2521,6 +2526,9 @@ export class TypeChecker {
   }
 
   private matcherPatternType(pattern: Expr): AnalysisType {
+    if (pattern instanceof MatcherBindingPattern) {
+      return this.typeFromAnnotationLoose(pattern.typeAnnotation) ?? UNKNOWN_TYPE;
+    }
     if (pattern instanceof BinaryExpression && pattern.matcherRelational === true) {
       const comparedType = this.matcherPatternType(pattern.right);
       if (comparedType instanceof LiteralType) {
@@ -2553,7 +2561,9 @@ export class TypeChecker {
       case NodeKind.UndefinedLiteral:
         return builtinType("undefined");
       case NodeKind.Identifier:
-        return namedType((pattern as Identifier).name);
+        return primitiveMatcherKind((pattern as Identifier).name) !== null
+          ? builtinType((pattern as Identifier).name as BuiltinTypeName)
+          : namedType((pattern as Identifier).name);
       case NodeKind.ObjectLiteral: {
         const properties = new Map<string, AnalysisType>();
         for (const property of (pattern as ObjectLiteral).properties) {
@@ -2586,6 +2596,12 @@ export class TypeChecker {
     type: AnalysisType,
     pattern: Expr
   ): "always" | "maybe" | "never" {
+    if (pattern instanceof MatcherBindingPattern) {
+      if (!pattern.typeAnnotation) return "always";
+      const matcherType = this.matcherPatternType(pattern);
+      if (this.isTypeAssignable(type, matcherType)) return "always";
+      return this.isTypeAssignable(matcherType, type) ? "maybe" : "never";
+    }
     if (pattern instanceof BinaryExpression && pattern.matcherRelational === true) {
       const comparedType = this.matcherPatternType(pattern.right);
       if (type instanceof LiteralType && comparedType instanceof LiteralType && type.base === comparedType.base) {
@@ -3621,13 +3637,16 @@ export class TypeChecker {
           const receiver = call.callee;
           const receiverType = this.visitExpression(receiver, scope);
           const block = call.args[0] as ArrowFunctionExpression;
+          const blockReceiverType = call.optional === true
+            ? removeNullishFromType(receiverType)
+            : receiverType;
           this.receiverLambdas.set(block, new ReceiverLambdaInfo(
-            receiverType,
+            blockReceiverType,
             "apply",
             this.hasImplicitBraceLambdaParameter(block)
           ));
           const blockType = functionType(
-            [new FunctionTypeParameter("this", receiverType, true)],
+            [new FunctionTypeParameter("this", blockReceiverType, true)],
             builtinType("void")
           );
           this.visitExpression(block, scope, blockType);
@@ -3753,10 +3772,10 @@ export class TypeChecker {
               );
           if (this.validateTypes && !hasNamedArguments) {
             const contextualizedIndices: number[] = [];
-            for (let index = 0; index < call.args.length && index < firstPassCalleeType.parameters.length; index += 1) {
+            for (let index = 0; index < call.args.length; index += 1) {
               const contextualExpectedType = this.contextualExpectedTypeForCallArgument(
                 call.args[index]!,
-                firstPassCalleeType.parameters[index]?.type,
+                this.expectedTypeForCallArgument(firstPassCalleeType, index),
                 firstPassCalleeType.typeParameters ?? []
               );
               if (contextualExpectedType) {
@@ -6139,11 +6158,11 @@ export class TypeChecker {
   ): AnalysisType[] {
     let contextualArgumentTypes: AnalysisType[] | undefined;
 
-    for (let index = 0; index < call.args.length && index < calleeType.parameters.length; index += 1) {
+    for (let index = 0; index < call.args.length; index += 1) {
       const argument = call.args[index]!;
       const contextualExpectedType = this.contextualExpectedTypeForCallArgument(
         argument,
-        calleeType.parameters[index]?.type,
+        this.expectedTypeForCallArgument(calleeType, index),
         calleeType.typeParameters ?? []
       );
       if (!contextualExpectedType) {
@@ -6173,6 +6192,19 @@ export class TypeChecker {
     }
 
     return contextualArgumentTypes ?? argumentTypes;
+  }
+
+  private expectedTypeForCallArgument(calleeType: FunctionType, index: number): AnalysisType | undefined {
+    const restParameter = calleeType.parameters.at(-1)?.rest === true
+      ? calleeType.parameters.at(-1)
+      : undefined;
+    const fixedParameterCount = restParameter
+      ? calleeType.parameters.length - 1
+      : calleeType.parameters.length;
+    if (restParameter && index >= fixedParameterCount) {
+      return this.restParameterExpectedTypeAt(restParameter.type, index - fixedParameterCount);
+    }
+    return calleeType.parameters[index]?.type;
   }
 
   private receiverLabelForCall(call: CallExpression): string {
@@ -11685,6 +11717,12 @@ export class TypeChecker {
       } else {
         this.collectExtensionReceiverNamesForNamedType(objectType.name, receiverNames, new Set<string>());
         this.extensionReceiverNamesByNamedType.set(objectType.name, [...receiverNames]);
+      }
+    } else if (objectType instanceof UnionType) {
+      for (const member of objectType.types) {
+        if (!isNullishType(member)) {
+          for (const name of this.extensionReceiverNames(member)) addReceiverName(name);
+        }
       }
     } else if (objectType instanceof ArrayType || objectType instanceof TupleType) {
       addReceiverName("Array");

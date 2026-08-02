@@ -17,6 +17,7 @@ export const enum NodeKind {
     StringLiteral,
     CharacterLiteral,
     RegExpLiteral,
+    MatcherBindingPattern,
     CommaExpression,
     BinaryExpression,
     RangeExpression,
@@ -112,6 +113,7 @@ const NODE_KIND_NAMES = [
     "StringLiteral",
     "CharacterLiteral",
     "RegExpLiteral",
+    "MatcherBindingPattern",
     "CommaExpression",
     "BinaryExpression",
     "RangeExpression",
@@ -344,6 +346,13 @@ export class RegExpLiteral extends Expr {
 
     constructor(public pattern: string, public flags: string) {
         super(NodeKind.RegExpLiteral)
+    }
+}
+export class MatcherBindingPattern extends Expr {
+    declare kind: NodeKind.MatcherBindingPattern
+
+    constructor(public name: Identifier, public typeAnnotation?: Identifier) {
+        super(NodeKind.MatcherBindingPattern)
     }
 }
 export class CommaExpression extends Expr {

@@ -82,6 +82,16 @@ fun range(value: int): string {
     else -> "outside"
   }
 }
+fun typed(value: any): string {
+  return match (value) {
+    [string, val bound: number, 3] -> bound.toString()
+    ["tail", ..., val ending: string] -> ending
+    string -> "string"
+    number -> "number"
+    bigint -> "bigint"
+    else -> "other"
+  }
+}
 `, { emit: "cpp", sourceFilePath: "/tmp/is-patterns.vx" });
 
     expect(result.errors).toEqual([]);
@@ -95,6 +105,12 @@ fun range(value: int): string {
     expect(result.code).toContain("vexa::compare(__vexa_pattern");
     expect(result.code).toContain("__vexa_pattern.isString()");
     expect(result.code).toContain("vexa::regexTest(vexa::RegExp(u\"^ready-[0-9]+$\", u\"i\"), __vexa_pattern)");
+    expect(result.code).toContain("__vexa_pattern.isString()");
+    expect(result.code).toContain("__vexa_pattern.isNumber()");
+    expect(result.code).toContain("__vexa_pattern.isBigInt()");
+    expect(result.code).toContain("double bound");
+    expect(result.code).toContain("dynamicArraySize() - 1");
+    expect(result.code).toContain("std::u16string ending");
   });
 
   it("keeps concrete Set storage when an explicit semantic type lowers dynamically", () => {

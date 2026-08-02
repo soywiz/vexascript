@@ -14,6 +14,7 @@ expressions:3:true:true:safe:Ada:true
 operators:10:7:23:positive:comma:false:true:true
 calls:ok!:missing10px
 tail:2|4|6:2,3,4
+match:object:ready:tuple:7:regexp:range:string:counter
 control:7:6:ab:xy:xy:1:one:label:boom:finally
 jsx:section:card:span:fragment
 async:15:50

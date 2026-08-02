@@ -1,4 +1,4 @@
-import { ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingHole, BlockStatement, BooleanLiteral, CallExpression, ChainExpression, CharacterLiteral, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MemberExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, VarDeclarator, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
+import { ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingHole, BlockStatement, BooleanLiteral, CallExpression, ChainExpression, CharacterLiteral, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MatcherBindingPattern, MemberExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, VarDeclarator, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { BindingElement, BindingName, Node } from "compiler/ast/ast";
 
 
@@ -12,10 +12,13 @@ import {
   NamedType,
   ObjectType,
   TupleType,
+  UNKNOWN_TYPE,
   type AnalysisType,
   typeToString
 } from "compiler/analysis/types";
 import type { ReceiverLambdaInfo } from "compiler/analysis/model";
+import { primitiveMatcherKind } from "compiler/analysis/matcherPatterns";
+import { removeNullishFromType } from "compiler/analysis/typeOperations";
 
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 import {
@@ -599,10 +602,13 @@ function resolveExtensionMethodCall(call: CallExpression): string | null {
     return null;
   }
   const member = call.callee as MemberExpression;
-  if (member.computed || member.optional || !(member.property instanceof Identifier)) {
+  if (member.computed || !(member.property instanceof Identifier)) {
     return null;
   }
-  const receiverType = extensionReceiverTypeName(activeState.expressionTypes?.get(member.object));
+  const objectType = activeState.expressionTypes?.get(member.object) ?? UNKNOWN_TYPE;
+  const receiverType = extensionReceiverTypeName(
+    member.optional || member.nonNullAsserted ? removeNullishFromType(objectType) : objectType
+  );
   if (!receiverType) {
     return null;
   }
@@ -1148,15 +1154,31 @@ function emitChainOperation(operation: Expr, receiver: Expr, replacement: Identi
         const extensionMethodName = resolveExtensionMethodCall(call);
         if (extensionMethodName) {
           const callArguments = [
-            emitExpression(replacement as Expr, PREC_MEMBER, "left"),
             ...emitCallArgumentTexts(call.callee, call.args)
           ];
-          return `${extensionMethodName}(${callArguments.join(", ")})`;
+          return emitExtensionMethodCall(
+            extensionMethodName,
+            emitExpression(replacement as Expr, PREC_MEMBER, "left"),
+            callArguments,
+            member.optional === true
+          );
         }
       }
     }
   }
   return emitExpression(replaceChainReceiver(operation, receiver, replacement));
+}
+
+function emitExtensionMethodCall(
+  methodName: string,
+  receiverText: string,
+  argumentTexts: string[],
+  optional: boolean
+): string {
+  const callArguments = [receiverText, ...argumentTexts].join(", ");
+  if (!optional) return `${methodName}(${callArguments})`;
+  const deferredArguments = ["$$optional_extension_receiver", ...argumentTexts].join(", ");
+  return `(($$optional_extension_receiver) => $$optional_extension_receiver == null ? undefined : ${methodName}(${deferredArguments}))(${receiverText})`;
 }
 
 function emitChainExpression(chain: ChainExpression): string {
@@ -1332,6 +1354,8 @@ function isStructuralMatcherPattern(expression: Expr): boolean {
     expression instanceof ObjectLiteral ||
     expression instanceof ArrayLiteral ||
     expression instanceof RegExpLiteral ||
+    expression instanceof MatcherBindingPattern ||
+    (expression instanceof Identifier && primitiveMatcherKind(expression.name) !== null) ||
     expression.kind === NodeKind.IntLiteral ||
     expression.kind === NodeKind.CharacterLiteral ||
     expression.kind === NodeKind.FloatLiteral ||
@@ -1341,6 +1365,11 @@ function isStructuralMatcherPattern(expression: Expr): boolean {
     expression.kind === NodeKind.BooleanLiteral ||
     expression.kind === NodeKind.NullLiteral ||
     expression.kind === NodeKind.UndefinedLiteral;
+}
+
+function emitPrimitivePatternTest(typeName: string, subject: string): string | null {
+  const kind = primitiveMatcherKind(typeName);
+  return kind === null ? null : `typeof ${subject} === ${JSON.stringify(kind)}`;
 }
 
 function emittedPatternPropertyKey(property: ObjectProperty): string | null {
@@ -1354,6 +1383,11 @@ function emittedPatternPropertyKey(property: ObjectProperty): string | null {
 }
 
 function emitPatternTest(pattern: Expr, subject: string): string {
+  if (pattern instanceof MatcherBindingPattern) {
+    return pattern.typeAnnotation
+      ? emitPrimitivePatternTest(pattern.typeAnnotation.name, subject) ?? `${subject} instanceof ${emitExpression(pattern.typeAnnotation)}`
+      : "true";
+  }
   if (pattern instanceof BinaryExpression && pattern.matcherRelational === true) {
     return `${subject} ${pattern.operator} ${emitExpression(pattern.right)}`;
   }
@@ -1363,6 +1397,10 @@ function emitPatternTest(pattern: Expr, subject: string): string {
   }
   if (pattern instanceof RegExpLiteral) {
     return `typeof ${subject} === "string" && ${emitExpression(pattern)}.test(${subject})`;
+  }
+  if (pattern instanceof Identifier) {
+    const primitiveTest = emitPrimitivePatternTest(pattern.name, subject);
+    if (primitiveTest) return primitiveTest;
   }
   if (pattern instanceof ObjectLiteral) {
     const checks = [
@@ -1413,6 +1451,7 @@ function emitPatternTest(pattern: Expr, subject: string): string {
 }
 
 function emitCapturedPatternTest(pattern: Expr, value: string): string {
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value)) return emitPatternTest(pattern, value);
   return `(($_pattern) => ${emitPatternTest(pattern, "$_pattern")})(${value})`;
 }
 
@@ -1597,6 +1636,9 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           const receiver = call.callee;
           const receiverText = emitExpression(receiver, PREC_ASSIGNMENT, "right");
           const blockText = emitExpression(call.args[0]!, PREC_ASSIGNMENT, "right");
+          if (call.optional === true) {
+            return `(($$receiver_block) => $$receiver_block == null ? undefined : (($$receiver_block_value) => { (${blockText})($$receiver_block_value); return $$receiver_block_value; })($$receiver_block))(${receiverText})`;
+          }
           return `(($$receiver_block) => { (${blockText})($$receiver_block); return $$receiver_block; })(${receiverText})`;
         }
         const javaScriptImplementation = emitJavaScriptImplementationCall(call);
@@ -1607,8 +1649,12 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (extensionMethodName) {
           const member = call.callee as MemberExpression;
           const receiverText = emitExpression(member.object, PREC_MEMBER, "left");
-          const callArguments = [receiverText, ...emitCallArgumentTexts(call.callee, call.args)];
-          return `${extensionMethodName}(${callArguments.join(", ")})`;
+          return emitExtensionMethodCall(
+            extensionMethodName,
+            receiverText,
+            emitCallArgumentTexts(call.callee, call.args),
+            member.optional === true
+          );
         }
         if (
           !call.optional &&

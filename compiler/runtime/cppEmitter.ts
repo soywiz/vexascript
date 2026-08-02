@@ -1,4 +1,4 @@
-import { ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallableExpression, CallableMember, CallExpression, CharacterLiteral, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, LabeledStatement, LongLiteral, MemberExpression, NamedArgument, NewExpression, Node, NodeKind, nodeKindName, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarStatement, WhileStatement } from "compiler/ast/ast";
+import { ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallableExpression, CallableMember, CallExpression, CharacterLiteral, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, LabeledStatement, LongLiteral, MatcherBindingPattern, MemberExpression, NamedArgument, NewExpression, Node, NodeKind, nodeKindName, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarStatement, WhileStatement } from "compiler/ast/ast";
 
 
 import { bindingElementPropertyName, bindingIdentifiers } from "compiler/ast/bindingPatterns";
@@ -29,6 +29,7 @@ import { cppBindingMetadata, cppBodyForFunction } from "./cppAnnotations";
 import { foreignDenoType, foreignLibraryForClass, foreignReturnDefinition, foreignSymbolName } from "./foreignLibrary";
 import { foreignStructForClass, isForeignStructClass } from "./foreignStruct";
 import { operatorMethodRuntimeName } from "./operatorNames";
+import { primitiveMatcherKind } from "compiler/analysis/matcherPatterns";
 
 export class CppEmitError extends Error {
   constructor(message: string, readonly statement?: Node) {
@@ -4742,6 +4743,9 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       activeExpectedLambdaParameterCppTypes = previousParameters;
     }
     const receiverText = emitExpression(receiver);
+    if (call.optional === true) {
+      return `([&]() { auto __vexa_receiver_block = ${receiverText}; if (!__vexa_receiver_block) return decltype(__vexa_receiver_block){}; (${blockText})(__vexa_receiver_block); return __vexa_receiver_block; }())`;
+    }
     return `([&](auto __vexa_receiver_block) { (${blockText})(__vexa_receiver_block); return __vexa_receiver_block; })(${receiverText})`;
   }
   const calleeName = identifierName(call.callee);
@@ -5692,6 +5696,8 @@ function isStructuralMatcherPattern(expression: Expr): boolean {
     expression instanceof ObjectLiteral ||
     expression instanceof ArrayLiteral ||
     expression instanceof RegExpLiteral ||
+    expression instanceof MatcherBindingPattern ||
+    (expression instanceof Identifier && primitiveMatcherKind(expression.name) !== null) ||
     expression.kind === NodeKind.IntLiteral ||
     expression.kind === NodeKind.CharacterLiteral ||
     expression.kind === NodeKind.FloatLiteral ||
@@ -5701,6 +5707,15 @@ function isStructuralMatcherPattern(expression: Expr): boolean {
     expression.kind === NodeKind.BooleanLiteral ||
     expression.kind === NodeKind.NullLiteral ||
     expression.kind === NodeKind.UndefinedLiteral;
+}
+
+function emitCppPrimitivePatternTest(typeName: string, subject: string): string | null {
+  const kind = primitiveMatcherKind(typeName);
+  if (kind === "string") return `${subject}.isString()`;
+  if (kind === "number") return `${subject}.isNumber()`;
+  if (kind === "boolean") return `${subject}.isBoolean()`;
+  if (kind === "bigint") return `${subject}.isBigInt()`;
+  return null;
 }
 
 function cppPatternPropertyKey(property: ObjectProperty): string | null {
@@ -5735,6 +5750,11 @@ function emitCppNominalPatternTest(pattern: Identifier, subject: string): string
 }
 
 function emitCppPatternTest(pattern: Expr, subject: string): string {
+  if (pattern instanceof MatcherBindingPattern) {
+    if (!pattern.typeAnnotation) return "true";
+    return emitCppPrimitivePatternTest(pattern.typeAnnotation.name, subject) ??
+      emitCppNominalPatternTest(pattern.typeAnnotation, subject);
+  }
   if (pattern instanceof BinaryExpression && pattern.matcherRelational === true) {
     const relation = pattern.operator === "<" ? "< 0"
       : pattern.operator === ">" ? "> 0"
@@ -5789,7 +5809,7 @@ function emitCppPatternTest(pattern: Expr, subject: string): string {
     return checks.join(" && ");
   }
   if (pattern instanceof Identifier) {
-    return emitCppNominalPatternTest(pattern, subject);
+    return emitCppPrimitivePatternTest(pattern.name, subject) ?? emitCppNominalPatternTest(pattern, subject);
   }
   if (isStructuralMatcherPattern(pattern)) {
     return `vexa::strictEquals(${subject}, vexa::toValue(${emitExpression(pattern)}))`;

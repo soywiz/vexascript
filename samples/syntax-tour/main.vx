@@ -220,6 +220,18 @@ let commaValue: string = (assign = assign + 1, "comma")
 let view = <section class="card" data-score={objectLiteral[dynamicKey]} disabled><span>{sampleName}</span><br /></section>
 let fragment = <><span {...{ title: "fragment" }}>text</span></>
 
+fun classifyMatch(value: any): string {
+  return match (value) {
+    { kind: "ok", payload: [val first: string, ...] } -> "object:" + first
+    [string, val amount: number, ...] -> "tuple:" + amount
+    /^user-[0-9]+$/i -> "regexp"
+    >= 10 and < 20 -> "range"
+    string -> "string"
+    Counter -> "counter"
+    else -> "other"
+  }
+}
+
 console.log(`types:${sampleName}:${sampleKey}:${item}:${mutablePair.first}/${pair[1]}:${LocalTools.label("ns")}`)
 console.log(`imports:${toolLabel("x")}:${runtimeBoxValue}:${Direction.Up}:${CompassDirection.Right}:${Status.Done}`)
 console.log(`functions:${joinWords("syntax")}:${upper("tour")}:${lower("LOUD")}:${renamedValue}:${describe(4)}:${describe("x")}:${overloaded(3)}:${overloaded("y")}`)
@@ -235,6 +247,7 @@ console.log(`expressions:${arrayLiteral.length}:${arrayLiteral[1] === undefined}
 console.log(`operators:${assign}:${unary}:${binary}:${conditional}:${commaValue}:${"score" in objectLiteral}:${point instanceof Point}:${point is Point}`)
 console.log(`calls:${maybeCall((value) => value + "!")}:${maybeCall()}${10.px}`)
 console.log(`tail:${[1, 2, 3].map { it * 2 }.join("|")}:${withTailLambda([1, 2, 3]) { value -> value + 1 }}`)
+console.log(`match:${classifyMatch({ kind: "ok", payload: ["ready", 2, 3] })}:${classifyMatch(["count", 7, true])}:${classifyMatch("USER-42")}:${classifyMatch(15)}:${classifyMatch("plain")}:${classifyMatch(counter)}`)
 
 let rangeTotal = 0
 for (n of 0 ... 3) {
