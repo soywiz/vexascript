@@ -16,7 +16,10 @@ export function parseSource(source: string, options: ParserOptions = {}): ParseA
   try {
     // VexaScript always supports embedded XML; TypeScript opts in via `jsx`.
     const jsxEnabled = options.language !== "typescript" ? true : (options.jsx ?? false);
-    const tokens = tokenize(source, { jsx: jsxEnabled });
+    const tokens = tokenize(source, {
+      jsx: jsxEnabled,
+      ...(options.language ? { language: options.language } : {})
+    });
     const parser = new Parser(new ListReader(tokens), options);
     const ast = parser.parseFile();
     return { ast, parserIssues: parser.errors, tokenizeError: null, fatalError: null, language };

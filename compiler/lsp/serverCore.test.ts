@@ -410,11 +410,11 @@ describe("LSP server core", () => {
     assert.deepEqual(nodeResult.capabilities["codeLensProvider"], { resolveProvider: false });
     assert.deepEqual(nodeResult.capabilities["completionProvider"], {
       resolveProvider: false,
-      triggerCharacters: [".", "@", ":"]
+      triggerCharacters: [".", "@", ":", "$"]
     });
     assert.deepEqual(browserResult.capabilities["completionProvider"], {
       resolveProvider: false,
-      triggerCharacters: [".", "@", ":"]
+      triggerCharacters: [".", "@", ":", "$"]
     });
     const sharedCapabilities = Object.keys(nodeResult.capabilities).filter(
       (capability) => !["executeCommandProvider", "workspaceSymbolProvider"].includes(capability)

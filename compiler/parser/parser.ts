@@ -1,6 +1,6 @@
 import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, CatchClause, ChainExpression, ClassDelegate, ClassExpression, ClassFieldMember, ClassMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, ConditionalExpression, ContinueStatement, DebuggerStatement, DeferStatement, DoWhileStatement, EmptyStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionDeclarationKind, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportSpecifier, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MemberExpression, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, Node, NodeKind, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectLiteralProperty, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchCase, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarDeclarator, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import { ListReader } from "compiler/utils/ListReader";
-import { SourcePosition, SourceRange, Token, TokenType } from "./tokenizer";
+import { SourcePosition, SourceRange, Token, TokenType, type TokenizeLanguage } from "./tokenizer";
 import { hasLineBreakBetween, isClassMemberModifier, isEofToken, isLikelyStatementStart, typeTokenText } from "./tokenHelpers";
 
 
@@ -69,7 +69,7 @@ export function normalizeJsxText(raw: string): string {
     return pieces.join(" ");
 }
 
-export type ParseLanguage = "vexa" | "typescript";
+export type ParseLanguage = TokenizeLanguage;
 
 export interface ParserOptions {
     language?: ParseLanguage;

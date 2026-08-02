@@ -604,7 +604,11 @@ function syntheticRangeAt(position: SourcePosition): SourceRange {
   return sourceRange(position, position);
 }
 
-function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): TokenFragment[] {
+function readTemplateAsConcatenation(
+  reader: StrReader,
+  start: SourcePosition,
+  shorthandInterpolationEnabled: boolean
+): TokenFragment[] {
   const fragments: TokenFragment[] = [];
   const pushFragment = (fragment: TokenFragment): void => {
     fragments.push(fragment);
@@ -695,7 +699,13 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
       continue;
     }
 
-    if (code === CODE_DOLLAR && reader.hasMore && reader.peekCode() === 123) {
+    const isBracedInterpolation = code === CODE_DOLLAR && reader.hasMore && reader.peekCode() === CODE_LBRACE;
+    const isShorthandInterpolation =
+      shorthandInterpolationEnabled &&
+      code === CODE_DOLLAR &&
+      reader.hasMore &&
+      isIdentifierStartCode(reader.peekCode());
+    if (isBracedInterpolation || isShorthandInterpolation) {
       literalValue += reader.str.slice(segmentStart, reader.offset - 1);
       hadInterpolation = true;
       const interpolationStart = charStart;
@@ -704,6 +714,22 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
         pushLiteralString(literalValue, literalStart, interpolationStart);
       }
       literalValue = "";
+
+      if (isShorthandInterpolation) {
+        const identifierStart = snapshot(reader);
+        const identifier = readIdentifier(reader);
+        pushPlusIfNeeded(interpolationStart);
+        pushSymbol("(", interpolationStart);
+        pushFragment(new TokenFragment(
+          TokenType.IDENTIFIER,
+          identifier,
+          sourceRange(identifierStart, snapshot(reader))
+        ));
+        pushSymbol(")", snapshot(reader));
+        literalStart = snapshot(reader);
+        segmentStart = reader.offset;
+        continue;
+      }
 
       const interpolationOpen = snapshot(reader);
       advanceCode(reader);
@@ -775,7 +801,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
           type = TokenType.STRING;
           value = readEscapedString(reader, interpolationCode, tokenStart);
         } else if (interpolationCode === CODE_BACKTICK) {
-          const nestedFragments = readTemplateAsConcatenation(reader, tokenStart);
+          const nestedFragments = readTemplateAsConcatenation(reader, tokenStart, shorthandInterpolationEnabled);
           for (const fragment of nestedFragments) {
             pushFragment(new TokenFragment(
               fragment.type,
@@ -1008,7 +1034,14 @@ export interface TokenizeOptions {
    * mode enables it through the `jsx` parser option.
    */
   jsx?: boolean;
+  /**
+   * VexaScript accepts `$name` as shorthand for `${name}` in template literals.
+   * TypeScript mode keeps the standard braced interpolation syntax only.
+   */
+  language?: TokenizeLanguage;
 }
+
+export type TokenizeLanguage = "vexa" | "typescript";
 
 function readNonTemplateCodeFragment(
   reader: StrReader,
@@ -1045,6 +1078,7 @@ function readNonTemplateCodeFragment(
 
 export function tokenize(input: string, options: TokenizeOptions = {}): Token[] {
   const jsxEnabled = options.jsx ?? false;
+  const shorthandInterpolationEnabled = options.language !== "typescript";
   const reader = new StrReader(input);
   const tokens: Token[] = [];
   let pendingComments: TokenComment[] = [];
@@ -1151,7 +1185,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         }
       }
       if (code === CODE_BACKTICK) {
-        for (const fragment of readTemplateAsConcatenation(reader, snapshot(reader))) {
+        for (const fragment of readTemplateAsConcatenation(reader, snapshot(reader), shorthandInterpolationEnabled)) {
           pushFragment(fragment);
         }
         continue;
@@ -1324,7 +1358,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       }
     }
     if (code === CODE_BACKTICK) {
-      for (const fragment of readTemplateAsConcatenation(reader, snapshot(reader))) {
+      for (const fragment of readTemplateAsConcatenation(reader, snapshot(reader), shorthandInterpolationEnabled)) {
         pushFragment(fragment);
       }
       continue;

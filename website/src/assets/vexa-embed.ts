@@ -766,7 +766,7 @@ function toMonacoPos(position: { line: number; character: number }): monaco.IPos
 
 function registerCompletionProvider(): void {
   monaco.languages.registerCompletionItemProvider("vexa", {
-    triggerCharacters: [".", ":"],
+    triggerCharacters: [".", ":", "$"],
     async provideCompletionItems(model, position) {
       const word = model.getWordUntilPosition(position);
       const fallbackRange = new monaco.Range(
@@ -2081,6 +2081,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   target.classList.add("vexa-embed-workbench");
   target.textContent = "";
   setContainerHeight(target, options.height ?? "720px");
+  const collapsedHeight = target.style.height;
 
   const shell = document.createElement("div");
   shell.className = "vexa-embed-workbench-shell";
@@ -2445,6 +2446,10 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   };
 
   const isExpanded = (): boolean => target.classList.contains("is-expanded");
+
+  const syncExpandedHeight = (): void => {
+    target.style.height = isExpanded() ? "100vh" : collapsedHeight;
+  };
 
   const applySidebarState = (): void => {
     body.classList.toggle("is-compact", sidebarState.compact);
@@ -2960,6 +2965,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   expandButton.addEventListener("click", () => {
     target.classList.toggle("is-expanded");
     document.body.classList.toggle("vexa-workbench-expanded", isExpanded());
+    syncExpandedHeight();
     syncExpandButton();
     stabilizeEditorLayout(editor);
   });
@@ -3172,6 +3178,8 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
         dispose();
       }
       document.body.classList.remove("vexa-workbench-expanded");
+      target.classList.remove("is-expanded");
+      syncExpandedHeight();
       window.removeEventListener("popstate", handleBrowserPopState);
       window.removeEventListener("resize", handleViewportToggle);
       compactSidebarMedia.removeEventListener("change", handleViewportToggle);

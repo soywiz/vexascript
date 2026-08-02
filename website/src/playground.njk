@@ -12,7 +12,14 @@ permalink: /playground.html
 <style>
   #playground-workbench {
     width: 100vw;
-    height: 100px;
+    height: calc(100dvh - 5.5rem);
+    min-height: 0;
+  }
+
+  @media (max-width: 800px) {
+    #playground-workbench {
+      height: auto;
+    }
   }
 </style>
 
@@ -46,7 +53,7 @@ permalink: /playground.html
       const BACKTICK = '`'
       embeds.createWorkbenchEditor("#playground-workbench", {
         activePath: "/src/main.vx",
-        height: mobileViewport ? "auto" : "100vh",
+        height: mobileViewport ? "auto" : "calc(100dvh - 5.5rem)",
         inlayHints: true,
         storageKey: "vexa.playground.workbench.v7",
         sessionStorageKey: "vexa.playground.workbench.session.v7",

@@ -2,6 +2,19 @@
 
 This document tracks the language syntax currently supported by VexaScript.
 
+## String templates
+
+Backtick-delimited strings support standard braced interpolation for arbitrary expressions and VexaScript shorthand interpolation for a single identifier:
+
+```vexa
+val x = 10
+val y = 20
+val point = `$x, $y`
+val total = `${x + y}`
+```
+
+In VexaScript, `$x` is equivalent to `${x}`. Use braces for member access, calls, operators, and other compound expressions. Escape the dollar sign as `\$` when it should remain literal. TypeScript mode deliberately keeps the TypeScript rule and requires `${x}`; `$x` remains literal text in `.ts` and `.tsx` files.
+
 ## Variables
 
 ### Declaration keywords

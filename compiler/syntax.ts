@@ -322,6 +322,7 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
             endCaptures: { "0": { name: "punctuation.definition.string.end.vexa" } },
             patterns: [
               { name: "constant.character.escape.vexa", match: "\\\\(?:[nrt'\"\\\\`$]|u[0-9A-Fa-f]{4})" },
+              { include: "#template-shorthand-interpolation" },
               { include: "#template-interpolation" }
             ],
           },
@@ -334,6 +335,14 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
         end: "\\}",
         endCaptures: { "0": { name: "punctuation.section.embedded.end.vexa" } },
         patterns: [{ include: "$self" }],
+      },
+      "template-shorthand-interpolation": {
+        name: "meta.template.expression.vexa",
+        match: "(\\$)([_$A-Za-z][_$A-Za-z0-9]*)",
+        captures: {
+          "1": { name: "punctuation.section.embedded.begin.vexa" },
+          "2": { name: "variable.other.readwrite.vexa" }
+        },
       },
       annotations: {
         patterns: [

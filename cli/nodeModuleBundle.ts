@@ -652,7 +652,7 @@ function collectStaticCallOccurrences(
   calleeName: "require" | "import"
 ): StaticDynamicImportOccurrence[] {
   try {
-    const tokens = tokenize(source);
+    const tokens = tokenize(source, { language: "typescript" });
     const occurrences: StaticDynamicImportOccurrence[] = [];
     for (let index = 0; index <= tokens.length - 4; index += 1) {
       const importToken = tokens[index];
@@ -908,7 +908,7 @@ function transformNamedExport(
 }
 
 function transformJavaScriptModuleSource(source: string): TranspiledModuleSource {
-  const tokens = tokenize(source);
+  const tokens = tokenize(source, { language: "typescript" });
   const replacements: SourceReplacement[] = [];
   const trailingExports: ModuleSpecifierBinding[] = [];
   const exportNames = new Set<string>();

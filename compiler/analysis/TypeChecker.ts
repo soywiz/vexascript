@@ -14246,8 +14246,13 @@ export class TypeChecker {
   private awaitedUtilityType(sourceType: AnalysisType): AnalysisType {
     if (sourceType instanceof UnionType) {
       const awaitedTypes: AnalysisType[] = [];
-      for (const member of (sourceType as UnionType).types) awaitedTypes.push(this.awaitedUtilityType(member));
-      return combineTypes(awaitedTypes);
+      let changed = false;
+      for (const member of sourceType.types) {
+        const awaitedType = this.awaitedUtilityType(member);
+        awaitedTypes.push(awaitedType);
+        changed ||= !isSameType(awaitedType, member);
+      }
+      return changed ? combineTypes(awaitedTypes) : sourceType;
     }
     if (sourceType instanceof BuiltinType && (sourceType.name === "any" || sourceType.name === "unknown" || sourceType.name === "null" || sourceType.name === "undefined")) {
       return sourceType;

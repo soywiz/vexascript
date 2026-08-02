@@ -810,6 +810,34 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("this");
   });
 
+  it("offers constructor properties inside shorthand template interpolation", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class TimeSpan(val ms: number) {
+        toString() => \`$m^^^\`
+      }
+      `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels[0]).toBe("ms");
+    expect(labels).toContain("this");
+  });
+
+  it("offers constructor properties after the shorthand interpolation marker", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class TimeSpan(val ms: number) {
+        toString() => \`$^^^\`
+      }
+      `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels[0]).toBe("ms");
+    expect(labels).toContain("this");
+  });
+
   it("offers constructor properties inside empty template interpolation", async () => {
     const source = dedent`
       class TimeSpan(val ms: number) {

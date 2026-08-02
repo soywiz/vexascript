@@ -183,6 +183,9 @@
               "match": "\\\\(?:[nrt'\"\\\\`$]|u[0-9A-Fa-f]{4})"
             },
             {
+              "include": "#template-shorthand-interpolation"
+            },
+            {
               "include": "#template-interpolation"
             }
           ]
@@ -208,6 +211,18 @@
           "include": "$self"
         }
       ]
+    },
+    "template-shorthand-interpolation": {
+      "name": "meta.template.expression.vexa",
+      "match": "(\\$)([_$A-Za-z][_$A-Za-z0-9]*)",
+      "captures": {
+        "1": {
+          "name": "punctuation.section.embedded.begin.vexa"
+        },
+        "2": {
+          "name": "variable.other.readwrite.vexa"
+        }
+      }
     },
     "annotations": {
       "patterns": [

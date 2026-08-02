@@ -326,6 +326,32 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes VexaScript shorthand template interpolation as concatenation", () => {
+        expect(simplifyTokens("`hello $name, from $place`" )).toStrictEqual([
+            { type: "string", value: "hello " },
+            { type: "symbol", value: "+" },
+            { type: "symbol", value: "(" },
+            { type: "identifier", value: "name" },
+            { type: "symbol", value: ")" },
+            { type: "symbol", value: "+" },
+            { type: "string", value: ", from " },
+            { type: "symbol", value: "+" },
+            { type: "symbol", value: "(" },
+            { type: "identifier", value: "place" },
+            { type: "symbol", value: ")" },
+            { type: "symbol", value: "+" },
+            { type: "string", value: "" }
+        ])
+    })
+
+    it("keeps shorthand interpolation literal in TypeScript mode", () => {
+        const tokens = tokenize("`hello $name`", { language: "typescript" })
+            .filter((token) => token.type !== TokenType.END_OF_FILE)
+            .map(({ type, value }) => ({ type: tokenTypeName(type), value }));
+
+        expect(tokens).toStrictEqual([{ type: "string", value: "hello $name" }]);
+    })
+
     it("tokenizes nested template literals inside interpolations", () => {
         expect(simplifyTokens("`outer ${`inner ${value}`}`")).toStrictEqual([
             { type: "string", value: "outer " },

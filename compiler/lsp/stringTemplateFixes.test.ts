@@ -35,6 +35,66 @@ function applyEdit(
 }
 
 describe("string template quick fixes", () => {
+  it("removes braces from a simple template interpolation", () => {
+    const source = "val message = `Hello, ${name}!`\n";
+    const session = createAnalysisSession(source);
+    const actions = createStringTemplateCodeActions({
+      uri: URI,
+      ast: session.ast,
+      text: source,
+      position: { line: 0, character: 24 }
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Remove braces from template interpolation");
+    const edit = actions[0]?.edit?.changes?.[URI]?.[0];
+    expect(edit?.newText).toBe("$name");
+    expect(edit ? applyEdit(source, edit) : source).toBe("val message = `Hello, $name!`\n");
+  });
+
+  it("adds braces to a shorthand template interpolation", () => {
+    const source = "val message = `Hello, $name!`\n";
+    const session = createAnalysisSession(source);
+    const actions = createStringTemplateCodeActions({
+      uri: URI,
+      ast: session.ast,
+      text: source,
+      position: { line: 0, character: 23 }
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Add braces to template interpolation");
+    const edit = actions[0]?.edit?.changes?.[URI]?.[0];
+    expect(edit?.newText).toBe("${name}");
+    expect(edit ? applyEdit(source, edit) : source).toBe("val message = `Hello, ${name}!`\n");
+  });
+
+  it("does not offer a brace toggle for compound template expressions", () => {
+    const source = "val message = `Hello, ${user.name}!`\n";
+    const session = createAnalysisSession(source);
+    const actions = createStringTemplateCodeActions({
+      uri: URI,
+      ast: session.ast,
+      text: source,
+      position: { line: 0, character: 27 }
+    });
+
+    expect(actions).toEqual([]);
+  });
+
+  it("does not offer brace removal in TypeScript files", () => {
+    const source = "const message = `Hello, ${name}!`\n";
+    const session = createAnalysisSession(source);
+    const actions = createStringTemplateCodeActions({
+      uri: "file:///demo.ts",
+      ast: session.ast,
+      text: source,
+      position: { line: 0, character: 26 }
+    });
+
+    expect(actions).toEqual([]);
+  });
+
   it("converts string concatenation chains into template literals", () => {
     const source = dedent`
       class Rectangle {

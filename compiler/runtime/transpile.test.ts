@@ -1,6 +1,7 @@
 import { describe, expect, it } from "../test/expect";
 import { transpile } from "./transpile";
 import { compileSource } from "compiler/pipeline/compile";
+import { ensureDomProgram } from "./domDeclarations";
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -297,6 +298,25 @@ console.log(...kept)
     expect(result.code).toContain("let msg = \"hello \" + name + \"\";");
   });
 
+  it("supports VexaScript shorthand template interpolation", () => {
+    const source = "let x = 10\nlet y = 20\nlet msg = `$x, $y`";
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('let msg = "" + x + ", " + y + "";');
+  });
+
+  it("requires braces for template interpolation in TypeScript files", () => {
+    const source = "const name = 'world'\nconst shorthand = `hello $name`\nconst standard = `hello ${name}`";
+
+    const result = transpile(source, { sourceFilePath: "input.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('const shorthand = "hello $name";');
+    expect(result.code).toContain('const standard = "hello " + name + "";');
+  });
+
   it("preserves class-call instantiation when preserving source line offsets", () => {
     const source = "class Point(val x: int)\n\nlet point = Point(1)";
 
@@ -574,6 +594,18 @@ console.log(...kept)
     // `await` is inserted here.
     expect(result.code).toContain("let x = fetchValue();");
     expect(result.code).not.toContain("await fetchValue()");
+  });
+
+  it("does not detach overloaded native-style methods while checking sync auto-await", async () => {
+    const source = `sync fun example() {
+  val app = document.querySelector("#app")!
+}`;
+
+    const result = transpile(source, { ambientDeclarations: (await ensureDomProgram()).body });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('const app = document.querySelector("#app");');
+    expect(result.code).not.toContain("await document.querySelector");
   });
 
   it("does not auto-await bare local variable or parameter references", () => {
