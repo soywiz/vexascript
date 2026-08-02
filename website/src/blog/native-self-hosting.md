@@ -1,76 +1,81 @@
 ---
 layout: blog-post.njk
-title: The native compiler completes its first self-host
+title: How the VexaScript compiler self-hosts in native C++
 date: 2026-07-19
 category: Compiler milestone
-summary: The first complete compiler-to-C++-to-compiler roundtrip, including the UTF-16 performance trap and the type boundaries that failed across generations.
+summary: A generated native compiler can compile the VexaScript compiler again, exposing performance, type, and asynchronous I/O problems that small samples missed.
 tags: blog
 permalink: /blog/native-self-hosting.html
 ---
 
-Commit `58703ec2` completed the first native CLI self-host roundtrip on July 19, 2026. A compiler built from generated C++ ran the ordinary `cli/cli.ts` entrypoint and emitted the next complete compiler translation unit. The initial run was slow, but it established a much stronger condition than compiling a native language sample.
+Commit `58703ec2` completed the first native self-hosting run on July 19,
+2026. A VexaScript compiler generated as C++ loaded the real `cli/cli.ts`
+project and generated the next C++ compiler.
 
-## **What the roundtrip executed**
+## **What the test runs**
 
-The native executable did not call back into Node.js for compilation. It loaded the TypeScript project, ran the VexaScript compiler pipeline, assembled the native module graph, and emitted C++ for the compiler again.
+The native executable does not call Node.js to compile the project. It loads
+the TypeScript files, runs the compiler, builds the module graph, and writes a
+new C++ translation unit.
 
-| First-roundtrip measurement | Value |
+| First run | Value |
 | --- | ---: |
-| Date | 2026-07-19 |
 | Commit | `58703ec2` |
-| Unoptimized native generation time | 171 seconds |
-| Generated translation unit | approximately 6.6 MB |
-| Initial change size | 29 files, 1,401 insertions, 596 deletions |
-| Entrypoint | ordinary `cli/cli.ts` |
-| Output | next compiler C++ translation unit |
+| Generation time without optimization | 171 seconds |
+| Generated C++ file | about 6.6 MB |
+| Change size | 29 files, 1,401 additions, 596 deletions |
+| Entrypoint | `cli/cli.ts` |
 
-The native language smoke remained in the suite, but it could not substitute for this check. The compiler graph contains large recursive type operations, declaration loading, async filesystem boundaries, dynamic collections, and long emission paths that application-sized fixtures do not combine.
+This test covers much more code than a native sample. It combines recursive
+types, declarations, modules, asynchronous files, collections, and a large
+amount of generated output.
 
-## **The “hang” was an accidental quadratic conversion**
+## **Why the first run appeared to hang**
 
-The first serious profile looked like a compiler hang during tokenization. Sampling showed that `charCodeAt(Text)` had selected an old `std::string` overload through an implicit conversion. Each character lookup converted the complete UTF-16 source to UTF-8 and then back to UTF-16.
+The tokenizer calls `charCodeAt` for each character. C++ selected an old
+`std::string` overload, which converted the full UTF-16 source to UTF-8 and
+back for every character.
 
-| Operation | Intended cost | Accidental cost |
-| --- | ---: | ---: |
-| One `charCodeAt` | O(1) | O(source length) conversion |
-| Tokenizing N characters | O(N) | Approximately O(N²) |
-| Complete compiler input | Seconds expected | Appeared stalled |
+One character lookup should take constant time. Instead, each lookup processed
+the whole file, so tokenizing a file of N characters took about N squared work.
+A direct UTF-16 overload fixed the problem.
 
-Adding a direct UTF-16 `Text` overload restored constant-time indexing. The broader lesson was that replacing a runtime string type is not complete until primitive helpers, overload sets, collection traits, and dynamic views all move together. Leaving the old `std::string` overload available allowed C++ overload resolution to choose a legal but disastrous path.
+This bug shows why a runtime type change must update all related helper
+functions. Leaving one old overload can produce valid but very slow C++.
 
-## **Async native I/O required a heap boundary**
+## **Asynchronous TypeScript checks**
 
-The CLI validates TypeScript with an external `tsc --noEmit` process. A blocking `waitpid` on the runtime thread would violate the compiler's asynchronous I/O contract and stop timers or promises. The native adapter therefore starts captured child-process work on a background future and resumes the main event loop with copied results.
+The CLI uses `tsc --noEmit` to validate TypeScript projects. Waiting for that
+process on the main runtime thread would block timers and Promises. The native
+adapter runs the process on a worker and posts the result back to the event
+loop.
 
-The worker cannot retain Oilpan pointers. Command arguments and plain option data are copied before the task starts, and the eventual stdout/stderr/exit data is transferred back as ordinary owned values. This same rule later became the basis for asynchronous FFI calls: blocking native work may leave the runtime thread, managed heap pointers may not.
+The worker receives copied command data. It does not keep raw pointers to
+Oilpan-managed objects. The same rule is used for blocking FFI calls.
 
-## **Why later generations failed after the first one passed**
+## **Errors found in later compiler generations**
 
-Generated compiler code must preserve its own static contracts. Several TypeScript callbacks were semantically known to return `AnalysisType`, but the native emitter inferred them dynamically or as `void`. The first compiler could build; the compiler it emitted then constructed malformed type arrays containing missing values.
+The first generated compiler could run even when it emitted incorrect types
+for the next compiler.
 
-| Boundary | Failure in a later generation | Correction |
-| --- | --- | --- |
-| `map`/`filter` callbacks | Concise callback return became `void` | Preserve explicit callback result types |
-| Union construction | `undefined` entered `AnalysisType[]` | Normalize invalid members to `UNKNOWN_TYPE` at `unionType` |
-| Generic substitution | Recursive type arguments lost their static type | Add explicit `AnalysisType` contracts to recursive maps |
-| Computed member arguments | `Expr[] -> AnalysisType[]` reused the input element type | Annotate the cross-domain mapping explicitly |
-| Type comparison cache | Missing values became illegal `WeakMap` keys | Reject absent operands before cycle-cache access |
-| Optional collection call | Receiver optionality disappeared in emitted C++ | Route all native collection calls through the shared optional-receiver path |
+| Problem | Fix |
+| --- | --- |
+| `map` callbacks were emitted as returning `void` | Keep the declared callback result type |
+| Missing values entered `AnalysisType[]` | Normalize them at `unionType` |
+| Recursive generic maps lost their element type | Add explicit `AnalysisType` annotations |
+| Missing values became invalid `WeakMap` keys | Reject missing operands before cache access |
+| Optional collection receivers lost optional behavior | Use the shared optional-call code |
 
-Adding null guards only where a crash surfaced was rejected as the main strategy. A missing value produced by an upstream callback can crash many consumers. Fixing the producer and hardening invariant boundaries such as `unionType` keeps malformed types from escaping into the rest of analysis.
+Adding a null check at each crash site was not enough. The compiler now fixes
+the producer of the bad value and also checks important type-system entry
+points.
 
-## **TypeScript validation stayed external but asynchronous**
+## **What self-hosting proves**
 
-VexaScript does not pretend that its own type checker implements every TypeScript type-system feature. For `.ts` and `.tsx` projects, `tsc --noEmit` remains the semantic authority. Once that passes, VexaScript reuses its parsed artifacts for binding, lowering, and C++ emission without reporting known compatibility false positives. `.vx` sources still use the VexaScript checker.
+For `.ts` and `.tsx` files, TypeScript remains responsible for the full
+semantic check. VexaScript then reuses its parsed and analyzed data to generate
+C++. `.vx` files use the VexaScript checker.
 
-| Source mode | Semantic authority | VexaScript work after validation |
-| --- | --- | --- |
-| `.vx` | VexaScript type checker | Diagnostics, lowering, JS/C++ emission |
-| `.ts` / `.tsx` | TypeScript `tsc --noEmit` | Parsing, binding, inference metadata, lowering, JS/C++ emission |
-| `--transpile-only` | Explicitly skipped | Parsing, analysis required for emission, no semantic gate |
-
-## **What “complete” meant after stabilization**
-
-The July 19 sequence did not stop at the first 171-second output. Later commits on the same day validated TypeScript from the native CLI, stabilized UTF-16 record keys and async roots, and made repeated native compiler output byte-stable across hosts.
-
-The milestone is useful because it forces representation errors to compound. A wrong callback type, lost optional receiver, or unsafe worker pointer may survive one application run; it is much more likely to fail when the program being compiled is the compiler that must reproduce those same semantics in its child generation.
+Later commits made repeated native compiler output byte-for-byte stable. The
+test is useful because a wrong type or unsafe pointer may survive in a normal
+program but fail when the generated program must compile itself again.

@@ -1,84 +1,85 @@
 ---
 layout: blog-post.njk
-title: VexaScript gains a native C++ backend
+title: How VexaScript compiles to native C++
 date: 2026-07-16
 category: Native compilation
-summary: How the C++ backend reuses the TypeScript/VexaScript front end, maps managed language semantics onto C++20, and keeps toolchain work outside browser-compatible compiler code.
+summary: The C++ backend reuses the VexaScript parser and type checker, then generates native code with explicit rules for values, objects, arrays, and memory.
 tags: blog
 permalink: /blog/native-cpp-backend.html
 ---
 
-The first native backend landed in commit `a380895e` on July 16, 2026. The useful engineering question was not whether VexaScript could print a small `.cpp` file; it was where a second backend should attach so that parsing, analysis, diagnostics, lowering, and editor behavior did not split into JavaScript and C++ implementations.
+VexaScript added its first C++ backend in commit `a380895e` on July 16,
+2026. The goal was to generate native programs without creating a second
+parser or type checker.
 
-## **One front end, two terminal emitters**
+## **Shared compiler stages**
 
-The C++ backend consumes the same analyzed program used by JavaScript emission. Node-only work begins only after the browser-compatible compiler has produced a translation unit.
+JavaScript and C++ use the same parser, syntax tree, type analysis, diagnostics,
+and common compiler transformations. They differ only when the compiler starts
+generating target code.
 
-| Layer | Shared by JavaScript and C++ | Native-only responsibility |
+| Compiler stage | Shared work | C++-specific work |
 | --- | --- | --- |
-| Parsing | AST and source-language mode | None |
-| Semantic analysis | Binding, inferred types, diagnostics, operator resolution | Native representation selection consumes the results |
-| Lowering | Range loops and language constructs with backend-neutral semantics | C++ renders the lowered form |
-| Module graph | Source discovery, imports, project declarations | Reachable native headers/flags and translation-unit assembly |
-| Emission | Backend selection at the final stage | `cppEmitter.ts` generates C++20 |
-| Toolchain | None inside shared compiler modules | CLI extracts dependencies, runs CMake/`g++`, and links |
+| Parsing | Build the syntax tree | None |
+| Type analysis | Resolve names, types, operators, and errors | Choose a native storage type from the result |
+| Modules | Find source files and imports | Collect native headers and linker flags |
+| Code generation | Select a backend | Generate C++20 |
+| Build | None | Run CMake, the C++ compiler, and the linker |
 
-This boundary follows a practical browser constraint: compiler modules are used by Monaco and cannot depend on `node:fs`, child processes, or host toolchains. Oilpan extraction, native cache directories, compiler invocation, and linker flags therefore live in `cli/nativeBuild.ts`, while `compiler/runtime/cppEmitter.ts` remains usable in the browser build.
+This split also keeps the compiler available in the browser. Shared compiler
+files cannot use Node.js filesystem or process APIs because Monaco uses the
+same code. Native build commands live in the CLI instead.
 
-## **The initial language-to-C++ mapping**
+## **Native value types**
 
-JavaScript semantics cannot be reproduced by replacing every type with the closest C++ value type. Identity, garbage-collected cycles, dynamic values, and async continuations all affect the representation.
+The C++ backend cannot map every VexaScript value to a plain C++ value.
+JavaScript-style object identity, garbage collection, dynamic values, and
+Promises need runtime support.
 
-| VexaScript concept | Native representation | Reason |
-| --- | --- | --- |
-| `int` | `std::int32_t` | Preserve 32-bit integer behavior |
-| `long` | `std::int64_t` | Preserve fixed-width signed integer behavior |
-| `number` | `double` | Match JavaScript numeric operations where statically numeric |
-| `bigint` | Runtime `BigInt` | Avoid truncating arbitrary precision to `long long` |
-| Class instance | Oilpan-allocated generated class pointer | Preserve identity and traced object relationships |
-| Class field referencing an object | `cppgc::Member<T>` | Make the edge visible to the collector |
-| Temporary object surviving suspension | `cppgc::Persistent<T>` | Root the value outside an ordinary traced owner |
-| Array | Managed `ArrayObject<T>*` | Preserve reference semantics and trace object elements |
-| Unknown/dynamic value | Runtime `Value` | Retain JavaScript-like tagged behavior only where analysis cannot specialize |
-| `Promise<T>` | Native task/event-loop machinery | Suspend without blocking the main runtime loop |
+| VexaScript value | C++ representation |
+| --- | --- |
+| `int` | `std::int32_t` |
+| `long` | `std::int64_t` |
+| `number` | `double` |
+| `bigint` | Runtime `BigInt` |
+| Class instance | Oilpan-managed class pointer |
+| Field that points to an object | `cppgc::Member<T>` |
+| Array | Managed `ArrayObject<T>*` |
+| Unknown value | Tagged runtime `Value` |
+| `Promise<T>` | Native task and event-loop state |
 
-The array decision is illustrative. An early `std::vector<T>` mapping looked efficient, but assignment and parameter passing copied storage, unlike JavaScript arrays. It also could not safely represent cycles between generated objects and arrays of generated objects. `ArrayObject<T>` instead owns one traced backing object; typed primitives remain unboxed, while object elements become collector-visible edges.
+The first array implementation used `std::vector<T>`. It was removed because
+assignment copied the array, unlike JavaScript. It also could not safely track
+cycles between arrays and managed objects. `ArrayObject<T>` keeps one shared
+array object and traces object elements for the garbage collector.
 
-## **Why Oilpan was selected instead of pervasive smart pointers**
+## **Why the backend uses Oilpan**
 
-Generated language programs can contain cycles naturally: an object owns an array, the array contains the object, and a closure captures both. `shared_ptr` would either leak those cycles or require weak-edge analysis throughout emission. Manual ownership would push lifetime logic into every generated call and suspension point.
+VexaScript programs can create cycles. For example, an object can contain an
+array that points back to the same object. Reference counting with
+`std::shared_ptr` cannot collect that cycle unless the compiler also decides
+which references must be weak.
 
-Oilpan's standalone `cppgc` model lets generated classes declare their traceable fields and lets the runtime own allocation through `Runtime::make<T>`. The cost is discipline: every managed edge must be a `Member`, values crossing suspension need roots, and collector safe points must be placed where the runtime can tolerate collection. A separate article covers how Oilpan and mimalloc divide the native memory workload.
+Oilpan traces the object graph instead. Generated classes report their managed
+fields, and the collector removes objects that can no longer be reached.
 
-## **Compiler/runtime contracts discovered immediately**
+This requires clear rules. Managed fields must use traced references. Values
+that survive an asynchronous pause must stay rooted. Raw data such as bytes
+does not need tracing. Focused tests cover each of these cases.
 
-| Problem discovered by the first samples | Incorrect shortcut | Durable contract |
-| --- | --- | --- |
-| Range iterator type | Always declare the loop variable as `double` | Read the analyzed `int`/`long`/`number` type from the shared analysis map |
-| Class construction | Emit an ordinary C++ constructor call | Allocate via the active runtime so the object enters the managed heap |
-| Method call allocation | Assume a global allocator is always visible | Pass a hidden `Runtime&` through generated callables |
-| Array assignment | Use C++ vector value semantics | Use one managed backing object with reference identity |
-| Object elements in arrays | Store raw pointers in an untraced container | Select traced or primitive slots from the analyzed element type |
-| Promise completion | Keep worker-visible managed pointers | Copy plain data across worker boundaries and resume on the runtime loop |
-
-These contracts were encoded in focused emitter tests and in runnable native samples. The broad sample is valuable only because smaller regressions protect the individual mapping decisions.
-
-## **Public commands and artifact ownership**
+## **CLI commands and generated files**
 
 ```text
 vexa cpp program.vx -o program.cpp
 vexa cpp link program.vx -o program
+vexa cpp run program.vx
 ```
 
-`cpp` and `cpp build` generate the translation unit. `cpp link` keeps the generated `main.cpp` under a source-specific build directory, builds cached native dependencies under the OS temporary directory, and links the requested output. `cpp run` performs the same cached workflow and executes the result. The source tree should not accumulate CMake caches or dependency objects.
+`cpp` generates a C++ file. `cpp link` also compiles and links it. `cpp run`
+builds the program and starts it. Generated build files and cached dependencies
+stay outside the source tree.
 
-| Initial milestone fact | Value |
-| --- | --- |
-| Commit | `a380895e` — `Initial c++ -> native example` |
-| Date | 2026-07-16 11:36 +02:00 |
-| Change size | 20 files, 1,150 insertions, 14 deletions |
-| C++ standard | C++20 |
-| Managed runtime | Standalone Oilpan / `cppgc` |
-| First public surfaces | `cpp`, `cpp link`, native runtime docs and samples |
-
-The backend became maintainable because it did not create a second interpretation of VexaScript. A parser fix, a type-resolution fix, or a lowering fix remains shared; the C++ emitter is responsible for representation and execution, not for rediscovering the language.
+The first backend change touched 20 files and added 1,150 lines. It used C++20
+and standalone Oilpan. Native support was still a subset of the language, but
+it proved that VexaScript could add another backend while keeping parsing and
+type analysis shared.

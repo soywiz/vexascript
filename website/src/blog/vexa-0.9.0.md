@@ -1,18 +1,45 @@
 ---
 layout: blog-post.njk
-title: VexaScript 0.9.0 is the first public release
+title: "What's included in VexaScript 0.9.0"
 date: 2026-06-13
 category: Release announcement
 version: 0.9.0
-summary: The first public VexaScript release, bringing the language, tooling, website, and editor integrations together in a single preview milestone.
+summary: VexaScript 0.9.0 is the first public release, with the language, CLI, browser playground, Monaco embeds, and editor tools.
 tags: blog
 permalink: /blog/vexa-0.9.0.html
 ---
 
-Today we are announcing the first public release of VexaScript: version 0.9.0. This milestone opens the project to a wider audience with a cohesive language experience, browser playground, embeddable Monaco editors, CLI workflows, and editor tooling ready to explore.
+VexaScript 0.9.0 was released on June 13, 2026. It is the first public version
+of the language and its main development tools.
 
-VexaScript starts from the TypeScript ecosystem and pushes the syntax toward a more expressive, compact, and readable style inspired by languages such as Swift, Kotlin, and C#. The 0.9.0 release brings that direction together in a form that developers can try directly in the browser, use from the terminal, and integrate into their editors.
+## **Release contents**
 
-This release is focused on making the project approachable: the website now includes guided syntax documentation, an interactive playground, CLI references, and embeddable examples so teams can evaluate the language without a heavy setup process.
+| Area | Included in 0.9.0 |
+| --- | --- |
+| Language | TypeScript-based syntax with features inspired by Swift, Kotlin, and C# |
+| CLI | Commands for compiling and running VexaScript |
+| Browser | Interactive playground and embeddable Monaco editors |
+| Editor tools | Language support for writing and exploring VexaScript code |
+| Documentation | Syntax guide, CLI reference, and examples |
 
-Version 0.9.0 marks the beginning of public iteration, not the end of the roadmap. From here, the focus stays on language polish, ecosystem coverage, editor ergonomics, and feedback from early adopters building real examples with VexaScript.
+## **Language goals**
+
+VexaScript keeps access to the TypeScript ecosystem while offering a shorter
+syntax for common code. The language includes features such as `val`, `fun`,
+primary constructors, `sync` functions, operator overloading, and class calls
+without `new`.
+
+Version 0.9.0 is a preview. It provides enough of the language and toolchain for
+developers to try examples, report problems, and compare the design with normal
+TypeScript projects.
+
+## **Ways to try it**
+
+The website provides a playground that runs in the browser. Monaco embeds can
+place editable VexaScript examples in other pages. The CLI supports local
+projects, and the editor integration provides language features while code is
+being written.
+
+The next releases focus on language fixes, TypeScript compatibility, editor
+support, and larger real-world samples. Version 0.9.0 is the starting point for
+that work.
