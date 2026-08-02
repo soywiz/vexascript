@@ -20,6 +20,18 @@ strings. Character literals emit as direct integer constants in JavaScript and
 C++, avoiding one-character string allocation. TypeScript mode is unchanged, so
 single-quoted literals remain strings in `.ts`, `.tsx`, and `.d.ts` files.
 
+### String-template shorthand
+
+Backtick templates accept both the JavaScript-compatible `${expression}` form
+and a compact `$identifier` form. Escape a literal dollar sign as `\$`.
+
+```vexa
+val name = "Ada"
+val greeting = `Hello $name; next year you are ${age + 1}`
+```
+
+TypeScript requires `${name}` for the first interpolation.
+
 ## Variable declarations
 
 ### `val` keyword
@@ -145,6 +157,28 @@ Inside an argument list, `{ name }` remains context-sensitive: it can be interpr
 
 TypeScript uses inline arrow functions: `[1,2,3].map(it => it * 2)`.
 
+### Receiver function types and blocks
+
+A function type can declare an implicit receiver before its parameters:
+
+```vexa
+fun <T> T.configure(block: T.() -> void): T {
+  block(this)
+  return this
+}
+
+val point = Point(1, 2).configure {
+  x *= 2
+  y += x
+}
+```
+
+`T.(arg: A) -> R` is represented at runtime as `(T, A) -> R`, so a direct call
+passes the receiver first. Inside a contextually typed brace lambda, unqualified
+members and `this` refer to the receiver. Implicit `it` is the first visible
+parameter when one exists; for `T.() -> R`, it aliases the receiver. Nested
+receivers can be selected explicitly with `this@functionName`.
+
 ### `@JsInline` annotation
 
 A bodyless function with `@JsInline` provides a raw JavaScript template inserted at each call site.
@@ -184,6 +218,11 @@ class Color(val r: int, val g: int, val b: int, val a: int)
 val white = Color(255, 255, 255, 255)  // emits: new rgba(255, 255, 255, 255)
 ```
 
+Annotations may also be attached directly to class fields, accessors, and
+methods. Their arguments are checked like top-level annotation applications and
+the annotations themselves are erased unless a compiler-recognized annotation
+defines lowering behavior.
+
 ### Native implementation and FFI annotations
 
 `@CppHeader`, `@CppFlags`, and `@CppBody` attach trusted C++ source and build
@@ -194,6 +233,20 @@ source method name. Native builds use cached `LibraryOpen` symbol resolution;
 JavaScript uses Deno FFI or a compatible `globalThis.VexaFFI` adapter. See
 `docs/syntax.md` for `@FFIStruct` layouts, `FFIPointer`, asynchronous
 `Promise<T>` calls, and the complete type and security contract.
+
+### Test files
+
+`vexa test` discovers `.test.vx` files and supplies Node-compatible `test` and
+strict `assert` helpers without imports:
+
+```vexa
+test("arithmetic") {
+  assert(1 + 1 == 2)
+}
+```
+
+The test name is reported by Node's test runner, and runner flags can be passed
+through the CLI.
 
 ## Classes
 
@@ -263,6 +316,25 @@ class Rect {
 }
 ```
 
+### Compound accessor blocks
+
+A property may group its getter and setter under one declaration. The default
+setter parameter is `newValue`; `set(name)` or `set(name: Type)` overrides it.
+The order of `get` and `set` does not matter.
+
+```vexa
+class Counter {
+  private var stored = 0
+
+  var value: int {
+    get { return stored }
+    set(next) { stored = next }
+  }
+}
+```
+
+The form lowers through the same property-accessor path in JavaScript and C++.
+
 ### Operator overloads
 
 Classes can declare operator methods with the `operator` keyword.
@@ -310,6 +382,14 @@ tween(view::x[0, 100], time: 1.seconds)
 ```
 
 TypeScript has no operator overloading, so equivalent code must use named methods such as `get(x, y)` and `set(value, x, y)`.
+
+VexaScript also supports the three-way comparison operator `<=>`. Primitive
+numbers, big integers, strings, and characters produce a negative value, zero,
+or a positive value. Classes and extensions may declare `operator<=>`; when a
+direct `<`, `<=`, `>`, or `>=` overload is absent, those comparisons are derived
+from its result. An `operator==` overload similarly derives `!=` as its
+negation. Ordering operators are rejected when neither a primitive ordering nor
+an applicable direct or spaceship overload is defined.
 
 ### Class interface delegates
 
@@ -475,9 +555,11 @@ for (const item of items) process(item);
 for (const key in map) use(key);
 ```
 
-### `is` operator shorthand for `instanceof` (smart casts)
+### `is` nominal checks and built-in matcher patterns
 
-The `is` operator is VexaScript's shorter spelling of `instanceof`. Both operators perform the same runtime type check and narrow the compile-time type in the matching branch, including stable identifiers and member expressions.
+The basic `value is ClassName` form remains VexaScript's shorter spelling of
+`instanceof`. Both spellings perform the same nominal runtime check and narrow
+stable identifiers and member expressions.
 
 ```vexa
 if (shape is Circle) {
@@ -497,7 +579,74 @@ if (shape instanceof Circle) {
 }
 ```
 
-`is` compiles to JavaScript `instanceof`; the two VexaScript spellings are otherwise equivalent for runtime checks and smart casts.
+Unlike `instanceof`, `is` additionally accepts built-in patterns:
+
+```vexa
+if (result is ({ kind: "ok" } and { payload })) {
+  val kind: "ok" = result.kind
+}
+
+if (temperature is (>= 10 and < 20)) { log("mild") }
+if (parts is ["start", ..., "end"]) { log("framed") }
+if (path is /^\/users\/[0-9]+$/i) {
+  val text: string = path
+}
+```
+
+Supported built-ins are literal equality, object property patterns, exact
+arrays, one standalone non-binding `...` array wildcard, relational patterns,
+`and`/`or`, and regular-expression literals. Regex patterns only match strings
+and accept no flags or the portable `g`/`i` flags. Pattern bindings, computed
+keys, object rest, array rest bindings, and custom matcher protocols are not
+supported. Subjects and recursively inspected values are evaluated once in
+both JavaScript and C++.
+
+### `if` and abrupt control flow as expressions
+
+In VexaScript, `if` is an expression. A braced branch evaluates to its final
+expression statement, an omitted `else` contributes `undefined`, and a branch
+ending in `return`, `throw`, `break`, or `continue` has type `never` rather than
+widening the reachable result.
+
+```vexa
+val label = if (ready) "ready" else {
+  prepare()
+  "prepared"
+}
+
+val value = input ?? return fallback
+```
+
+The abrupt forms `return`, `throw`, `break`, and `continue` can appear wherever
+an expression is accepted in `.vx` files. TypeScript keeps these forms
+statement-only.
+
+### Match expressions
+
+`match` is an expression lowered to the same typed `if`/`else` representation in
+JavaScript and C++. Arms are ordered and braced bodies evaluate to their final
+expression without a `do` keyword.
+
+```vexa
+val label = match {
+  ready -> "ready"                 // `->` omits `when`
+  when retrying: "retrying"        // `:` requires `when`
+  else -> "idle"
+}
+
+val result = match (value) {
+  { kind: "ok" } -> value.payload
+  when /^error:/i: "error"
+  default -> "other"
+}
+```
+
+Writing `when condition -> body` or `condition: body` is an error. `else` and
+`default` are equivalent. A subject is evaluated once, and subject arms accept
+the same built-in patterns as `is`, including `>= 10 and < 20`, objects, arrays,
+the standalone `...` wildcard, and regex literals. Successful arms preserve
+their narrowed subject types; later arms retain only exclusions that are
+logically definite.
 
 ### Postfix receiver blocks
 
@@ -578,6 +727,18 @@ MathUtils.circleArea(5)
 ```
 
 TypeScript namespaces are erased to IIFEs and are primarily a compile-time construct (their emitted objects are accessed through the same IIFE pattern, but VexaScript makes this the first-class runtime model).
+
+## Module imports
+
+In addition to `.vx`, local runtime imports may target `.ts`, `.tsx`, `.json`,
+and `.txt`. Appending `?text` loads any local file as a string in both JavaScript
+and native C++ builds:
+
+```vexa
+import declarationSource from "./runtime.d.ts?text"
+```
+
+Text-module imports require exactly one default binding.
 
 ## Module exports
 

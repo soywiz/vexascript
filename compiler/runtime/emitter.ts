@@ -1331,6 +1331,7 @@ function isStructuralMatcherPattern(expression: Expr): boolean {
   return (expression instanceof BinaryExpression && (expression.matcherCombinator === true || expression.matcherRelational === true)) ||
     expression instanceof ObjectLiteral ||
     expression instanceof ArrayLiteral ||
+    expression instanceof RegExpLiteral ||
     expression.kind === NodeKind.IntLiteral ||
     expression.kind === NodeKind.CharacterLiteral ||
     expression.kind === NodeKind.FloatLiteral ||
@@ -1359,6 +1360,9 @@ function emitPatternTest(pattern: Expr, subject: string): string {
   if (pattern instanceof BinaryExpression && pattern.matcherCombinator === true) {
     const operator = pattern.operator === "&&" ? "&&" : "||";
     return `(${emitPatternTest(pattern.left, subject)}) ${operator} (${emitPatternTest(pattern.right, subject)})`;
+  }
+  if (pattern instanceof RegExpLiteral) {
+    return `typeof ${subject} === "string" && ${emitExpression(pattern)}.test(${subject})`;
   }
   if (pattern instanceof ObjectLiteral) {
     const checks = [

@@ -72,6 +72,7 @@ fun classify(value: any): string {
     value is ({ kind: "ok" } and { payload: [1, 2] }) -> "object"
     value is (["error", ..., 500] or ["error", ..., 503]) -> "array"
     value is "plain" -> "literal"
+    value is /^ready-[0-9]+$/i -> "regexp"
     else -> "other"
   }
 }
@@ -92,6 +93,8 @@ fun range(value: int): string {
     expect(result.code).toContain("&&");
     expect(result.code).toContain("||");
     expect(result.code).toContain("vexa::compare(__vexa_pattern");
+    expect(result.code).toContain("__vexa_pattern.isString()");
+    expect(result.code).toContain("vexa::regexTest(vexa::RegExp(u\"^ready-[0-9]+$\", u\"i\"), __vexa_pattern)");
   });
 
   it("keeps concrete Set storage when an explicit semantic type lowers dynamically", () => {

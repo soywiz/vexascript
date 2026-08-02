@@ -97,7 +97,9 @@ const CODE_N_UPPER = 78; // N
 const CODE_O_UPPER = 79; // O
 const CODE_X_UPPER = 88; // X
 const CODE_Z_UPPER = 90; // Z
+const CODE_LBRACKET = 91; // [
 const CODE_BACKSLASH = 92; // \
+const CODE_RBRACKET = 93; // ]
 const CODE_CARET = 94; // ^
 const CODE_UNDERSCORE = 95; // _
 const CODE_BACKTICK = 96; // `
@@ -262,6 +264,7 @@ function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
       case "default":
       case "else":
       case "do":
+      case "when":
         return true;
       default:
         return false;
@@ -320,6 +323,32 @@ function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
       default:
         return false;
     }
+  }
+  return false;
+}
+
+function looksLikeRegularExpressionMatchArm(reader: StrReader): boolean {
+  let offset = reader.offset + 1;
+  let escaped = false;
+  let inCharacterClass = false;
+  while (offset < reader.length) {
+    const code = reader.str.charCodeAt(offset);
+    if (code === 10 || code === 13) return false;
+    if (escaped) {
+      escaped = false;
+    } else if (code === CODE_BACKSLASH) {
+      escaped = true;
+    } else if (code === CODE_LBRACKET) {
+      inCharacterClass = true;
+    } else if (code === CODE_RBRACKET) {
+      inCharacterClass = false;
+    } else if (code === CODE_SLASH && !inCharacterClass) {
+      offset += 1;
+      while (offset < reader.length && isIdentifierPartCode(reader.str.charCodeAt(offset))) offset += 1;
+      while (offset < reader.length && isWhitespaceCode(reader.str.charCodeAt(offset))) offset += 1;
+      return reader.str.startsWith("->", offset);
+    }
+    offset += 1;
   }
   return false;
 }
@@ -1054,7 +1083,8 @@ export type TokenizeLanguage = "vexa" | "typescript";
 
 function readNonTemplateCodeFragment(
   reader: StrReader,
-  previousSignificantToken: Token | undefined
+  previousSignificantToken: Token | undefined,
+  regularExpressionMatchArm: boolean = false
 ): TokenFragment {
   const code = reader.peekCode();
   const start = snapshot(reader);
@@ -1066,7 +1096,7 @@ function readNonTemplateCodeFragment(
     peekNextCode(reader) !== CODE_SLASH &&
     peekNextCode(reader) !== CODE_STAR &&
     peekNextCode(reader) !== CODE_EQUALS &&
-    tokenAllowsRegExpLiteral(previousSignificantToken)
+    (tokenAllowsRegExpLiteral(previousSignificantToken) || regularExpressionMatchArm)
   ) {
     type = TokenType.REGEXP;
     value = readRegExpLiteral(reader, start);
@@ -1202,7 +1232,11 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         }
         continue;
       }
-      pushFragment(readNonTemplateCodeFragment(reader, previousSignificantToken));
+      pushFragment(readNonTemplateCodeFragment(
+        reader,
+        previousSignificantToken,
+        looksLikeRegularExpressionMatchArm(reader)
+      ));
     }
     throw new TokenizeError("Unterminated JSX expression container", sourceRange(braceStart, snapshot(reader)));
   };
@@ -1381,7 +1415,11 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       }
       continue;
     }
-    pushFragment(readNonTemplateCodeFragment(reader, previousSignificantToken));
+    pushFragment(readNonTemplateCodeFragment(
+      reader,
+      previousSignificantToken,
+      looksLikeRegularExpressionMatchArm(reader)
+    ));
   }
 
   const eofPosition = snapshot(reader);

@@ -28,6 +28,12 @@ describe("formatSource", () => {
         else -> "other"
       }
     `);
+    expect(formatSource('val label=match(value){/^ready-[0-9]+$/i->"hit" else->"other"}')).toBe(dedent`
+      val label = match (value) {
+        /^ready-[0-9]+$/i -> "hit"
+        else -> "other"
+      }
+    `);
   });
 
   it("keeps named imports on a single line", () => {

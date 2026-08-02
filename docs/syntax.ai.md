@@ -14,6 +14,9 @@ VexaScript (`.vx` files) is derived from TypeScript and keeps its ecosystem, wit
 val matches = "aaa".charCodeAt(0) == 'a'
 ```
 
+Backtick templates accept both `${expression}` and `$identifier`; use `\$` for
+a literal dollar sign.
+
 ## Variables
 
 | VexaScript | TypeScript | Notes |
@@ -73,6 +76,13 @@ useEffect({
 
 Trailing lambdas and brace-lambda call arguments use implicit `it` for `{ expr }`. In ordinary expression positions, `{ ... }` is a zero-argument brace lambda unless it is resolved contextually as an object literal or has an explicit `->` parameter list.
 
+Receiver function types use `T.(args) -> R`. The receiver is the first runtime
+argument but is implicit inside a contextually typed lambda: unqualified members
+and `this` refer to it. If visible parameters exist, `it` is the first one; for
+`T.() -> R`, `it` aliases the receiver. Use `this@functionName` for a labeled
+outer receiver. `value. { ... }` evaluates `value` once, runs a receiver block,
+and returns that same value; it does not call `apply`.
+
 ## Classes
 
 ```vexa
@@ -86,6 +96,19 @@ Inside methods, `this.` is implicit — write `x` instead of `this.x`.
 class Rect(val w: number, val h: number) {
   fun area(): number => w * h
   operator*(scale: number): Rect => Rect(w * scale, h * scale)
+}
+```
+
+Annotations can precede class fields, accessors, and methods as well as top-level
+declarations. Compound accessors write the property once:
+
+```vexa
+class Counter {
+  private var stored = 0
+  var value: int {
+    get { return stored }
+    set(next) { stored = next }
+  }
 }
 ```
 
@@ -105,6 +128,10 @@ class MultiArray<T>(val fallback: T) {
 val cell = array[1, 2]
 array[1, 2] = "next"
 ```
+
+`a <=> b` returns negative/zero/positive. `operator<=>` can derive `<`, `<=`,
+`>`, and `>=` when no direct overload exists; `operator==` derives `!=`.
+Ordering is an error when no primitive ordering or applicable overload exists.
 
 Extension index operators may target `Property<T>`:
 
@@ -147,7 +174,45 @@ for (n of 0 ... 10) { }           // inclusive range (0 through 10)
 
 defer file.close()                 // runs at block exit, like finally
 
-if (x is Circle) { x.radius }     // shorthand for instanceof; both smart-cast
+if (x is Circle) { x.radius }      // basic `is` is instanceof; both smart-cast
+```
+
+`if` is also an expression. A braced branch yields its last expression, a
+missing `else` adds `undefined`, and `return`/`throw`/`break`/`continue` can be
+used as `never`-typed expressions.
+
+`is` additionally accepts built-in patterns: literals, objects, exact arrays,
+one standalone `...` array wildcard, `and`, `or`, relational patterns, and regex
+literals. Regex patterns only match strings and allow no flags or `g`/`i`.
+Successful checks narrow the subject; custom matchers and pattern bindings are
+not supported.
+
+```vexa
+if (result is ({ kind: "ok" } and { payload })) {
+  val kind: "ok" = result.kind
+}
+if (score is (>= 10 and < 20)) { use(score) }
+if (path is /^\/users\/[0-9]+$/i) { val text: string = path }
+```
+
+`match` is an expression with ordered arms and optional subject. With `->`, omit
+`when`; with `:`, `when` is mandatory. `else` and `default` are equivalent. A
+braced arm yields its last expression without `do`, and the subject is evaluated
+once with narrowed types available inside successful arms.
+
+```vexa
+val label = match {
+  ready -> "ready"
+  when retrying: "retrying"
+  else -> "idle"
+}
+
+val result = match (value) {
+  { kind: "ok" } -> value.payload
+  ["start", ..., "end"] -> "framed"
+  when /^error:/i: "error"
+  default -> "other"
+}
 ```
 
 ## Cascade operator
@@ -180,5 +245,12 @@ JSX is always enabled in `.vx` files. Use `value as Type` for casts — `<Type>v
 - Annotations: `annotation Benchmark` / `@Benchmark fun measure() {}`
 - `@JsName("jsName")` overrides the emitted JavaScript identifier.
 - `@JsInline("js template")` inlines raw JS at each call site.
+- Native/FFI declarations use `@CppHeader`, `@CppFlags`, `@CppBody`,
+  `@FFILibrary`, `@FFIName`, and `@FFIStruct`; consult `docs/syntax.md` for the
+  ABI and security contract.
 - Runtime namespaces: `namespace Foo { export fun bar() {} }` creates a real JS object.
+- `vexa test` discovers `.test.vx`; `test("name") { ... }` and strict
+  `assert(condition)` are available without imports.
+- Local `.ts`, `.tsx`, `.json`, and `.txt` files can be imported. Add `?text` to
+  load any local file through one default string binding in JS and C++.
 - Delegated variables: `var count by useState(0)` routes reads/writes through the delegate.

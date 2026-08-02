@@ -2108,6 +2108,45 @@ let bad = "Ada" satisfies number
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("narrows string unions through regular-expression matcher patterns", () => {
+    const source = dedent`
+      fun inspect(value: string | int): string {
+        return match (value) {
+          /^ok$/i -> {
+            const text: string = value
+            text.toUpperCase()
+          }
+          else -> {
+            // A failed regexp still leaves non-matching strings in the union.
+            value.toString()
+          }
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("does not exclude non-matching strings after a regular-expression pattern fails", () => {
+    const source = dedent`
+      fun inspect(value: string | int): string {
+        return match (value) {
+          /^ok$/ -> value.toString()
+          else -> {
+            const incorrectlyNarrowed: int = value
+            incorrectlyNarrowed.toString()
+          }
+        }
+      }
+    `;
+    const messages = new Analysis(parseFile(tokenizeReader(source)))
+      .getIssues()
+      .map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'string | int' is not assignable to type 'int'");
+  });
+
   it("supports nested object and array is patterns without treating shorthand properties as values", () => {
     const source = dedent`
       type Event =
@@ -2135,6 +2174,7 @@ let bad = "Ada" satisfies number
       const arrayRest = value is [1, ...rest]
       const custom = value is makeMatcher()
       const customObject = value is rest
+      const nonPortableRegex = value is /^ok$/m
       fun makeMatcher(): any => ({})
     `;
     const messages = new Analysis(parseFile(tokenizeReader(source)))
@@ -2144,6 +2184,7 @@ let bad = "Ada" satisfies number
     expect(messages).toContain("Computed object keys are not supported in matcher patterns yet");
     expect(messages).toContain("Object rest patterns are not supported yet");
     expect(messages).toContain("Array rest bindings are not supported; use a standalone '...' wildcard");
+    expect(messages).toContain("Regular-expression matcher patterns only support the portable 'g' and 'i' flags");
     expect(messages.filter((message) =>
       message === "The right side of 'is' must be a class name or built-in matcher pattern"
     ).length).toBe(2);

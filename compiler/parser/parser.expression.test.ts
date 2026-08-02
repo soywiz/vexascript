@@ -131,6 +131,11 @@ describe("parseExpression", () => {
                 right: { kind: NodeKind.BinaryExpression, operator: "<", matcherRelational: true }
             }
         });
+        expect(parseExpression(tokenizeReader(`value is /^ready$/i`))).toMatchObject({
+            kind: NodeKind.BinaryExpression,
+            operator: "is",
+            right: { kind: NodeKind.RegExpLiteral, pattern: "^ready$", flags: "i" }
+        });
     });
 
     it("lowers subject match patterns through a single-evaluation arrow call", () => {
@@ -196,6 +201,17 @@ describe("parseExpression", () => {
         });
         expect(() => parseExpression(tokenizeReader('value is [1, ..., ...]')))
             .toThrow("Array matcher patterns may contain only one '...' wildcard");
+    });
+
+    it("parses consecutive regular-expression subject arms with both delimiters", () => {
+        expect(() => parseExpression(tokenizeReader(dedent`
+            match (value) {
+                /^ready-/i -> "ready"
+                /^pending-/ -> "pending"
+                when /^error-/: "error"
+                else -> "other"
+            }
+        `))).not.toThrow();
     });
 
     it("keeps control-flow forms statement-only in TypeScript parser mode", () => {

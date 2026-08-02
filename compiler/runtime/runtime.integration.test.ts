@@ -85,6 +85,22 @@ console.log(
   variableArray([1, 2, "suffix"]),
   variableArray(["prefix"])
 )
+
+fun regularExpression(value: any): string {
+  return match (value) {
+    { kind: /^ready-/i } -> "nested"
+    /^ready-[0-9]+$/i -> "ready"
+    /^$/ -> "empty"
+    else -> "other"
+  }
+}
+console.log(
+  regularExpression({ kind: "READY-now" }),
+  regularExpression("READY-42"),
+  regularExpression(""),
+  regularExpression("pending-42"),
+  regularExpression(0)
+)
 `);
 
     expect(output).toEqual([
@@ -98,7 +114,8 @@ console.log(
       ["outside", "inside", "inside", "outside"],
       ["captured", 1],
       [99, 0],
-      ["wrapped", "wrapped", "prefixed", "suffixed", "prefixed"]
+      ["wrapped", "wrapped", "prefixed", "suffixed", "prefixed"],
+      ["nested", "ready", "empty", "other", "other"]
     ]);
   });
 

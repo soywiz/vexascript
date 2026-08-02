@@ -954,8 +954,8 @@ Class bodies support TypeScript-style property accessors. Getter accessors must 
 Native C++ emission supports synchronous instance getters in both forms and
 synchronous setter accessors. Getter/setter pairs can implement mutable interface
 properties, and concrete or interface-typed writes support direct, compound,
-prefix, and postfix operations. Compound accessor blocks are not yet supported by
-the native backend.
+prefix, and postfix operations. Compound accessor blocks use the same accessor
+lowering in JavaScript and native C++.
 
 VexaScript also supports a compound accessor block where the property name is written once and `get`/`set` sub-blocks are nested inside `{ }`. The setter parameter defaults to the implicit name `newValue` typed to the declared property type; it can be overridden by writing `set(name)` or `set(name: Type)`. Either `get`/`set` order is accepted.
 
@@ -1472,6 +1472,20 @@ declare class RegExp {}
 let matcher: RegExp = /a[0-9]+/gi
 ```
 
+A regular-expression literal is also a built-in matcher pattern for `is` and
+subject `match`. It only matches string subjects, uses search semantics, and
+narrows a successful `unknown`, `any`, or union subject to its string portion.
+Matcher patterns are portable across JavaScript and native C++ with no flags or
+the `g` and `i` flags; other flags are rejected in matcher position. Ordinary
+regular-expression expressions retain the flags supported by their target
+backend.
+
+```vexa
+if (value is /^ready-[0-9]+$/i) {
+  val text: string = value
+}
+```
+
 ### Type assertions
 
 VexaScript supports TypeScript-style `value as TypeName` assertions in expressions. Assertions are erased during JavaScript emission and the semantic checker treats the expression as the asserted target type. The checker reports an unsafe assertion when neither the source type nor target type is assignable to the other.
@@ -1648,6 +1662,8 @@ native class check in C++. `is` additionally accepts matcher patterns without
 custom matcher objects:
 
 - primitive literals use exact matching;
+- regular-expression literals search string subjects and narrow successful
+  branches to `string`;
 - object patterns require each listed property and recursively match values;
 - a shorthand object property such as `{ payload }` checks presence without
   introducing a binding;
@@ -1886,6 +1902,11 @@ val framed = match (parts) {
   ["start", ..., "end"] -> "framed"
   else -> "other"
 }
+
+val route = match (path) {
+  /^\/users\/[0-9]+$/i -> "user"
+  else -> "other"
+}
 ```
 
 A standalone `...` in an array pattern is a non-binding wildcard for zero or
@@ -1904,7 +1925,8 @@ scoping in both backends.
 Custom matcher objects are never invoked and are not supported. Pattern
 bindings, computed object keys, object rest, and array rest bindings are also
 unsupported. Use ordinary arm blocks for local bindings after a successful
-structural check.
+structural check. Regular-expression matcher patterns accept only the portable
+`g` and `i` flags (or no flags) and never coerce non-string subjects.
 
 ### Control-flow statements and expressions
 

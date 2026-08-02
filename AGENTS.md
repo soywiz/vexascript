@@ -69,7 +69,11 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 
 ## Documentation policy
 
-- Supported language syntax documentation lives in `docs/syntax.md`. Every time new language syntax support is added it must be updated in the same change.
+- Supported language syntax documentation is an atomic three-file set. Every change that adds, removes, or changes language syntax or its semantics must update all three files in the same commit:
+  - `docs/syntax.md`: complete language reference and semantic details;
+  - `docs/syntax.differences.md`: user-facing VexaScript-versus-TypeScript differences;
+  - `docs/syntax.ai.md`: compact, unambiguous rules and examples for AI agents.
+- Updating only one or two syntax documents is incomplete, even when the omitted document is a summary. Each file must receive a meaningful update at its own level of detail. Before finishing a syntax task, check `git diff --name-only` and verify that either all three syntax documents are present or none are.
 - Technical/reference documentation lives in `docs/`.
 - Engineering journal notes and regression history live in `docs/journal/`. After each completed task, add or update a journal entry when you found a bug pattern, regression risk, infrastructure weakness, confusing workflow, or recurring failure mode worth preserving.
 - Unprocessed journal notes stay in `docs/journal/`. After they are mined into concrete follow-up work, move them to `docs/journal/processed/` instead of deleting them.

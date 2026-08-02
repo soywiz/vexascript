@@ -1,4 +1,4 @@
-import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
+import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 
@@ -2454,6 +2454,7 @@ export class TypeChecker {
     return (pattern instanceof BinaryExpression && (pattern.matcherCombinator === true || pattern.matcherRelational === true)) ||
       pattern instanceof ObjectLiteral ||
       pattern instanceof ArrayLiteral ||
+      pattern instanceof RegExpLiteral ||
       pattern.kind === NodeKind.IntLiteral ||
       pattern.kind === NodeKind.CharacterLiteral ||
       pattern.kind === NodeKind.FloatLiteral ||
@@ -2507,6 +2508,15 @@ export class TypeChecker {
       }
       return;
     }
+    if (pattern instanceof RegExpLiteral) {
+      if (pattern.flags !== "" && pattern.flags !== "g" && pattern.flags !== "i" &&
+        pattern.flags !== "gi" && pattern.flags !== "ig") {
+        this.issues.push({
+          message: "Regular-expression matcher patterns only support the portable 'g' and 'i' flags",
+          node: pattern
+        });
+      }
+    }
     this.visitExpression(pattern, scope);
   }
 
@@ -2530,6 +2540,8 @@ export class TypeChecker {
         return literalType("number", (pattern as FloatLiteral).value);
       case NodeKind.StringLiteral:
         return literalType("string", (pattern as StringLiteral).value);
+      case NodeKind.RegExpLiteral:
+        return builtinType("string");
       case NodeKind.BooleanLiteral:
         return literalType("boolean", (pattern as BooleanLiteral).value);
       case NodeKind.BigIntLiteral:
@@ -2607,6 +2619,20 @@ export class TypeChecker {
     }
     if (isUnknownType(type) || (type instanceof BuiltinType && (type.name === "any" || type.name === "unknown"))) {
       return "maybe";
+    }
+    if (pattern instanceof RegExpLiteral) {
+      if (type instanceof LiteralType) {
+        if (type.base !== "string") return "never";
+        try {
+          return new RegExp(pattern.pattern, pattern.flags).test(String(type.value)) ? "always" : "never";
+        } catch {
+          return "maybe";
+        }
+      }
+      const stringType = builtinType("string");
+      return this.isTypeAssignable(type, stringType) || this.isTypeAssignable(stringType, type)
+        ? "maybe"
+        : "never";
     }
     if (pattern instanceof ObjectLiteral) {
       if (!(type instanceof ObjectType)) {
