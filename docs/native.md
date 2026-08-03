@@ -424,10 +424,16 @@ are initialized after the base and traced when they contain managed values.
 The native surface is an audited subset of `compiler/runtime/es2025.d.ts`:
 
 - `ArrayObject<T>` owns array identity, tracing, indexed mutation, iterators, and
-  the common search, copy, and higher-order methods listed above.
+  the common search, copy, and higher-order methods listed above, including the
+  ES2023 immutable-copy methods (`findLast`, `findLastIndex`, `toReversed`,
+  `toSorted`, `toSpliced`, and `with`).
 - `Map`, `Set`, `WeakMap`, and `WeakSet` use managed storage. Weak collection keys
   use Oilpan weak edges; `Map` and `Set` preserve insertion order and SameValueZero
-  lookup behavior.
+  lookup behavior. ES2024 `Map.groupBy` and ES2025 set algebra and relation
+  methods are implemented for native collection types.
+- `Object.groupBy` groups native iterables into managed records. `Promise.try`
+  and `Promise.withResolvers` use the same `Task<T>` settlement path as the
+  existing promise combinators.
 - `JSON.parse` supports objects, arrays, primitives, escapes, UTF-16 surrogate
   pairs, and deterministic insertion-order records. `JSON.stringify` supports
   dynamic native value graphs and rejects cycles.
@@ -437,7 +443,24 @@ The native surface is an audited subset of `compiler/runtime/es2025.d.ts`:
 - `performance.now()` maps to a monotonic `std::chrono::steady_clock` timestamp,
   matching the high-resolution clock contract used by Node.js and browsers.
 - `ArrayBuffer`, `Uint8Array`, and `DataView` share one backing buffer. Integer,
-  float32, and float64 DataView reads and writes honor endianness.
+  float32, and float64 DataView reads and writes honor endianness. Resizable
+  buffers expose `maxByteLength`, `resizable`, `detached`, `resize`, `transfer`,
+  and `transferToFixedLength`.
+- `String.at`, `String.replaceAll`, `String.isWellFormed`,
+  `String.toWellFormed`, and `RegExp.escape` preserve the declaration surface's
+  UTF-16 and literal-escape behavior.
+- `Float16Array` supports construction, `of`/`from`, indexed access, its full
+  callback/search/copy/sort surface, typed-array iterators, `set`, string
+  conversion, and half-precision conversion at the shared backing-buffer
+  boundary. `DataView` float16 access uses the same conversion. ES2025 `Iterator.from` and the map,
+  filter, take, drop, flatMap, reduce, terminal, and search helpers consume
+  native iterators once and preserve callback order.
+- `Intl.DurationFormat` supports the native short, long, narrow, and digital
+  formatting subset, including `formatToParts` and `resolvedOptions` records.
+  `SharedArrayBuffer` growth and the standard `RegExp` flag accessors are
+  represented by the same managed backing storage and value model. The native
+  `Int32Array`/`BigInt64Array` paths also expose `Atomics.waitAsync`'s
+  synchronous result shape.
 - Dependency-free `BigInt` supports signed decimal plus `0x`, `0o`, and `0b`
   string input, arithmetic, power, bitwise operations, and shifts.
 
@@ -539,7 +562,11 @@ The backend currently rejects these shapes before producing C++:
   collection, Date, and binary types; iterable collection constructors whose
   source cannot be represented as a native array;
 - Date component/local-time constructors and setters, JSON replacer/reviver/space
-  arguments, and standard-library methods outside the inventory above;
+  arguments, and standard-library methods outside the inventory above. The
+  ES2025 `Float16Array`, iterator helpers, `Intl.DurationFormat`, growable
+  `SharedArrayBuffer`, and regular-expression flag accessors are included in
+  the native inventory; unrelated standard-library declarations remain subject
+  to the rejection branches above;
 - ambient or string-valued enums, class delegation, static/abstract/computed/
   optional class fields, async accessors, and async/operator methods;
 - computed, accessor, or generic interface method forms that cannot be represented

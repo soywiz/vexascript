@@ -34,7 +34,7 @@ describe("native CLI syntax", () => {
     const input = join(dir, "input.vx");
     const output = join(dir, "output.cpp");
     try {
-      await writeFile(input, "console.log('debug cpp')", "utf8");
+      await writeFile(input, 'console.log("debug cpp")', "utf8");
       await runCli(["node", "vexa", "cpp", input, "--out", output, "--native-source-locations"]);
 
       const outputCode = await readFile(output, "utf8");

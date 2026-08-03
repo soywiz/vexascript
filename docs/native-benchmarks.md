@@ -7,6 +7,10 @@ for Node.js, and prints a Markdown table. Results are informational because
 compiler, runtime version, CPU, operating system, and thermal state strongly
 affect measurements.
 
+The startup and complete-workload rows use process-time medians. The array,
+bigint, and event-loop rows also use medians from five instrumented executions
+for both the native binary and the equivalent Node.js program.
+
 ## Native versus Node: 2026-07-22
 
 Platform: darwin/arm64, AppleClang through `/usr/bin/g++`, release Oilpan build,

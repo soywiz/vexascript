@@ -196,6 +196,150 @@ console.log(metadata.get(key), value.toString(16))
     expect(result.code).toContain("vexa::toString(value, static_cast<double>(16))");
   });
 
+  it("lowers ES2023-ES2025 collection, string, buffer, and promise helpers", () => {
+    const result = transpile(`
+const values = [1, 2, 3, 2]
+const copied = values.toReversed().toSpliced(1, 1, 9).with(-1, 7)
+const grouped = Object.groupBy(values, value => value % 2)
+const groupedMap = Map.groupBy(values, value => value % 2)
+const set = new Set([1, 2])
+const union = set.union(new Set([2, 3]))
+const buffer = new ArrayBuffer(2, { maxByteLength: 4 })
+buffer.resize(3)
+const moved = buffer.transfer()
+const escaped = RegExp.escape("a.b")
+const replaced = "a-b-a".replaceAll("a", "x")
+const wellFormed = "text".isWellFormed() && "text".toWellFormed()
+const attempt = Promise.try(() => 3)
+const deferred = Promise.withResolvers<int>()
+deferred.resolve(3)
+nativeRunTask(deferred.promise)
+console.log(values.findLast(value => value % 2 == 0), values.findLastIndex(value => value == 2), copied, grouped, groupedMap, union, buffer.byteLength, moved.byteLength, buffer.maxByteLength, escaped, wellFormed)
+`, { emit: "cpp", sourceFilePath: "/tmp/es2025-native-runtime.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::findLast(");
+    expect(result.code).toContain("vexa::toReversed(");
+    expect(result.code).toContain("vexa::toSpliced(");
+    expect(result.code).toContain("vexa::setUnion(");
+    expect(result.code).toContain("vexa::objectGroupBy(");
+    expect(result.code).toContain("vexa::mapGroupBy(");
+    expect(result.code).toContain("vexa::arrayBufferTransfer");
+    expect(result.code).toContain("vexa::regexEscape(");
+    expect(result.code).toContain("vexa::stringReplaceAll(");
+    expect(result.code).toContain("vexa::promiseTry(");
+    expect(result.code).toContain("vexa::PromiseResolvers<std::int32_t>");
+  });
+
+  it("lowers Float16Array and DataView float16 operations", () => {
+    const result = transpile(`
+const values = new Float16Array([1.5, -2.25])
+const reversed = values.toReversed()
+const sorted = values.toSorted((left, right) => left - right)
+const replaced = values.with(-1, 4.5)
+const view = new DataView(new ArrayBuffer(2))
+view.setFloat16(0, 1.5, true)
+console.log(values[0], reversed[0], sorted[0], replaced[1], view.getFloat16(0, true))
+`, { emit: "cpp", sourceFilePath: "/tmp/float16-native-runtime.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::makeFloat16Array");
+    expect(result.code).toContain("vexa::Float16ArrayObject");
+    expect(result.code).toContain("setFloat16");
+    expect(result.code).toContain("getFloat16");
+  });
+
+  it("lowers the complete Float16Array method surface", () => {
+    const result = transpile(`
+const values = new Float16Array([1.5, -2, 3])
+const mapped = values.map((value, index) => value + index)
+const filtered = values.filter(value => value > 0)
+const total = values.reduce((left, right) => left + right, 0)
+const keys = values.keys().toArray()
+values.copyWithin(1, 0, 2)
+values.fill(4.5, 0, 1)
+console.log(mapped, filtered, total, keys, values.every(value => value > 0), Math.f16round(1.1), values.buffer.byteLength, values.BYTES_PER_ELEMENT)
+`, { emit: "cpp", sourceFilePath: "/tmp/float16-method-surface.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("->map(");
+    expect(result.code).toContain("->filter(");
+    expect(result.code).toContain("->reduce(");
+    expect(result.code).toContain("->keys()");
+    expect(result.code).toContain("->fill(");
+    expect(result.code).toContain("vexa::Math::f16round");
+  });
+
+  it("lowers Float16Array.of and Float16Array.from", () => {
+    const result = transpile(`
+const source = [1, 2, 3]
+const values = Float16Array.of(1.5, 2.25)
+const mapped = Float16Array.from(source, (value, index) => value + index)
+console.log(values, mapped)
+`, { emit: "cpp", sourceFilePath: "/tmp/float16-static.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::float16ArrayOf");
+    expect(result.code).toContain("vexa::float16ArrayFrom");
+  });
+
+  it("lowers ES2025 iterator helpers", () => {
+    const result = transpile(`
+const mapped = Iterator.from([1, 2, 3]).map((value, index) => value + index).filter(value => value > 2).take(2).toArray()
+const flattened = Iterator.from([[1, 2], [3]]).flatMap(values => values).toArray()
+const total = Iterator.from([1, 2, 3]).reduce((left: int, right: int, index: number) => right, 0)
+console.log(mapped, flattened, total)
+`, { emit: "cpp", sourceFilePath: "/tmp/iterator-native-runtime.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::iteratorFrom");
+    expect(result.code).toContain("vexa::iteratorMap");
+    expect(result.code).toContain("vexa::iteratorFlatMap");
+    expect(result.code).toContain("vexa::iteratorReduce");
+  });
+
+  it("lowers Intl.DurationFormat", () => {
+    const result = transpile(`
+const formatter = new Intl.DurationFormat("en", { style: "long" })
+const parts = formatter.formatToParts({ seconds: 3 })
+const options = formatter.resolvedOptions()
+console.log(formatter.format({ hours: 1, minutes: 2 }), parts)
+`, { emit: "cpp", sourceFilePath: "/tmp/duration-format-native-runtime.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::DurationFormatObject");
+    expect(result.code).toContain("->format(");
+    expect(result.code).toContain("->formatToParts(");
+    expect(result.code).toContain("->resolvedOptions()");
+  });
+
+  it("lowers SharedArrayBuffer growth and RegExp flags", () => {
+    const result = transpile(`
+const buffer = new SharedArrayBuffer(2, { maxByteLength: 4 })
+buffer.grow(4)
+const expression = new RegExp("a", "gimsvd")
+console.log(buffer.growable, buffer.maxByteLength, expression.global, expression.unicodeSets, expression.flags)
+`, { emit: "cpp", sourceFilePath: "/tmp/shared-buffer-and-regexp-flags.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::ArrayBufferObject");
+    expect(result.code).toContain("->grow(");
+    expect(result.code).toContain(".unicodeSets()");
+    expect(result.code).toContain(".flags()");
+  });
+
+  it("lowers Atomics.waitAsync for native integer views", () => {
+    const result = transpile(`
+const result = Atomics.waitAsync(new Int32Array([0]), 0, 1, 0)
+const bigResult = Atomics.waitAsync(new BigInt64Array([0n]), 0, 1n, 0)
+console.log(result, bigResult)
+`, { emit: "cpp", sourceFilePath: "/tmp/atomics-wait-async.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::atomicsWaitAsync");
+    expect(result.code).toContain("vexa::makeBigInt64Array");
+  });
+
   it("forwards interface members through class delegation", () => {
     const result = transpile(`
 interface Shape { area: number; fill(color: string): string }

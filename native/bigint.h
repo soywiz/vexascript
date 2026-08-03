@@ -91,6 +91,11 @@ class BigInt final {
       negative_ = false;
       return *this;
     }
+    if (other.limbs_.size() == 1) {
+      multiplySmall(other.limbs_[0]);
+      negative_ = negative_ != other.negative_;
+      return *this;
+    }
     std::vector<std::uint32_t> product(limbs_.size() + other.limbs_.size(), 0);
     for (std::size_t left = 0; left < limbs_.size(); ++left) {
       std::uint64_t carry = 0;
@@ -110,11 +115,26 @@ class BigInt final {
   }
 
   BigInt& operator/=(const BigInt& other) {
+    if (other.isZero()) throw std::runtime_error("BigInt division by zero");
+    if (other.limbs_.size() == 1) {
+      const bool negative = negative_ != other.negative_;
+      divideSmall(other.limbs_[0]);
+      negative_ = negative && !isZero();
+      return *this;
+    }
     *this = divideAndRemainder(*this, other).first;
     return *this;
   }
 
   BigInt& operator%=(const BigInt& other) {
+    if (other.isZero()) throw std::runtime_error("BigInt division by zero");
+    if (other.limbs_.size() == 1) {
+      const bool negative = negative_;
+      const std::uint32_t remainder = divideSmall(other.limbs_[0]);
+      *this = BigInt(static_cast<long long>(remainder));
+      negative_ = negative && !isZero();
+      return *this;
+    }
     *this = divideAndRemainder(*this, other).second;
     return *this;
   }
@@ -220,18 +240,34 @@ class BigInt final {
       if (base != 10) index = 2;
     }
     if (index == text.size()) throw std::runtime_error("Invalid BigInt value");
-    for (; index < text.size(); ++index) {
-      const Character character = text[index];
-      const std::uint32_t digit = character >= '0' && character <= '9'
-          ? static_cast<std::uint32_t>(character - '0')
-          : character >= 'a' && character <= 'f'
-            ? static_cast<std::uint32_t>(character - 'a' + 10)
-            : character >= 'A' && character <= 'F'
-              ? static_cast<std::uint32_t>(character - 'A' + 10)
-              : base;
-      if (digit >= base) throw std::runtime_error("Invalid BigInt value");
-      multiplySmall(base);
-      addSmall(digit);
+    const std::size_t chunkWidth = base == 10 ? 9 : base == 16 ? 7 : base == 8 ? 10 : 31;
+    for (; index < text.size();) {
+      const std::size_t count = std::min(chunkWidth, text.size() - index);
+      std::uint32_t chunk = 0;
+      for (std::size_t offset = 0; offset < count; ++offset) {
+        const Character character = text[index + offset];
+        const std::uint32_t digit = character >= '0' && character <= '9'
+            ? static_cast<std::uint32_t>(character - '0')
+            : character >= 'a' && character <= 'f'
+              ? static_cast<std::uint32_t>(character - 'a' + 10)
+              : character >= 'A' && character <= 'F'
+                ? static_cast<std::uint32_t>(character - 'A' + 10)
+                : base;
+        if (digit >= base) throw std::runtime_error("Invalid BigInt value");
+        chunk = chunk * base + digit;
+      }
+      const std::uint32_t multiplier = [&] {
+        if (base == 10) {
+          constexpr std::uint32_t decimalPowers[] = {
+              1U, 10U, 100U, 1'000U, 10'000U, 100'000U,
+              1'000'000U, 10'000'000U, 100'000'000U, 1'000'000'000U};
+          return decimalPowers[count];
+        }
+        return std::uint32_t(1) << (count * (base == 16 ? 4 : base == 8 ? 3 : 1));
+      }();
+      multiplySmall(multiplier);
+      addSmall(chunk);
+      index += count;
     }
     normalize();
   }

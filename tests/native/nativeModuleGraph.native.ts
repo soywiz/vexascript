@@ -60,7 +60,7 @@ describe("native module graph profiling", () => {
   it("keeps emitter inference without semantic validation for transpile-only native builds", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vexa-native-module-transpile-only-"));
     try {
-      await writeFile(join(directory, "main.vx"), "console.log('native')", "utf8");
+      await writeFile(join(directory, "main.vx"), 'console.log("native")', "utf8");
       const phases: string[] = [];
       const result = await compileNativeModuleGraph(join(directory, "main.vx"), "optimized", {
         typeCheck: false,

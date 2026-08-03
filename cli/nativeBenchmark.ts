@@ -53,8 +53,10 @@ export function median(values: readonly number[]): number {
     : sorted[middle]!;
 }
 
-function parseWorkloadMetrics(output: string): Pick<NativeBenchmarkResult,
-  "arrayMilliseconds" | "bigintMilliseconds" | "eventLoopMilliseconds"> {
+type WorkloadMetrics = Pick<NativeBenchmarkResult,
+  "arrayMilliseconds" | "bigintMilliseconds" | "eventLoopMilliseconds">;
+
+function parseWorkloadMetrics(output: string): WorkloadMetrics {
   const metrics = new Map(output.trim().split("\n").map((line) => {
     const [name, value] = line.split(" ");
     return [name!, Number(value)] as const;
@@ -63,6 +65,16 @@ function parseWorkloadMetrics(output: string): Pick<NativeBenchmarkResult,
     arrayMilliseconds: metrics.get("array_ms") ?? Number.NaN,
     bigintMilliseconds: metrics.get("bigint_ms") ?? Number.NaN,
     eventLoopMilliseconds: metrics.get("event_loop_ms") ?? Number.NaN,
+  };
+}
+
+function medianWorkloadMetrics(
+  runs: readonly WorkloadMetrics[],
+): WorkloadMetrics {
+  return {
+    arrayMilliseconds: median(runs.map((run) => run.arrayMilliseconds)),
+    bigintMilliseconds: median(runs.map((run) => run.bigintMilliseconds)),
+    eventLoopMilliseconds: median(runs.map((run) => run.eventLoopMilliseconds)),
   };
 }
 
@@ -92,18 +104,18 @@ export async function runNativeBenchmark(): Promise<NativeBenchmarkResult> {
     const binaryBytes = (await stat(executablePath)).size;
 
     const workloadRuns = [];
-    let workloadOutput = "";
+    const workloadMetricRuns: WorkloadMetrics[] = [];
     for (let index = 0; index < 5; index += 1) {
       const run = await timedExecution(executablePath);
       workloadRuns.push(run.milliseconds);
-      workloadOutput = run.stdout;
+      workloadMetricRuns.push(parseWorkloadMetrics(run.stdout));
     }
     const nodeWorkloadRuns = [];
-    let nodeWorkloadOutput = "";
+    const nodeWorkloadMetricRuns: WorkloadMetrics[] = [];
     for (let index = 0; index < 5; index += 1) {
       const run = await timedExecution(process.execPath, [javaScriptPath]);
       nodeWorkloadRuns.push(run.milliseconds);
-      nodeWorkloadOutput = run.stdout;
+      nodeWorkloadMetricRuns.push(parseWorkloadMetrics(run.stdout));
     }
 
     const emptySourcePath = join(root, "empty.vx");
@@ -130,7 +142,7 @@ export async function runNativeBenchmark(): Promise<NativeBenchmarkResult> {
     }
     const gcStressMilliseconds = (await timedExecution(stressExecutablePath)).milliseconds;
 
-    const nodeMetrics = parseWorkloadMetrics(nodeWorkloadOutput);
+    const nodeMetrics = medianWorkloadMetrics(nodeWorkloadMetricRuns);
     return {
       platform: process.platform,
       architecture: process.arch,
@@ -139,7 +151,7 @@ export async function runNativeBenchmark(): Promise<NativeBenchmarkResult> {
       startupMedianMilliseconds: median(startupRuns),
       workloadMedianMilliseconds: median(workloadRuns),
       gcStressMilliseconds,
-      ...parseWorkloadMetrics(workloadOutput),
+      ...medianWorkloadMetrics(workloadMetricRuns),
       nodeStartupMedianMilliseconds: median(nodeStartupRuns),
       nodeWorkloadMedianMilliseconds: median(nodeWorkloadRuns),
       nodeArrayMilliseconds: nodeMetrics.arrayMilliseconds,
