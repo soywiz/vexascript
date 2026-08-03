@@ -3742,14 +3742,6 @@ export class TypeChecker {
               ) ?? selectedCallableType
             : selectedCallableType;
           const overloadIndex = Math.max(0, callableCandidates.findIndex((candidate) => candidate === bestCallableType));
-          if (this.validateTypes) {
-            this.selectedCallResolutions.push(new SelectedCallResolution(
-              call,
-              call.callee,
-              bestCallableType,
-              overloadIndex
-            ));
-          }
           const inferenceArgumentTypes = hasNamedArguments
             ? this.reorderNamedArgumentTypes(call.args, preferredInferenceArguments, bestCallableType)
             : this.literalSensitiveInferenceArgumentTypes(
@@ -3801,6 +3793,15 @@ export class TypeChecker {
                 expectedType
               )
             : this.instantiateFunctionType(bestCallableType, explicitTypeArguments, contextualArgumentTypes, expectedType);
+          if (this.validateTypes) {
+            this.selectedCallResolutions.push(new SelectedCallResolution(
+              call,
+              call.callee,
+              bestCallableType,
+              overloadIndex,
+              instantiatedCalleeType
+            ));
+          }
           const constraintDiagnosticNode = call.callee instanceof MemberExpression
             ? (call.callee as MemberExpression).property
             : call.callee;
@@ -5601,6 +5602,13 @@ export class TypeChecker {
   private normalizeLooseNamedType(type: AnalysisType): AnalysisType {
     if (!(type instanceof NamedType)) {
       return type;
+    }
+    const normalizedName = this.normalizeLooseNamedTypeReference(type.name);
+    if (normalizedName !== type.name) {
+      return namedType(
+        normalizedName,
+        type.typeArguments?.map((typeArgument) => this.normalizeLooseNamedType(typeArgument))
+      );
     }
     const computed = this.typeFromComputedTypeNameLoose(type.name);
     if (computed) {
@@ -14861,6 +14869,23 @@ export class TypeChecker {
       || this.namespaceStatementsByName.has(lastSegment)
     ) {
       return lastSegment;
+    }
+    const qualifiedCandidates = new Set<string>();
+    for (const registry of [
+      this.classStatementsByName,
+      this.interfaceStatementsByName,
+      this.enumStatementsByName,
+      this.typeAliasStatementsByName,
+      this.namespaceStatementsByName
+    ]) {
+      for (const candidate of registry.keys()) {
+        if (candidate.endsWith(`.${lastSegment}`)) {
+          qualifiedCandidates.add(candidate);
+        }
+      }
+    }
+    if (qualifiedCandidates.size === 1) {
+      return [...qualifiedCandidates][0]!;
     }
     return baseName;
   }

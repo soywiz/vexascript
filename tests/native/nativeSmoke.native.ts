@@ -41,6 +41,10 @@ const union = set.union(new Set([2, 3]))
 const buffer = new ArrayBuffer(2, { maxByteLength: 4 })
 buffer.resize(3)
 const moved = buffer.transfer()
+declare class TextEncoder {
+  encode(value: string): Uint8Array
+}
+const encoded = TextEncoder().encode("A")
 nativeRunTask(Promise.try(() => { }))
 const deferred = Promise.withResolvers<int>()
 deferred.resolve(3)
@@ -59,6 +63,7 @@ console.log(
   "a-b-a".replaceAll("a", "x"),
   "text".isWellFormed(),
   "text".toWellFormed(),
+  encoded[0],
 )
 `, "utf8");
 
@@ -81,6 +86,7 @@ console.log(
       expect(result.stdout.trim()).toContain("\\x61\\.b");
       expect(result.stdout.trim()).toContain("x-b-x");
       expect(result.stdout.trim()).toContain("0 3 0");
+      expect(result.stdout.trim()).toContain("65");
     } finally {
       await rm(outputRoot, { recursive: true, force: true });
     }
@@ -230,10 +236,11 @@ console.log(mapped, flattened, total)
     const executablePath = join(outputRoot, "duration");
     try {
       await writeFile(sourcePath, `
-const formatter = new Intl.DurationFormat("en", { style: "long" })
+const formatter = new Intl.DurationFormat("en", { style: "long" as "long" })
 const parts = formatter.formatToParts({ seconds: 3 })
 const options = formatter.resolvedOptions()
-console.log(formatter.format({ hours: 1, minutes: 2 }), parts)
+const supported = Intl.DurationFormat.supportedLocalesOf("en")
+console.log(formatter.format({ hours: 1, minutes: 2 }), parts, supported)
 `, "utf8");
 
       await runCli([

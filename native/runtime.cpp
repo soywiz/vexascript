@@ -151,6 +151,10 @@ class Float16ArrayObject;
 std::runtime_error errorAtCurrentSource(std::u16string);
 template <typename T>
 class ArrayObject;
+template <typename T>
+struct ArrayPointerElement {
+  using Type = T;
+};
 template <typename K, typename V>
 class MapObject;
 template <typename T>
@@ -189,7 +193,33 @@ struct TaskTraits<Task<T>> final {
   using Result = T;
 };
 template <typename T>
-struct PromiseResult;
+struct PromiseResult final {
+  using Type = std::remove_cvref_t<T>;
+  static constexpr bool task = false;
+};
+
+template <typename T>
+struct PromiseResult<Task<T>> final {
+  using Type = typename PromiseResult<T>::Type;
+  static constexpr bool task = true;
+};
+
+template <typename T, typename Callback>
+Task<typename PromiseResult<std::invoke_result_t<Callback, T>>::Type> promiseThen(
+    Task<T> source,
+    Callback callback);
+
+template <typename Callback>
+Task<typename PromiseResult<std::invoke_result_t<Callback>>::Type> promiseThen(
+    Task<void> source,
+    Callback callback);
+
+template <typename T, typename Callback>
+Task<T> promiseCatch(Task<T> source, Callback callback);
+
+template <typename T, typename Callback>
+Task<T> promiseFinally(Task<T> source, Callback callback);
+
 template <typename T>
 std::u16string toString(const Task<T>&);
 RecordObject* makeDynamicPropertyRecord();
@@ -305,6 +335,7 @@ class Value final {
   Value(double value) : storage_(value) {}
   Value(int value) : storage_(static_cast<double>(value)) {}
   Value(BigInt value) : storage_(std::move(value)) {}
+  Value(std::u16string value);
   explicit Value(StringObject* value) : storage_(cppgc::Persistent<BaseObject>(value)) {}
   explicit Value(RecordObject* value);
   template <typename T>
@@ -900,8 +931,9 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
         ArraySlot<T>(std::move(value)));
   }
   void prepend(T value) { values_.insert(values_.begin(), ArraySlot<T>(std::move(value))); }
-  double push(T value) {
-    append(std::move(value));
+  template <typename... Items>
+  double push(Items&&... items) {
+    (append(convertValue<T>(std::forward<Items>(items))), ...);
     return static_cast<double>(size());
   }
   T removeLast() {
@@ -918,8 +950,9 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   }
   T pop() { return removeLast(); }
   T shift() { return removeFirst(); }
-  double unshift(T value) {
-    prepend(std::move(value));
+  template <typename... Items>
+  double unshift(Items&&... items) {
+    (prepend(convertValue<T>(std::forward<Items>(items))), ...);
     return static_cast<double>(size());
   }
   ArrayObject* reverse() {
@@ -933,10 +966,12 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   double indexOf(const U& value) const;
   template <typename U>
   double lastIndexOf(const U& value) const;
-  T at(double index) const;
+  template <typename Index>
+  T at(Index index) const;
+  template <typename Start = double, typename End = double>
   ArrayObject* slice(
-      double start = 0,
-      double end = std::numeric_limits<double>::infinity()) const;
+      Start start = 0,
+      End end = std::numeric_limits<double>::infinity()) const;
   template <typename... Items>
   ArrayObject* concat(Items&&... items) const;
   template <typename Callback>
@@ -959,25 +994,35 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   double findLastIndex(Callback callback) const;
   template <typename Callback>
   T findLast(Callback callback) const;
-  template <typename... Items>
+  template <typename Start = double, typename DeleteCount = double, typename... Items>
   ArrayObject* splice(
-      double start,
-      double deleteCount = std::numeric_limits<double>::infinity(),
+      Start start,
+      DeleteCount deleteCount = std::numeric_limits<double>::infinity(),
       Items&&... items);
-  ArrayObject* fill(T value, double start = 0, double end = std::numeric_limits<double>::infinity());
-  ArrayObject* copyWithin(double target, double start, double end = std::numeric_limits<double>::infinity());
+  template <typename Value, typename Start = double, typename End = double>
+  ArrayObject* fill(Value&& value, Start start = 0, End end = std::numeric_limits<double>::infinity());
+  template <typename Target, typename Start, typename End = double>
+  ArrayObject* copyWithin(Target target, Start start, End end = std::numeric_limits<double>::infinity());
   ArrayObject* sort();
   template <typename Callback>
   ArrayObject* sort(Callback callback);
   ArrayObject* toReversed() const;
   ArrayObject* toSorted() const;
-  template <typename... Items>
+  template <typename Callback>
+  ArrayObject* toSorted(Callback callback) const;
+  template <typename Start = double, typename DeleteCount = double, typename... Items>
   ArrayObject* toSpliced(
-      double start,
-      double deleteCount = std::numeric_limits<double>::infinity(),
+      Start start,
+      DeleteCount deleteCount = std::numeric_limits<double>::infinity(),
       Items&&... items) const;
-  ArrayObject* with(double index, T value) const;
-  std::u16string join(const std::u16string& separator = u",") const;
+  template <typename Index, typename Value>
+  ArrayObject* with(Index index, Value&& value) const;
+  template <typename Depth = double>
+  auto flat(Depth depth = 1) const;
+  template <typename Callback>
+  auto flatMap(Callback callback) const;
+  template <typename Separator = std::u16string>
+  std::u16string join(Separator&& separator = std::u16string(u",")) const;
   std::u16string toString() const;
   const void* dynamicTypeToken() const override { return nativeTypeToken<ArrayObject<T>>(); }
   void* dynamicCast(const void* type) override {
@@ -1064,6 +1109,18 @@ inline bool sameValueZero(double left, double right) {
 inline bool sameValueZero(const Value& left, const Value& right) {
   return left == right || (left.isNumber() && right.isNumber() &&
       std::isnan(left.number()) && std::isnan(right.number()));
+}
+
+template <typename Other>
+  requires (!std::is_same_v<std::remove_cvref_t<Other>, Value>)
+inline bool sameValueZero(const Value& left, const Other& right) {
+  return sameValueZero(left, convertValue<Value>(right));
+}
+
+template <typename Other>
+  requires (!std::is_same_v<std::remove_cvref_t<Other>, Value>)
+inline bool sameValueZero(const Other& left, const Value& right) {
+  return sameValueZero(convertValue<Value>(left), right);
 }
 
 template <typename T>
@@ -1161,7 +1218,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
     return this;
   }
 
-  std::optional<V> get(const K& key) const {
+  std::optional<V> find(const K& key) const {
     if (dynamic_backing_) {
       const auto found = dynamic_backing_->dynamicMapGet(convertValue<Value>(key));
       if (!found) return std::nullopt;
@@ -1179,10 +1236,33 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
         : std::optional<V>(storage_->entries[found->second].value.load());
   }
 
+  template <typename Key>
+  V get(Key&& key) const {
+    const auto found = find(convertValue<K>(std::forward<Key>(key)));
+    return found ? *found : defaultValue<V>();
+  }
+
+  template <typename Key>
+  bool vexa_delete(Key&& key) {
+    return erase(convertValue<K>(std::forward<Key>(key)));
+  }
+
   bool has(const K& key) const {
     return dynamic_backing_
       ? dynamic_backing_->dynamicMapGet(convertValue<Value>(key)).has_value()
       : storage_->index.contains(key);
+  }
+
+  template <typename Key>
+  bool has(Key&& key) const {
+    return has(convertValue<K>(std::forward<Key>(key)));
+  }
+
+  template <typename Key, typename Input>
+  MapObject* set(Key&& key, Input&& value) {
+    return set(
+        convertValue<K>(std::forward<Key>(key)),
+        convertValue<V>(std::forward<Input>(value)));
   }
 
   bool erase(const K& key) {
@@ -1229,6 +1309,10 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
     }
   }
 
+  NativeIteratorObject<K>* keys() const;
+  NativeIteratorObject<V>* values() const;
+  NativeIteratorObject<ArrayObject<Value>*>* entries() const;
+
   const void* dynamicTypeToken() const override { return nativeTypeToken<MapObject<K, V>>(); }
   void* dynamicCast(const void* type) override {
     if (type == nativeTypeToken<MapObject<K, V>>()) return this;
@@ -1256,7 +1340,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   }
   std::optional<Value> dynamicMapGet(const Value& key) override {
     if (dynamic_backing_) return dynamic_backing_->dynamicMapGet(key);
-    const auto found = get(convertValue<K>(key));
+    const auto found = find(convertValue<K>(key));
     return found ? std::optional<Value>(convertValue<Value>(*found)) : std::nullopt;
   }
   void dynamicMapSet(const Value& key, const Value& value) override {
@@ -1316,8 +1400,23 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
     return this;
   }
 
+  template <typename Input>
+  SetObject* add(Input&& value) {
+    return add(convertValue<T>(std::forward<Input>(value)));
+  }
+
   bool has(const T& value) const {
     return storage_->index.contains(value);
+  }
+
+  template <typename Input>
+  bool has(Input&& value) const {
+    return has(convertValue<T>(std::forward<Input>(value)));
+  }
+
+  template <typename Input>
+  bool vexa_delete(Input&& value) {
+    return erase(convertValue<T>(std::forward<Input>(value)));
   }
 
   bool erase(const T& value) {
@@ -1347,6 +1446,17 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
       }
     }
   }
+
+  NativeIteratorObject<T>* keys() const;
+  NativeIteratorObject<T>* values() const;
+  NativeIteratorObject<ArrayObject<Value>*>* entries() const;
+  SetObject* vexa_union(const SetObject* other) const;
+  SetObject* intersection(const SetObject* other) const;
+  SetObject* difference(const SetObject* other) const;
+  SetObject* symmetricDifference(const SetObject* other) const;
+  bool isSubsetOf(const SetObject* other) const;
+  bool isSupersetOf(const SetObject* other) const;
+  bool isDisjointFrom(const SetObject* other) const;
 
   const void* dynamicTypeToken() const override { return nativeTypeToken<SetObject<T>>(); }
   void* dynamicCast(const void* type) override {
@@ -1390,14 +1500,33 @@ class WeakMapObject final : public cppgc::GarbageCollected<WeakMapObject<K, V>>,
     return this;
   }
 
-  std::optional<V> get(K key) const {
+  std::optional<V> find(K key) const {
     const auto found = index_.find(key);
     return found == index_.end()
         ? std::nullopt
         : std::optional<V>(entries_[found->second]->value.load());
   }
 
-  bool has(K key) const { return get(key).has_value(); }
+  template <typename Key>
+  V get(Key&& key) const {
+    const auto found = find(convertValue<K>(std::forward<Key>(key)));
+    return found ? *found : defaultValue<V>();
+  }
+
+  template <typename Key>
+  bool vexa_delete(Key&& key) {
+    return erase(convertValue<K>(std::forward<Key>(key)));
+  }
+
+  bool has(K key) const { return find(key).has_value(); }
+
+  template <typename Key>
+  bool has(Key&& key) const { return find(convertValue<K>(std::forward<Key>(key))).has_value(); }
+
+  template <typename Key, typename Input>
+  WeakMapObject* set(Key&& key, Input&& value) {
+    return set(convertValue<K>(std::forward<Key>(key)), convertValue<V>(std::forward<Input>(value)));
+  }
   bool erase(K key) {
     const auto found = index_.find(key);
     if (found == index_.end()) return false;
@@ -1461,8 +1590,23 @@ class WeakSetObject final : public cppgc::GarbageCollected<WeakSetObject<T>>, pu
     if (index_.insert(value).second) values_.emplace_back(makeManaged<Entry>(value));
     return this;
   }
+
+  template <typename Input>
+  WeakSetObject* add(Input&& value) {
+    return add(convertValue<T>(std::forward<Input>(value)));
+  }
   bool has(T value) const {
     return index_.contains(value);
+  }
+
+  template <typename Input>
+  bool has(Input&& value) const {
+    return has(convertValue<T>(std::forward<Input>(value)));
+  }
+
+  template <typename Input>
+  bool vexa_delete(Input&& value) {
+    return erase(convertValue<T>(std::forward<Input>(value)));
   }
   bool erase(T value) {
     if (index_.erase(value) == 0) return false;
@@ -1714,16 +1858,20 @@ class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject
   bool resizable() const { return !detached_ && resizable_; }
   bool growable() const { return resizable(); }
   bool detached() const { return detached_; }
-  void resize(std::size_t byteLength) {
+  void resizeBytes(std::size_t byteLength) {
     if (detached_ || !resizable_) throw runtimeError(u"ArrayBuffer is not resizable");
     if (byteLength > max_byte_length_) throw runtimeError(u"ArrayBuffer resize exceeds maxByteLength");
     bytes_->resize(byteLength, 0);
   }
-  void grow(std::size_t targetByteLength) {
+  void growBytes(std::size_t targetByteLength) {
     if (targetByteLength < this->byteLength()) throw runtimeError(u"SharedArrayBuffer cannot shrink");
-    resize(targetByteLength);
+    resizeBytes(targetByteLength);
   }
-  ArrayBufferObject* transfer(std::size_t byteLength, bool fixedLength);
+  void resize(double byteLength);
+  void grow(double targetByteLength);
+  ArrayBufferObject* transfer(double newByteLength = std::numeric_limits<double>::quiet_NaN());
+  ArrayBufferObject* transferToFixedLength(double newByteLength = std::numeric_limits<double>::quiet_NaN());
+  ArrayBufferObject* transferBytes(std::size_t byteLength, bool fixedLength);
   std::uint8_t* data() { return bytes_->data(); }
   const std::uint8_t* data() const { return bytes_->data(); }
   std::shared_ptr<std::vector<std::uint8_t>> sharedBytes() const { return bytes_; }
@@ -1757,7 +1905,7 @@ inline ArrayBufferObject* arrayBufferTransfer(
   const auto length = std::isnan(newByteLength)
     ? std::numeric_limits<std::size_t>::max()
     : static_cast<std::size_t>(std::max(0.0, std::trunc(newByteLength)));
-  return buffer->transfer(length, fixedLength);
+  return buffer->transferBytes(length, fixedLength);
 }
 
 class FFIPointerObject final : public cppgc::GarbageCollected<FFIPointerObject>, public BaseObject {
@@ -1865,6 +2013,25 @@ class Uint8ArrayObject final : public cppgc::GarbageCollected<Uint8ArrayObject>,
   cppgc::Member<ArrayBufferObject> buffer_;
   std::size_t byte_offset_;
   std::size_t length_;
+};
+
+class TextEncoderObject final
+    : public cppgc::GarbageCollected<TextEncoderObject>,
+      public BaseObject {
+ public:
+  TextEncoderObject() : BaseObject(Kind::Record) {}
+
+  Uint8ArrayObject* encode(const std::u16string& source) const;
+  RecordObject* encodeInto(const std::u16string& source, Uint8ArrayObject* destination) const;
+  std::u16string encoding = u"utf-8";
+
+  const void* dynamicTypeToken() const override { return nativeTypeToken<TextEncoderObject>(); }
+  void* dynamicCast(const void* type) override {
+    if (type == nativeTypeToken<TextEncoderObject>()) return this;
+    return type == nativeTypeToken<BaseObject>() ? static_cast<BaseObject*>(this) : nullptr;
+  }
+  std::u16string dynamicToString() const override { return u"[object TextEncoder]"; }
+  void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); }
 };
 
 class Uint32ArrayObject final : public cppgc::GarbageCollected<Uint32ArrayObject>, public BaseObject {
@@ -2096,8 +2263,8 @@ class Float16ArrayObject final : public cppgc::GarbageCollected<Float16ArrayObje
   double reduceRight(Callback callback, double initial) const;
   Float16ArrayObject* reverse();
   template <typename T>
-  void setValues(const ArrayObject<T>* values, double offset = 0);
-  void setValues(const Float16ArrayObject* values, double offset = 0);
+  void set(const ArrayObject<T>* values, double offset = 0);
+  void set(const Float16ArrayObject* values, double offset = 0);
   Float16ArrayObject* slice(double start = 0, double end = std::numeric_limits<double>::infinity()) const;
   template <typename Callback>
   bool some(Callback callback) const;
@@ -2160,6 +2327,27 @@ class NativeIteratorObject final
     position_ = values_.size();
     return result;
   }
+  template <typename Callback>
+  auto map(Callback callback);
+  template <typename Callback>
+  NativeIteratorObject* filter(Callback callback);
+  NativeIteratorObject* take(double limit);
+  NativeIteratorObject* drop(double count);
+  template <typename Callback, typename Accumulator>
+  Accumulator reduce(Callback callback, Accumulator accumulator);
+  template <typename Callback>
+  T reduce(Callback callback);
+  template <typename Callback>
+  auto flatMap(Callback callback);
+  template <typename Callback>
+  void forEach(Callback callback);
+  template <typename Callback>
+  bool some(Callback callback);
+  template <typename Callback>
+  bool every(Callback callback);
+  template <typename Callback>
+  T find(Callback callback);
+  ArrayObject<T>* toArray();
   const std::vector<T>& values() const { return values_; }
   std::size_t position() const { return position_; }
   const void* dynamicTypeToken() const override { return nativeTypeToken<NativeIteratorObject<T>>(); }
@@ -2640,6 +2828,18 @@ inline bool regexTest(const RegExp& expression, const Value& value) {
   return expression.test(value.isString() ? value.string() : u"");
 }
 
+// Primitive ambient members use their declaration names at the C++ call
+// boundary.  The string-prefixed helpers below are implementation details;
+// these overloads keep the native ABI aligned with String and RegExp without
+// making the emitter maintain a second method-name table.
+inline bool test(const RegExp& expression, const std::u16string& value) {
+  return regexTest(expression, value);
+}
+
+inline bool test(const RegExp& expression, const Value& value) {
+  return regexTest(expression, value);
+}
+
 inline std::u16string stringReplace(const std::u16string& value, const RegExp& expression, const Value& replacement) {
   return expression.replace(value, toString(replacement));
 }
@@ -2678,6 +2878,18 @@ inline std::u16string stringReplace(const Value& value, const std::u16string& se
 
 inline std::u16string stringReplace(const Value& value, const std::u16string& search, const Value& replacement) {
   return stringReplace(requireString(value), search, requireString(replacement));
+}
+
+template <typename... Arguments>
+inline auto replace(const std::u16string& value, Arguments&&... arguments)
+    -> decltype(stringReplace(value, std::forward<Arguments>(arguments)...)) {
+  return stringReplace(value, std::forward<Arguments>(arguments)...);
+}
+
+template <typename... Arguments>
+inline auto replace(const Value& value, Arguments&&... arguments)
+    -> decltype(stringReplace(value, std::forward<Arguments>(arguments)...)) {
+  return stringReplace(value, std::forward<Arguments>(arguments)...);
 }
 
 inline std::u16string stringReplaceAll(
@@ -2719,6 +2931,18 @@ inline std::u16string stringReplaceAll(
     const RegExp& expression,
     const std::u16string& replacement) {
   return expression.replace(value, replacement);
+}
+
+template <typename... Arguments>
+inline auto replaceAll(const std::u16string& value, Arguments&&... arguments)
+    -> decltype(stringReplaceAll(value, std::forward<Arguments>(arguments)...)) {
+  return stringReplaceAll(value, std::forward<Arguments>(arguments)...);
+}
+
+template <typename... Arguments>
+inline auto replaceAll(const Value& value, Arguments&&... arguments)
+    -> decltype(stringReplaceAll(value, std::forward<Arguments>(arguments)...)) {
+  return stringReplaceAll(value, std::forward<Arguments>(arguments)...);
 }
 
 inline std::u16string regexEscape(const std::u16string& value) {
@@ -3036,6 +3260,9 @@ class Runtime final {
   inline static std::priority_queue<ScheduledTimer, std::vector<ScheduledTimer>, EarlierTimer> scheduledTimers_;
 };
 
+inline Value::Value(std::u16string value)
+    : storage_(cppgc::Persistent<BaseObject>(Runtime::string(std::move(value)).object())) {}
+
 template <typename T, typename... Arguments>
 inline T* makeManaged(Arguments&&... arguments) {
   return Runtime::make<T>(std::forward<Arguments>(arguments)...);
@@ -3186,7 +3413,23 @@ inline ArrayObject<std::u16string>* durationFormatSupportedLocales(const Value& 
   return result;
 }
 
-inline ArrayBufferObject* ArrayBufferObject::transfer(
+inline void ArrayBufferObject::resize(double byteLength) {
+  resizeBytes(static_cast<std::size_t>(std::max(0.0, std::trunc(byteLength))));
+}
+
+inline void ArrayBufferObject::grow(double targetByteLength) {
+  growBytes(static_cast<std::size_t>(std::max(0.0, std::trunc(targetByteLength))));
+}
+
+inline ArrayBufferObject* ArrayBufferObject::transfer(double newByteLength) {
+  return arrayBufferTransfer(this, newByteLength, false);
+}
+
+inline ArrayBufferObject* ArrayBufferObject::transferToFixedLength(double newByteLength) {
+  return arrayBufferTransfer(this, newByteLength, true);
+}
+
+inline ArrayBufferObject* ArrayBufferObject::transferBytes(
     std::size_t byteLength,
     bool fixedLength) {
   const std::size_t targetLength = byteLength == std::numeric_limits<std::size_t>::max()
@@ -3379,14 +3622,14 @@ inline Float16ArrayObject* Float16ArrayObject::reverse() {
 }
 
 template <typename T>
-inline void Float16ArrayObject::setValues(const ArrayObject<T>* values, double offset) {
+inline void Float16ArrayObject::set(const ArrayObject<T>* values, double offset) {
   if (!values) return;
   const auto start = static_cast<std::size_t>(std::max(0.0, std::trunc(offset)));
   if (start + values->size() > length_) throw std::out_of_range("Float16Array.set source is out of range");
   for (std::size_t index = 0; index < values->size(); ++index) set(start + index, convertValue<double>(values->get(index)));
 }
 
-inline void Float16ArrayObject::setValues(const Float16ArrayObject* values, double offset) {
+inline void Float16ArrayObject::set(const Float16ArrayObject* values, double offset) {
   if (!values) return;
   const auto start = static_cast<std::size_t>(std::max(0.0, std::trunc(offset)));
   if (start + values->length() > length_) throw std::out_of_range("Float16Array.set source is out of range");
@@ -3510,10 +3753,48 @@ inline Float16ArrayObject* Float16ArrayObject::with(double index, double value) 
   return result;
 }
 
+template <typename Signature>
+struct CallableFirstArgument;
+
+template <typename Result, typename Owner, typename First, typename... Arguments>
+struct CallableFirstArgument<Result (Owner::*)(First, Arguments...) const> {
+  using type = First;
+};
+
+template <typename Result, typename Owner, typename First, typename... Arguments>
+struct CallableFirstArgument<Result (Owner::*)(First, Arguments...)> {
+  using type = First;
+};
+
+template <typename Callable, typename = void>
+struct CallableFirstArgumentForObject {};
+
+template <typename Callable>
+struct CallableFirstArgumentForObject<
+    Callable,
+    std::void_t<decltype(&Callable::operator())>>
+    : CallableFirstArgument<decltype(&Callable::operator())> {};
+
+template <typename Result, typename First, typename... Arguments>
+struct CallableFirstArgumentForObject<std::function<Result(First, Arguments...)>> {
+  using type = First;
+};
+
 template <typename Callback, typename T>
 inline decltype(auto) invokeNativeIteratorCallback(Callback& callback, T value, std::size_t index) {
   if constexpr (std::is_invocable_v<Callback, T, double>) {
     return callback(std::move(value), static_cast<double>(index));
+  } else if constexpr (std::is_invocable_v<Callback, T>) {
+    return callback(std::move(value));
+  } else if constexpr (requires { typename CallableFirstArgumentForObject<Callback>::type; }) {
+    using First = typename CallableFirstArgumentForObject<Callback>::type;
+    using Converted = std::remove_cvref_t<First>;
+    auto converted = convertValue<Converted>(std::move(value));
+    if constexpr (requires { callback(converted, static_cast<double>(index)); }) {
+      return callback(std::move(converted), static_cast<double>(index));
+    } else {
+      return callback(std::move(converted));
+    }
   } else {
     return callback(std::move(value));
   }
@@ -3541,6 +3822,63 @@ inline ArrayObject<T>* iteratorToArray(NativeIteratorObject<T>* iterator) {
   if (!iterator) return result;
   for (auto& value : iterator->takeRemaining()) result->append(std::move(value));
   return result;
+}
+
+template <typename T>
+inline ArrayObject<T>* NativeIteratorObject<T>::toArray() {
+  auto* result = Runtime::array<T>();
+  for (auto& value : takeRemaining()) result->append(std::move(value));
+  return result;
+}
+
+template <typename K, typename V>
+inline NativeIteratorObject<K>* MapObject<K, V>::keys() const {
+  std::vector<K> result;
+  result.reserve(size());
+  forEach([&](V, K key) { result.push_back(std::move(key)); });
+  return Runtime::make<NativeIteratorObject<K>>(std::move(result));
+}
+
+template <typename K, typename V>
+inline NativeIteratorObject<V>* MapObject<K, V>::values() const {
+  std::vector<V> result;
+  result.reserve(size());
+  forEach([&](V value) { result.push_back(std::move(value)); });
+  return Runtime::make<NativeIteratorObject<V>>(std::move(result));
+}
+
+template <typename K, typename V>
+inline NativeIteratorObject<ArrayObject<Value>*>* MapObject<K, V>::entries() const {
+  std::vector<ArrayObject<Value>*> result;
+  result.reserve(size());
+  forEach([&](V value, K key) {
+    result.push_back(Runtime::array<Value>({convertValue<Value>(key), convertValue<Value>(value)}));
+  });
+  return Runtime::make<NativeIteratorObject<ArrayObject<Value>*>>(std::move(result));
+}
+
+template <typename T>
+inline NativeIteratorObject<T>* SetObject<T>::keys() const {
+  std::vector<T> result;
+  result.reserve(size());
+  forEach([&](T value) { result.push_back(std::move(value)); });
+  return Runtime::make<NativeIteratorObject<T>>(std::move(result));
+}
+
+template <typename T>
+inline NativeIteratorObject<T>* SetObject<T>::values() const {
+  return keys();
+}
+
+template <typename T>
+inline NativeIteratorObject<ArrayObject<Value>*>* SetObject<T>::entries() const {
+  std::vector<ArrayObject<Value>*> result;
+  result.reserve(size());
+  forEach([&](T value) {
+    const auto converted = convertValue<Value>(value);
+    result.push_back(Runtime::array<Value>({converted, converted}));
+  });
+  return Runtime::make<NativeIteratorObject<ArrayObject<Value>*>>(std::move(result));
 }
 
 template <typename Result, typename Input>
@@ -3711,6 +4049,70 @@ inline T iteratorFind(NativeIteratorObject<T>* iterator, Callback callback) {
 }
 
 template <typename T>
+template <typename Callback>
+inline auto NativeIteratorObject<T>::map(Callback callback) {
+  return iteratorMap(this, std::move(callback));
+}
+
+template <typename T>
+template <typename Callback>
+inline NativeIteratorObject<T>* NativeIteratorObject<T>::filter(Callback callback) {
+  return iteratorFilter(this, std::move(callback));
+}
+
+template <typename T>
+inline NativeIteratorObject<T>* NativeIteratorObject<T>::take(double limit) {
+  return iteratorTake(this, limit);
+}
+
+template <typename T>
+inline NativeIteratorObject<T>* NativeIteratorObject<T>::drop(double count) {
+  return iteratorDrop(this, count);
+}
+
+template <typename T>
+template <typename Callback, typename Accumulator>
+inline Accumulator NativeIteratorObject<T>::reduce(Callback callback, Accumulator accumulator) {
+  return iteratorReduce(this, std::move(callback), std::move(accumulator));
+}
+
+template <typename T>
+template <typename Callback>
+inline T NativeIteratorObject<T>::reduce(Callback callback) {
+  return iteratorReduce(this, std::move(callback));
+}
+
+template <typename T>
+template <typename Callback>
+inline auto NativeIteratorObject<T>::flatMap(Callback callback) {
+  return iteratorFlatMap(this, std::move(callback));
+}
+
+template <typename T>
+template <typename Callback>
+inline void NativeIteratorObject<T>::forEach(Callback callback) {
+  iteratorForEach(this, std::move(callback));
+}
+
+template <typename T>
+template <typename Callback>
+inline bool NativeIteratorObject<T>::some(Callback callback) {
+  return iteratorSome(this, std::move(callback));
+}
+
+template <typename T>
+template <typename Callback>
+inline bool NativeIteratorObject<T>::every(Callback callback) {
+  return iteratorEvery(this, std::move(callback));
+}
+
+template <typename T>
+template <typename Callback>
+inline T NativeIteratorObject<T>::find(Callback callback) {
+  return iteratorFind(this, std::move(callback));
+}
+
+template <typename T>
 inline ArrayObject<T>* makeArray(std::initializer_list<T> values = {}) {
   return Runtime::array<T>(values);
 }
@@ -3779,6 +4181,14 @@ inline ArrayObject<Value>* regexExec(const RegExp& expression, const std::u16str
 
 inline ArrayObject<Value>* regexExec(const RegExp& expression, const Value& value) {
   return regexExec(expression, value.isString() ? value.string() : std::u16string());
+}
+
+inline ArrayObject<Value>* exec(const RegExp& expression, const std::u16string& value) {
+  return regexExec(expression, value);
+}
+
+inline ArrayObject<Value>* exec(const RegExp& expression, const Value& value) {
+  return regexExec(expression, value);
 }
 
 template <typename T>
@@ -3850,6 +4260,74 @@ inline Null toNull(const Value& value) {
 
 inline Error toError(Error value) { return value; }
 
+template <typename Function>
+struct CallableArity;
+
+template <typename Result, typename Owner>
+struct CallableArity<Result (Owner::*)() const> {
+  static constexpr std::size_t value = 0;
+};
+
+template <typename Result, typename Owner, typename First, typename... Arguments>
+struct CallableArity<Result (Owner::*)(First, Arguments...) const> {
+  static constexpr std::size_t value = sizeof...(Arguments) + 1;
+};
+
+template <typename Result, typename Owner>
+struct CallableArity<Result (Owner::*)()> {
+  static constexpr std::size_t value = 0;
+};
+
+template <typename Result, typename Owner, typename First, typename... Arguments>
+struct CallableArity<Result (Owner::*)(First, Arguments...)> {
+  static constexpr std::size_t value = sizeof...(Arguments) + 1;
+};
+
+template <typename Callable, typename = void>
+struct CallableArityForObject {};
+
+template <typename Callable>
+struct CallableArityForObject<
+    Callable,
+    std::void_t<decltype(&Callable::operator())>>
+    : CallableArity<decltype(&Callable::operator())> {};
+
+template <typename Result, typename... Arguments>
+struct CallableArityForObject<std::function<Result(Arguments...)>> {
+  static constexpr std::size_t value = sizeof...(Arguments);
+};
+
+template <typename Callable, typename Tuple, std::size_t... Indices>
+decltype(auto) invokeFunctionPrefix(
+    Callable& callable,
+    Tuple&& arguments,
+    std::index_sequence<Indices...>) {
+  return callable(std::get<Indices>(std::forward<Tuple>(arguments))...);
+}
+
+template <typename Result, typename Input, typename TargetResult, typename... Arguments>
+Result adaptStdFunction(
+    Input&& input,
+    std::type_identity<std::function<TargetResult(Arguments...)>>) {
+  using Source = std::remove_cvref_t<Input>;
+  return Result([
+      source = std::forward<Input>(input)](Arguments... arguments) mutable -> TargetResult {
+    auto values = std::forward_as_tuple(std::move(arguments)...);
+    constexpr std::size_t count = std::min(
+        CallableArityForObject<Source>::value,
+        sizeof...(Arguments));
+    if constexpr (std::is_same_v<TargetResult, void>) {
+      invokeFunctionPrefix(source, std::move(values), std::make_index_sequence<count>{});
+    } else {
+      return convertValue<TargetResult>(invokeFunctionPrefix(
+          source,
+          std::move(values),
+          std::make_index_sequence<count>{}));
+    }
+  });
+}
+
+
 template <typename Result, typename Input>
   requires IsStdFunction<Result>::value
 Result toFunction(Input&& input) {
@@ -3858,6 +4336,10 @@ Result toFunction(Input&& input) {
     return std::forward<Input>(input);
   } else if constexpr (std::is_same_v<Source, Value>) {
     return functionFromValue<Result>(input);
+  } else if constexpr (requires { CallableArityForObject<Source>::value; }) {
+    return adaptStdFunction<Result>(
+        std::forward<Input>(input),
+        std::type_identity<Result>{});
   } else {
     return Result(std::forward<Input>(input));
   }
@@ -4179,7 +4661,7 @@ T& nullishAssign(T& target, Callback&& fallback) {
 
 template <typename K, typename V, typename Key>
 inline V mapGet(const MapObject<K, V>* map, Key&& key) {
-  const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
+  const auto found = map->find(convertValue<K>(std::forward<Key>(key)));
   if (found) return *found;
   if constexpr (std::is_same_v<V, Value>) return Value::undefined();
   return V{};
@@ -4187,7 +4669,7 @@ inline V mapGet(const MapObject<K, V>* map, Key&& key) {
 
 template <typename K, typename V, typename Key>
 inline Value mapGetValue(const MapObject<K, V>* map, Key&& key) {
-  const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
+  const auto found = map->find(convertValue<K>(std::forward<Key>(key)));
   return found ? convertValue<Value>(*found) : Value::undefined();
 }
 
@@ -4499,6 +4981,41 @@ inline bool setIsDisjointFrom(const SetObject<T>* left, const SetObject<T>* righ
   return result;
 }
 
+template <typename T>
+inline SetObject<T>* SetObject<T>::vexa_union(const SetObject* other) const {
+  return setUnion(const_cast<SetObject*>(this), other);
+}
+
+template <typename T>
+inline SetObject<T>* SetObject<T>::intersection(const SetObject* other) const {
+  return setIntersection(const_cast<SetObject*>(this), other);
+}
+
+template <typename T>
+inline SetObject<T>* SetObject<T>::difference(const SetObject* other) const {
+  return setDifference(const_cast<SetObject*>(this), other);
+}
+
+template <typename T>
+inline SetObject<T>* SetObject<T>::symmetricDifference(const SetObject* other) const {
+  return setSymmetricDifference(const_cast<SetObject*>(this), other);
+}
+
+template <typename T>
+inline bool SetObject<T>::isSubsetOf(const SetObject* other) const {
+  return setIsSubsetOf(this, other);
+}
+
+template <typename T>
+inline bool SetObject<T>::isSupersetOf(const SetObject* other) const {
+  return setIsSupersetOf(this, other);
+}
+
+template <typename T>
+inline bool SetObject<T>::isDisjointFrom(const SetObject* other) const {
+  return setIsDisjointFrom(this, other);
+}
+
 template <typename Callback, typename T>
 inline decltype(auto) invokeGroupingCallback(
     Callback& callback,
@@ -4523,7 +5040,7 @@ inline auto mapGroupBy(const ArrayObject<T>* items, Callback callback) {
   for (std::size_t index = 0; index < items->size(); ++index) {
     const auto key = invokeGroupingCallback(callback, items->get(index), index, items);
     const auto existing = result->get(key);
-    auto* group = existing ? *existing : Runtime::array<T>();
+    auto* group = existing ? existing : Runtime::array<T>();
     group->append(items->get(index));
     result->set(key, group);
   }
@@ -4538,7 +5055,7 @@ inline MapObject<Value, ArrayObject<Value>*>* mapGroupBy(
   for (const auto value : dynamicIterationRange(items)) {
     const Value key = callback(value, static_cast<double>(index++));
     const auto existing = result->get(key);
-    auto* group = existing ? *existing : Runtime::array<Value>();
+    auto* group = existing ? existing : Runtime::array<Value>();
     group->append(value);
     result->set(key, group);
   }
@@ -4631,7 +5148,7 @@ inline WeakSetObject<T>* weakSetFromArray(const ArrayObject<Input>* values) {
 
 template <typename K, typename V, typename Key>
 inline V weakMapGet(WeakMapObject<K, V>* map, Key&& key) {
-  const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
+  const auto found = map->find(convertValue<K>(std::forward<Key>(key)));
   if (found) return *found;
   if constexpr (std::is_same_v<V, Value>) return Value::undefined();
   return V{};
@@ -4692,6 +5209,25 @@ inline Uint8ArrayObject* makeUint8Array(const std::u16string& value) {
   for (std::size_t index = 0; index < encoded.size(); ++index) {
     result->set(index, static_cast<double>(static_cast<unsigned char>(encoded[index])));
   }
+  return result;
+}
+
+inline Uint8ArrayObject* TextEncoderObject::encode(const std::u16string& source) const {
+  return makeUint8Array(source);
+}
+
+inline RecordObject* TextEncoderObject::encodeInto(
+    const std::u16string& source,
+    Uint8ArrayObject* destination) const {
+  if (!destination) throw runtimeError(u"TextEncoder.encodeInto requires a destination");
+  const auto encoded = utf16ToUtf8(source);
+  const auto written = std::min(encoded.size(), destination->length());
+  for (std::size_t index = 0; index < written; ++index) {
+    destination->set(index, static_cast<double>(static_cast<unsigned char>(encoded[index])));
+  }
+  auto* result = Runtime::record();
+  result->set(u"read", Value(static_cast<double>(source.size())));
+  result->set(u"written", Value(static_cast<double>(written)));
   return result;
 }
 
@@ -5633,6 +6169,21 @@ class Task final {
 
   std::exception_ptr settledError() const { return state_->error; }
 
+  template <typename Callback>
+  auto then(Callback callback) {
+    return promiseThen(*this, std::move(callback));
+  }
+
+  template <typename Callback>
+  auto vexa_catch(Callback callback) {
+    return promiseCatch(*this, std::move(callback));
+  }
+
+  template <typename Callback>
+  auto finally(Callback callback) {
+    return promiseFinally(*this, std::move(callback));
+  }
+
  private:
   class Resolver final {
    public:
@@ -5797,6 +6348,21 @@ class Task<void> final {
 
   std::exception_ptr settledError() const { return state_->error; }
 
+  template <typename Callback>
+  auto then(Callback callback) {
+    return promiseThen(*this, std::move(callback));
+  }
+
+  template <typename Callback>
+  auto vexa_catch(Callback callback) {
+    return promiseCatch(*this, std::move(callback));
+  }
+
+  template <typename Callback>
+  auto finally(Callback callback) {
+    return promiseFinally(*this, std::move(callback));
+  }
+
  private:
   class Resolver final {
    public:
@@ -5872,7 +6438,7 @@ class PromiseResolvers final
   PromiseResolvers() {
     auto resolve = std::make_shared<std::function<void(T)>>();
     auto reject = std::make_shared<std::function<void(Value)>>();
-    promise_ = Task<T>::create([resolve, reject](auto complete, auto fail) mutable {
+    promise = Task<T>::create([resolve, reject](auto complete, auto fail) mutable {
       *resolve = std::move(complete);
       *reject = [fail](Value reason) mutable { fail(std::move(reason)); };
     });
@@ -5880,7 +6446,6 @@ class PromiseResolvers final
     reject_ = std::move(reject);
   }
 
-  Task<T> promise() const { return promise_; }
   void resolve(T value) const { (*resolve_)(std::move(value)); }
   void reject(Value reason) const { (*reject_)(std::move(reason)); }
 
@@ -5904,8 +6469,9 @@ class PromiseResolvers final
     BaseObject::Trace(visitor);
   }
 
+  Task<T> promise;
+
  private:
-  Task<T> promise_;
   std::shared_ptr<std::function<void(T)>> resolve_;
   std::shared_ptr<std::function<void(Value)>> reject_;
 };
@@ -6378,6 +6944,14 @@ class BasicGenerator final {
     return wrapNext({true, std::move(value)});
   }
 
+  NextResult vexa_return() {
+    return finish();
+  }
+
+  NextResult vexa_return(T value) {
+    return finish(std::move(value));
+  }
+
   class Iterator final {
    public:
     explicit Iterator(BasicGenerator* generator) : generator_(generator) { advance(); }
@@ -6467,6 +7041,13 @@ inline void appendAll(ArrayObject<T>* target, const ArrayObject<U>* source) {
 }
 
 template <typename T, typename U>
+inline void appendAll(ArrayObject<T>* target, NativeIteratorObject<U>* source) {
+  if (!source) return;
+  auto* values = source->toArray();
+  appendAll(target, values);
+}
+
+template <typename T, typename U>
 inline void appendAll(ArrayObject<T>* target, SetObject<U>* source) {
   source->forEach([&](U value) {
     target->append(convertValue<T>(value));
@@ -6491,9 +7072,13 @@ inline void appendAll(ArrayObject<T>* target, const Value& source) {
   }
 }
 
-template <typename T>
-inline double pushAll(ArrayObject<T>* target, const ArrayObject<T>* source) {
-  appendAll(target, source);
+template <typename T, typename U>
+inline double pushAll(ArrayObject<T>* target, const ArrayObject<U>* source) {
+  if (source) {
+    for (std::size_t index = 0; index < source->size(); ++index) {
+      target->append(convertValue<T>(source->get(index)));
+    }
+  }
   return static_cast<double>(target->size());
 }
 
@@ -6509,6 +7094,13 @@ inline void appendAllConverted(ArrayObject<Value>* target, const ArrayObject<T>*
   for (std::size_t index = 0; index < source->size(); ++index) {
     target->append(convertValue<Value>(source->get(index)));
   }
+}
+
+template <typename T>
+inline void appendAllConverted(ArrayObject<Value>* target, NativeIteratorObject<T>* source) {
+  if (!source) return;
+  auto* values = source->toArray();
+  appendAllConverted(target, values);
 }
 
 inline void appendAllConverted(ArrayObject<Value>* target, const std::u16string& source) {
@@ -6612,8 +7204,10 @@ inline double lastIndexOf(const ArrayObject<T>* array, const U& value) {
 }
 
 template <typename T>
-inline T ArrayObject<T>::at(double index) const {
-  const auto integer = static_cast<std::int64_t>(index);
+template <typename Index>
+inline T ArrayObject<T>::at(Index index) const {
+  const double numericIndex = convertValue<double>(std::forward<Index>(index));
+  const auto integer = static_cast<std::int64_t>(numericIndex);
   const auto resolved = integer < 0 ? static_cast<std::int64_t>(size()) + integer : integer;
   return resolved < 0 || resolved >= static_cast<std::int64_t>(size())
       ? T{}
@@ -6691,10 +7285,13 @@ inline std::vector<T> slice(const std::vector<T>& array, double start = 0, doubl
 }
 
 template <typename T>
-inline ArrayObject<T>* ArrayObject<T>::slice(double start, double end) const {
+template <typename Start, typename End>
+inline ArrayObject<T>* ArrayObject<T>::slice(Start start, End end) const {
+  const double numericStart = convertValue<double>(std::forward<Start>(start));
+  const double numericEnd = convertValue<double>(std::forward<End>(end));
   auto* result = Runtime::array<T>();
-  const std::size_t first = normalizedSliceIndex(start, size());
-  const std::size_t last = std::isinf(end) ? size() : normalizedSliceIndex(end, size());
+  const std::size_t first = normalizedSliceIndex(numericStart, size());
+  const std::size_t last = std::isinf(numericEnd) ? size() : normalizedSliceIndex(numericEnd, size());
   result->reserve(last > first ? last - first : 0);
   for (std::size_t index = first; index < last; ++index) result->append(get(index));
   return result;
@@ -6712,14 +7309,15 @@ inline std::vector<T> concat(const std::vector<T>& array, const std::vector<T>& 
   return result;
 }
 
-template <typename T>
-inline void appendConcatItem(ArrayObject<T>* result, T value) {
-  result->append(std::move(value));
+template <typename T, typename Value>
+inline void appendConcatItem(ArrayObject<T>* result, Value&& value) {
+  result->append(convertValue<T>(std::forward<Value>(value)));
 }
 
-template <typename T>
-inline void appendConcatItem(ArrayObject<T>* result, const ArrayObject<T>* values) {
-  appendAll(result, values);
+template <typename T, typename U>
+inline void appendConcatItem(ArrayObject<T>* result, const ArrayObject<U>* values) {
+  if (!values) return;
+  for (const auto& value : *values) result->append(convertValue<T>(value));
 }
 
 template <typename T>
@@ -6764,6 +7362,25 @@ struct CallableFirstArgumentFromObject<
     std::void_t<decltype(&Callable::operator())>>
     : CallableFirstArgumentFromMemberFunction<decltype(&Callable::operator())> {};
 
+template <typename Callable>
+struct CallableArgumentTypes {};
+
+template <typename Result, typename First, typename... Arguments>
+struct CallableArgumentTypes<std::function<Result(First, Arguments...)>> {
+  using FirstArgument = std::remove_cvref_t<First>;
+};
+
+template <typename Target, typename Source>
+cppgc::Persistent<ArrayObject<Target>> convertedCallbackArray(
+    const ArrayObject<Source>* source) {
+  cppgc::Persistent<ArrayObject<Target>> result(Runtime::array<Target>());
+  if (!source) return result;
+  for (std::size_t index = 0; index < source->size(); ++index) {
+    result->append(convertValue<Target>(source->get(index)));
+  }
+  return result;
+}
+
 template <typename Callback, typename T>
 inline decltype(auto) invokeArrayCallback(
     Callback& callback,
@@ -6778,17 +7395,29 @@ inline decltype(auto) invokeArrayCallback(
   } else if constexpr (std::is_invocable_v<Callback, T>) {
     return callback(std::move(value));
   } else {
-    if constexpr (std::is_same_v<T, Value>) {
-      if constexpr (requires { typename CallableFirstArgumentFromObject<Callback>::type; }) {
-        using FirstArgument = typename CallableFirstArgumentFromObject<Callback>::type;
-        if constexpr (std::is_invocable_v<Callback, FirstArgument>) {
-          if constexpr (std::is_pointer_v<FirstArgument>) {
-            return callback(toInstanceOrNull<FirstArgument>(value));
-          } else {
-            return callback(convertValue<FirstArgument>(value));
-          }
+    using CallableTypes = CallableArgumentTypes<std::remove_cvref_t<Callback>>;
+    if constexpr (requires { typename CallableTypes::FirstArgument; }) {
+      using FirstArgument = typename CallableTypes::FirstArgument;
+      if constexpr (std::is_invocable_v<Callback, FirstArgument, double, ArrayObject<FirstArgument>*>) {
+        auto convertedArray = convertedCallbackArray<FirstArgument>(array);
+        return callback(
+            convertValue<FirstArgument>(value),
+            static_cast<double>(index),
+            convertedArray.Get());
+      } else if constexpr (std::is_invocable_v<Callback, FirstArgument, double>) {
+        return callback(convertValue<FirstArgument>(value), static_cast<double>(index));
+      } else if constexpr (std::is_invocable_v<Callback, FirstArgument>) {
+        return callback(convertValue<FirstArgument>(value));
+      } else {
+        return callback();
+      }
+    } else if constexpr (requires { typename CallableFirstArgumentFromObject<Callback>::type; }) {
+      using FirstArgument = typename CallableFirstArgumentFromObject<Callback>::type;
+      if constexpr (std::is_invocable_v<Callback, FirstArgument>) {
+        if constexpr (std::is_pointer_v<FirstArgument> && std::is_same_v<T, Value>) {
+          return callback(toInstanceOrNull<FirstArgument>(value));
         } else {
-          return callback();
+          return callback(convertValue<FirstArgument>(value));
         }
       } else {
         return callback();
@@ -6860,6 +7489,29 @@ inline auto map(const ArrayObject<T>* array, Callback callback) {
   return array ? array->map(std::move(callback)) : static_cast<Result>(nullptr);
 }
 
+template <typename Target, typename Source>
+inline ArrayObject<Target>* convertArray(const ArrayObject<Source>* source) {
+  if (!source) return nullptr;
+  if constexpr (std::is_same_v<Target, Source>) return const_cast<ArrayObject<Target>*>(source);
+  auto* result = Runtime::array<Target>();
+  result->reserve(source->size());
+  for (const auto& value : *source) result->append(convertValue<Target>(value));
+  return result;
+}
+
+template <typename Target, typename Source>
+inline ArrayObject<Target>* convertArray(NativeIteratorObject<Source>* source) {
+  if (!source) return nullptr;
+  auto* result = Runtime::array<Target>();
+  for (auto& value : source->takeRemaining()) result->append(convertValue<Target>(value));
+  return result;
+}
+
+template <typename Target, typename Source>
+inline ArrayObject<Target>* convertArray(const cppgc::Member<ArrayObject<Source>>& source) {
+  return convertArray<Target>(source.Get());
+}
+
 template <typename T, typename Callback>
 inline std::vector<T> filter(const std::vector<T>& array, Callback callback) {
   std::vector<T> result;
@@ -6900,11 +7552,19 @@ inline ArrayObject<T>* flat(
 }
 
 template <typename T>
-struct ArrayPointerElement;
-
-template <typename T>
 struct ArrayPointerElement<ArrayObject<T>*> final {
   using Type = T;
+};
+
+template <typename T>
+struct IsArrayPointer : std::false_type {};
+
+template <typename T>
+struct IsArrayPointer<ArrayObject<T>*> : std::true_type {};
+
+template <>
+struct ArrayPointerElement<Value> final {
+  using Type = Value;
 };
 
 template <typename T, typename Callback>
@@ -6915,9 +7575,33 @@ inline auto flatMap(const ArrayObject<T>* array, Callback callback) {
   auto* result = Runtime::array<Result>();
   for (std::size_t index = 0; index < array->size(); ++index) {
     NestedArray nested = invokeArrayCallback(callback, array->get(index), index, array);
-    if (nested) appendAll(result, nested);
+    if constexpr (std::is_same_v<NestedArray, Value>) {
+      if (nested.isRuntimeObject() && nested.object()->dynamicIsArray()) {
+        for (std::size_t nestedIndex = 0; nestedIndex < nested.object()->dynamicArraySize(); ++nestedIndex) {
+          result->append(convertValue<Result>(nested.object()->dynamicArrayGet(nestedIndex)));
+        }
+      } else {
+        result->append(convertValue<Result>(nested));
+      }
+    } else if constexpr (IsArrayPointer<NestedArray>::value) {
+      if (nested) appendAll(result, nested);
+    } else {
+      result->append(convertValue<Result>(nested));
+    }
   }
   return result;
+}
+
+template <typename T>
+template <typename Depth>
+inline auto ArrayObject<T>::flat(Depth depth) const {
+  return vexa::flat(this, convertValue<double>(std::forward<Depth>(depth)));
+}
+
+template <typename T>
+template <typename Callback>
+inline auto ArrayObject<T>::flatMap(Callback callback) const {
+  return vexa::flatMap(this, std::move(callback));
 }
 
 template <typename T, typename Callback, typename Accumulator>
@@ -7047,15 +7731,17 @@ inline T findLast(const ArrayObject<T>* array, Callback callback) {
 }
 
 template <typename T>
-template <typename... Items>
+template <typename Start, typename DeleteCount, typename... Items>
 inline ArrayObject<T>* ArrayObject<T>::splice(
-    double start,
-    double deleteCount,
+    Start start,
+    DeleteCount deleteCount,
     Items&&... items) {
-  const std::size_t first = normalizedSliceIndex(start, size());
-  const std::size_t requested = std::isinf(deleteCount)
+  const double numericStart = convertValue<double>(std::forward<Start>(start));
+  const double numericDeleteCount = convertValue<double>(std::forward<DeleteCount>(deleteCount));
+  const std::size_t first = normalizedSliceIndex(numericStart, size());
+  const std::size_t requested = std::isinf(numericDeleteCount)
       ? size() - first
-      : static_cast<std::size_t>(std::max(0.0, std::trunc(deleteCount)));
+      : static_cast<std::size_t>(std::max(0.0, std::trunc(numericDeleteCount)));
   const std::size_t count = std::min(requested, size() - first);
   auto* removed = Runtime::array<T>();
   for (std::size_t index = 0; index < count; ++index) removed->append(get(first + index));
@@ -7097,10 +7783,14 @@ inline ArrayObject<T>* spliceAll(
 }
 
 template <typename T>
-inline ArrayObject<T>* ArrayObject<T>::fill(T value, double start, double end) {
-  const std::size_t first = normalizedSliceIndex(start, size());
-  const std::size_t last = std::isinf(end) ? size() : normalizedSliceIndex(end, size());
-  for (std::size_t index = first; index < last; ++index) set(index, value);
+template <typename Value, typename Start, typename End>
+inline ArrayObject<T>* ArrayObject<T>::fill(Value&& value, Start start, End end) {
+  const T convertedValue = convertValue<T>(std::forward<Value>(value));
+  const double numericStart = convertValue<double>(std::forward<Start>(start));
+  const double numericEnd = convertValue<double>(std::forward<End>(end));
+  const std::size_t first = normalizedSliceIndex(numericStart, size());
+  const std::size_t last = std::isinf(numericEnd) ? size() : normalizedSliceIndex(numericEnd, size());
+  for (std::size_t index = first; index < last; ++index) set(index, convertedValue);
   return this;
 }
 
@@ -7114,10 +7804,14 @@ inline ArrayObject<T>* fill(
 }
 
 template <typename T>
-inline ArrayObject<T>* ArrayObject<T>::copyWithin(double target, double start, double end) {
-  const std::size_t destination = normalizedSliceIndex(target, size());
-  const std::size_t first = normalizedSliceIndex(start, size());
-  const std::size_t last = std::isinf(end) ? size() : normalizedSliceIndex(end, size());
+template <typename Target, typename Start, typename End>
+inline ArrayObject<T>* ArrayObject<T>::copyWithin(Target target, Start start, End end) {
+  const double numericTarget = convertValue<double>(std::forward<Target>(target));
+  const double numericStart = convertValue<double>(std::forward<Start>(start));
+  const double numericEnd = convertValue<double>(std::forward<End>(end));
+  const std::size_t destination = normalizedSliceIndex(numericTarget, size());
+  const std::size_t first = normalizedSliceIndex(numericStart, size());
+  const std::size_t last = std::isinf(numericEnd) ? size() : normalizedSliceIndex(numericEnd, size());
   std::vector<T> copied;
   for (std::size_t index = first; index < last; ++index) copied.push_back(get(index));
   for (std::size_t index = 0; index < copied.size() && destination + index < size(); ++index) {
@@ -7283,18 +7977,6 @@ template <typename T>
 [[noreturn]] inline void throwValue(const T& value) {
   throw runtimeError(toString(value));
 }
-
-template <typename Result>
-struct PromiseResult final {
-  using Type = std::remove_cvref_t<Result>;
-  static constexpr bool task = false;
-};
-
-template <typename Result>
-struct PromiseResult<Task<Result>> final {
-  using Type = typename PromiseResult<Result>::Type;
-  static constexpr bool task = true;
-};
 
 template <typename Result>
 Task<typename PromiseResult<Result>::Type> assimilateTask(Task<Result> task) {
@@ -7584,22 +8266,24 @@ inline std::u16string joinWithSeparator(const ArrayObject<T>* array, const std::
 }
 
 template <typename T>
-inline std::u16string ArrayObject<T>::join(const std::u16string& separator) const {
+template <typename Separator>
+inline std::u16string ArrayObject<T>::join(Separator&& separator) const {
+  const std::u16string text = convertValue<std::u16string>(std::forward<Separator>(separator));
   if constexpr (std::is_same_v<T, std::u16string>) {
     if (!dynamic_backing_) {
       if (values_.empty()) return {};
-      std::size_t outputSize = separator.size() * (values_.size() - 1);
+      std::size_t outputSize = text.size() * (values_.size() - 1);
       for (const auto& value : values_) outputSize += value.loadRef().size();
       std::u16string output;
       output.reserve(outputSize);
       for (std::size_t index = 0; index < values_.size(); ++index) {
-        if (index > 0) output += separator;
+        if (index > 0) output += text;
         output += values_[index].loadRef();
       }
       return output;
     }
   }
-  return joinWithSeparator(this, separator);
+  return joinWithSeparator(this, text);
 }
 
 template <typename T>
@@ -7678,15 +8362,23 @@ inline ArrayObject<T>* toSorted(const ArrayObject<T>* array, Callback callback) 
 }
 
 template <typename T>
+template <typename Callback>
+inline ArrayObject<T>* ArrayObject<T>::toSorted(Callback callback) const {
+  auto* result = slice();
+  result->sort(std::move(callback));
+  return result;
+}
+
+template <typename T>
 inline ArrayObject<T>* toSorted(const ArrayObject<T>* array) {
   return array->toSorted();
 }
 
 template <typename T>
-template <typename... Items>
+template <typename Start, typename DeleteCount, typename... Items>
 inline ArrayObject<T>* ArrayObject<T>::toSpliced(
-    double start,
-    double deleteCount,
+    Start start,
+    DeleteCount deleteCount,
     Items&&... items) const {
   auto* result = slice();
   result->splice(start, deleteCount, std::forward<Items>(items)...);
@@ -7703,14 +8395,17 @@ inline ArrayObject<T>* toSpliced(
 }
 
 template <typename T>
-inline ArrayObject<T>* ArrayObject<T>::with(double index, T value) const {
-  const auto integer = static_cast<std::int64_t>(std::trunc(index));
+template <typename Index, typename Value>
+inline ArrayObject<T>* ArrayObject<T>::with(Index index, Value&& value) const {
+  const double numericIndex = convertValue<double>(std::forward<Index>(index));
+  const T convertedValue = convertValue<T>(std::forward<Value>(value));
+  const auto integer = static_cast<std::int64_t>(std::trunc(numericIndex));
   const auto resolved = integer < 0 ? static_cast<std::int64_t>(size()) + integer : integer;
   if (resolved < 0 || resolved >= static_cast<std::int64_t>(size())) {
     throw runtimeError(u"Array.prototype.with index is out of range");
   }
   auto* result = slice();
-  result->set(static_cast<std::size_t>(resolved), std::move(value));
+  result->set(static_cast<std::size_t>(resolved), convertedValue);
   return result;
 }
 
@@ -8044,10 +8739,6 @@ inline std::u16string toUpperCase(std::u16string value) {
   });
   return value;
 }
-inline std::u16string toUpperCase(const Value& value) {
-  return toUpperCase(requireString(value));
-}
-
 inline std::u16string toLowerCase(std::u16string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](char16_t character) {
     return character <= 0x7f
@@ -8056,10 +8747,6 @@ inline std::u16string toLowerCase(std::u16string value) {
   });
   return value;
 }
-inline std::u16string toLowerCase(const Value& value) {
-  return toLowerCase(requireString(value));
-}
-
 inline bool isStringWhitespace(char16_t character) {
   return character == u' ' || character == u'\t' || character == u'\n' ||
     character == u'\r' || character == u'\f' || character == u'\v';
@@ -8070,26 +8757,14 @@ inline std::u16string trim(std::u16string value) {
   value.erase(std::find_if_not(value.rbegin(), value.rend(), isStringWhitespace).base(), value.end());
   return value;
 }
-inline std::u16string trim(const Value& value) {
-  return trim(requireString(value));
-}
-
 inline std::u16string trimStart(std::u16string value) {
   value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), isStringWhitespace));
   return value;
 }
-inline std::u16string trimStart(const Value& value) {
-  return trimStart(requireString(value));
-}
-
 inline std::u16string trimEnd(std::u16string value) {
   value.erase(std::find_if_not(value.rbegin(), value.rend(), isStringWhitespace).base(), value.end());
   return value;
 }
-inline std::u16string trimEnd(const Value& value) {
-  return trimEnd(requireString(value));
-}
-
 inline bool stringIncludes(
     const std::u16string& value,
     const std::u16string& search,
@@ -8104,6 +8779,22 @@ inline bool stringIncludes(const Value& value, const std::u16string& search, dou
 }
 inline bool stringIncludes(const Value& value, const Value& search, double position = 0) {
   return stringIncludes(toString(value), toString(search), position);
+}
+
+inline bool includes(const std::u16string& value, const std::u16string& search, double position = 0) {
+  return stringIncludes(value, search, position);
+}
+
+inline bool includes(const std::u16string& value, const Value& search, double position = 0) {
+  return stringIncludes(value, search, position);
+}
+
+inline bool includes(const Value& value, const std::u16string& search, double position = 0) {
+  return stringIncludes(value, search, position);
+}
+
+inline bool includes(const Value& value, const Value& search, double position = 0) {
+  return stringIncludes(value, search, position);
 }
 
 template <typename ValueLike, typename SearchLike>
@@ -8126,6 +8817,19 @@ double stringLastIndexOf(
       : value.size();
   const auto found = value.rfind(search, start);
   return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
+}
+
+template <typename ValueLike, typename SearchLike>
+inline double indexOf(const ValueLike& value, const SearchLike& search, double position = 0) {
+  return stringIndexOf(value, search, position);
+}
+
+template <typename ValueLike, typename SearchLike>
+inline double lastIndexOf(
+    const ValueLike& value,
+    const SearchLike& search,
+    double position = std::numeric_limits<double>::infinity()) {
+  return stringLastIndexOf(value, search, position);
 }
 
 inline bool startsWith(
@@ -8164,10 +8868,6 @@ inline std::u16string charAt(const std::u16string& value, double index = 0) {
     ? std::u16string(1, value[static_cast<std::size_t>(position)])
     : std::u16string();
 }
-inline std::u16string charAt(const Value& value, double index = 0) {
-  return charAt(requireString(value), index);
-}
-
 inline std::u16string stringIndex(const std::u16string& value, double index) {
   const auto position = static_cast<std::int64_t>(std::trunc(index));
   const auto resolved = position < 0 ? static_cast<std::int64_t>(value.size()) + position : position;
@@ -8187,6 +8887,10 @@ inline Value stringAt(const Value& value, double index = 0) {
   return stringAt(requireString(value), index);
 }
 
+inline Value at(const std::u16string& value, double index = 0) {
+  return stringAt(value, index);
+}
+
 inline double charCodeAt(const std::u16string& value, double index = 0) {
   const auto position = static_cast<std::int64_t>(std::trunc(index));
   if (position < 0 || static_cast<std::size_t>(position) >= value.size()) {
@@ -8194,10 +8898,6 @@ inline double charCodeAt(const std::u16string& value, double index = 0) {
   }
   return static_cast<std::uint16_t>(value[static_cast<std::size_t>(position)]);
 }
-inline double charCodeAt(const Value& value, double index = 0) {
-  return charCodeAt(requireString(value), index);
-}
-
 inline Value codePointAt(const std::u16string& value, double index = 0) {
   const auto position = static_cast<std::int64_t>(std::trunc(index));
   if (position < 0 || static_cast<std::size_t>(position) >= value.size()) {
@@ -8212,10 +8912,6 @@ inline Value codePointAt(const std::u16string& value, double index = 0) {
   }
   return Value(static_cast<double>(first));
 }
-inline Value codePointAt(const Value& value, double index = 0) {
-  return codePointAt(requireString(value), index);
-}
-
 template <typename T>
 inline bool numberIsNaN(const T& value) {
   return std::isnan(Number(value));
@@ -8238,6 +8934,10 @@ inline std::u16string stringRepeat(const Value& value, double count) {
   return stringRepeat(requireString(value), count);
 }
 
+inline std::u16string repeat(const std::u16string& value, double count) {
+  return stringRepeat(value, count);
+}
+
 inline bool stringIsWellFormed(const std::u16string& value) {
   for (std::size_t index = 0; index < value.size(); ++index) {
     const auto codeUnit = static_cast<std::uint16_t>(value[index]);
@@ -8253,6 +8953,14 @@ inline bool stringIsWellFormed(const std::u16string& value) {
 }
 inline bool stringIsWellFormed(const Value& value) {
   return stringIsWellFormed(requireString(value));
+}
+
+inline bool isWellFormed(const std::u16string& value) {
+  return stringIsWellFormed(value);
+}
+
+inline bool isWellFormed(const Value& value) {
+  return stringIsWellFormed(value);
 }
 
 inline std::u16string stringToWellFormed(const std::u16string& value) {
@@ -8280,6 +8988,14 @@ inline std::u16string stringToWellFormed(const std::u16string& value) {
 }
 inline std::u16string stringToWellFormed(const Value& value) {
   return stringToWellFormed(requireString(value));
+}
+
+inline std::u16string toWellFormed(const std::u16string& value) {
+  return stringToWellFormed(value);
+}
+
+inline std::u16string toWellFormed(const Value& value) {
+  return stringToWellFormed(value);
 }
 
 inline std::u16string substring(
@@ -8315,6 +9031,20 @@ inline std::u16string stringSlice(
     double start,
     double end = std::numeric_limits<double>::infinity()) {
   return stringSlice(requireString(value), start, end);
+}
+
+inline std::u16string slice(
+    const std::u16string& value,
+    double start,
+    double end = std::numeric_limits<double>::infinity()) {
+  return stringSlice(value, start, end);
+}
+
+inline std::u16string slice(
+    const Value& value,
+    double start,
+    double end = std::numeric_limits<double>::infinity()) {
+  return stringSlice(value, start, end);
 }
 
 inline ArrayObject<std::u16string>* split(
@@ -9122,6 +9852,320 @@ class Console final {
     output << '\n';
   }
 };
+
+namespace ambient {
+
+namespace Object {
+template <typename... Arguments>
+inline auto keys(Arguments&&... arguments) {
+  return recordKeys(std::forward<Arguments>(arguments)...);
+}
+
+template <typename... Arguments>
+inline auto values(Arguments&&... arguments) {
+  return recordValues(std::forward<Arguments>(arguments)...);
+}
+
+template <typename... Arguments>
+inline auto entries(Arguments&&... arguments) {
+  return recordEntries(std::forward<Arguments>(arguments)...);
+}
+
+template <typename... Arguments>
+inline auto fromEntries(Arguments&&... arguments) {
+  return recordFromEntries(std::forward<Arguments>(arguments)...);
+}
+
+template <typename... Arguments>
+inline auto groupBy(Arguments&&... arguments) {
+  return objectGroupBy(std::forward<Arguments>(arguments)...);
+}
+
+template <typename Target, typename Key, typename Descriptor>
+inline void defineProperty(Target&& target, Key&& key, Descriptor&& descriptor) {
+  const auto descriptorValue = toValue(std::forward<Descriptor>(descriptor));
+  if (!descriptorValue.isRecord()) {
+    throw runtimeError(u"Native Object.defineProperty requires a record descriptor");
+  }
+  ::vexa::defineProperty(
+    std::forward<Target>(target),
+    propertyKey(toValue(std::forward<Key>(key))),
+    descriptorValue.record()->get(u"value"),
+    toBoolean(descriptorValue.record()->get(u"enumerable")));
+}
+}  // namespace Object
+
+namespace Map {
+template <typename... Arguments>
+inline auto groupBy(Arguments&&... arguments) {
+  return mapGroupBy(std::forward<Arguments>(arguments)...);
+}
+}  // namespace Map
+
+namespace Math {
+inline constexpr double E = ::vexa::Math::E;
+inline constexpr double LN2 = ::vexa::Math::LN2;
+inline constexpr double LN10 = ::vexa::Math::LN10;
+inline constexpr double PI = ::vexa::Math::PI;
+inline constexpr double SQRT2 = ::vexa::Math::SQRT2;
+
+template <typename... Arguments>
+inline auto abs(Arguments&&... arguments) { return ::vexa::Math::abs(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto acos(Arguments&&... arguments) { return ::vexa::Math::acos(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto asin(Arguments&&... arguments) { return ::vexa::Math::asin(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto atan(Arguments&&... arguments) { return ::vexa::Math::atan(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto atan2(Arguments&&... arguments) { return ::vexa::Math::atan2(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto ceil(Arguments&&... arguments) { return ::vexa::Math::ceil(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto cos(Arguments&&... arguments) { return ::vexa::Math::cos(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto exp(Arguments&&... arguments) { return ::vexa::Math::exp(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto floor(Arguments&&... arguments) { return ::vexa::Math::floor(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto f16round(Arguments&&... arguments) { return ::vexa::Math::f16round(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto hypot(Arguments&&... arguments) { return ::vexa::Math::hypot(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto log(Arguments&&... arguments) { return ::vexa::Math::log(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto log2(Arguments&&... arguments) { return ::vexa::Math::log2(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto log10(Arguments&&... arguments) { return ::vexa::Math::log10(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto max(Arguments&&... arguments) { return ::vexa::Math::max(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto min(Arguments&&... arguments) { return ::vexa::Math::min(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto pow(Arguments&&... arguments) { return ::vexa::Math::pow(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto random(Arguments&&... arguments) { return ::vexa::Math::random(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto round(Arguments&&... arguments) { return ::vexa::Math::round(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto sign(Arguments&&... arguments) { return ::vexa::Math::sign(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto sin(Arguments&&... arguments) { return ::vexa::Math::sin(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto sqrt(Arguments&&... arguments) { return ::vexa::Math::sqrt(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto tan(Arguments&&... arguments) { return ::vexa::Math::tan(std::forward<Arguments>(arguments)...); }
+template <typename... Arguments>
+inline auto trunc(Arguments&&... arguments) { return ::vexa::Math::trunc(std::forward<Arguments>(arguments)...); }
+}  // namespace Math
+
+namespace Number {
+template <typename... Arguments>
+inline auto isFinite(Arguments&&... arguments) {
+  return ::vexa::isFinite(::vexa::Number(std::forward<Arguments>(arguments)...));
+}
+
+template <typename... Arguments>
+inline auto isInteger(Arguments&&... arguments) {
+  return ::vexa::numberIsInteger(std::forward<Arguments>(arguments)...);
+}
+
+template <typename... Arguments>
+inline auto isNaN(Arguments&&... arguments) {
+  return ::vexa::numberIsNaN(std::forward<Arguments>(arguments)...);
+}
+}  // namespace Number
+
+namespace Array {
+template <typename... Arguments>
+inline auto isArray(Arguments&&... arguments) {
+  return ::vexa::arrayIsArray(std::forward<Arguments>(arguments)...);
+}
+
+template <typename... Arguments>
+inline auto of(Arguments&&... arguments) {
+  return Runtime::array<Value>({toValue(std::forward<Arguments>(arguments))...});
+}
+
+template <typename Source>
+inline auto from(Source&& source) {
+  auto* result = Runtime::array<Value>();
+  for (const auto value : dynamicIterationRange(toValue(std::forward<Source>(source)))) result->append(value);
+  return result;
+}
+
+template <typename Source, typename Callback, typename... Ignored>
+inline auto from(Source&& source, Callback callback, Ignored&&...) {
+  auto* result = Runtime::array<Value>();
+  std::size_t index = 0;
+  for (const auto value : dynamicIterationRange(toValue(std::forward<Source>(source)))) {
+    result->append(toValue(callback(value, static_cast<double>(index++))));
+  }
+  return result;
+}
+}  // namespace Array
+
+namespace String {
+template <typename... Arguments>
+inline auto fromCharCode(Arguments&&... arguments) {
+  std::u16string result;
+  result.reserve(sizeof...(arguments));
+  (result.push_back(static_cast<char16_t>(::vexa::Number(std::forward<Arguments>(arguments)))), ...);
+  return result;
+}
+}  // namespace String
+
+namespace Date {
+template <typename... Arguments>
+inline auto now(Arguments&&... arguments) {
+  static_assert(sizeof...(arguments) == 0, "Date.now does not take arguments");
+  return ::vexa::dateNow();
+}
+
+template <typename Argument>
+inline auto parse(Argument&& argument) {
+  return ::vexa::dateParse(toText(toValue(std::forward<Argument>(argument))));
+}
+}  // namespace Date
+
+namespace JSON {
+template <typename Source, typename... Ignored>
+inline auto parse(Source&& source, Ignored&&...) {
+  return ::vexa::jsonParse(toValue(std::forward<Source>(source)));
+}
+
+template <typename Source, typename... Ignored>
+inline auto stringify(Source&& source, Ignored&&...) {
+  return ::vexa::jsonStringify(toValue(std::forward<Source>(source)));
+}
+}  // namespace JSON
+
+namespace RegExp {
+template <typename Argument>
+inline auto escape(Argument&& argument) {
+  return ::vexa::regexEscape(toText(toValue(std::forward<Argument>(argument))));
+}
+}  // namespace RegExp
+
+namespace Intl {
+namespace DurationFormat {
+inline auto supportedLocalesOf() {
+  return ::vexa::durationFormatSupportedLocales(Value::undefined());
+}
+
+template <typename Locales, typename... Ignored>
+inline auto supportedLocalesOf(Locales&& locales, Ignored&&...) {
+  return ::vexa::durationFormatSupportedLocales(
+      toValue(std::forward<Locales>(locales)));
+}
+}  // namespace DurationFormat
+}  // namespace Intl
+
+namespace Iterator {
+template <typename Iterable>
+inline auto from(Iterable&& iterable) {
+  return ::vexa::iteratorFrom(std::forward<Iterable>(iterable));
+}
+}  // namespace Iterator
+
+namespace Atomics {
+template <typename... Arguments>
+inline auto waitAsync(Arguments&&... arguments) {
+  return ::vexa::atomicsWaitAsync(std::forward<Arguments>(arguments)...);
+}
+}  // namespace Atomics
+
+namespace Float16Array {
+template <typename... Arguments>
+inline auto of(Arguments&&... arguments) {
+  return ::vexa::float16ArrayOf({::vexa::Number(std::forward<Arguments>(arguments))...});
+}
+
+template <typename Source>
+inline auto from(Source&& source) {
+  return ::vexa::float16ArrayFrom(std::forward<Source>(source));
+}
+
+template <typename Source, typename Callback, typename... Ignored>
+inline auto from(Source&& source, Callback callback, Ignored&&...) {
+  return ::vexa::float16ArrayFrom(std::forward<Source>(source), std::move(callback));
+}
+}  // namespace Float16Array
+
+namespace performance {
+template <typename... Arguments>
+inline auto now(Arguments&&... arguments) {
+  static_assert(sizeof...(arguments) == 0, "performance.now does not take arguments");
+  return ::vexa::performanceNow();
+}
+}  // namespace performance
+
+namespace Promise {
+template <typename Result = Value>
+inline auto withResolvers() {
+  return makeManaged<PromiseResolvers<Result>>();
+}
+
+template <typename Result = Value, typename Callback, typename... Arguments>
+inline auto vexa_try(Callback callback, Arguments... arguments) {
+  return promiseTry(std::move(callback), std::move(arguments)...);
+}
+
+template <typename Result = Value>
+Task<Result> resolve() {
+  co_return defaultValue<Result>();
+}
+
+template <typename Result = Value, typename Input>
+inline auto resolve(Input&& input) {
+  return promiseResolve(std::forward<Input>(input));
+}
+
+template <typename Result = Value, typename Reason>
+inline auto reject(Reason&& reason) {
+  return rejectedTask<Result>(reason);
+}
+
+template <typename Input>
+inline auto promiseTasks(ArrayObject<Input>* values) {
+  using Result = typename ::vexa::PromiseResult<Input>::Type;
+  auto* tasks = Runtime::array<Task<Result>>();
+  for (auto value : *values) tasks->append(promiseResolve(std::move(value)));
+  return tasks;
+}
+
+template <typename Result = Value, typename Input>
+inline auto all(ArrayObject<Input>* values) {
+  using Element = typename ::vexa::PromiseResult<Input>::Type;
+  return promiseAll<Element>(promiseTasks(values));
+}
+
+template <typename Result = Value, typename Input>
+inline auto race(ArrayObject<Input>* values) {
+  using Element = typename ::vexa::PromiseResult<Input>::Type;
+  return promiseRace<Element>(promiseTasks(values));
+}
+
+template <typename Result = Value, typename Input>
+inline auto allSettled(ArrayObject<Input>* values) {
+  using Element = typename ::vexa::PromiseResult<Input>::Type;
+  return promiseThen(
+      promiseAllSettled<Element>(promiseTasks(values)),
+      [](ArrayObject<RecordObject*>* records) {
+        auto* result = Runtime::array<Value>();
+        for (auto record : *records) result->append(Value(record));
+        return result;
+      });
+}
+
+template <typename Result = Value, typename Input>
+inline auto any(ArrayObject<Input>* values) {
+  using Element = typename ::vexa::PromiseResult<Input>::Type;
+  return promiseAny<Element>(promiseTasks(values));
+}
+}  // namespace Promise
+
+}  // namespace ambient
 
 inline const Console console;
 

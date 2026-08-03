@@ -11363,29 +11363,29 @@ declare namespace Intl {
      * [MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Intl/DurationFormat/DurationFormat#parameters)
      */
     interface DurationFormatOptions {
-        localeMatcher?: DurationFormatLocaleMatcher | undefined;
+        localeMatcher?: Intl.DurationFormatLocaleMatcher | undefined;
         numberingSystem?: string | undefined;
-        style?: DurationFormatStyle | undefined;
+        style?: Intl.DurationFormatStyle | undefined;
         years?: "long" | "short" | "narrow" | undefined;
-        yearsDisplay?: DurationFormatDisplayOption | undefined;
+        yearsDisplay?: Intl.DurationFormatDisplayOption | undefined;
         months?: "long" | "short" | "narrow" | undefined;
-        monthsDisplay?: DurationFormatDisplayOption | undefined;
+        monthsDisplay?: Intl.DurationFormatDisplayOption | undefined;
         weeks?: "long" | "short" | "narrow" | undefined;
-        weeksDisplay?: DurationFormatDisplayOption | undefined;
+        weeksDisplay?: Intl.DurationFormatDisplayOption | undefined;
         days?: "long" | "short" | "narrow" | undefined;
-        daysDisplay?: DurationFormatDisplayOption | undefined;
+        daysDisplay?: Intl.DurationFormatDisplayOption | undefined;
         hours?: "long" | "short" | "narrow" | "numeric" | "2-digit" | undefined;
-        hoursDisplay?: DurationFormatDisplayOption | undefined;
+        hoursDisplay?: Intl.DurationFormatDisplayOption | undefined;
         minutes?: "long" | "short" | "narrow" | "numeric" | "2-digit" | undefined;
-        minutesDisplay?: DurationFormatDisplayOption | undefined;
+        minutesDisplay?: Intl.DurationFormatDisplayOption | undefined;
         seconds?: "long" | "short" | "narrow" | "numeric" | "2-digit" | undefined;
-        secondsDisplay?: DurationFormatDisplayOption | undefined;
+        secondsDisplay?: Intl.DurationFormatDisplayOption | undefined;
         milliseconds?: "long" | "short" | "narrow" | "numeric" | undefined;
-        millisecondsDisplay?: DurationFormatDisplayOption | undefined;
+        millisecondsDisplay?: Intl.DurationFormatDisplayOption | undefined;
         microseconds?: "long" | "short" | "narrow" | "numeric" | undefined;
-        microsecondsDisplay?: DurationFormatDisplayOption | undefined;
+        microsecondsDisplay?: Intl.DurationFormatDisplayOption | undefined;
         nanoseconds?: "long" | "short" | "narrow" | "numeric" | undefined;
-        nanosecondsDisplay?: DurationFormatDisplayOption | undefined;
+        nanosecondsDisplay?: Intl.DurationFormatDisplayOption | undefined;
         fractionalDigits?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | undefined;
     }
 
@@ -11440,7 +11440,7 @@ declare namespace Intl {
         fractionalDigits?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
     }
 
-    const DurationFormat: {
+    interface DurationFormatConstructor {
         prototype: DurationFormat;
 
         /**
@@ -11452,7 +11452,7 @@ declare namespace Intl {
          *
          * [MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Intl/DurationFormat/DurationFormat).
          */
-        new (locales?: LocalesArgument, options?: DurationFormatOptions): DurationFormat;
+        new (locales?: LocalesArgument, options?: Intl.DurationFormatOptions): DurationFormat;
 
         /**
          * Returns an array containing those of the provided locales that are supported in display names without having to fall back to the runtime's default locale.
@@ -11468,7 +11468,9 @@ declare namespace Intl {
          * [MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Intl/DurationFormat/supportedLocalesOf).
          */
         supportedLocalesOf(locales?: LocalesArgument, options?: { localeMatcher?: DurationFormatLocaleMatcher; }): UnicodeBCP47LocaleIdentifier[];
-    };
+    }
+
+    var DurationFormat: Intl.DurationFormatConstructor;
 }
 
 // ---- es2025.iterator.d.ts ----

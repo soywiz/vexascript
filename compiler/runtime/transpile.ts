@@ -350,7 +350,10 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     const analysisStartedAt = monotonicNow();
     artifacts = compileParsedSource(parsed, {
       externalDeclarations,
-      ambientDeclarations,
+      ambientDeclarations: [
+        ...getEcmaScriptRuntimeProgram().body,
+        ...ambientDeclarations
+      ],
       importedSymbols,
       language: parserOptions.language === "typescript" ? "typescript" : "vexascript"
     });
@@ -441,12 +444,17 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
           {
             ...(options.sourceFilePath ? { sourceFilePath: options.sourceFilePath } : {}),
             ...(options.emitNativeSourceLocations ? { emitSourceLocations: true } : {}),
+            ambientDeclarations: [
+              ...getEcmaScriptRuntimeProgram().body,
+              ...ambientDeclarations
+            ],
             expressionTypes: artifacts.analysis.getExpressionTypes(),
             implicitReceiverIdentifiers: artifacts.analysis.getImplicitReceiverIdentifiers(),
             implicitReceiverExtensionIdentifiers: artifacts.analysis.getImplicitReceiverExtensionIdentifiers(),
             staticImplicitReceiverIdentifiers: artifacts.analysis.getStaticImplicitReceiverIdentifiers(),
             autoAwaitExpressions: artifacts.analysis.getAutoAwaitExpressions(),
             callableTypes: artifacts.analysis.getCallableTypes(),
+            resolvedCallTypes: artifacts.analysis.getResolvedCallTypes(),
             operatorResolutions: new Map(
               artifacts.analysis.getOperatorResolutions().map((resolution) => [resolution.expression, resolution.symbol])
             ),

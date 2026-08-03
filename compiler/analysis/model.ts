@@ -106,7 +106,8 @@ export class SelectedCallResolution {
     public call: Node,
     public callee: Node,
     public overload: FunctionType,
-    public overloadIndex: number
+    public overloadIndex: number,
+    public resolvedOverload: FunctionType = overload
   ) {}
 }
 
