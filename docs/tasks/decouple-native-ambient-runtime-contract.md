@@ -148,6 +148,11 @@ ambient forwarding contract:
 * `PromiseWithResolvers` exposes its `promise` value and callable members
   directly on the native resolver object. The Promise continuation methods use
   the type-directed `Task<T>` path and contain no method-name dispatch.
+* Native type spelling is declaration-driven as well. Ambient class/interface
+  names use the `vexa::<DeclarationName>Object*` convention, with generic
+  arguments preserved. The emitter derives this from ambient declarations, so
+  a new ambient/native declaration can add its contract without editing
+  `cppEmitter.ts`.
 
 ## Tests
 

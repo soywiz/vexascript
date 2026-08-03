@@ -211,6 +211,18 @@ const bytes = encoder.encode("A")
     expect(result.code).not.toContain("vexa::makeUint8Array(vexa::toText");
   });
 
+  it("derives new declared native object types from their C++ naming contract", () => {
+    const result = transpile(`
+declare interface URLLike {
+  href: string
+}
+function keep(value: URLLike): URLLike { return value }
+`, { emit: "cpp", sourceFilePath: "/tmp/declared-native-object.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::URLLikeObject*");
+  });
+
   it("lowers ES2023-ES2025 collection, string, buffer, and promise helpers", () => {
     const result = transpile(`
 const values = [1, 2, 3, 2]

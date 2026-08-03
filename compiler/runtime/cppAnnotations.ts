@@ -1,5 +1,12 @@
-import { FunctionStatement, Program, StringLiteral } from "compiler/ast/ast";
-import { unwrapExportedDeclaration } from "compiler/ast/traversal";
+import {
+  ClassStatement,
+  FunctionStatement,
+  InterfaceStatement,
+  Program,
+  Statement,
+  StringLiteral,
+} from "compiler/ast/ast";
+import { childNodes, unwrapExportedDeclaration } from "compiler/ast/traversal";
 
 export interface CppBindingMetadata {
   headers: string[];
@@ -15,6 +22,27 @@ function annotationStrings(statement: FunctionStatement, name: string): string[]
     }
   }
   return values;
+}
+
+/** Collect ambient class names. Their C++ spelling is structural: an ambient
+ * `Thing` is represented by `vexa::ThingObject*`. */
+export function ambientTypeNames(
+  sources: readonly (Program | readonly Statement[])[],
+  includeUndeclared: boolean = false
+): ReadonlySet<string> {
+  const names = new Set<string>();
+  const pending: Statement[] = [];
+  for (const source of sources) pending.push(...(source instanceof Program ? source.body : source));
+  while (pending.length > 0) {
+    const statement = pending.pop()!;
+    const declaration = unwrapExportedDeclaration(statement);
+    if ((declaration instanceof ClassStatement || declaration instanceof InterfaceStatement) &&
+        (includeUndeclared || declaration.declared === true)) {
+      names.add(declaration.name.name);
+    }
+    pending.push(...childNodes(statement).filter((node): node is Statement => node instanceof Statement));
+  }
+  return names;
 }
 
 export function cppBodyForFunction(statement: FunctionStatement): string | undefined {

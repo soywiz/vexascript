@@ -204,3 +204,22 @@ boundary for heterogeneous keys and values. The concrete Value-backed Map,
 WeakMap, Set, and WeakSet boundary, object-identity tests, varying callback-key
 tests, and callback GC lifetime tests remain documented follow-up tasks in
 `docs/tasks/decouple-native-ambient-runtime-contract.md`.
+
+## Declaration-driven native type names
+
+The remaining type mapper was still recognizing `URL`, iterator families,
+errors, collections, buffers, and typed arrays through emitter-side name
+branches. That was the same coupling problem as the retired method tables:
+adding a new ambient object required modifying `cppEmitter.ts` even when its
+C++ representation followed the obvious `vexa::<Name>Object` convention.
+
+The native declaration contract now owns this information. Ambient class and
+interface names derive their managed pointer spelling from the declaration
+itself: `Thing` becomes `vexa::ThingObject*`, with generic arguments preserved.
+The emitter collects these ambient names from embedded Vexa declarations and
+the selected ambient/external declarations, and uses the same convention for
+analyzed and textual types. A regression with a new `declare class URLLike`
+proves that it emits `vexa::URLLikeObject*` without adding `URLLike` to the
+emitter. Generated TypeScript declaration files remain unchanged; the
+convention is compiler-side structural knowledge rather than source
+annotations.

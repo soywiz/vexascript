@@ -448,6 +448,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
               ...getEcmaScriptRuntimeProgram().body,
               ...ambientDeclarations
             ],
+            externalDeclarations,
             expressionTypes: artifacts.analysis.getExpressionTypes(),
             implicitReceiverIdentifiers: artifacts.analysis.getImplicitReceiverIdentifiers(),
             implicitReceiverExtensionIdentifiers: artifacts.analysis.getImplicitReceiverExtensionIdentifiers(),
