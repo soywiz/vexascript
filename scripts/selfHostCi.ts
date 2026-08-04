@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { resolve } from "../compiler/utils/path";
 import { runCommandCapture, type CommandOutput } from "../cli/io";
+import { compileNativeExecutable } from "../cli/nativeBuild";
 
 export type SelfHostStageStatus = "passed" | "failed" | "blocked";
 
@@ -12,6 +13,15 @@ export interface SelfHostCiStage {
   elapsedMilliseconds: number;
   status: SelfHostStageStatus;
   detail: string;
+}
+
+export interface SelfHostCiTiming {
+  host: string;
+  generationMilliseconds: number | null;
+  repeatGenerationMilliseconds: number | null;
+  linkMilliseconds: number | null;
+  repeatLinkMilliseconds: number | null;
+  result: string;
 }
 
 interface TimedCommand extends CommandOutput {
@@ -30,6 +40,7 @@ export function renderSelfHostSummary(
   stages: readonly SelfHostCiStage[],
   runner: string,
   outputDirectory: string,
+  timings: readonly SelfHostCiTiming[] = [],
 ): string {
   const failed = stages.filter((stage) => stage.status === "failed").length;
   const blocked = stages.filter((stage) => stage.status === "blocked").length;
@@ -40,11 +51,27 @@ export function renderSelfHostSummary(
     stage.status,
     stage.detail,
   ]);
+  const timingRows = timings.map((timing) => [
+    timing.host,
+    timing.generationMilliseconds === null ? "—" : formatMilliseconds(timing.generationMilliseconds),
+    timing.repeatGenerationMilliseconds === null ? "—" : formatMilliseconds(timing.repeatGenerationMilliseconds),
+    timing.linkMilliseconds === null ? "—" : formatMilliseconds(timing.linkMilliseconds),
+    timing.repeatLinkMilliseconds === null ? "—" : formatMilliseconds(timing.repeatLinkMilliseconds),
+    timing.result,
+  ]);
 
   return [
     "## Compiler self-hosting",
     "",
     `Status: **${status}** on \`${runner}\`.`,
+    "",
+    "### C++ generation and link timing",
+    "",
+    "| Host | Generation 1 | Generation 2 | Link 1 | Link 2 | Result |",
+    "| --- | ---: | ---: | ---: | ---: | --- |",
+    ...timingRows.map((row) => `| ${row.map(summaryCell).join(" | ")} |`),
+    "",
+    "### Stage status",
     "",
     "| Stage | Time | Status | Result |",
     "| --- | ---: | --- | --- |",
@@ -92,13 +119,23 @@ async function compareOutputs(firstPath: string, secondPath: string, label: stri
   return createHash("sha256").update(first).digest("hex");
 }
 
-async function writeGitHubSummary(stages: readonly SelfHostCiStage[], outputDirectory: string): Promise<void> {
+async function timedNativeLink(cppPath: string, executablePath: string): Promise<number> {
+  const started = performance.now();
+  await compileNativeExecutable(cppPath, executablePath, [], "-O0");
+  return performance.now() - started;
+}
+
+async function writeGitHubSummary(
+  stages: readonly SelfHostCiStage[],
+  timings: readonly SelfHostCiTiming[],
+  outputDirectory: string,
+): Promise<void> {
   const summaryPath = process.env["GITHUB_STEP_SUMMARY"];
   if (!summaryPath) {
-    console.log(renderSelfHostSummary(stages, "local", outputDirectory));
+    console.log(renderSelfHostSummary(stages, "local", outputDirectory, timings));
     return;
   }
-  await appendFile(summaryPath, `${renderSelfHostSummary(stages, process.env["RUNNER_OS"] ?? "GitHub Actions", outputDirectory)}\n`);
+  await appendFile(summaryPath, `${renderSelfHostSummary(stages, process.env["RUNNER_OS"] ?? "GitHub Actions", outputDirectory, timings)}\n`);
 }
 
 function detailForError(error: unknown): string {
@@ -127,6 +164,11 @@ async function main(): Promise<void> {
   const tsxLoader = resolve(rootDirectory, "node_modules", "tsx", "dist", "loader.mjs");
   const textModuleLoader = resolve(rootDirectory, "scripts", "registerTextModuleLoader.cjs");
   const stages: SelfHostCiStage[] = [];
+  const timings: SelfHostCiTiming[] = [
+    { host: "tsc", generationMilliseconds: null, repeatGenerationMilliseconds: null, linkMilliseconds: null, repeatLinkMilliseconds: null, result: "not run" },
+    { host: "VexaScript JS", generationMilliseconds: null, repeatGenerationMilliseconds: null, linkMilliseconds: null, repeatLinkMilliseconds: null, result: "not run" },
+    { host: "VexaScript C++", generationMilliseconds: null, repeatGenerationMilliseconds: null, linkMilliseconds: null, repeatLinkMilliseconds: null, result: "not run" },
+  ];
   let bootstrapReady = false;
 
   try {
@@ -199,28 +241,56 @@ async function main(): Promise<void> {
         detail: detailForError(error),
       });
       console.error(`JavaScript self-host failed: ${error instanceof Error ? error.message : String(error)}`);
+      timings[1]!.result = "failed";
     }
 
     const cppStarted = performance.now();
     try {
       if (!bootstrapReady) throw new Error("blocked by compiler bootstrap");
-      const firstBuildDirectory = join(outputDirectory, "cpp-build-1");
-      const secondBuildDirectory = join(outputDirectory, "cpp-build-2");
-      const thirdBuildDirectory = join(outputDirectory, "cpp-build-3");
-      const firstExecutable = join(outputDirectory, "vexa-self-host-1");
-      const secondExecutable = join(outputDirectory, "vexa-self-host-2");
-      const thirdExecutable = join(outputDirectory, "vexa-self-host-3");
-      const secondCpp = join(secondBuildDirectory, "main.cpp");
-      const thirdCpp = join(thirdBuildDirectory, "main.cpp");
-      await runCheckedCommand("node", compiledCliCommand(compiledCli, tsxLoader, textModuleLoader, ["cpp", "link", cppEntryFile, "--out", firstExecutable, "--build-dir", firstBuildDirectory, "-O0"]), tscDirectory);
-      await runCheckedCommand(firstExecutable, ["cpp", "link", cppEntryFile, "--out", secondExecutable, "--build-dir", secondBuildDirectory, "-O0"], rootDirectory);
-      await runCheckedCommand(secondExecutable, ["cpp", "link", cppEntryFile, "--out", thirdExecutable, "--build-dir", thirdBuildDirectory, "-O0"], rootDirectory);
-      const hash = await compareOutputs(secondCpp, thirdCpp, "C++ native self-host");
+      const tscBuildDirectory = join(outputDirectory, "cpp-build-tsc");
+      const jsBuildDirectory = join(outputDirectory, "cpp-build-js");
+      const cppBuildDirectory = join(outputDirectory, "cpp-build-cpp");
+      const cppRepeatBuildDirectory = join(outputDirectory, "cpp-build-cpp-repeat");
+      const tscCpp = join(tscBuildDirectory, "main.cpp");
+      const jsCpp = join(jsBuildDirectory, "main.cpp");
+      const cppCpp = join(cppBuildDirectory, "main.cpp");
+      const cppRepeat = join(cppRepeatBuildDirectory, "main.cpp");
+      const tscExecutable = join(outputDirectory, "vexa-tsc-host");
+      const jsExecutable = join(outputDirectory, "vexa-js-host");
+      const cppExecutable = join(outputDirectory, "vexa-cpp-host");
+      const cppRepeatExecutable = join(outputDirectory, "vexa-cpp-host-repeat");
+
+      const tscGenerationStarted = performance.now();
+      await runCheckedCommand("node", compiledCliCommand(compiledCli, tsxLoader, textModuleLoader, ["cpp", "build", cppEntryFile, "--out", tscCpp]), tscDirectory);
+      timings[0]!.generationMilliseconds = performance.now() - tscGenerationStarted;
+      timings[0]!.linkMilliseconds = await timedNativeLink(tscCpp, tscExecutable);
+
+      const jsGenerationStarted = performance.now();
+      await runCheckedCommand("node", [join(outputDirectory, "vexa-self-host-2.js"), "cpp", "build", cppEntryFile, "--out", jsCpp], outputDirectory);
+      timings[1]!.generationMilliseconds = performance.now() - jsGenerationStarted;
+      timings[1]!.linkMilliseconds = await timedNativeLink(jsCpp, jsExecutable);
+
+      const cppGenerationStarted = performance.now();
+      await runCheckedCommand(tscExecutable, ["cpp", "build", cppEntryFile, "--out", cppCpp], rootDirectory);
+      timings[2]!.generationMilliseconds = performance.now() - cppGenerationStarted;
+      timings[2]!.linkMilliseconds = await timedNativeLink(cppCpp, cppExecutable);
+
+      const cppRepeatGenerationStarted = performance.now();
+      await runCheckedCommand(cppExecutable, ["cpp", "build", cppEntryFile, "--out", cppRepeat], rootDirectory);
+      timings[2]!.repeatGenerationMilliseconds = performance.now() - cppRepeatGenerationStarted;
+      timings[2]!.repeatLinkMilliseconds = await timedNativeLink(cppRepeat, cppRepeatExecutable);
+
+      const hash = await compareOutputs(tscCpp, jsCpp, "C++ host generation");
+      await compareOutputs(tscCpp, cppCpp, "C++ native self-host generation");
+      await compareOutputs(cppCpp, cppRepeat, "C++ repeated self-host generation");
+      timings[0]!.result = "byte-identical";
+      timings[1]!.result = "byte-identical";
+      timings[2]!.result = `byte-identical (${hash})`;
       stages.push({
         name: "VexaScript C++",
         elapsedMilliseconds: performance.now() - cppStarted,
         status: "passed",
-        detail: `two consecutive native generations are byte-identical (${hash})`,
+        detail: `tsc, JS, and two native generations are byte-identical (${hash})`,
       });
     } catch (error) {
       stages.push({
@@ -229,10 +299,13 @@ async function main(): Promise<void> {
         status: bootstrapReady ? "failed" : "blocked",
         detail: detailForError(error),
       });
+      for (const timing of timings) {
+        if (timing.result === "not run") timing.result = bootstrapReady ? "failed" : "blocked";
+      }
       console.error(`C++ self-host failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   } finally {
-    await writeGitHubSummary(stages, outputDirectory);
+    await writeGitHubSummary(stages, timings, outputDirectory);
   }
 
   if (stages.some((stage) => stage.status !== "passed")) {

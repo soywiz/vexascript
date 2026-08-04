@@ -20,8 +20,10 @@ comparison reports a SHA-256 digest.
 
 The timing table is written to `GITHUB_STEP_SUMMARY`, so it appears in the
 workflow-run summary instead of being mixed into the normal command output.
-The driver still publishes the table when a stage fails; the job exits non-zero
-after all independent stages have had a chance to report their state.
+Generation and native C++ compile/link times are separate columns; the table
+also keeps the second native generation/link as a fixed-point check. The driver
+still publishes the table when a stage fails; the job exits non-zero after all
+independent stages have had a chance to report their state.
 
 ## Recovery after the ambient-runtime experiment
 
