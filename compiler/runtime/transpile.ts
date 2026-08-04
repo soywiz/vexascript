@@ -22,7 +22,7 @@ import { lowerProgram } from "./lowering";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
 import { Program, type Expr, type Node, type Statement } from "compiler/ast/ast";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
-import type { ReceiverLambdaInfo } from "compiler/analysis/model";
+import type { AnalysisSymbol, ExtensionPropertyResolution, ReceiverLambdaInfo } from "compiler/analysis/model";
 import type { SourceRange } from "compiler/parser/tokenizer";
 import {
   VEXA_DIAGNOSTIC_CODES,
@@ -350,10 +350,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     const analysisStartedAt = monotonicNow();
     artifacts = compileParsedSource(parsed, {
       externalDeclarations,
-      ambientDeclarations: [
-        ...getEcmaScriptRuntimeProgram().body,
-        ...ambientDeclarations
-      ],
+      ambientDeclarations,
       importedSymbols,
       language: parserOptions.language === "typescript" ? "typescript" : "vexascript"
     });
@@ -438,30 +435,28 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   });
   if (options.emit === "cpp") {
     try {
+      const operatorResolutions = new Map<Node, AnalysisSymbol>();
+      for (const resolution of artifacts.analysis.getOperatorResolutions()) {
+        operatorResolutions.set(resolution.expression, resolution.symbol);
+      }
+      const extensionPropertyResolutions = new Map<Node, ExtensionPropertyResolution>();
+      for (const resolution of artifacts.analysis.getExtensionPropertyResolutions()) {
+        extensionPropertyResolutions.set(resolution.expression, resolution);
+      }
       const result: TranspileResult = {
         code: emitCppProgram(
           lowerProgram(artifacts.ast, { lowerRangeForLoops: true, expressionTypeName }),
           {
             ...(options.sourceFilePath ? { sourceFilePath: options.sourceFilePath } : {}),
             ...(options.emitNativeSourceLocations ? { emitSourceLocations: true } : {}),
-            ambientDeclarations: [
-              ...getEcmaScriptRuntimeProgram().body,
-              ...ambientDeclarations
-            ],
-            externalDeclarations,
             expressionTypes: artifacts.analysis.getExpressionTypes(),
             implicitReceiverIdentifiers: artifacts.analysis.getImplicitReceiverIdentifiers(),
             implicitReceiverExtensionIdentifiers: artifacts.analysis.getImplicitReceiverExtensionIdentifiers(),
             staticImplicitReceiverIdentifiers: artifacts.analysis.getStaticImplicitReceiverIdentifiers(),
             autoAwaitExpressions: artifacts.analysis.getAutoAwaitExpressions(),
             callableTypes: artifacts.analysis.getCallableTypes(),
-            resolvedCallTypes: artifacts.analysis.getResolvedCallTypes(),
-            operatorResolutions: new Map(
-              artifacts.analysis.getOperatorResolutions().map((resolution) => [resolution.expression, resolution.symbol])
-            ),
-            extensionPropertyResolutions: new Map(
-              artifacts.analysis.getExtensionPropertyResolutions().map((resolution) => [resolution.expression, resolution])
-            ),
+            operatorResolutions,
+            extensionPropertyResolutions,
             receiverLambdas: artifacts.analysis.getReceiverLambdas()
           }
         ),

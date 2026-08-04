@@ -21,7 +21,7 @@ export type BuiltinTypeName =
  * agree on which type names are intrinsic and should not be resolved as
  * user-declared classes/interfaces.
  */
-export const BUILTIN_TYPE_NAMES: ReadonlySet<string> = new Set<BuiltinTypeName>([
+export const BUILTIN_TYPE_NAMES: ReadonlySet<string> = new Set<string>([
   "int",
   "number",
   "numeric",

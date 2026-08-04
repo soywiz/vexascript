@@ -147,27 +147,16 @@ class BaseObject;
 class StringObject;
 class EnumerableObject;
 class Value;
-class Float16ArrayObject;
 std::runtime_error errorAtCurrentSource(std::u16string);
 template <typename T>
 class ArrayObject;
-template <typename T>
-struct ArrayPointerElement {
-  using Type = T;
-};
 template <typename K, typename V>
 class MapObject;
 template <typename T>
 class SetObject;
-template <typename T>
-class NativeIteratorObject;
 ArrayObject<Value>* makeDynamicArrayValueView(BaseObject* backing);
 std::u16string toString(const Value&);
-std::u16string toString(Float16ArrayObject*);
 std::u16string jsonQuoted(const std::u16string&);
-std::u16string propertyKey(const Value&);
-bool toBoolean(double);
-bool toBoolean(const Value&);
 double Number(const Value&);
 template <typename Result, typename Input>
 Result convertValue(Input&&);
@@ -193,33 +182,7 @@ struct TaskTraits<Task<T>> final {
   using Result = T;
 };
 template <typename T>
-struct PromiseResult final {
-  using Type = std::remove_cvref_t<T>;
-  static constexpr bool task = false;
-};
-
-template <typename T>
-struct PromiseResult<Task<T>> final {
-  using Type = typename PromiseResult<T>::Type;
-  static constexpr bool task = true;
-};
-
-template <typename T, typename Callback>
-Task<typename PromiseResult<std::invoke_result_t<Callback, T>>::Type> promiseThen(
-    Task<T> source,
-    Callback callback);
-
-template <typename Callback>
-Task<typename PromiseResult<std::invoke_result_t<Callback>>::Type> promiseThen(
-    Task<void> source,
-    Callback callback);
-
-template <typename T, typename Callback>
-Task<T> promiseCatch(Task<T> source, Callback callback);
-
-template <typename T, typename Callback>
-Task<T> promiseFinally(Task<T> source, Callback callback);
-
+struct PromiseResult;
 template <typename T>
 std::u16string toString(const Task<T>&);
 RecordObject* makeDynamicPropertyRecord();
@@ -335,7 +298,6 @@ class Value final {
   Value(double value) : storage_(value) {}
   Value(int value) : storage_(static_cast<double>(value)) {}
   Value(BigInt value) : storage_(std::move(value)) {}
-  Value(std::u16string value);
   explicit Value(StringObject* value) : storage_(cppgc::Persistent<BaseObject>(value)) {}
   explicit Value(RecordObject* value);
   template <typename T>
@@ -931,9 +893,8 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
         ArraySlot<T>(std::move(value)));
   }
   void prepend(T value) { values_.insert(values_.begin(), ArraySlot<T>(std::move(value))); }
-  template <typename... Items>
-  double push(Items&&... items) {
-    (append(convertValue<T>(std::forward<Items>(items))), ...);
+  double push(T value) {
+    append(std::move(value));
     return static_cast<double>(size());
   }
   T removeLast() {
@@ -950,9 +911,8 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   }
   T pop() { return removeLast(); }
   T shift() { return removeFirst(); }
-  template <typename... Items>
-  double unshift(Items&&... items) {
-    (prepend(convertValue<T>(std::forward<Items>(items))), ...);
+  double unshift(T value) {
+    prepend(std::move(value));
     return static_cast<double>(size());
   }
   ArrayObject* reverse() {
@@ -966,12 +926,10 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   double indexOf(const U& value) const;
   template <typename U>
   double lastIndexOf(const U& value) const;
-  template <typename Index>
-  T at(Index index) const;
-  template <typename Start = double, typename End = double>
+  T at(double index) const;
   ArrayObject* slice(
-      Start start = 0,
-      End end = std::numeric_limits<double>::infinity()) const;
+      double start = 0,
+      double end = std::numeric_limits<double>::infinity()) const;
   template <typename... Items>
   ArrayObject* concat(Items&&... items) const;
   template <typename Callback>
@@ -990,39 +948,17 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   double findIndex(Callback callback) const;
   template <typename Callback>
   T find(Callback callback) const;
-  template <typename Callback>
-  double findLastIndex(Callback callback) const;
-  template <typename Callback>
-  T findLast(Callback callback) const;
-  template <typename Start = double, typename DeleteCount = double, typename... Items>
+  template <typename... Items>
   ArrayObject* splice(
-      Start start,
-      DeleteCount deleteCount = std::numeric_limits<double>::infinity(),
+      double start,
+      double deleteCount = std::numeric_limits<double>::infinity(),
       Items&&... items);
-  template <typename Value, typename Start = double, typename End = double>
-  ArrayObject* fill(Value&& value, Start start = 0, End end = std::numeric_limits<double>::infinity());
-  template <typename Target, typename Start, typename End = double>
-  ArrayObject* copyWithin(Target target, Start start, End end = std::numeric_limits<double>::infinity());
+  ArrayObject* fill(T value, double start = 0, double end = std::numeric_limits<double>::infinity());
+  ArrayObject* copyWithin(double target, double start, double end = std::numeric_limits<double>::infinity());
   ArrayObject* sort();
   template <typename Callback>
   ArrayObject* sort(Callback callback);
-  ArrayObject* toReversed() const;
-  ArrayObject* toSorted() const;
-  template <typename Callback>
-  ArrayObject* toSorted(Callback callback) const;
-  template <typename Start = double, typename DeleteCount = double, typename... Items>
-  ArrayObject* toSpliced(
-      Start start,
-      DeleteCount deleteCount = std::numeric_limits<double>::infinity(),
-      Items&&... items) const;
-  template <typename Index, typename Value>
-  ArrayObject* with(Index index, Value&& value) const;
-  template <typename Depth = double>
-  auto flat(Depth depth = 1) const;
-  template <typename Callback>
-  auto flatMap(Callback callback) const;
-  template <typename Separator = std::u16string>
-  std::u16string join(Separator&& separator = std::u16string(u",")) const;
+  std::u16string join(const std::u16string& separator = u",") const;
   std::u16string toString() const;
   const void* dynamicTypeToken() const override { return nativeTypeToken<ArrayObject<T>>(); }
   void* dynamicCast(const void* type) override {
@@ -1109,18 +1045,6 @@ inline bool sameValueZero(double left, double right) {
 inline bool sameValueZero(const Value& left, const Value& right) {
   return left == right || (left.isNumber() && right.isNumber() &&
       std::isnan(left.number()) && std::isnan(right.number()));
-}
-
-template <typename Other>
-  requires (!std::is_same_v<std::remove_cvref_t<Other>, Value>)
-inline bool sameValueZero(const Value& left, const Other& right) {
-  return sameValueZero(left, convertValue<Value>(right));
-}
-
-template <typename Other>
-  requires (!std::is_same_v<std::remove_cvref_t<Other>, Value>)
-inline bool sameValueZero(const Other& left, const Value& right) {
-  return sameValueZero(convertValue<Value>(left), right);
 }
 
 template <typename T>
@@ -1218,7 +1142,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
     return this;
   }
 
-  std::optional<V> find(const K& key) const {
+  std::optional<V> get(const K& key) const {
     if (dynamic_backing_) {
       const auto found = dynamic_backing_->dynamicMapGet(convertValue<Value>(key));
       if (!found) return std::nullopt;
@@ -1236,33 +1160,10 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
         : std::optional<V>(storage_->entries[found->second].value.load());
   }
 
-  template <typename Key>
-  V get(Key&& key) const {
-    const auto found = find(convertValue<K>(std::forward<Key>(key)));
-    return found ? *found : defaultValue<V>();
-  }
-
-  template <typename Key>
-  bool vexa_delete(Key&& key) {
-    return erase(convertValue<K>(std::forward<Key>(key)));
-  }
-
   bool has(const K& key) const {
     return dynamic_backing_
       ? dynamic_backing_->dynamicMapGet(convertValue<Value>(key)).has_value()
       : storage_->index.contains(key);
-  }
-
-  template <typename Key>
-  bool has(Key&& key) const {
-    return has(convertValue<K>(std::forward<Key>(key)));
-  }
-
-  template <typename Key, typename Input>
-  MapObject* set(Key&& key, Input&& value) {
-    return set(
-        convertValue<K>(std::forward<Key>(key)),
-        convertValue<V>(std::forward<Input>(value)));
   }
 
   bool erase(const K& key) {
@@ -1287,7 +1188,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   }
 
   template <typename Callback>
-  void forEach(Callback callback) const {
+  void forEach(Callback callback) {
     if (dynamic_backing_) {
             for (std::size_t index = 0; index < dynamic_backing_->dynamicMapSize(); ++index) {
         const K key = convertValue<K>(dynamic_backing_->dynamicMapKeyAt(index));
@@ -1308,10 +1209,6 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
       }
     }
   }
-
-  NativeIteratorObject<K>* keys() const;
-  NativeIteratorObject<V>* values() const;
-  NativeIteratorObject<ArrayObject<Value>*>* entries() const;
 
   const void* dynamicTypeToken() const override { return nativeTypeToken<MapObject<K, V>>(); }
   void* dynamicCast(const void* type) override {
@@ -1340,7 +1237,7 @@ class MapObject final : public cppgc::GarbageCollected<MapObject<K, V>>, public 
   }
   std::optional<Value> dynamicMapGet(const Value& key) override {
     if (dynamic_backing_) return dynamic_backing_->dynamicMapGet(key);
-    const auto found = find(convertValue<K>(key));
+    const auto found = get(convertValue<K>(key));
     return found ? std::optional<Value>(convertValue<Value>(*found)) : std::nullopt;
   }
   void dynamicMapSet(const Value& key, const Value& value) override {
@@ -1400,23 +1297,8 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
     return this;
   }
 
-  template <typename Input>
-  SetObject* add(Input&& value) {
-    return add(convertValue<T>(std::forward<Input>(value)));
-  }
-
   bool has(const T& value) const {
     return storage_->index.contains(value);
-  }
-
-  template <typename Input>
-  bool has(Input&& value) const {
-    return has(convertValue<T>(std::forward<Input>(value)));
-  }
-
-  template <typename Input>
-  bool vexa_delete(Input&& value) {
-    return erase(convertValue<T>(std::forward<Input>(value)));
   }
 
   bool erase(const T& value) {
@@ -1435,10 +1317,10 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
   }
 
   template <typename Callback>
-  void forEach(Callback callback) const {
+  void forEach(Callback callback) {
     for (const auto& value : storage_->values) {
       if constexpr (std::is_invocable_v<Callback, T, T, SetObject*>) {
-        callback(value.load(), value.load(), const_cast<SetObject*>(this));
+        callback(value.load(), value.load(), this);
       } else if constexpr (std::is_invocable_v<Callback, T, T>) {
         callback(value.load(), value.load());
       } else {
@@ -1446,17 +1328,6 @@ class SetObject final : public cppgc::GarbageCollected<SetObject<T>>, public Set
       }
     }
   }
-
-  NativeIteratorObject<T>* keys() const;
-  NativeIteratorObject<T>* values() const;
-  NativeIteratorObject<ArrayObject<Value>*>* entries() const;
-  SetObject* vexa_union(const SetObject* other) const;
-  SetObject* intersection(const SetObject* other) const;
-  SetObject* difference(const SetObject* other) const;
-  SetObject* symmetricDifference(const SetObject* other) const;
-  bool isSubsetOf(const SetObject* other) const;
-  bool isSupersetOf(const SetObject* other) const;
-  bool isDisjointFrom(const SetObject* other) const;
 
   const void* dynamicTypeToken() const override { return nativeTypeToken<SetObject<T>>(); }
   void* dynamicCast(const void* type) override {
@@ -1500,33 +1371,14 @@ class WeakMapObject final : public cppgc::GarbageCollected<WeakMapObject<K, V>>,
     return this;
   }
 
-  std::optional<V> find(K key) const {
+  std::optional<V> get(K key) const {
     const auto found = index_.find(key);
     return found == index_.end()
         ? std::nullopt
         : std::optional<V>(entries_[found->second]->value.load());
   }
 
-  template <typename Key>
-  V get(Key&& key) const {
-    const auto found = find(convertValue<K>(std::forward<Key>(key)));
-    return found ? *found : defaultValue<V>();
-  }
-
-  template <typename Key>
-  bool vexa_delete(Key&& key) {
-    return erase(convertValue<K>(std::forward<Key>(key)));
-  }
-
-  bool has(K key) const { return find(key).has_value(); }
-
-  template <typename Key>
-  bool has(Key&& key) const { return find(convertValue<K>(std::forward<Key>(key))).has_value(); }
-
-  template <typename Key, typename Input>
-  WeakMapObject* set(Key&& key, Input&& value) {
-    return set(convertValue<K>(std::forward<Key>(key)), convertValue<V>(std::forward<Input>(value)));
-  }
+  bool has(K key) const { return get(key).has_value(); }
   bool erase(K key) {
     const auto found = index_.find(key);
     if (found == index_.end()) return false;
@@ -1590,23 +1442,8 @@ class WeakSetObject final : public cppgc::GarbageCollected<WeakSetObject<T>>, pu
     if (index_.insert(value).second) values_.emplace_back(makeManaged<Entry>(value));
     return this;
   }
-
-  template <typename Input>
-  WeakSetObject* add(Input&& value) {
-    return add(convertValue<T>(std::forward<Input>(value)));
-  }
   bool has(T value) const {
     return index_.contains(value);
-  }
-
-  template <typename Input>
-  bool has(Input&& value) const {
-    return has(convertValue<T>(std::forward<Input>(value)));
-  }
-
-  template <typename Input>
-  bool vexa_delete(Input&& value) {
-    return erase(convertValue<T>(std::forward<Input>(value)));
   }
   bool erase(T value) {
     if (index_.erase(value) == 0) return false;
@@ -1848,30 +1685,8 @@ inline double dateParse(const std::u16string& value) { return DateObject::parse(
 class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject>, public BaseObject {
  public:
   explicit ArrayBufferObject(std::size_t byteLength)
-      : ArrayBufferObject(byteLength, byteLength) {}
-  ArrayBufferObject(std::size_t byteLength, std::size_t maxByteLength)
-      : bytes_(std::make_shared<std::vector<std::uint8_t>>(byteLength, 0)),
-        max_byte_length_(std::max(byteLength, maxByteLength)),
-        resizable_(max_byte_length_ > byteLength) {}
-  std::size_t byteLength() const { return detached_ ? 0 : bytes_->size(); }
-  std::size_t maxByteLength() const { return detached_ ? 0 : max_byte_length_; }
-  bool resizable() const { return !detached_ && resizable_; }
-  bool growable() const { return resizable(); }
-  bool detached() const { return detached_; }
-  void resizeBytes(std::size_t byteLength) {
-    if (detached_ || !resizable_) throw runtimeError(u"ArrayBuffer is not resizable");
-    if (byteLength > max_byte_length_) throw runtimeError(u"ArrayBuffer resize exceeds maxByteLength");
-    bytes_->resize(byteLength, 0);
-  }
-  void growBytes(std::size_t targetByteLength) {
-    if (targetByteLength < this->byteLength()) throw runtimeError(u"SharedArrayBuffer cannot shrink");
-    resizeBytes(targetByteLength);
-  }
-  void resize(double byteLength);
-  void grow(double targetByteLength);
-  ArrayBufferObject* transfer(double newByteLength = std::numeric_limits<double>::quiet_NaN());
-  ArrayBufferObject* transferToFixedLength(double newByteLength = std::numeric_limits<double>::quiet_NaN());
-  ArrayBufferObject* transferBytes(std::size_t byteLength, bool fixedLength);
+      : bytes_(std::make_shared<std::vector<std::uint8_t>>(byteLength, 0)) {}
+  std::size_t byteLength() const { return bytes_->size(); }
   std::uint8_t* data() { return bytes_->data(); }
   const std::uint8_t* data() const { return bytes_->data(); }
   std::shared_ptr<std::vector<std::uint8_t>> sharedBytes() const { return bytes_; }
@@ -1892,21 +1707,7 @@ class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject
 
  private:
   std::shared_ptr<std::vector<std::uint8_t>> bytes_;
-  std::size_t max_byte_length_;
-  bool resizable_ = false;
-  bool detached_ = false;
 };
-
-inline ArrayBufferObject* arrayBufferTransfer(
-    ArrayBufferObject* buffer,
-    double newByteLength = std::numeric_limits<double>::quiet_NaN(),
-    bool fixedLength = false) {
-  if (!buffer) throw runtimeError(u"ArrayBuffer transfer requires a buffer");
-  const auto length = std::isnan(newByteLength)
-    ? std::numeric_limits<std::size_t>::max()
-    : static_cast<std::size_t>(std::max(0.0, std::trunc(newByteLength)));
-  return buffer->transferBytes(length, fixedLength);
-}
 
 class FFIPointerObject final : public cppgc::GarbageCollected<FFIPointerObject>, public BaseObject {
  public:
@@ -2015,25 +1816,6 @@ class Uint8ArrayObject final : public cppgc::GarbageCollected<Uint8ArrayObject>,
   std::size_t length_;
 };
 
-class TextEncoderObject final
-    : public cppgc::GarbageCollected<TextEncoderObject>,
-      public BaseObject {
- public:
-  TextEncoderObject() : BaseObject(Kind::Record) {}
-
-  Uint8ArrayObject* encode(const std::u16string& source) const;
-  RecordObject* encodeInto(const std::u16string& source, Uint8ArrayObject* destination) const;
-  std::u16string encoding = u"utf-8";
-
-  const void* dynamicTypeToken() const override { return nativeTypeToken<TextEncoderObject>(); }
-  void* dynamicCast(const void* type) override {
-    if (type == nativeTypeToken<TextEncoderObject>()) return this;
-    return type == nativeTypeToken<BaseObject>() ? static_cast<BaseObject*>(this) : nullptr;
-  }
-  std::u16string dynamicToString() const override { return u"[object TextEncoder]"; }
-  void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); }
-};
-
 class Uint32ArrayObject final : public cppgc::GarbageCollected<Uint32ArrayObject>, public BaseObject {
  public:
   Uint32ArrayObject(ArrayBufferObject* buffer, std::size_t byteOffset, std::size_t length)
@@ -2089,284 +1871,6 @@ class Uint32ArrayObject final : public cppgc::GarbageCollected<Uint32ArrayObject
   std::size_t length_;
 };
 
-class BigInt64ArrayObject final : public cppgc::GarbageCollected<BigInt64ArrayObject>, public BaseObject {
- public:
-  BigInt64ArrayObject(ArrayBufferObject* buffer, std::size_t byteOffset, std::size_t length)
-      : buffer_(buffer), byte_offset_(byteOffset), length_(length) {
-    if (!buffer || byteOffset > buffer->byteLength() ||
-        length > (buffer->byteLength() - byteOffset) / sizeof(std::int64_t)) {
-      throw std::out_of_range("BigInt64Array view is outside its ArrayBuffer");
-    }
-  }
-  std::size_t size() const { return length_; }
-  std::size_t length() const { return length_; }
-  std::size_t byteLength() const { return length_ * sizeof(std::int64_t); }
-  std::size_t byteOffset() const { return byte_offset_; }
-  ArrayBufferObject* buffer() const { return buffer_.Get(); }
-  BigInt get(std::size_t index) const {
-    if (index >= length_) throw std::out_of_range("BigInt64Array index is out of range");
-    std::int64_t value = 0;
-    std::memcpy(&value, buffer_->data() + byte_offset_ + index * sizeof(value), sizeof(value));
-    return BigInt(value);
-  }
-  void set(std::size_t index, const BigInt& value) {
-    if (index >= length_) throw std::out_of_range("BigInt64Array index is out of range");
-    const auto converted = static_cast<std::int64_t>(value.toDouble());
-    std::memcpy(buffer_->data() + byte_offset_ + index * sizeof(converted), &converted, sizeof(converted));
-  }
-  Value dynamicGet(const std::u16string& key) override {
-    if (key == u"length") return Value(static_cast<double>(length_));
-    if (key == u"byteLength") return Value(static_cast<double>(byteLength()));
-    if (key == u"byteOffset") return Value(static_cast<double>(byte_offset_));
-    const auto index = propertyIndex(key);
-    return index && *index < length_ ? Value(get(*index)) : Value::undefined();
-  }
-  Value dynamicSet(const std::u16string& key, const Value& value) override {
-    const auto index = propertyIndex(key);
-    if (!index) throw runtimeError(u"Invalid BigInt64Array index");
-    set(*index, value.isBigInt() ? value.bigint() : BigInt(static_cast<std::int64_t>(Number(value))));
-    return Value(get(*index));
-  }
-  const void* dynamicTypeToken() const override { return nativeTypeToken<BigInt64ArrayObject>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<BigInt64ArrayObject>() ? this : nullptr;
-  }
-  std::u16string dynamicToString() const override { return u"[object BigInt64Array]"; }
-  void Trace(cppgc::Visitor* visitor) const override {
-    BaseObject::Trace(visitor);
-    visitor->Trace(buffer_);
-  }
-
- private:
-  cppgc::Member<ArrayBufferObject> buffer_;
-  std::size_t byte_offset_;
-  std::size_t length_;
-};
-
-inline std::uint16_t float16Bits(double value) {
-  const auto bits = std::bit_cast<std::uint32_t>(static_cast<float>(value));
-  const auto sign = (bits >> 16U) & 0x8000U;
-  const auto exponent = static_cast<int>((bits >> 23U) & 0xffU);
-  const auto mantissa = bits & 0x7fffffU;
-  if (exponent == 0xff) {
-    return static_cast<std::uint16_t>(sign | 0x7c00U | (mantissa ? 0x0200U : 0));
-  }
-  const auto halfExponent = exponent - 127 + 15;
-  if (halfExponent >= 31) return static_cast<std::uint16_t>(sign | 0x7c00U);
-  if (halfExponent <= 0) {
-    if (halfExponent < -10) return static_cast<std::uint16_t>(sign);
-    const auto shifted = (mantissa | 0x800000U) >> static_cast<unsigned>(1 - halfExponent);
-    const auto rounded = shifted + ((shifted >> 13U) & 1U);
-    return static_cast<std::uint16_t>(sign | (rounded >> 13U));
-  }
-  const auto roundedMantissa = mantissa + 0x1000U;
-  if (roundedMantissa & 0x800000U) {
-    if (halfExponent == 30) return static_cast<std::uint16_t>(sign | 0x7c00U);
-    return static_cast<std::uint16_t>(sign | static_cast<std::uint32_t>(halfExponent + 1) << 10U);
-  }
-  return static_cast<std::uint16_t>(sign |
-    (static_cast<std::uint32_t>(halfExponent) << 10U) |
-    (roundedMantissa >> 13U));
-}
-
-inline double float16Value(std::uint16_t bits) {
-  const auto sign = static_cast<std::uint32_t>(bits & 0x8000U) << 16U;
-  const auto exponent = (bits >> 10U) & 0x1fU;
-  const auto mantissa = bits & 0x03ffU;
-  std::uint32_t result;
-  if (exponent == 0) {
-    if (mantissa == 0) {
-      result = sign;
-    } else {
-      auto normalized = mantissa;
-      int exponentValue = -14;
-      while ((normalized & 0x0400U) == 0) {
-        normalized <<= 1U;
-        --exponentValue;
-      }
-      normalized &= 0x03ffU;
-      result = sign |
-        (static_cast<std::uint32_t>(exponentValue + 127) << 23U) |
-        (normalized << 13U);
-    }
-  } else if (exponent == 0x1f) {
-    result = sign | 0x7f800000U | (static_cast<std::uint32_t>(mantissa) << 13U);
-  } else {
-    result = sign |
-      (static_cast<std::uint32_t>(exponent - 15 + 127) << 23U) |
-      (static_cast<std::uint32_t>(mantissa) << 13U);
-  }
-  return static_cast<double>(std::bit_cast<float>(result));
-}
-
-class Float16ArrayObject final : public cppgc::GarbageCollected<Float16ArrayObject>, public BaseObject {
- public:
-  Float16ArrayObject(ArrayBufferObject* buffer, std::size_t byteOffset, std::size_t length)
-      : buffer_(buffer), byte_offset_(byteOffset), length_(length) {
-    if (!buffer || byteOffset > buffer->byteLength() ||
-        length > (buffer->byteLength() - byteOffset) / sizeof(std::uint16_t)) {
-      throw std::out_of_range("Float16Array view is outside its ArrayBuffer");
-    }
-  }
-  std::size_t size() const { return length_; }
-  std::size_t length() const { return length_; }
-  std::size_t byteLength() const { return length_ * sizeof(std::uint16_t); }
-  std::size_t byteOffset() const { return byte_offset_; }
-  ArrayBufferObject* buffer() const { return buffer_.Get(); }
-  double get(std::size_t index) const {
-    if (index >= length_) throw std::out_of_range("Float16Array index is out of range");
-    std::uint16_t bits;
-    std::memcpy(&bits, buffer_->data() + byte_offset_ + index * sizeof(bits), sizeof(bits));
-    return float16Value(bits);
-  }
-  double set(std::size_t index, double value) {
-    if (index >= length_) throw std::out_of_range("Float16Array index is out of range");
-    const auto bits = float16Bits(value);
-    std::memcpy(buffer_->data() + byte_offset_ + index * sizeof(bits), &bits, sizeof(bits));
-    return float16Value(bits);
-  }
-  Value at(double index) const {
-    const auto position = static_cast<std::int64_t>(std::trunc(index));
-    const auto resolved = position < 0 ? static_cast<std::int64_t>(length_) + position : position;
-    return resolved >= 0 && resolved < static_cast<std::int64_t>(length_)
-      ? Value(get(static_cast<std::size_t>(resolved)))
-      : Value::undefined();
-  }
-  Float16ArrayObject* copyWithin(double target, double start, double end = std::numeric_limits<double>::infinity());
-  template <typename Callback>
-  bool every(Callback callback) const;
-  Float16ArrayObject* fill(double value, double start = 0, double end = std::numeric_limits<double>::infinity());
-  template <typename Callback>
-  Float16ArrayObject* filter(Callback callback) const;
-  template <typename Callback>
-  Value find(Callback callback) const;
-  template <typename Callback>
-  double findIndex(Callback callback) const;
-  template <typename Callback>
-  Value findLast(Callback callback) const;
-  template <typename Callback>
-  double findLastIndex(Callback callback) const;
-  template <typename Callback>
-  void forEach(Callback callback) const;
-  bool includes(double value, double fromIndex = 0) const;
-  double indexOf(double value, double fromIndex = 0) const;
-  double lastIndexOf(double value, double fromIndex = std::numeric_limits<double>::infinity()) const;
-  template <typename Callback>
-  Float16ArrayObject* map(Callback callback) const;
-  template <typename Callback>
-  double reduce(Callback callback) const;
-  template <typename Callback>
-  double reduce(Callback callback, double initial) const;
-  template <typename Callback>
-  double reduceRight(Callback callback) const;
-  template <typename Callback>
-  double reduceRight(Callback callback, double initial) const;
-  Float16ArrayObject* reverse();
-  template <typename T>
-  void set(const ArrayObject<T>* values, double offset = 0);
-  void set(const Float16ArrayObject* values, double offset = 0);
-  Float16ArrayObject* slice(double start = 0, double end = std::numeric_limits<double>::infinity()) const;
-  template <typename Callback>
-  bool some(Callback callback) const;
-  Float16ArrayObject* sort();
-  template <typename Callback>
-  Float16ArrayObject* sort(Callback callback);
-  Float16ArrayObject* subarray(double begin = 0, double end = std::numeric_limits<double>::infinity()) const;
-  NativeIteratorObject<double>* values() const;
-  NativeIteratorObject<double>* keys() const;
-  NativeIteratorObject<ArrayObject<double>*>* entries() const;
-  std::u16string join(const std::u16string& separator = u",") const;
-  std::u16string toString() const;
-  std::u16string toLocaleString() const;
-  template <typename Callback>
-  Float16ArrayObject* toSorted(Callback callback) const;
-  Float16ArrayObject* toReversed() const;
-  Float16ArrayObject* toSorted() const;
-  Float16ArrayObject* with(double index, double value) const;
-  Value dynamicGet(const std::u16string& key) override {
-    if (key == u"length") return Value(static_cast<double>(length_));
-    if (key == u"byteLength") return Value(static_cast<double>(byteLength()));
-    if (key == u"byteOffset") return Value(static_cast<double>(byte_offset_));
-    const auto index = propertyIndex(key);
-    return index && *index < length_ ? Value(get(*index)) : Value::undefined();
-  }
-  Value dynamicSet(const std::u16string& key, const Value& value) override {
-    const auto index = propertyIndex(key);
-    if (!index) throw runtimeError(u"Invalid Float16Array index");
-    return Value(set(*index, Number(value)));
-  }
-  const void* dynamicTypeToken() const override { return nativeTypeToken<Float16ArrayObject>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<Float16ArrayObject>() ? this : nullptr;
-  }
-  std::u16string dynamicToString() const override { return toString(); }
-  void Trace(cppgc::Visitor* visitor) const override {
-    BaseObject::Trace(visitor);
-    visitor->Trace(buffer_);
-  }
-
- private:
-  Float16ArrayObject* copy() const;
-  cppgc::Member<ArrayBufferObject> buffer_;
-  std::size_t byte_offset_;
-  std::size_t length_;
-};
-
-template <typename T>
-class NativeIteratorObject final
-    : public cppgc::GarbageCollected<NativeIteratorObject<T>>,
-      public BaseObject {
- public:
-  explicit NativeIteratorObject(std::vector<T> values)
-      : values_(std::move(values)) {}
-
-  std::vector<T> takeRemaining() {
-    std::vector<T> result(
-        values_.begin() + static_cast<std::ptrdiff_t>(position_),
-        values_.end());
-    position_ = values_.size();
-    return result;
-  }
-  template <typename Callback>
-  auto map(Callback callback);
-  template <typename Callback>
-  NativeIteratorObject* filter(Callback callback);
-  NativeIteratorObject* take(double limit);
-  NativeIteratorObject* drop(double count);
-  template <typename Callback, typename Accumulator>
-  Accumulator reduce(Callback callback, Accumulator accumulator);
-  template <typename Callback>
-  T reduce(Callback callback);
-  template <typename Callback>
-  auto flatMap(Callback callback);
-  template <typename Callback>
-  void forEach(Callback callback);
-  template <typename Callback>
-  bool some(Callback callback);
-  template <typename Callback>
-  bool every(Callback callback);
-  template <typename Callback>
-  T find(Callback callback);
-  ArrayObject<T>* toArray();
-  const std::vector<T>& values() const { return values_; }
-  std::size_t position() const { return position_; }
-  const void* dynamicTypeToken() const override { return nativeTypeToken<NativeIteratorObject<T>>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<NativeIteratorObject<T>>() ? this : nullptr;
-  }
-  std::u16string dynamicToString() const override { return u"[object Iterator]"; }
-  void Trace(cppgc::Visitor* visitor) const override {
-    BaseObject::Trace(visitor);
-    for (const auto& value : values_) {
-      if constexpr (requires { value.Trace(visitor); }) value.Trace(visitor);
-    }
-  }
-
- private:
-  std::vector<T> values_;
-  std::size_t position_ = 0;
-};
-
 class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, public BaseObject {
  public:
   DataViewObject(ArrayBufferObject* buffer, std::size_t byteOffset, std::size_t byteLength)
@@ -2394,9 +1898,6 @@ class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, pub
   double getFloat64(double offset, bool littleEndian = false) const {
     return std::bit_cast<double>(readValue<std::uint64_t>(offset, littleEndian));
   }
-  double getFloat16(double offset, bool littleEndian = false) const {
-    return float16Value(readValue<std::uint16_t>(offset, littleEndian));
-  }
   void setUint8(double offset, double value) { writeValue(offset, static_cast<std::uint8_t>(value), true); }
   void setInt8(double offset, double value) { writeValue(offset, static_cast<std::uint8_t>(value), true); }
   void setUint16(double offset, double value, bool littleEndian = false) { writeValue(offset, static_cast<std::uint16_t>(value), littleEndian); }
@@ -2408,9 +1909,6 @@ class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, pub
   }
   void setFloat64(double offset, double value, bool littleEndian = false) {
     writeValue(offset, std::bit_cast<std::uint64_t>(value), littleEndian);
-  }
-  void setFloat16(double offset, double value, bool littleEndian = false) {
-    writeValue(offset, float16Bits(value), littleEndian);
   }
   const void* dynamicTypeToken() const override { return nativeTypeToken<DataViewObject>(); }
   void* dynamicCast(const void* type) override {
@@ -2721,38 +2219,11 @@ class RegExp final {
  public:
   RegExp() : RegExp(u"", u"") {}
   RegExp(std::u16string pattern, const std::u16string& flags)
-      : pattern_(std::move(pattern)),
-        global_(flags.find(u'g') != std::u16string::npos),
-        ignore_case_(flags.find(u'i') != std::u16string::npos),
-        multiline_(flags.find(u'm') != std::u16string::npos),
-        dot_all_(flags.find(u's') != std::u16string::npos),
-        has_indices_(flags.find(u'd') != std::u16string::npos),
-        unicode_(flags.find(u'u') != std::u16string::npos),
-        unicode_sets_(flags.find(u'v') != std::u16string::npos),
-        expression_(cachedExpression(pattern_, ignore_case_)) {}
+      : expression_(cachedExpression(std::move(pattern), flags.find(u'i') != std::u16string::npos)) {}
 
   bool test(const std::u16string& value) const { return expression_->test(value); }
   std::optional<std::vector<std::u16string>> exec(const std::u16string& value) const {
     return expression_->exec(value);
-  }
-  const std::u16string& source() const { return pattern_; }
-  bool global() const { return global_; }
-  bool ignoreCase() const { return ignore_case_; }
-  bool multiline() const { return multiline_; }
-  bool dotAll() const { return dot_all_; }
-  bool hasIndices() const { return has_indices_; }
-  bool unicode() const { return unicode_; }
-  bool unicodeSets() const { return unicode_sets_; }
-  std::u16string flags() const {
-    std::u16string result;
-    if (has_indices_) result += u"d";
-    if (global_) result += u"g";
-    if (ignore_case_) result += u"i";
-    if (multiline_) result += u"m";
-    if (dot_all_) result += u"s";
-    if (unicode_) result += u"u";
-    if (unicode_sets_) result += u"v";
-    return result;
   }
   std::u16string replace(const std::u16string& value, const std::u16string& replacement) const {
     return expression_->replace(value, replacement);
@@ -2778,46 +2249,7 @@ class RegExp final {
     return expression;
   }
 
-  std::u16string pattern_;
-  bool global_ = false;
-  bool ignore_case_ = false;
-  bool multiline_ = false;
-  bool dot_all_ = false;
-  bool has_indices_ = false;
-  bool unicode_ = false;
-  bool unicode_sets_ = false;
   std::shared_ptr<const Utf16Regex> expression_;
-};
-
-class DurationFormatObject final
-    : public cppgc::GarbageCollected<DurationFormatObject>,
-      public BaseObject {
- public:
-  DurationFormatObject(std::u16string locale, RecordObject* options)
-      : locale_(std::move(locale)) {
-    if (locale_.empty()) locale_ = u"en";
-    if (!options) return;
-    if (options->has(u"style")) style_ = toString(options->get(u"style"));
-    if (options->has(u"numberingSystem")) numbering_system_ = toString(options->get(u"numberingSystem"));
-    if (options->has(u"fractionalDigits")) fractional_digits_ = static_cast<int>(Number(options->get(u"fractionalDigits")));
-  }
-
-  std::u16string format(RecordObject* duration) const;
-  ArrayObject<RecordObject*>* formatToParts(RecordObject* duration) const;
-  RecordObject* resolvedOptions() const;
-  const void* dynamicTypeToken() const override { return nativeTypeToken<DurationFormatObject>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<DurationFormatObject>() ? this : nullptr;
-  }
-  std::u16string dynamicToString() const override { return u"[object Intl.DurationFormat]"; }
-  void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); }
-
- private:
-  bool spanish() const { return locale_.size() >= 2 && locale_[0] == u'e' && locale_[1] == u's'; }
-  std::u16string locale_;
-  std::u16string numbering_system_ = u"latn";
-  std::u16string style_ = u"short";
-  int fractional_digits_ = -1;
 };
 
 inline bool regexTest(const RegExp& expression, const std::u16string& value) {
@@ -2826,18 +2258,6 @@ inline bool regexTest(const RegExp& expression, const std::u16string& value) {
 
 inline bool regexTest(const RegExp& expression, const Value& value) {
   return expression.test(value.isString() ? value.string() : u"");
-}
-
-// Primitive ambient members use their declaration names at the C++ call
-// boundary.  The string-prefixed helpers below are implementation details;
-// these overloads keep the native ABI aligned with String and RegExp without
-// making the emitter maintain a second method-name table.
-inline bool test(const RegExp& expression, const std::u16string& value) {
-  return regexTest(expression, value);
-}
-
-inline bool test(const RegExp& expression, const Value& value) {
-  return regexTest(expression, value);
 }
 
 inline std::u16string stringReplace(const std::u16string& value, const RegExp& expression, const Value& replacement) {
@@ -2878,122 +2298,6 @@ inline std::u16string stringReplace(const Value& value, const std::u16string& se
 
 inline std::u16string stringReplace(const Value& value, const std::u16string& search, const Value& replacement) {
   return stringReplace(requireString(value), search, requireString(replacement));
-}
-
-template <typename... Arguments>
-inline auto replace(const std::u16string& value, Arguments&&... arguments)
-    -> decltype(stringReplace(value, std::forward<Arguments>(arguments)...)) {
-  return stringReplace(value, std::forward<Arguments>(arguments)...);
-}
-
-template <typename... Arguments>
-inline auto replace(const Value& value, Arguments&&... arguments)
-    -> decltype(stringReplace(value, std::forward<Arguments>(arguments)...)) {
-  return stringReplace(value, std::forward<Arguments>(arguments)...);
-}
-
-inline std::u16string stringReplaceAll(
-    const std::u16string& value,
-    const std::u16string& search,
-    const std::u16string& replacement) {
-  if (search.empty()) {
-    std::u16string result = replacement;
-    for (const char16_t character : value) {
-      result.push_back(character);
-      result += replacement;
-    }
-    return result;
-  }
-  std::u16string result;
-  std::size_t start = 0;
-  while (start <= value.size()) {
-    const auto found = value.find(search, start);
-    if (found == std::u16string::npos) {
-      result += value.substr(start);
-      break;
-    }
-    result += value.substr(start, found - start);
-    result += replacement;
-    start = found + search.size();
-  }
-  return result;
-}
-
-inline std::u16string stringReplaceAll(
-    const Value& value,
-    const std::u16string& search,
-    const std::u16string& replacement) {
-  return stringReplaceAll(requireString(value), search, replacement);
-}
-
-inline std::u16string stringReplaceAll(
-    const std::u16string& value,
-    const RegExp& expression,
-    const std::u16string& replacement) {
-  return expression.replace(value, replacement);
-}
-
-template <typename... Arguments>
-inline auto replaceAll(const std::u16string& value, Arguments&&... arguments)
-    -> decltype(stringReplaceAll(value, std::forward<Arguments>(arguments)...)) {
-  return stringReplaceAll(value, std::forward<Arguments>(arguments)...);
-}
-
-template <typename... Arguments>
-inline auto replaceAll(const Value& value, Arguments&&... arguments)
-    -> decltype(stringReplaceAll(value, std::forward<Arguments>(arguments)...)) {
-  return stringReplaceAll(value, std::forward<Arguments>(arguments)...);
-}
-
-inline std::u16string regexEscape(const std::u16string& value) {
-  std::u16string result;
-  result.reserve(value.size() * 2);
-  auto appendHex = [&](std::uint32_t code, std::size_t width) {
-    static constexpr char16_t digits[] = u"0123456789abcdef";
-    for (std::size_t shift = width * 4; shift > 0; shift -= 4) {
-      result.push_back(digits[(code >> (shift - 4)) & 0xf]);
-    }
-  };
-  for (std::size_t index = 0; index < value.size(); ++index) {
-    const char16_t character = value[index];
-    const bool firstAsciiAlphaNumeric = index == 0 &&
-      ((character >= u'a' && character <= u'z') ||
-       (character >= u'A' && character <= u'Z') ||
-       (character >= u'0' && character <= u'9'));
-    if (firstAsciiAlphaNumeric) {
-      result += u"\\x";
-      appendHex(character, 2);
-      continue;
-    }
-    switch (character) {
-      case u'^': case u'$': case u'\\': case u'.': case u'*': case u'+':
-      case u'?': case u'(': case u')': case u'[': case u']': case u'{':
-      case u'}': case u'|': case u'/':
-        result.push_back(u'\\');
-        result.push_back(character);
-        break;
-      case u',': case u'-': case u'=': case u'<': case u'>': case u'#':
-      case u'&': case u'!': case u'%': case u':': case u';': case u'@':
-      case u'~': case u'\'': case u'`': case u'"': case u' ':
-        result += u"\\x";
-        appendHex(character, 2);
-        break;
-      case u'\f': result += u"\\f"; break;
-      case u'\n': result += u"\\n"; break;
-      case u'\r': result += u"\\r"; break;
-      case u'\t': result += u"\\t"; break;
-      case u'\v': result += u"\\v"; break;
-      default:
-        if (character >= 0xd800 && character <= 0xdfff) {
-          result += u"\\u";
-          appendHex(static_cast<std::uint16_t>(character), 4);
-        } else {
-          result.push_back(character);
-        }
-        break;
-    }
-  }
-  return result;
 }
 
 template <typename Callback>
@@ -3260,856 +2564,9 @@ class Runtime final {
   inline static std::priority_queue<ScheduledTimer, std::vector<ScheduledTimer>, EarlierTimer> scheduledTimers_;
 };
 
-inline Value::Value(std::u16string value)
-    : storage_(cppgc::Persistent<BaseObject>(Runtime::string(std::move(value)).object())) {}
-
 template <typename T, typename... Arguments>
 inline T* makeManaged(Arguments&&... arguments) {
   return Runtime::make<T>(std::forward<Arguments>(arguments)...);
-}
-
-inline std::u16string DurationFormatObject::format(RecordObject* duration) const {
-  struct Unit {
-    const char16_t* key;
-    const char16_t* longEnglish;
-    const char16_t* shortEnglish;
-    const char16_t* narrowEnglish;
-    const char16_t* longSpanish;
-    double value;
-  };
-  const auto value = [duration](const char16_t* key) {
-    if (!duration || !duration->has(key)) return 0.0;
-    return Number(duration->get(key));
-  };
-  std::vector<Unit> units = {
-    {u"years", u"year", u"yr", u"y", u"año", value(u"years")},
-    {u"months", u"month", u"mo", u"mo", u"mes", value(u"months")},
-    {u"weeks", u"week", u"wk", u"w", u"semana", value(u"weeks")},
-    {u"days", u"day", u"day", u"d", u"día", value(u"days")},
-    {u"hours", u"hour", u"hr", u"h", u"hora", value(u"hours")},
-    {u"minutes", u"minute", u"min", u"m", u"minuto", value(u"minutes")},
-    {u"seconds", u"second", u"sec", u"s", u"segundo", value(u"seconds")},
-    {u"milliseconds", u"millisecond", u"ms", u"ms", u"milisegundo", value(u"milliseconds")},
-    {u"microseconds", u"microsecond", u"μs", u"μs", u"microsegundo", value(u"microseconds")},
-    {u"nanoseconds", u"nanosecond", u"ns", u"ns", u"nanosegundo", value(u"nanoseconds")},
-  };
-  if (style_ == u"digital") {
-    const auto pad = [](double number) {
-      auto text = formatIntegerText(static_cast<std::int64_t>(std::trunc(number)));
-      if (text.size() == 1) text.insert(text.begin(), u'0');
-      return text;
-    };
-    const auto hours = value(u"hours") + value(u"days") * 24;
-    std::u16string result = pad(hours) + u":" + pad(value(u"minutes")) + u":" + pad(value(u"seconds"));
-    if (fractional_digits_ > 0) {
-      const auto fraction = value(u"milliseconds") / 1000.0 + value(u"microseconds") / 1000000.0 + value(u"nanoseconds") / 1000000000.0;
-      if (fraction > 0) {
-        auto fractionText = formatNumberText(fraction).substr(2);
-        if (fractionText.size() > static_cast<std::size_t>(fractional_digits_)) fractionText.resize(fractional_digits_);
-        while (fractionText.size() < static_cast<std::size_t>(fractional_digits_)) fractionText.push_back(u'0');
-        result += u"." + fractionText;
-      }
-    }
-    return result;
-  }
-  std::vector<std::u16string> pieces;
-  for (const auto& unit : units) {
-    if (unit.value == 0) continue;
-    auto number = formatNumberText(unit.value);
-    std::u16string label;
-    if (spanish()) {
-      label = unit.longSpanish;
-      if (std::abs(unit.value) != 1) {
-        if (label == u"mes") label = u"meses";
-        else if (label == u"luz") label = u"luces";
-        else label += u"s";
-      }
-    } else if (style_ == u"long") {
-      label = unit.longEnglish;
-      if (std::abs(unit.value) != 1) label += u"s";
-    } else if (style_ == u"narrow") {
-      label = unit.narrowEnglish;
-    } else {
-      label = unit.shortEnglish;
-    }
-    pieces.push_back(number + u" " + label);
-  }
-  if (pieces.empty()) return style_ == u"long" ? u"0 seconds" : u"0 sec";
-  std::u16string result;
-  for (std::size_t index = 0; index < pieces.size(); ++index) {
-    if (index > 0) result += u", ";
-    result += pieces[index];
-  }
-  return result;
-}
-
-inline ArrayObject<RecordObject*>* DurationFormatObject::formatToParts(RecordObject* duration) const {
-  auto* result = Runtime::array<RecordObject*>();
-  if (!duration) return result;
-  const std::pair<const char16_t*, const char16_t*> units[] = {
-    {u"years", u"year"}, {u"months", u"month"}, {u"weeks", u"week"}, {u"days", u"day"},
-    {u"hours", u"hour"}, {u"minutes", u"minute"}, {u"seconds", u"second"},
-    {u"milliseconds", u"millisecond"}, {u"microseconds", u"microsecond"}, {u"nanoseconds", u"nanosecond"},
-  };
-  for (const auto& [key, unit] : units) {
-    if (!duration->has(key)) continue;
-    const auto number = Number(duration->get(key));
-    if (number == 0) continue;
-    const auto valueText = formatNumberText(number);
-    result->append(Runtime::record({
-      {u"type", Runtime::string(valueText.find(u'.') == std::u16string::npos ? u"integer" : u"decimal")},
-      {u"value", Runtime::string(valueText)},
-      {u"unit", Runtime::string(unit)},
-    }));
-  }
-  return result;
-}
-
-inline RecordObject* DurationFormatObject::resolvedOptions() const {
-  return Runtime::record({
-    {u"locale", Runtime::string(locale_)},
-    {u"numberingSystem", Runtime::string(numbering_system_)},
-    {u"style", Runtime::string(style_)},
-    {u"years", Runtime::string(u"long")},
-    {u"months", Runtime::string(u"long")},
-    {u"weeks", Runtime::string(u"long")},
-    {u"days", Runtime::string(u"long")},
-    {u"hours", Runtime::string(style_ == u"digital" ? u"numeric" : u"short")},
-    {u"minutes", Runtime::string(style_ == u"digital" ? u"numeric" : u"short")},
-    {u"seconds", Runtime::string(style_ == u"digital" ? u"numeric" : u"short")},
-    {u"milliseconds", Runtime::string(u"numeric")},
-    {u"microseconds", Runtime::string(u"numeric")},
-    {u"nanoseconds", Runtime::string(u"numeric")},
-  });
-}
-
-inline std::u16string durationFormatLocale(const Value& value) {
-  if (value.isString()) return value.utf16();
-  if (value.isObject() && value.object()->dynamicIsArray()) {
-    for (const auto item : dynamicIterationRange(value)) {
-      if (item.isString()) return item.utf16();
-    }
-  }
-  return u"en";
-}
-
-inline RecordObject* durationFormatOptions(const Value& value) {
-  return value.isRecord() ? value.record() : nullptr;
-}
-
-inline RecordObject* durationFormatDuration(const Value& value) {
-  return value.isRecord() ? value.record() : nullptr;
-}
-
-inline ArrayObject<std::u16string>* durationFormatSupportedLocales(const Value& value) {
-  auto* result = Runtime::array<std::u16string>();
-  if (value.isString()) {
-    result->append(value.utf16());
-  } else if (value.isObject() && value.object()->dynamicIsArray()) {
-    for (const auto item : dynamicIterationRange(value)) {
-      if (item.isString()) result->append(item.utf16());
-    }
-  }
-  return result;
-}
-
-inline void ArrayBufferObject::resize(double byteLength) {
-  resizeBytes(static_cast<std::size_t>(std::max(0.0, std::trunc(byteLength))));
-}
-
-inline void ArrayBufferObject::grow(double targetByteLength) {
-  growBytes(static_cast<std::size_t>(std::max(0.0, std::trunc(targetByteLength))));
-}
-
-inline ArrayBufferObject* ArrayBufferObject::transfer(double newByteLength) {
-  return arrayBufferTransfer(this, newByteLength, false);
-}
-
-inline ArrayBufferObject* ArrayBufferObject::transferToFixedLength(double newByteLength) {
-  return arrayBufferTransfer(this, newByteLength, true);
-}
-
-inline ArrayBufferObject* ArrayBufferObject::transferBytes(
-    std::size_t byteLength,
-    bool fixedLength) {
-  const std::size_t targetLength = byteLength == std::numeric_limits<std::size_t>::max()
-    ? this->byteLength()
-    : byteLength;
-  if (targetLength > max_byte_length_) throw runtimeError(u"ArrayBuffer transfer exceeds maxByteLength");
-  auto* result = Runtime::make<ArrayBufferObject>(
-      targetLength,
-      fixedLength ? targetLength : max_byte_length_);
-  const std::size_t copied = std::min(targetLength, this->byteLength());
-  std::copy_n(bytes_->begin(), copied, result->bytes_->begin());
-  bytes_->clear();
-  detached_ = true;
-  return result;
-}
-
-inline std::size_t float16SliceIndex(double raw, std::size_t size) {
-  if (std::isnan(raw)) return 0;
-  const auto integer = static_cast<std::int64_t>(std::trunc(raw));
-  if (integer < 0) return static_cast<std::size_t>(std::max<std::int64_t>(0, static_cast<std::int64_t>(size) + integer));
-  return std::min<std::size_t>(static_cast<std::size_t>(integer), size);
-}
-
-template <typename T>
-inline bool float16CallbackBoolean(const T& value) {
-  if constexpr (std::is_same_v<std::remove_cvref_t<T>, Value>) return toBoolean(value);
-  else if constexpr (std::is_same_v<std::remove_cvref_t<T>, std::u16string>) return !value.empty();
-  else if constexpr (std::is_pointer_v<std::remove_cvref_t<T>>) return value != nullptr;
-  else return static_cast<bool>(value);
-}
-
-template <typename Callback>
-inline decltype(auto) invokeFloat16Callback(Callback& callback, double value, std::size_t index, const Float16ArrayObject* array) {
-  auto* mutableArray = const_cast<Float16ArrayObject*>(array);
-  if constexpr (std::is_invocable_v<Callback, double, double, Float16ArrayObject*>) return callback(value, static_cast<double>(index), mutableArray);
-  else if constexpr (std::is_invocable_v<Callback, double, double>) return callback(value, static_cast<double>(index));
-  else return callback(value);
-}
-
-template <typename Callback>
-inline decltype(auto) invokeFloat16ReduceCallback(Callback& callback, double accumulator, double value, std::size_t index) {
-  if constexpr (std::is_invocable_v<Callback, double, double, double>) return callback(accumulator, value, static_cast<double>(index));
-  else return callback(accumulator, value);
-}
-
-inline Float16ArrayObject* Float16ArrayObject::copyWithin(double target, double start, double end) {
-  const auto targetIndex = float16SliceIndex(target, length_);
-  const auto startIndex = float16SliceIndex(start, length_);
-  const auto endIndex = std::isinf(end) ? length_ : float16SliceIndex(end, length_);
-  if (startIndex >= endIndex || targetIndex >= length_) return this;
-  const auto count = std::min(endIndex - startIndex, length_ - targetIndex);
-  std::vector<double> copied;
-  copied.reserve(count);
-  for (std::size_t index = 0; index < count; ++index) copied.push_back(get(startIndex + index));
-  for (std::size_t index = 0; index < copied.size(); ++index) set(targetIndex + index, copied[index]);
-  return this;
-}
-
-template <typename Callback>
-inline bool Float16ArrayObject::every(Callback callback) const {
-  for (std::size_t index = 0; index < length_; ++index) if (!float16CallbackBoolean(invokeFloat16Callback(callback, get(index), index, this))) return false;
-  return true;
-}
-
-inline Float16ArrayObject* Float16ArrayObject::fill(double value, double start, double end) {
-  const auto first = float16SliceIndex(start, length_);
-  const auto last = std::isinf(end) ? length_ : float16SliceIndex(end, length_);
-  for (std::size_t index = first; index < last; ++index) set(index, value);
-  return this;
-}
-
-template <typename Callback>
-inline Float16ArrayObject* Float16ArrayObject::filter(Callback callback) const {
-  std::vector<double> values;
-  for (std::size_t index = 0; index < length_; ++index) {
-    const auto value = get(index);
-    if (float16CallbackBoolean(invokeFloat16Callback(callback, value, index, this))) values.push_back(value);
-  }
-  auto* result = Runtime::make<Float16ArrayObject>(Runtime::make<ArrayBufferObject>(values.size() * sizeof(std::uint16_t)), 0, values.size());
-  for (std::size_t index = 0; index < values.size(); ++index) result->set(index, values[index]);
-  return result;
-}
-
-template <typename Callback>
-inline Value Float16ArrayObject::find(Callback callback) const {
-  for (std::size_t index = 0; index < length_; ++index) {
-    const auto value = get(index);
-    if (float16CallbackBoolean(invokeFloat16Callback(callback, value, index, this))) return Value(value);
-  }
-  return Value::undefined();
-}
-
-template <typename Callback>
-inline double Float16ArrayObject::findIndex(Callback callback) const {
-  for (std::size_t index = 0; index < length_; ++index) if (float16CallbackBoolean(invokeFloat16Callback(callback, get(index), index, this))) return static_cast<double>(index);
-  return -1;
-}
-
-template <typename Callback>
-inline Value Float16ArrayObject::findLast(Callback callback) const {
-  for (std::size_t index = length_; index > 0; --index) {
-    const auto current = index - 1;
-    const auto value = get(current);
-    if (float16CallbackBoolean(invokeFloat16Callback(callback, value, current, this))) return Value(value);
-  }
-  return Value::undefined();
-}
-
-template <typename Callback>
-inline double Float16ArrayObject::findLastIndex(Callback callback) const {
-  for (std::size_t index = length_; index > 0; --index) {
-    const auto current = index - 1;
-    if (float16CallbackBoolean(invokeFloat16Callback(callback, get(current), current, this))) return static_cast<double>(current);
-  }
-  return -1;
-}
-
-template <typename Callback>
-inline void Float16ArrayObject::forEach(Callback callback) const {
-  for (std::size_t index = 0; index < length_; ++index) invokeFloat16Callback(callback, get(index), index, this);
-}
-
-inline bool Float16ArrayObject::includes(double value, double fromIndex) const {
-  auto first = static_cast<std::int64_t>(std::trunc(fromIndex));
-  if (first < 0) first += static_cast<std::int64_t>(length_);
-  for (auto index = std::max<std::int64_t>(0, first); index < static_cast<std::int64_t>(length_); ++index) if (get(static_cast<std::size_t>(index)) == value) return true;
-  return false;
-}
-
-inline double Float16ArrayObject::indexOf(double value, double fromIndex) const {
-  const auto first = std::max<std::int64_t>(0, static_cast<std::int64_t>(std::trunc(fromIndex)));
-  for (auto index = first; index < static_cast<std::int64_t>(length_); ++index) if (get(static_cast<std::size_t>(index)) == value) return static_cast<double>(index);
-  return -1;
-}
-
-inline double Float16ArrayObject::lastIndexOf(double value, double fromIndex) const {
-  if (length_ == 0) return -1;
-  auto first = std::isinf(fromIndex) ? static_cast<std::int64_t>(length_) - 1 : static_cast<std::int64_t>(std::trunc(fromIndex));
-  if (first < 0) first += static_cast<std::int64_t>(length_);
-  first = std::min<std::int64_t>(first, static_cast<std::int64_t>(length_) - 1);
-  for (auto index = first; index >= 0; --index) if (get(static_cast<std::size_t>(index)) == value) return static_cast<double>(index);
-  return -1;
-}
-
-template <typename Callback>
-inline Float16ArrayObject* Float16ArrayObject::map(Callback callback) const {
-  auto* result = Runtime::make<Float16ArrayObject>(Runtime::make<ArrayBufferObject>(byteLength()), 0, length_);
-  for (std::size_t index = 0; index < length_; ++index) result->set(index, convertValue<double>(invokeFloat16Callback(callback, get(index), index, this)));
-  return result;
-}
-
-template <typename Callback>
-inline double Float16ArrayObject::reduce(Callback callback) const {
-  if (length_ == 0) throw runtimeError(u"Reduce of empty Float16Array with no initial value");
-  double result = get(0);
-  for (std::size_t index = 1; index < length_; ++index) result = convertValue<double>(invokeFloat16ReduceCallback(callback, result, get(index), index));
-  return result;
-}
-
-template <typename Callback>
-inline double Float16ArrayObject::reduce(Callback callback, double initial) const {
-  double result = initial;
-  for (std::size_t index = 0; index < length_; ++index) result = convertValue<double>(invokeFloat16ReduceCallback(callback, result, get(index), index));
-  return result;
-}
-
-template <typename Callback>
-inline double Float16ArrayObject::reduceRight(Callback callback) const {
-  if (length_ == 0) throw runtimeError(u"Reduce of empty Float16Array with no initial value");
-  double result = get(length_ - 1);
-  for (std::size_t index = length_ - 1; index > 0; --index) result = convertValue<double>(invokeFloat16ReduceCallback(callback, result, get(index - 1), index - 1));
-  return result;
-}
-
-template <typename Callback>
-inline double Float16ArrayObject::reduceRight(Callback callback, double initial) const {
-  double result = initial;
-  for (std::size_t index = length_; index > 0; --index) result = convertValue<double>(invokeFloat16ReduceCallback(callback, result, get(index - 1), index - 1));
-  return result;
-}
-
-inline Float16ArrayObject* Float16ArrayObject::reverse() {
-  for (std::size_t index = 0; index < length_ / 2; ++index) {
-    const auto other = length_ - index - 1;
-    const auto value = get(index);
-    set(index, get(other));
-    set(other, value);
-  }
-  return this;
-}
-
-template <typename T>
-inline void Float16ArrayObject::set(const ArrayObject<T>* values, double offset) {
-  if (!values) return;
-  const auto start = static_cast<std::size_t>(std::max(0.0, std::trunc(offset)));
-  if (start + values->size() > length_) throw std::out_of_range("Float16Array.set source is out of range");
-  for (std::size_t index = 0; index < values->size(); ++index) set(start + index, convertValue<double>(values->get(index)));
-}
-
-inline void Float16ArrayObject::set(const Float16ArrayObject* values, double offset) {
-  if (!values) return;
-  const auto start = static_cast<std::size_t>(std::max(0.0, std::trunc(offset)));
-  if (start + values->length() > length_) throw std::out_of_range("Float16Array.set source is out of range");
-  for (std::size_t index = 0; index < values->length(); ++index) set(start + index, values->get(index));
-}
-
-inline Float16ArrayObject* Float16ArrayObject::slice(double start, double end) const {
-  const auto first = float16SliceIndex(start, length_);
-  const auto last = std::isinf(end) ? length_ : float16SliceIndex(end, length_);
-  const auto count = last > first ? last - first : 0;
-  auto* result = Runtime::make<Float16ArrayObject>(Runtime::make<ArrayBufferObject>(count * sizeof(std::uint16_t)), 0, count);
-  for (std::size_t index = 0; index < count; ++index) result->set(index, get(first + index));
-  return result;
-}
-
-template <typename Callback>
-inline bool Float16ArrayObject::some(Callback callback) const {
-  for (std::size_t index = 0; index < length_; ++index) if (float16CallbackBoolean(invokeFloat16Callback(callback, get(index), index, this))) return true;
-  return false;
-}
-
-inline Float16ArrayObject* Float16ArrayObject::sort() {
-  std::vector<double> values;
-  for (std::size_t index = 0; index < length_; ++index) values.push_back(get(index));
-  std::stable_sort(values.begin(), values.end());
-  for (std::size_t index = 0; index < length_; ++index) set(index, values[index]);
-  return this;
-}
-
-template <typename Callback>
-inline Float16ArrayObject* Float16ArrayObject::sort(Callback callback) {
-  std::vector<double> values;
-  for (std::size_t index = 0; index < length_; ++index) values.push_back(get(index));
-  std::stable_sort(values.begin(), values.end(), [&](double left, double right) { return convertValue<double>(callback(left, right)) < 0; });
-  for (std::size_t index = 0; index < length_; ++index) set(index, values[index]);
-  return this;
-}
-
-inline Float16ArrayObject* Float16ArrayObject::subarray(double begin, double end) const {
-  const auto first = float16SliceIndex(begin, length_);
-  const auto last = std::isinf(end) ? length_ : float16SliceIndex(end, length_);
-  return Runtime::make<Float16ArrayObject>(buffer(), byte_offset_ + first * sizeof(std::uint16_t), last > first ? last - first : 0);
-}
-
-inline NativeIteratorObject<double>* Float16ArrayObject::values() const {
-  std::vector<double> result;
-  for (std::size_t index = 0; index < length_; ++index) result.push_back(get(index));
-  return Runtime::make<NativeIteratorObject<double>>(std::move(result));
-}
-
-inline NativeIteratorObject<double>* Float16ArrayObject::keys() const {
-  std::vector<double> result;
-  for (std::size_t index = 0; index < length_; ++index) result.push_back(static_cast<double>(index));
-  return Runtime::make<NativeIteratorObject<double>>(std::move(result));
-}
-
-inline NativeIteratorObject<ArrayObject<double>*>* Float16ArrayObject::entries() const {
-  std::vector<ArrayObject<double>*> result;
-  for (std::size_t index = 0; index < length_; ++index) result.push_back(Runtime::array<double>({static_cast<double>(index), get(index)}));
-  return Runtime::make<NativeIteratorObject<ArrayObject<double>*>>(std::move(result));
-}
-
-inline std::u16string Float16ArrayObject::join(const std::u16string& separator) const {
-  std::u16string result;
-  for (std::size_t index = 0; index < length_; ++index) {
-    if (index > 0) result += separator;
-    result += formatNumberText(get(index));
-  }
-  return result;
-}
-
-inline std::u16string Float16ArrayObject::toString() const { return join(); }
-inline std::u16string Float16ArrayObject::toLocaleString() const { return join(); }
-inline std::u16string toString(Float16ArrayObject* array) {
-  return array ? array->toString() : u"null";
-}
-
-inline Float16ArrayObject* Float16ArrayObject::copy() const {
-  auto* result = Runtime::make<Float16ArrayObject>(Runtime::make<ArrayBufferObject>(byteLength()), 0, length_);
-  for (std::size_t index = 0; index < length_; ++index) result->set(index, get(index));
-  return result;
-}
-
-inline Float16ArrayObject* Float16ArrayObject::toReversed() const {
-  auto* result = Runtime::make<Float16ArrayObject>(Runtime::make<ArrayBufferObject>(byteLength()), 0, length_);
-  for (std::size_t index = 0; index < length_; ++index) result->set(length_ - index - 1, get(index));
-  return result;
-}
-
-inline Float16ArrayObject* Float16ArrayObject::toSorted() const {
-  auto* result = copy();
-  std::vector<double> values;
-  values.reserve(length_);
-  for (std::size_t index = 0; index < length_; ++index) values.push_back(get(index));
-  std::stable_sort(values.begin(), values.end());
-  for (std::size_t index = 0; index < values.size(); ++index) result->set(index, values[index]);
-  return result;
-}
-
-template <typename Callback>
-inline Float16ArrayObject* Float16ArrayObject::toSorted(Callback callback) const {
-  auto* result = copy();
-  std::vector<double> values;
-  values.reserve(length_);
-  for (std::size_t index = 0; index < length_; ++index) values.push_back(get(index));
-  std::stable_sort(values.begin(), values.end(), [&](double left, double right) {
-    return convertValue<double>(callback(left, right)) < 0;
-  });
-  for (std::size_t index = 0; index < values.size(); ++index) result->set(index, values[index]);
-  return result;
-}
-
-inline Float16ArrayObject* Float16ArrayObject::with(double index, double value) const {
-  const auto integer = static_cast<std::int64_t>(std::trunc(index));
-  const auto resolved = integer < 0 ? static_cast<std::int64_t>(length_) + integer : integer;
-  if (resolved < 0 || resolved >= static_cast<std::int64_t>(length_)) {
-    throw runtimeError(u"Float16Array.prototype.with index is out of range");
-  }
-  auto* result = copy();
-  result->set(static_cast<std::size_t>(resolved), value);
-  return result;
-}
-
-template <typename Signature>
-struct CallableFirstArgument;
-
-template <typename Result, typename Owner, typename First, typename... Arguments>
-struct CallableFirstArgument<Result (Owner::*)(First, Arguments...) const> {
-  using type = First;
-};
-
-template <typename Result, typename Owner, typename First, typename... Arguments>
-struct CallableFirstArgument<Result (Owner::*)(First, Arguments...)> {
-  using type = First;
-};
-
-template <typename Callable, typename = void>
-struct CallableFirstArgumentForObject {};
-
-template <typename Callable>
-struct CallableFirstArgumentForObject<
-    Callable,
-    std::void_t<decltype(&Callable::operator())>>
-    : CallableFirstArgument<decltype(&Callable::operator())> {};
-
-template <typename Result, typename First, typename... Arguments>
-struct CallableFirstArgumentForObject<std::function<Result(First, Arguments...)>> {
-  using type = First;
-};
-
-template <typename Callback, typename T>
-inline decltype(auto) invokeNativeIteratorCallback(Callback& callback, T value, std::size_t index) {
-  if constexpr (std::is_invocable_v<Callback, T, double>) {
-    return callback(std::move(value), static_cast<double>(index));
-  } else if constexpr (std::is_invocable_v<Callback, T>) {
-    return callback(std::move(value));
-  } else if constexpr (requires { typename CallableFirstArgumentForObject<Callback>::type; }) {
-    using First = typename CallableFirstArgumentForObject<Callback>::type;
-    using Converted = std::remove_cvref_t<First>;
-    auto converted = convertValue<Converted>(std::move(value));
-    if constexpr (requires { callback(converted, static_cast<double>(index)); }) {
-      return callback(std::move(converted), static_cast<double>(index));
-    } else {
-      return callback(std::move(converted));
-    }
-  } else {
-    return callback(std::move(value));
-  }
-}
-
-template <typename T>
-inline NativeIteratorObject<T>* iteratorFrom(const ArrayObject<T>* values) {
-  std::vector<T> result;
-  if (values) {
-    result.reserve(values->size());
-    for (const auto& value : *values) result.push_back(value);
-  }
-  return Runtime::make<NativeIteratorObject<T>>(std::move(result));
-}
-
-inline NativeIteratorObject<Value>* iteratorFrom(const Value& value) {
-  std::vector<Value> result;
-  for (const auto item : dynamicIterationRange(value)) result.push_back(item);
-  return Runtime::make<NativeIteratorObject<Value>>(std::move(result));
-}
-
-template <typename T>
-inline ArrayObject<T>* iteratorToArray(NativeIteratorObject<T>* iterator) {
-  auto* result = Runtime::array<T>();
-  if (!iterator) return result;
-  for (auto& value : iterator->takeRemaining()) result->append(std::move(value));
-  return result;
-}
-
-template <typename T>
-inline ArrayObject<T>* NativeIteratorObject<T>::toArray() {
-  auto* result = Runtime::array<T>();
-  for (auto& value : takeRemaining()) result->append(std::move(value));
-  return result;
-}
-
-template <typename K, typename V>
-inline NativeIteratorObject<K>* MapObject<K, V>::keys() const {
-  std::vector<K> result;
-  result.reserve(size());
-  forEach([&](V, K key) { result.push_back(std::move(key)); });
-  return Runtime::make<NativeIteratorObject<K>>(std::move(result));
-}
-
-template <typename K, typename V>
-inline NativeIteratorObject<V>* MapObject<K, V>::values() const {
-  std::vector<V> result;
-  result.reserve(size());
-  forEach([&](V value) { result.push_back(std::move(value)); });
-  return Runtime::make<NativeIteratorObject<V>>(std::move(result));
-}
-
-template <typename K, typename V>
-inline NativeIteratorObject<ArrayObject<Value>*>* MapObject<K, V>::entries() const {
-  std::vector<ArrayObject<Value>*> result;
-  result.reserve(size());
-  forEach([&](V value, K key) {
-    result.push_back(Runtime::array<Value>({convertValue<Value>(key), convertValue<Value>(value)}));
-  });
-  return Runtime::make<NativeIteratorObject<ArrayObject<Value>*>>(std::move(result));
-}
-
-template <typename T>
-inline NativeIteratorObject<T>* SetObject<T>::keys() const {
-  std::vector<T> result;
-  result.reserve(size());
-  forEach([&](T value) { result.push_back(std::move(value)); });
-  return Runtime::make<NativeIteratorObject<T>>(std::move(result));
-}
-
-template <typename T>
-inline NativeIteratorObject<T>* SetObject<T>::values() const {
-  return keys();
-}
-
-template <typename T>
-inline NativeIteratorObject<ArrayObject<Value>*>* SetObject<T>::entries() const {
-  std::vector<ArrayObject<Value>*> result;
-  result.reserve(size());
-  forEach([&](T value) {
-    const auto converted = convertValue<Value>(value);
-    result.push_back(Runtime::array<Value>({converted, converted}));
-  });
-  return Runtime::make<NativeIteratorObject<ArrayObject<Value>*>>(std::move(result));
-}
-
-template <typename Result, typename Input>
-inline ArrayObject<Result>* iteratorToArrayConverted(NativeIteratorObject<Input>* iterator) {
-  auto* result = Runtime::array<Result>();
-  if (!iterator) return result;
-  for (auto& value : iterator->takeRemaining()) result->append(convertValue<Result>(std::move(value)));
-  return result;
-}
-
-template <typename T, typename Callback>
-inline auto iteratorMap(NativeIteratorObject<T>* iterator, Callback callback) {
-  using Result = std::remove_cvref_t<decltype(
-      invokeNativeIteratorCallback(callback, std::declval<T>(), std::size_t{}))>;
-  std::vector<Result> result;
-  if (iterator) {
-    const auto values = iterator->takeRemaining();
-    result.reserve(values.size());
-    for (std::size_t index = 0; index < values.size(); ++index) {
-      result.push_back(invokeNativeIteratorCallback(callback, values[index], index));
-    }
-  }
-  return Runtime::make<NativeIteratorObject<Result>>(std::move(result));
-}
-
-template <typename T, typename Callback>
-inline NativeIteratorObject<T>* iteratorFilter(NativeIteratorObject<T>* iterator, Callback callback) {
-  std::vector<T> result;
-  if (iterator) {
-    const auto values = iterator->takeRemaining();
-    for (std::size_t index = 0; index < values.size(); ++index) {
-      if (toBoolean(invokeNativeIteratorCallback(callback, values[index], index))) {
-        result.push_back(values[index]);
-      }
-    }
-  }
-  return Runtime::make<NativeIteratorObject<T>>(std::move(result));
-}
-
-template <typename T>
-inline NativeIteratorObject<T>* iteratorTake(NativeIteratorObject<T>* iterator, double limit) {
-  std::vector<T> result;
-  if (iterator) {
-    const auto values = iterator->takeRemaining();
-    const auto count = static_cast<std::size_t>(std::max(0.0, std::trunc(limit)));
-    result.insert(result.end(), values.begin(), values.begin() + static_cast<std::ptrdiff_t>(std::min(count, values.size())));
-  }
-  return Runtime::make<NativeIteratorObject<T>>(std::move(result));
-}
-
-template <typename T>
-inline NativeIteratorObject<T>* iteratorDrop(NativeIteratorObject<T>* iterator, double count) {
-  std::vector<T> result;
-  if (iterator) {
-    const auto values = iterator->takeRemaining();
-    const auto offset = static_cast<std::size_t>(std::max(0.0, std::trunc(count)));
-    if (offset < values.size()) result.insert(result.end(), values.begin() + static_cast<std::ptrdiff_t>(offset), values.end());
-  }
-  return Runtime::make<NativeIteratorObject<T>>(std::move(result));
-}
-
-template <typename T, typename Callback, typename Accumulator>
-inline Accumulator iteratorReduce(
-    NativeIteratorObject<T>* iterator,
-    Callback callback,
-    Accumulator accumulator) {
-  if (!iterator) return accumulator;
-  std::size_t index = 0;
-  for (const auto& value : iterator->takeRemaining()) {
-    accumulator = callback(accumulator, value, static_cast<double>(index++));
-  }
-  return accumulator;
-}
-
-template <typename T, typename Callback>
-inline T iteratorReduce(NativeIteratorObject<T>* iterator, Callback callback) {
-  if (!iterator) throw runtimeError(u"Iterator.reduce called on an empty iterator");
-  const auto values = iterator->takeRemaining();
-  if (values.empty()) throw runtimeError(u"Iterator.reduce called on an empty iterator");
-  T accumulator = values.front();
-  for (std::size_t index = 1; index < values.size(); ++index) {
-    accumulator = callback(accumulator, values[index], static_cast<double>(index));
-  }
-  return accumulator;
-}
-
-template <typename Result>
-struct NativeIteratorElement;
-
-template <typename T>
-struct NativeIteratorElement<NativeIteratorObject<T>*> { using type = T; };
-
-template <typename T>
-struct NativeIteratorElement<ArrayObject<T>*> { using type = T; };
-
-template <>
-struct NativeIteratorElement<Value> { using type = Value; };
-
-template <typename T>
-inline void appendNativeIteratorResult(std::vector<T>& target, NativeIteratorObject<T>* result) {
-  if (!result) return;
-  const auto values = result->takeRemaining();
-  target.insert(target.end(), values.begin(), values.end());
-}
-
-template <typename T>
-inline void appendNativeIteratorResult(std::vector<T>& target, ArrayObject<T>* result) {
-  if (!result) return;
-  for (const auto& value : *result) target.push_back(value);
-}
-
-inline void appendNativeIteratorResult(std::vector<Value>& target, const Value& result) {
-  for (const auto& value : dynamicIterationRange(result)) target.push_back(value);
-}
-
-template <typename T, typename Callback>
-inline auto iteratorFlatMap(NativeIteratorObject<T>* iterator, Callback callback) {
-  using CallbackResult = std::remove_cvref_t<decltype(
-      invokeNativeIteratorCallback(callback, std::declval<T>(), std::size_t{}))>;
-  using Result = typename NativeIteratorElement<CallbackResult>::type;
-  std::vector<Result> result;
-  if (iterator) {
-    const auto values = iterator->takeRemaining();
-    for (std::size_t index = 0; index < values.size(); ++index) {
-      appendNativeIteratorResult(result, invokeNativeIteratorCallback(callback, values[index], index));
-    }
-  }
-  return Runtime::make<NativeIteratorObject<Result>>(std::move(result));
-}
-
-template <typename T, typename Callback>
-inline void iteratorForEach(NativeIteratorObject<T>* iterator, Callback callback) {
-  if (!iterator) return;
-  std::size_t index = 0;
-  for (const auto& value : iterator->takeRemaining()) {
-    invokeNativeIteratorCallback(callback, value, index++);
-  }
-}
-
-template <typename T, typename Callback>
-inline bool iteratorSome(NativeIteratorObject<T>* iterator, Callback callback) {
-  if (!iterator) return false;
-  std::size_t index = 0;
-  for (const auto& value : iterator->takeRemaining()) {
-    if (toBoolean(invokeNativeIteratorCallback(callback, value, index++))) return true;
-  }
-  return false;
-}
-
-template <typename T, typename Callback>
-inline bool iteratorEvery(NativeIteratorObject<T>* iterator, Callback callback) {
-  if (!iterator) return true;
-  std::size_t index = 0;
-  for (const auto& value : iterator->takeRemaining()) {
-    if (!toBoolean(invokeNativeIteratorCallback(callback, value, index++))) return false;
-  }
-  return true;
-}
-
-template <typename T, typename Callback>
-inline T iteratorFind(NativeIteratorObject<T>* iterator, Callback callback) {
-  if (!iterator) return T{};
-  std::size_t index = 0;
-  for (const auto& value : iterator->takeRemaining()) {
-    if (toBoolean(invokeNativeIteratorCallback(callback, value, index++))) return value;
-  }
-  return T{};
-}
-
-template <typename T>
-template <typename Callback>
-inline auto NativeIteratorObject<T>::map(Callback callback) {
-  return iteratorMap(this, std::move(callback));
-}
-
-template <typename T>
-template <typename Callback>
-inline NativeIteratorObject<T>* NativeIteratorObject<T>::filter(Callback callback) {
-  return iteratorFilter(this, std::move(callback));
-}
-
-template <typename T>
-inline NativeIteratorObject<T>* NativeIteratorObject<T>::take(double limit) {
-  return iteratorTake(this, limit);
-}
-
-template <typename T>
-inline NativeIteratorObject<T>* NativeIteratorObject<T>::drop(double count) {
-  return iteratorDrop(this, count);
-}
-
-template <typename T>
-template <typename Callback, typename Accumulator>
-inline Accumulator NativeIteratorObject<T>::reduce(Callback callback, Accumulator accumulator) {
-  return iteratorReduce(this, std::move(callback), std::move(accumulator));
-}
-
-template <typename T>
-template <typename Callback>
-inline T NativeIteratorObject<T>::reduce(Callback callback) {
-  return iteratorReduce(this, std::move(callback));
-}
-
-template <typename T>
-template <typename Callback>
-inline auto NativeIteratorObject<T>::flatMap(Callback callback) {
-  return iteratorFlatMap(this, std::move(callback));
-}
-
-template <typename T>
-template <typename Callback>
-inline void NativeIteratorObject<T>::forEach(Callback callback) {
-  iteratorForEach(this, std::move(callback));
-}
-
-template <typename T>
-template <typename Callback>
-inline bool NativeIteratorObject<T>::some(Callback callback) {
-  return iteratorSome(this, std::move(callback));
-}
-
-template <typename T>
-template <typename Callback>
-inline bool NativeIteratorObject<T>::every(Callback callback) {
-  return iteratorEvery(this, std::move(callback));
-}
-
-template <typename T>
-template <typename Callback>
-inline T NativeIteratorObject<T>::find(Callback callback) {
-  return iteratorFind(this, std::move(callback));
 }
 
 template <typename T>
@@ -4183,14 +2640,6 @@ inline ArrayObject<Value>* regexExec(const RegExp& expression, const Value& valu
   return regexExec(expression, value.isString() ? value.string() : std::u16string());
 }
 
-inline ArrayObject<Value>* exec(const RegExp& expression, const std::u16string& value) {
-  return regexExec(expression, value);
-}
-
-inline ArrayObject<Value>* exec(const RegExp& expression, const Value& value) {
-  return regexExec(expression, value);
-}
-
 template <typename T>
 concept RecordAdaptable = requires(RecordObject* record) {
   { T::fromRecord(record) } -> std::convertible_to<T*>;
@@ -4260,74 +2709,6 @@ inline Null toNull(const Value& value) {
 
 inline Error toError(Error value) { return value; }
 
-template <typename Function>
-struct CallableArity;
-
-template <typename Result, typename Owner>
-struct CallableArity<Result (Owner::*)() const> {
-  static constexpr std::size_t value = 0;
-};
-
-template <typename Result, typename Owner, typename First, typename... Arguments>
-struct CallableArity<Result (Owner::*)(First, Arguments...) const> {
-  static constexpr std::size_t value = sizeof...(Arguments) + 1;
-};
-
-template <typename Result, typename Owner>
-struct CallableArity<Result (Owner::*)()> {
-  static constexpr std::size_t value = 0;
-};
-
-template <typename Result, typename Owner, typename First, typename... Arguments>
-struct CallableArity<Result (Owner::*)(First, Arguments...)> {
-  static constexpr std::size_t value = sizeof...(Arguments) + 1;
-};
-
-template <typename Callable, typename = void>
-struct CallableArityForObject {};
-
-template <typename Callable>
-struct CallableArityForObject<
-    Callable,
-    std::void_t<decltype(&Callable::operator())>>
-    : CallableArity<decltype(&Callable::operator())> {};
-
-template <typename Result, typename... Arguments>
-struct CallableArityForObject<std::function<Result(Arguments...)>> {
-  static constexpr std::size_t value = sizeof...(Arguments);
-};
-
-template <typename Callable, typename Tuple, std::size_t... Indices>
-decltype(auto) invokeFunctionPrefix(
-    Callable& callable,
-    Tuple&& arguments,
-    std::index_sequence<Indices...>) {
-  return callable(std::get<Indices>(std::forward<Tuple>(arguments))...);
-}
-
-template <typename Result, typename Input, typename TargetResult, typename... Arguments>
-Result adaptStdFunction(
-    Input&& input,
-    std::type_identity<std::function<TargetResult(Arguments...)>>) {
-  using Source = std::remove_cvref_t<Input>;
-  return Result([
-      source = std::forward<Input>(input)](Arguments... arguments) mutable -> TargetResult {
-    auto values = std::forward_as_tuple(std::move(arguments)...);
-    constexpr std::size_t count = std::min(
-        CallableArityForObject<Source>::value,
-        sizeof...(Arguments));
-    if constexpr (std::is_same_v<TargetResult, void>) {
-      invokeFunctionPrefix(source, std::move(values), std::make_index_sequence<count>{});
-    } else {
-      return convertValue<TargetResult>(invokeFunctionPrefix(
-          source,
-          std::move(values),
-          std::make_index_sequence<count>{}));
-    }
-  });
-}
-
-
 template <typename Result, typename Input>
   requires IsStdFunction<Result>::value
 Result toFunction(Input&& input) {
@@ -4336,10 +2717,6 @@ Result toFunction(Input&& input) {
     return std::forward<Input>(input);
   } else if constexpr (std::is_same_v<Source, Value>) {
     return functionFromValue<Result>(input);
-  } else if constexpr (requires { CallableArityForObject<Source>::value; }) {
-    return adaptStdFunction<Result>(
-        std::forward<Input>(input),
-        std::type_identity<Result>{});
   } else {
     return Result(std::forward<Input>(input));
   }
@@ -4661,7 +3038,7 @@ T& nullishAssign(T& target, Callback&& fallback) {
 
 template <typename K, typename V, typename Key>
 inline V mapGet(const MapObject<K, V>* map, Key&& key) {
-  const auto found = map->find(convertValue<K>(std::forward<Key>(key)));
+  const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
   if (found) return *found;
   if constexpr (std::is_same_v<V, Value>) return Value::undefined();
   return V{};
@@ -4669,7 +3046,7 @@ inline V mapGet(const MapObject<K, V>* map, Key&& key) {
 
 template <typename K, typename V, typename Key>
 inline Value mapGetValue(const MapObject<K, V>* map, Key&& key) {
-  const auto found = map->find(convertValue<K>(std::forward<Key>(key)));
+  const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
   return found ? convertValue<Value>(*found) : Value::undefined();
 }
 
@@ -4917,185 +3294,6 @@ inline ArrayObject<T>* setValues(SetObject<T>* set) {
   return result;
 }
 
-template <typename T>
-inline SetObject<T>* setUnion(SetObject<T>* left, const SetObject<T>* right) {
-  auto* result = Runtime::make<SetObject<T>>(left);
-  if (right) right->forEach([&](T value) { result->add(value); });
-  return result;
-}
-
-template <typename T>
-inline SetObject<T>* setIntersection(SetObject<T>* left, const SetObject<T>* right) {
-  auto* result = Runtime::make<SetObject<T>>();
-  if (!left || !right) return result;
-  left->forEach([&](T value) {
-    if (right->has(value)) result->add(value);
-  });
-  return result;
-}
-
-template <typename T>
-inline SetObject<T>* setDifference(SetObject<T>* left, const SetObject<T>* right) {
-  auto* result = Runtime::make<SetObject<T>>();
-  if (!left) return result;
-  left->forEach([&](T value) {
-    if (!right || !right->has(value)) result->add(value);
-  });
-  return result;
-}
-
-template <typename T>
-inline SetObject<T>* setSymmetricDifference(SetObject<T>* left, const SetObject<T>* right) {
-  auto* result = Runtime::make<SetObject<T>>();
-  if (left) left->forEach([&](T value) {
-    if (!right || !right->has(value)) result->add(value);
-  });
-  if (right) right->forEach([&](T value) {
-    if (!left || !left->has(value)) result->add(value);
-  });
-  return result;
-}
-
-template <typename T>
-inline bool setIsSubsetOf(const SetObject<T>* left, const SetObject<T>* right) {
-  if (!left) return true;
-  bool result = true;
-  left->forEach([&](T value) {
-    if (!right || !right->has(value)) result = false;
-  });
-  return result;
-}
-
-template <typename T>
-inline bool setIsSupersetOf(const SetObject<T>* left, const SetObject<T>* right) {
-  return setIsSubsetOf(right, left);
-}
-
-template <typename T>
-inline bool setIsDisjointFrom(const SetObject<T>* left, const SetObject<T>* right) {
-  if (!left || !right) return true;
-  bool result = true;
-  left->forEach([&](T value) {
-    if (right->has(value)) result = false;
-  });
-  return result;
-}
-
-template <typename T>
-inline SetObject<T>* SetObject<T>::vexa_union(const SetObject* other) const {
-  return setUnion(const_cast<SetObject*>(this), other);
-}
-
-template <typename T>
-inline SetObject<T>* SetObject<T>::intersection(const SetObject* other) const {
-  return setIntersection(const_cast<SetObject*>(this), other);
-}
-
-template <typename T>
-inline SetObject<T>* SetObject<T>::difference(const SetObject* other) const {
-  return setDifference(const_cast<SetObject*>(this), other);
-}
-
-template <typename T>
-inline SetObject<T>* SetObject<T>::symmetricDifference(const SetObject* other) const {
-  return setSymmetricDifference(const_cast<SetObject*>(this), other);
-}
-
-template <typename T>
-inline bool SetObject<T>::isSubsetOf(const SetObject* other) const {
-  return setIsSubsetOf(this, other);
-}
-
-template <typename T>
-inline bool SetObject<T>::isSupersetOf(const SetObject* other) const {
-  return setIsSupersetOf(this, other);
-}
-
-template <typename T>
-inline bool SetObject<T>::isDisjointFrom(const SetObject* other) const {
-  return setIsDisjointFrom(this, other);
-}
-
-template <typename Callback, typename T>
-inline decltype(auto) invokeGroupingCallback(
-    Callback& callback,
-    T value,
-    std::size_t index,
-    const ArrayObject<T>* array) {
-  if constexpr (std::is_invocable_v<Callback, T, double, ArrayObject<T>*>) {
-    return callback(std::move(value), static_cast<double>(index), const_cast<ArrayObject<T>*>(array));
-  } else if constexpr (std::is_invocable_v<Callback, T, double>) {
-    return callback(std::move(value), static_cast<double>(index));
-  } else {
-    return callback(std::move(value));
-  }
-}
-
-template <typename T, typename Callback>
-inline auto mapGroupBy(const ArrayObject<T>* items, Callback callback) {
-  using Key = std::remove_cvref_t<decltype(
-      invokeGroupingCallback(callback, std::declval<T>(), std::size_t{}, items))>;
-  auto* result = Runtime::make<MapObject<Key, ArrayObject<T>*>>();
-  if (!items) return result;
-  for (std::size_t index = 0; index < items->size(); ++index) {
-    const auto key = invokeGroupingCallback(callback, items->get(index), index, items);
-    const auto existing = result->get(key);
-    auto* group = existing ? existing : Runtime::array<T>();
-    group->append(items->get(index));
-    result->set(key, group);
-  }
-  return result;
-}
-
-inline MapObject<Value, ArrayObject<Value>*>* mapGroupBy(
-    const Value& items,
-    std::function<Value(Value, double)> callback) {
-  auto* result = Runtime::make<MapObject<Value, ArrayObject<Value>*>>();
-  std::size_t index = 0;
-  for (const auto value : dynamicIterationRange(items)) {
-    const Value key = callback(value, static_cast<double>(index++));
-    const auto existing = result->get(key);
-    auto* group = existing ? existing : Runtime::array<Value>();
-    group->append(value);
-    result->set(key, group);
-  }
-  return result;
-}
-
-template <typename T, typename Callback>
-inline RecordObject* objectGroupBy(const ArrayObject<T>* items, Callback callback) {
-  auto* result = Runtime::record();
-  if (!items) return result;
-  for (std::size_t index = 0; index < items->size(); ++index) {
-    const auto key = invokeGroupingCallback(callback, items->get(index), index, items);
-    const auto property = propertyKey(convertValue<Value>(key));
-    const auto current = result->get(property);
-    ArrayObject<T>* group = current.isUndefined()
-      ? Runtime::array<T>()
-      : convertValue<ArrayObject<T>*>(current);
-    group->append(items->get(index));
-    result->set(property, Value(group));
-  }
-  return result;
-}
-
-inline RecordObject* objectGroupBy(
-    const Value& items,
-    std::function<Value(Value, double)> callback) {
-  auto* result = Runtime::record();
-  std::size_t index = 0;
-  for (const auto value : dynamicIterationRange(items)) {
-    const auto property = propertyKey(callback(value, static_cast<double>(index++)));
-    const auto current = result->get(property);
-    ArrayObject<Value>* group = current.isUndefined()
-      ? Runtime::array<Value>()
-      : convertValue<ArrayObject<Value>*>(current);
-    group->append(value);
-    result->set(property, Value(group));
-  }
-  return result;
-}
-
 template <typename T, typename Input>
 inline SetObject<T>* setFromArray(const ArrayObject<Input>* values) {
   auto* result = Runtime::make<SetObject<T>>();
@@ -5148,7 +3346,7 @@ inline WeakSetObject<T>* weakSetFromArray(const ArrayObject<Input>* values) {
 
 template <typename K, typename V, typename Key>
 inline V weakMapGet(WeakMapObject<K, V>* map, Key&& key) {
-  const auto found = map->find(convertValue<K>(std::forward<Key>(key)));
+  const auto found = map->get(convertValue<K>(std::forward<Key>(key)));
   if (found) return *found;
   if constexpr (std::is_same_v<V, Value>) return Value::undefined();
   return V{};
@@ -5212,203 +3410,10 @@ inline Uint8ArrayObject* makeUint8Array(const std::u16string& value) {
   return result;
 }
 
-inline Uint8ArrayObject* TextEncoderObject::encode(const std::u16string& source) const {
-  return makeUint8Array(source);
-}
-
-inline RecordObject* TextEncoderObject::encodeInto(
-    const std::u16string& source,
-    Uint8ArrayObject* destination) const {
-  if (!destination) throw runtimeError(u"TextEncoder.encodeInto requires a destination");
-  const auto encoded = utf16ToUtf8(source);
-  const auto written = std::min(encoded.size(), destination->length());
-  for (std::size_t index = 0; index < written; ++index) {
-    destination->set(index, static_cast<double>(static_cast<unsigned char>(encoded[index])));
-  }
-  auto* result = Runtime::record();
-  result->set(u"read", Value(static_cast<double>(source.size())));
-  result->set(u"written", Value(static_cast<double>(written)));
-  return result;
-}
-
 inline Uint32ArrayObject* makeUint32Array(double length) {
   const auto size = static_cast<std::size_t>(std::max(0.0, length));
   auto* buffer = Runtime::make<ArrayBufferObject>(size * sizeof(std::uint32_t));
   return Runtime::make<Uint32ArrayObject>(buffer, 0, size);
-}
-
-template <typename T>
-inline Uint32ArrayObject* makeUint32Array(const ArrayObject<T>* values) {
-  auto* result = makeUint32Array(static_cast<double>(values->size()));
-  for (std::size_t index = 0; index < values->size(); ++index) {
-    result->set(index, Number(convertValue<Value>(values->get(index))));
-  }
-  return result;
-}
-
-inline BigInt64ArrayObject* makeBigInt64Array(double length) {
-  const auto size = static_cast<std::size_t>(std::max(0.0, length));
-  auto* buffer = Runtime::make<ArrayBufferObject>(size * sizeof(std::int64_t));
-  return Runtime::make<BigInt64ArrayObject>(buffer, 0, size);
-}
-
-inline BigInt64ArrayObject* makeBigInt64Array(ArrayBufferObject* buffer, double byteOffset = 0, double length = -1) {
-  const auto offset = static_cast<std::size_t>(std::max(0.0, byteOffset));
-  const auto available = buffer->byteLength() - offset;
-  const auto elements = length < 0
-    ? available / sizeof(std::int64_t)
-    : static_cast<std::size_t>(std::max(0.0, length));
-  return Runtime::make<BigInt64ArrayObject>(buffer, offset, elements);
-}
-
-template <typename T>
-inline BigInt64ArrayObject* makeBigInt64Array(const ArrayObject<T>* values) {
-  auto* result = makeBigInt64Array(static_cast<double>(values ? values->size() : 0));
-  if (values) {
-    for (std::size_t index = 0; index < values->size(); ++index) {
-      result->set(index, convertValue<BigInt>(values->get(index)));
-    }
-  }
-  return result;
-}
-
-inline RecordObject* atomicsWaitAsync(
-    Uint32ArrayObject* typedArray,
-    double index,
-    double expected,
-    double timeout = std::numeric_limits<double>::infinity()) {
-  const auto position = static_cast<std::size_t>(std::max(0.0, std::trunc(index)));
-  const bool matches = typedArray && position < typedArray->length() &&
-    typedArray->get(position) == static_cast<std::uint32_t>(expected);
-  return Runtime::record({
-    {u"async", Value(false)},
-    {u"value", Runtime::string(matches && timeout > 0 ? u"timed-out" : matches ? u"timed-out" : u"not-equal")},
-  });
-}
-
-inline RecordObject* atomicsWaitAsync(
-    BigInt64ArrayObject* typedArray,
-    double index,
-    const BigInt& expected,
-    double timeout = std::numeric_limits<double>::infinity()) {
-  const auto position = static_cast<std::size_t>(std::max(0.0, std::trunc(index)));
-  const bool matches = typedArray && position < typedArray->length() && typedArray->get(position) == expected;
-  return Runtime::record({
-    {u"async", Value(false)},
-    {u"value", Runtime::string(matches ? u"timed-out" : u"not-equal")},
-  });
-}
-
-inline Float16ArrayObject* makeFloat16Array(double length) {
-  const auto size = static_cast<std::size_t>(std::max(0.0, length));
-  auto* buffer = Runtime::make<ArrayBufferObject>(size * sizeof(std::uint16_t));
-  return Runtime::make<Float16ArrayObject>(buffer, 0, size);
-}
-
-inline Float16ArrayObject* makeFloat16Array(ArrayBufferObject* buffer, double byteOffset = 0, double length = -1) {
-  const auto offset = static_cast<std::size_t>(std::max(0.0, byteOffset));
-  const auto available = buffer->byteLength() - offset;
-  const auto elements = length < 0
-    ? available / sizeof(std::uint16_t)
-    : static_cast<std::size_t>(std::max(0.0, length));
-  return Runtime::make<Float16ArrayObject>(buffer, offset, elements);
-}
-
-template <typename T>
-inline Float16ArrayObject* makeFloat16Array(const ArrayObject<T>* values) {
-  auto* result = makeFloat16Array(static_cast<double>(values ? values->size() : 0));
-  if (values) {
-    for (std::size_t index = 0; index < values->size(); ++index) {
-      result->set(index, Number(convertValue<Value>(values->get(index))));
-    }
-  }
-  return result;
-}
-
-inline Float16ArrayObject* float16ArrayOf(std::initializer_list<double> values) {
-  auto* result = makeFloat16Array(static_cast<double>(values.size()));
-  std::size_t index = 0;
-  for (const auto value : values) result->set(index++, value);
-  return result;
-}
-
-template <typename Callback>
-inline decltype(auto) invokeFloat16FromCallback(Callback& callback, double value, std::size_t index) {
-  if constexpr (std::is_invocable_v<Callback, double, double>) {
-    return callback(value, static_cast<double>(index));
-  } else {
-    return callback(value);
-  }
-}
-
-template <typename T>
-inline Float16ArrayObject* float16ArrayFrom(const ArrayObject<T>* values) {
-  auto* result = makeFloat16Array(static_cast<double>(values ? values->size() : 0));
-  if (values) {
-    for (std::size_t index = 0; index < values->size(); ++index) {
-      result->set(index, Number(convertValue<Value>(values->get(index))));
-    }
-  }
-  return result;
-}
-
-template <typename T, typename Callback>
-inline Float16ArrayObject* float16ArrayFrom(const ArrayObject<T>* values, Callback callback) {
-  auto* result = makeFloat16Array(static_cast<double>(values ? values->size() : 0));
-  if (values) {
-    for (std::size_t index = 0; index < values->size(); ++index) {
-      const auto value = Number(convertValue<Value>(values->get(index)));
-      result->set(index, Number(convertValue<Value>(invokeFloat16FromCallback(callback, value, index))));
-    }
-  }
-  return result;
-}
-
-inline Float16ArrayObject* float16ArrayFrom(const Float16ArrayObject* values) {
-  auto* result = makeFloat16Array(static_cast<double>(values ? values->length() : 0));
-  if (values) {
-    for (std::size_t index = 0; index < values->length(); ++index) result->set(index, values->get(index));
-  }
-  return result;
-}
-
-template <typename Callback>
-inline Float16ArrayObject* float16ArrayFrom(const Float16ArrayObject* values, Callback callback) {
-  auto* result = makeFloat16Array(static_cast<double>(values ? values->length() : 0));
-  if (values) {
-    for (std::size_t index = 0; index < values->length(); ++index) {
-      result->set(index, Number(convertValue<Value>(invokeFloat16FromCallback(callback, values->get(index), index))));
-    }
-  }
-  return result;
-}
-
-template <typename T>
-inline Float16ArrayObject* float16ArrayFrom(NativeIteratorObject<T>* values) {
-  const auto remaining = values ? values->takeRemaining() : std::vector<T>{};
-  auto* result = makeFloat16Array(static_cast<double>(remaining.size()));
-  for (std::size_t index = 0; index < remaining.size(); ++index) {
-    result->set(index, Number(convertValue<Value>(remaining[index])));
-  }
-  return result;
-}
-
-template <typename T, typename Callback>
-inline Float16ArrayObject* float16ArrayFrom(NativeIteratorObject<T>* values, Callback callback) {
-  const auto remaining = values ? values->takeRemaining() : std::vector<T>{};
-  auto* result = makeFloat16Array(static_cast<double>(remaining.size()));
-  for (std::size_t index = 0; index < remaining.size(); ++index) {
-    const auto value = Number(convertValue<Value>(remaining[index]));
-    result->set(index, Number(convertValue<Value>(invokeFloat16FromCallback(callback, value, index))));
-  }
-  return result;
-}
-
-inline ArrayObject<double>* float16ArrayValues(const Float16ArrayObject* values) {
-  auto* result = Runtime::array<double>();
-  if (!values) return result;
-  for (std::size_t index = 0; index < values->length(); ++index) result->append(values->get(index));
-  return result;
 }
 
 inline ArrayObject<std::uint8_t>* uint8ArrayValues(const Uint8ArrayObject* values) {
@@ -6169,21 +4174,6 @@ class Task final {
 
   std::exception_ptr settledError() const { return state_->error; }
 
-  template <typename Callback>
-  auto then(Callback callback) {
-    return promiseThen(*this, std::move(callback));
-  }
-
-  template <typename Callback>
-  auto vexa_catch(Callback callback) {
-    return promiseCatch(*this, std::move(callback));
-  }
-
-  template <typename Callback>
-  auto finally(Callback callback) {
-    return promiseFinally(*this, std::move(callback));
-  }
-
  private:
   class Resolver final {
    public:
@@ -6348,21 +4338,6 @@ class Task<void> final {
 
   std::exception_ptr settledError() const { return state_->error; }
 
-  template <typename Callback>
-  auto then(Callback callback) {
-    return promiseThen(*this, std::move(callback));
-  }
-
-  template <typename Callback>
-  auto vexa_catch(Callback callback) {
-    return promiseCatch(*this, std::move(callback));
-  }
-
-  template <typename Callback>
-  auto finally(Callback callback) {
-    return promiseFinally(*this, std::move(callback));
-  }
-
  private:
   class Resolver final {
    public:
@@ -6428,52 +4403,6 @@ class Task<void> final {
   explicit Task(std::shared_ptr<State> state) : state_(std::move(state)) {}
 
   std::shared_ptr<State> state_;
-};
-
-template <typename T>
-class PromiseResolvers final
-    : public cppgc::GarbageCollected<PromiseResolvers<T>>,
-      public BaseObject {
- public:
-  PromiseResolvers() {
-    auto resolve = std::make_shared<std::function<void(T)>>();
-    auto reject = std::make_shared<std::function<void(Value)>>();
-    promise = Task<T>::create([resolve, reject](auto complete, auto fail) mutable {
-      *resolve = std::move(complete);
-      *reject = [fail](Value reason) mutable { fail(std::move(reason)); };
-    });
-    resolve_ = std::move(resolve);
-    reject_ = std::move(reject);
-  }
-
-  void resolve(T value) const { (*resolve_)(std::move(value)); }
-  void reject(Value reason) const { (*reject_)(std::move(reason)); }
-
-  const void* dynamicTypeToken() const override { return nativeTypeToken<PromiseResolvers<T>>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<PromiseResolvers<T>>() ? this : nullptr;
-  }
-  std::u16string dynamicToString() const override { return u"[object PromiseWithResolvers]"; }
-  Value dynamicGet(const std::u16string& key) override {
-    if (key == u"resolve") {
-      return Value(static_cast<BaseObject*>(makeFunction<void, T>(
-          [this](T value) { resolve(std::move(value)); }, {Value(this)})));
-    }
-    if (key == u"reject") {
-      return Value(static_cast<BaseObject*>(makeFunction<void, Value>(
-          [this](Value reason) { reject(std::move(reason)); }, {Value(this)})));
-    }
-    return BaseObject::dynamicGet(key);
-  }
-  void Trace(cppgc::Visitor* visitor) const override {
-    BaseObject::Trace(visitor);
-  }
-
-  Task<T> promise;
-
- private:
-  std::shared_ptr<std::function<void(T)>> resolve_;
-  std::shared_ptr<std::function<void(Value)>> reject_;
 };
 
 template <typename Work, typename Map>
@@ -6944,14 +4873,6 @@ class BasicGenerator final {
     return wrapNext({true, std::move(value)});
   }
 
-  NextResult vexa_return() {
-    return finish();
-  }
-
-  NextResult vexa_return(T value) {
-    return finish(std::move(value));
-  }
-
   class Iterator final {
    public:
     explicit Iterator(BasicGenerator* generator) : generator_(generator) { advance(); }
@@ -7041,13 +4962,6 @@ inline void appendAll(ArrayObject<T>* target, const ArrayObject<U>* source) {
 }
 
 template <typename T, typename U>
-inline void appendAll(ArrayObject<T>* target, NativeIteratorObject<U>* source) {
-  if (!source) return;
-  auto* values = source->toArray();
-  appendAll(target, values);
-}
-
-template <typename T, typename U>
 inline void appendAll(ArrayObject<T>* target, SetObject<U>* source) {
   source->forEach([&](U value) {
     target->append(convertValue<T>(value));
@@ -7072,13 +4986,9 @@ inline void appendAll(ArrayObject<T>* target, const Value& source) {
   }
 }
 
-template <typename T, typename U>
-inline double pushAll(ArrayObject<T>* target, const ArrayObject<U>* source) {
-  if (source) {
-    for (std::size_t index = 0; index < source->size(); ++index) {
-      target->append(convertValue<T>(source->get(index)));
-    }
-  }
+template <typename T>
+inline double pushAll(ArrayObject<T>* target, const ArrayObject<T>* source) {
+  appendAll(target, source);
   return static_cast<double>(target->size());
 }
 
@@ -7094,13 +5004,6 @@ inline void appendAllConverted(ArrayObject<Value>* target, const ArrayObject<T>*
   for (std::size_t index = 0; index < source->size(); ++index) {
     target->append(convertValue<Value>(source->get(index)));
   }
-}
-
-template <typename T>
-inline void appendAllConverted(ArrayObject<Value>* target, NativeIteratorObject<T>* source) {
-  if (!source) return;
-  auto* values = source->toArray();
-  appendAllConverted(target, values);
 }
 
 inline void appendAllConverted(ArrayObject<Value>* target, const std::u16string& source) {
@@ -7204,10 +5107,8 @@ inline double lastIndexOf(const ArrayObject<T>* array, const U& value) {
 }
 
 template <typename T>
-template <typename Index>
-inline T ArrayObject<T>::at(Index index) const {
-  const double numericIndex = convertValue<double>(std::forward<Index>(index));
-  const auto integer = static_cast<std::int64_t>(numericIndex);
+inline T ArrayObject<T>::at(double index) const {
+  const auto integer = static_cast<std::int64_t>(index);
   const auto resolved = integer < 0 ? static_cast<std::int64_t>(size()) + integer : integer;
   return resolved < 0 || resolved >= static_cast<std::int64_t>(size())
       ? T{}
@@ -7285,13 +5186,10 @@ inline std::vector<T> slice(const std::vector<T>& array, double start = 0, doubl
 }
 
 template <typename T>
-template <typename Start, typename End>
-inline ArrayObject<T>* ArrayObject<T>::slice(Start start, End end) const {
-  const double numericStart = convertValue<double>(std::forward<Start>(start));
-  const double numericEnd = convertValue<double>(std::forward<End>(end));
+inline ArrayObject<T>* ArrayObject<T>::slice(double start, double end) const {
   auto* result = Runtime::array<T>();
-  const std::size_t first = normalizedSliceIndex(numericStart, size());
-  const std::size_t last = std::isinf(numericEnd) ? size() : normalizedSliceIndex(numericEnd, size());
+  const std::size_t first = normalizedSliceIndex(start, size());
+  const std::size_t last = std::isinf(end) ? size() : normalizedSliceIndex(end, size());
   result->reserve(last > first ? last - first : 0);
   for (std::size_t index = first; index < last; ++index) result->append(get(index));
   return result;
@@ -7309,15 +5207,14 @@ inline std::vector<T> concat(const std::vector<T>& array, const std::vector<T>& 
   return result;
 }
 
-template <typename T, typename Value>
-inline void appendConcatItem(ArrayObject<T>* result, Value&& value) {
-  result->append(convertValue<T>(std::forward<Value>(value)));
+template <typename T>
+inline void appendConcatItem(ArrayObject<T>* result, T value) {
+  result->append(std::move(value));
 }
 
-template <typename T, typename U>
-inline void appendConcatItem(ArrayObject<T>* result, const ArrayObject<U>* values) {
-  if (!values) return;
-  for (const auto& value : *values) result->append(convertValue<T>(value));
+template <typename T>
+inline void appendConcatItem(ArrayObject<T>* result, const ArrayObject<T>* values) {
+  appendAll(result, values);
 }
 
 template <typename T>
@@ -7334,53 +5231,6 @@ inline ArrayObject<T>* concat(const ArrayObject<T>* array, Items&&... items) {
   return array->concat(std::forward<Items>(items)...);
 }
 
-template <typename MemberFunction>
-struct CallableFirstArgumentFromMemberFunction {};
-
-template <typename Result, typename Owner>
-struct CallableFirstArgumentFromMemberFunction<Result (Owner::*)() const> {};
-
-template <typename Result, typename Owner, typename First, typename... Arguments>
-struct CallableFirstArgumentFromMemberFunction<Result (Owner::*)(First, Arguments...) const> {
-  using type = std::remove_cvref_t<First>;
-};
-
-template <typename Result, typename Owner>
-struct CallableFirstArgumentFromMemberFunction<Result (Owner::*)()> {};
-
-template <typename Result, typename Owner, typename First, typename... Arguments>
-struct CallableFirstArgumentFromMemberFunction<Result (Owner::*)(First, Arguments...)> {
-  using type = std::remove_cvref_t<First>;
-};
-
-template <typename Callable, typename = void>
-struct CallableFirstArgumentFromObject {};
-
-template <typename Callable>
-struct CallableFirstArgumentFromObject<
-    Callable,
-    std::void_t<decltype(&Callable::operator())>>
-    : CallableFirstArgumentFromMemberFunction<decltype(&Callable::operator())> {};
-
-template <typename Callable>
-struct CallableArgumentTypes {};
-
-template <typename Result, typename First, typename... Arguments>
-struct CallableArgumentTypes<std::function<Result(First, Arguments...)>> {
-  using FirstArgument = std::remove_cvref_t<First>;
-};
-
-template <typename Target, typename Source>
-cppgc::Persistent<ArrayObject<Target>> convertedCallbackArray(
-    const ArrayObject<Source>* source) {
-  cppgc::Persistent<ArrayObject<Target>> result(Runtime::array<Target>());
-  if (!source) return result;
-  for (std::size_t index = 0; index < source->size(); ++index) {
-    result->append(convertValue<Target>(source->get(index)));
-  }
-  return result;
-}
-
 template <typename Callback, typename T>
 inline decltype(auto) invokeArrayCallback(
     Callback& callback,
@@ -7395,36 +5245,7 @@ inline decltype(auto) invokeArrayCallback(
   } else if constexpr (std::is_invocable_v<Callback, T>) {
     return callback(std::move(value));
   } else {
-    using CallableTypes = CallableArgumentTypes<std::remove_cvref_t<Callback>>;
-    if constexpr (requires { typename CallableTypes::FirstArgument; }) {
-      using FirstArgument = typename CallableTypes::FirstArgument;
-      if constexpr (std::is_invocable_v<Callback, FirstArgument, double, ArrayObject<FirstArgument>*>) {
-        auto convertedArray = convertedCallbackArray<FirstArgument>(array);
-        return callback(
-            convertValue<FirstArgument>(value),
-            static_cast<double>(index),
-            convertedArray.Get());
-      } else if constexpr (std::is_invocable_v<Callback, FirstArgument, double>) {
-        return callback(convertValue<FirstArgument>(value), static_cast<double>(index));
-      } else if constexpr (std::is_invocable_v<Callback, FirstArgument>) {
-        return callback(convertValue<FirstArgument>(value));
-      } else {
-        return callback();
-      }
-    } else if constexpr (requires { typename CallableFirstArgumentFromObject<Callback>::type; }) {
-      using FirstArgument = typename CallableFirstArgumentFromObject<Callback>::type;
-      if constexpr (std::is_invocable_v<Callback, FirstArgument>) {
-        if constexpr (std::is_pointer_v<FirstArgument> && std::is_same_v<T, Value>) {
-          return callback(toInstanceOrNull<FirstArgument>(value));
-        } else {
-          return callback(convertValue<FirstArgument>(value));
-        }
-      } else {
-        return callback();
-      }
-    } else {
-      return callback();
-    }
+    return callback();
   }
 }
 
@@ -7489,29 +5310,6 @@ inline auto map(const ArrayObject<T>* array, Callback callback) {
   return array ? array->map(std::move(callback)) : static_cast<Result>(nullptr);
 }
 
-template <typename Target, typename Source>
-inline ArrayObject<Target>* convertArray(const ArrayObject<Source>* source) {
-  if (!source) return nullptr;
-  if constexpr (std::is_same_v<Target, Source>) return const_cast<ArrayObject<Target>*>(source);
-  auto* result = Runtime::array<Target>();
-  result->reserve(source->size());
-  for (const auto& value : *source) result->append(convertValue<Target>(value));
-  return result;
-}
-
-template <typename Target, typename Source>
-inline ArrayObject<Target>* convertArray(NativeIteratorObject<Source>* source) {
-  if (!source) return nullptr;
-  auto* result = Runtime::array<Target>();
-  for (auto& value : source->takeRemaining()) result->append(convertValue<Target>(value));
-  return result;
-}
-
-template <typename Target, typename Source>
-inline ArrayObject<Target>* convertArray(const cppgc::Member<ArrayObject<Source>>& source) {
-  return convertArray<Target>(source.Get());
-}
-
 template <typename T, typename Callback>
 inline std::vector<T> filter(const std::vector<T>& array, Callback callback) {
   std::vector<T> result;
@@ -7552,19 +5350,11 @@ inline ArrayObject<T>* flat(
 }
 
 template <typename T>
+struct ArrayPointerElement;
+
+template <typename T>
 struct ArrayPointerElement<ArrayObject<T>*> final {
   using Type = T;
-};
-
-template <typename T>
-struct IsArrayPointer : std::false_type {};
-
-template <typename T>
-struct IsArrayPointer<ArrayObject<T>*> : std::true_type {};
-
-template <>
-struct ArrayPointerElement<Value> final {
-  using Type = Value;
 };
 
 template <typename T, typename Callback>
@@ -7575,33 +5365,9 @@ inline auto flatMap(const ArrayObject<T>* array, Callback callback) {
   auto* result = Runtime::array<Result>();
   for (std::size_t index = 0; index < array->size(); ++index) {
     NestedArray nested = invokeArrayCallback(callback, array->get(index), index, array);
-    if constexpr (std::is_same_v<NestedArray, Value>) {
-      if (nested.isRuntimeObject() && nested.object()->dynamicIsArray()) {
-        for (std::size_t nestedIndex = 0; nestedIndex < nested.object()->dynamicArraySize(); ++nestedIndex) {
-          result->append(convertValue<Result>(nested.object()->dynamicArrayGet(nestedIndex)));
-        }
-      } else {
-        result->append(convertValue<Result>(nested));
-      }
-    } else if constexpr (IsArrayPointer<NestedArray>::value) {
-      if (nested) appendAll(result, nested);
-    } else {
-      result->append(convertValue<Result>(nested));
-    }
+    if (nested) appendAll(result, nested);
   }
   return result;
-}
-
-template <typename T>
-template <typename Depth>
-inline auto ArrayObject<T>::flat(Depth depth) const {
-  return vexa::flat(this, convertValue<double>(std::forward<Depth>(depth)));
-}
-
-template <typename T>
-template <typename Callback>
-inline auto ArrayObject<T>::flatMap(Callback callback) const {
-  return vexa::flatMap(this, std::move(callback));
 }
 
 template <typename T, typename Callback, typename Accumulator>
@@ -7698,50 +5464,15 @@ inline T find(const ArrayObject<T>* array, Callback callback) {
 }
 
 template <typename T>
-template <typename Callback>
-inline double ArrayObject<T>::findLastIndex(Callback callback) const {
-  for (std::size_t index = size(); index > 0; --index) {
-    const std::size_t current = index - 1;
-    if (arrayCallbackBoolean(invokeArrayCallback(callback, get(current), current, this))) {
-      return static_cast<double>(current);
-    }
-  }
-  return -1;
-}
-
-template <typename T, typename Callback>
-inline double findLastIndex(const ArrayObject<T>* array, Callback callback) {
-  return array->findLastIndex(std::move(callback));
-}
-
-template <typename T>
-template <typename Callback>
-inline T ArrayObject<T>::findLast(Callback callback) const {
-  for (std::size_t index = size(); index > 0; --index) {
-    const std::size_t current = index - 1;
-    const auto value = get(current);
-    if (arrayCallbackBoolean(invokeArrayCallback(callback, value, current, this))) return value;
-  }
-  return T{};
-}
-
-template <typename T, typename Callback>
-inline T findLast(const ArrayObject<T>* array, Callback callback) {
-  return array->findLast(std::move(callback));
-}
-
-template <typename T>
-template <typename Start, typename DeleteCount, typename... Items>
+template <typename... Items>
 inline ArrayObject<T>* ArrayObject<T>::splice(
-    Start start,
-    DeleteCount deleteCount,
+    double start,
+    double deleteCount,
     Items&&... items) {
-  const double numericStart = convertValue<double>(std::forward<Start>(start));
-  const double numericDeleteCount = convertValue<double>(std::forward<DeleteCount>(deleteCount));
-  const std::size_t first = normalizedSliceIndex(numericStart, size());
-  const std::size_t requested = std::isinf(numericDeleteCount)
+  const std::size_t first = normalizedSliceIndex(start, size());
+  const std::size_t requested = std::isinf(deleteCount)
       ? size() - first
-      : static_cast<std::size_t>(std::max(0.0, std::trunc(numericDeleteCount)));
+      : static_cast<std::size_t>(std::max(0.0, std::trunc(deleteCount)));
   const std::size_t count = std::min(requested, size() - first);
   auto* removed = Runtime::array<T>();
   for (std::size_t index = 0; index < count; ++index) removed->append(get(first + index));
@@ -7783,14 +5514,10 @@ inline ArrayObject<T>* spliceAll(
 }
 
 template <typename T>
-template <typename Value, typename Start, typename End>
-inline ArrayObject<T>* ArrayObject<T>::fill(Value&& value, Start start, End end) {
-  const T convertedValue = convertValue<T>(std::forward<Value>(value));
-  const double numericStart = convertValue<double>(std::forward<Start>(start));
-  const double numericEnd = convertValue<double>(std::forward<End>(end));
-  const std::size_t first = normalizedSliceIndex(numericStart, size());
-  const std::size_t last = std::isinf(numericEnd) ? size() : normalizedSliceIndex(numericEnd, size());
-  for (std::size_t index = first; index < last; ++index) set(index, convertedValue);
+inline ArrayObject<T>* ArrayObject<T>::fill(T value, double start, double end) {
+  const std::size_t first = normalizedSliceIndex(start, size());
+  const std::size_t last = std::isinf(end) ? size() : normalizedSliceIndex(end, size());
+  for (std::size_t index = first; index < last; ++index) set(index, value);
   return this;
 }
 
@@ -7804,14 +5531,10 @@ inline ArrayObject<T>* fill(
 }
 
 template <typename T>
-template <typename Target, typename Start, typename End>
-inline ArrayObject<T>* ArrayObject<T>::copyWithin(Target target, Start start, End end) {
-  const double numericTarget = convertValue<double>(std::forward<Target>(target));
-  const double numericStart = convertValue<double>(std::forward<Start>(start));
-  const double numericEnd = convertValue<double>(std::forward<End>(end));
-  const std::size_t destination = normalizedSliceIndex(numericTarget, size());
-  const std::size_t first = normalizedSliceIndex(numericStart, size());
-  const std::size_t last = std::isinf(numericEnd) ? size() : normalizedSliceIndex(numericEnd, size());
+inline ArrayObject<T>* ArrayObject<T>::copyWithin(double target, double start, double end) {
+  const std::size_t destination = normalizedSliceIndex(target, size());
+  const std::size_t first = normalizedSliceIndex(start, size());
+  const std::size_t last = std::isinf(end) ? size() : normalizedSliceIndex(end, size());
   std::vector<T> copied;
   for (std::size_t index = first; index < last; ++index) copied.push_back(get(index));
   for (std::size_t index = 0; index < copied.size() && destination + index < size(); ++index) {
@@ -7827,18 +5550,6 @@ inline ArrayObject<T>* copyWithin(
     double start,
     double end = std::numeric_limits<double>::infinity()) {
   return array->copyWithin(target, start, end);
-}
-
-template <typename T>
-inline ArrayObject<T>* ArrayObject<T>::toReversed() const {
-  auto* result = slice();
-  result->reverse();
-  return result;
-}
-
-template <typename T>
-inline ArrayObject<T>* toReversed(const ArrayObject<T>* array) {
-  return array->toReversed();
 }
 
 template <typename T>
@@ -7979,6 +5690,18 @@ template <typename T>
 }
 
 template <typename Result>
+struct PromiseResult final {
+  using Type = std::remove_cvref_t<Result>;
+  static constexpr bool task = false;
+};
+
+template <typename Result>
+struct PromiseResult<Task<Result>> final {
+  using Type = typename PromiseResult<Result>::Type;
+  static constexpr bool task = true;
+};
+
+template <typename Result>
 Task<typename PromiseResult<Result>::Type> assimilateTask(Task<Result> task) {
   if constexpr (PromiseResult<Result>::task) {
     auto nested = co_await task;
@@ -8013,27 +5736,6 @@ Task<typename PromiseResult<Result>::Type> promiseResolve(Task<Result> task) {
     co_return;
   } else {
     co_return co_await assimilateTask(std::move(task));
-  }
-}
-
-template <typename Callback, typename... Arguments>
-Task<typename PromiseResult<std::invoke_result_t<Callback, Arguments...>>::Type> promiseTry(
-    Callback callback,
-    Arguments... arguments) {
-  using CallbackResult = std::invoke_result_t<Callback, Arguments...>;
-  using Result = typename PromiseResult<CallbackResult>::Type;
-  if constexpr (PromiseResult<CallbackResult>::task) {
-    if constexpr (std::is_void_v<Result>) {
-      co_await assimilateTask(callback(std::move(arguments)...));
-      co_return;
-    } else {
-      co_return co_await assimilateTask(callback(std::move(arguments)...));
-    }
-  } else if constexpr (std::is_void_v<CallbackResult>) {
-    callback(std::move(arguments)...);
-    co_return;
-  } else {
-    co_return callback(std::move(arguments)...);
   }
 }
 
@@ -8266,24 +5968,22 @@ inline std::u16string joinWithSeparator(const ArrayObject<T>* array, const std::
 }
 
 template <typename T>
-template <typename Separator>
-inline std::u16string ArrayObject<T>::join(Separator&& separator) const {
-  const std::u16string text = convertValue<std::u16string>(std::forward<Separator>(separator));
+inline std::u16string ArrayObject<T>::join(const std::u16string& separator) const {
   if constexpr (std::is_same_v<T, std::u16string>) {
     if (!dynamic_backing_) {
       if (values_.empty()) return {};
-      std::size_t outputSize = text.size() * (values_.size() - 1);
+      std::size_t outputSize = separator.size() * (values_.size() - 1);
       for (const auto& value : values_) outputSize += value.loadRef().size();
       std::u16string output;
       output.reserve(outputSize);
       for (std::size_t index = 0; index < values_.size(); ++index) {
-        if (index > 0) output += text;
+        if (index > 0) output += separator;
         output += values_[index].loadRef();
       }
       return output;
     }
   }
-  return joinWithSeparator(this, text);
+  return joinWithSeparator(this, separator);
 }
 
 template <typename T>
@@ -8345,73 +6045,6 @@ inline ArrayObject<T>* ArrayObject<T>::sort() {
 template <typename T>
 inline ArrayObject<T>* sort(ArrayObject<T>* array) {
   return array->sort();
-}
-
-template <typename T>
-inline ArrayObject<T>* ArrayObject<T>::toSorted() const {
-  auto* result = slice();
-  result->sort();
-  return result;
-}
-
-template <typename T, typename Callback>
-inline ArrayObject<T>* toSorted(const ArrayObject<T>* array, Callback callback) {
-  auto* result = array->slice();
-  result->sort(std::move(callback));
-  return result;
-}
-
-template <typename T>
-template <typename Callback>
-inline ArrayObject<T>* ArrayObject<T>::toSorted(Callback callback) const {
-  auto* result = slice();
-  result->sort(std::move(callback));
-  return result;
-}
-
-template <typename T>
-inline ArrayObject<T>* toSorted(const ArrayObject<T>* array) {
-  return array->toSorted();
-}
-
-template <typename T>
-template <typename Start, typename DeleteCount, typename... Items>
-inline ArrayObject<T>* ArrayObject<T>::toSpliced(
-    Start start,
-    DeleteCount deleteCount,
-    Items&&... items) const {
-  auto* result = slice();
-  result->splice(start, deleteCount, std::forward<Items>(items)...);
-  return result;
-}
-
-template <typename T, typename... Items>
-inline ArrayObject<T>* toSpliced(
-    const ArrayObject<T>* array,
-    double start,
-    double deleteCount = std::numeric_limits<double>::infinity(),
-    Items&&... items) {
-  return array->toSpliced(start, deleteCount, std::forward<Items>(items)...);
-}
-
-template <typename T>
-template <typename Index, typename Value>
-inline ArrayObject<T>* ArrayObject<T>::with(Index index, Value&& value) const {
-  const double numericIndex = convertValue<double>(std::forward<Index>(index));
-  const T convertedValue = convertValue<T>(std::forward<Value>(value));
-  const auto integer = static_cast<std::int64_t>(std::trunc(numericIndex));
-  const auto resolved = integer < 0 ? static_cast<std::int64_t>(size()) + integer : integer;
-  if (resolved < 0 || resolved >= static_cast<std::int64_t>(size())) {
-    throw runtimeError(u"Array.prototype.with index is out of range");
-  }
-  auto* result = slice();
-  result->set(static_cast<std::size_t>(resolved), convertedValue);
-  return result;
-}
-
-template <typename T>
-inline ArrayObject<T>* with(const ArrayObject<T>* array, double index, T value) {
-  return array->with(index, std::move(value));
 }
 
 template <typename T>
@@ -8739,6 +6372,10 @@ inline std::u16string toUpperCase(std::u16string value) {
   });
   return value;
 }
+inline std::u16string toUpperCase(const Value& value) {
+  return toUpperCase(requireString(value));
+}
+
 inline std::u16string toLowerCase(std::u16string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](char16_t character) {
     return character <= 0x7f
@@ -8747,6 +6384,10 @@ inline std::u16string toLowerCase(std::u16string value) {
   });
   return value;
 }
+inline std::u16string toLowerCase(const Value& value) {
+  return toLowerCase(requireString(value));
+}
+
 inline bool isStringWhitespace(char16_t character) {
   return character == u' ' || character == u'\t' || character == u'\n' ||
     character == u'\r' || character == u'\f' || character == u'\v';
@@ -8757,14 +6398,26 @@ inline std::u16string trim(std::u16string value) {
   value.erase(std::find_if_not(value.rbegin(), value.rend(), isStringWhitespace).base(), value.end());
   return value;
 }
+inline std::u16string trim(const Value& value) {
+  return trim(requireString(value));
+}
+
 inline std::u16string trimStart(std::u16string value) {
   value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), isStringWhitespace));
   return value;
 }
+inline std::u16string trimStart(const Value& value) {
+  return trimStart(requireString(value));
+}
+
 inline std::u16string trimEnd(std::u16string value) {
   value.erase(std::find_if_not(value.rbegin(), value.rend(), isStringWhitespace).base(), value.end());
   return value;
 }
+inline std::u16string trimEnd(const Value& value) {
+  return trimEnd(requireString(value));
+}
+
 inline bool stringIncludes(
     const std::u16string& value,
     const std::u16string& search,
@@ -8779,22 +6432,6 @@ inline bool stringIncludes(const Value& value, const std::u16string& search, dou
 }
 inline bool stringIncludes(const Value& value, const Value& search, double position = 0) {
   return stringIncludes(toString(value), toString(search), position);
-}
-
-inline bool includes(const std::u16string& value, const std::u16string& search, double position = 0) {
-  return stringIncludes(value, search, position);
-}
-
-inline bool includes(const std::u16string& value, const Value& search, double position = 0) {
-  return stringIncludes(value, search, position);
-}
-
-inline bool includes(const Value& value, const std::u16string& search, double position = 0) {
-  return stringIncludes(value, search, position);
-}
-
-inline bool includes(const Value& value, const Value& search, double position = 0) {
-  return stringIncludes(value, search, position);
 }
 
 template <typename ValueLike, typename SearchLike>
@@ -8817,19 +6454,6 @@ double stringLastIndexOf(
       : value.size();
   const auto found = value.rfind(search, start);
   return found == std::u16string::npos ? -1.0 : static_cast<double>(found);
-}
-
-template <typename ValueLike, typename SearchLike>
-inline double indexOf(const ValueLike& value, const SearchLike& search, double position = 0) {
-  return stringIndexOf(value, search, position);
-}
-
-template <typename ValueLike, typename SearchLike>
-inline double lastIndexOf(
-    const ValueLike& value,
-    const SearchLike& search,
-    double position = std::numeric_limits<double>::infinity()) {
-  return stringLastIndexOf(value, search, position);
 }
 
 inline bool startsWith(
@@ -8868,27 +6492,12 @@ inline std::u16string charAt(const std::u16string& value, double index = 0) {
     ? std::u16string(1, value[static_cast<std::size_t>(position)])
     : std::u16string();
 }
+inline std::u16string charAt(const Value& value, double index = 0) {
+  return charAt(requireString(value), index);
+}
+
 inline std::u16string stringIndex(const std::u16string& value, double index) {
-  const auto position = static_cast<std::int64_t>(std::trunc(index));
-  const auto resolved = position < 0 ? static_cast<std::int64_t>(value.size()) + position : position;
-  return resolved >= 0 && resolved < static_cast<std::int64_t>(value.size())
-    ? std::u16string(1, value[static_cast<std::size_t>(resolved)])
-    : std::u16string();
-}
-
-inline Value stringAt(const std::u16string& value, double index = 0) {
-  const auto position = static_cast<std::int64_t>(std::trunc(index));
-  const auto resolved = position < 0 ? static_cast<std::int64_t>(value.size()) + position : position;
-  return resolved >= 0 && resolved < static_cast<std::int64_t>(value.size())
-    ? Value(Runtime::string(std::u16string(1, value[static_cast<std::size_t>(resolved)])))
-    : Value::undefined();
-}
-inline Value stringAt(const Value& value, double index = 0) {
-  return stringAt(requireString(value), index);
-}
-
-inline Value at(const std::u16string& value, double index = 0) {
-  return stringAt(value, index);
+  return charAt(value, index);
 }
 
 inline double charCodeAt(const std::u16string& value, double index = 0) {
@@ -8898,6 +6507,10 @@ inline double charCodeAt(const std::u16string& value, double index = 0) {
   }
   return static_cast<std::uint16_t>(value[static_cast<std::size_t>(position)]);
 }
+inline double charCodeAt(const Value& value, double index = 0) {
+  return charCodeAt(requireString(value), index);
+}
+
 inline Value codePointAt(const std::u16string& value, double index = 0) {
   const auto position = static_cast<std::int64_t>(std::trunc(index));
   if (position < 0 || static_cast<std::size_t>(position) >= value.size()) {
@@ -8912,6 +6525,10 @@ inline Value codePointAt(const std::u16string& value, double index = 0) {
   }
   return Value(static_cast<double>(first));
 }
+inline Value codePointAt(const Value& value, double index = 0) {
+  return codePointAt(requireString(value), index);
+}
+
 template <typename T>
 inline bool numberIsNaN(const T& value) {
   return std::isnan(Number(value));
@@ -8932,70 +6549,6 @@ inline std::u16string stringRepeat(const std::u16string& value, double count) {
 }
 inline std::u16string stringRepeat(const Value& value, double count) {
   return stringRepeat(requireString(value), count);
-}
-
-inline std::u16string repeat(const std::u16string& value, double count) {
-  return stringRepeat(value, count);
-}
-
-inline bool stringIsWellFormed(const std::u16string& value) {
-  for (std::size_t index = 0; index < value.size(); ++index) {
-    const auto codeUnit = static_cast<std::uint16_t>(value[index]);
-    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
-      if (index + 1 >= value.size()) return false;
-      const auto low = static_cast<std::uint16_t>(value[++index]);
-      if (low < 0xdc00 || low > 0xdfff) return false;
-    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
-      return false;
-    }
-  }
-  return true;
-}
-inline bool stringIsWellFormed(const Value& value) {
-  return stringIsWellFormed(requireString(value));
-}
-
-inline bool isWellFormed(const std::u16string& value) {
-  return stringIsWellFormed(value);
-}
-
-inline bool isWellFormed(const Value& value) {
-  return stringIsWellFormed(value);
-}
-
-inline std::u16string stringToWellFormed(const std::u16string& value) {
-  std::u16string result;
-  result.reserve(value.size());
-  for (std::size_t index = 0; index < value.size(); ++index) {
-    const auto codeUnit = static_cast<std::uint16_t>(value[index]);
-    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
-      if (index + 1 < value.size()) {
-        const auto low = static_cast<std::uint16_t>(value[index + 1]);
-        if (low >= 0xdc00 && low <= 0xdfff) {
-          result.push_back(value[index++]);
-          result.push_back(value[index]);
-          continue;
-        }
-      }
-      result.push_back(u'\ufffd');
-    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
-      result.push_back(u'\ufffd');
-    } else {
-      result.push_back(value[index]);
-    }
-  }
-  return result;
-}
-inline std::u16string stringToWellFormed(const Value& value) {
-  return stringToWellFormed(requireString(value));
-}
-
-inline std::u16string toWellFormed(const std::u16string& value) {
-  return stringToWellFormed(value);
-}
-
-inline std::u16string toWellFormed(const Value& value) {
-  return stringToWellFormed(value);
 }
 
 inline std::u16string substring(
@@ -9031,20 +6584,6 @@ inline std::u16string stringSlice(
     double start,
     double end = std::numeric_limits<double>::infinity()) {
   return stringSlice(requireString(value), start, end);
-}
-
-inline std::u16string slice(
-    const std::u16string& value,
-    double start,
-    double end = std::numeric_limits<double>::infinity()) {
-  return stringSlice(value, start, end);
-}
-
-inline std::u16string slice(
-    const Value& value,
-    double start,
-    double end = std::numeric_limits<double>::infinity()) {
-  return stringSlice(value, start, end);
 }
 
 inline ArrayObject<std::u16string>* split(
@@ -9739,7 +7278,6 @@ struct Math final {
   static double sqrt(double value) { return std::sqrt(value); }
   static double tan(double value) { return std::tan(value); }
   static double trunc(double value) { return std::trunc(value); }
-  static double f16round(double value) { return float16Value(float16Bits(value)); }
   static double pow(double base, double exponent) { return std::pow(base, exponent); }
   template <typename Left, typename Right>
   static double min(const Left& left, const Right& right) { return std::min(Number(left), Number(right)); }
@@ -9806,10 +7344,6 @@ class Console final {
   static void print(std::ostream& output, double value) { output << utf16ToUtf8(numberToString(value)); }
   static void print(std::ostream& output, float value) { output << utf16ToUtf8(numberToString(value)); }
 
-  static void print(std::ostream& output, Float16ArrayObject* values) {
-    output << utf16ToUtf8(toString(values));
-  }
-
   template <typename T>
   static void print(std::ostream& output, ArrayObject<T>* values) {
     output << utf16ToUtf8(toString(values));
@@ -9852,320 +7386,6 @@ class Console final {
     output << '\n';
   }
 };
-
-namespace ambient {
-
-namespace Object {
-template <typename... Arguments>
-inline auto keys(Arguments&&... arguments) {
-  return recordKeys(std::forward<Arguments>(arguments)...);
-}
-
-template <typename... Arguments>
-inline auto values(Arguments&&... arguments) {
-  return recordValues(std::forward<Arguments>(arguments)...);
-}
-
-template <typename... Arguments>
-inline auto entries(Arguments&&... arguments) {
-  return recordEntries(std::forward<Arguments>(arguments)...);
-}
-
-template <typename... Arguments>
-inline auto fromEntries(Arguments&&... arguments) {
-  return recordFromEntries(std::forward<Arguments>(arguments)...);
-}
-
-template <typename... Arguments>
-inline auto groupBy(Arguments&&... arguments) {
-  return objectGroupBy(std::forward<Arguments>(arguments)...);
-}
-
-template <typename Target, typename Key, typename Descriptor>
-inline void defineProperty(Target&& target, Key&& key, Descriptor&& descriptor) {
-  const auto descriptorValue = toValue(std::forward<Descriptor>(descriptor));
-  if (!descriptorValue.isRecord()) {
-    throw runtimeError(u"Native Object.defineProperty requires a record descriptor");
-  }
-  ::vexa::defineProperty(
-    std::forward<Target>(target),
-    propertyKey(toValue(std::forward<Key>(key))),
-    descriptorValue.record()->get(u"value"),
-    toBoolean(descriptorValue.record()->get(u"enumerable")));
-}
-}  // namespace Object
-
-namespace Map {
-template <typename... Arguments>
-inline auto groupBy(Arguments&&... arguments) {
-  return mapGroupBy(std::forward<Arguments>(arguments)...);
-}
-}  // namespace Map
-
-namespace Math {
-inline constexpr double E = ::vexa::Math::E;
-inline constexpr double LN2 = ::vexa::Math::LN2;
-inline constexpr double LN10 = ::vexa::Math::LN10;
-inline constexpr double PI = ::vexa::Math::PI;
-inline constexpr double SQRT2 = ::vexa::Math::SQRT2;
-
-template <typename... Arguments>
-inline auto abs(Arguments&&... arguments) { return ::vexa::Math::abs(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto acos(Arguments&&... arguments) { return ::vexa::Math::acos(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto asin(Arguments&&... arguments) { return ::vexa::Math::asin(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto atan(Arguments&&... arguments) { return ::vexa::Math::atan(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto atan2(Arguments&&... arguments) { return ::vexa::Math::atan2(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto ceil(Arguments&&... arguments) { return ::vexa::Math::ceil(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto cos(Arguments&&... arguments) { return ::vexa::Math::cos(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto exp(Arguments&&... arguments) { return ::vexa::Math::exp(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto floor(Arguments&&... arguments) { return ::vexa::Math::floor(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto f16round(Arguments&&... arguments) { return ::vexa::Math::f16round(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto hypot(Arguments&&... arguments) { return ::vexa::Math::hypot(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto log(Arguments&&... arguments) { return ::vexa::Math::log(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto log2(Arguments&&... arguments) { return ::vexa::Math::log2(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto log10(Arguments&&... arguments) { return ::vexa::Math::log10(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto max(Arguments&&... arguments) { return ::vexa::Math::max(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto min(Arguments&&... arguments) { return ::vexa::Math::min(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto pow(Arguments&&... arguments) { return ::vexa::Math::pow(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto random(Arguments&&... arguments) { return ::vexa::Math::random(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto round(Arguments&&... arguments) { return ::vexa::Math::round(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto sign(Arguments&&... arguments) { return ::vexa::Math::sign(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto sin(Arguments&&... arguments) { return ::vexa::Math::sin(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto sqrt(Arguments&&... arguments) { return ::vexa::Math::sqrt(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto tan(Arguments&&... arguments) { return ::vexa::Math::tan(std::forward<Arguments>(arguments)...); }
-template <typename... Arguments>
-inline auto trunc(Arguments&&... arguments) { return ::vexa::Math::trunc(std::forward<Arguments>(arguments)...); }
-}  // namespace Math
-
-namespace Number {
-template <typename... Arguments>
-inline auto isFinite(Arguments&&... arguments) {
-  return ::vexa::isFinite(::vexa::Number(std::forward<Arguments>(arguments)...));
-}
-
-template <typename... Arguments>
-inline auto isInteger(Arguments&&... arguments) {
-  return ::vexa::numberIsInteger(std::forward<Arguments>(arguments)...);
-}
-
-template <typename... Arguments>
-inline auto isNaN(Arguments&&... arguments) {
-  return ::vexa::numberIsNaN(std::forward<Arguments>(arguments)...);
-}
-}  // namespace Number
-
-namespace Array {
-template <typename... Arguments>
-inline auto isArray(Arguments&&... arguments) {
-  return ::vexa::arrayIsArray(std::forward<Arguments>(arguments)...);
-}
-
-template <typename... Arguments>
-inline auto of(Arguments&&... arguments) {
-  return Runtime::array<Value>({toValue(std::forward<Arguments>(arguments))...});
-}
-
-template <typename Source>
-inline auto from(Source&& source) {
-  auto* result = Runtime::array<Value>();
-  for (const auto value : dynamicIterationRange(toValue(std::forward<Source>(source)))) result->append(value);
-  return result;
-}
-
-template <typename Source, typename Callback, typename... Ignored>
-inline auto from(Source&& source, Callback callback, Ignored&&...) {
-  auto* result = Runtime::array<Value>();
-  std::size_t index = 0;
-  for (const auto value : dynamicIterationRange(toValue(std::forward<Source>(source)))) {
-    result->append(toValue(callback(value, static_cast<double>(index++))));
-  }
-  return result;
-}
-}  // namespace Array
-
-namespace String {
-template <typename... Arguments>
-inline auto fromCharCode(Arguments&&... arguments) {
-  std::u16string result;
-  result.reserve(sizeof...(arguments));
-  (result.push_back(static_cast<char16_t>(::vexa::Number(std::forward<Arguments>(arguments)))), ...);
-  return result;
-}
-}  // namespace String
-
-namespace Date {
-template <typename... Arguments>
-inline auto now(Arguments&&... arguments) {
-  static_assert(sizeof...(arguments) == 0, "Date.now does not take arguments");
-  return ::vexa::dateNow();
-}
-
-template <typename Argument>
-inline auto parse(Argument&& argument) {
-  return ::vexa::dateParse(toText(toValue(std::forward<Argument>(argument))));
-}
-}  // namespace Date
-
-namespace JSON {
-template <typename Source, typename... Ignored>
-inline auto parse(Source&& source, Ignored&&...) {
-  return ::vexa::jsonParse(toValue(std::forward<Source>(source)));
-}
-
-template <typename Source, typename... Ignored>
-inline auto stringify(Source&& source, Ignored&&...) {
-  return ::vexa::jsonStringify(toValue(std::forward<Source>(source)));
-}
-}  // namespace JSON
-
-namespace RegExp {
-template <typename Argument>
-inline auto escape(Argument&& argument) {
-  return ::vexa::regexEscape(toText(toValue(std::forward<Argument>(argument))));
-}
-}  // namespace RegExp
-
-namespace Intl {
-namespace DurationFormat {
-inline auto supportedLocalesOf() {
-  return ::vexa::durationFormatSupportedLocales(Value::undefined());
-}
-
-template <typename Locales, typename... Ignored>
-inline auto supportedLocalesOf(Locales&& locales, Ignored&&...) {
-  return ::vexa::durationFormatSupportedLocales(
-      toValue(std::forward<Locales>(locales)));
-}
-}  // namespace DurationFormat
-}  // namespace Intl
-
-namespace Iterator {
-template <typename Iterable>
-inline auto from(Iterable&& iterable) {
-  return ::vexa::iteratorFrom(std::forward<Iterable>(iterable));
-}
-}  // namespace Iterator
-
-namespace Atomics {
-template <typename... Arguments>
-inline auto waitAsync(Arguments&&... arguments) {
-  return ::vexa::atomicsWaitAsync(std::forward<Arguments>(arguments)...);
-}
-}  // namespace Atomics
-
-namespace Float16Array {
-template <typename... Arguments>
-inline auto of(Arguments&&... arguments) {
-  return ::vexa::float16ArrayOf({::vexa::Number(std::forward<Arguments>(arguments))...});
-}
-
-template <typename Source>
-inline auto from(Source&& source) {
-  return ::vexa::float16ArrayFrom(std::forward<Source>(source));
-}
-
-template <typename Source, typename Callback, typename... Ignored>
-inline auto from(Source&& source, Callback callback, Ignored&&...) {
-  return ::vexa::float16ArrayFrom(std::forward<Source>(source), std::move(callback));
-}
-}  // namespace Float16Array
-
-namespace performance {
-template <typename... Arguments>
-inline auto now(Arguments&&... arguments) {
-  static_assert(sizeof...(arguments) == 0, "performance.now does not take arguments");
-  return ::vexa::performanceNow();
-}
-}  // namespace performance
-
-namespace Promise {
-template <typename Result = Value>
-inline auto withResolvers() {
-  return makeManaged<PromiseResolvers<Result>>();
-}
-
-template <typename Result = Value, typename Callback, typename... Arguments>
-inline auto vexa_try(Callback callback, Arguments... arguments) {
-  return promiseTry(std::move(callback), std::move(arguments)...);
-}
-
-template <typename Result = Value>
-Task<Result> resolve() {
-  co_return defaultValue<Result>();
-}
-
-template <typename Result = Value, typename Input>
-inline auto resolve(Input&& input) {
-  return promiseResolve(std::forward<Input>(input));
-}
-
-template <typename Result = Value, typename Reason>
-inline auto reject(Reason&& reason) {
-  return rejectedTask<Result>(reason);
-}
-
-template <typename Input>
-inline auto promiseTasks(ArrayObject<Input>* values) {
-  using Result = typename ::vexa::PromiseResult<Input>::Type;
-  auto* tasks = Runtime::array<Task<Result>>();
-  for (auto value : *values) tasks->append(promiseResolve(std::move(value)));
-  return tasks;
-}
-
-template <typename Result = Value, typename Input>
-inline auto all(ArrayObject<Input>* values) {
-  using Element = typename ::vexa::PromiseResult<Input>::Type;
-  return promiseAll<Element>(promiseTasks(values));
-}
-
-template <typename Result = Value, typename Input>
-inline auto race(ArrayObject<Input>* values) {
-  using Element = typename ::vexa::PromiseResult<Input>::Type;
-  return promiseRace<Element>(promiseTasks(values));
-}
-
-template <typename Result = Value, typename Input>
-inline auto allSettled(ArrayObject<Input>* values) {
-  using Element = typename ::vexa::PromiseResult<Input>::Type;
-  return promiseThen(
-      promiseAllSettled<Element>(promiseTasks(values)),
-      [](ArrayObject<RecordObject*>* records) {
-        auto* result = Runtime::array<Value>();
-        for (auto record : *records) result->append(Value(record));
-        return result;
-      });
-}
-
-template <typename Result = Value, typename Input>
-inline auto any(ArrayObject<Input>* values) {
-  using Element = typename ::vexa::PromiseResult<Input>::Type;
-  return promiseAny<Element>(promiseTasks(values));
-}
-}  // namespace Promise
-
-}  // namespace ambient
 
 inline const Console console;
 

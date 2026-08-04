@@ -13035,9 +13035,10 @@ export class TypeChecker {
   private enumMemberNamed(enumStatement: EnumStatement, name: string): EnumMember | undefined {
     let memberMap = this.enumStatementMemberMapCache.get(enumStatement);
     if (!memberMap) {
-      memberMap = new Map(
-        enumStatement.members.map((member): [string, EnumMember] => [member.name.name, member])
-      );
+      memberMap = new Map<string, EnumMember>();
+      for (const member of enumStatement.members) {
+        memberMap.set(member.name.name, member);
+      }
       this.enumStatementMemberMapCache.set(enumStatement, memberMap);
     }
     return memberMap.get(name);
@@ -14892,14 +14893,15 @@ export class TypeChecker {
       return lastSegment;
     }
     const qualifiedCandidates = new Set<string>();
-    for (const registry of [
-      this.classStatementsByName,
-      this.interfaceStatementsByName,
-      this.enumStatementsByName,
-      this.typeAliasStatementsByName,
-      this.namespaceStatementsByName
-    ]) {
-      for (const candidate of registry.keys()) {
+    const registryKeyGroups = [
+      [...this.classStatementsByName.keys()],
+      [...this.interfaceStatementsByName.keys()],
+      [...this.enumStatementsByName.keys()],
+      [...this.typeAliasStatementsByName.keys()],
+      [...this.namespaceStatementsByName.keys()]
+    ];
+    for (const registryKeys of registryKeyGroups) {
+      for (const candidate of registryKeys) {
         if (candidate.endsWith(`.${lastSegment}`)) {
           qualifiedCandidates.add(candidate);
         }

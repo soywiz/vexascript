@@ -17,7 +17,6 @@ import type { ModuleGraphOptions } from "./moduleGraphModel";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 import { cppBindingMetadata } from "./cppAnnotations";
 import { inlineTextModuleImports } from "./textModuleImports";
-import { getEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations.shared";
 
 export interface NativeModuleGraphResult extends TranspileResult {
   watchedFiles: string[];
@@ -651,10 +650,7 @@ export async function compileNativeModuleGraph(
     });
   };
   const compilationArtifacts = compileParsedSource({ ...entryParsed, ast: mergedProgram }, {
-    ambientDeclarations: [
-      ...getEcmaScriptRuntimeProgram().body,
-      ...(options.ambientDeclarations ?? [])
-    ],
+    ambientDeclarations: options.ambientDeclarations ?? [],
     checkTypes: options.typeCheck ?? true,
     inferTypes: options.inferTypes ?? true,
     profile: reportMergedAnalysis,

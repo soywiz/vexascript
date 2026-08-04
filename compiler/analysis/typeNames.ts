@@ -417,7 +417,7 @@ export function splitTopLevelTypeText(typeName: string, separator: "|" | "&" | "
   if (cached) return [...cached];
   const result = cacheTopLevelTypeParts(
     key,
-    splitTopLevelDelimitedTypeText(typeName, new Set([separator]))
+    splitTopLevelDelimitedTypeText(typeName, new Set<string>([separator]))
   );
   return [...result];
 }

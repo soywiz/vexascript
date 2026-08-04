@@ -87,7 +87,7 @@ async function runCheckedCommand(
 async function compareOutputs(firstPath: string, secondPath: string, label: string): Promise<string> {
   const [first, second] = await Promise.all([readFile(firstPath), readFile(secondPath)]);
   if (!first.equals(second)) {
-    throw new Error(`${label} output differs between the source and self-hosted compiler`);
+    throw new Error(`${label} outputs are not byte-identical`);
   }
   return createHash("sha256").update(first).digest("hex");
 }
@@ -206,18 +206,21 @@ async function main(): Promise<void> {
       if (!bootstrapReady) throw new Error("blocked by compiler bootstrap");
       const firstBuildDirectory = join(outputDirectory, "cpp-build-1");
       const secondBuildDirectory = join(outputDirectory, "cpp-build-2");
+      const thirdBuildDirectory = join(outputDirectory, "cpp-build-3");
       const firstExecutable = join(outputDirectory, "vexa-self-host-1");
       const secondExecutable = join(outputDirectory, "vexa-self-host-2");
-      const firstCpp = join(firstBuildDirectory, "main.cpp");
+      const thirdExecutable = join(outputDirectory, "vexa-self-host-3");
       const secondCpp = join(secondBuildDirectory, "main.cpp");
+      const thirdCpp = join(thirdBuildDirectory, "main.cpp");
       await runCheckedCommand("node", compiledCliCommand(compiledCli, tsxLoader, textModuleLoader, ["cpp", "link", cppEntryFile, "--out", firstExecutable, "--build-dir", firstBuildDirectory, "-O0"]), tscDirectory);
       await runCheckedCommand(firstExecutable, ["cpp", "link", cppEntryFile, "--out", secondExecutable, "--build-dir", secondBuildDirectory, "-O0"], rootDirectory);
-      const hash = await compareOutputs(firstCpp, secondCpp, "C++ self-host");
+      await runCheckedCommand(secondExecutable, ["cpp", "link", cppEntryFile, "--out", thirdExecutable, "--build-dir", thirdBuildDirectory, "-O0"], rootDirectory);
+      const hash = await compareOutputs(secondCpp, thirdCpp, "C++ native self-host");
       stages.push({
         name: "VexaScript C++",
         elapsedMilliseconds: performance.now() - cppStarted,
         status: "passed",
-        detail: `two compile/link generations are byte-identical (${hash})`,
+        detail: `two consecutive native generations are byte-identical (${hash})`,
       });
     } catch (error) {
       stages.push({

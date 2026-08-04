@@ -381,9 +381,11 @@ export class Analysis {
   }
 
   getResolvedCallTypes(): ReadonlyMap<Node, AnalysisType> {
-    return new Map(
-      this.selectedCallResolutions.map((resolution) => [resolution.call, resolution.resolvedOverload])
-    );
+    const result = new Map<Node, AnalysisType>();
+    for (const resolution of this.selectedCallResolutions) {
+      result.set(resolution.call, resolution.resolvedOverload);
+    }
+    return result;
   }
 
   /** Resolved identifier bindings for backend-safe symbol rewriting. */

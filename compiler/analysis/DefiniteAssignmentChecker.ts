@@ -23,6 +23,7 @@ import {
   SwitchStatement,
   TryStatement,
   UpdateExpression,
+  VarDeclarator,
   VarStatement,
   WhileStatement,
   WithStatement,
@@ -187,19 +188,29 @@ export class DefiniteAssignmentChecker {
   }
 
   private visitVarStatement(statement: VarStatement, scope: Scope, state: AssignmentState): void {
-    const declarations = statement.declarations?.length ? statement.declarations : [statement];
-    for (const declaration of declarations) {
-      const initializer = declaration instanceof VarStatement ? declaration.initializer : declaration.initializer;
-      const delegate = declaration instanceof VarStatement ? declaration.delegate : declaration.delegate;
-      const identifiers = bindingIdentifiers(declaration.name);
-      if (statement.declarationKind === "var" && statement.declared !== true && statement.uncheckedInitialization !== true) {
-        for (const identifier of identifiers) this.register(identifier, statement, scope, state);
+    if (statement.declarations?.length) {
+      for (const declaration of statement.declarations) {
+        this.visitVarDeclaration(statement, declaration, scope, state);
       }
-      if (delegate) this.visitExpression(delegate, scope, state);
-      if (initializer) this.visitExpression(initializer, scope, state);
-      if (initializer || delegate) {
-        for (const identifier of identifiers) this.markIdentifierAssigned(identifier, scope, state);
-      }
+      return;
+    }
+    this.visitVarDeclaration(statement, statement, scope, state);
+  }
+
+  private visitVarDeclaration(
+    statement: VarStatement,
+    declaration: VarStatement | VarDeclarator,
+    scope: Scope,
+    state: AssignmentState
+  ): void {
+    const identifiers = bindingIdentifiers(declaration.name);
+    if (statement.declarationKind === "var" && statement.declared !== true && statement.uncheckedInitialization !== true) {
+      for (const identifier of identifiers) this.register(identifier, statement, scope, state);
+    }
+    if (declaration.delegate) this.visitExpression(declaration.delegate, scope, state);
+    if (declaration.initializer) this.visitExpression(declaration.initializer, scope, state);
+    if (declaration.initializer || declaration.delegate) {
+      for (const identifier of identifiers) this.markIdentifierAssigned(identifier, scope, state);
     }
   }
 

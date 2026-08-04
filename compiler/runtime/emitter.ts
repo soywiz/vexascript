@@ -522,7 +522,7 @@ function emitOperatorMethodCall(method: RuntimeOperatorInfo, leftText: string, r
     : `${leftText}.${method.emittedName}(${rightText})`;
 }
 
-const DERIVABLE_COMPARISON_OPERATORS = new Set<BinaryExpression["operator"]>([
+const DERIVABLE_COMPARISON_OPERATORS = new Set<string>([
   "<", "<=", ">", ">=", "==", "!="
 ]);
 
@@ -2318,15 +2318,16 @@ function emitClassLike(classLike: ClassStatement | ClassExpression, resolvedName
       ? `constructor(...args) {\nsuper(...args);\n${initStatements()}\n}`
       : `constructor() {\n${initStatements()}\n}`
     : null;
-  const memberLines = [
-    ...(syntheticConstructor ? [syntheticConstructor] : []),
-    ...(defaultInitConstructor ? [defaultInitConstructor] : []),
+  const memberLines: string[] = [];
+  if (syntheticConstructor) memberLines.push(syntheticConstructor);
+  if (defaultInitConstructor) memberLines.push(defaultInitConstructor);
+  memberLines.push(
     ...members.map((member) => emitClassMember(
       member,
       member instanceof ClassMethodMember && member.name.name === "constructor" ? initBlocks : []
     )),
     ...emitClassDelegateMembers(classLike as ClassStatement, members)
-  ];
+  );
   const extendsClause = classLike.extendsType &&
     (activeState.sourceLanguage === "typescript" ||
       !activeState.interfaceNames.has(classLike.extendsType.name) ||
