@@ -351,6 +351,32 @@ export function nativeSyntaxCompiler(platform: NodeJS.Platform = process.platfor
   return platform === "linux" ? "clang++" : "g++";
 }
 
+interface PreparedNativeBuildDependencies {
+  root: string;
+  gcRoot: string;
+  oilpanLibraryPath: string;
+  mimallocLibraryPath?: string;
+}
+
+async function preparedNativeBuildDependencies(): Promise<PreparedNativeBuildDependencies> {
+  const root = nativeRoot();
+  const sanitizers = process.env["VEXA_NATIVE_SANITIZERS"] === "1";
+  const [{ gcRoot, libraryPath: oilpanLibraryPath }, mimallocLibraryPath] = await Promise.all([
+    ensureOilpanLibrary(root),
+    sanitizers ? Promise.resolve(undefined) : ensureMimallocLibrary(root, process.platform),
+  ]);
+  return {
+    root,
+    gcRoot,
+    oilpanLibraryPath,
+    ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
+  };
+}
+
+export async function prepareNativeBuildDependencies(): Promise<void> {
+  await preparedNativeBuildDependencies();
+}
+
 export async function validateNativeCppSyntax(
   cppPath: string,
   options: NativeCompilerOptions = {}
@@ -369,15 +395,11 @@ export async function compileNativeExecutable(
   extraFlags: string[] = [],
   optimization?: NativeOptimization
 ): Promise<NativeBuildResult> {
-  const root = nativeRoot();
   const sanitizers = process.env["VEXA_NATIVE_SANITIZERS"] === "1";
-  const [{ gcRoot, libraryPath }, mimallocLibraryPath] = await Promise.all([
-    ensureOilpanLibrary(root),
-    sanitizers ? Promise.resolve(undefined) : ensureMimallocLibrary(root, process.platform),
-  ]);
+  const { root, gcRoot, oilpanLibraryPath, mimallocLibraryPath } = await preparedNativeBuildDependencies();
   await mkdir(dirname(executablePath), { recursive: true });
 
-  const args = nativeCompilerArguments(cppPath, executablePath, root, gcRoot, libraryPath, process.platform, {
+  const args = nativeCompilerArguments(cppPath, executablePath, root, gcRoot, oilpanLibraryPath, process.platform, {
     sanitizers,
     debug: process.env["VEXA_NATIVE_DEBUG"] === "1",
     gcStress: process.env["VEXA_NATIVE_GC_STRESS"] === "1",
@@ -388,7 +410,7 @@ export async function compileNativeExecutable(
   const result = await runCommandCapture(nativeCompiler(process.platform), args);
   if (result.code === 0) return {
     executablePath,
-    oilpanLibraryPath: libraryPath,
+    oilpanLibraryPath,
     ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
   };
 
@@ -397,7 +419,7 @@ export async function compileNativeExecutable(
     const fallback = await runCommandCapture("clang++", args);
     if (fallback.code === 0) return {
       executablePath,
-      oilpanLibraryPath: libraryPath,
+      oilpanLibraryPath,
       ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
     };
     throw new Error(fallback.stderr || fallback.stdout || "clang++ failed after g++ reported an internal compiler error");

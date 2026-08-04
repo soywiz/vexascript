@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { resolve } from "../compiler/utils/path";
 import { runCommandCapture, type CommandOutput } from "../cli/io";
-import { compileNativeExecutable } from "../cli/nativeBuild";
+import { compileNativeExecutable, prepareNativeBuildDependencies } from "../cli/nativeBuild";
 
 export type SelfHostStageStatus = "passed" | "failed" | "blocked";
 
@@ -19,9 +19,14 @@ export interface SelfHostCiTiming {
   host: string;
   generationMilliseconds: number | null;
   repeatGenerationMilliseconds: number | null;
-  linkMilliseconds: number | null;
-  repeatLinkMilliseconds: number | null;
+  nativeCompileLinkMilliseconds: number | null;
+  repeatNativeCompileLinkMilliseconds: number | null;
   result: string;
+}
+
+export interface CppSelfHostHashes {
+  bootstrapHash: string;
+  nativeHash: string;
 }
 
 interface TimedCommand extends CommandOutput {
@@ -55,8 +60,8 @@ export function renderSelfHostSummary(
     timing.host,
     timing.generationMilliseconds === null ? "—" : formatMilliseconds(timing.generationMilliseconds),
     timing.repeatGenerationMilliseconds === null ? "—" : formatMilliseconds(timing.repeatGenerationMilliseconds),
-    timing.linkMilliseconds === null ? "—" : formatMilliseconds(timing.linkMilliseconds),
-    timing.repeatLinkMilliseconds === null ? "—" : formatMilliseconds(timing.repeatLinkMilliseconds),
+    timing.nativeCompileLinkMilliseconds === null ? "—" : formatMilliseconds(timing.nativeCompileLinkMilliseconds),
+    timing.repeatNativeCompileLinkMilliseconds === null ? "—" : formatMilliseconds(timing.repeatNativeCompileLinkMilliseconds),
     timing.result,
   ]);
 
@@ -65,9 +70,9 @@ export function renderSelfHostSummary(
     "",
     `Status: **${status}** on \`${runner}\`.`,
     "",
-    "### C++ generation and link timing",
+    "### C++ generation and native compile + link timing",
     "",
-    "| Host | Generation 1 | Generation 2 | Link 1 | Link 2 | Result |",
+    "| Host | Generation 1 | Generation 2 | Native compile + link 1 | Native compile + link 2 | Result |",
     "| --- | ---: | ---: | ---: | ---: | --- |",
     ...timingRows.map((row) => `| ${row.map(summaryCell).join(" | ")} |`),
     "",
@@ -119,6 +124,43 @@ async function compareOutputs(firstPath: string, secondPath: string, label: stri
   return createHash("sha256").update(first).digest("hex");
 }
 
+function contentHash(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+export function verifyCppSelfHostContents(
+  tscOutput: string,
+  javascriptOutput: string,
+  firstNativeOutput: string,
+  secondNativeOutput: string,
+): CppSelfHostHashes {
+  if (tscOutput !== javascriptOutput) {
+    throw new Error("TypeScript and JavaScript host C++ outputs are not byte-identical");
+  }
+  if (firstNativeOutput !== secondNativeOutput) {
+    throw new Error("consecutive native C++ outputs are not byte-identical");
+  }
+  return {
+    bootstrapHash: contentHash(tscOutput),
+    nativeHash: contentHash(firstNativeOutput),
+  };
+}
+
+async function verifyCppSelfHostOutputs(
+  tscPath: string,
+  javascriptPath: string,
+  firstNativePath: string,
+  secondNativePath: string,
+): Promise<CppSelfHostHashes> {
+  const outputs = await Promise.all([
+    readFile(tscPath, "utf8"),
+    readFile(javascriptPath, "utf8"),
+    readFile(firstNativePath, "utf8"),
+    readFile(secondNativePath, "utf8"),
+  ]);
+  return verifyCppSelfHostContents(outputs[0], outputs[1], outputs[2], outputs[3]);
+}
+
 async function timedNativeLink(cppPath: string, executablePath: string): Promise<number> {
   const started = performance.now();
   await compileNativeExecutable(cppPath, executablePath, [], "-O0");
@@ -165,11 +207,13 @@ async function main(): Promise<void> {
   const textModuleLoader = resolve(rootDirectory, "scripts", "registerTextModuleLoader.cjs");
   const stages: SelfHostCiStage[] = [];
   const timings: SelfHostCiTiming[] = [
-    { host: "tsc", generationMilliseconds: null, repeatGenerationMilliseconds: null, linkMilliseconds: null, repeatLinkMilliseconds: null, result: "not run" },
-    { host: "VexaScript JS", generationMilliseconds: null, repeatGenerationMilliseconds: null, linkMilliseconds: null, repeatLinkMilliseconds: null, result: "not run" },
-    { host: "VexaScript C++", generationMilliseconds: null, repeatGenerationMilliseconds: null, linkMilliseconds: null, repeatLinkMilliseconds: null, result: "not run" },
+    { host: "tsc", generationMilliseconds: null, repeatGenerationMilliseconds: null, nativeCompileLinkMilliseconds: null, repeatNativeCompileLinkMilliseconds: null, result: "not run" },
+    { host: "VexaScript JS", generationMilliseconds: null, repeatGenerationMilliseconds: null, nativeCompileLinkMilliseconds: null, repeatNativeCompileLinkMilliseconds: null, result: "not run" },
+    { host: "VexaScript C++", generationMilliseconds: null, repeatGenerationMilliseconds: null, nativeCompileLinkMilliseconds: null, repeatNativeCompileLinkMilliseconds: null, result: "not run" },
   ];
   let bootstrapReady = false;
+  let javascriptReady = false;
+  let nativeDependenciesReady = false;
 
   try {
     const tsc = await timedCommand("pnpm", [
@@ -233,6 +277,7 @@ async function main(): Promise<void> {
         status: "passed",
         detail: `two generations are byte-identical (${hash})`,
       });
+      javascriptReady = true;
     } catch (error) {
       stages.push({
         name: "VexaScript JS",
@@ -244,9 +289,31 @@ async function main(): Promise<void> {
       timings[1]!.result = "failed";
     }
 
+    const nativeSetupStarted = performance.now();
+    try {
+      await prepareNativeBuildDependencies();
+      nativeDependenciesReady = true;
+      stages.push({
+        name: "Native dependencies",
+        elapsedMilliseconds: performance.now() - nativeSetupStarted,
+        status: "passed",
+        detail: "Oilpan and mimalloc prepared outside measured native compile + link intervals",
+      });
+    } catch (error) {
+      stages.push({
+        name: "Native dependencies",
+        elapsedMilliseconds: performance.now() - nativeSetupStarted,
+        status: "failed",
+        detail: detailForError(error),
+      });
+      console.error(`Native dependency setup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
     const cppStarted = performance.now();
     try {
       if (!bootstrapReady) throw new Error("blocked by compiler bootstrap");
+      if (!javascriptReady) throw new Error("blocked by JavaScript self-host");
+      if (!nativeDependenciesReady) throw new Error("blocked by native dependency setup");
       const tscBuildDirectory = join(outputDirectory, "cpp-build-tsc");
       const jsBuildDirectory = join(outputDirectory, "cpp-build-js");
       const cppBuildDirectory = join(outputDirectory, "cpp-build-cpp");
@@ -263,40 +330,38 @@ async function main(): Promise<void> {
       const tscGenerationStarted = performance.now();
       await runCheckedCommand("node", compiledCliCommand(compiledCli, tsxLoader, textModuleLoader, ["cpp", "build", cppEntryFile, "--out", tscCpp]), tscDirectory);
       timings[0]!.generationMilliseconds = performance.now() - tscGenerationStarted;
-      timings[0]!.linkMilliseconds = await timedNativeLink(tscCpp, tscExecutable);
+      timings[0]!.nativeCompileLinkMilliseconds = await timedNativeLink(tscCpp, tscExecutable);
 
       const jsGenerationStarted = performance.now();
       await runCheckedCommand("node", [join(outputDirectory, "vexa-self-host-2.js"), "cpp", "build", cppEntryFile, "--out", jsCpp], outputDirectory);
       timings[1]!.generationMilliseconds = performance.now() - jsGenerationStarted;
-      timings[1]!.linkMilliseconds = await timedNativeLink(jsCpp, jsExecutable);
+      timings[1]!.nativeCompileLinkMilliseconds = await timedNativeLink(jsCpp, jsExecutable);
 
       const cppGenerationStarted = performance.now();
-      await runCheckedCommand(tscExecutable, ["cpp", "build", cppEntryFile, "--out", cppCpp], rootDirectory);
+      await runCheckedCommand(jsExecutable, ["cpp", "build", cppEntryFile, "--out", cppCpp], rootDirectory);
       timings[2]!.generationMilliseconds = performance.now() - cppGenerationStarted;
-      timings[2]!.linkMilliseconds = await timedNativeLink(cppCpp, cppExecutable);
+      timings[2]!.nativeCompileLinkMilliseconds = await timedNativeLink(cppCpp, cppExecutable);
 
       const cppRepeatGenerationStarted = performance.now();
       await runCheckedCommand(cppExecutable, ["cpp", "build", cppEntryFile, "--out", cppRepeat], rootDirectory);
       timings[2]!.repeatGenerationMilliseconds = performance.now() - cppRepeatGenerationStarted;
-      timings[2]!.repeatLinkMilliseconds = await timedNativeLink(cppRepeat, cppRepeatExecutable);
+      timings[2]!.repeatNativeCompileLinkMilliseconds = await timedNativeLink(cppRepeat, cppRepeatExecutable);
 
-      const hash = await compareOutputs(tscCpp, jsCpp, "C++ host generation");
-      await compareOutputs(tscCpp, cppCpp, "C++ native self-host generation");
-      await compareOutputs(cppCpp, cppRepeat, "C++ repeated self-host generation");
-      timings[0]!.result = "byte-identical";
-      timings[1]!.result = "byte-identical";
-      timings[2]!.result = `byte-identical (${hash})`;
+      const hashes = await verifyCppSelfHostOutputs(tscCpp, jsCpp, cppCpp, cppRepeat);
+      timings[0]!.result = `matches VexaScript JS (${hashes.bootstrapHash})`;
+      timings[1]!.result = `matches tsc (${hashes.bootstrapHash})`;
+      timings[2]!.result = `native fixed point (${hashes.nativeHash})`;
       stages.push({
         name: "VexaScript C++",
         elapsedMilliseconds: performance.now() - cppStarted,
         status: "passed",
-        detail: `tsc, JS, and two native generations are byte-identical (${hash})`,
+        detail: `tsc and JS bootstrap outputs match (${hashes.bootstrapHash}); consecutive native outputs match (${hashes.nativeHash})`,
       });
     } catch (error) {
       stages.push({
         name: "VexaScript C++",
         elapsedMilliseconds: performance.now() - cppStarted,
-        status: bootstrapReady ? "failed" : "blocked",
+        status: bootstrapReady && javascriptReady && nativeDependenciesReady ? "failed" : "blocked",
         detail: detailForError(error),
       });
       for (const timing of timings) {

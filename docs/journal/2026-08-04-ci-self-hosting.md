@@ -20,10 +20,20 @@ comparison reports a SHA-256 digest.
 
 The timing table is written to `GITHUB_STEP_SUMMARY`, so it appears in the
 workflow-run summary instead of being mixed into the normal command output.
-Generation and native C++ compile/link times are separate columns; the table
+Generation and native C++ compile/link times are separate columns; native
+dependency preparation is measured as its own stage so the first cold Oilpan
+and mimalloc build is not charged to the first compile/link interval. The table
 also keeps the second native generation/link as a fixed-point check. The driver
 still publishes the table when a stage fails; the job exits non-zero after all
 independent stages have had a chance to report their state.
+
+The bootstrap output and the native fixed-point output are deliberately two
+separate equality contracts. The TypeScript and JavaScript hosts must emit the
+same bootstrap C++, while two consecutive native hosts must emit the same
+native C++. Comparing the bootstrap C++ directly with the native C++ was an
+overly strict regression introduced while splitting timings: the native host
+has different type precision, so those representations can differ even when
+the native compiler has reached a stable fixed point.
 
 ## Recovery after the ambient-runtime experiment
 
