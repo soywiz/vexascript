@@ -18,8 +18,10 @@ import { collectDeprecatedSemanticTokenModifiers } from "compiler/lsp/deprecated
 import {
   createDocumentHighlights,
   createFoldingRanges,
+  createOnTypeFormattingEdits,
   createSelectionRanges,
 } from "compiler/lsp/documentFeatures";
+import { createFullDocumentFormatEdit, createRangeFormatEdit } from "compiler/lsp/formatting";
 import { collectAllImportedDeclarations } from "compiler/lsp/importedDeclarations";
 import { createInlayHints } from "compiler/lsp/inlayHints";
 import {
@@ -70,6 +72,7 @@ type WorkerRequest = {
 type WorkerSnapshot = {
   uri: string;
   path: string;
+  version: number;
   source: string;
   entries: WorkspaceEntry[];
   importMappings?: Record<string, string>;
@@ -353,10 +356,25 @@ function toLspRange(range: any) {
 }
 
 async function runFeature(request: WorkerRequest): Promise<unknown> {
+  const params = request.params ?? {};
+  switch (request.feature) {
+    case "formatDocument":
+      return createFullDocumentFormatEdit(request.snapshot.source);
+    case "formatRange":
+      return createRangeFormatEdit(request.snapshot.source, toLspRange(params.range));
+    case "formatOnType": {
+      const position = params.position as { lineNumber: number; column: number };
+      return createOnTypeFormattingEdits(
+        request.snapshot.source,
+        { line: position.lineNumber - 1, character: position.column - 1 },
+        params.character as string
+      );
+    }
+  }
+
   await ensureEmbeddedRuntimeReady();
   const context = createWorkerContext(request.snapshot);
   const session = await createSession(request.snapshot, context);
-  const params = request.params ?? {};
 
   switch (request.feature) {
     case "diagnostics":

@@ -45,7 +45,12 @@ function findImplicitReceiverIdentifierAtPosition(
       range,
       build: () => {
         const symbol = symbolAtIdentifier(analysis, identifier);
-        if (!symbol || symbol.implicitReceiver !== true || symbol.implicitReceiverClassName) {
+        if (
+          !symbol ||
+          symbol.node === identifier ||
+          symbol.implicitReceiver !== true ||
+          symbol.implicitReceiverClassName
+        ) {
           return null;
         }
         return { identifier, symbol };

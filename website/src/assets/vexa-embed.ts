@@ -2,43 +2,12 @@
 import "monaco-editor/min/vs/editor/editor.main.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import * as monaco from "monaco-editor";
-import { createAnalysisSession } from "compiler/lsp/analysisSession";
 import { normalizeWorkspacePath as normalizePath, workspacePathBasename as basename, workspacePathDirname as dirname } from "./monaco/workspacePaths";
-import { collectTopLevelDeclarationsFromAst } from "compiler/analysis/projectIndex";
 import {
   ensureEcmaScriptRuntimeProgram,
   ensureVexaScriptRuntimeProgram,
 } from "compiler/runtime/ecmascriptDeclarations";
-import { collectCodeActions } from "compiler/lsp/codeActionsAggregate";
-import {
-  createCompletionItemsForPosition,
-  createKeywordOnlyCompletionItems,
-} from "compiler/lsp/completion";
-import { createAutoAwaitDecorations } from "compiler/lsp/autoAwaitDecorations";
-import {
-  createDocumentHighlights,
-  createFoldingRanges,
-  createOnTypeFormattingEdits,
-  createSelectionRanges,
-} from "compiler/lsp/documentFeatures";
-import { collectAllImportedDeclarations } from "compiler/lsp/importedDeclarations";
-import { createClassResolverCache, type ClassResolverCache } from "compiler/lsp/classResolver";
-import { createFullDocumentFormatEdit, createRangeFormatEdit } from "compiler/lsp/formatting";
-import { createInlayHints } from "compiler/lsp/inlayHints";
-import {
-  createPrepareRename,
-  createHover,
-} from "compiler/lsp/navigation";
-import {
-  resolveDefinitionWithLocalFallback,
-  resolveReferencesAcrossFiles,
-  resolveMemberHoverAcrossFiles,
-  resolveRenameAcrossFiles,
-} from "compiler/lsp/crossFileNavigation";
-import { collectDeprecatedSemanticTokenModifiers } from "compiler/lsp/deprecatedSemanticTokens";
-import { createSemanticTokens, VEXA_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
-import { createSignatureHelp } from "compiler/lsp/signatureHelp";
-import { createDocumentSymbols } from "compiler/lsp/symbols";
+import { VEXA_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
 import { setVfs } from "compiler/vfs";
 import {
   createPortableLanguageConfiguration,
@@ -55,15 +24,13 @@ import {
 } from "../generated/embed-asset-manifest";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
-import type { AmbientModuleLocation } from "compiler/lsp/ambientTypesLoader";
-import type { SymbolExport } from "compiler/lsp/importFixes";
 import { bundleModuleGraph } from "compiler/runtime/moduleGraph";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
 import { buildPreviewDocument } from "./previewDocument";
 import { completionInsertText, markerToDiagnostic } from "./monaco/providerConversions";
+import { LanguageWorkerClient, type LanguageWorkerResult } from "./monaco/languageWorkerClient";
 import { shouldKeepValueSuggestions, shouldTriggerValueSuggestions } from "./monaco/suggestTrigger";
 import { WorkspaceVfs } from "./monaco/workspaceVfs";
-import { createCachedWorkspaceSessionResolver, type WorkspaceGlobalDeclarations } from "./monaco/workspaceSessions";
 import {
   createFileInWorkspace,
   createFileEntry,
@@ -77,7 +44,6 @@ import {
   type WorkspaceFile,
 } from "./monaco/workspace";
 import { createVexaScriptMonacoTheme, VEXA_MONACO_THEME_NAME } from "./monaco/theme";
-import { collectWorkspaceDiagnostics } from "./monaco/workspaceDiagnostics";
 import {
   createWorkbenchBrowserHistorySnapshot,
   getWorkbenchBrowserHistoryEntryUri,
@@ -148,15 +114,10 @@ interface WorkbenchEditorOptions extends WorkspaceEditorOptions {
 }
 
 interface EmbedWorkspaceContext {
-  vfs: WorkspaceVfs;
   importMappings: Readonly<Record<string, string>>;
   globalSymbols?: { paths: string[]; emit?: "globalThis" | "assume" };
   getEntries(): WorkspaceEntry[];
   getWorkspaceFileSource(uri: string): string | null;
-  getGlobalDeclarations(): Promise<WorkspaceGlobalDeclarations>;
-  getSessionForFilePath(filePath: string): ReturnType<typeof createAnalysisSession> | null | Promise<ReturnType<typeof createAnalysisSession> | null>;
-  getExportedSymbols(): Promise<SymbolExport[]>;
-  getRevision(): number;
 }
 
 interface StoredWorkbenchWorkspaceSnapshot {
@@ -178,12 +139,6 @@ let bundledRuntimeLoadPromise: Promise<{ runtime: string; vexa: string; dom: str
 let embeddedRuntimeReady = false;
 let embeddedRuntimeReadyPromise: Promise<void> | null = null;
 const embedWorkspaceContextsByUri = new Map<string, EmbedWorkspaceContext>();
-const modelSessionCache = new Map<string, {
-  versionId: number;
-  workspaceRevision: number;
-  session: Promise<ReturnType<typeof createAnalysisSession>>;
-  classResolverCache: ClassResolverCache;
-}>();
 const DEFAULT_WORKBENCH_STORAGE_KEY = "vexa.embed.workbench.v1";
 const DEFAULT_WORKBENCH_SESSION_STORAGE_KEY = "vexa.embed.workbench.session.v1";
 
@@ -195,7 +150,6 @@ const autoAwaitGlyphRefreshVersions = new WeakMap<
   monaco.editor.ICodeEditor,
   number
 >();
-const pendingRuntimeReadyRefreshes = new Map<string, Promise<void>>();
 
 const completionItemKind = monaco.languages.CompletionItemKind;
 const lspCompletionItemKinds: Record<number, monaco.languages.CompletionItemKind> = {
@@ -252,85 +206,30 @@ self.MonacoEnvironment = {
 type VexaLanguageWorkerSnapshot = {
   uri: string;
   path: string;
+  version: number;
   source: string;
   entries: WorkspaceEntry[];
   importMappings?: Record<string, string>;
   globalSymbols?: { paths: string[]; emit?: "globalThis" | "assume" };
 };
 
-type VexaLanguageWorkerResponse = {
-  id: number;
-  result?: unknown;
-  error?: string;
-};
-
-let vexaLanguageWorker: Worker | null = null;
-let vexaLanguageWorkerRequestId = 0;
-let vexaLanguageWorkerDisabled = false;
 let vexaLanguageWorkerWarned = false;
-const vexaLanguageWorkerPending = new Map<number, {
-  resolve(value: unknown): void;
-  reject(error: Error): void;
-}>();
+const vexaLanguageWorkerClient = new LanguageWorkerClient(
+  () => new Worker(vexaLanguageWorkerUrl, { type: "module" }),
+  () => {
+    if (vexaLanguageWorkerWarned) {
+      return;
+    }
+    console.warn("[vexa-embed] VexaScript language worker unavailable; language features are disabled to keep the UI thread responsive.");
+    vexaLanguageWorkerWarned = true;
+  }
+);
 
 function uriToWorkspacePath(uri: string): string {
   try {
     return normalizePath(decodeURIComponent(new URL(uri).pathname));
   } catch {
     return normalizePath(uri.replace(/^file:\/\//u, ""));
-  }
-}
-
-function isVexaLanguageWorkerEnabled(): boolean {
-  try {
-    return window.localStorage.getItem("vexa.languageWorker") !== "0";
-  } catch {
-    return true;
-  }
-}
-
-function ensureVexaLanguageWorker(): Worker | null {
-  if (vexaLanguageWorkerDisabled || !isVexaLanguageWorkerEnabled()) {
-    return null;
-  }
-  if (vexaLanguageWorker) {
-    return vexaLanguageWorker;
-  }
-  try {
-    vexaLanguageWorker = new Worker(vexaLanguageWorkerUrl, { type: "module" });
-    vexaLanguageWorker.addEventListener("message", (event: MessageEvent<VexaLanguageWorkerResponse>) => {
-      const pending = vexaLanguageWorkerPending.get(event.data.id);
-      if (!pending) {
-        return;
-      }
-      vexaLanguageWorkerPending.delete(event.data.id);
-      if (event.data.error) {
-        pending.reject(new Error(event.data.error));
-        return;
-      }
-      pending.resolve(event.data.result);
-    });
-    vexaLanguageWorker.addEventListener("error", () => {
-      disableVexaLanguageWorker();
-    });
-    return vexaLanguageWorker;
-  } catch {
-    disableVexaLanguageWorker();
-    return null;
-  }
-}
-
-function disableVexaLanguageWorker(): void {
-  vexaLanguageWorkerDisabled = true;
-  vexaLanguageWorker?.terminate();
-  vexaLanguageWorker = null;
-  for (const pending of vexaLanguageWorkerPending.values()) {
-    pending.reject(new Error("VexaScript language worker is unavailable."));
-  }
-  vexaLanguageWorkerPending.clear();
-  if (!vexaLanguageWorkerWarned) {
-    console.warn("[vexa-embed] VexaScript language worker unavailable; falling back to main-thread providers.");
-    vexaLanguageWorkerWarned = true;
   }
 }
 
@@ -366,6 +265,7 @@ function createLanguageWorkerSnapshot(model: monaco.editor.ITextModel): VexaLang
   return {
     uri: model.uri.toString(),
     path,
+    version: model.getVersionId(),
     source: model.getValue(),
     entries: workerEntriesForModel(model, workspaceContext),
     ...(workspaceContext ? { importMappings: { ...workspaceContext.importMappings } } : {}),
@@ -377,20 +277,9 @@ async function requestVexaLanguageWorker<T>(
   model: monaco.editor.ITextModel,
   feature: string,
   params: Record<string, unknown> = {}
-): Promise<T | null> {
-  const worker = ensureVexaLanguageWorker();
-  if (!worker) {
-    return null;
-  }
-  const id = ++vexaLanguageWorkerRequestId;
+): Promise<LanguageWorkerResult<T>> {
   const snapshot = createLanguageWorkerSnapshot(model);
-  return new Promise<T | null>((resolve) => {
-    vexaLanguageWorkerPending.set(id, {
-      resolve: (value) => resolve(value as T),
-      reject: () => resolve(null),
-    });
-    worker.postMessage({ id, feature, snapshot, params });
-  });
+  return vexaLanguageWorkerClient.request<T>(feature, snapshot, params);
 }
 
 function isRuntimeDeclarationPath(path: string): boolean {
@@ -463,9 +352,6 @@ function ensureEmbeddedRuntimeReady(): Promise<void> {
       ensureVexaScriptRuntimeProgram(),
       getDomAmbientDeclarations(),
     ]).then(() => {
-      // Monaco providers can ask for sessions before the bundled runtimes finish
-      // loading; drop those stale pre-runtime sessions once initialization completes.
-      modelSessionCache.clear();
       embeddedRuntimeReady = true;
     });
   }
@@ -570,58 +456,6 @@ function registerVexaScript(): void {
   });
   monaco.languages.setMonarchTokensProvider("vexa", toMonacoMonarchLanguage(createPortableMonarchLanguage()) as monaco.languages.IMonarchLanguage);
   monaco.languages.setLanguageConfiguration("vexa", toMonacoLanguageConfiguration(createPortableLanguageConfiguration()));
-}
-
-async function getSessionForModel(model: monaco.editor.ITextModel): Promise<ReturnType<typeof createAnalysisSession>> {
-  const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-  const workspaceRevision = workspaceContext?.getRevision() ?? 0;
-  const cached = modelSessionCache.get(model.uri.toString());
-  if (cached && cached.versionId === model.getVersionId() && cached.workspaceRevision === workspaceRevision) {
-    return cached.session;
-  }
-  const session = (async () => {
-    const ambientDeclarations = await getDomAmbientDeclarations();
-    const source = model.getValue();
-    if (!workspaceContext) {
-      return createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
-    }
-    const { ast } = parseSource(source);
-    if (!ast) {
-      return createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
-    }
-    const resolverContext = {
-      uri: model.uri.toString(),
-      sourceRoots: [],
-      vfs: workspaceContext.vfs,
-      importMappings: workspaceContext.importMappings,
-      getSessionForFilePath: workspaceContext.getSessionForFilePath,
-      getExportedSymbols: workspaceContext.getExportedSymbols,
-    };
-    const { externalDeclarations, importedSymbols, invalidImportedBindings } =
-      await collectAllImportedDeclarations(ast, resolverContext);
-    const globalDeclarations = await workspaceContext.getGlobalDeclarations();
-    return createAnalysisSession(source, {
-      externalDeclarations,
-      ambientDeclarations: [...globalDeclarations.declarations, ...ambientDeclarations],
-      ambientDeclarationLocations: globalDeclarations.locations,
-      invalidImportedBindings,
-      importedSymbols
-    });
-  })();
-  const classResolverCache = createClassResolverCache();
-  modelSessionCache.set(model.uri.toString(), {
-    versionId: model.getVersionId(),
-    workspaceRevision,
-    session,
-    classResolverCache,
-  });
-  session.catch(() => {
-    const current = modelSessionCache.get(model.uri.toString());
-    if (current?.session === session) {
-      modelSessionCache.delete(model.uri.toString());
-    }
-  });
-  return session;
 }
 
 function completionEditRange(
@@ -747,19 +581,6 @@ function normalizePrepareRenameResult(
   return null;
 }
 
-function resolverContext(model: monaco.editor.ITextModel, workspaceContext?: EmbedWorkspaceContext) {
-  return {
-    uri: model.uri.toString(),
-    sourceRoots: [],
-    ...(workspaceContext ? {
-      vfs: workspaceContext.vfs,
-      importMappings: workspaceContext.importMappings,
-      getSessionForFilePath: workspaceContext.getSessionForFilePath,
-      getExportedSymbols: workspaceContext.getExportedSymbols,
-    } : {}),
-  };
-}
-
 function toMonacoPos(position: { line: number; character: number }): monaco.IPosition {
   return { lineNumber: position.line + 1, column: position.character + 1 };
 }
@@ -775,74 +596,15 @@ function registerCompletionProvider(): void {
         position.lineNumber,
         word.endColumn
       );
-      const workerResult = await requestVexaLanguageWorker<{ keywordOnly: boolean; items: any[] }>(model, "completion", {
+      const workerResponse = await requestVexaLanguageWorker<{ keywordOnly: boolean; items: any[] }>(model, "completion", {
         lineNumber: position.lineNumber,
         column: position.column,
       });
-      if (workerResult) {
-        return {
-          suggestions: workerResult.items.map((item) => {
-            const insert = completionInsertText(item);
-            return {
-              ...insert,
-              label: item.label,
-              kind: lspCompletionItemKinds[item.kind ?? 0] ?? completionItemKind.Text,
-              detail: item.detail,
-              documentation: toMarkdown(item.documentation),
-              sortText: item.sortText,
-              filterText: item.filterText,
-              insertTextRules: insert.insertTextFormat === 2
-                ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
-                : undefined,
-              range: completionEditRange(item.textEdit, fallbackRange),
-              additionalTextEdits: item.additionalTextEdits?.map(lspEditToMonaco),
-            };
-          }),
-        };
+      if (!workerResponse.ok) {
+        return { suggestions: [] };
       }
-      const session = await getSessionForModel(model);
-      if (!session.ast || !session.analysis) {
-        return {
-          suggestions: createKeywordOnlyCompletionItems().map((item) => {
-            const insert = completionInsertText(item);
-            return {
-              ...insert,
-              label: item.label,
-              kind: lspCompletionItemKinds[item.kind ?? 0] ?? completionItemKind.Text,
-              insertTextRules: insert.insertTextFormat === 2
-                ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
-                : undefined,
-              range: fallbackRange,
-            };
-          }),
-        };
-      }
-      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-      const cachedEntry = modelSessionCache.get(model.uri.toString());
-      const items = await createCompletionItemsForPosition(
-        session.ast,
-        position.lineNumber - 1,
-        position.column - 1,
-        session.analysis,
-        [],
-        {
-          text: model.getValue(),
-          ...resolverContext(model, workspaceContext),
-          ambientDeclarations: session.ambientDeclarations,
-          recoverAnalysisSession: (source) => createAnalysisSession(source, {
-            externalDeclarations: session.externalDeclarations,
-            ambientDeclarations: session.ambientDeclarations,
-            ambientModuleDeclarations: session.ambientModuleDeclarations,
-            ambientModuleLocations: session.ambientModuleLocations,
-            invalidImportedBindings: session.invalidImportedBindings,
-            ambientDeclarationLocations: session.ambientDeclarationLocations,
-            importedSymbols: session.importedSymbols
-          }),
-          classResolverCache: cachedEntry?.classResolverCache,
-        }
-      );
       return {
-        suggestions: items.map((item) => {
+        suggestions: workerResponse.value.items.map((item) => {
           const insert = completionInsertText(item);
           return {
             ...insert,
@@ -872,24 +634,13 @@ function registerRenameProvider(): void {
         text: "",
         rejectReason: "Cannot rename this symbol",
       };
-      const workerPrepared = await requestVexaLanguageWorker(model, "renameLocation", {
+      const workerPrepared = await requestVexaLanguageWorker<unknown>(model, "renameLocation", {
         lineNumber: position.lineNumber,
         column: position.column,
       });
-      if (workerPrepared) {
-        return normalizePrepareRenameResult(workerPrepared) ?? reject;
-      }
-      const session = await getSessionForModel(model);
-      if (!session.analysis) {
-        return reject;
-      }
-      const prepared = createPrepareRename(
-        session.analysis,
-        position.lineNumber - 1,
-        position.column - 1,
-        session.ast ?? undefined
-      );
-      return normalizePrepareRenameResult(prepared) ?? reject;
+      return workerPrepared.ok
+        ? normalizePrepareRenameResult(workerPrepared.value) ?? reject
+        : reject;
     },
     async provideRenameEdits(model, position, newName) {
       const workerEdit = await requestVexaLanguageWorker(model, "renameEdits", {
@@ -897,24 +648,10 @@ function registerRenameProvider(): void {
         column: position.column,
         newName,
       });
-      if (workerEdit) {
-        return workspaceEditToMonaco(workerEdit as { changes?: Record<string, Array<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }>> });
-      }
-      const session = await getSessionForModel(model);
-      if (!session.analysis || !session.ast) {
+      if (!workerEdit.ok) {
         return { edits: [] };
       }
-      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-      const edit = await resolveRenameAcrossFiles({
-        line: position.lineNumber - 1,
-        character: position.column - 1,
-        session,
-        ...resolverContext(model, workspaceContext),
-      }, newName);
-      if (!edit) {
-        return { edits: [] };
-      }
-      return workspaceEditToMonaco(edit);
+      return workspaceEditToMonaco(workerEdit.value as { changes?: Record<string, Array<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }>> });
     },
   });
 }
@@ -926,35 +663,11 @@ function registerCodeActionProvider(): void {
         range: toLspRange(range),
         diagnostics: context.markers.map((marker) => markerToDiagnostic(marker, monaco.MarkerSeverity)),
       });
-      if (workerActions) {
-        return {
-          actions: workerActions.map((action) => ({
-            title: action.title,
-            kind: action.kind,
-            isPreferred: action.isPreferred,
-            edit: action.edit ? workspaceEditToMonaco(action.edit) : undefined,
-          })),
-          dispose: () => {},
-        };
-      }
-      const session = await getSessionForModel(model);
-      if (!session.ast) {
+      if (!workerActions.ok) {
         return { actions: [], dispose: () => {} };
       }
-      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-      const diagnostics = context.markers.map((marker) =>
-        markerToDiagnostic(marker, monaco.MarkerSeverity)
-      );
-      const actions = await collectCodeActions({
-        text: model.getValue(),
-        ast: session.ast,
-        analysis: session.analysis,
-        range: toLspRange(range),
-        diagnostics,
-        ...resolverContext(model, workspaceContext),
-      });
       return {
-        actions: actions.map((action) => ({
+        actions: workerActions.value.map((action) => ({
           title: action.title,
           kind: action.kind,
           isPreferred: action.isPreferred,
@@ -968,25 +681,27 @@ function registerCodeActionProvider(): void {
 
 function registerFormattingProviders(): void {
   monaco.languages.registerDocumentFormattingEditProvider("vexa", {
-    provideDocumentFormattingEdits(model) {
-      return [lspEditToMonaco(createFullDocumentFormatEdit(model.getValue()))];
+    async provideDocumentFormattingEdits(model) {
+      const response = await requestVexaLanguageWorker<any>(model, "formatDocument");
+      return response.ok ? [lspEditToMonaco(response.value)] : [];
     },
   });
 
   monaco.languages.registerDocumentRangeFormattingEditProvider("vexa", {
-    provideDocumentRangeFormattingEdits(model, range) {
-      return [lspEditToMonaco(createRangeFormatEdit(model.getValue(), toLspRange(range)))];
+    async provideDocumentRangeFormattingEdits(model, range) {
+      const response = await requestVexaLanguageWorker<any>(model, "formatRange", { range });
+      return response.ok ? [lspEditToMonaco(response.value)] : [];
     },
   });
 
   monaco.languages.registerOnTypeFormattingEditProvider("vexa", {
     autoFormatTriggerCharacters: ["\n", "}"],
-    provideOnTypeFormattingEdits(model, position, character) {
-      return createOnTypeFormattingEdits(
-        model.getValue(),
-        { line: position.lineNumber - 1, character: position.column - 1 },
-        character
-      ).map(lspEditToMonaco);
+    async provideOnTypeFormattingEdits(model, position, character) {
+      const response = await requestVexaLanguageWorker<any[]>(model, "formatOnType", {
+        position,
+        character,
+      });
+      return response.ok ? response.value.map(lspEditToMonaco) : [];
     },
   });
 }
@@ -1036,31 +751,12 @@ function registerHoverProvider(): void {
         lineNumber: position.lineNumber,
         column: position.column,
       });
-      if (workerHover) {
-        return {
-          contents: hoverContentsToMarkdown(workerHover.contents),
-          range: workerHover.range ? toMonacoRange(workerHover.range) : undefined,
-        };
-      }
-      const session = await getSessionForModel(model);
-      if (!session.analysis || !session.ast) {
-        return null;
-      }
-      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-      const hover = workspaceContext
-        ? await resolveMemberHoverAcrossFiles({
-            line: position.lineNumber - 1,
-            character: position.column - 1,
-            session,
-            ...resolverContext(model, workspaceContext),
-          }) ?? createHover(session.analysis, position.lineNumber - 1, position.column - 1, session.ast ?? undefined)
-        : createHover(session.analysis, position.lineNumber - 1, position.column - 1, session.ast ?? undefined);
-      if (!hover) {
+      if (!workerHover.ok || !workerHover.value) {
         return null;
       }
       return {
-        contents: hoverContentsToMarkdown(hover.contents),
-        range: hover.range ? toMonacoRange(hover.range) : undefined,
+        contents: hoverContentsToMarkdown(workerHover.value.contents),
+        range: workerHover.value.range ? toMonacoRange(workerHover.value.range) : undefined,
       };
     },
   });
@@ -1075,26 +771,10 @@ function registerDefinitionProvider(): void {
       lineNumber: position.lineNumber,
       column: position.column,
     });
-    if (workerLocations) {
-      return workerLocations.map((location) => ({ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }));
-    }
-    const session = await getSessionForModel(model);
-    if (!session.analysis || !session.ast) {
+    if (!workerLocations.ok) {
       return [];
     }
-    const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-    const line = position.lineNumber - 1;
-    const character = position.column - 1;
-    const location = await resolveDefinitionWithLocalFallback({
-      line,
-      character,
-      session,
-      uri: model.uri.toString(),
-      ...(workspaceContext ? resolverContext(model, workspaceContext) : { sourceRoots: [] }),
-    });
-    return location
-      ? [{ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }]
-      : [];
+    return workerLocations.value.map((location) => ({ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }));
   };
 
   monaco.languages.registerDefinitionProvider("vexa", {
@@ -1120,46 +800,12 @@ function registerSignatureHelpProvider(): void {
         lineNumber: position.lineNumber,
         column: position.column,
       });
-      if (workerHelp) {
-        return {
-          value: {
-            signatures: workerHelp.signatures.map((signature) => ({
-              label: signature.label,
-              documentation: toMarkdown(signature.documentation),
-              parameters: (signature.parameters ?? []).map((parameter) => ({
-                label: parameter.label,
-                documentation: toMarkdown(parameter.documentation),
-              })),
-            })),
-            activeSignature: workerHelp.activeSignature ?? 0,
-            activeParameter: workerHelp.activeParameter ?? 0,
-          },
-          dispose: () => {},
-        };
-      }
-      const session = await getSessionForModel(model);
-      if (!session.ast || !session.analysis) {
-        return null;
-      }
-      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-      const help = await createSignatureHelp(
-        session.ast,
-        session.analysis,
-        position.lineNumber - 1,
-        position.column - 1,
-        {
-          ...resolverContext(model, workspaceContext),
-          ambientDeclarations: session.ambientDeclarations,
-          ambientModuleDeclarations: session.ambientModuleDeclarations,
-          externalDeclarations: session.externalDeclarations,
-        }
-      );
-      if (!help) {
+      if (!workerHelp.ok || !workerHelp.value) {
         return null;
       }
       return {
         value: {
-          signatures: help.signatures.map((signature) => ({
+          signatures: workerHelp.value.signatures.map((signature) => ({
             label: signature.label,
             documentation: toMarkdown(signature.documentation),
             parameters: (signature.parameters ?? []).map((parameter) => ({
@@ -1167,8 +813,8 @@ function registerSignatureHelpProvider(): void {
               documentation: toMarkdown(parameter.documentation),
             })),
           })),
-          activeSignature: help.activeSignature ?? 0,
-          activeParameter: help.activeParameter ?? 0,
+          activeSignature: workerHelp.value.activeSignature ?? 0,
+          activeParameter: workerHelp.value.activeParameter ?? 0,
         },
         dispose: () => {},
       };
@@ -1184,26 +830,10 @@ function registerReferenceAndHighlightProviders(): void {
         column: position.column,
         includeDeclaration: context.includeDeclaration,
       });
-      if (workerLocations) {
-        return workerLocations.map((location) => ({ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }));
-      }
-      const session = await getSessionForModel(model);
-      if (!session.analysis || !session.ast) {
+      if (!workerLocations.ok) {
         return [];
       }
-      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-      const locations = workspaceContext
-        ? await resolveReferencesAcrossFiles(
-            {
-              line: position.lineNumber - 1,
-              character: position.column - 1,
-              session,
-              ...resolverContext(model, workspaceContext),
-            },
-            context.includeDeclaration
-          )
-        : [];
-      return locations.map((location) => ({ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }));
+      return workerLocations.value.map((location) => ({ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }));
     },
   });
 
@@ -1213,19 +843,10 @@ function registerReferenceAndHighlightProviders(): void {
         lineNumber: position.lineNumber,
         column: position.column,
       });
-      if (workerHighlights) {
-        return workerHighlights.map((highlight) => ({
-          range: toMonacoRange(highlight.range),
-          kind: highlight.kind === 2
-            ? monaco.languages.DocumentHighlightKind.Write
-            : monaco.languages.DocumentHighlightKind.Read,
-        }));
-      }
-      const session = await getSessionForModel(model);
-      if (!session.analysis) {
+      if (!workerHighlights.ok) {
         return [];
       }
-      return createDocumentHighlights(session.analysis, position.lineNumber - 1, position.column - 1).map((highlight) => ({
+      return workerHighlights.value.map((highlight) => ({
         range: toMonacoRange(highlight.range),
         kind: highlight.kind === 2
           ? monaco.languages.DocumentHighlightKind.Write
@@ -1242,24 +863,13 @@ function registerLinkedEditingProvider(): void {
         lineNumber: position.lineNumber,
         column: position.column,
       });
-      if (workerRanges) {
+      if (workerRanges.ok && workerRanges.value) {
         return {
-          ranges: workerRanges.map(toMonacoRange),
+          ranges: workerRanges.value.map(toMonacoRange),
           wordPattern: /[A-Za-z_][A-Za-z0-9_]*/,
         };
       }
-      const session = await getSessionForModel(model);
-      if (!session.analysis) {
-        return null;
-      }
-      const ranges = session.analysis.getRenameRangesAt(position.lineNumber - 1, position.column - 1);
-      if (ranges.length <= 1) {
-        return null;
-      }
-      return {
-        ranges: ranges.map(toMonacoRange),
-        wordPattern: /[A-Za-z_][A-Za-z0-9_]*/,
-      };
+      return null;
     },
   });
 }
@@ -1268,26 +878,7 @@ function registerDocumentStructureProviders(): void {
   monaco.languages.registerDocumentSymbolProvider("vexa", {
     async provideDocumentSymbols(model) {
       const workerSymbols = await requestVexaLanguageWorker<any[]>(model, "documentSymbols");
-      if (workerSymbols) {
-        const mapSymbol = (symbol: {
-          name: string;
-          kind: number;
-          range: { start: { line: number; character: number }; end: { line: number; character: number } };
-          selectionRange: { start: { line: number; character: number }; end: { line: number; character: number } };
-          children?: unknown[];
-        }): monaco.languages.DocumentSymbol => ({
-          name: symbol.name,
-          detail: "",
-          kind: lspDocumentSymbolKinds[symbol.kind] ?? documentSymbolKind.Variable,
-          range: toMonacoRange(symbol.range),
-          selectionRange: toMonacoRange(symbol.selectionRange),
-          tags: [],
-          children: (symbol.children as typeof symbol[] | undefined)?.map(mapSymbol) ?? [],
-        });
-        return workerSymbols.map(mapSymbol);
-      }
-      const session = await getSessionForModel(model);
-      if (!session.ast) {
+      if (!workerSymbols.ok) {
         return [];
       }
       const mapSymbol = (symbol: {
@@ -1305,29 +896,17 @@ function registerDocumentStructureProviders(): void {
         tags: [],
         children: (symbol.children as typeof symbol[] | undefined)?.map(mapSymbol) ?? [],
       });
-      return createDocumentSymbols(session.ast).map(mapSymbol);
+      return workerSymbols.value.map(mapSymbol);
     },
   });
 
   monaco.languages.registerFoldingRangeProvider("vexa", {
     async provideFoldingRanges(model) {
       const workerRanges = await requestVexaLanguageWorker<any[]>(model, "foldingRanges");
-      if (workerRanges) {
-        return workerRanges.map((range) => ({
-          start: range.startLine + 1,
-          end: range.endLine + 1,
-          kind: range.kind === "comment"
-            ? monaco.languages.FoldingRangeKind.Comment
-            : range.kind === "imports"
-              ? monaco.languages.FoldingRangeKind.Imports
-              : monaco.languages.FoldingRangeKind.Region,
-        }));
-      }
-      const session = await getSessionForModel(model);
-      if (!session.ast) {
+      if (!workerRanges.ok) {
         return [];
       }
-      return createFoldingRanges(session.ast).map((range) => ({
+      return workerRanges.value.map((range) => ({
         start: range.startLine + 1,
         end: range.endLine + 1,
         kind: range.kind === "comment"
@@ -1342,25 +921,10 @@ function registerDocumentStructureProviders(): void {
   monaco.languages.registerSelectionRangeProvider("vexa", {
     async provideSelectionRanges(model, positions) {
       const workerSelectionRanges = await requestVexaLanguageWorker<any[]>(model, "selectionRanges", { positions });
-      if (workerSelectionRanges) {
-        return workerSelectionRanges.map((selectionRange) => {
-          const chain: monaco.languages.SelectionRange[] = [];
-          let current: typeof selectionRange | undefined = selectionRange;
-          while (current) {
-            chain.push({ range: toMonacoRange(current.range) });
-            current = current.parent;
-          }
-          return chain;
-        });
-      }
-      const session = await getSessionForModel(model);
-      if (!session.ast) {
+      if (!workerSelectionRanges.ok) {
         return [];
       }
-      return createSelectionRanges(
-        session.ast,
-        positions.map((position) => ({ line: position.lineNumber - 1, character: position.column - 1 }))
-      ).map((selectionRange) => {
+      return workerSelectionRanges.value.map((selectionRange) => {
         const chain: monaco.languages.SelectionRange[] = [];
         let current: typeof selectionRange | undefined = selectionRange;
         while (current) {
@@ -1377,36 +941,11 @@ function registerInlayHintsProvider(): void {
   monaco.languages.registerInlayHintsProvider("vexa", {
     async provideInlayHints(model, range) {
       const workerHints = await requestVexaLanguageWorker<any[]>(model, "inlayHints", { range });
-      if (workerHints) {
-        return {
-          hints: workerHints.map((hint) => ({
-            position: toMonacoPos(hint.position),
-            label: typeof hint.label === "string" ? hint.label : hint.label.map((part) => part.value).join(""),
-            kind: hint.kind === 1
-              ? monaco.languages.InlayHintKind.Type
-              : hint.kind === 2
-                ? monaco.languages.InlayHintKind.Parameter
-                : undefined,
-            tooltip: toMarkdown(hint.tooltip),
-            paddingLeft: hint.paddingLeft,
-            paddingRight: hint.paddingRight,
-          })),
-          dispose: () => {},
-        };
-      }
-      const session = await getSessionForModel(model);
-      if (!session.ast || !session.analysis) {
+      if (!workerHints.ok) {
         return { hints: [], dispose: () => {} };
       }
-      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-      const hints = await createInlayHints(
-        session.ast,
-        session.analysis,
-        toLspRange(range),
-        resolverContext(model, workspaceContext)
-      );
       return {
-        hints: hints.map((hint) => ({
+        hints: workerHints.value.map((hint) => ({
           position: toMonacoPos(hint.position),
           label: typeof hint.label === "string" ? hint.label : hint.label.map((part) => part.value).join(""),
           kind: hint.kind === 1
@@ -1429,22 +968,9 @@ function registerSemanticTokensProviders(): void {
     getLegend: () => VEXA_SEMANTIC_TOKENS_LEGEND,
     async provideDocumentSemanticTokens(model) {
       const workerData = await requestVexaLanguageWorker<number[]>(model, "semanticTokens");
-      if (workerData) {
-        return workerData.length > 0 ? { data: new Uint32Array(workerData) } : null;
-      }
-      const session = await getSessionForModel(model);
-      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-      const tokenModifiersByRangeKey = await collectDeprecatedSemanticTokenModifiers({
-        ...resolverContext(model, workspaceContext),
-        session,
-      });
-      const tokens = createSemanticTokens({
-        text: model.getValue(),
-        ast: session.ast,
-        analysis: session.analysis,
-        tokenModifiersByRangeKey,
-      });
-      return tokens?.data ? { data: new Uint32Array(tokens.data) } : null;
+      return workerData.ok && workerData.value.length > 0
+        ? { data: new Uint32Array(workerData.value) }
+        : null;
     },
     releaseDocumentSemanticTokens: () => {},
   });
@@ -1453,23 +979,9 @@ function registerSemanticTokensProviders(): void {
     getLegend: () => VEXA_SEMANTIC_TOKENS_LEGEND,
     async provideDocumentRangeSemanticTokens(model, range) {
       const workerData = await requestVexaLanguageWorker<number[]>(model, "semanticTokens", { range });
-      if (workerData) {
-        return workerData.length > 0 ? { data: new Uint32Array(workerData) } : { data: new Uint32Array() };
-      }
-      const session = await getSessionForModel(model);
-      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-      const tokenModifiersByRangeKey = await collectDeprecatedSemanticTokenModifiers({
-        ...resolverContext(model, workspaceContext),
-        session,
-      });
-      const tokens = createSemanticTokens({
-        text: model.getValue(),
-        ast: session.ast,
-        analysis: session.analysis,
-        range: toLspRange(range),
-        tokenModifiersByRangeKey,
-      });
-      return tokens?.data ? { data: new Uint32Array(tokens.data) } : { data: new Uint32Array() };
+      return workerData.ok && workerData.value.length > 0
+        ? { data: new Uint32Array(workerData.value) }
+        : { data: new Uint32Array() };
     },
   });
 }
@@ -1676,31 +1188,15 @@ async function updateDiagnostics(model: monaco.editor.ITextModel): Promise<void>
     monaco.editor.setModelMarkers(model, "vexa", []);
     return;
   }
+  const requestedVersion = model.getVersionId();
   const workerDiagnostics = await requestVexaLanguageWorker<any[]>(model, "diagnostics");
-  if (workerDiagnostics) {
-    monaco.editor.setModelMarkers(
-      model,
-      "vexa",
-      workerDiagnostics.map((diagnostic) => ({
-        severity: mapSeverity(diagnostic.severity),
-        startLineNumber: diagnostic.range.start.line + 1,
-        startColumn: diagnostic.range.start.character + 1,
-        endLineNumber: diagnostic.range.end.line + 1,
-        endColumn: diagnostic.range.end.character + 1,
-        message: diagnostic.message,
-        code: String(diagnostic.code ?? ""),
-        source: diagnostic.source ?? "vexa",
-      }))
-    );
+  if (!workerDiagnostics.ok || model.isDisposed() || model.getVersionId() !== requestedVersion) {
     return;
   }
-  const session = await getSessionForModel(model);
-  const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-  const diagnostics = await collectWorkspaceDiagnostics(model, session, workspaceContext);
   monaco.editor.setModelMarkers(
     model,
     "vexa",
-    diagnostics.map((diagnostic) => ({
+    workerDiagnostics.value.map((diagnostic) => ({
       severity: mapSeverity(diagnostic.severity),
       startLineNumber: diagnostic.range.start.line + 1,
       startColumn: diagnostic.range.start.character + 1,
@@ -1729,40 +1225,13 @@ async function updateAutoAwaitGlyphs(
     return;
   }
   const workerDecorations = await requestVexaLanguageWorker<any[]>(model, "autoAwaitDecorations");
-  if (workerDecorations) {
-    if (autoAwaitGlyphRefreshVersions.get(editor) !== refreshVersion) {
-      return;
-    }
-    if (editor.getModel() !== model || model.isDisposed()) {
-      return;
-    }
-    collection.set(workerDecorations.map((decoration) => ({
-      range: {
-        startLineNumber: decoration.range.start.line + 1,
-        startColumn: decoration.range.start.character + 1,
-        endLineNumber: decoration.range.end.line + 1,
-        endColumn: decoration.range.end.character + 1,
-      },
-      options: {
-        glyphMarginClassName: "vexa-auto-await-glyph",
-        glyphMarginHoverMessage: { value: decoration.message },
-      },
-    })));
-    editor.render(true);
-    return;
-  }
-  const session = await getSessionForModel(model);
-  if (autoAwaitGlyphRefreshVersions.get(editor) !== refreshVersion) {
+  if (!workerDecorations.ok || autoAwaitGlyphRefreshVersions.get(editor) !== refreshVersion) {
     return;
   }
   if (editor.getModel() !== model || model.isDisposed()) {
     return;
   }
-  if (!session.ast || !session.analysis) {
-    collection.clear();
-    return;
-  }
-  collection.set(createAutoAwaitDecorations(session.ast, session.analysis).map((decoration) => ({
+  collection.set(workerDecorations.value.map((decoration) => ({
     range: {
       startLineNumber: decoration.range.start.line + 1,
       startColumn: decoration.range.start.character + 1,
@@ -1782,27 +1251,6 @@ function refreshDiagnosticsAndGlyphs(
   model: monaco.editor.ITextModel,
   reason: string
 ): void {
-  if (!embeddedRuntimeReady) {
-    const refreshKey = model.uri.toString();
-    if (!pendingRuntimeReadyRefreshes.has(refreshKey)) {
-      pendingRuntimeReadyRefreshes.set(
-        refreshKey,
-        ensureEmbeddedRuntimeReady()
-          .then(() => {
-            pendingRuntimeReadyRefreshes.delete(refreshKey);
-            if (model.isDisposed()) {
-              return;
-            }
-            refreshDiagnosticsAndGlyphs(editor, model, `${reason}-runtime-ready`);
-          })
-          .catch((error) => {
-            pendingRuntimeReadyRefreshes.delete(refreshKey);
-            console.error("[vexa-embed:runtime-ready]", error);
-          })
-      );
-    }
-    return;
-  }
   logDiagnosticsRefresh(reason, model);
   void updateDiagnostics(model);
   if (editor.getModel() !== model) {
@@ -1835,7 +1283,6 @@ function wireDiagnostics(
     }, 100);
   };
   const changeDisposable = model.onDidChangeContent(() => {
-    void getSessionForModel(model);
     refresh();
   });
   refresh();
@@ -2217,7 +1664,6 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const disposers = new Map<string, () => void>();
   const contentListeners = new Map<string, monaco.IDisposable>();
   const collapsedFolders = new Set<string>();
-  let workspaceRevision = 0;
   const savedSession = (() => {
     try {
       const raw = storage?.getItem(sessionStorageKey);
@@ -2279,83 +1725,17 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     return entry?.kind === "file" ? entry.content : null;
   };
 
-  const globalSymbolFileEntries = (): WorkspaceFile[] => {
-    const paths = globalSymbols?.paths ?? [];
-    if (paths.length === 0) {
-      return [];
-    }
-    return entries.filter((entry): entry is WorkspaceFile => {
-      if (entry.kind !== "file" || entry.language !== "vexa") {
-        return false;
-      }
-      return paths.some((path) => entry.path === path || entry.path.startsWith(`${path}/`));
-    });
-  };
-
-  const getWorkspaceGlobalDeclarations = async (): Promise<WorkspaceGlobalDeclarations> => {
-    const declarations: Statement[] = [];
-    const locations = new Map<Statement, AmbientModuleLocation>();
-    for (const entry of globalSymbolFileEntries()) {
-      const source = getWorkspaceFileSource(entry.uri) ?? entry.content;
-      for (const statement of parseSource(source).ast?.body ?? []) {
-        declarations.push(statement);
-        locations.set(statement, {
-          filePath: entry.path,
-          line: statement.firstToken?.range.start.line ?? 0,
-          character: statement.firstToken?.range.start.column ?? 0
-        });
-      }
-    }
-    return { declarations, locations };
-  };
-
   const workspaceVfs = new WorkspaceVfs({
     getEntries: () => entries,
     readWorkspaceFile: (uri) => getWorkspaceFileSource(uri),
   });
   setVfs(workspaceVfs);
 
-  const getWorkspaceSessionForFilePath = createCachedWorkspaceSessionResolver({
-    getAmbientDeclarations: getDomAmbientDeclarations,
-    getGlobalDeclarations: getWorkspaceGlobalDeclarations,
-    getWorkspaceFileSource,
-    getWorkspaceRevision: () => workspaceRevision,
-    isRuntimeDeclarationPath,
-    pathToUri,
-  });
-
-  const getWorkspaceExportedSymbols = async (): Promise<SymbolExport[]> => {
-    const symbols: SymbolExport[] = [];
-    const aliasByPath = new Map(Object.entries(importMappings).map(([specifier, targetPath]) => [targetPath, specifier]));
-    for (const entry of entries) {
-      if (entry.kind !== "file" || entry.language !== "vexa") {
-        continue;
-      }
-      const session = await getWorkspaceSessionForFilePath(entry.path);
-      for (const declaration of collectTopLevelDeclarationsFromAst(session?.ast ?? null)) {
-        symbols.push({
-          name: declaration.name,
-          kind: declaration.kind,
-          filePath: entry.path,
-          ...(aliasByPath.get(entry.path) ? { importPath: aliasByPath.get(entry.path) } : {}),
-          ...(declaration.receiverType ? { receiverType: declaration.receiverType } : {}),
-          ...(declaration.memberKind ? { memberKind: declaration.memberKind } : {}),
-        });
-      }
-    }
-    return symbols;
-  };
-
   const workspaceContext: EmbedWorkspaceContext = {
-    vfs: workspaceVfs,
     importMappings,
     ...(globalSymbols ? { globalSymbols } : {}),
     getEntries: () => entries,
     getWorkspaceFileSource,
-    getGlobalDeclarations: getWorkspaceGlobalDeclarations,
-    getSessionForFilePath: getWorkspaceSessionForFilePath,
-    getExportedSymbols: getWorkspaceExportedSymbols,
-    getRevision: () => workspaceRevision,
   };
 
   const initialEntry = editableFiles().find((entry) => entry.uri === activeUri) ?? editableFiles()[0];
@@ -2498,8 +1878,6 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
 
   const syncEntryContent = (uri: string, content: string): void => {
     entries = updateFileContent(entries, uri, content);
-    modelSessionCache.delete(uri);
-    workspaceRevision += 1;
   };
 
   const refreshBundledRuntimeEntries = async (): Promise<void> => {
@@ -2515,8 +1893,6 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
         continue;
       }
       entries = updateFileContent(entries, uri, content);
-      modelSessionCache.delete(uri);
-      workspaceRevision += 1;
       const model = models.get(uri);
       if (model && model.getValue() !== content) {
         model.setValue(content);
@@ -2833,7 +2209,6 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     if (entries.some((candidate) => candidate.path === entry.path)) {
       return;
     }
-    workspaceRevision += 1;
     const deletedPrefix = `${entry.path}/`;
     for (const [uri, model] of models.entries()) {
       const candidate = previousEntries.find((workspaceEntry) => workspaceEntry.kind === "file" && workspaceEntry.uri === uri);
@@ -2841,7 +2216,6 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
         continue;
       }
       embedWorkspaceContextsByUri.delete(uri);
-      modelSessionCache.delete(uri);
       disposers.get(uri)?.();
       disposers.delete(uri);
       contentListeners.get(uri)?.dispose();
@@ -2879,14 +2253,12 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
       ...nextEntriesWithoutRuntime,
       ...createBundledRuntimeEntries(),
     ];
-    workspaceRevision += 1;
     collapsedFolders.clear();
     contextMenuEntry = null;
     for (const [uri, model] of [...models.entries()]) {
       const nextEntry = entries.find((entry): entry is WorkspaceFile => entry.kind === "file" && entry.uri === uri);
       if (!nextEntry) {
         embedWorkspaceContextsByUri.delete(uri);
-        modelSessionCache.delete(uri);
         disposers.get(uri)?.();
         disposers.delete(uri);
         contentListeners.get(uri)?.dispose();

@@ -29,6 +29,47 @@ describe("this quick fixes", () => {
     expect(edit?.newText).toBe("this.");
   });
 
+  it("does not add this. to a class member declaration", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Counter {
+        va^^^lue: int
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    const actions = createThisCodeActions({
+      uri: "file:///demo.vx",
+      ast: session.ast,
+      analysis: session.analysis,
+      position: { line, character }
+    });
+
+    expect(actions.map((action) => action.title)).not.toContain("Add 'this.' to 'value'");
+  });
+
+  it("does not add this. to a local declaration", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Counter {
+        value: int
+
+        read(): int {
+          val va^^^lue = 1
+          return value
+        }
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    const actions = createThisCodeActions({
+      uri: "file:///demo.vx",
+      ast: session.ast,
+      analysis: session.analysis,
+      position: { line, character }
+    });
+
+    expect(actions.map((action) => action.title)).not.toContain("Add 'this.' to 'value'");
+  });
+
   it("removes this. when unqualified lookup still resolves to the same member", () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Counter {
