@@ -59,6 +59,7 @@ export const enum NodeKind {
     AnnotationApplication,
     ClassFieldMember,
     ClassMethodMember,
+    ClassInitBlock,
     ClassPrimaryConstructorParameter,
     ClassDelegate,
     ClassStatement,
@@ -155,6 +156,7 @@ const NODE_KIND_NAMES = [
     "AnnotationApplication",
     "ClassFieldMember",
     "ClassMethodMember",
+    "ClassInitBlock",
     "ClassPrimaryConstructorParameter",
     "ClassDelegate",
     "ClassStatement",
@@ -503,7 +505,7 @@ export class ClassExpression extends Expr {
     declare kind: NodeKind.ClassExpression
 
     // Surplus heritage clauses are retained so semantic analysis can report them.
-    constructor(public members: ClassMember[], public abstract?: boolean, public name?: Identifier, public typeParameters?: TypeParameter[], public extendsType?: Identifier, public implementsTypes?: Identifier[], public extraExtendsTypes?: Identifier[], public extraImplementsTypes?: Identifier[], public classDelegates?: ClassDelegate[], public primaryConstructorParameters?: ClassPrimaryConstructorParameter[]) {
+    constructor(public members: ClassMember[], public abstract?: boolean, public name?: Identifier, public typeParameters?: TypeParameter[], public extendsType?: Identifier, public implementsTypes?: Identifier[], public extraExtendsTypes?: Identifier[], public extraImplementsTypes?: Identifier[], public classDelegates?: ClassDelegate[], public primaryConstructorParameters?: ClassPrimaryConstructorParameter[], public initBlocks?: ClassInitBlock[]) {
         super(NodeKind.ClassExpression)
     }
 }
@@ -654,7 +656,7 @@ export type BindingName = Identifier | ObjectBindingPattern | ArrayBindingPatter
 export class VarStatement extends Statement {
     declare kind: NodeKind.VarStatement
 
-    constructor(public declarationKind: VariableDeclarationKind, public name: BindingName, public declared?: boolean, public delegate?: Expr, public receiverType?: Identifier, public receiverTypeArguments?: Identifier[], public typeParameters?: TypeParameter[], public typeAnnotation?: Identifier, public initializer?: Expr, public accessors?: ClassMethodMember[], public declarations?: VarDeclarator[], annotations?: AnnotationApplication[], jsName?: string) {
+    constructor(public declarationKind: VariableDeclarationKind, public name: BindingName, public declared?: boolean, public delegate?: Expr, public receiverType?: Identifier, public receiverTypeArguments?: Identifier[], public typeParameters?: TypeParameter[], public typeAnnotation?: Identifier, public initializer?: Expr, public accessors?: ClassMethodMember[], public declarations?: VarDeclarator[], annotations?: AnnotationApplication[], jsName?: string, public uncheckedInitialization?: boolean) {
         super(NodeKind.VarStatement, annotations, jsName)
     }
 }
@@ -713,7 +715,7 @@ export abstract class CallableMember extends NamedNode {
 export class ClassFieldMember extends NamedNode {
     declare kind: NodeKind.ClassFieldMember
 
-    constructor(name: Identifier, public declarationKind?: VariableDeclarationKind, public readonlyToken?: Token, public computed?: boolean, public computedKey?: Expr, public override?: boolean, public optional?: boolean, public definiteAssignment?: boolean, public typeAnnotation?: Identifier, public initializer?: Expr, public accessModifier?: ClassMemberAccessModifier, public isReadonly?: boolean, public isStatic?: boolean, public abstract?: boolean, /** TypeScript `declare` member: participates in typing but emits no runtime storage. */ public declared?: boolean, public annotations?: AnnotationApplication[]) {
+    constructor(name: Identifier, public declarationKind?: VariableDeclarationKind, public readonlyToken?: Token, public computed?: boolean, public computedKey?: Expr, public override?: boolean, public optional?: boolean, public definiteAssignment?: boolean, public typeAnnotation?: Identifier, public initializer?: Expr, public accessModifier?: ClassMemberAccessModifier, public isReadonly?: boolean, public isStatic?: boolean, public abstract?: boolean, /** TypeScript `declare` member: participates in typing but emits no runtime storage. */ public declared?: boolean, public annotations?: AnnotationApplication[], public uncheckedInitialization?: boolean) {
         super(NodeKind.ClassFieldMember, name)
     }
 }
@@ -722,6 +724,14 @@ export class ClassMethodMember extends CallableMember {
 
     constructor(public body: BlockStatement, name: Identifier, parameters: FunctionParameter[], public declarationKind?: FunctionDeclarationKind, public accessorKind?: "get" | "set", public accessorToken?: Token, public declarationKeywordToken?: Token, public readonlyToken?: Token, public async?: boolean, public sync?: boolean, public generator?: boolean, public getterShorthand?: boolean, public computed?: boolean, public computedKey?: Expr, public operator?: OverloadableOperator, public override?: boolean, public missingBody?: boolean, public parametersCloseParen?: Token, public accessModifier?: ClassMemberAccessModifier, public isReadonly?: boolean, public isStatic?: boolean, public abstract?: boolean, public annotations?: AnnotationApplication[], returnType?: Identifier, typeParameters?: TypeParameter[], optional?: boolean) {
         super(NodeKind.ClassMethodMember, name, parameters, returnType, typeParameters, optional)
+    }
+}
+
+export class ClassInitBlock extends Node {
+    declare kind: NodeKind.ClassInitBlock
+
+    constructor(public body: BlockStatement) {
+        super(NodeKind.ClassInitBlock)
     }
 }
 
@@ -744,7 +754,7 @@ export class ClassStatement extends Statement {
     declare kind: NodeKind.ClassStatement
 
     // Surplus heritage clauses are retained so semantic analysis can report them.
-    constructor(public name: Identifier, public members: ClassMember[], public declared?: boolean, public abstract?: boolean, public typeParameters?: TypeParameter[], public extendsType?: Identifier, public implementsTypes?: Identifier[], public extraExtendsTypes?: Identifier[], public extraImplementsTypes?: Identifier[], public classDelegates?: ClassDelegate[], public primaryConstructorParameters?: ClassPrimaryConstructorParameter[], annotations?: AnnotationApplication[], jsName?: string) {
+    constructor(public name: Identifier, public members: ClassMember[], public declared?: boolean, public abstract?: boolean, public typeParameters?: TypeParameter[], public extendsType?: Identifier, public implementsTypes?: Identifier[], public extraExtendsTypes?: Identifier[], public extraImplementsTypes?: Identifier[], public classDelegates?: ClassDelegate[], public primaryConstructorParameters?: ClassPrimaryConstructorParameter[], annotations?: AnnotationApplication[], jsName?: string, public initBlocks?: ClassInitBlock[]) {
         super(NodeKind.ClassStatement, annotations, jsName)
     }
 }

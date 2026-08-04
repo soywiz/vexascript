@@ -14,6 +14,7 @@ import type {
   Scope
 } from "./model";
 import { TypeChecker } from "./TypeChecker";
+import { DefiniteAssignmentChecker } from "./DefiniteAssignmentChecker";
 import { type AnalysisType, typeToString, FunctionType } from "./types";
 import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
 import { IdentifierResolution, resolveScopeSymbol, type BoundAnalysis } from "./model";
@@ -185,7 +186,12 @@ export class Analysis {
       phase: validateTypes ? "type-checking" : "type-inference",
       elapsedMs: monotonicNow() - phaseStartedAt
     });
-    this.issues = validateTypes ? [...bound.issues, ...checked.issues] : [...bound.issues];
+    const definiteAssignmentIssues = validateTypes && (options.language ?? "vexascript") === "vexascript"
+      ? new DefiniteAssignmentChecker(program, bound).check()
+      : [];
+    this.issues = validateTypes
+      ? [...bound.issues, ...checked.issues, ...definiteAssignmentIssues]
+      : [...bound.issues];
     this.identifierResolutions = checked.identifierResolutions;
     this.jsxAttributeResolutions = checked.jsxAttributeResolutions;
     this.operatorResolutions = checked.operatorResolutions;

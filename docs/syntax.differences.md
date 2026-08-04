@@ -43,6 +43,19 @@ val name: string = "Ada"   // VexaScript
 const name: string = "Ada" // TypeScript equivalent
 ```
 
+Unlike TypeScript's broadly permissive local declaration rules, VexaScript
+requires every `val` to be initialized in situ and checks that an uninitialized
+`var` is assigned on every path before it is read. `var!` is the explicit escape
+hatch for initialization performed by code the compiler cannot observe:
+
+```vexa
+var value: int
+if (ready) { value = 1 } else { value = 2 }
+consume(value)
+
+var! externallyInjected: Service
+```
+
 ### Destructuring: `::` for renaming and `:` for inline types
 
 In VexaScript destructuring, the colon (`:`) introduces an **inline type annotation**, and the double-colon (`::`) **renames** a source property to a local binding. This is the reverse of TypeScript, where `:` renames.
@@ -302,6 +315,28 @@ class Counter(val value: int) {
   }
 }
 ```
+
+### Instance initialization blocks
+
+VexaScript classes support Kotlin-style `init { }` blocks, which TypeScript
+does not have. Multiple blocks run once per instance in source order, after
+field/primary-constructor initialization and before the explicit constructor
+body. Class `val` fields still require an in-situ initializer; mutable `var`
+fields can be initialized in these blocks.
+
+```vexa
+class Counter {
+  val step = 1
+  var value: int
+
+  init {
+    value = step
+  }
+}
+```
+
+JavaScript emission folds these statements into an instance constructor; the
+native backend emits the same initialization phase in the C++ constructor.
 
 ### Explicit member kinds in classes and interfaces
 

@@ -1,5 +1,6 @@
 import { ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingHole, BlockStatement, BooleanLiteral, CallExpression, ChainExpression, CharacterLiteral, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MatcherBindingPattern, MemberExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, VarDeclarator, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { BindingElement, BindingName, Node } from "compiler/ast/ast";
+import { ClassInitBlock } from "compiler/ast/ast";
 
 
 
@@ -2089,7 +2090,8 @@ function emitClassDelegateMembers(statement: ClassStatement, members: Array<Clas
 
 function emitClassPrimaryConstructor(
   parameters: ClassPrimaryConstructorParameter[] | undefined,
-  members: Array<ClassFieldMember | ClassMethodMember>
+  members: Array<ClassFieldMember | ClassMethodMember>,
+  initBlocks: readonly ClassInitBlock[] = []
 ): string | null {
   if (!parameters || parameters.length === 0) {
     return null;
@@ -2113,6 +2115,9 @@ function emitClassPrimaryConstructor(
   for (const parameter of parameters) {
     assignments.push(`this.${(parameter.name as Identifier).name} = ${(parameter.name as Identifier).name};`);
   }
+  for (const initBlock of initBlocks) {
+    assignments.push(...initBlock.body.body.map((statement) => emitStatement(statement)));
+  }
 
   return `constructor(${params}) {${assignments.length > 0 ? ` ${assignments.join(" ")}` : ""} }`;
 }
@@ -2121,7 +2126,7 @@ function isParameterProperty(parameter: FunctionParameter): boolean {
   return parameter.accessModifier !== undefined || parameter.isReadonly === true;
 }
 
-function emitConstructorBlock(method: ClassMethodMember): string {
+function emitConstructorBlock(method: ClassMethodMember, initBlocks: readonly ClassInitBlock[] = []): string {
   const assignments = method.parameters
     .filter(isParameterProperty)
     .map((parameter) => `this.${(parameter.name as Identifier).name} = ${(parameter.name as Identifier).name};`);
@@ -2140,18 +2145,24 @@ function emitConstructorBlock(method: ClassMethodMember): string {
   if (temps.length > 0) {
     emittedStatements.splice(insertAt, 0, emitOptionalAssignmentTempDeclaration(temps));
   }
-  if (assignments.length === 0 && temps.length === 0) {
+  if (assignments.length === 0 && temps.length === 0 && initBlocks.length === 0) {
     return emitBlock(method.body);
   }
   if (assignments.length > 0) {
     emittedStatements.splice(insertAt, 0, assignments.join("\n"));
+  }
+  if (initBlocks.length > 0) {
+    const emittedInitStatements = initBlocks.flatMap((initBlock) =>
+      initBlock.body.body.map((statement) => emitStatement(statement))
+    );
+    emittedStatements.splice(insertAt + (assignments.length > 0 ? 1 : 0), 0, ...emittedInitStatements);
   }
   return `{
 ${emittedStatements.join("\n")}
 }`;
 }
 
-function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
+function emitClassMember(member: ClassFieldMember | ClassMethodMember, initBlocks: readonly ClassInitBlock[] = []): string {
   const staticPrefix = member.isStatic === true ? "static " : "";
   if (member instanceof ClassFieldMember) {
     const field = member as ClassFieldMember;
@@ -2174,7 +2185,7 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
       ? operatorMethodName(method.operator, method.parameters)
       : method.name.name;
   return withVariableDelegateShadows<string>(functionParameterBindingNames(method.parameters), () => {
-    const body = methodName === "constructor" ? emitConstructorBlock(method) : emitScopedBlock(method.body);
+    const body = methodName === "constructor" ? emitConstructorBlock(method, initBlocks) : emitScopedBlock(method.body);
     return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${body}`;
   });
 }
@@ -2294,10 +2305,26 @@ function emitClassLike(classLike: ClassStatement | ClassExpression, resolvedName
   const members = classLike.members.filter(member =>
     !(member instanceof ClassFieldMember) || member.declared !== true
   );
-  const syntheticConstructor = emitClassPrimaryConstructor(classLike.primaryConstructorParameters, members);
+  const initBlocks = classLike.initBlocks ?? [];
+  const explicitConstructor = members.some(
+    (member) => member instanceof ClassMethodMember && member.name.name === "constructor"
+  );
+  const syntheticConstructor = emitClassPrimaryConstructor(classLike.primaryConstructorParameters, members, initBlocks);
+  const initStatements = (): string => initBlocks.flatMap((block) =>
+    block.body.body.map((statement) => emitStatement(statement))
+  ).join("\n");
+  const defaultInitConstructor = !explicitConstructor && !syntheticConstructor && initBlocks.length > 0
+    ? classLike.extendsType
+      ? `constructor(...args) {\nsuper(...args);\n${initStatements()}\n}`
+      : `constructor() {\n${initStatements()}\n}`
+    : null;
   const memberLines = [
     ...(syntheticConstructor ? [syntheticConstructor] : []),
-    ...members.map((member) => emitClassMember(member)),
+    ...(defaultInitConstructor ? [defaultInitConstructor] : []),
+    ...members.map((member) => emitClassMember(
+      member,
+      member instanceof ClassMethodMember && member.name.name === "constructor" ? initBlocks : []
+    )),
     ...emitClassDelegateMembers(classLike as ClassStatement, members)
   ];
   const extendsClause = classLike.extendsType &&

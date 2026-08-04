@@ -53,6 +53,45 @@ function applyFirstEdit(text: string, action: NonNullable<Awaited<ReturnType<typ
 }
 
 describe("collectCodeActions aggregator", () => {
+  it("offers var! when a variable cannot be proven initialized", async () => {
+    const source = "var value: int\nconsole.log(value)\n";
+    const session = createAnalysisSession(source);
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) => positionAt(source, offset))
+      .map(({ data: _data, ...diagnostic }) => diagnostic);
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(1, 13),
+      diagnostics,
+      sourceRoots: []
+    });
+    const action = actions.find((candidate) => candidate.title === "Change 'var' to 'var!'");
+
+    expect(action).toBeTruthy();
+    expect(applyFirstEdit(source, action!)).toBe("var! value: int\nconsole.log(value)\n");
+  });
+
+  it("offers var! for an uninitialized class field with modifiers", async () => {
+    const source = "class Demo {\n  private var value: int\n  fun read(): int { return value }\n}\n";
+    const session = createAnalysisSession(source);
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) => positionAt(source, offset));
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(2, 27),
+      diagnostics,
+      sourceRoots: []
+    });
+    const action = actions.find((candidate) => candidate.title === "Change 'var' to 'var!'");
+
+    expect(action).toBeTruthy();
+    expect(applyFirstEdit(source, action!)).toContain("private var! value: int");
+  });
+
   it("offers to convert an invalid character literal to a double-quoted string", async () => {
     const source = "val text = 'say \\\"hi\\\"'\n";
     const session = createAnalysisSession(source);

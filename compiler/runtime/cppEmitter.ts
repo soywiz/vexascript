@@ -1,4 +1,4 @@
-import { ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallableExpression, CallableMember, CallExpression, CharacterLiteral, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, LabeledStatement, LongLiteral, MatcherBindingPattern, MemberExpression, NamedArgument, NamespaceStatement, NewExpression, Node, NodeKind, nodeKindName, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarStatement, WhileStatement } from "compiler/ast/ast";
+import { ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallableExpression, CallableMember, CallExpression, CharacterLiteral, ClassFieldMember, ClassInitBlock, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, LabeledStatement, LongLiteral, MatcherBindingPattern, MemberExpression, NamedArgument, NamespaceStatement, NewExpression, Node, NodeKind, nodeKindName, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarStatement, WhileStatement } from "compiler/ast/ast";
 
 
 import { bindingElementPropertyName, bindingIdentifiers } from "compiler/ast/bindingPatterns";
@@ -9195,11 +9195,26 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     const field = rawField as TypedClassField;
     initializers.push(`${field.name}(${field.field.initializer
       ? emitClassFieldInitializer(field.field.initializer, statement, field.valueType)
-      : `vexa::defaultValue<${field.valueType}>()`})`);
+        : `vexa::defaultValue<${field.valueType}>()`})`);
   }
+  const initBlockStatements: Statement[] = (statement.initBlocks ?? []).flatMap(
+    (initBlock: ClassInitBlock) => initBlock.body.body
+  );
+  const emitInitBlockBody = (): string => withCallableContext(
+    [],
+    statement.name.name,
+    false,
+    null,
+    null,
+    "void",
+    statement,
+    () => emitBlock(new BlockStatement(initBlockStatements), "  ")
+  );
   let constructor = initializers.length > 0 || usesRuntime || constructorParameters
-    ? `${className}(${constructorParameters})${initializers.length > 0 ? ` : ${initializers.join(", ")}` : ""} {}`
-    : `${className}() = default;`;
+    ? `${className}(${constructorParameters})${initializers.length > 0 ? ` : ${initializers.join(", ")}` : ""} ${initBlockStatements.length > 0 ? emitInitBlockBody() : "{}"}`
+    : initBlockStatements.length > 0
+      ? `${className}() ${emitInitBlockBody()}`
+      : `${className}() = default;`;
   if (constructorMethod) {
     const superStatement = constructorMethod.body.body.find((candidate) => {
       if (!(candidate instanceof ExprStatement)) return false;
@@ -9259,7 +9274,10 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
             : `vexa::defaultValue<${field.valueType}>()`})`);
         }
         const body = new BlockStatement(
-          constructorMethod.body.body.filter((candidate) => candidate !== superStatement),
+          [
+            ...initBlockStatements,
+            ...constructorMethod.body.body.filter((candidate) => candidate !== superStatement),
+          ],
           constructorMethod.body.annotations,
           constructorMethod.body.jsName
         );

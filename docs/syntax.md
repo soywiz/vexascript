@@ -31,8 +31,30 @@ Examples:
 ```vexa
 let a = 1
 var b = 2
-val c: number
+val c: number = 3
 const d: int = 4
+```
+
+`val` and `const` declarations must be initialized at their declaration site
+(an initializer or a `by` delegate). A `var` may omit its initializer when it
+has an explicit type, but every control-flow path must assign it before it is
+read:
+
+```vexa
+var result: int
+if (ready) { result = 1 } else { result = 2 }
+console.log(result) // initialized on both paths
+```
+
+Use `var!` only when initialization is guaranteed by code the compiler cannot
+verify, such as an external framework callback. It disables the
+use-before-initialization check for that declaration; it does not emit a
+runtime initializer:
+
+```vexa
+var! frameworkValue: int
+installFrameworkValue()
+console.log(frameworkValue)
 ```
 
 ### Optional type annotation and initializer
@@ -922,6 +944,31 @@ class Store {
   }
 }
 ```
+
+### Stored-property initialization and `init` blocks
+
+Class `val`/`const` fields must be initialized in situ. Mutable `var` fields may
+be assigned by an instance `init { }` block or constructor before use; `var!`
+opts a field out of the static check when initialization is external.
+
+```vexa
+class Session {
+  val label = "ready"
+  var attempts: int
+  var! injectedHandle: ExternalHandle
+
+  init {
+    attempts = 0
+    register(injectedHandle)
+  }
+}
+```
+
+A class may contain multiple `init` blocks. They execute once per instance, in
+source order, after instance field initializers (and primary-constructor
+property assignments) and before the explicit constructor body. They accept
+ordinary initialization statements and use the same implicit-`this` member
+resolution as field initializers and methods.
 
 
 ### Class declarations

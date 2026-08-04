@@ -1,5 +1,6 @@
 import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, CatchClause, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, ConditionalExpression, ContinueStatement, DebuggerStatement, DeferStatement, DoWhileStatement, EmptyStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionDeclarationKind, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportSpecifier, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MatcherBindingPattern, MemberExpression, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, Node, NodeKind, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectLiteralProperty, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchCase, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarDeclarator, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import { ListReader } from "compiler/utils/ListReader";
+import { ClassInitBlock } from "compiler/ast/ast";
 import { SourcePosition, SourceRange, Token, TokenType, type TokenizeLanguage } from "./tokenizer";
 import { hasLineBreakBetween, isClassMemberModifier, isEofToken, isLikelyStatementStart, typeTokenText } from "./tokenHelpers";
 
@@ -2557,6 +2558,7 @@ export class Parser {
             }
         }
 
+        const initBlocks: ClassInitBlock[] = [];
         const buildClassLike = (members: ClassMember[]): ClassStatement | ClassExpression => {
             const classLike = expression
                 ? new ClassExpression(members)
@@ -2591,6 +2593,9 @@ export class Parser {
             if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
                 classLike.primaryConstructorParameters = primaryConstructorParameters;
             }
+            if (initBlocks.length > 0) {
+                classLike.initBlocks = initBlocks;
+            }
             return classLike;
         };
 
@@ -2617,6 +2622,20 @@ export class Parser {
 
             if (token?.type === TokenType.SYMBOL && token.value === ";") {
                 this.tokens.skip();
+                continue;
+            }
+
+            if (
+                this.language === "vexa" &&
+                token?.type === TokenType.IDENTIFIER &&
+                token.value === "init" &&
+                this.peekToken(1)?.type === TokenType.SYMBOL &&
+                this.peekToken(1)?.value === "{"
+            ) {
+                const initKeyword = this.tokens.read()!;
+                const body = this.parseBlockStatement();
+                initBlocks.push(this.attachNodeBounds(new ClassInitBlock(body), initKeyword, body.lastToken ?? initKeyword));
+                this.consumeStatementSeparator("block", this.getLastReadToken());
                 continue;
             }
 
@@ -4640,6 +4659,16 @@ export class Parser {
             this.fail("Expected variable declaration statement", this.tokenAt(declarationKeyword));
         }
 
+        let uncheckedInitialization = false;
+        if (
+            declarationKeyword.value === "var" &&
+            this.tokens.peek()?.type === TokenType.SYMBOL &&
+            this.tokens.peek()?.value === "!"
+        ) {
+            this.tokens.skip();
+            uncheckedInitialization = true;
+        }
+
         // Leading type parameters introduce a generic extension property, e.g.
         // `val <T> Array<T>.doubledLength => length * 2`. A regular variable
         // declaration can never begin with `<`, so their presence forces the
@@ -4705,6 +4734,9 @@ export class Parser {
         const firstDeclaration = declarations[0] as VarDeclarator;
 
         const statement: VarStatement = new VarStatement(declarationKeyword.value as VariableDeclarationKind, firstDeclaration.name);
+        if (uncheckedInitialization) {
+            statement.uncheckedInitialization = true;
+        }
         if (firstDeclaration.typeAnnotation) {
             statement.typeAnnotation = firstDeclaration.typeAnnotation;
         }
@@ -6046,6 +6078,7 @@ export class Parser {
         }
 
         let fieldDeclarationKind: VariableDeclarationKind | undefined;
+        let uncheckedInitialization = false;
         let functionDeclarationKeyword: Token | undefined;
         if (this.language === "vexa" && this.tokens.peek()?.type === TokenType.IDENTIFIER) {
             const keywordValue = this.tokens.peek()!.value;
@@ -6053,6 +6086,14 @@ export class Parser {
                 const declarationKeyword = this.tokens.read()!;
                 memberStartToken ??= declarationKeyword;
                 fieldDeclarationKind = declarationKeyword.value as VariableDeclarationKind;
+                if (
+                    fieldDeclarationKind === "var" &&
+                    this.tokens.peek()?.type === TokenType.SYMBOL &&
+                    this.tokens.peek()?.value === "!"
+                ) {
+                    this.tokens.skip();
+                    uncheckedInitialization = true;
+                }
                 if (fieldDeclarationKind === "val" || fieldDeclarationKind === "const") {
                     isReadonlyMember = true;
                     readonlyToken = declarationKeyword;
@@ -6439,6 +6480,9 @@ export class Parser {
         }
         if (fieldDeclarationKind) {
             fieldMember.declarationKind = fieldDeclarationKind;
+        }
+        if (uncheckedInitialization) {
+            fieldMember.uncheckedInitialization = true;
         }
         if (typeAnnotation) {
             fieldMember.typeAnnotation = typeAnnotation;

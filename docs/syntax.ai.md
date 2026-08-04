@@ -23,6 +23,12 @@ a literal dollar sign.
 |---|---|---|
 | `val x: T = v` | `const x: T = v` | immutable; prefer `val` |
 | `var x: T = v` | `let x: T = v` | mutable |
+| `var! x: T` | `let x!: T` (approx.) | unchecked initialization escape hatch; emits no default value |
+
+Rules: `val`/`const` require an initializer (or `by` delegate) at the
+declaration. `var x: T` may omit it, but every path must assign `x` before a
+read. Use `var! x: T` only when external code guarantees initialization and the
+compiler cannot prove it.
 
 Destructuring: `:` = type annotation, `::` = rename (reversed from TS):
 
@@ -96,6 +102,21 @@ val p = Point(1, 2)                         // no `new` needed (new still works)
 ```
 
 Inside methods, `this.` is implicit — write `x` instead of `this.x`.
+
+Class `val` fields require in-situ initialization. Class `var` fields must be
+assigned before use and may be assigned in `init` blocks:
+
+```vexa
+class Counter {
+  val step = 1
+  var value: int
+  init { value = step }
+}
+```
+
+Multiple instance `init` blocks run in source order after field and primary
+constructor initialization and before an explicit constructor body. `var!`
+also opts a class field out of definite-assignment checking.
 
 ```vexa
 class Rect(val w: number, val h: number) {

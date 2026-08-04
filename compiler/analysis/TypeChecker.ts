@@ -1,5 +1,6 @@
 import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MatcherBindingPattern, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
+import { ClassInitBlock } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 
 
@@ -1914,6 +1915,18 @@ export class TypeChecker {
         }
         if (member instanceof ClassFieldMember) {
           const field = member as ClassFieldMember;
+          if (
+            this.validateTypes &&
+            statement.declared !== true &&
+            field.declared !== true &&
+            (field.declarationKind === "val" || field.declarationKind === "const") &&
+            !field.initializer
+          ) {
+            this.issues.push({
+              message: `'${field.declarationKind}' declarations must be initialized`,
+              node: field.name
+            });
+          }
           const annotationType = field.typeAnnotation
             ? this.resolveTypeAnnotation(field.typeAnnotation, classScope)
             : undefined;
@@ -2050,6 +2063,14 @@ export class TypeChecker {
             }
         } finally {
           this.endFunctionAnalysisContext(methodContextWasAdded);
+        }
+      }
+
+      for (const initBlock of statement.initBlocks ?? []) {
+        const initScope = this.scopeFor(initBlock, classScope);
+        const initFlow = new FlowContext(0, 0, [], builtinType("void"), false, false);
+        for (const bodyStatement of (initBlock as ClassInitBlock).body.body) {
+          this.visitStatement(bodyStatement, initScope, initFlow);
         }
       }
 

@@ -35,6 +35,7 @@ This section is the fast onboarding map for agents and contributors.
   - Public analysis API: `compiler/analysis/Analysis.ts`
   - Scope/symbol binding: `compiler/analysis/Binder.ts`
   - Type checking and semantic diagnostics: `compiler/analysis/TypeChecker.ts`
+  - Flow-sensitive `var` use-before-initialization analysis, including class initialization phases and the `var!` opt-out contract: `compiler/analysis/DefiniteAssignmentChecker.ts`
   - Shared cached one-pass top-level declaration indexing for runtime/ambient/program statement arrays reused by binder/type-checker: `compiler/analysis/declarationIndex.ts`
   - Pure type display helpers (typeToDiagnosticLabel, isNumberLikeType, boxedInterfaceNameForBuiltin, expressionSnippet) extracted from TypeChecker: `compiler/analysis/typeDisplay.ts`, tests: `compiler/analysis/typeDisplay.test.ts`
   - Shared primitive matcher-name classification used by semantic analysis and both JavaScript/C++ emitters so `string`, numeric, boolean, and bigint-family patterns cannot drift between backends: `compiler/analysis/matcherPatterns.ts`
@@ -183,7 +184,7 @@ This section is the fast onboarding map for agents and contributors.
   - Await gutter decorations (lines with an explicit `await` in async/sync functions or an implicit auto-`await` inside `sync` functions, served via the custom `vexa/autoAwaitDecorations` request and the Monaco glyph margin): `compiler/lsp/autoAwaitDecorations.ts`
   - Code action orchestration: `compiler/lsp/codeActions.ts`
   - Shared code-action collection (used by the Node LSP server, browser-worker LSP server, and Monaco in-process providers): `compiler/lsp/codeActionsAggregate.ts`
-  - Quick fixes: `compiler/lsp/importFixes.ts`, `compiler/lsp/typeFixes.ts`, `compiler/lsp/memberFixes.ts`, `compiler/lsp/callFixes.ts`, `compiler/lsp/keywordFixes.ts`, `compiler/lsp/memberKeywordFixes.ts`, `compiler/lsp/interfaceImplementationFixes.ts`, `compiler/lsp/overrideModifierFixes.ts` (inserts a missing `override` modifier), `compiler/lsp/duplicateClassVariableFixes.ts` (removes a duplicate class field), `compiler/lsp/characterLiteralFixes.ts` (converts invalid multi-code-point single-quoted literals to double-quoted strings), `compiler/lsp/stringTemplateFixes.ts`, `compiler/lsp/thisFixes.ts`
+  - Quick fixes: `compiler/lsp/importFixes.ts`, `compiler/lsp/typeFixes.ts`, `compiler/lsp/memberFixes.ts`, `compiler/lsp/callFixes.ts`, `compiler/lsp/keywordFixes.ts`, `compiler/lsp/memberKeywordFixes.ts`, `compiler/lsp/interfaceImplementationFixes.ts`, `compiler/lsp/overrideModifierFixes.ts` (inserts a missing `override` modifier), `compiler/lsp/duplicateClassVariableFixes.ts` (removes a duplicate class field), `compiler/lsp/initializationFixes.ts` (changes a declaration from `var` to `var!` when definite initialization cannot be proven), `compiler/lsp/characterLiteralFixes.ts` (converts invalid multi-code-point single-quoted literals to double-quoted strings), `compiler/lsp/stringTemplateFixes.ts`, `compiler/lsp/thisFixes.ts`
   - Function shorthand quick fixes: `compiler/lsp/functionShorthandFixes.ts`
   - Trailing-lambda quick fix (moves a brace lambda written as the last call argument out of the parentheses, e.g. `foo(a, { x -> ... })` to `foo(a) { x -> ... }`): `compiler/lsp/trailingLambdaFixes.ts`
   - Explicit return type quick fix (adds an inferred return type annotation after the parameter list of a function/method declaration that has no explicit return type, e.g. `function add(a, b) { ... }` to `function add(a, b): number { ... }`): `compiler/lsp/returnTypeFixes.ts`
@@ -212,7 +213,8 @@ This section is the fast onboarding map for agents and contributors.
   - VS Code extension manifest/config and checked-in language configuration generated from the compiler's shared syntax source: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
   - Syntax tests: `validation/vscodeext-syntax.test.ts`
 - GitHub automation:
-  - Continuous-integration workflow that runs the complete repository suite on Ubuntu and performs compiled native validation on macOS and Windows, including Windows-specific toolchain/package regressions, on pushes to `main` and relevant pull requests: `.github/workflows/tests.yml`
+  - Continuous-integration workflow that runs the complete repository suite on Ubuntu, performs compiler self-hosting on a separate Ubuntu runner, and performs compiled native validation on macOS and Windows, including Windows-specific toolchain/package regressions, on pushes to `main` and relevant pull requests: `.github/workflows/tests.yml`
+  - Self-hosting CI driver that emits a runnable compiler with `tsc`, performs two byte-identical JavaScript generations, performs two C++ compile/link generations, and publishes the timing table to the GitHub Actions step summary: `scripts/selfHostCi.ts`
 
 ### Docs and Specs
 

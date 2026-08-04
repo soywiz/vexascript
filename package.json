@@ -27,6 +27,7 @@
     "test:native:stress": "VEXA_NATIVE_GC_STRESS=1 node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --test-reporter spec tests/native/nativeSmoke.native.ts",
     "benchmark:native": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs scripts/nativeBenchmark.ts",
     "self-host": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs scripts/selfHostCompiler.ts",
+    "self-host:ci": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs scripts/selfHostCi.ts",
     "coverage": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --experimental-test-coverage",
     "code": "pnpm --dir plugins/vscode run launch",
     "code:install": "pnpm --dir plugins/vscode run install",

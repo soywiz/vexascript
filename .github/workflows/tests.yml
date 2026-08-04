@@ -12,11 +12,13 @@ on:
       - "native/**"
       - "tests/**"
       - "tsconfig.native.json"
+      - "tsconfig.json"
       - "package.json"
       - "pnpm-lock.yaml"
       - "plugins/**"
       - "samples/**"
       - "testFixtures/**"
+      - "scripts/**"
 
 jobs:
   test:
@@ -118,6 +120,39 @@ jobs:
 
       - name: Run native test suite
         run: pnpm test:native
+
+  self-host:
+    name: Compiler self-hosting (isolated runner)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Print compiler toolchain versions
+        run: |
+          node --version
+          pnpm --version
+          g++ --version
+          cmake --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run compiler self-hosting bootstrap
+        run: pnpm self-host:ci
 
   native-macos:
     runs-on: macos-latest

@@ -25,6 +25,7 @@ import { createMemberKeywordCodeActions } from "./memberKeywordFixes";
 import { createUnusedImportCodeActions } from "./unusedImportFixes";
 import { createDuplicateClassVariableCodeActions } from "./duplicateClassVariableFixes";
 import { createCharacterLiteralCodeActions } from "./characterLiteralFixes";
+import { createInitializationCodeActions } from "./initializationFixes";
 import type { SymbolExportProvider } from "./importFixes";
 
 /**
@@ -65,6 +66,7 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
   const hasDiagnostics = diagnostics.length > 0;
 
   actions.push(...createCharacterLiteralCodeActions({ uri, text, diagnostics }));
+  actions.push(...createInitializationCodeActions({ uri, text, ast, analysis, diagnostics }));
 
   const replacements = findDeclarationKeywordReplacementsAtPosition(
     ast,

@@ -8,6 +8,7 @@ import {
   BooleanLiteral,
   BreakStatement,
   CatchClause,
+  ClassInitBlock,
   ClassMethodMember,
   ClassExpression,
   ClassStatement,
@@ -815,10 +816,14 @@ function lowerControlStatement(
       const members = klass.members.map((member) => member instanceof ClassMethodMember
         ? cloneClassMethod(member, lowerControlStatement(member.body, state)[0] as BlockStatement)
         : member);
+      const initBlocks = klass.initBlocks?.map((initBlock) => copyNodeBounds(
+        new ClassInitBlock(lowerControlStatement(initBlock.body, state)[0] as BlockStatement),
+        initBlock
+      ));
       return [copyNodeBounds(new ClassStatement(
         klass.name, members, klass.declared, klass.abstract, klass.typeParameters, klass.extendsType,
         klass.implementsTypes, klass.extraExtendsTypes, klass.extraImplementsTypes, klass.classDelegates,
-        klass.primaryConstructorParameters, klass.annotations, klass.jsName
+        klass.primaryConstructorParameters, klass.annotations, klass.jsName, initBlocks
       ), klass)];
     }
     default:
@@ -1019,7 +1024,11 @@ function lowerStatement(statement: Statement, options: LoweringOptions): Stateme
         s.classDelegates,
         s.primaryConstructorParameters,
         s.annotations,
-        s.jsName
+        s.jsName,
+        s.initBlocks?.map((initBlock) => copyNodeBounds(
+          new ClassInitBlock(lowerBlockStatement(initBlock.body, options)),
+          initBlock
+        ))
       ), statement);
     }
     case NodeKind.IfStatement: {

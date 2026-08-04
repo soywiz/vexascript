@@ -125,6 +125,7 @@ const MODIFIER_KEYWORDS = new Set([
   "abstract",
   "get",
   "set",
+  "init",
   "async",
   "sync",
   "fun",
@@ -854,6 +855,10 @@ function classifyToken(
   if (token.type !== TokenType.IDENTIFIER) {
     return null;
   }
+  const astKind = identifierKinds.get(semanticTokenRangeKey(token.range));
+  if (token.value === "init" && astKind) {
+    return astKind;
+  }
   if (CONTROL_KEYWORDS.has(token.value)) {
     return "keywordControl";
   }
@@ -870,7 +875,6 @@ function classifyToken(
     return "keyword";
   }
 
-  const astKind = identifierKinds.get(semanticTokenRangeKey(token.range));
   if (astKind) {
     return astKind;
   }

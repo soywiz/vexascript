@@ -7,6 +7,45 @@ import { lowerProgram } from "./lowering";
 import { Analysis } from "compiler/analysis/Analysis";
 
 describe("emitProgram", () => {
+  it("lowers class init blocks into instance constructors", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      class Demo {
+        var value: int
+        init {
+          value = 1
+        }
+      }
+    `));
+    const analysis = new Analysis(program);
+    expect(emitProgram(
+      program,
+      analysis.getExpressionTypes(),
+      analysis.getImplicitReceiverIdentifiers()
+    )).toContain("constructor() {\nthis.value = 1;\n}");
+  });
+
+  it("runs init blocks after super and before an explicit constructor body", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      class Base {}
+      class Demo extends Base {
+        var value: int
+        init { value = 1 }
+        constructor() {
+          super()
+          console.log(value)
+        }
+      }
+    `));
+    const analysis = new Analysis(program);
+    const output = emitProgram(program, analysis.getExpressionTypes(), analysis.getImplicitReceiverIdentifiers());
+    const superOffset = output.indexOf("super();");
+    const initOffset = output.indexOf("this.value = 1;");
+    const bodyOffset = output.indexOf("console.log(this.value);");
+    expect(superOffset).toBeGreaterThan(-1);
+    expect(initOffset).toBeGreaterThan(superOffset);
+    expect(bodyOffset).toBeGreaterThan(initOffset);
+  });
+
   it("emits VexaScript character literals as code-point integers", () => {
     const program = parseFile(tokenizeReader("val matches = \"aaa\".charCodeAt(0) == 'a'"));
 

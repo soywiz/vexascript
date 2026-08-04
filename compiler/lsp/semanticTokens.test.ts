@@ -177,6 +177,7 @@ describe("semantic tokens", () => {
       class Demo {
         static var answer = 42
         private val id: string
+        init { }
       }
       `;
     const session = createAnalysisSession(source);
@@ -191,6 +192,7 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "static" && token.tokenType === "keywordModifier")).toBe(true);
     expect(decoded.some((token) => token.lexeme === "private" && token.tokenType === "keywordModifier")).toBe(true);
     expect(decoded.some((token) => token.lexeme === "val" && token.tokenType === "keywordModifier")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "init" && token.tokenType === "keywordModifier")).toBe(true);
   });
 
   it("highlights operators and primitive literals", () => {

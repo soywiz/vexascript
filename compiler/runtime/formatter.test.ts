@@ -233,6 +233,11 @@ describe("formatSource", () => {
       .toBe("class Point(val x: number, val y: number) {\n}");
   });
 
+  it("formats unchecked vars and class init blocks", () => {
+    expect(formatSource("class Demo{var! value:int\ninit{value=1\nconsole.log(value)}}"))
+      .toBe("class Demo {\n  var! value: int\n  init {\n    value = 1\n    console.log(value)\n  }\n}");
+  });
+
   it("formats class declarations without braces", () => {
     expect(formatSource("class Point"))
       .toBe("class Point");

@@ -1,4 +1,4 @@
-import { ArrayHole, ArrowFunctionExpression, AssignmentExpression, BindingHole, BlockStatement, BreakStatement, CallExpression, ClassFieldMember, ClassMethodMember, ContinueStatement, ExprStatement, Identifier, IfStatement, ImportStatement, InterfacePropertyMember, MatcherBindingPattern, MemberExpression, NodeKind, ObjectSpreadProperty, ReturnStatement, ThrowStatement, VarStatement } from "compiler/ast/ast";
+import { ArrayHole, ArrowFunctionExpression, AssignmentExpression, BindingHole, BlockStatement, BreakStatement, CallExpression, ClassFieldMember, ClassInitBlock, ClassMethodMember, ContinueStatement, ExprStatement, Identifier, IfStatement, ImportStatement, InterfacePropertyMember, MatcherBindingPattern, MemberExpression, NodeKind, ObjectSpreadProperty, ReturnStatement, ThrowStatement, VarStatement } from "compiler/ast/ast";
 import { parseSource } from "../pipeline/parse";
 import type {
   AnnotationApplication, ArrayBindingPattern, ArrayLiteral,
@@ -1852,6 +1852,7 @@ class AstFormatter {
   private emitVarStmt(stmt: VarStatement): void {
     if (stmt.declared) { this.tok("declare"); this.sp(); }
     this.tok(stmt.declarationKind);
+    if (stmt.uncheckedInitialization) this.write("!");
     this.sp();
     if (stmt.receiverType) {
       this.emitTypeAnno(stmt.receiverType as Node);
@@ -1994,6 +1995,10 @@ class AstFormatter {
     this.nl();
     this.indentLvl++;
     this.emitClassMembers(stmt.members);
+    for (const initBlock of stmt.initBlocks ?? []) {
+      this.emitClassInitBlock(initBlock);
+      this.nl();
+    }
     this.indentLvl--;
     if (!this.atLineStart) this.nl();
     this.tok("}");
@@ -2020,6 +2025,10 @@ class AstFormatter {
     this.nl();
     this.indentLvl++;
     this.emitClassMembers(expr.members);
+    for (const initBlock of expr.initBlocks ?? []) {
+      this.emitClassInitBlock(initBlock);
+      this.nl();
+    }
     this.indentLvl--;
     if (!this.atLineStart) this.nl();
     this.tok("}");
@@ -2098,6 +2107,13 @@ class AstFormatter {
     this.tok("}");
   }
 
+  private emitClassInitBlock(initBlock: ClassInitBlock): void {
+    this.applyIndent();
+    this.tok("init");
+    this.sp();
+    this.emitBlock(initBlock.body);
+  }
+
   private emitClassMember(member: ClassFieldMember | ClassMethodMember): void {
     if (member.annotations?.length) {
       for (const ann of member.annotations) {
@@ -2115,7 +2131,11 @@ class AstFormatter {
       if (m.isReadonly && m.declarationKind !== "val" && m.declarationKind !== "const") {
         this.tok("readonly"); this.sp();
       }
-      if (m.declarationKind) { this.tok(m.declarationKind); this.sp(); }
+      if (m.declarationKind) {
+        this.tok(m.declarationKind);
+        if (m.uncheckedInitialization) this.write("!");
+        this.sp();
+      }
       if (m.computed && m.computedKey) {
         this.write("[");
         this.emitExpr(m.computedKey);

@@ -2,6 +2,18 @@ import { describe, expect, it } from "../test/expect";
 import { transpile } from "./transpile";
 
 describe("C++ emitter", () => {
+  it("lowers class init blocks into constructor bodies", () => {
+    const result = transpile(`
+class Demo {
+  var value: int
+  init { value = 1 }
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/class-init.vx", parserOptions: { language: "vexa" } });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("(this->value = 1);");
+  });
+
   it("emits VexaScript character literals as code-point integers", () => {
     const result = transpile(`
 val code: int = '😀'

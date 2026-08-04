@@ -1,5 +1,6 @@
 import { AnnotationStatement, ArrayTypeAnnotation, ClassFieldMember, ClassMethodMember, ClassStatement, EnumStatement, ExportStatement, FunctionStatement, Identifier, ImportStatement, InterfacePropertyMember, InterfaceStatement, NamespaceStatement, NodeKind, nodeStartOffset, Program, TypeAliasStatement, TypeReference, VarStatement } from "compiler/ast/ast";
 import type { BlockStatement, CatchClause, DoWhileStatement, ForStatement, FunctionParameter, IfStatement, InterfaceMethodMember, LabeledStatement, Node, Statement, SwitchStatement, TryStatement, TypeAnnotation, TypeParameter, VariableDeclarationKind, WhileStatement, WithStatement } from "compiler/ast/ast";
+import { ClassInitBlock } from "compiler/ast/ast";
 
 
 import {
@@ -684,6 +685,15 @@ export class Binder {
         }
         this.bindStatements(method.body.body, methodScope);
       }
+    }
+    for (const initBlock of statement.initBlocks ?? []) {
+      const initScope = this.createScope(classScope, initBlock);
+      this.declare(initScope, new AnalysisSymbol("this", "variable", statement.name, -1, undefined, undefined, undefined, undefined, namedType(statement.name.name), statement.name.name), -1);
+      if (statement.extendsType) {
+        const superType = this.typeFromAnnotationLoose(statement.extendsType) ?? namedType(statement.extendsType.name);
+        this.declare(initScope, new AnalysisSymbol("super", "variable", statement.extendsType, -1, undefined, undefined, undefined, undefined, superType, typeToString(superType)), -1);
+      }
+      this.bindStatements((initBlock as ClassInitBlock).body.body, initScope);
     }
   }
 

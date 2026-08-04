@@ -18,6 +18,7 @@ import type {
   ClassDelegate,
   ClassExpression,
   ClassFieldMember,
+  ClassInitBlock,
   ClassMethodMember,
   ClassPrimaryConstructorParameter,
   ClassStatement,
@@ -265,6 +266,7 @@ export function appendChildNodes(node: Node, children: Node[], keys?: string[]):
       appendNodes(children, current.extraImplementsTypes, "extraImplementsTypes", keys);
       appendNodes(children, current.classDelegates, "classDelegates", keys);
       appendNodes(children, current.primaryConstructorParameters, "primaryConstructorParameters", keys);
+      appendNodes(children, current.initBlocks, "initBlocks", keys);
       break;
     }
     case NodeKind.NewExpression: {
@@ -422,6 +424,10 @@ export function appendChildNodes(node: Node, children: Node[], keys?: string[]):
       appendNodes(children, current.annotations, "annotations", keys);
       break;
     }
+    case NodeKind.ClassInitBlock: {
+      appendNode(children, (node as ClassInitBlock).body, "body", keys);
+      break;
+    }
     case NodeKind.ClassPrimaryConstructorParameter: {
       const current = node as ClassPrimaryConstructorParameter;
       appendNodes(children, current.annotations, "annotations", keys);
@@ -448,6 +454,7 @@ export function appendChildNodes(node: Node, children: Node[], keys?: string[]):
       appendNodes(children, current.extraImplementsTypes, "extraImplementsTypes", keys);
       appendNodes(children, current.classDelegates, "classDelegates", keys);
       appendNodes(children, current.primaryConstructorParameters, "primaryConstructorParameters", keys);
+      appendNodes(children, current.initBlocks, "initBlocks", keys);
       break;
     }
     case NodeKind.InterfacePropertyMember: {

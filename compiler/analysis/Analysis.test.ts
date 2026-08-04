@@ -3085,6 +3085,49 @@ let bad = "Ada" satisfies number
     expect(new Analysis(astDeclareVal).getIssues().map((i) => i.message)).not.toContain("'val' declarations must be initialized");
   });
 
+  it("requires val class fields to be initialized in situ", () => {
+    const ast = parseFile(tokenizeReader("class Demo { val missing: int; val ready = 1 }"));
+    const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
+    expect(messages).toContain("'val' declarations must be initialized");
+    expect(messages.filter((message) => message === "'val' declarations must be initialized")).toHaveLength(1);
+  });
+
+  it("reports vars read before definite assignment and accepts var! opt-outs", () => {
+    const invalid = parseFile(tokenizeReader("var value: int\nconsole.log(value)"));
+    expect(new Analysis(invalid).getIssues().map((issue) => issue.message))
+      .toContain("Variable 'value' is used before being initialized");
+
+    const assigned = parseFile(tokenizeReader("var value: int\nvalue = 1\nconsole.log(value)"));
+    expect(new Analysis(assigned).getIssues().map((issue) => issue.message))
+      .not.toContain("Variable 'value' is used before being initialized");
+
+    const branched = parseFile(tokenizeReader("var value: int\nif (ready) { value = 1 } else { value = 2 }\nconsole.log(value)"));
+    expect(new Analysis(branched).getIssues().map((issue) => issue.message))
+      .not.toContain("Variable 'value' is used before being initialized");
+
+    const partial = parseFile(tokenizeReader("var value: int\nif (ready) { value = 1 }\nconsole.log(value)"));
+    expect(new Analysis(partial).getIssues().map((issue) => issue.message))
+      .toContain("Variable 'value' is used before being initialized");
+
+    const unchecked = parseFile(tokenizeReader("var! value: int\nconsole.log(value)"));
+    expect(new Analysis(unchecked).getIssues().map((issue) => issue.message))
+      .not.toContain("Variable 'value' is used before being initialized");
+
+    const selfReference = parseFile(tokenizeReader("var value = value"));
+    expect(new Analysis(selfReference).getIssues().map((issue) => issue.message))
+      .toContain("Variable 'value' is used before being initialized");
+  });
+
+  it("uses init blocks for class-field definite assignment", () => {
+    const valid = parseFile(tokenizeReader("class Demo { var value: int; init { value = 1 }; fun read(): int { return value } }"));
+    expect(new Analysis(valid).getIssues().map((issue) => issue.message))
+      .not.toContain("Variable 'value' is used before being initialized");
+
+    const invalid = parseFile(tokenizeReader("class Demo { var value: int; init { console.log(value) } }"));
+    expect(new Analysis(invalid).getIssues().map((issue) => issue.message))
+      .toContain("Variable 'value' is used before being initialized");
+  });
+
   it("requires var declarations to have an explicit type when not initialized", () => {
     const astBad = parseFile(tokenizeReader("var a"));
     const msgsBad = new Analysis(astBad).getIssues().map((i) => i.message);

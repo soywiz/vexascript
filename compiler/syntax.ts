@@ -5,7 +5,7 @@ export { SYNTAX_TARGETS, type SyntaxTarget } from "./syntaxTargets";
 export const VEXA_KEYWORD_DECLARATIONS = [
   "import", "export", "from", "let", "var", "val", "const", "by", "function", "fun",
   "declare", "namespace", "class", "interface", "annotation", "enum", "extends", "implements",
-  "override", "readonly", "public", "private", "protected", "static", "abstract", "get", "set", "keyof", "infer", "async", "sync"
+  "override", "readonly", "public", "private", "protected", "static", "abstract", "get", "set", "init", "keyof", "infer", "async", "sync"
 ] as const;
 
 export const VEXA_KEYWORD_CONTROLS = [
@@ -66,7 +66,7 @@ export interface PortableLanguageConfiguration {
 export function createPortableMonarchLanguage(): PortableMonarchLanguage {
   const modifierKeywords = [
     "override", "readonly", "public", "private", "protected", "static", "abstract",
-    "get", "set", "async", "sync", "function", "fun", ...VEXA_STORAGE_TYPES
+    "get", "set", "init", "async", "sync", "function", "fun", ...VEXA_STORAGE_TYPES
   ] as string[];
   const functionKeywords: string[] = [];
   const typeKeywords = [

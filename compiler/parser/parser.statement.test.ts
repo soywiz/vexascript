@@ -882,6 +882,36 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses unchecked vars and class init blocks", () => {
+        expect(parseStatement(tokenizeReader("class Demo {\nvar! value: int\ninit { value = 1 }\n}"))).toMatchObject({
+            kind: NodeKind.ClassStatement,
+            members: [
+                {
+                    kind: NodeKind.ClassFieldMember,
+                    declarationKind: "var",
+                    uncheckedInitialization: true,
+                    name: { kind: NodeKind.Identifier, name: "value" }
+                }
+            ],
+            initBlocks: [
+                {
+                    kind: NodeKind.ClassInitBlock,
+                    body: {
+                        kind: NodeKind.BlockStatement,
+                        body: [{ kind: NodeKind.ExprStatement }]
+                    }
+                }
+            ]
+        });
+
+        expect(parseStatement(tokenizeReader("var! later: int"))).toMatchObject({
+            kind: NodeKind.VarStatement,
+            declarationKind: "var",
+            uncheckedInitialization: true,
+            name: { kind: NodeKind.Identifier, name: "later" }
+        });
+    });
+
     it("parses computed class methods like [Symbol.asyncIterator]()", () => {
         expect(
             parseStatement(
