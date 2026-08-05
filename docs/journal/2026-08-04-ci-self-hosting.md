@@ -30,6 +30,14 @@ native generation as a fixed-point check. The driver still publishes the table
 when a stage fails; the job exits non-zero after all independent stages have had
 a chance to report their state.
 
+Native self-host executables are compiled with `g++ -O3`, and the timing table
+records `Node.js / V8 JIT` or `g++ -O3` beside each host. Unoptimized `-O0`
+generation is useful for debugging but is not a representative performance
+comparison: historical measurements put the same workload near 60–71 seconds
+at `-O0`, while optimized native compilers reached Node parity and later
+outperformed it. The higher one-time `-O3` build cost remains outside the
+generation benchmark and within the dedicated CI job timeout.
+
 The bootstrap output and the native fixed-point output are deliberately two
 separate equality contracts. The TypeScript and JavaScript hosts must emit the
 same bootstrap C++, while two consecutive native hosts must emit the same

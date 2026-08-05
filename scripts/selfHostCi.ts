@@ -4,7 +4,13 @@ import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { resolve } from "../compiler/utils/path";
 import { runCommandCapture, type CommandOutput } from "../cli/io";
-import { compileNativeExecutable, prepareNativeBuildDependencies } from "../cli/nativeBuild";
+import {
+  compileNativeExecutable,
+  prepareNativeBuildDependencies,
+  type NativeOptimization,
+} from "../cli/nativeBuild";
+
+const SELF_HOST_NATIVE_OPTIMIZATION: NativeOptimization = "-O3";
 
 export type SelfHostStageStatus = "passed" | "failed" | "blocked";
 
@@ -17,6 +23,7 @@ export interface SelfHostCiStage {
 
 export interface SelfHostCiTiming {
   host: string;
+  optimization: string;
   generationMilliseconds: number | null;
   repeatGenerationMilliseconds: number | null;
   result: string;
@@ -56,6 +63,7 @@ export function renderSelfHostSummary(
   ]);
   const timingRows = timings.map((timing) => [
     timing.host,
+    timing.optimization,
     timing.generationMilliseconds === null ? "—" : formatSeconds(timing.generationMilliseconds),
     timing.repeatGenerationMilliseconds === null ? "—" : formatSeconds(timing.repeatGenerationMilliseconds),
     timing.result,
@@ -68,8 +76,8 @@ export function renderSelfHostSummary(
     "",
     "### C++ generation timing",
     "",
-    "| Host | Generation 1 | Generation 2 | Result |",
-    "| --- | ---: | ---: | --- |",
+    "| Host | Runtime / optimization | Generation 1 | Generation 2 | Result |",
+    "| --- | --- | ---: | ---: | --- |",
     ...timingRows.map((row) => `| ${row.map(summaryCell).join(" | ")} |`),
     "",
     "Only `vexa cpp build` is timed. Native dependency setup and C++ compilation/linking run separately and are excluded from generation values.",
@@ -201,9 +209,9 @@ async function main(): Promise<void> {
   const textModuleLoader = resolve(rootDirectory, "scripts", "registerTextModuleLoader.cjs");
   const stages: SelfHostCiStage[] = [];
   const timings: SelfHostCiTiming[] = [
-    { host: "tsc", generationMilliseconds: null, repeatGenerationMilliseconds: null, result: "not run" },
-    { host: "VexaScript JS", generationMilliseconds: null, repeatGenerationMilliseconds: null, result: "not run" },
-    { host: "VexaScript C++", generationMilliseconds: null, repeatGenerationMilliseconds: null, result: "not run" },
+    { host: "tsc", optimization: "Node.js / V8 JIT", generationMilliseconds: null, repeatGenerationMilliseconds: null, result: "not run" },
+    { host: "VexaScript JS", optimization: "Node.js / V8 JIT", generationMilliseconds: null, repeatGenerationMilliseconds: null, result: "not run" },
+    { host: "VexaScript C++", optimization: `g++ ${SELF_HOST_NATIVE_OPTIMIZATION}`, generationMilliseconds: null, repeatGenerationMilliseconds: null, result: "not run" },
   ];
   let bootstrapReady = false;
   let javascriptReady = false;
@@ -327,17 +335,17 @@ async function main(): Promise<void> {
       const jsGenerationStarted = performance.now();
       await runCheckedCommand("node", [join(outputDirectory, "vexa-self-host-2.js"), "cpp", "build", cppEntryFile, "--out", jsCpp], outputDirectory);
       timings[1]!.generationMilliseconds = performance.now() - jsGenerationStarted;
-      await compileNativeExecutable(jsCpp, jsExecutable, [], "-O0");
+      await compileNativeExecutable(jsCpp, jsExecutable, [], SELF_HOST_NATIVE_OPTIMIZATION);
 
       const cppGenerationStarted = performance.now();
       await runCheckedCommand(jsExecutable, ["cpp", "build", cppEntryFile, "--out", cppCpp], rootDirectory);
       timings[2]!.generationMilliseconds = performance.now() - cppGenerationStarted;
-      await compileNativeExecutable(cppCpp, cppExecutable, [], "-O0");
+      await compileNativeExecutable(cppCpp, cppExecutable, [], SELF_HOST_NATIVE_OPTIMIZATION);
 
       const cppRepeatGenerationStarted = performance.now();
       await runCheckedCommand(cppExecutable, ["cpp", "build", cppEntryFile, "--out", cppRepeat], rootDirectory);
       timings[2]!.repeatGenerationMilliseconds = performance.now() - cppRepeatGenerationStarted;
-      await compileNativeExecutable(cppRepeat, cppRepeatExecutable, [], "-O0");
+      await compileNativeExecutable(cppRepeat, cppRepeatExecutable, [], SELF_HOST_NATIVE_OPTIMIZATION);
 
       const hashes = await verifyCppSelfHostOutputs(tscCpp, jsCpp, cppCpp, cppRepeat);
       timings[0]!.result = `matches VexaScript JS (${hashes.bootstrapHash})`;
