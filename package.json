@@ -28,7 +28,7 @@
     "benchmark:native": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs scripts/nativeBenchmark.ts",
     "self-host": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs scripts/selfHostCompiler.ts",
     "self-host:ci": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs scripts/selfHostCi.ts",
-    "coverage": "node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --experimental-test-coverage",
+    "coverage": "tsc --noEmit && node --import tsx --import ./scripts/registerTextModuleLoader.cjs --test --experimental-test-coverage --test-reporter=spec --test-reporter=lcov --test-reporter-destination=stdout --test-reporter-destination=lcov.info",
     "code": "pnpm --dir plugins/vscode run launch",
     "code:install": "pnpm --dir plugins/vscode run install",
     "code:uninstall": "pnpm --dir plugins/vscode run uninstall",

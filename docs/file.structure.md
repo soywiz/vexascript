@@ -215,7 +215,7 @@ This section is the fast onboarding map for agents and contributors.
   - VS Code extension manifest/config and checked-in language configuration generated from the compiler's shared syntax source: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
   - Syntax tests: `validation/vscodeext-syntax.test.ts`
 - GitHub automation:
-  - Continuous-integration workflow that runs the complete repository suite on Ubuntu, performs compiler self-hosting on a separate Ubuntu runner, and performs compiled native validation on macOS and Windows, including Windows-specific toolchain/package regressions, on pushes to `main` and relevant pull requests: `.github/workflows/tests.yml`
+  - Continuous-integration workflow that runs the complete repository suite with LCOV coverage on Ubuntu, uploads same-repository coverage reports to Codecov, performs compiler self-hosting on a separate Ubuntu runner, and performs compiled native validation on macOS and Windows, including Windows-specific toolchain/package regressions, on pushes to `main` and relevant pull requests: `.github/workflows/tests.yml`
   - Self-hosting CI driver that emits a runnable compiler with `tsc`, performs two byte-identical JavaScript generations, compares TypeScript/JavaScript-hosted C++ generation plus two `g++ -O3` native fixed-point generations, times only C++ generation while running native compilation/linking separately, and publishes the seconds-based timing table with execution modes to the GitHub Actions step summary: `scripts/selfHostCi.ts`
 
 ### Docs and Specs
