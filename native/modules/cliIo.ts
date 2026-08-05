@@ -52,7 +52,7 @@ export async function resolveNativeProgramPaths(sourcePath: string, outputPath?:
 }
 
 export async function linkNativeExecutable(
-  cppPath: string,
+  cppPath: string[],
   executablePath: string,
   extraFlags: string[] = [],
   optimization?: NativeOptimization

@@ -1,4 +1,4 @@
-import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
@@ -96,8 +96,9 @@ export function renderSelfHostSummary(
 
 function commandFailure(command: string, args: readonly string[], result: CommandOutput): Error {
   const output = [result.stdout.trim(), result.stderr.trim()].filter((part) => part.length > 0).join("\n");
+  const termination = result.signal ? `signal ${result.signal}` : `exit code ${result.code ?? "unknown"}`;
   return new Error([
-    `Command failed with exit code ${result.code ?? "unknown"}: ${command} ${args.join(" ")}`,
+    `Command failed with ${termination}: ${command} ${args.join(" ")}`,
     output,
   ].filter((line) => line.length > 0).join("\n"));
 }
@@ -108,7 +109,11 @@ async function timedCommand(
   cwd: string,
 ): Promise<TimedCommand> {
   const started = performance.now();
-  const result = await runCommandCapture(command, [...args], { cwd });
+  const result = await runCommandCapture(command, [...args], {
+    cwd,
+    onStdout: (chunk) => process.stdout.write(chunk),
+    onStderr: (chunk) => process.stderr.write(chunk),
+  });
   return { ...result, elapsedMilliseconds: performance.now() - started };
 }
 
@@ -155,18 +160,33 @@ export function verifyCppSelfHostContents(
 }
 
 async function verifyCppSelfHostOutputs(
-  tscPath: string,
-  javascriptPath: string,
-  firstNativePath: string,
-  secondNativePath: string,
+  tscDirectory: string,
+  javascriptDirectory: string,
+  firstNativeDirectory: string,
+  secondNativeDirectory: string,
 ): Promise<CppSelfHostHashes> {
   const outputs = await Promise.all([
-    readFile(tscPath, "utf8"),
-    readFile(javascriptPath, "utf8"),
-    readFile(firstNativePath, "utf8"),
-    readFile(secondNativePath, "utf8"),
+    serializedCppOutput(tscDirectory),
+    serializedCppOutput(javascriptDirectory),
+    serializedCppOutput(firstNativeDirectory),
+    serializedCppOutput(secondNativeDirectory),
   ]);
   return verifyCppSelfHostContents(outputs[0], outputs[1], outputs[2], outputs[3]);
+}
+
+async function generatedCppPaths(directory: string): Promise<string[]> {
+  return (await readdir(directory))
+    .filter((name) => name.endsWith(".cpp"))
+    .sort()
+    .map((name) => join(directory, name));
+}
+
+async function serializedCppOutput(directory: string): Promise<string> {
+  const names = (await readdir(directory))
+    .filter((name) => name.endsWith(".cpp") || name.endsWith(".hpp"))
+    .sort();
+  const contents = await Promise.all(names.map((name) => readFile(join(directory, name), "utf8")));
+  return JSON.stringify(names.map((name, index) => [name, contents[index]]));
 }
 
 async function writeGitHubSummary(
@@ -326,7 +346,6 @@ async function main(): Promise<void> {
       const cppRepeat = join(cppRepeatBuildDirectory, "main.cpp");
       const jsExecutable = join(outputDirectory, "vexa-js-host");
       const cppExecutable = join(outputDirectory, "vexa-cpp-host");
-      const cppRepeatExecutable = join(outputDirectory, "vexa-cpp-host-repeat");
 
       const tscGenerationStarted = performance.now();
       await runCheckedCommand("node", compiledCliCommand(compiledCli, tsxLoader, textModuleLoader, ["cpp", "build", cppEntryFile, "--out", tscCpp]), tscDirectory);
@@ -335,19 +354,34 @@ async function main(): Promise<void> {
       const jsGenerationStarted = performance.now();
       await runCheckedCommand("node", [join(outputDirectory, "vexa-self-host-2.js"), "cpp", "build", cppEntryFile, "--out", jsCpp], outputDirectory);
       timings[1]!.generationMilliseconds = performance.now() - jsGenerationStarted;
-      await compileNativeExecutable(jsCpp, jsExecutable, [], SELF_HOST_NATIVE_OPTIMIZATION);
+      const jsNativeBuild = await compileNativeExecutable(
+        await generatedCppPaths(jsBuildDirectory),
+        jsExecutable,
+        [],
+        SELF_HOST_NATIVE_OPTIMIZATION
+      );
+      timings[2]!.optimization = `${jsNativeBuild.compiler} ${SELF_HOST_NATIVE_OPTIMIZATION}${jsNativeBuild.fallbackFromGcc ? " (g++ ICE fallback)" : ""}`;
 
       const cppGenerationStarted = performance.now();
       await runCheckedCommand(jsExecutable, ["cpp", "build", cppEntryFile, "--out", cppCpp], rootDirectory);
       timings[2]!.generationMilliseconds = performance.now() - cppGenerationStarted;
-      await compileNativeExecutable(cppCpp, cppExecutable, [], SELF_HOST_NATIVE_OPTIMIZATION);
+      await compileNativeExecutable(
+        await generatedCppPaths(cppBuildDirectory),
+        cppExecutable,
+        [],
+        SELF_HOST_NATIVE_OPTIMIZATION
+      );
 
       const cppRepeatGenerationStarted = performance.now();
       await runCheckedCommand(cppExecutable, ["cpp", "build", cppEntryFile, "--out", cppRepeat], rootDirectory);
       timings[2]!.repeatGenerationMilliseconds = performance.now() - cppRepeatGenerationStarted;
-      await compileNativeExecutable(cppRepeat, cppRepeatExecutable, [], SELF_HOST_NATIVE_OPTIMIZATION);
 
-      const hashes = await verifyCppSelfHostOutputs(tscCpp, jsCpp, cppCpp, cppRepeat);
+      const hashes = await verifyCppSelfHostOutputs(
+        tscBuildDirectory,
+        jsBuildDirectory,
+        cppBuildDirectory,
+        cppRepeatBuildDirectory
+      );
       timings[0]!.result = `matches VexaScript JS (${hashes.bootstrapHash})`;
       timings[1]!.result = `matches tsc (${hashes.bootstrapHash})`;
       timings[2]!.result = `native fixed point (${hashes.nativeHash})`;

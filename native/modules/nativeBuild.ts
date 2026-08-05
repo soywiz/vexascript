@@ -139,7 +139,7 @@ async function ensureMimalloc(root: string): Promise<string> {
 }
 
 export async function compileNativeExecutable(
-  cppPath: string,
+  cppPaths: string[],
   executablePath: string,
   extraFlags: string[] = [],
   optimization: NativeOptimization = "-O2"
@@ -157,7 +157,7 @@ export async function compileNativeExecutable(
     ...(process.platform === "darwin" ? ["-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO"] : []),
     ...(process.platform === "win32" ? ["-D_WIN32_WINNT=0x0A00"] : []),
     "-DV8_LOGGING_LEVEL=0",
-    cppPath,
+    ...cppPaths,
     `-I${root}`,
     `-I${oilpan.gcRoot}`,
     `-I${resolve(oilpan.gcRoot, "include")}`,

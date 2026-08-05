@@ -1,8 +1,21 @@
-import { describe, expect, it, join, mkdtemp, readFile, rm, tmpdir, writeFile } from "../../compiler/test/expect";
+import { describe, dirname, expect, it, join, mkdtemp, readFile, readdir, rm, tmpdir, writeFile } from "../../compiler/test/expect";
 import { runCli } from "../../cli/cli";
 import { validateNativeCppSyntax } from "../../cli/nativeBuild";
 
 describe("native CLI syntax", () => {
+  async function generatedNativeSources(output: string): Promise<{ code: string; syntaxPath: string }> {
+    const directory = dirname(output);
+    const names = (await readdir(directory))
+      .filter((name) => name.endsWith(".cpp") || name.endsWith(".hpp"))
+      .sort();
+    const cppNames = names.filter((name) => name.endsWith(".cpp"));
+    const codeParts: string[] = [];
+    for (const name of names) codeParts.push(await readFile(join(directory, name), "utf8"));
+    const syntaxPath = join(directory, "all-generated.cpp");
+    await writeFile(syntaxPath, cppNames.map((name) => `#include "${name}"`).join("\n"), "utf8");
+    return { code: codeParts.join("\n"), syntaxPath };
+  }
+
   it("cpp build accepts the complete TypeScript CLI", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-self-host-"));
     const output = join(dir, "vexa-cli.cpp");
@@ -19,11 +32,12 @@ describe("native CLI syntax", () => {
         output,
       ]);
 
-      const generatedCpp = await readFile(output, "utf8");
+      const generated = await generatedNativeSources(output);
+      const generatedCpp = generated.code;
       expect(generatedCpp.length).toBeGreaterThan(0);
       expect(generatedCpp).toContain("auto contextProgram = vexa::makeManaged<");
       expect(generatedCpp).not.toContain("auto contextProgram = vexa::toInstance<");
-      await validateNativeCppSyntax(output);
+      await validateNativeCppSyntax(generated.syntaxPath);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -37,10 +51,11 @@ describe("native CLI syntax", () => {
       await writeFile(input, 'console.log("debug cpp")', "utf8");
       await runCli(["node", "vexa", "cpp", input, "--out", output, "--native-source-locations"]);
 
-      const outputCode = await readFile(output, "utf8");
+      const generated = await generatedNativeSources(output);
+      const outputCode = generated.code;
       expect(outputCode).toContain("VEXA_NATIVE_SOURCE(u\"");
       expect(outputCode).not.toContain("VEXA_NATIVE_SOURCE(runtime,");
-      await validateNativeCppSyntax(output, { debug: true });
+      await validateNativeCppSyntax(generated.syntaxPath, { debug: true });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

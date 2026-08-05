@@ -202,6 +202,39 @@ let activeExpectedRecordPropertyCppTypes: ReadonlyMap<string, string> | null = n
 let activeExpectedLambdaResultCppType: string | null = null;
 let activeExpectedLambdaParameterCppTypes: readonly string[] | null = null;
 let activeDeferredNativeDefinitions: string[] = [];
+let activeModuleDefinitions: Map<string, string[]> | null = null;
+
+export interface CppProgramFile {
+  relativePath: string;
+  code: string;
+  sourcePath?: string;
+}
+
+interface CppProgramOutput {
+  code: string;
+  files: CppProgramFile[];
+}
+
+function paddedCppModuleIndex(index: number): string {
+  let result = String(index);
+  while (result.length < 4) result = `0${result}`;
+  return result;
+}
+
+function nativeSourcePath(node: Node): string {
+  return node.__vexaNativeSourcePath ?? activeSourceFilePath ?? "<entry>";
+}
+
+function appendModuleDefinition(node: Node, definition: string): void {
+  if (!activeModuleDefinitions) {
+    activeDeferredNativeDefinitions.push(definition);
+    return;
+  }
+  const path = nativeSourcePath(node);
+  const definitions = activeModuleDefinitions.get(path) ?? [];
+  definitions.push(definition);
+  activeModuleDefinitions.set(path, definitions);
+}
 
 function cppName(name: string): string {
   const cached = cppNameCache.get(name);
@@ -8163,7 +8196,7 @@ function emitExtensionProperty(statement: VarStatement): string {
         activeLocalCppTypes.set("this", receiverType);
         let result: string;
         try {
-          result = `${cppTemplatePrefix(statement.typeParameters)}${resultType} ${extensionPropertyCppName(statement)}(${receiverType} __vexa_extension_self) { return ${emitConvertedValue(statement.initializer!, resultType)}; }`;
+          result = `${cppTemplatePrefix(statement.typeParameters)}${activeModuleDefinitions ? "inline " : ""}${resultType} ${extensionPropertyCppName(statement)}(${receiverType} __vexa_extension_self) { return ${emitConvertedValue(statement.initializer!, resultType)}; }`;
         } finally {
           activeThisExpression = previousThisExpression;
         }
@@ -8191,7 +8224,7 @@ function emitExtensionProperty(statement: VarStatement): string {
           try {
             const signature = `${accessorResultType} ${extensionPropertyCppName(statement, setter)}(${receiverType} __vexa_extension_self${parameterInfo.text ? `, ${parameterInfo.text}` : ""})`;
             const body = emitBlock(accessor.body, "  ");
-            return `${cppTemplatePrefix(statement.typeParameters)}${signature} ${emitCallableReturnBoundary(body, "", accessorResultType, false)}`;
+            return `${cppTemplatePrefix(statement.typeParameters)}${activeModuleDefinitions ? "inline " : ""}${signature} ${emitCallableReturnBoundary(body, "", accessorResultType, false)}`;
           } finally {
             activeThisExpression = previousThisExpression;
           }
@@ -8995,6 +9028,14 @@ function emitClassMethod(
   );
 }
 
+function qualifyMethodSignature(signature: string, classType: string): string {
+  const parametersStart = signature.indexOf("(");
+  if (parametersStart < 0) return signature;
+  let nameStart = parametersStart;
+  while (nameStart > 0 && /[A-Za-z0-9_]/.test(signature[nameStart - 1]!)) nameStart -= 1;
+  return `${signature.slice(0, nameStart)}${classType}::${signature.slice(nameStart)}`;
+}
+
 function emitClassMethodWithActiveTypeParameters(
   method: ClassMethodMember,
   statement: ClassStatement
@@ -9060,7 +9101,16 @@ function emitClassMethodWithActiveTypeParameters(
         : asyncResultType !== null
           ? emitAsyncCallableBlock(method.body, "    ", asyncResultType)
           : emitBlock(method.body, "    ");
-      return `${cppTemplatePrefix(method.typeParameters, "  ", true)}  ${method.isStatic ? "static " : virtual}${signature}${override} ${emitCallableReturnBoundary(body, "  ", callableResultType, Boolean(generatorInfo || asyncResultType))}`;
+      const boundary = emitCallableReturnBoundary(body, "  ", callableResultType, Boolean(generatorInfo || asyncResultType));
+      const templatePrefix = cppTemplatePrefix(method.typeParameters, "  ", true);
+      if (activeModuleDefinitions && !statement.typeParameters?.length && !method.typeParameters?.length) {
+        appendModuleDefinition(
+          statement,
+          `${qualifyMethodSignature(signature, cppName(statement.name.name))} ${boundary}`
+        );
+        return `${templatePrefix}  ${method.isStatic ? "static " : virtual}${signature}${override};`;
+      }
+      return `${templatePrefix}  ${method.isStatic ? "static " : virtual}${signature}${override} ${boundary}`;
     }
   );
 }
@@ -9712,20 +9762,26 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   const dynamicKeysFallback = baseClass && mappedBaseClassType
     ? `${mappedBaseClassType}::dynamicKeys()`
     : "vexa::BaseObject::dynamicKeys()";
-  activeDeferredNativeDefinitions.push([
+  const dynamicGetDefinition = [
     cppTemplatePrefix(statement.typeParameters),
-    `inline vexa::Value ${classType}::dynamicGet(const std::u16string& __vexa_key) {`,
+    `${activeModuleDefinitions && !statement.typeParameters?.length ? "" : "inline "}vexa::Value ${classType}::dynamicGet(const std::u16string& __vexa_key) {`,
     emitDynamicKeyDispatch([...dynamicPropertyReads, ...dynamicMethodReads], "  "),
     `  return ${dynamicGetFallback};`,
     "}",
-  ].filter(Boolean).join("\n"));
-  activeDeferredNativeDefinitions.push([
+  ].filter(Boolean).join("\n");
+  const dynamicSetDefinition = [
     cppTemplatePrefix(statement.typeParameters),
-    `inline vexa::Value ${classType}::dynamicSet(const std::u16string& __vexa_key, const vexa::Value& __vexa_value) {`,
+    `${activeModuleDefinitions && !statement.typeParameters?.length ? "" : "inline "}vexa::Value ${classType}::dynamicSet(const std::u16string& __vexa_key, const vexa::Value& __vexa_value) {`,
     emitDynamicKeyDispatch(dynamicPropertyWrites, "  "),
     `  return ${dynamicSetFallback};`,
     "}",
-  ].filter(Boolean).join("\n"));
+  ].filter(Boolean).join("\n");
+  if (activeModuleDefinitions && !statement.typeParameters?.length) {
+    appendModuleDefinition(statement, dynamicGetDefinition);
+    appendModuleDefinition(statement, dynamicSetDefinition);
+  } else {
+    activeDeferredNativeDefinitions.push(dynamicGetDefinition, dynamicSetDefinition);
+  }
   const dynamicMethods = [
     `  const void* dynamicTypeToken() const override { return vexa::nativeTypeToken<${classType}>(); }`,
     `  void* dynamicCast(const void* __vexa_type) override { ${dynamicCastBranches.join(" ")} return nullptr; }`,
@@ -10034,7 +10090,11 @@ interface TopLevelVariableInfo {
   pointee: string | null;
 }
 
-export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {}): string {
+function buildCppProgram(
+  program: Program,
+  semantics: CppEmitSemantics,
+  modular: boolean
+): CppProgramOutput {
   activeClassPropertyCppTypes = new Map();
   activeNativeFunctionCaptureNamesCache = new Map();
   activeNestedClosureCaptureNamesCache = new Map();
@@ -10045,6 +10105,7 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   activeClassSetterCache = new Map();
   activeClassStoredPropertyInfoCache = new Map();
   activeDeferredNativeDefinitions = [];
+  activeModuleDefinitions = modular ? new Map() : null;
   const statements: Statement[] = [];
   const interfaces: InterfaceStatement[] = [];
   const enums: EnumStatement[] = [];
@@ -10279,19 +10340,27 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   }
   clearExpressionTypeCaches();
   const topLevelVariableDeclarations: string[] = [];
+  const topLevelVariableDefinitions: string[] = [];
   for (const rawInfo of topLevelVariableInfo) {
     const info = rawInfo as TopLevelVariableInfo;
     if (info.pointee) {
-      topLevelVariableDeclarations.push(`${info.type} ${info.name} = nullptr;`);
-      topLevelVariableDeclarations.push(`cppgc::Persistent<${info.pointee}> ${info.name}__vexa_root;`);
+      topLevelVariableDeclarations.push(`${modular ? "extern " : ""}${info.type} ${info.name}${modular ? ";" : " = nullptr;"}`);
+      topLevelVariableDeclarations.push(`${modular ? "extern " : ""}cppgc::Persistent<${info.pointee}> ${info.name}__vexa_root;`);
+      if (modular) {
+        topLevelVariableDefinitions.push(`${info.type} ${info.name} = nullptr;`);
+        topLevelVariableDefinitions.push(`cppgc::Persistent<${info.pointee}> ${info.name}__vexa_root;`);
+      }
     } else {
-      topLevelVariableDeclarations.push(`${info.type} ${info.name} = vexa::defaultValue<${info.type}>();`);
+      topLevelVariableDeclarations.push(`${modular ? "extern " : ""}${info.type} ${info.name}${modular ? ";" : ` = vexa::defaultValue<${info.type}>();`}`);
+      if (modular) topLevelVariableDefinitions.push(`${info.type} ${info.name} = vexa::defaultValue<${info.type}>();`);
     }
   }
   const stringLiteralDeclarations: string[] = [];
+  const stringLiteralDefinitions: string[] = [];
   const stringLiteralInitializers: string[] = [];
   for (const [value, name] of activeStringLiteralNames) {
-    stringLiteralDeclarations.push(`static vexa::StringObject* ${name} = nullptr;`);
+    stringLiteralDeclarations.push(`${modular ? "extern " : "static "}vexa::StringObject* ${name}${modular ? ";" : " = nullptr;"}`);
+    if (modular) stringLiteralDefinitions.push(`vexa::StringObject* ${name} = nullptr;`);
     stringLiteralInitializers.push(`  ${name} = __VEXA_STRING_LITERAL(${cppUtf16String(value)});`);
   }
 
@@ -10321,7 +10390,11 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
   for (const statement of classesInDependencyOrder(classes)) classDefinitions.push(emitClass(statement));
   const deferredNativeDefinitions = activeDeferredNativeDefinitions;
   const functionDefinitions: string[] = [];
-  for (const statement of functions) functionDefinitions.push(emitFunction(statement));
+  for (const statement of functions) {
+    const definition = emitFunction(statement);
+    if (modular && !statement.typeParameters?.length) appendModuleDefinition(statement, definition);
+    else functionDefinitions.push(definition);
+  }
   const extensionPropertyDefinitions: string[] = [];
   for (const statement of extensionProperties) extensionPropertyDefinitions.push(emitExtensionProperty(statement));
   const forwardDeclarations: string[] = [];
@@ -10369,6 +10442,17 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
     if (info.type === "vexa::Value") activeDynamicValueNames.add(sourceName);
   }
   const entryStatements: string[] = [];
+  const moduleEntryStatements = new Map<string, string[]>();
+  const appendEntryStatements = (statement: Statement, lines: readonly string[]): void => {
+    if (!modular) {
+      entryStatements.push(...lines);
+      return;
+    }
+    const path = nativeSourcePath(statement);
+    const moduleLines = moduleEntryStatements.get(path) ?? [];
+    moduleLines.push(...lines.map((line) => line.startsWith("    ") ? `  ${line.slice(4)}` : line));
+    moduleEntryStatements.set(path, moduleLines);
+  };
   for (const statement of statements) {
     if (
       statement instanceof FunctionStatement ||
@@ -10382,15 +10466,23 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
         if (!delegate) {
           throw new CppEmitError("C++ variable delegate requires a function or object with a value property", variable);
         }
-        if (activeEmitSourceLocations) appendStatementPreamble(entryStatements, statement, "    ");
-        entryStatements.push(`    auto ${delegate.backingName} = ${emitExpression(variable.delegate)};`);
+        if (activeEmitSourceLocations) {
+          const preamble: string[] = [];
+          appendStatementPreamble(preamble, statement, "    ");
+          appendEntryStatements(statement, preamble);
+        }
+        appendEntryStatements(statement, [`    auto ${delegate.backingName} = ${emitExpression(variable.delegate)};`]);
         continue;
       }
       if (!(variable.name instanceof Identifier)) {
         const emitted = emitStatement(variable, "    ");
         if (emitted) {
-          if (activeEmitSourceLocations) appendStatementPreamble(entryStatements, statement, "    ");
-          entryStatements.push(emitted);
+          if (activeEmitSourceLocations) {
+            const preamble: string[] = [];
+            appendStatementPreamble(preamble, statement, "    ");
+            appendEntryStatements(statement, preamble);
+          }
+          appendEntryStatements(statement, [emitted]);
         }
         continue;
       }
@@ -10402,22 +10494,34 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
         isRecordExpression(variable.initializer)
         ? emitRecordInterfaceAdaptation(variable.initializer, parseTypeNameShape(declaredTypeName).baseName)
         : emitExpressionWithExpectedCppType(variable.initializer, info.type);
-      if (activeEmitSourceLocations) appendStatementPreamble(entryStatements, statement, "    ");
-      entryStatements.push(`    ${info.name} = ${initializer};`);
+      if (activeEmitSourceLocations) {
+        const preamble: string[] = [];
+        appendStatementPreamble(preamble, statement, "    ");
+        appendEntryStatements(statement, preamble);
+      }
+      appendEntryStatements(statement, [`    ${info.name} = ${initializer};`]);
       if (info.pointee) {
-        entryStatements.push(`    ${info.name}__vexa_root = cppgc::Persistent<${info.pointee}>(${info.name});`);
+        appendEntryStatements(statement, [`    ${info.name}__vexa_root = cppgc::Persistent<${info.pointee}>(${info.name});`]);
       }
       continue;
     }
     if (statement instanceof ExprStatement && isDirectSyncCall((statement as ExprStatement).expression)) {
-      if (activeEmitSourceLocations) appendStatementPreamble(entryStatements, statement, "    ");
-      entryStatements.push(`    ${emitWithoutAutoAwait((statement as ExprStatement).expression)}.get();`);
+      if (activeEmitSourceLocations) {
+        const preamble: string[] = [];
+        appendStatementPreamble(preamble, statement, "    ");
+        appendEntryStatements(statement, preamble);
+      }
+      appendEntryStatements(statement, [`    ${emitWithoutAutoAwait((statement as ExprStatement).expression)}.get();`]);
       continue;
     }
     const emitted = emitStatement(statement, "    ");
     if (!emitted) continue;
-    if (activeEmitSourceLocations) appendStatementPreamble(entryStatements, statement, "    ");
-    entryStatements.push(emitted);
+    if (activeEmitSourceLocations) {
+      const preamble: string[] = [];
+      appendStatementPreamble(preamble, statement, "    ");
+      appendEntryStatements(statement, preamble);
+    }
+    appendEntryStatements(statement, [emitted]);
   }
 
   const outputLines: string[] = [
@@ -10463,5 +10567,107 @@ export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {
     "}",
     ""
   );
-  return outputLines.join("\n");
+  const code = outputLines.join("\n");
+  if (!modular) {
+    activeModuleDefinitions = null;
+    return { code, files: [{ relativePath: "main.cpp", code }] };
+  }
+
+  const modulePaths: string[] = [];
+  for (const statement of statements) {
+    const path = nativeSourcePath(statement);
+    if (!modulePaths.includes(path)) modulePaths.push(path);
+  }
+  for (const path of activeModuleDefinitions?.keys() ?? []) {
+    if (!modulePaths.includes(path)) modulePaths.push(path);
+  }
+  const moduleInitializers = new Map<string, string>();
+  const moduleFiles: CppProgramFile[] = [];
+  for (let index = 0; index < modulePaths.length; index += 1) {
+    const sourcePath = modulePaths[index]!;
+    const initializer = `__vexa_initialize_module_${index}`;
+    moduleInitializers.set(sourcePath, initializer);
+    const definitions = activeModuleDefinitions?.get(sourcePath) ?? [];
+    const initialization = moduleEntryStatements.get(sourcePath) ?? [];
+    const lines = [
+      "// Generated by VexaScript.",
+      '#include "program.hpp"',
+      "",
+      ...definitions,
+    ];
+    if (definitions.length > 0) lines.push("");
+    lines.push(`void ${initializer}() {`, ...initialization, "}", "");
+    moduleFiles.push({
+      relativePath: `module-${paddedCppModuleIndex(index)}.cpp`,
+      code: lines.join("\n"),
+      ...(sourcePath === "<entry>" ? {} : { sourcePath }),
+    });
+  }
+
+  const headerDeclarations = declarations;
+  const headerLines = [
+    "// Generated by VexaScript.",
+    "#pragma once",
+    ...cppBindingMetadata(program).headers,
+    '#include "runtime.cpp"',
+    "",
+    ...headerDeclarations,
+  ];
+  if (headerDeclarations.length > 0) headerLines.push("");
+  for (const initializer of moduleInitializers.values()) headerLines.push(`void ${initializer}();`);
+  headerLines.push("");
+
+  const mainLines = [
+    "// Generated by VexaScript.",
+    '#include "program.hpp"',
+    "",
+    ...topLevelVariableDefinitions,
+    ...stringLiteralDefinitions,
+  ];
+  if (topLevelVariableDefinitions.length > 0 || stringLiteralDefinitions.length > 0) mainLines.push("");
+  mainLines.push(
+    "#define __VEXA_STRING_LITERAL(str) vexa::Runtime::retainLiteralString(std::u16string((str), sizeof(str) / sizeof(char16_t) - 1))",
+    "int main(int argc, char** argv) {",
+    `  vexa::Runtime::initialize(${suggestedInitialHeapMegabytes}ULL * 1024 * 1024);`,
+    `  vexa::Runtime::reserveLiterals(${activeStringLiteralNames.size});`,
+    ...stringLiteralInitializers,
+    "#undef __VEXA_STRING_LITERAL",
+    "  vexa::Process process(vexa::platformArguments(argc, argv), vexa::platformEnvironment());",
+    "  vexa::process = &process;",
+    "  try {",
+    ...[...moduleInitializers.values()].map((initializer) => `    ${initializer}();`),
+    "    vexa::Runtime::runEventLoop();",
+    "  } catch (const std::exception& error) {",
+    '    std::cerr << "Uncaught " << error.what();',
+    "    const auto location = vexa::Runtime::sourceLocation();",
+    '    if (!location.empty()) std::cerr << " at " << vexa::utf16ToUtf8(location);',
+    "    std::cerr << std::endl;",
+    "    std::cout.flush();",
+    "    std::cerr.flush();",
+    "    std::_Exit(1);",
+    "  }",
+    "  std::cout.flush();",
+    "  std::cerr.flush();",
+    "  std::_Exit(static_cast<int>(process.exitCode));",
+    "}",
+    ""
+  );
+  activeModuleDefinitions = null;
+  const mainCode = mainLines.join("\n");
+  return {
+    code: mainCode,
+    files: [
+      { relativePath: "program.hpp", code: headerLines.join("\n") },
+      ...moduleFiles,
+      { relativePath: "main.cpp", code: mainCode },
+    ],
+  };
+}
+
+export function emitCppProgram(program: Program, semantics: CppEmitSemantics = {}): string {
+  return buildCppProgram(program, semantics, false).code;
+}
+
+export function emitCppProgramFiles(program: Program, semantics: CppEmitSemantics = {}): CppProgramFile[] {
+  return buildCppProgram(program, semantics, true).files;
 }

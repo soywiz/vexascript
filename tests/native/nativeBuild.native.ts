@@ -117,6 +117,21 @@ describe("native build", () => {
     expect(args.slice(-5)).toEqual(["-I/native include", "-L/native lib", "-lnative", "-o", "/tmp/main"]);
   });
 
+  it("compiles and links every generated C++ translation unit", () => {
+    const args = nativeCompilerArguments(
+      ["/tmp/main.cpp", "/tmp/module-0000.cpp", "/tmp/module-0001.cpp"],
+      "/tmp/main",
+      "/repo/native",
+      "/repo/native/oilpan/gc",
+      "/repo/native/oilpan/gc/build/liboilpan_gc.a",
+      "linux"
+    );
+
+    expect(args).toContain("/tmp/main.cpp");
+    expect(args).toContain("/tmp/module-0000.cpp");
+    expect(args).toContain("/tmp/module-0001.cpp");
+  });
+
   it("builds the portable mimalloc static library", () => {
     const args = nativeMimallocCmakeConfigureArguments("/cache/mimalloc", "/cache/mimalloc/build");
 

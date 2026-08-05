@@ -19,6 +19,11 @@ describe("native module graph profiling", () => {
 
       expect(result.errors).toEqual([]);
       expect(result.code.length > 0).toBe(true);
+      expect(result.files?.map((file) => file.relativePath)).toEqual([
+        "program.hpp",
+        "module-0000.cpp",
+        "main.cpp",
+      ]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -40,6 +45,14 @@ describe("native module graph profiling", () => {
       });
 
       expect(result.errors).toEqual([]);
+      expect(result.files?.map((file) => file.relativePath)).toEqual([
+        "program.hpp",
+        "module-0000.cpp",
+        "module-0001.cpp",
+        "main.cpp",
+      ]);
+      expect(result.files?.filter((file) => file.relativePath.endsWith(".cpp")).every((file) =>
+        file.code.includes('#include "program.hpp"'))).toBe(true);
       expect(events.map((event) => event.phase)).toEqual([
         "load-and-parse",
         "module-isolation-resolution",

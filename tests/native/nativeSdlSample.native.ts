@@ -24,17 +24,18 @@ describe("native SDL2 sample", () => {
     const sourcePath = join(process.cwd(), "samples", "ffi-sdl2", "dynamic.vx");
     const nativeResult = await compileNativeModuleGraph(sourcePath, "optimized");
     const javaScriptResult = transpile(await readFile(sourcePath, "utf8"), { sourceFilePath: sourcePath });
+    const nativeCode = nativeResult.files?.map((file) => file.code).join("\n") ?? nativeResult.code;
 
     expect(nativeResult.errors).toEqual([]);
-    expect(nativeResult.code).toContain("vexa::LibraryOpen::symbol(");
-    expect(nativeResult.code).toContain('"/opt/homebrew/lib/libSDL2.dylib"');
-    expect(nativeResult.code).toContain("class __vexa_module_0_SDLEvent final");
-    expect(nativeResult.code).toContain("std::int32_t& commonType;");
-    expect(nativeResult.code).toContain("__vexa_module_0_SDLEvent()");
-    expect(nativeResult.code).toContain("vexa::ArrayBufferObject* keyCount");
-    expect(nativeResult.code).toContain("makeManaged<__vexa_module_0_SDLRect>(368, 193, 64, 64)");
-    expect(nativeResult.code).toContain("vexa::runAsync(");
-    expect(nativeResult.code).toContain("vexa::FFIPointerObject*");
+    expect(nativeCode).toContain("vexa::LibraryOpen::symbol(");
+    expect(nativeCode).toContain('"/opt/homebrew/lib/libSDL2.dylib"');
+    expect(nativeCode).toContain("class __vexa_module_0_SDLEvent final");
+    expect(nativeCode).toContain("std::int32_t& commonType;");
+    expect(nativeCode).toContain("__vexa_module_0_SDLEvent()");
+    expect(nativeCode).toContain("vexa::ArrayBufferObject* keyCount");
+    expect(nativeCode).toContain("makeManaged<__vexa_module_0_SDLRect>(368, 193, 64, 64)");
+    expect(nativeCode).toContain("vexa::runAsync(");
+    expect(nativeCode).toContain("vexa::FFIPointerObject*");
     expect(javaScriptResult.errors).toEqual([]);
     expect(javaScriptResult.code).toContain("globalThis.Deno?.dlopen");
     expect(javaScriptResult.code).toContain('CreateWindow: { name: "SDL_CreateWindow", parameters:');

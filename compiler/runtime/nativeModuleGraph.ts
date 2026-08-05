@@ -661,6 +661,7 @@ export async function compileNativeModuleGraph(
     sourceFilePath: entryFilePath,
     target,
     emit: "cpp",
+    emitCppModuleFiles: true,
     emitNativeSourceLocations: options.emitNativeSourceLocations ?? false,
     emitSourceMap: false,
     typeCheck: options.typeCheck ?? true,
@@ -682,6 +683,7 @@ export async function compileNativeModuleGraph(
     watchedFiles: stringSetValues(watchedFiles),
     nativeCompilerFlags: cppBindingMetadata(mergedProgram).flags,
   };
+  if (result.files !== undefined) nativeResult.files = result.files;
   if (result.sourceMap !== undefined) nativeResult.sourceMap = result.sourceMap;
   return nativeResult;
 }

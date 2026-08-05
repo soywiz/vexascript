@@ -47,6 +47,28 @@ describe("io utilities", () => {
       "process.stdout.write('out'); process.stderr.write('err'); process.exit(3)",
     ]);
 
-    expect(result).toEqual({ code: 3, stdout: "out", stderr: "err" });
+    expect(result).toEqual({ code: 3, signal: null, stdout: "out", stderr: "err" });
+  });
+
+  it("captures command termination signals and streams output chunks", async () => {
+    if (process.platform === "win32") return;
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    const result = await runCommandCapture(process.execPath, [
+      "-e",
+      "process.stdout.write('before-out'); process.stderr.write('before-err'); setTimeout(() => process.kill(process.pid, 'SIGTERM'), 10)",
+    ], {
+      onStdout: (chunk) => stdoutChunks.push(chunk),
+      onStderr: (chunk) => stderrChunks.push(chunk),
+    });
+
+    expect(result).toEqual({
+      code: null,
+      signal: "SIGTERM",
+      stdout: "before-out",
+      stderr: "before-err",
+    });
+    expect(stdoutChunks.join("")).toBe("before-out");
+    expect(stderrChunks.join("")).toBe("before-err");
   });
 });

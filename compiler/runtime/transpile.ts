@@ -30,7 +30,7 @@ import {
   mapAnalysisIssueCodeToDiagnosticCode
 } from "compiler/diagnosticCodes";
 import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
-import { CppEmitError, emitCppProgram } from "./cppEmitter";
+import { CppEmitError, emitCppProgram, emitCppProgramFiles, type CppProgramFile } from "./cppEmitter";
 
 export interface TranspileDiagnostic {
   file: string;
@@ -44,6 +44,7 @@ export interface TranspileDiagnostic {
 
 export interface TranspileResult {
   code: string;
+  files?: CppProgramFile[];
   warnings: string[];
   errors: string[];
   diagnostics: TranspileDiagnostic[];
@@ -106,6 +107,8 @@ export interface TranspileOptions {
   typeCheck?: boolean;
   /** Output language. Defaults to JavaScript. */
   emit?: EmitLanguage;
+  /** Emit a header, entry point, and one C++ translation unit per source module. */
+  emitCppModuleFiles?: boolean;
   /** Emit per-statement native source hooks for diagnostic C++ builds. */
   emitNativeSourceLocations?: boolean;
   preserveSourceLineOffsets?: boolean;
@@ -443,10 +446,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
       for (const resolution of artifacts.analysis.getExtensionPropertyResolutions()) {
         extensionPropertyResolutions.set(resolution.expression, resolution);
       }
-      const result: TranspileResult = {
-        code: emitCppProgram(
-          lowerProgram(artifacts.ast, { lowerRangeForLoops: true, expressionTypeName }),
-          {
+      const cppProgram = lowerProgram(artifacts.ast, { lowerRangeForLoops: true, expressionTypeName });
+      const cppSemantics = {
             ...(options.sourceFilePath ? { sourceFilePath: options.sourceFilePath } : {}),
             ...(options.emitNativeSourceLocations ? { emitSourceLocations: true } : {}),
             expressionTypes: artifacts.analysis.getExpressionTypes(),
@@ -458,8 +459,11 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
             operatorResolutions,
             extensionPropertyResolutions,
             receiverLambdas: artifacts.analysis.getReceiverLambdas()
-          }
-        ),
+          };
+      const cppFiles = options.emitCppModuleFiles ? emitCppProgramFiles(cppProgram, cppSemantics) : undefined;
+      const result: TranspileResult = {
+        code: cppFiles?.find((file) => file.relativePath === "main.cpp")?.code ?? emitCppProgram(cppProgram, cppSemantics),
+        ...(cppFiles ? { files: cppFiles } : {}),
         warnings: [],
         errors: [],
         diagnostics: []

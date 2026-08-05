@@ -215,7 +215,9 @@ describe("CLI", () => {
     await runCli(["node", "vexa", "cpp", input, "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
-    expect(outputCode).toContain('#include "runtime.cpp"');
+    const headerCode = await readFile(join(dir, "program.hpp"), "utf8");
+    expect(outputCode).toContain('#include "program.hpp"');
+    expect(headerCode).toContain('#include "runtime.cpp"');
     expect(outputCode).not.toContain("VEXA_NATIVE_SOURCE(");
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });
@@ -241,7 +243,8 @@ describe("CLI", () => {
     await runCli(["node", "vexa", "cpp", validInput, "--out", cppOutput]);
 
     expect((await readFile(jsOutput, "utf8")).length).toBeGreaterThan(0);
-    expect(await readFile(cppOutput, "utf8")).toContain('#include "runtime.cpp"');
+    expect(await readFile(cppOutput, "utf8")).toContain('#include "program.hpp"');
+    expect(await readFile(join(dir, "program.hpp"), "utf8")).toContain('#include "runtime.cpp"');
     await expect(runCli(["node", "vexa", "build", invalidInput, "--out", join(dir, "invalid.js")]))
       .rejects.toThrow("TypeScript semantic analysis failed");
     await expect(runCli(["node", "vexa", "cpp", invalidInput, "--out", join(dir, "invalid.cpp")]))

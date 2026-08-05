@@ -1,10 +1,12 @@
 import {
   describe,
+  dirname,
   expect,
   it,
   join,
   mkdtemp,
   readFile,
+  readdir,
   writeFile,
   rm,
   tmpdir,
@@ -23,6 +25,16 @@ function nativeCliModuleArgs(): string[] {
     "--import", "./scripts/registerTextModuleLoader.cjs",
     "./cli/cli.ts",
   ];
+}
+
+async function readGeneratedNativeSources(outputPath: string): Promise<string> {
+  const directory = dirname(outputPath);
+  const names = (await readdir(directory))
+    .filter((name) => name.endsWith(".cpp") || name.endsWith(".hpp"))
+    .sort();
+  const parts: string[] = [];
+  for (const name of names) parts.push(await readFile(join(directory, name), "utf8"));
+  return parts.join("\n");
 }
 
 describe("native language smoke", () => {
@@ -326,7 +338,7 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
         ffiCppPath,
       ], { cwd: process.cwd() });
       expect(ffiBuild.code, `${ffiBuild.stdout}\n${ffiBuild.stderr}`).toBe(0);
-      const ffiCode = await readFile(ffiCppPath, "utf8");
+      const ffiCode = await readGeneratedNativeSources(ffiCppPath);
       expect(ffiCode).toContain("makeManaged<vexa::ArrayBufferObject>(8)");
       expect(ffiCode).toContain("NativePair");
 

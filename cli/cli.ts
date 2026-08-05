@@ -229,7 +229,7 @@ async function buildFile(
 }
 
 interface NativeCompilationCache {
-  version: 1;
+  version: 2;
   compilerVersion: string;
   sourcePath: string;
   cppPath: string;
@@ -240,10 +240,12 @@ interface NativeCompilationCache {
   jsxFragmentFactory: string;
   watchedFiles: Record<string, number>;
   nativeCompilerFlags: string[];
+  generatedCppPaths: string[];
 }
 
 interface NativeCompilationResult {
   paths: NativeProgramPaths;
+  cppPaths: string[];
   nativeCompilerFlags: string[];
 }
 
@@ -265,7 +267,7 @@ async function readNativeCompilationCache(cachePath: string): Promise<NativeComp
   if (!content) return null;
   try {
     const cache = JSON.parse(content) as NativeCompilationCache;
-    return cache.version === 1 ? cache : null;
+    return cache.version === 2 ? cache : null;
   } catch {
     return null;
   }
@@ -273,8 +275,8 @@ async function readNativeCompilationCache(cachePath: string): Promise<NativeComp
 
 async function isNativeCompilationCacheValid(
   cache: NativeCompilationCache | null,
-  options: Omit<NativeCompilationCache, "watchedFiles" | "nativeCompilerFlags">,
-  cppPath: string
+  options: Omit<NativeCompilationCache, "watchedFiles" | "nativeCompilerFlags" | "generatedCppPaths">,
+  cppPaths: readonly string[]
 ): Promise<boolean> {
   if (!cache || cache.version !== options.version || cache.compilerVersion !== options.compilerVersion ||
       cache.sourcePath !== options.sourcePath || cache.cppPath !== options.cppPath ||
@@ -283,7 +285,9 @@ async function isNativeCompilationCacheValid(
       cache.jsxFactory !== options.jsxFactory || cache.jsxFragmentFactory !== options.jsxFragmentFactory) {
     return false;
   }
-  if (!(await vfs().stat(cppPath).catch((_error) => null))) return false;
+  for (const cppPath of cppPaths) {
+    if (!(await vfs().stat(cppPath).catch((_error) => null))) return false;
+  }
   const files = await nativeFileSignatures(Object.keys(cache.watchedFiles));
   if (!files) return false;
   return Object.entries(files).every(([path, mtimeMs]) => cache.watchedFiles[path] === mtimeMs);
@@ -324,7 +328,7 @@ async function compileNativeProgram(
   await mkdir(paths.buildRoot, { recursive: true });
   const cachePath = resolve(paths.buildRoot, ".vexa-native-cache.json");
   const cacheOptions = {
-    version: 1 as const,
+    version: 2 as const,
     compilerVersion: COMPILER_VERSION,
     sourcePath: paths.sourcePath,
     cppPath: paths.cppPath,
@@ -335,9 +339,9 @@ async function compileNativeProgram(
     jsxFragmentFactory: jsxOptions.jsxFragmentFactory,
   };
   const cached = await readNativeCompilationCache(cachePath);
-  if (await isNativeCompilationCacheValid(cached, cacheOptions, paths.cppPath)) {
+  if (await isNativeCompilationCacheValid(cached, cacheOptions, cached?.generatedCppPaths ?? [])) {
     console.log(`Reusing cached C++: ${paths.cppPath}`);
-    return { paths, nativeCompilerFlags: cached!.nativeCompilerFlags };
+    return { paths, cppPaths: cached!.generatedCppPaths, nativeCompilerFlags: cached!.nativeCompilerFlags };
   }
   const typeCheckStartedAt = monotonicNow();
   let typeCheckElapsedMs = 0;
@@ -377,7 +381,15 @@ async function compileNativeProgram(
     throw new Error(`Compilation failed for ${paths.sourcePath}`);
   }
   const writeStartedAt = monotonicNow();
-  await vfs().writeFile(paths.cppPath, result.code);
+  const generatedFiles = result.files ?? [{ relativePath: "main.cpp", code: result.code }];
+  const cppPaths = generatedFiles
+    .filter((file) => file.relativePath.endsWith(".cpp"))
+    .map((file) => resolve(paths.buildRoot, file.relativePath));
+  for (const file of generatedFiles) {
+    const outputPath = resolve(paths.buildRoot, file.relativePath);
+    await mkdir(dirname(outputPath), { recursive: true });
+    await vfs().writeFile(outputPath, file.code);
+  }
   phaseTimings.set("type-check", typeCheckElapsedMs);
   phaseTimings.set("write", monotonicNow() - writeStartedAt);
   phaseTimings.set("cpp-generation-total", monotonicNow() - buildStartedAt);
@@ -393,8 +405,9 @@ async function compileNativeProgram(
     ...cacheOptions,
     watchedFiles: watchedFileSignatures ?? {},
     nativeCompilerFlags: result.nativeCompilerFlags,
+    generatedCppPaths: cppPaths,
   } satisfies NativeCompilationCache));
-  return { paths, nativeCompilerFlags: result.nativeCompilerFlags };
+  return { paths, cppPaths, nativeCompilerFlags: result.nativeCompilerFlags };
 }
 
 async function linkNativeProgram(
@@ -409,11 +422,19 @@ async function linkNativeProgram(
 ): Promise<string> {
   const compilation = await compileNativeProgram(input, out, buildDir, target, typeCheck, emitNativeSourceLocations, jsxOptions);
   const paths = compilation.paths as NativeProgramPaths;
+  const cppPaths = compilation.cppPaths as string[];
   const nativeCompilerFlags = compilation.nativeCompilerFlags as string[];
   const linkedCppPath = paths.cppPath;
   const linkedExecutablePath = paths.executablePath;
   const executableInfo = await vfs().stat(paths.executablePath).catch((_error) => null);
-  const cppInfo = await vfs().stat(paths.cppPath).catch((_error) => null);
+  let generatedCppIsOlder = executableInfo !== null;
+  for (const path of cppPaths) {
+    const cppInfo = await vfs().stat(path).catch((_error) => null);
+    if (!cppInfo || !executableInfo || executableInfo.mtimeMs < cppInfo.mtimeMs) {
+      generatedCppIsOlder = false;
+      break;
+    }
+  }
   const linkCachePath = resolve(paths.buildRoot, ".vexa-native-link-cache.json");
   let linkCache = "";
   try {
@@ -422,14 +443,14 @@ async function linkNativeProgram(
     linkCache = "";
   }
   const linkCacheMatches = linkCache === `${optimization}\n${JSON.stringify(nativeCompilerFlags)}`;
-  if (executableInfo && cppInfo && executableInfo.mtimeMs >= cppInfo.mtimeMs && linkCacheMatches) {
+  if (executableInfo && generatedCppIsOlder && linkCacheMatches) {
     console.log(`Reusing cached native executable: ${paths.executablePath}`);
     return linkedExecutablePath;
   }
   console.log(`Compiling native executable with ${nativeCompilerCommand()} ${optimization}: ${paths.executablePath}`);
   const nativeCompileStartedAt = monotonicNow();
   await linkNativeExecutable(
-    paths.cppPath,
+    cppPaths,
     paths.executablePath,
     nativeCompilerFlags,
     optimization
@@ -512,8 +533,14 @@ async function buildCppModuleGraph(
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
   const writeStartedAt = monotonicNow();
-  await mkdir(dirname(outputPath), { recursive: true });
-  await vfs().writeFile(outputPath, result.code);
+  const generatedFiles = result.files ?? [{ relativePath: "main.cpp", code: result.code }];
+  for (const file of generatedFiles) {
+    const generatedPath = file.relativePath === "main.cpp"
+      ? outputPath
+      : resolve(dirname(outputPath), file.relativePath);
+    await mkdir(dirname(generatedPath), { recursive: true });
+    await vfs().writeFile(generatedPath, file.code);
+  }
   phaseTimings.set("write", monotonicNow() - writeStartedAt);
   phaseTimings.set("type-check", typeCheckElapsedMs);
   phaseTimings.set("total", monotonicNow() - buildStartedAt);

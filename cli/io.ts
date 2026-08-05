@@ -10,8 +10,16 @@ export { fileExists, isDirectory } from "../compiler/utils/fs";
 
 export interface CommandOutput {
   code: number | null;
+  signal?: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
+}
+
+interface CommandCaptureOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
 }
 
 export function runtimePlatform(): string {
@@ -80,7 +88,7 @@ export async function resolveNativeProgramPaths(
 }
 
 export async function linkNativeExecutable(
-  cppPath: string,
+  cppPath: readonly string[],
   executablePath: string,
   extraFlags: string[] = [],
   optimization?: NativeOptimization
@@ -205,7 +213,7 @@ export async function runCommand(
 export async function runCommandCapture(
   command: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
+  options: CommandCaptureOptions = {}
 ): Promise<CommandOutput> {
   return await new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
@@ -218,10 +226,16 @@ export async function runCommandCapture(
     let stderr = "";
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => { stdout += chunk; });
-    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      options.onStdout?.(chunk);
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+      options.onStderr?.(chunk);
+    });
     child.on("error", reject);
-    child.on("close", (code) => resolvePromise({ code, stdout, stderr }));
+    child.on("close", (code, signal) => resolvePromise({ code, signal, stdout, stderr }));
   });
 }
 
