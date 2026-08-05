@@ -216,6 +216,7 @@ This section is the fast onboarding map for agents and contributors.
   - Syntax tests: `validation/vscodeext-syntax.test.ts`
 - GitHub automation:
   - Continuous-integration workflow that runs the complete repository suite with LCOV coverage on Ubuntu, uploads same-repository coverage reports to Codecov, performs compiler self-hosting on a separate Ubuntu runner, and performs compiled native validation on macOS and Windows, including Windows-specific toolchain/package regressions, on pushes to `main` and relevant pull requests: `.github/workflows/tests.yml`
+  - Coverage job-summary renderer that aggregates LCOV line, function, and branch totals and links the tested commit to Codecov: `scripts/coverageSummary.ts` (tests: `scripts/coverageSummary.test.ts`)
   - Self-hosting CI driver that emits a runnable compiler with `tsc`, performs two byte-identical JavaScript generations, compares TypeScript/JavaScript-hosted C++ generation plus two `g++ -O3` native fixed-point generations, times only C++ generation while running native compilation/linking separately, and publishes the seconds-based timing table with execution modes to the GitHub Actions step summary: `scripts/selfHostCi.ts`
 
 ### Docs and Specs

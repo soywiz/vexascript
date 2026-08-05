@@ -81,6 +81,9 @@ jobs:
       - name: Run test suite with coverage
         run: pnpm coverage
 
+      - name: Add coverage job summary
+        run: node --import tsx scripts/coverageSummary.ts
+
       - name: Upload coverage reports to Codecov
         if: >-
           github.event_name == 'push' ||
