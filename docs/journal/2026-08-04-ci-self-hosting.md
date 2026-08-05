@@ -20,12 +20,15 @@ comparison reports a SHA-256 digest.
 
 The timing table is written to `GITHUB_STEP_SUMMARY`, so it appears in the
 workflow-run summary instead of being mixed into the normal command output.
-Generation and native C++ compile/link times are separate columns; native
-dependency preparation is measured as its own stage so the first cold Oilpan
-and mimalloc build is not charged to the first compile/link interval. The table
-also keeps the second native generation/link as a fixed-point check. The driver
-still publishes the table when a stage fails; the job exits non-zero after all
-independent stages have had a chance to report their state.
+C++ generation is the only benchmark reported in the comparison table, and all
+durations are rendered in seconds. Each generation timer wraps only `vexa cpp
+build`; native dependency preparation and the later g++ compile/link calls run
+outside those timers. Native linking remains part of the validation sequence
+needed to execute the next compiler generation, but its duration is deliberately
+not presented as compiler-generation performance. The table keeps the second
+native generation as a fixed-point check. The driver still publishes the table
+when a stage fails; the job exits non-zero after all independent stages have had
+a chance to report their state.
 
 The bootstrap output and the native fixed-point output are deliberately two
 separate equality contracts. The TypeScript and JavaScript hosts must emit the

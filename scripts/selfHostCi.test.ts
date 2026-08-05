@@ -8,9 +8,9 @@ import {
 describe("self-hosting CI summary", () => {
   it("renders the compiler timing table for the GitHub Actions summary", () => {
     const timings: SelfHostCiTiming[] = [
-      { host: "tsc", generationMilliseconds: 3000, repeatGenerationMilliseconds: null, nativeCompileLinkMilliseconds: 4000, repeatNativeCompileLinkMilliseconds: null, result: "matches VexaScript JS" },
-      { host: "VexaScript JS", generationMilliseconds: 2300, repeatGenerationMilliseconds: null, nativeCompileLinkMilliseconds: 5000, repeatNativeCompileLinkMilliseconds: null, result: "matches tsc" },
-      { host: "VexaScript C++", generationMilliseconds: 4500, repeatGenerationMilliseconds: 4600, nativeCompileLinkMilliseconds: 6000, repeatNativeCompileLinkMilliseconds: 6100, result: "native fixed point" },
+      { host: "tsc", generationMilliseconds: 3000, repeatGenerationMilliseconds: null, result: "matches VexaScript JS" },
+      { host: "VexaScript JS", generationMilliseconds: 2300, repeatGenerationMilliseconds: null, result: "matches tsc" },
+      { host: "VexaScript C++", generationMilliseconds: 4500, repeatGenerationMilliseconds: 4600, result: "native fixed point" },
     ];
     const summary = renderSelfHostSummary([
       { name: "tsc", elapsedMilliseconds: 1200, status: "passed", detail: "TypeScript compiler check passed" },
@@ -18,15 +18,16 @@ describe("self-hosting CI summary", () => {
       { name: "VexaScript C++", elapsedMilliseconds: 4500, status: "passed", detail: "two consecutive native generations are byte-identical" },
     ], "Linux", "/tmp/vexa-self-host-ci", timings);
 
-    expect(summary).toContain("### C++ generation and native compile + link timing");
-    expect(summary).toContain("| Host | Generation 1 | Generation 2 | Native compile + link 1 | Native compile + link 2 | Result |");
-    expect(summary).toContain("| tsc | 3000 ms | — | 4000 ms | — | matches VexaScript JS |");
-    expect(summary).toContain("| VexaScript JS | 2300 ms | — | 5000 ms | — | matches tsc |");
-    expect(summary).toContain("| VexaScript C++ | 4500 ms | 4600 ms | 6000 ms | 6100 ms | native fixed point |");
-    expect(summary).toContain("| Stage | Time | Status | Result |");
-    expect(summary).toContain("| tsc | 1200 ms | passed | TypeScript compiler check passed |");
-    expect(summary).toContain("| VexaScript JS | 2300 ms | passed | two generations are byte-identical |");
-    expect(summary).toContain("| VexaScript C++ | 4500 ms | passed | two consecutive native generations are byte-identical |");
+    expect(summary).toContain("### C++ generation timing");
+    expect(summary).toContain("| Host | Generation 1 | Generation 2 | Result |");
+    expect(summary).toContain("| tsc | 3.00 s | — | matches VexaScript JS |");
+    expect(summary).toContain("| VexaScript JS | 2.30 s | — | matches tsc |");
+    expect(summary).toContain("| VexaScript C++ | 4.50 s | 4.60 s | native fixed point |");
+    expect(summary).toContain("Only `vexa cpp build` is timed");
+    expect(summary).toContain("| Stage | Wall time | Status | Result |");
+    expect(summary).toContain("| tsc | 1.20 s | passed | TypeScript compiler check passed |");
+    expect(summary).toContain("| VexaScript JS | 2.30 s | passed | two generations are byte-identical |");
+    expect(summary).toContain("| VexaScript C++ | 4.50 s | passed | two consecutive native generations are byte-identical |");
     expect(summary).toContain("Status: **passed** on `Linux`.");
   });
 });
