@@ -47,7 +47,7 @@ class Point(val x: number, val y: number) {
 }
 
 sync fun loadUser(id: string): User {
-  val data = fetch(`/api/users/${id}`).json()
+  val data = fetch(`/api/users/$id`).json()
   return User(data.id, data.name)
 }
 {% endhighlightVexaScript %}

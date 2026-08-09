@@ -79,7 +79,9 @@ describe("portable monarch syntax", () => {
     const annotationRule = language.tokenizer["root"]?.find(
       (rule) => rule.match === String.raw`@[A-Za-z_$][\w$]*`
     );
-    const stringRule = language.tokenizer["root"]?.find((rule) => rule.token === "string");
+    const stringRule = language.tokenizer["root"]?.find(
+      (rule) => rule.match === String.raw`"([^"\\]|\\.)*"`
+    );
     const numberRule = language.tokenizer["root"]?.find((rule) => rule.token === "number.float");
 
     expect(annotationRule?.token).toBe("annotation");

@@ -100,6 +100,25 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     cases: identifierCases,
     next: "@generic_declaration",
   };
+  const templateExpressionRules: PortableMonarchRule[] = [
+    { match: String.raw`\}`, token: "delimiter", next: "@pop" },
+    { match: String.raw`\{`, token: "delimiter", next: "@template_expression" },
+    { match: "`", token: "string", next: "@template_string" },
+    { match: String.raw`\/\/.*$`, token: "comment" },
+    { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
+    operatorNameRule,
+    { match: VEXA_REGEXP_LITERAL_PATTERN, token: "regexp" },
+    { match: String.raw`@[A-Za-z_$][\w$]*`, token: "annotation" },
+    genericDeclarationRule,
+    { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
+    { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
+    { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
+    identifierRule,
+    { match: String.raw`[{}()\[\]]`, token: "delimiter" },
+    { match: String.raw`(\.\.\.|\.\.<|\.\.)`, token: "operator" },
+    { match: String.raw`[;,.]`, token: "delimiter" },
+    { match: String.raw`[+\-*/%&|^~<>!=?:]+`, token: "operator" },
+  ];
   return {
     defaultToken: "",
     keywords: [...declarationKeywords, ...modifierKeywords, ...functionKeywords, ...typeKeywords, ...controlKeywords],
@@ -121,6 +140,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         genericDeclarationRule,
         { match: String.raw`(?<![\w)\]])<>`, token: "tag", next: "@jsx_children" },
         { match: String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
+        { match: "`", token: "string", next: "@template_string" },
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
@@ -134,6 +154,18 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`\s+`, token: "" },
         { match: String.raw`<`, token: "operator", switchTo: "@type_parameters" },
       ],
+      template_string: [
+        { match: "`", token: "string", next: "@pop" },
+        { match: String.raw`\\.`, token: "string" },
+        { match: String.raw`\$\{`, token: "delimiter", next: "@template_expression" },
+        { match: String.raw`\$(?=[A-Za-z_$])`, token: "operator", next: "@template_shorthand" },
+        { match: "[^`\\\\$]+", token: "string" },
+        { match: String.raw`\$`, token: "string" },
+      ],
+      template_shorthand: [
+        { match: String.raw`[A-Za-z_$][\w$]*`, token: "identifier", next: "@pop" },
+      ],
+      template_expression: templateExpressionRules,
       type_parameters: [
         { match: String.raw`\s+`, token: "" },
         { match: String.raw`<`, token: "operator", next: "@type_parameters" },
