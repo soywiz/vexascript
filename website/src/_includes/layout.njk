@@ -4,14 +4,28 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ title }}</title>
-    <meta name="description" content="Learn VexaScript through syntax guides, examples, and embedded Monaco editors.">
+
+    {% set description = "Learn VexaScript through syntax guides, examples, and embedded Monaco editors." %}
+    {% set currentUrl = page.url or "/" %}
+    {% set ogUrl = currentUrl | replace(".html", "") %}
+
+    <meta name="description" content="{{ description }}">
+
+    <meta property="og:title" content="VexaScript">
+    <meta property="og:description" content="{{ description }}">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://vexa.soywiz.com{{ ogUrl }}">
+    <meta property="og:image" content="https://vexa.soywiz.com/banner.jpg">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="VexaScript">
+    <meta name="twitter:description" content="{{ description }}">
+
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="alternate icon" type="image/png" href="/favicon.png">
     <link rel="stylesheet" href="{{ generatedAssetHrefs.siteCss }}">
     <link rel="stylesheet" href="{{ generatedAssetHrefs.generatedStyleCss }}">
   </head>
   <body>
-    {% set currentUrl = page.url or "/" %}
     <header class="site-header">
       <div class="site-header-inner">
         <a class="brand" href="/">

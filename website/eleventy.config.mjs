@@ -37,8 +37,7 @@ export default function eleventyConfig(config) {
   });
   config.addPassthroughCopy({ "src/assets/generated": "assets/generated" });
   config.addPassthroughCopy({ "src/assets/site.css": "assets/site.css" });
-  config.addPassthroughCopy({ "src/assets/favicon.svg": "favicon.svg" });
-  config.addPassthroughCopy({ "src/assets/favicon.png": "favicon.png" });
+  config.addPassthroughCopy({ "src/public": "." });
 
   config.addFilter("jsonEncode", (value) => JSON.stringify(value));
   config.addShortcode("year", function() {
