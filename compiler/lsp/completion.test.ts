@@ -59,6 +59,42 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("demo")?.detail).toBe("In-scope function: (a: unknown, b: int) => unknown");
   });
 
+  it("shows narrowed types for in-scope symbols inside smart-cast branches", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun demo(value: any) {
+        if (value is string) {
+          value.charCodeAt(0)
+          val^^^
+        }
+      }
+      `
+    );
+    const ast = parseFile(tokenizeReader(source));
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(ast, line, character, session.analysis, [], { text: source });
+    const value = items.find((item) => item.label === "value");
+
+    expect(value?.detail).toBe("In-scope parameter: string");
+  });
+
+  it("shows narrowed types for incomplete symbols inside subject match arms", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun classify(value: any): string {
+        return match (value) {
+          string -> va^^^
+          else -> "unknown"
+        }
+      }
+      `
+    );
+    const ast = parseFile(tokenizeReader(source));
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(ast, line, character, session.analysis, [], { text: source });
+    const value = items.find((item) => item.label === "value");
+
+    expect(value?.detail).toBe("In-scope parameter: string");
+  });
+
   it("offers contextually typed Promise executor parameters", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       let promise = new Promise((resolve, reject) => {

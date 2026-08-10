@@ -214,6 +214,7 @@ export class TypeChecker {
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private readonly autoAwaitExpressions: Set<Node> = new Set();
   private readonly asyncForStatements: Set<Node> = new Set();
+  private readonly narrowedScopes: Scope[] = [];
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
   private readonly functionStatementsByName: Map<string, FunctionStatement> = new Map();
   private readonly extensionOperatorsByReceiver: Map<string, FunctionStatement[]> = new Map();
@@ -503,7 +504,8 @@ export class TypeChecker {
       receiverLambdas: this.receiverLambdas,
       extensionMethodsByReceiver: this.extensionMethodsByReceiver,
       autoAwaitExpressions: this.autoAwaitExpressions,
-      asyncForStatements: this.asyncForStatements
+      asyncForStatements: this.asyncForStatements,
+      narrowedScopes: [...this.narrowedScopes]
     };
   }
 
@@ -2175,18 +2177,20 @@ export class TypeChecker {
     const thenScope = this.scopeWithNarrowings(
       this.scopeFor(statement.thenBranch, scope),
       truthyNarrowings,
-      truthyExpressionNarrowings
+      truthyExpressionNarrowings,
+      statement.thenBranch
     );
     this.visitStatement(statement.thenBranch, thenScope, flow);
 
     const falsyNarrowings = this.conditionNarrowings(statement.condition, scope, false);
     const falsyExpressionNarrowings = this.conditionExpressionNarrowings(statement.condition, scope, false);
     if (statement.elseBranch) {
-      const elseScope = this.scopeWithNarrowings(
-        this.scopeFor(statement.elseBranch, scope),
-        falsyNarrowings,
-        falsyExpressionNarrowings
-      );
+        const elseScope = this.scopeWithNarrowings(
+          this.scopeFor(statement.elseBranch, scope),
+          falsyNarrowings,
+          falsyExpressionNarrowings,
+          statement.elseBranch
+        );
       this.visitStatement(statement.elseBranch, elseScope, flow);
       if (statementAlwaysExits(statement.thenBranch) && !statementAlwaysExits(statement.elseBranch)) {
         this.applyFlowNarrowings(scope, falsyNarrowings, falsyExpressionNarrowings);
@@ -2257,7 +2261,8 @@ export class TypeChecker {
     const thenScope = this.scopeWithNarrowings(
       this.scopeFor(statement.thenBranch, scope),
       this.conditionNarrowings(statement.condition, scope, true),
-      this.conditionExpressionNarrowings(statement.condition, scope, true)
+      this.conditionExpressionNarrowings(statement.condition, scope, true),
+      statement.thenBranch
     );
     const thenType = this.visitValueBranch(statement.thenBranch, thenScope, flow, expectedType);
     const elseType = statement.elseBranch
@@ -2266,7 +2271,8 @@ export class TypeChecker {
           this.scopeWithNarrowings(
             this.scopeFor(statement.elseBranch, scope),
             this.conditionNarrowings(statement.condition, scope, false),
-            this.conditionExpressionNarrowings(statement.condition, scope, false)
+            this.conditionExpressionNarrowings(statement.condition, scope, false),
+            statement.elseBranch
           ),
           flow,
           expectedType
@@ -2323,16 +2329,18 @@ export class TypeChecker {
   private scopeWithNarrowings(
     scope: Scope,
     narrowings: Map<string, AnalysisType>,
-    expressionNarrowings: Map<string, AnalysisType> = new Map()
+    expressionNarrowings: Map<string, AnalysisType> = new Map(),
+    positionNode: Node = scope.node
   ): Scope {
     if (narrowings.size === 0 && expressionNarrowings.size === 0) return scope;
     const narrowedScope = new Scope(
-      scope.node,
+      positionNode,
       new Map(scope.symbols),
       scope.children,
       scope.parent,
       scope.narrowedExpressionTypes ? new Map(scope.narrowedExpressionTypes) : undefined
     );
+    this.narrowedScopes.push(narrowedScope);
     for (const [name, type] of narrowings) {
       const symbol = this.resolve(name, scope, undefined);
       if (!symbol) continue;

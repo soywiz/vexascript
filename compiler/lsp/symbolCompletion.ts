@@ -133,8 +133,12 @@ export function buildVisibleSymbolCompletionItems({
   options,
   seenLabels
 }: VisibleSymbolCompletionRequest): CompletionItem[] {
+  const symbolAtCursor = analysis.getSymbolAt(line, character)?.symbol;
+  const visibleSymbols = analysis.getVisibleSymbolsAt(line, character).map((symbol) =>
+    symbolAtCursor && symbol.node === symbolAtCursor.node ? symbolAtCursor : symbol
+  );
   const rankedSymbols = rankVisibleSymbols(
-    analysis.getVisibleSymbolsAt(line, character),
+    visibleSymbols,
     expectedTypeName
   );
   const items: CompletionItem[] = [];

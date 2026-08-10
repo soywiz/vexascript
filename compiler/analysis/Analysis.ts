@@ -132,6 +132,7 @@ export class Analysis {
   private readonly extensionMethodsByReceiver: ReadonlyMap<string, ReadonlyMap<string, AnalysisType>>;
   private readonly autoAwaitExpressions: Set<Node>;
   private readonly asyncForStatements: Set<Node>;
+  private readonly narrowedScopes: readonly Scope[];
   private readonly importedSymbols: ReadonlyMap<string, ImportedSymbolResolution>;
 
   constructor(program: Program, options: AnalysisOptions = {}) {
@@ -167,6 +168,7 @@ export class Analysis {
       this.extensionMethodsByReceiver = new Map();
       this.autoAwaitExpressions = new Set();
       this.asyncForStatements = new Set();
+      this.narrowedScopes = [];
       return;
     }
 
@@ -202,6 +204,7 @@ export class Analysis {
     this.extensionMethodsByReceiver = checked.extensionMethodsByReceiver;
     this.autoAwaitExpressions = checked.autoAwaitExpressions;
     this.asyncForStatements = checked.asyncForStatements;
+    this.narrowedScopes = checked.narrowedScopes;
   }
 
   getVisibleSymbolsAt(line: number, character: number): AnalysisSymbol[] {
@@ -210,8 +213,15 @@ export class Analysis {
       return [];
     }
 
+    let effectiveScope = scope;
+    for (const narrowedScope of this.narrowedScopes) {
+      if (this.nodeContainsPosition(narrowedScope.node, line, character)) {
+        effectiveScope = narrowedScope;
+      }
+    }
+
     const visible = new Map<string, AnalysisSymbol>();
-    let current: Scope | undefined = scope;
+    let current: Scope | undefined = effectiveScope;
     while (current) {
       for (const [name, symbol] of current.symbols) {
         if (!visible.has(name)) {

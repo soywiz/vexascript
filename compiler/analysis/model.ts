@@ -135,4 +135,6 @@ export interface CheckedAnalysis {
   // ForStatements whose iterable is an AsyncIterator/AsyncGenerator and that therefore need
   // to be emitted as `for await (... of ...)` and decorated with a suspension gutter icon.
   asyncForStatements: Set<Node>;
+  // Flow-sensitive scope snapshots used by editor features such as completion.
+  narrowedScopes: Scope[];
 }
