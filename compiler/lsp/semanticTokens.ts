@@ -9,6 +9,7 @@ import {
   type SemanticTokens,
   type SemanticTokensLegend
 } from "vscode-languageserver/node.js";
+import { VEXA_KEYWORD_CONTROLS } from "../syntax";
 import { comparePosition, type Position } from "./ranges";
 
 class SimpleSemanticTokensBuilder {
@@ -55,7 +56,13 @@ const TOKEN_TYPES = [
   "annotation",
   "number",
   "string",
-  "operator"
+  "operator",
+  "regexp",
+  "regexpDelimiter",
+  "regexpEscape",
+  "regexpCharacterClass",
+  "regexpSpecial",
+  "regexpFlag"
 ] as const;
 
 const TOKEN_MODIFIERS = [
@@ -89,31 +96,9 @@ export const VEXA_SEMANTIC_TOKENS_LEGEND: SemanticTokensLegend = {
 };
 
 const CONTROL_KEYWORDS = new Set([
-  "return",
-  "throw",
-  "if",
-  "else",
-  "for",
-  "in",
-  "of",
-  "while",
-  "do",
-  "switch",
-  "case",
-  "default",
-  "break",
-  "continue",
+  ...VEXA_KEYWORD_CONTROLS,
   "debugger",
-  "try",
-  "catch",
-  "finally",
-  "defer",
-  "new",
-  "typeof",
-  "void",
-  "delete",
-  "await",
-  "instanceof"
+  "of"
 ]);
 
 const MODIFIER_KEYWORDS = new Set([
@@ -203,6 +188,13 @@ const OPERATOR_SYMBOLS = new Set([
   "&&=",
   "||=",
   "??=",
+  "=>",
+  "->",
+  "<=>",
+  "?.",
+  "!.",
+  "::",
+  "??",
   "<<=",
   ">>=",
   ">>>=",
@@ -846,8 +838,11 @@ function classifyToken(
   if (token.type === TokenType.STRING && token.stringQuote === "single" && [...token.value].length === 1) {
     return "number";
   }
-  if (token.type === TokenType.STRING || token.type === TokenType.REGEXP) {
+  if (token.type === TokenType.STRING) {
     return "string";
+  }
+  if (token.type === TokenType.REGEXP) {
+    return "regexp";
   }
   if (token.type === TokenType.SYMBOL) {
     return OPERATOR_SYMBOLS.has(token.value) ? "operator" : null;
@@ -889,6 +884,100 @@ function classifyToken(
   return "variable";
 }
 
+interface RegExpSemanticPart {
+  start: number;
+  end: number;
+  tokenType: TokenTypeName;
+}
+
+function regexBodyEnd(value: string): number {
+  let inCharacterClass = false;
+  for (let index = 1; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if (character === "[") {
+      inCharacterClass = true;
+      continue;
+    }
+    if (character === "]") {
+      inCharacterClass = false;
+      continue;
+    }
+    if (character === "/" && !inCharacterClass) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function regexCharacterClassEnd(value: string, start: number, bodyEnd: number): number {
+  for (let index = start + 1; index < bodyEnd; index += 1) {
+    if (value[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (value[index] === "]") {
+      return index + 1;
+    }
+  }
+  return bodyEnd;
+}
+
+function regularExpressionSemanticParts(value: string): RegExpSemanticPart[] {
+  const bodyEnd = regexBodyEnd(value);
+  if (bodyEnd <= 1) {
+    return [{ start: 0, end: value.length, tokenType: "regexp" }];
+  }
+
+  const parts: RegExpSemanticPart[] = [
+    { start: 0, end: 1, tokenType: "regexpDelimiter" }
+  ];
+  let literalStart = 1;
+  const flushLiteral = (end: number): void => {
+    if (literalStart < end) {
+      parts.push({ start: literalStart, end, tokenType: "regexp" });
+    }
+  };
+
+  let index = 1;
+  while (index < bodyEnd) {
+    const character = value[index]!;
+    if (character === "\\") {
+      flushLiteral(index);
+      const end = Math.min(index + 2, bodyEnd);
+      parts.push({ start: index, end, tokenType: "regexpEscape" });
+      index = end;
+      literalStart = index;
+      continue;
+    }
+    if (character === "[") {
+      flushLiteral(index);
+      const end = regexCharacterClassEnd(value, index, bodyEnd);
+      parts.push({ start: index, end, tokenType: "regexpCharacterClass" });
+      index = end;
+      literalStart = index;
+      continue;
+    }
+    if ("^$*+?.()|{}".includes(character)) {
+      flushLiteral(index);
+      parts.push({ start: index, end: index + 1, tokenType: "regexpSpecial" });
+      index += 1;
+      literalStart = index;
+      continue;
+    }
+    index += 1;
+  }
+  flushLiteral(bodyEnd);
+  parts.push({ start: bodyEnd, end: bodyEnd + 1, tokenType: "regexpDelimiter" });
+  if (bodyEnd + 1 < value.length) {
+    parts.push({ start: bodyEnd + 1, end: value.length, tokenType: "regexpFlag" });
+  }
+  return parts;
+}
+
 export function createSemanticTokens(params: SemanticTokenParams): SemanticTokens {
   let tokens: Token[] = [];
   try {
@@ -907,6 +996,35 @@ export function createSemanticTokens(params: SemanticTokenParams): SemanticToken
       continue;
     }
 
+    const tokenModifiers = params.tokenModifiersByRangeKey?.get(semanticTokenRangeKey(token.range)) ?? 0;
+    if (token.type === TokenType.REGEXP) {
+      for (const part of regularExpressionSemanticParts(token.value)) {
+        const partRange: SourceRange = {
+          start: {
+            offset: token.range.start.offset + part.start,
+            line: token.range.start.line,
+            column: token.range.start.column + part.start
+          },
+          end: {
+            offset: token.range.start.offset + part.end,
+            line: token.range.start.line,
+            column: token.range.start.column + part.end
+          }
+        };
+        if (!intersectsRange(partRange, params.range)) {
+          continue;
+        }
+        builder.push(
+          partRange.start.line,
+          partRange.start.column,
+          part.end - part.start,
+          TOKEN_TYPE_INDEX[part.tokenType],
+          tokenModifiers
+        );
+      }
+      continue;
+    }
+
     const tokenType = classifyToken(token, identifierKinds, params.analysis);
     if (!tokenType) {
       continue;
@@ -919,7 +1037,6 @@ export function createSemanticTokens(params: SemanticTokenParams): SemanticToken
       continue;
     }
 
-    const tokenModifiers = params.tokenModifiersByRangeKey?.get(semanticTokenRangeKey(token.range)) ?? 0;
     builder.push(line, character, length, TOKEN_TYPE_INDEX[tokenType], tokenModifiers);
   }
 

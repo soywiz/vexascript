@@ -70,6 +70,37 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "'aaa'" && token.tokenType === "string")).toBe(true);
   });
 
+  it("keeps regular-expression literals distinct from strings", () => {
+    const source = "val matcher = /^user-[0-9]+$/i\n";
+    const decoded = decodeTokens(source, createSemanticTokens({ text: source }).data);
+
+    expect(decoded.some((token) => token.lexeme === "user-" && token.tokenType === "regexp")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "/^user-[0-9]+$/i" && token.tokenType === "string")).toBe(false);
+  });
+
+  it("colors regular-expression syntax parts separately", () => {
+    const source = "val matcher = /^user-[0-9]+$/i\nval escaped = /\\d+\\.com/g\n";
+    const decoded = decodeTokens(source, createSemanticTokens({ text: source }).data);
+
+    for (const [lexeme, tokenType] of [["^", "regexpSpecial"], ["+", "regexpSpecial"], ["$", "regexpSpecial"], ["\\d", "regexpEscape"], ["\\.", "regexpEscape"]]) {
+      expect(decoded.some((token) => token.lexeme === lexeme && token.tokenType === tokenType)).toBe(true);
+    }
+    expect(decoded.some((token) => token.lexeme === "[0-9]" && token.tokenType === "regexpCharacterClass")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "i" && token.tokenType === "regexpFlag")).toBe(true);
+  });
+
+  it("highlights VexaScript matcher keywords and arrow operators", () => {
+    const source = "match (value) { /^user$/i -> \"user\"; >= 10 and < 20 -> \"teen\" }\n";
+    const decoded = decodeTokens(source, createSemanticTokens({ text: source }).data);
+
+    for (const keyword of ["match", "and"]) {
+      expect(decoded.some((token) => token.lexeme === keyword && token.tokenType === "keywordControl")).toBe(true);
+    }
+    for (const operator of ["->", ">=", "<"]) {
+      expect(decoded.some((token) => token.lexeme === operator && token.tokenType === "operator")).toBe(true);
+    }
+  });
+
   it("highlights control-flow keywords nested inside expressions", () => {
     const source = dedent`
       fun read(value: string | undefined): string {
@@ -217,7 +248,7 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "2" && token.tokenType === "number")).toBe(
       true
     );
-    expect(decoded.some((token) => token.lexeme === "/a+/g" && token.tokenType === "string")).toBe(
+    expect(decoded.some((token) => token.lexeme === "a" && token.tokenType === "regexp")).toBe(
       true
     );
   });
