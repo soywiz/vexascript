@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "lib": [
+      "es2025",
+      "dom"
+    ],
+    "types": []
+  }
+}

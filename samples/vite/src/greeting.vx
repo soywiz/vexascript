@@ -1,0 +1,1 @@
+export fun greeting(name: string) => `Hello ${name} from VexaScript + Vite`

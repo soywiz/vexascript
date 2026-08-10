@@ -27,7 +27,7 @@ import type {
   UnaryExpression, UpdateExpression, WhileStatement,
   WithStatement
 } from "../ast/ast";
-import { TokenCommentKind, type Token } from "../parser/tokenizer";
+import { looksLikeRegularExpressionMatchArm, TokenCommentKind, type Token } from "../parser/tokenizer";
 
 // === LEGACY TOKEN-BASED FORMATTER (all renamed with Legacy suffix) ===
 
@@ -383,7 +383,10 @@ function tokenizeForFormattingLegacy(source: string): FormatTokenLegacy[] {
       charAtOrEmptyLegacy(source, i + 1) !== "/" &&
       charAtOrEmptyLegacy(source, i + 1) !== "*" &&
       charAtOrEmptyLegacy(source, i + 1) !== "=" &&
-      formatTokenAllowsRegExpLiteralLegacy(previousSignificantFormatTokenLegacy(tokens))
+      (
+        formatTokenAllowsRegExpLiteralLegacy(previousSignificantFormatTokenLegacy(tokens)) ||
+        looksLikeRegularExpressionMatchArm(source, i)
+      )
     ) {
       const end = readFormatRegExpLiteralLegacy(source, i);
       if (end > i + 1) {

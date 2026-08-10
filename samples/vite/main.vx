@@ -1,0 +1,3 @@
+import { greeting } from "./src/greeting.vx"
+
+console.log(greeting("sample"))

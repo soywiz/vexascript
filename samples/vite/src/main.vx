@@ -1,0 +1,9 @@
+import { greeting } from "./greeting.vx"
+
+val message = greeting("browser")
+val target = document.querySelector("#app")
+if (target) {
+  target.textContent = message
+}
+
+console.log(message)

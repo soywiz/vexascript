@@ -487,6 +487,28 @@ describe("formatSource", () => {
       "let re = /a\\/b+/gi\nlet quotient = total / count"
     );
   });
+
+  it("keeps regular expression match arms intact when template literals use the legacy formatter", () => {
+    const source = [
+      "fun classify(value:any):string{",
+      "return match(value){",
+      '"ok"->`ok`',
+      '/^user-[0-9]+$/i->"user id"',
+      'else->"unknown"',
+      "}",
+      "}"
+    ].join("\n");
+
+    expect(formatSource(source)).toBe(
+      'fun classify(value: any): string {\n' +
+      '  return match(value) {\n' +
+      '    "ok" -> `ok`\n' +
+      '    /^user-[0-9]+$/i -> "user id"\n' +
+      '    else -> "unknown"\n' +
+      '  }\n' +
+      '}'
+    );
+  });
   it("formats object and array destructuring declarations", () => {
     expect(formatSource("let{id,name:display,...rest}=source\nconst[first,,third=3,...tail]=values")).toBe(
       "let { id, name: display, ...rest } = source\nconst [first, , third = 3, ...tail] = values"

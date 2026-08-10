@@ -327,12 +327,12 @@ function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
   return false;
 }
 
-function looksLikeRegularExpressionMatchArm(reader: StrReader): boolean {
-  let offset = reader.offset + 1;
+export function looksLikeRegularExpressionMatchArm(source: string, start: number): boolean {
+  let offset = start + 1;
   let escaped = false;
   let inCharacterClass = false;
-  while (offset < reader.length) {
-    const code = reader.str.charCodeAt(offset);
+  while (offset < source.length) {
+    const code = source.charCodeAt(offset);
     if (code === 10 || code === 13) return false;
     if (escaped) {
       escaped = false;
@@ -344,9 +344,9 @@ function looksLikeRegularExpressionMatchArm(reader: StrReader): boolean {
       inCharacterClass = false;
     } else if (code === CODE_SLASH && !inCharacterClass) {
       offset += 1;
-      while (offset < reader.length && isIdentifierPartCode(reader.str.charCodeAt(offset))) offset += 1;
-      while (offset < reader.length && isWhitespaceCode(reader.str.charCodeAt(offset))) offset += 1;
-      return reader.str.startsWith("->", offset);
+      while (offset < source.length && isIdentifierPartCode(source.charCodeAt(offset))) offset += 1;
+      while (offset < source.length && isWhitespaceCode(source.charCodeAt(offset))) offset += 1;
+      return source.startsWith("->", offset);
     }
     offset += 1;
   }
@@ -1235,7 +1235,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       pushFragment(readNonTemplateCodeFragment(
         reader,
         previousSignificantToken,
-        looksLikeRegularExpressionMatchArm(reader)
+        looksLikeRegularExpressionMatchArm(reader.str, reader.offset)
       ));
     }
     throw new TokenizeError("Unterminated JSX expression container", sourceRange(braceStart, snapshot(reader)));
@@ -1418,7 +1418,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
     pushFragment(readNonTemplateCodeFragment(
       reader,
       previousSignificantToken,
-      looksLikeRegularExpressionMatchArm(reader)
+      looksLikeRegularExpressionMatchArm(reader.str, reader.offset)
     ));
   }
 

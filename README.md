@@ -52,6 +52,28 @@ vexa test
 
 Install the [VexaScript VS Code extension](https://marketplace.visualstudio.com/items?itemName=soywiz.vexascript-vscodeext) for diagnostics, quick fixes, go-to-definition, hover docs, and completions.
 
+## Vite
+
+The main `vexascript` package includes a dependency-free Vite plugin entrypoint. Vite remains a development dependency of the application, not a dependency of VexaScript:
+
+```bash
+npm install --save-dev vite vexascript
+```
+
+```javascript
+// vite.config.mjs
+import { defineConfig } from "vite";
+import { vexascript } from "vexascript/vite";
+
+export default defineConfig({
+  plugins: [vexascript()]
+});
+```
+
+Vite can then load `.vx` entrypoints and imports directly. The plugin emits ESM and source maps, respects the nearest `vexascript.json` or `tsconfig.json` JSX factory settings, and supports normal Vite development, production builds, and HMR.
+
+Like Vite's TypeScript transform, this per-module transform does not perform whole-project type checking. Use the VexaScript language server for editor diagnostics and a CLI check in CI. See the runnable [`samples/vite`](samples/vite) project.
+
 ## CLI reference
 
 | Command | Description |
@@ -112,7 +134,7 @@ count++
 # Install dependencies
 pnpm install
 
-# Build the compiler bundle (dist/vexa.js)
+# Build the CLI and package integrations (dist/vexa.js and dist/vite.js)
 pnpm build
 
 # Run the full test suite

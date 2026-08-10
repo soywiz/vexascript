@@ -116,7 +116,7 @@ This section is the fast onboarding map for agents and contributors.
 
 ### Tooling and Integration Pieces
 
-- Distribution builds: `scripts/build.ts` bundles the Node CLI with esbuild and copies its runtime declarations through asynchronous Node APIs, while `scripts/buildVscodeServer.ts` performs the equivalent plugin-aware server bundle for the VS Code extension; `scripts/build.test.ts` and `compiler/vscodeext-packaging.test.ts` validate the emitted package contracts.
+- Distribution builds: `scripts/build.ts` bundles both the Node CLI and the dependency-free `vexascript/vite` package entrypoint with esbuild, copies the Vite public declaration file plus compiler runtime declarations through asynchronous Node APIs, while `scripts/buildVscodeServer.ts` performs the equivalent plugin-aware server bundle for the VS Code extension; `scripts/build.test.ts` and `compiler/vscodeext-packaging.test.ts` validate the emitted package contracts.
 - Release publishing: `scripts/bumpVersion.ts`, exposed as `pnpm bump <version>`, requires a clean attached Git branch, validates and synchronizes the root package plus VS Code extension versions, creates a release commit when needed, creates an annotated version tag, and pushes that tag to `origin`; `scripts/bumpVersion.test.ts` covers manifest synchronization and the Git release sequence.
 - Compilation pipeline (separate shared parse and parse + analysis artifacts):
   - Parse phase: `compiler/pipeline/parse.ts`
@@ -125,6 +125,7 @@ This section is the fast onboarding map for agents and contributors.
   - Compile phase tests: `compiler/pipeline/compile.test.ts`
 - CLI (`cli/`):
   - Node-only local disk implementation of the shared VFS contract for CLI/LSP/test flows: `cli/localVfs.ts`
+  - Vite transform plugin exported as `vexascript/vite`, with no runtime Vite dependency: `cli/vitePlugin.ts`; its dependency-free structural public types live in `cli/vitePlugin.public.d.ts`, unit coverage in `cli/vitePlugin.test.ts`, and the external-project integration sample in `samples/vite/`.
   - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `cli/cli-bin.ts`
   - CLI entrypoint and command implementation, including the nested `cpp`/`cpp build`/`cpp link`/`cpp run` native workflows, single-file transpilation, and directory-based static site builds that materialize the `serve` bundle and mapped assets into `dist`/`outDir`: `cli/cli.ts`
   - Node-only native build adapter that plans source-specific `<input>.build/` intermediates, extracts the vendored Oilpan and mimalloc archives through CMake into `~/.vexascript/native`, creates platform- and architecture-named static library artifacts there, compiles generated translation units to objects with bounded parallelism, and links them separately with selectable `-O0`/`-O1`/`-O2`/`-O3`/`-Os`/`-Oz`/`-Og` levels and platform system libraries: `cli/nativeBuild.ts`
