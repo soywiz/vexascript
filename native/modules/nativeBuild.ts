@@ -157,7 +157,7 @@ export async function compileNativeExecutable(
     "-fno-rtti",
     "-DCPPGC_IS_STANDALONE=1",
     ...(process.platform === "darwin" ? ["-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO"] : []),
-    ...(process.platform === "win32" ? ["-D_WIN32_WINNT=0x0A00"] : []),
+    ...(process.platform === "win32" ? ["-D_WIN32_WINNT=0x0A00", "-DNOMINMAX"] : []),
     "-DV8_LOGGING_LEVEL=0",
     ...cppPaths,
     `-I${root}`,

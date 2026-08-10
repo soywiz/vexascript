@@ -299,7 +299,7 @@ function nativeCompilerFrontendArguments(
     "-fno-rtti",
     "-DCPPGC_IS_STANDALONE=1",
     ...(platform === "darwin" ? ["-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO"] : []),
-    ...(platform === "win32" ? ["-D_WIN32_WINNT=0x0A00"] : []),
+    ...(platform === "win32" ? ["-D_WIN32_WINNT=0x0A00", "-DNOMINMAX"] : []),
     "-DV8_LOGGING_LEVEL=0",
     ...(options.debug || instrumented ? ["-DVEXA_NATIVE_DEBUG=1"] : []),
     ...(options.gcStress ? ["-DVEXA_NATIVE_GC_STRESS=1"] : []),
