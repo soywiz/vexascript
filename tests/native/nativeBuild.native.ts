@@ -50,6 +50,14 @@ describe("native build", () => {
     expect(args).toContain("-fno-rtti");
     expect(args).not.toContain("-DVEXA_NATIVE_DEBUG=1");
     expect(args).toContain("-ldl");
+
+    const cmakeArgs = nativeCmakeConfigureArguments(
+      "/repo/native/oilpan/gc",
+      "/repo/native/oilpan/gc/build",
+      "linux",
+      { compiler: "clang++" }
+    );
+    expect(cmakeArgs).toContain("-DCMAKE_CXX_COMPILER=clang++");
   });
 
   it("writes Oilpan archives into the platform-named native cache root", () => {
@@ -133,11 +141,12 @@ describe("native build", () => {
   });
 
   it("builds the portable mimalloc static library", () => {
-    const args = nativeMimallocCmakeConfigureArguments("/cache/mimalloc", "/cache/mimalloc/build");
+    const args = nativeMimallocCmakeConfigureArguments("/cache/mimalloc", "/cache/mimalloc/build", "linux", "clang++");
 
     expect(args).toContain("-DMI_BUILD_SHARED=OFF");
     expect(args).toContain("-DMI_BUILD_TESTS=OFF");
     expect(args).toContain("-DMI_OVERRIDE=ON");
+    expect(args).toContain("-DCMAKE_C_COMPILER=clang");
   });
 
   it("offers a debug sanitizer mode for native CI and stress runs", () => {

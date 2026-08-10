@@ -24,6 +24,10 @@ function nativeTargetArchitecture(): string {
   }
 }
 
+function nativeCompilerCacheSuffix(compiler: "clang++" | "g++"): string {
+  return compiler === "clang++" ? "clang" : "gcc";
+}
+
 export async function nativeCompilerCommand(): Promise<"clang++" | "g++"> {
   if (process.platform === "win32") return "g++";
   const result = await nativeRunCommandCapture("clang++", ["--version"], process.cwd());
@@ -87,14 +91,15 @@ async function ensureDependencySources(
   await runNativeCommand("cmake", ["-E", "tar", "xf", archive], cacheRoot);
 }
 
-async function ensureOilpan(root: string): Promise<{ gcRoot: string; libraryPath: string }> {
+async function ensureOilpan(root: string, compiler: "clang++" | "g++"): Promise<{ gcRoot: string; libraryPath: string }> {
   const archive = resolve(root, "oilpan-20260622.zip");
-  const dependencyRoot = resolve(nativeVexaCacheRoot(), "oilpan-20260622");
+  const compilerSuffix = nativeCompilerCacheSuffix(compiler);
+  const dependencyRoot = resolve(nativeVexaCacheRoot(), `oilpan-20260622-${compilerSuffix}`);
   const extractedRoot = resolve(dependencyRoot, "oilpan-standalone-main");
   const gcRoot = resolve(extractedRoot, "gc");
   const buildRoot = resolve(gcRoot, "build-vexa");
-  const generatedLibraryPath = resolve(nativeVexaCacheRoot(), "liboilpan_gc.a");
-  const libraryPath = resolve(nativeVexaCacheRoot(), `liboilpan-20260622-${process.platform}-${nativeTargetArchitecture()}.a`);
+  const generatedLibraryPath = resolve(dependencyRoot, "liboilpan_gc.a");
+  const libraryPath = resolve(nativeVexaCacheRoot(), `liboilpan-20260622-${process.platform}-${nativeTargetArchitecture()}-${compilerSuffix}.a`);
   if (await pathExists(libraryPath)) return { gcRoot, libraryPath };
 
   await ensureDependencySources(archive, dependencyRoot, resolve(gcRoot, "CMakeLists.txt"));
@@ -104,8 +109,8 @@ async function ensureOilpan(root: string): Promise<{ gcRoot: string; libraryPath
       "-S", gcRoot,
       "-B", buildRoot,
       "-DCMAKE_BUILD_TYPE=Release",
-      "-DCMAKE_CXX_COMPILER=g++",
-      `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${nativeVexaCacheRoot()}`,
+      `-DCMAKE_CXX_COMPILER=${compiler}`,
+      `-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${dependencyRoot}`,
     ], process.cwd());
     await runNativeCommand("cmake", ["--build", buildRoot, "--parallel"], process.cwd());
     await nativeCopyFile(generatedLibraryPath, libraryPath);
@@ -114,13 +119,14 @@ async function ensureOilpan(root: string): Promise<{ gcRoot: string; libraryPath
   return { gcRoot, libraryPath };
 }
 
-async function ensureMimalloc(root: string): Promise<string> {
+async function ensureMimalloc(root: string, compiler: "clang++" | "g++"): Promise<string> {
   const archive = resolve(root, "mimalloc-3.4.3.zip");
-  const dependencyRoot = resolve(nativeVexaCacheRoot(), "mimalloc-3.4.3");
+  const compilerSuffix = nativeCompilerCacheSuffix(compiler);
+  const dependencyRoot = resolve(nativeVexaCacheRoot(), `mimalloc-3.4.3-${compilerSuffix}`);
   const extractedRoot = resolve(dependencyRoot, "mimalloc-3.4.3");
   const buildRoot = resolve(extractedRoot, "build-vexa");
   const generatedLibraryPath = resolve(buildRoot, "libmimalloc.a");
-  const libraryPath = resolve(nativeVexaCacheRoot(), `libmimalloc-3.4.3-${process.platform}-${nativeTargetArchitecture()}.a`);
+  const libraryPath = resolve(nativeVexaCacheRoot(), `libmimalloc-3.4.3-${process.platform}-${nativeTargetArchitecture()}-${compilerSuffix}.a`);
   if (await pathExists(libraryPath)) return libraryPath;
 
   await ensureDependencySources(archive, dependencyRoot, resolve(extractedRoot, "CMakeLists.txt"));
@@ -130,7 +136,7 @@ async function ensureMimalloc(root: string): Promise<string> {
       "-S", extractedRoot,
       "-B", buildRoot,
       "-DCMAKE_BUILD_TYPE=Release",
-      "-DCMAKE_C_COMPILER=gcc",
+      `-DCMAKE_C_COMPILER=${compiler === "clang++" ? "clang" : "gcc"}`,
       "-DMI_BUILD_SHARED=OFF",
       "-DMI_BUILD_TESTS=OFF",
       "-DMI_OVERRIDE=ON",
@@ -148,8 +154,9 @@ export async function compileNativeExecutable(
   optimization: NativeOptimization = "-O2"
 ): Promise<void> {
   const root = nativeRuntimeRoot();
-  const oilpan = await ensureOilpan(root);
-  const mimallocLibraryPath = await ensureMimalloc(root);
+  const compiler = await nativeCompilerCommand();
+  const oilpan = await ensureOilpan(root, compiler);
+  const mimallocLibraryPath = await ensureMimalloc(root, compiler);
   await nativeCreateDirectory(dirname(executablePath), true);
   const args = [
     "-std=c++20",

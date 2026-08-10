@@ -65,7 +65,7 @@ describe("native Oilpan cycles", () => {
     const executablePath = join(outputRoot, "cycle");
     try {
       await writeFile(cppPath, GC_CYCLE_PROGRAM, "utf8");
-      await compileNativeExecutable(cppPath, executablePath);
+      await compileNativeExecutable(cppPath, executablePath, [], "-O0");
       const result = await runCommandCapture(executablePath, []);
       expect(result.code).toBe(0);
       expect(result.stderr).toBe("");

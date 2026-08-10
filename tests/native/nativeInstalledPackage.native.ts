@@ -43,6 +43,7 @@ describe("installed native package", () => {
         sourcePath,
         "--out",
         executablePath,
+        "-O0",
       ], { cwd: consumerRoot });
       const executed = await runCommandCapture(executablePath, [], { cwd: consumerRoot });
       expect(executed.code).toBe(0);

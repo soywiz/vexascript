@@ -180,6 +180,7 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
         executablePath,
         "--build-dir",
         buildRoot,
+        "-O0",
       ]);
 
       await runCli([
@@ -192,6 +193,7 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
         executablePath,
         "--build-dir",
         buildRoot,
+        "-O0",
       ]);
 
       const result = await runCommandCapture(executablePath, [], { cwd: outputRoot });
@@ -207,7 +209,7 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
       expect(/Compiled: .*\(project-load [\d.]+ms, declarations [\d.]+ms, load-and-parse [\d.]+ms,/.test(logs)).toBe(true);
       expect(/cpp-emission [\d.]+ms/.test(logs)).toBe(true);
       expect(/type-check [\d.]+ms, write [\d.]+ms, cpp-generation-total [\d.]+ms/.test(logs)).toBe(true);
-      expect(/Compiling native executable with (?:g\+\+|clang\+\+) -O2:/.test(logs)).toBe(true);
+      expect(/Compiling native executable with (?:g\+\+|clang\+\+) -O0:/.test(logs)).toBe(true);
       expect(/native-compile-link [\d.]+ms/.test(logs)).toBe(true);
       expect(logs).toContain(`Reusing cached C++: ${join(buildRoot, "main.cpp")}`);
       expect(logs).toContain(`Reusing cached native executable: ${executablePath}`);

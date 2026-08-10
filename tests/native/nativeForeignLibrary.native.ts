@@ -49,6 +49,7 @@ describe("native foreign libraries", () => {
         sourcePath,
         "--out",
         executablePath,
+        "-O0",
         "--build-dir",
         buildRoot,
       ]);
