@@ -131,8 +131,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Type-check native sources
+        run: pnpm exec tsc --noEmit --project tsconfig.native.json
+
       - name: Run native test suite
-        run: pnpm test:native
+        env:
+          VEXA_NATIVE_SINGLE_FILE: "1"
+          VEXA_SKIP_NATIVE_SELF_COMPILATION: "1"
+        run: >-
+          node --import tsx --import ./scripts/registerTextModuleLoader.cjs
+          --test --test-reporter spec
+          tests/native/index.native.ts
 
   self-host:
     name: Compiler self-hosting (isolated runner)

@@ -291,6 +291,46 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
     }
   });
 
+  it("self-compiles the native C++ CLI", {
+    skip: process.env["VEXA_SKIP_NATIVE_SELF_COMPILATION"] === "1",
+  }, async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-cli-self-compilation-"));
+    const nativeCliPath = join(outputRoot, "vexa-native-cli");
+    const selfExecutablePath = join(outputRoot, "vexa-self-hosted");
+    const buildRoot = join(outputRoot, "build");
+    try {
+      await runCli([
+        "node",
+        "vexa",
+        "cpp",
+        "link",
+        join(process.cwd(), "cli", "cli.ts"),
+        "--out",
+        nativeCliPath,
+        "--build-dir",
+        buildRoot,
+        "-O0",
+      ]);
+
+      const selfLink = await runCommandCapture(nativeCliPath, [
+        "cpp",
+        "link",
+        join(process.cwd(), "cli", "cli.ts"),
+        "--out",
+        selfExecutablePath,
+        "--build-dir",
+        join(outputRoot, "self-build"),
+        "-O0",
+      ], { cwd: process.cwd() });
+      expect(selfLink.code, `${selfLink.stdout}\n${selfLink.stderr}`).toBe(0);
+      const selfVersion = await runCommandCapture(selfExecutablePath, ["--version"], { cwd: process.cwd() });
+      expect(selfVersion.code).toBe(0);
+      expect(selfVersion.stdout.trim()).toBe("0.11.0");
+    } finally {
+      await rm(outputRoot, { recursive: true, force: true });
+    }
+  });
+
   it("uses the native C++ CLI to produce fixture and Pixi JavaScript bundles", async () => {
     const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-cli-bundle-"));
     const nativeCliPath = join(outputRoot, "vexa-native-cli");
@@ -311,22 +351,6 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
         buildRoot,
         "-O0",
       ]);
-
-      const selfExecutablePath = join(outputRoot, "vexa-self-hosted");
-      const selfLink = await runCommandCapture(nativeCliPath, [
-        "cpp",
-        "link",
-        join(process.cwd(), "cli", "cli.ts"),
-        "--out",
-        selfExecutablePath,
-        "--build-dir",
-        join(outputRoot, "self-build"),
-        "-O0",
-      ], { cwd: process.cwd() });
-      expect(selfLink.code, `${selfLink.stdout}\n${selfLink.stderr}`).toBe(0);
-      const selfVersion = await runCommandCapture(selfExecutablePath, ["--version"], { cwd: process.cwd() });
-      expect(selfVersion.code).toBe(0);
-      expect(selfVersion.stdout.trim()).toBe("0.11.0");
 
       const ffiSourcePath = join(process.cwd(), "testFixtures", "native-ffi-smoke.vx");
       const ffiCppPath = join(outputRoot, "native-ffi-smoke.cpp");

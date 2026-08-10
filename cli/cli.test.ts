@@ -699,6 +699,7 @@ describe("CLI", () => {
     const linkHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
     expect(linkHelp).toContain("Usage: vexa cpp link [options] <input>");
     expect(linkHelp).toContain("--build-dir <dir>");
+    expect(linkHelp).toContain("--single-file");
     expect(linkHelp).toContain("-O0");
     expect(linkHelp).toContain("-O1");
     expect(linkHelp).toContain("-O2");
