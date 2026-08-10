@@ -25,6 +25,7 @@ function nativeTargetArchitecture(): string {
 }
 
 export async function nativeCompilerCommand(): Promise<"clang++" | "g++"> {
+  if (process.platform === "win32") return "g++";
   const result = await nativeRunCommandCapture("clang++", ["--version"], process.cwd());
   return result.code === 0 ? "clang++" : "g++";
 }

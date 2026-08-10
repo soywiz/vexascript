@@ -25,3 +25,13 @@ ensures the define remains present.
 The earlier warning-only leads about deprecated CRT functions and unsupported
 visibility attributes were unrelated: they did not stop compilation, while
 the fatal diagnostics explicitly referenced `minwindef.h` macro expansion.
+
+## Linker follow-up
+
+After the macro fix, Windows compilation reached the final link but failed with
+Clang's linker exit code 1120. The vendored Oilpan and mimalloc archives are
+built with the MinGW `g++` toolchain, while the native command probe selected
+`clang++` whenever it was installed. Windows now consistently selects `g++` for
+the executable link in both the Node CLI and native self-hosted CLI paths;
+Clang remains available on Linux where its frontend is useful for the known
+GCC compiler failure mode.

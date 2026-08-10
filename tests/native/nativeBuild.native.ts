@@ -60,9 +60,10 @@ describe("native build", () => {
     expect(args).toContain("-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=/home/tester/.vexascript/native");
   });
 
-  it("prefers Clang for native builds and keeps Clang for Linux syntax validation", async () => {
+  it("uses a compatible native compiler for each platform", async () => {
     const compiler = await nativeCompiler("linux");
     expect(["clang++", "g++"]).toContain(compiler);
+    expect(await nativeCompiler("win32")).toBe("g++");
     expect(nativeSyntaxCompiler("linux")).toBe("clang++");
     expect(nativeSyntaxCompiler("darwin")).toBe("g++");
     expect(nativeSyntaxCompiler("win32")).toBe("g++");
