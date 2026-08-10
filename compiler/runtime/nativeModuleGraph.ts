@@ -661,7 +661,7 @@ export async function compileNativeModuleGraph(
     sourceFilePath: entryFilePath,
     target,
     emit: "cpp",
-    emitCppModuleFiles: true,
+    emitCppModuleFiles: options.emitCppModuleFiles ?? true,
     emitNativeSourceLocations: options.emitNativeSourceLocations ?? false,
     emitSourceMap: false,
     typeCheck: options.typeCheck ?? true,

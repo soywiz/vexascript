@@ -60,10 +60,9 @@ describe("native build", () => {
     expect(args).toContain("-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=/home/tester/.vexascript/native");
   });
 
-  it("uses GCC for native builds and Clang for Linux syntax validation", () => {
-    expect(nativeCompiler("linux")).toBe("g++");
-    expect(nativeCompiler("darwin")).toBe("g++");
-    expect(nativeCompiler("win32")).toBe("g++");
+  it("prefers Clang for native builds and keeps Clang for Linux syntax validation", async () => {
+    const compiler = await nativeCompiler("linux");
+    expect(["clang++", "g++"]).toContain(compiler);
     expect(nativeSyntaxCompiler("linux")).toBe("clang++");
     expect(nativeSyntaxCompiler("darwin")).toBe("g++");
     expect(nativeSyntaxCompiler("win32")).toBe("g++");
@@ -87,7 +86,7 @@ describe("native build", () => {
   });
 
   for (const optimization of ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "-Og"] as const) {
-    it(`passes an explicit ${optimization} optimization level to g++`, () => {
+    it(`passes an explicit ${optimization} optimization level to the native compiler`, () => {
       const args = nativeCompilerArguments(
         "/tmp/main.cpp",
         "/tmp/main",

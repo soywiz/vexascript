@@ -9,8 +9,8 @@ export interface NativeBuildResult {
   executablePath: string;
   oilpanLibraryPath: string;
   mimallocLibraryPath?: string;
-  compiler: "g++" | "clang++" | "g++ + clang++";
-  fallbackFromGcc?: boolean;
+  compiler: "g++" | "clang++" | "g++ + clang++" | "clang++ + g++";
+  fallbackCompiler?: "g++" | "clang++";
 }
 
 export interface NativeProgramPaths {
@@ -345,8 +345,8 @@ export function nativeCompilerArguments(
   ];
 }
 
-export function nativeCompiler(platform: NodeJS.Platform = process.platform): "g++" {
-  return nativeCompilerCommand(platform);
+export async function nativeCompiler(platform: NodeJS.Platform = process.platform): Promise<"g++" | "clang++"> {
+  return await nativeCompilerCommand(platform);
 }
 
 export function nativeSyntaxCompiler(platform: NodeJS.Platform = process.platform): "clang++" | "g++" {
@@ -401,6 +401,7 @@ export async function compileNativeExecutable(
 ): Promise<NativeBuildResult> {
   const sanitizers = process.env["VEXA_NATIVE_SANITIZERS"] === "1";
   const { root, gcRoot, oilpanLibraryPath, mimallocLibraryPath } = await preparedNativeBuildDependencies();
+  const compiler = await nativeCompiler(process.platform);
   await mkdir(dirname(executablePath), { recursive: true });
 
   if (typeof cppPaths !== "string" && cppPaths.length > 1) {
@@ -408,7 +409,8 @@ export async function compileNativeExecutable(
     await mkdir(objectRoot, { recursive: true });
     const objectExtension = process.platform === "win32" ? ".obj" : ".o";
     const objectPaths = cppPaths.map((_path, index) => resolve(objectRoot, `${String(index).padStart(4, "0")}${objectExtension}`));
-    let usedGccFallback = false;
+    let fallbackCompiler: "g++" | "clang++" | undefined;
+    let usedCompiler = compiler;
     let nextSourceIndex = 0;
     let compilationStopped = false;
     const compileNext = async (): Promise<void> => {
@@ -430,17 +432,18 @@ export async function compileNativeExecutable(
           objectPath,
         ];
         try {
-          const result = await runCommandCapture(nativeCompiler(process.platform), compileArgs);
+          const result = await runCommandCapture(usedCompiler, compileArgs);
           if (result.code === 0) continue;
           const compilerOutput = `${result.stdout}\n${result.stderr}`;
           if (process.platform === "linux" && /internal compiler error/i.test(compilerOutput)) {
-            usedGccFallback = true;
-            console.warn(`g++ reported an internal compiler error for ${sourcePath}; retrying with clang++`);
-            const fallback = await runCommandCapture("clang++", compileArgs);
+            fallbackCompiler = compiler === "clang++" ? "g++" : "clang++";
+            usedCompiler = fallbackCompiler;
+            console.warn(`${compiler} reported an internal compiler error for ${sourcePath}; retrying with ${fallbackCompiler}`);
+            const fallback = await runCommandCapture(fallbackCompiler, compileArgs);
             if (fallback.code === 0) continue;
-            throw new Error(fallback.stderr || fallback.stdout || `clang++ failed compiling ${sourcePath}`);
+            throw new Error(fallback.stderr || fallback.stdout || `${fallbackCompiler} failed compiling ${sourcePath}`);
           }
-          throw new Error(result.stderr || result.stdout || `${nativeCompiler(process.platform)} failed compiling ${sourcePath}`);
+          throw new Error(result.stderr || result.stdout || `${usedCompiler} failed compiling ${sourcePath}`);
         } catch (error) {
           compilationStopped = true;
           throw error;
@@ -463,15 +466,15 @@ export async function compileNativeExecutable(
       "-o",
       executablePath,
     ];
-    const linkResult = await runCommandCapture(nativeCompiler(process.platform), linkArgs);
+    const linkResult = await runCommandCapture(usedCompiler, linkArgs);
     if (linkResult.code !== 0) {
-      throw new Error(linkResult.stderr || linkResult.stdout || `${nativeCompiler(process.platform)} failed linking ${executablePath}`);
+      throw new Error(linkResult.stderr || linkResult.stdout || `${usedCompiler} failed linking ${executablePath}`);
     }
     return {
       executablePath,
       oilpanLibraryPath,
-      compiler: usedGccFallback ? "g++ + clang++" : nativeCompiler(process.platform),
-      ...(usedGccFallback ? { fallbackFromGcc: true } : {}),
+      compiler: fallbackCompiler ? `${compiler} + ${fallbackCompiler}` as "g++ + clang++" | "clang++ + g++" : usedCompiler,
+      ...(fallbackCompiler ? { fallbackCompiler } : {}),
       ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
     };
   }
@@ -484,27 +487,28 @@ export async function compileNativeExecutable(
     extraFlags,
     ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
   });
-  const result = await runCommandCapture(nativeCompiler(process.platform), args);
+  const result = await runCommandCapture(compiler, args);
   if (result.code === 0) return {
     executablePath,
     oilpanLibraryPath,
-    compiler: nativeCompiler(process.platform),
+    compiler,
     ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
   };
 
   const compilerOutput = `${result.stdout}\n${result.stderr}`;
   if (process.platform === "linux" && /internal compiler error/i.test(compilerOutput)) {
-    console.warn("g++ reported an internal compiler error; retrying the native build with clang++");
-    const fallback = await runCommandCapture("clang++", args);
+    const fallbackCompiler = compiler === "clang++" ? "g++" : "clang++";
+    console.warn(`${compiler} reported an internal compiler error; retrying the native build with ${fallbackCompiler}`);
+    const fallback = await runCommandCapture(fallbackCompiler, args);
     if (fallback.code === 0) return {
       executablePath,
       oilpanLibraryPath,
-      compiler: "clang++",
-      fallbackFromGcc: true,
+      compiler: `${compiler} + ${fallbackCompiler}` as "g++ + clang++" | "clang++ + g++",
+      fallbackCompiler,
       ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
     };
-    throw new Error(fallback.stderr || fallback.stdout || `clang++ failed with ${fallback.signal ? `signal ${fallback.signal}` : `exit code ${fallback.code ?? "unknown"}`} after g++ reported an internal compiler error`);
+    throw new Error(fallback.stderr || fallback.stdout || `${fallbackCompiler} failed with ${fallback.signal ? `signal ${fallback.signal}` : `exit code ${fallback.code ?? "unknown"}`} after ${compiler} reported an internal compiler error`);
   }
 
-  throw new Error(result.stderr || result.stdout || `${nativeCompiler(process.platform)} failed with ${result.signal ? `signal ${result.signal}` : `exit code ${result.code ?? "unknown"}`}`);
+  throw new Error(result.stderr || result.stdout || `${compiler} failed with ${result.signal ? `signal ${result.signal}` : `exit code ${result.code ?? "unknown"}`}`);
 }

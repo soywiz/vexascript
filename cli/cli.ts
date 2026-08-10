@@ -447,7 +447,7 @@ async function linkNativeProgram(
     console.log(`Reusing cached native executable: ${paths.executablePath}`);
     return linkedExecutablePath;
   }
-  console.log(`Compiling native executable with ${nativeCompilerCommand()} ${optimization}: ${paths.executablePath}`);
+  console.log(`Compiling native executable with ${await nativeCompilerCommand()} ${optimization}: ${paths.executablePath}`);
   const nativeCompileStartedAt = monotonicNow();
   await linkNativeExecutable(
     cppPaths,
@@ -474,7 +474,8 @@ async function buildCppModuleGraph(
   target: TranspileTarget,
   typeCheck = true,
   emitNativeSourceLocations = false,
-  jsxOptions: JsxOptions = new JsxOptions()
+  jsxOptions: JsxOptions = new JsxOptions(),
+  emitCppModuleFiles = true
 ): Promise<void> {
   const buildStartedAt = monotonicNow();
   const phaseTimings = new Map<string, number>();
@@ -520,6 +521,7 @@ async function buildCppModuleGraph(
     importMappings: nativeImportMappings(project),
     typeCheck: vexaTypeCheck,
     emitNativeSourceLocations,
+    emitCppModuleFiles,
     profile,
     ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
@@ -1023,9 +1025,10 @@ function createProgram(): Command {
   cppCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
   cppCommand.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
   cppCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
-  cppCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
+  cppCommand.option("--single-file", "Emit one C++ translation unit instead of module files");
+  cppCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; singleFile?: boolean }): Promise<void> => {
       const buildOptions = resolveBuildOptions(opts);
-      await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions);
+      await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, opts.singleFile !== true);
   });
 
   const cppBuildCommand = cppCommand.command("build");
@@ -1037,9 +1040,10 @@ function createProgram(): Command {
   cppBuildCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
   cppBuildCommand.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
   cppBuildCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
-  cppBuildCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean }): Promise<void> => {
+  cppBuildCommand.option("--single-file", "Emit one C++ translation unit instead of module files");
+  cppBuildCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; singleFile?: boolean }): Promise<void> => {
     const buildOptions = resolveBuildOptions(opts);
-    await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions);
+    await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, opts.singleFile !== true);
   });
 
   const addCppLinkCommand = (name: "link" | "run", description: string): void => {

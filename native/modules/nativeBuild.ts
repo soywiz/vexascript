@@ -24,17 +24,19 @@ function nativeTargetArchitecture(): string {
   }
 }
 
-export function nativeCompilerCommand(): "g++" {
-  return "g++";
+export async function nativeCompilerCommand(): Promise<"clang++" | "g++"> {
+  const result = await nativeRunCommandCapture("clang++", ["--version"], process.cwd());
+  return result.code === 0 ? "clang++" : "g++";
 }
 
 async function runNativeCompiler(args: string[]): Promise<void> {
-  let result = await nativeRunCommandCapture("g++", args, process.cwd());
+  const compiler = await nativeCompilerCommand();
+  let result = await nativeRunCommandCapture(compiler, args, process.cwd());
   if (result.code !== 0 && process.platform === "linux" && /internal compiler error/i.test(result.stdout + result.stderr)) {
-    result = await nativeRunCommandCapture("clang++", args, process.cwd());
+    result = await nativeRunCommandCapture(compiler === "clang++" ? "g++" : "clang++", args, process.cwd());
   }
   if (result.code !== 0) {
-    throw new Error(result.stdout || result.stderr || `g++ exited with code ${result.code}`);
+    throw new Error(result.stdout || result.stderr || `${compiler} exited with code ${result.code}`);
   }
 }
 

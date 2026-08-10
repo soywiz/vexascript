@@ -10,7 +10,7 @@ describe("self-hosting CI summary", () => {
     const timings: SelfHostCiTiming[] = [
       { host: "tsc", optimization: "Node.js / V8 JIT", generationMilliseconds: 3000, repeatGenerationMilliseconds: null, result: "matches VexaScript JS" },
       { host: "VexaScript JS", optimization: "Node.js / V8 JIT", generationMilliseconds: 2300, repeatGenerationMilliseconds: null, result: "matches tsc" },
-      { host: "VexaScript C++", optimization: "g++ -O3", generationMilliseconds: 4500, repeatGenerationMilliseconds: 4600, result: "native fixed point" },
+      { host: "VexaScript C++", optimization: "clang++ -O1", generationMilliseconds: 4500, repeatGenerationMilliseconds: 4600, result: "native fixed point" },
     ];
     const summary = renderSelfHostSummary([
       { name: "tsc", elapsedMilliseconds: 1200, status: "passed", detail: "TypeScript compiler check passed" },
@@ -22,7 +22,7 @@ describe("self-hosting CI summary", () => {
     expect(summary).toContain("| Host | Runtime / optimization | Generation 1 | Generation 2 | Result |");
     expect(summary).toContain("| tsc | Node.js / V8 JIT | 3.00 s | — | matches VexaScript JS |");
     expect(summary).toContain("| VexaScript JS | Node.js / V8 JIT | 2.30 s | — | matches tsc |");
-    expect(summary).toContain("| VexaScript C++ | g++ -O3 | 4.50 s | 4.60 s | native fixed point |");
+    expect(summary).toContain("| VexaScript C++ | clang++ -O1 | 4.50 s | 4.60 s | native fixed point |");
     expect(summary).toContain("Only `vexa cpp build` is timed");
     expect(summary).toContain("| Stage | Wall time | Status | Result |");
     expect(summary).toContain("| tsc | 1.20 s | passed | TypeScript compiler check passed |");

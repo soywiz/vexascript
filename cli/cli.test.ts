@@ -222,6 +222,20 @@ describe("CLI", () => {
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });
 
+  it("cpp build can emit a single C++ translation unit", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-single-file-"));
+    const input = join(dir, "input.vx");
+    const output = join(dir, "output.cpp");
+    await writeFile(input, 'console.log("single file")', "utf8");
+
+    await runCli(["node", "vexa", "cpp", "build", input, "--single-file", "--out", output]);
+
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).toContain('#include "runtime.cpp"');
+    expect(outputCode).not.toContain('#include "program.hpp"');
+    await expect(readFile(join(dir, "program.hpp"), "utf8")).rejects.toThrow();
+  });
+
   it("uses TypeScript semantic analysis for JavaScript and C++ emission without transpile-only", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-typescript-semantics-"));
     const validInput = join(dir, "valid.ts");

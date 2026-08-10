@@ -36,4 +36,6 @@ export interface ModuleGraphOptions {
   changedFiles?: readonly string[];
   /** Emit per-statement native source hooks for diagnostic C++ builds. */
   emitNativeSourceLocations?: boolean;
+  /** Emit one C++ translation unit instead of a header plus per-module files. */
+  emitCppModuleFiles?: boolean;
 }

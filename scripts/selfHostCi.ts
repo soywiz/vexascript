@@ -10,7 +10,7 @@ import {
   type NativeOptimization,
 } from "../cli/nativeBuild";
 
-const SELF_HOST_NATIVE_OPTIMIZATION: NativeOptimization = "-O3";
+const SELF_HOST_NATIVE_OPTIMIZATION: NativeOptimization = "-O1";
 
 export type SelfHostStageStatus = "passed" | "failed" | "blocked";
 
@@ -231,7 +231,7 @@ async function main(): Promise<void> {
   const timings: SelfHostCiTiming[] = [
     { host: "tsc", optimization: "Node.js / V8 JIT", generationMilliseconds: null, repeatGenerationMilliseconds: null, result: "not run" },
     { host: "VexaScript JS", optimization: "Node.js / V8 JIT", generationMilliseconds: null, repeatGenerationMilliseconds: null, result: "not run" },
-    { host: "VexaScript C++", optimization: `g++ ${SELF_HOST_NATIVE_OPTIMIZATION}`, generationMilliseconds: null, repeatGenerationMilliseconds: null, result: "not run" },
+    { host: "VexaScript C++", optimization: `clang++ ${SELF_HOST_NATIVE_OPTIMIZATION}`, generationMilliseconds: null, repeatGenerationMilliseconds: null, result: "not run" },
   ];
   let bootstrapReady = false;
   let javascriptReady = false;
@@ -348,11 +348,11 @@ async function main(): Promise<void> {
       const cppExecutable = join(outputDirectory, "vexa-cpp-host");
 
       const tscGenerationStarted = performance.now();
-      await runCheckedCommand("node", compiledCliCommand(compiledCli, tsxLoader, textModuleLoader, ["cpp", "build", cppEntryFile, "--out", tscCpp]), tscDirectory);
+      await runCheckedCommand("node", compiledCliCommand(compiledCli, tsxLoader, textModuleLoader, ["cpp", "build", cppEntryFile, "--single-file", "--out", tscCpp]), tscDirectory);
       timings[0]!.generationMilliseconds = performance.now() - tscGenerationStarted;
 
       const jsGenerationStarted = performance.now();
-      await runCheckedCommand("node", [join(outputDirectory, "vexa-self-host-2.js"), "cpp", "build", cppEntryFile, "--out", jsCpp], outputDirectory);
+      await runCheckedCommand("node", [join(outputDirectory, "vexa-self-host-2.js"), "cpp", "build", cppEntryFile, "--single-file", "--out", jsCpp], outputDirectory);
       timings[1]!.generationMilliseconds = performance.now() - jsGenerationStarted;
       const jsNativeBuild = await compileNativeExecutable(
         await generatedCppPaths(jsBuildDirectory),
@@ -360,10 +360,10 @@ async function main(): Promise<void> {
         [],
         SELF_HOST_NATIVE_OPTIMIZATION
       );
-      timings[2]!.optimization = `${jsNativeBuild.compiler} ${SELF_HOST_NATIVE_OPTIMIZATION}${jsNativeBuild.fallbackFromGcc ? " (g++ ICE fallback)" : ""}`;
+      timings[2]!.optimization = `${jsNativeBuild.compiler} ${SELF_HOST_NATIVE_OPTIMIZATION}${jsNativeBuild.fallbackCompiler ? ` (fallback ${jsNativeBuild.fallbackCompiler})` : ""}`;
 
       const cppGenerationStarted = performance.now();
-      await runCheckedCommand(jsExecutable, ["cpp", "build", cppEntryFile, "--out", cppCpp], rootDirectory);
+      await runCheckedCommand(jsExecutable, ["cpp", "build", cppEntryFile, "--single-file", "--out", cppCpp], rootDirectory);
       timings[2]!.generationMilliseconds = performance.now() - cppGenerationStarted;
       await compileNativeExecutable(
         await generatedCppPaths(cppBuildDirectory),
@@ -373,7 +373,7 @@ async function main(): Promise<void> {
       );
 
       const cppRepeatGenerationStarted = performance.now();
-      await runCheckedCommand(cppExecutable, ["cpp", "build", cppEntryFile, "--out", cppRepeat], rootDirectory);
+      await runCheckedCommand(cppExecutable, ["cpp", "build", cppEntryFile, "--single-file", "--out", cppRepeat], rootDirectory);
       timings[2]!.repeatGenerationMilliseconds = performance.now() - cppRepeatGenerationStarted;
 
       const hashes = await verifyCppSelfHostOutputs(

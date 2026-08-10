@@ -26,7 +26,13 @@ export function runtimePlatform(): string {
   return process.platform;
 }
 
-export function nativeCompilerCommand(_platform: NodeJS.Platform = process.platform): "g++" {
+export async function nativeCompilerCommand(_platform: NodeJS.Platform = process.platform): Promise<"clang++" | "g++"> {
+  try {
+    const result = await runCommandCapture("clang++", ["--version"]);
+    if (result.code === 0) return "clang++";
+  } catch {
+    // Fall through to g++ when clang++ is not installed or cannot start.
+  }
   return "g++";
 }
 
