@@ -203,6 +203,7 @@ describe("native build", () => {
     expect(args).not.toContain("-pthread");
     expect(args).not.toContain("-ldl");
     expect(args).toContain("-D_WIN32_WINNT=0x0A00");
+    expect(args).toContain("-DNOMINMAX");
     expect(args).toContain("-ldbghelp");
     expect(args).toContain("-lshlwapi");
     expect(args).toContain("-lwinmm");
