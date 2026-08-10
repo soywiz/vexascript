@@ -229,13 +229,14 @@ async function buildFile(
 }
 
 interface NativeCompilationCache {
-  version: 2;
+  version: 3;
   compilerVersion: string;
   sourcePath: string;
   cppPath: string;
   target: TranspileTarget;
   typeCheck: boolean;
   emitNativeSourceLocations: boolean;
+  emitCppModuleFiles: boolean;
   jsxFactory: string;
   jsxFragmentFactory: string;
   watchedFiles: Record<string, number>;
@@ -267,7 +268,7 @@ async function readNativeCompilationCache(cachePath: string): Promise<NativeComp
   if (!content) return null;
   try {
     const cache = JSON.parse(content) as NativeCompilationCache;
-    return cache.version === 2 ? cache : null;
+    return cache.version === 3 ? cache : null;
   } catch {
     return null;
   }
@@ -282,6 +283,7 @@ async function isNativeCompilationCacheValid(
       cache.sourcePath !== options.sourcePath || cache.cppPath !== options.cppPath ||
       cache.target !== options.target || cache.typeCheck !== options.typeCheck ||
       cache.emitNativeSourceLocations !== options.emitNativeSourceLocations ||
+      cache.emitCppModuleFiles !== options.emitCppModuleFiles ||
       cache.jsxFactory !== options.jsxFactory || cache.jsxFragmentFactory !== options.jsxFragmentFactory) {
     return false;
   }
@@ -300,7 +302,8 @@ async function compileNativeProgram(
   target: TranspileTarget = "optimized",
   typeCheck = true,
   emitNativeSourceLocations = false,
-  jsxOptions: JsxOptions = new JsxOptions()
+  jsxOptions: JsxOptions = new JsxOptions(),
+  emitCppModuleFiles = true
 ): Promise<NativeCompilationResult> {
   const buildStartedAt = monotonicNow();
   const phaseTimings = new Map<string, number>();
@@ -328,13 +331,14 @@ async function compileNativeProgram(
   await mkdir(paths.buildRoot, { recursive: true });
   const cachePath = resolve(paths.buildRoot, ".vexa-native-cache.json");
   const cacheOptions = {
-    version: 2 as const,
+    version: 3 as const,
     compilerVersion: COMPILER_VERSION,
     sourcePath: paths.sourcePath,
     cppPath: paths.cppPath,
     target,
     typeCheck,
     emitNativeSourceLocations,
+    emitCppModuleFiles,
     jsxFactory: jsxOptions.jsxFactory,
     jsxFragmentFactory: jsxOptions.jsxFragmentFactory,
   };
@@ -364,6 +368,7 @@ async function compileNativeProgram(
     importMappings: nativeImportMappings(project),
     typeCheck: vexaTypeCheck,
     emitNativeSourceLocations,
+    emitCppModuleFiles,
     profile: (event) => {
       if (event.phase !== "total") {
         phaseTimings.set(event.phase, (phaseTimings.get(event.phase) ?? 0) + event.elapsedMs);
@@ -418,9 +423,19 @@ async function linkNativeProgram(
   typeCheck: boolean,
   emitNativeSourceLocations: boolean,
   jsxOptions: JsxOptions = new JsxOptions(),
-  optimization: NativeOptimization = "-O2"
+  optimization: NativeOptimization = "-O2",
+  emitCppModuleFiles = true
 ): Promise<string> {
-  const compilation = await compileNativeProgram(input, out, buildDir, target, typeCheck, emitNativeSourceLocations, jsxOptions);
+  const compilation = await compileNativeProgram(
+    input,
+    out,
+    buildDir,
+    target,
+    typeCheck,
+    emitNativeSourceLocations,
+    jsxOptions,
+    emitCppModuleFiles,
+  );
   const paths = compilation.paths as NativeProgramPaths;
   const cppPaths = compilation.cppPaths as string[];
   const nativeCompilerFlags = compilation.nativeCompilerFlags as string[];
@@ -1057,6 +1072,7 @@ function createProgram(): Command {
     command.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
     command.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
     command.option("--native-source-locations", "Emit per-statement native source-location hooks");
+    command.option("--single-file", "Emit one C++ translation unit instead of module files");
     command.option("-O0", "Disable native compiler optimizations");
     command.option("-O1", "Enable basic native compiler optimizations");
     command.option("-O2", "Enable standard native compiler optimizations (default)");
@@ -1064,7 +1080,7 @@ function createProgram(): Command {
     command.option("-Os", "Optimize native code for size");
     command.option("-Oz", "Optimize native code aggressively for size");
     command.option("-Og", "Optimize native code for debugging");
-    command.actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; O0?: boolean; O1?: boolean; O2?: boolean; O3?: boolean; Os?: boolean; Oz?: boolean; Og?: boolean }): Promise<void> => {
+    command.actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; singleFile?: boolean; O0?: boolean; O1?: boolean; O2?: boolean; O3?: boolean; Os?: boolean; Oz?: boolean; Og?: boolean }): Promise<void> => {
       const nativeArgO0 = runtimePlatform() === "native" && process.argv.includes("-O0");
       const nativeArgO1 = runtimePlatform() === "native" && process.argv.includes("-O1");
       const nativeArgO2 = runtimePlatform() === "native" && process.argv.includes("-O2");
@@ -1099,7 +1115,8 @@ function createProgram(): Command {
                     ? "-Og"
                     : "-O2";
       const buildOptions = resolveBuildOptions(opts);
-      const executablePath = await linkNativeProgram(input, opts.out, opts.buildDir, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, optimization);
+      const emitCppModuleFiles = opts.singleFile !== true && environmentVariable("VEXA_NATIVE_SINGLE_FILE") !== "1";
+      const executablePath = await linkNativeProgram(input, opts.out, opts.buildDir, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, optimization, emitCppModuleFiles);
       if (name === "run") await runProcessCommand(executablePath, []);
     });
   };

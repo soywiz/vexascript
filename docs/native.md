@@ -43,6 +43,10 @@ cache the generated C++ and linked executable; unchanged sources reuse both
 artifacts. Measurements use the monotonic high-resolution `performance.now()`
 clock on Node.js and browsers.
 
+`cpp link` and `cpp run` emit modular C++ files by default. Pass
+`--single-file` to emit one translation unit; the Linux native CI job uses this
+mode for executable smoke tests to avoid the extra per-module compiler work.
+
 JavaScript file builds print source/project/declaration loading, type-check,
 parse, analysis, emission, write, and total timings. For `.ts` inputs the
 external `tsc --noEmit` check runs concurrently with VexaScript compilation, so
