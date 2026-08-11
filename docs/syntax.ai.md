@@ -201,6 +201,12 @@ const number.seconds: Duration => Duration(this * 1000)
 
 Must be imported before use.
 
+## Nullable types
+
+`T?` in a type position means exactly `T | undefined`; it is valid in nested
+type forms and generic arguments such as `T?[]`, `Context<User?>`, and
+`createContext<User?>(undefined)`. It does not include `null`.
+
 ## Numeric types
 
 | Type | Description | TS equivalent |

@@ -11,7 +11,6 @@ import { createAutoAwaitDecorations } from "compiler/lsp/autoAwaitDecorations";
 import { collectCodeActions } from "compiler/lsp/codeActionsAggregate";
 import {
   createCompletionItemsForPosition,
-  createKeywordOnlyCompletionItems,
 } from "compiler/lsp/completion";
 import { createClassResolverCache } from "compiler/lsp/classResolver";
 import { collectDeprecatedSemanticTokenModifiers } from "compiler/lsp/deprecatedSemanticTokens";
@@ -393,7 +392,15 @@ async function runFeature(request: WorkerRequest): Promise<unknown> {
 
     case "completion": {
       if (!session.ast || !session.analysis) {
-        return { keywordOnly: true, items: createKeywordOnlyCompletionItems() };
+        const items = await createCompletionItemsForPosition(
+          session.ast,
+          (params.lineNumber as number) - 1,
+          (params.column as number) - 1,
+          session.analysis,
+          [],
+          { text: request.snapshot.source }
+        );
+        return { keywordOnly: true, items };
       }
       const items = await createCompletionItemsForPosition(
         session.ast,

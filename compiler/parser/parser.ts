@@ -1466,7 +1466,7 @@ export class Parser {
                 !nextToken ||
                 nextToken.type === TokenType.END_OF_FILE ||
                 optionalBeforeArray ||
-                (nextToken.type === TokenType.SYMBOL && ["|", "&", ")", "]", "}", ",", ";", "="].includes(nextToken.value));
+                (nextToken.type === TokenType.SYMBOL && ["|", "&", ")", "]", "}", ",", ";", "=", ">", ">>", ">>>"].includes(nextToken.value));
             if (canEndOptionalType) {
                 this.tokens.skip();
                 suffix += "?";

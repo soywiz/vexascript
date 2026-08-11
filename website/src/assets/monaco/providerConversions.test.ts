@@ -26,6 +26,24 @@ describe("completionInsertText", () => {
     });
   });
 
+  it("uses snippet text from an LSP text edit", () => {
+    expect(completionInsertText({
+      label: "else if branch",
+      kind: 15,
+      insertTextFormat: 2,
+      textEdit: {
+        range: {
+          start: { line: 2, character: 6 },
+          end: { line: 2, character: 11 },
+        },
+        newText: "else if ${1:condition}}\n  $0",
+      },
+    })).toEqual({
+      insertText: "else if ${1:condition}}\n  $0",
+      insertTextFormat: 2,
+    });
+  });
+
   it("preserves explicit commands from the language server", () => {
     expect(completionInsertText({
       label: "preference",

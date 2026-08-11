@@ -410,11 +410,11 @@ describe("LSP server core", () => {
     assert.deepEqual(nodeResult.capabilities["codeLensProvider"], { resolveProvider: false });
     assert.deepEqual(nodeResult.capabilities["completionProvider"], {
       resolveProvider: false,
-      triggerCharacters: [".", "@", ":", "$"]
+      triggerCharacters: [".", "@", ":", "$", "#", "/"]
     });
     assert.deepEqual(browserResult.capabilities["completionProvider"], {
       resolveProvider: false,
-      triggerCharacters: [".", "@", ":", "$"]
+      triggerCharacters: [".", "@", ":", "$", "#", "/"]
     });
     const sharedCapabilities = Object.keys(nodeResult.capabilities).filter(
       (capability) => !["executeCommandProvider", "workspaceSymbolProvider"].includes(capability)
@@ -446,6 +446,32 @@ describe("LSP server core", () => {
       position: { line, character }
     }) as { contents: { value: string } } | null;
     assert.equal(hover?.contents.value.includes("add"), true);
+  });
+
+  it("serves JSX block snippets even when the unfinished marker has no AST", async () => {
+    const server = startServer(false);
+    const { source, line, character } = sourceWithCursor([
+      "func View() {",
+      "  return <div>",
+      "    {#^^^",
+      "  </div>",
+      "}",
+      ""
+    ].join("\n"));
+    const document = openedDocument(server, source);
+
+    const completionItems = await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: document.uri },
+      position: { line, character }
+    }) as Array<{
+      label: string;
+      insertTextFormat?: number;
+      textEdit?: { newText: string };
+    }>;
+
+    const forBlock = completionItems.find((item) => item.label === "for block");
+    assert.equal(forBlock?.textEdit?.newText, "for ${1:item} of ${2:items}}\n  $0\n{/for}");
+    assert.equal(forBlock?.insertTextFormat, 2);
   });
 
   it("reports full diagnostics for open documents", async () => {

@@ -539,6 +539,19 @@ x = 100 // writes view.x
 
 TypeScript has no direct property-reference expression. The closest equivalent is hand-written getter/setter closures.
 
+## Nullable types
+
+VexaScript accepts `T?` as shorthand for `T | undefined` in every type position,
+including nested generic arguments and explicit generic calls:
+
+```vexa
+let users: User?[] = []
+const context = createContext<User?>(undefined)
+```
+
+This suffix does not add `null`; write `T | null` or `T | null | undefined`
+when those values are part of the type.
+
 ## Numeric types
 
 VexaScript extends the TypeScript type system with explicit integer types.

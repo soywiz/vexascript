@@ -407,7 +407,7 @@ export function startLspServer(options: LspServerOptions): void {
           textDocumentSync: TextDocumentSyncKind.Incremental,
           completionProvider: {
             resolveProvider: false,
-            triggerCharacters: [".", "@", ":", "$"]
+            triggerCharacters: [".", "@", ":", "$", "#", "/"]
           },
           codeActionProvider: {
             resolveProvider: true
@@ -492,10 +492,17 @@ export function startLspServer(options: LspServerOptions): void {
     }
 
     const session = await analysisSessions.getForDocumentAsync(doc);
-    if (!session.ast) {
-      return createKeywordOnlyCompletionItems();
-    }
     const text = doc.getText();
+    if (!session.ast) {
+      return createCompletionItemsForPosition(
+        null,
+        params.position.line,
+        params.position.character,
+        null,
+        [],
+        { text }
+      );
+    }
     const prefix = completionPrefixAt(text, doc.offsetAt(params.position));
     const visibleSymbols = session.analysis?.getVisibleSymbolsAt(
       params.position.line,

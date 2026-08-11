@@ -1388,7 +1388,7 @@ Supported type annotation forms in declarations/members:
 - generic type references (`Map<K, V>`)
 - array suffixes (`K[]`, `Map<K, V>[]`, `[int, number, Animation][]`)
 - readonly container shorthand (`readonly string[]`, `readonly [string, int]`)
-- optional type suffixes (`User?`, `(() => void)?`), equivalent to `User | undefined`; the suffix may appear before an array suffix (`T?[]`) to describe an array of optional elements
+- optional type suffixes (`User?`, `(() => void)?`), equivalent to `User | undefined`; the suffix may appear before an array suffix (`T?[]`) to describe an array of optional elements or inside a generic argument (`Context<User?>`, `createContext<User?>(undefined)`)
 - union types (`string | number`)
 - intersection types (`Named & Serializable`)
 - function types (`(value: int) => string`, constructor signatures like `new (value: int) => Box`, and optional/rest parameters)

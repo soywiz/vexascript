@@ -44,8 +44,15 @@ function isCallableCompletionItem(item: Pick<CompletionItem, "kind" | "label">):
 }
 
 export function completionInsertText(
-  item: Pick<CompletionItem, "kind" | "label" | "insertText" | "insertTextFormat" | "command">
+  item: Pick<CompletionItem, "kind" | "label" | "insertText" | "insertTextFormat" | "command" | "textEdit">
 ): MonacoLikeCompletionInsert {
+  if (item.textEdit?.newText) {
+    return {
+      insertText: item.textEdit.newText,
+      ...(item.insertTextFormat !== undefined ? { insertTextFormat: item.insertTextFormat } : {}),
+      ...(item.command ? { command: item.command } : {}),
+    };
+  }
   if (item.insertText) {
     return {
       insertText: item.insertText,

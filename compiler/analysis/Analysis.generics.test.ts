@@ -211,6 +211,24 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("Unknown type 'T'"))).toBe(false);
   });
 
+  it("treats nullable generic call type arguments as a union with undefined", () => {
+    const source = dedent`
+      interface CounterContextValue {
+        count: number
+      }
+      fun createContext<T>(defaultValue: T): T {
+        return defaultValue
+      }
+      let context = createContext<CounterContextValue?>(undefined)
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const symbols = new Map(analysis.getVisibleSymbolsAt(6, 5).map((symbol) => [symbol.name, symbol]));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbols.get("context")?.valueType).toBe("CounterContextValue?");
+  });
+
   it("infers generic function type arguments from call arguments", () => {
     const source = dedent`
       fun identity<T>(value: T): T {

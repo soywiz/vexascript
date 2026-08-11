@@ -1,7 +1,7 @@
 /**
  * Completion orchestrator: createCompletionItemsForPosition tries each
  * completion strategy in priority order — annotation completion, member
- * access (memberCompletion.ts), literal-receiver extension members, named
+ * access (memberCompletion.ts), JSX block snippets, literal-receiver extension members, named
  * call arguments (argumentCompletion.ts), ranked in-scope symbols,
  * auto-imports (importCompletion.ts), and the keyword fallback — over the
  * shared contracts in completionModel.ts.
@@ -25,17 +25,25 @@ import { buildVisibleSymbolCompletionItems } from "./symbolCompletion";
 import {
   annotationCompletionItems,
   annotationPrefixAtPosition,
+  jsxBlockCompletionItemsAtPosition,
   shouldSuppressExistingSymbolCompletions
 } from "./completionContext";
 
 export async function createCompletionItemsForPosition(
-  ast: Program,
+  ast: Program | null,
   line: number,
   character: number,
   analysis?: Analysis | null,
   autoImportSuggestions: AutoImportSuggestion[] = [],
   options: CompletionRequestOptions = {}
 ): Promise<CompletionItem[]> {
+  const jsxBlockItems = jsxBlockCompletionItemsAtPosition(options.text, line, character);
+  if (jsxBlockItems !== null) {
+    return jsxBlockItems;
+  }
+  if (!ast) {
+    return createKeywordOnlyCompletionItems();
+  }
   const resolvedAnalysis = analysis ?? new Analysis(ast);
   const annotationPrefix = annotationPrefixAtPosition(options.text, line, character);
   if (annotationPrefix !== null) {

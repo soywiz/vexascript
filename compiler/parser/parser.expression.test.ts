@@ -1378,6 +1378,23 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses nullable generic call type arguments", () => {
+        expect(parseExpression(tokenizeReader("createContext<CounterContextValue?>(undefined)"))).toEqual({
+            kind: NodeKind.CallExpression,
+            callee: { kind: NodeKind.Identifier, name: "createContext" },
+            args: [{ kind: NodeKind.UndefinedLiteral }],
+            typeArguments: [
+                { kind: NodeKind.Identifier, name: "CounterContextValue?" }
+            ]
+        });
+        expect(parseExpression(tokenizeReader("createContext<Array<CounterContextValue?>>(undefined)"))).toMatchObject({
+            kind: NodeKind.CallExpression,
+            typeArguments: [
+                { kind: NodeKind.Identifier, name: "Array<CounterContextValue?>" }
+            ]
+        });
+    });
+
     it("builds an AST for TypeScript-style arrow functions in call arguments", () => {
         expect(parseExpression(tokenizeReader("[1,2,3,4].map(a => 10)"))).toEqual({
             kind: NodeKind.CallExpression,

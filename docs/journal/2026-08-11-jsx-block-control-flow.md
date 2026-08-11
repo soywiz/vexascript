@@ -39,3 +39,30 @@ permits this dynamic spread. The object-literal inference path now treats
 but it is a valid spread operand. Known primitives remain diagnosed, with both
 behaviors covered together so the compatibility fix does not erase the useful
 error.
+
+LSP block completion exposed another recovery boundary. While the user is
+typing `{#`, `{:`, or `{/`, parsing may legitimately produce no AST. The old
+completion handler immediately fell back to ordinary keywords in that state,
+so an AST-based completion strategy could never offer the snippet needed to
+finish the syntax. JSX block-marker completion therefore runs from the source
+text before semantic completion and is also used by the no-AST fallback in the
+stdio server and Monaco worker. Tests must cover the public completion entry
+point with a genuinely incomplete marker rather than completing a valid AST
+around an artificial cursor.
+
+Multi-word markers such as `{:else if}` also cannot rely on the editor's
+default “current word” replacement range. After `{:else i`, replacing only
+`i` duplicates the already typed `else`. The completion items use an explicit
+LSP text edit from immediately after the marker punctuation through the cursor;
+Monaco consumes the same edit text and range as VS Code. This preserves one
+completion model across both clients.
+
+Snippet indentation must remain relative to the line containing the marker.
+The first implementation embedded the line's existing leading whitespace into
+every inserted newline. VS Code and Monaco already rebase multiline completion
+text onto the indentation of the edited line, so the client added that base a
+second time and pushed `{/for}` and `{/if}` too far to the right. The LSP now
+sends only the relative two-space body indent and an unindented closing marker.
+A real Monaco insertion check compares the rendered leading columns: the
+opening and closing markers stay aligned while the placeholder body is exactly
+one indentation level deeper.

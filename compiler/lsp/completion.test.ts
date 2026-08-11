@@ -34,6 +34,113 @@ function recoverSessionFrom(source: string, session: ReturnType<typeof createAna
 }
 
 describe("createCompletionItemsForPosition", () => {
+  it("offers snippets that open and close JSX for and if blocks", async () => {
+    const forCursor = sourceWithCursor(dedent`
+      func View({ items: number[] }) {
+        return <ul>
+          {#^^^
+        </ul>
+      }
+    `);
+    const forSession = createAnalysisSession(forCursor.source);
+    const forItems = await createCompletionItemsForPosition(
+      forSession.ast!,
+      forCursor.line,
+      forCursor.character,
+      forSession.analysis,
+      [],
+      { text: forCursor.source }
+    );
+    const forByLabel = new Map(forItems.map((item) => [item.label, item]));
+
+    expect(forByLabel.get("for block")?.textEdit?.newText).toBe(
+      "for ${1:item} of ${2:items}}\n  $0\n{/for}"
+    );
+    expect(forByLabel.get("if block")?.textEdit?.newText).toBe(
+      "if ${1:condition}}\n  $0\n{/if}"
+    );
+    expect(forByLabel.get("for block")?.insertTextFormat).toBe(2);
+
+    const closeCursor = sourceWithCursor(dedent`
+      func View() {
+        return <div>
+          {/^^^
+        </div>
+      }
+    `);
+    const closeSession = createAnalysisSession(closeCursor.source);
+    const closeItems = await createCompletionItemsForPosition(
+      closeSession.ast!,
+      closeCursor.line,
+      closeCursor.character,
+      closeSession.analysis,
+      [],
+      { text: closeCursor.source }
+    );
+    const closeByLabel = new Map(closeItems.map((item) => [item.label, item]));
+
+    expect(closeByLabel.get("close for block")?.textEdit?.newText).toBe("for}");
+    expect(closeByLabel.get("close if block")?.textEdit?.newText).toBe("if}");
+  });
+
+  it("offers JSX else and else-if branch snippets", async () => {
+    const elseCursor = sourceWithCursor(dedent`
+      func View() {
+        return <div>
+          {:e^^^
+        </div>
+      }
+    `);
+    const session = createAnalysisSession(elseCursor.source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      elseCursor.line,
+      elseCursor.character,
+      session.analysis,
+      [],
+      { text: elseCursor.source }
+    );
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("else branch")?.textEdit?.newText).toBe("else}\n  $0");
+    expect(byLabel.get("else if branch")?.textEdit?.newText).toBe(
+      "else if ${1:condition}}\n  $0"
+    );
+    const elseIfEdit = byLabel.get("else if branch")?.textEdit as {
+      range: { start: { character: number }; end: { character: number } };
+    };
+    expect(elseIfEdit.range.start.character).toBe(6);
+    expect(elseIfEdit.range.end.character).toBe(7);
+    expect(byLabel.get("else branch")?.filterText).toBe("else");
+    expect(byLabel.get("else if branch")?.filterText).toBe("else if");
+
+    const typedElseIfCursor = sourceWithCursor(dedent`
+      func View() {
+        return <div>
+          {:else i^^^
+        </div>
+      }
+    `);
+    const typedElseIfItems = await createCompletionItemsForPosition(
+      null,
+      typedElseIfCursor.line,
+      typedElseIfCursor.character,
+      null,
+      [],
+      { text: typedElseIfCursor.source }
+    );
+    const typedElseIf = typedElseIfItems.find((item) => item.label === "else if branch");
+    const typedElseIfEdit = typedElseIf?.textEdit as {
+      range: { start: { character: number }; end: { character: number } };
+      newText: string;
+    };
+
+    expect(typedElseIfItems.some((item) => item.label === "else branch")).toBe(false);
+    expect(typedElseIfEdit.range.start.character).toBe(6);
+    expect(typedElseIfEdit.range.end.character).toBe(12);
+    expect(typedElseIfEdit.newText).toBe("else if ${1:condition}}\n  $0");
+  });
+
   it("includes in-scope variables and parameters inside function body", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       let top = 1

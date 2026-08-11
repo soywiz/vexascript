@@ -6,7 +6,7 @@ interface CounterContextValue {
 	increment: () => void;
 }
 
-const CounterContext = createContext<CounterContextValue | null>(null);
+const CounterContext = createContext<CounterContextValue?>(undefined);
 
 func Counter() {
 	const { count, increment } = useContext(CounterContext)!;
