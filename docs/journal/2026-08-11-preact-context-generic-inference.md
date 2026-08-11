@@ -59,6 +59,11 @@ emitted a free `count` identifier.
   entry and pass each attribute's expected type into expression analysis. The
   contextual-function path also flattens nested optional unions produced by
   Preact's bivariant event-handler alias.
+- Member completion now decomposes structural intersection types, normalizes
+  `readonly` property modifiers, and ignores synthetic mapped keys. This keeps
+  the completion surface aligned with the contextual parameter detail, so
+  `event.curr` offers `currentTarget` instead of falling through to unrelated
+  global symbols.
 - Delegate emission now builds bindings per lexical statement scope instead of
   exposing every delegate to the whole program. Delegated object shorthand is
   emitted as an explicit property/value pair, preserving both the JavaScript
@@ -115,3 +120,12 @@ member such as `checked` is accessed. That path is separate from the intrinsic
 attribute contextual-typing failure fixed here: the `button` handler carries
 `HTMLButtonElement`, while the remaining input case concerns generic member
 substitution across `InputHTMLAttributes` declarations.
+
+The first event regression only asserted the in-scope parameter detail. That
+was insufficient: semantic analysis knew about `currentTarget`, but member
+completion converted the receiver to the display string
+`{ [P in K]: unknown } & { readonly currentTarget: HTMLButtonElement }` and the
+structural parser rejected anything other than one outer object literal. The
+editor consequently showed a typed parameter and still returned no member
+suggestions. Cursor-level completion tests must assert the requested member,
+not only the receiver's hover/detail type.

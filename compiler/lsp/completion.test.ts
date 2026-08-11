@@ -563,6 +563,32 @@ describe("createCompletionItemsForPosition", () => {
 
     expect(event?.detail).not.toBe("In-scope parameter: unknown");
     expect(event?.detail).toContain("currentTarget: HTMLButtonElement");
+
+    const memberSource = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function App() {
+        return <button onClick={event => event.curr^^^}>Add</button>
+      }
+    `);
+    await writeFile(consumerFile, memberSource.source, "utf8");
+    const memberBaseSession = createAnalysisSession(memberSource.source);
+    const memberCollected = await collectAllImportedDeclarations(memberBaseSession.ast!, context);
+    const memberSession = createAnalysisSession(memberSource.source, {
+      externalDeclarations: memberCollected.externalDeclarations,
+      invalidImportedBindings: memberCollected.invalidImportedBindings,
+      importedSymbols: memberCollected.importedSymbols
+    });
+    const memberItems = await createCompletionItemsForPosition(
+      memberSession.ast!,
+      memberSource.line,
+      memberSource.character,
+      memberSession.analysis!,
+      [],
+      { text: memberSource.source, ...context }
+    );
+
+    expect(memberItems.map((item) => item.label)).toContain("currentTarget");
   });
 
   it("offers zod-style namespace type member completions from imported node_modules packages", async () => {

@@ -39,7 +39,19 @@ export function parseObjectTypeTextMembers(
   objectTypeText: string,
   substitutions: Map<string, string> = new Map()
 ): TypeAliasCompletionMember[] {
-  const targetTypeText = objectTypeText.trim();
+  const targetTypeText = stripEnclosingTypeParens(objectTypeText.trim());
+  const intersectionParts = splitTopLevelTypeText(targetTypeText, "&")
+    .map((part) => stripEnclosingTypeParens(part.trim()))
+    .filter((part) => part.length > 0);
+  if (intersectionParts.length > 1) {
+    const members = new Map<string, TypeAliasCompletionMember>();
+    for (const part of intersectionParts) {
+      for (const member of parseObjectTypeTextMembers(part, substitutions)) {
+        members.set(member.name, member);
+      }
+    }
+    return [...members.values()];
+  }
   if (!targetTypeText.startsWith("{") || !targetTypeText.endsWith("}")) {
     return [];
   }
@@ -65,8 +77,10 @@ export function parseObjectTypeTextMembers(
       if (closeParen < 0 || arrowIndex < 0) {
         continue;
       }
-      const name = trimmedEntry.slice(0, methodOpenParen).trim().replace(/\?$/, "");
-      if (!name) {
+      const name = trimmedEntry.slice(0, methodOpenParen).trim()
+        .replace(/^readonly\s+/, "")
+        .replace(/\?$/, "");
+      if (!name || name.startsWith("[")) {
         continue;
       }
       members.push({
@@ -80,8 +94,10 @@ export function parseObjectTypeTextMembers(
     if (propertyColon < 0) {
       continue;
     }
-    const name = trimmedEntry.slice(0, propertyColon).trim().replace(/\?$/, "");
-    if (!name) {
+    const name = trimmedEntry.slice(0, propertyColon).trim()
+      .replace(/^readonly\s+/, "")
+      .replace(/\?$/, "");
+    if (!name || name.startsWith("[")) {
       continue;
     }
     const propertyTypeText = substituteTypeNameText(trimmedEntry.slice(propertyColon + 1).trim(), substitutions);

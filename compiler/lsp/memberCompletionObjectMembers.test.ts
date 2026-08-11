@@ -29,6 +29,18 @@ describe("memberCompletionObjectMembers", () => {
     ]);
   });
 
+  it("merges intersection members, removes readonly modifiers, and skips mapped keys", () => {
+    expect(parseObjectTypeTextMembers(
+      "{ [P in K]: unknown } & { readonly currentTarget: HTMLButtonElement }"
+    )).toEqual([
+      {
+        name: "currentTarget",
+        kind: CompletionItemKind.Field,
+        detail: "Type alias property: HTMLButtonElement"
+      }
+    ]);
+  });
+
   it("substitutes generic type parameters into aliased object members", () => {
     const typeAlias = {
       kind: NodeKind.TypeAliasStatement,
