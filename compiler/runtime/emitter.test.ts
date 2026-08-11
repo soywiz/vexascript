@@ -810,6 +810,26 @@ describe("emit embedded XML / JSX", () => {
     );
   });
 
+  it("emits Svelte-style for and if blocks through JSX child expressions", () => {
+    const code = emit(`
+      val list = <ul>
+        {#for it of items}
+          {#if it % 2 == 0}<li>{it}?</li>
+          {:else if it % 3 == 1}<li>{it}.</li>
+          {:else}<li>{it}!</li>
+          {/if}
+        {/for}
+      </ul>
+    `);
+
+    expect(code).toContain("for (const it of items)");
+    expect(code).toContain('it % 2 == 0 ? React.createElement("li"');
+    expect(code).toContain('it % 3 == 1 ? React.createElement("li"');
+    expect(code).toContain('React.createElement("li", null, it, "?")');
+    expect(code).toContain('React.createElement("li", null, it, ".")');
+    expect(code).toContain('React.createElement("li", null, it, "!")');
+  });
+
   it("honors a configurable jsxFactory and jsxFragmentFactory", () => {
     const ast = parseFile(tokenizeReader("val d = <><span/></>", { jsx: true }), { language: "vexa" });
     expect(emitProgram(ast, undefined, undefined, undefined, { jsxFactory: "h", jsxFragmentFactory: "Fragment" })).toBe(

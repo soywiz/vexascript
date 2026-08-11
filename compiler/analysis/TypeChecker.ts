@@ -11290,7 +11290,10 @@ export class TypeChecker {
           }
           continue;
         }
-        if (!isUnknownType(spreadType) && !(spreadType instanceof BuiltinType && spreadType.name === "object")) {
+        if (
+          !isUnknownType(spreadType)
+          && !(spreadType instanceof BuiltinType && (spreadType.name === "any" || spreadType.name === "object"))
+        ) {
           this.issues.push({
             message: `Spread types may only be created from object types; got '${typeToString(spreadType)}'`,
             node: property

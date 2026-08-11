@@ -787,6 +787,42 @@ describe("JavaScript implementation annotations", () => {
             });
         });
 
+        it("lowers Svelte-style for and if blocks inside JSX children", () => {
+            expect(jsxExpression(dedent`
+                <ul>
+                  {#for it of items}
+                    {#if it % 2 == 0}
+                      <li>{it}?</li>
+                    {:else if it % 3 == 1}
+                      <li>{it}.</li>
+                    {:else}
+                      <li>{it}!</li>
+                    {/if}
+                  {/for}
+                </ul>
+            `)).toMatchObject({
+                kind: NodeKind.JsxElement,
+                children: [{
+                    kind: NodeKind.JsxExpressionContainer,
+                    expression: {
+                        kind: NodeKind.ArrayComprehension,
+                        iterator: { kind: NodeKind.Identifier, name: "it" },
+                        iterationKind: "of",
+                        iterable: { kind: NodeKind.Identifier, name: "items" },
+                        body: {
+                            kind: NodeKind.ConditionalExpression,
+                            consequent: { kind: NodeKind.JsxElement, tagName: "li" },
+                            alternate: {
+                                kind: NodeKind.ConditionalExpression,
+                                consequent: { kind: NodeKind.JsxElement, tagName: "li" },
+                                alternate: { kind: NodeKind.JsxElement, tagName: "li" }
+                            }
+                        }
+                    }
+                }]
+            });
+        });
+
         it("reports an error when closing tags do not match", () => {
             const reader = tokenizeReader("<div></span>", { jsx: true });
             const parser = new Parser(reader, { language: "vexa" });

@@ -1187,6 +1187,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
     advanceCode(reader);
     pushSymbol("{", braceStart);
     let depth = 1;
+    let atContainerStart = true;
     while (reader.hasMore) {
       const code = reader.peekCode();
       if (isWhitespaceCode(code)) {
@@ -1203,6 +1204,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         advanceCode(reader);
         pushSymbol("{", start);
         depth += 1;
+        atContainerStart = false;
         continue;
       }
       if (code === CODE_RBRACE) {
@@ -1215,6 +1217,16 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         }
         continue;
       }
+      if (atContainerStart && code === CODE_SLASH && isIdentifierStartCode(peekNextCode(reader))) {
+        // JSX block closing markers such as `{/if}` and `{/for}` start with a
+        // slash that would otherwise be tokenized as a regular-expression
+        // literal. Keep it as punctuation for the JSX parser.
+        const start = snapshot(reader);
+        advanceCode(reader);
+        pushSymbol("/", start);
+        atContainerStart = false;
+        continue;
+      }
       if (
         jsxEnabled &&
         code === CODE_LT &&
@@ -1223,6 +1235,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         const nextCode = peekNextCode(reader);
         if (isIdentifierStartCode(nextCode) || nextCode === CODE_GT) {
           readJsxElement();
+          atContainerStart = false;
           continue;
         }
       }
@@ -1230,6 +1243,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         for (const fragment of readTemplateAsConcatenation(reader, snapshot(reader), shorthandInterpolationEnabled)) {
           pushFragment(fragment);
         }
+        atContainerStart = false;
         continue;
       }
       pushFragment(readNonTemplateCodeFragment(
@@ -1237,6 +1251,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         previousSignificantToken,
         looksLikeRegularExpressionMatchArm(reader.str, reader.offset)
       ));
+      atContainerStart = false;
     }
     throw new TokenizeError("Unterminated JSX expression container", sourceRange(braceStart, snapshot(reader)));
   };

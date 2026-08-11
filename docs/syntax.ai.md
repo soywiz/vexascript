@@ -100,6 +100,9 @@ useEffect({
 
 Trailing lambdas and brace-lambda call arguments use implicit `it` for `{ expr }`. In ordinary expression positions, `{ ... }` is a zero-argument brace lambda unless it is resolved contextually as an object literal or has an explicit `->` parameter list.
 
+Object literals may spread `any`, `unknown`, `object`, and object-shaped values:
+`{ ...args, children }`. Reject spreads whose type is a known primitive.
+
 Receiver function types use `T.(args) -> R`. The receiver is the first runtime
 argument but is implicit inside a contextually typed lambda: unqualified members
 and `this` refer to it. If visible parameters exist, `it` is the first one; for
@@ -305,6 +308,18 @@ const badge = Graphics()
 ## JSX / type casts
 
 JSX is always enabled in `.vx` files. Use `value as Type` for casts — `<Type>value` is **not valid** in `.vx`.
+
+Inside JSX children, control blocks are expressions:
+
+```vexa
+{#for item of items}<Row value={item}/>{/for}
+{#if ready}<Ready/>{:else if loading}<Spinner/>{:else}<Error/>{/if}
+```
+
+- `for` accepts `of` or `in`; its iterator is scoped to the block and the block yields an array.
+- `if` supports any number of `{:else if condition}` markers and one optional `{:else}`; without a matching branch it yields `null`.
+- Blocks may nest and may contain text, expression containers, elements, or fragments.
+- Component tags are passed as references to the configured classic JSX factory. The factory/renderer, not JSX emission itself, decides when to call the component function.
 
 ## Comments
 

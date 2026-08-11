@@ -147,6 +147,19 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("Undefined variable 'a'"))).toBe(false);
   });
 
+  it("allows object spread from any while keeping explicit properties", () => {
+    const source = dedent`
+      fun merge(args: any, children: any[]) {
+        return { ...args, children }
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("propagates array element type through iterator and computed assignment", () => {
     const source = dedent`
       let nums = [1, 2, 3]

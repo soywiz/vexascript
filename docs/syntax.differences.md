@@ -185,6 +185,10 @@ When a brace lambda appears as a trailing lambda or as a brace-lambda argument, 
 
 Inside an argument list, `{ name }` remains context-sensitive: it can be interpreted semantically as a one-parameter lambda (implicit `it`) when the expected parameter type is a function, and as a shorthand object literal otherwise. The explicit `{ arg -> body }` form is always a lambda.
 
+Object spread follows TypeScript compatibility rules for dynamic values:
+`{ ...value }` accepts `value: any` (as well as object-shaped and unknown
+values), while a statically known primitive spread is diagnosed.
+
 TypeScript uses inline arrow functions: `[1,2,3].map(it => it * 2)`.
 
 ### Receiver function types and blocks
@@ -812,6 +816,23 @@ In VexaScript `.vx` files, JSX is **always enabled**. A `<` in expression positi
 val name = maybeString as string
 val elem = <div class="greeting">Hello {name}</div>
 ```
+
+VexaScript also extends JSX child lists with Svelte-style control blocks. These
+are not TypeScript/TSX syntax: `{#for item of items}...{/for}` produces a child
+array, while `{#if condition}...{:else if other}...{:else}...{/if}` selects one
+child sequence and yields `null` when no branch matches and no else is present.
+
+```vexa
+<ul>
+  {#for item of items}
+    {#if item.visible}<li>{item.name}</li>{/if}
+  {/for}
+</ul>
+```
+
+Component tags remain classic-factory calls. `<MyComponent/>` passes the
+component reference to `React.createElement` (or the configured factory); a
+renderer or an eager custom factory is responsible for invoking it.
 
 ```typescript
 // TypeScript: JSX opt-in (.tsx); angle-bracket cast available in .ts

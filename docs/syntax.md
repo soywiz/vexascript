@@ -1603,7 +1603,33 @@ Supported features mirror JSX/TSX:
 - Intrinsic elements with a lowercase tag name (`<div>`) and component/dotted tags (`<Foo>`, `<Foo.Bar>`).
 - Self-closing elements (`<input/>`), fragments (`<>...</>`), and nested elements.
 - Attributes: string values (`class="x"`), expression containers (`value={expr}`), boolean shorthand (`disabled`), and spread attributes (`{...props}`).
-- Children: text (with JSX whitespace normalization), expression containers (`{expr}`), and nested elements.
+- Children: text (with JSX whitespace normalization), expression containers (`{expr}`), nested elements, and Svelte-style `{#for}` / `{#if}` blocks.
+
+JSX child lists support block control flow without leaving the markup. A `for`
+block accepts `of` or `in`, introduces its iterator only inside the block body,
+and contributes the resulting element array as a child. An `if` block tests its
+branches in order; `{:else if ...}` and `{:else}` are optional, and a false
+block without an else branch contributes `null`.
+
+```vexa
+<ul>
+  {#for item of items}
+    {#if item.enabled}
+      <li>{item.name}</li>
+    {:else if item.pending}
+      <li>Pending: {item.name}</li>
+    {:else}
+      <li>Disabled: {item.name}</li>
+    {/if}
+  {/for}
+</ul>
+```
+
+Block markers are valid only in JSX children. Their bodies may contain text,
+expressions, nested elements, or more blocks. A single child is lowered
+directly; multiple children are grouped in a fragment. The JavaScript backend
+reuses ordinary array-comprehension and conditional-expression emission, so
+the same scope and expression semantics apply inside and outside JSX.
 
 Embedded XML is transpiled with the classic React runtime: elements become `React.createElement(...)` calls and fragments use `React.Fragment`. Intrinsic lowercase tags are emitted as string literals; component and dotted tags are emitted as references.
 
@@ -1611,6 +1637,13 @@ Embedded XML is transpiled with the classic React runtime: elements become `Reac
 // <div class="greeting">Hi {name}</div>
 React.createElement("div", { class: "greeting" }, "Hi ", name)
 ```
+
+As in classic React JSX, `<MyComponent/>` passes the `MyComponent` function to
+the configured element factory; emitting the factory call does not itself
+execute the component. React renderers perform that invocation later. A small
+custom factory that wants eager component execution must dispatch function
+tags explicitly and add `children` to the props object, as demonstrated by
+`samples/jsx-blocks/`.
 
 The element factory and fragment factory are configurable. They default to the classic React runtime (`React.createElement` / `React.Fragment`) but can be overridden through the emitter/transpile options `jsxFactory` and `jsxFragmentFactory`, the `vexa build` flags `--jsx-factory` and `--jsx-fragment-factory`, or a project-level `tsconfig.json` (`compilerOptions.jsxFactory` and `compilerOptions.jsxFragmentFactory`). A `tsconfig.json` with `compilerOptions.jsxImportSource` set to `"preact"` is mapped to Preact's classic factories (`h` and `Fragment`) while VexaScript emits classic JSX factory calls.
 
@@ -1686,6 +1719,11 @@ let state: [value: int, setter: (newValue: int) => void] = [0, (newValue: int) =
 ### Object literals
 
 Object literals support explicit properties, shorthand properties, spread properties, computed keys, string literal keys, number literal keys, optional trailing commas, and later properties override earlier spread properties during semantic shape inference:
+
+Spread operands may be statically typed as `any`, `unknown`, `object`, a named
+object type, or an inferred object literal shape. `any` is accepted because its
+properties are deliberately unknown at compile time; known primitive operands
+such as `int` or `string` remain errors.
 
 ```vexa
 let name = "Ada"

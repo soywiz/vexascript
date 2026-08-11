@@ -4294,7 +4294,141 @@ export class Parser {
         }
     }
 
-    private parseJsxChildren(): JsxChild[] {
+    private isJsxBlockMarker(prefix: "#" | ":" | "/", keyword?: string): boolean {
+        const open = this.tokens.peek();
+        const marker = this.peekToken(1);
+        const name = this.peekToken(2);
+        return open?.type === TokenType.SYMBOL
+            && open.value === "{"
+            && marker?.type === TokenType.SYMBOL
+            && marker.value === prefix
+            && name?.type === TokenType.IDENTIFIER
+            && (keyword === undefined || name.value === keyword);
+    }
+
+    private consumeJsxBlockMarker(prefix: "#" | ":" | "/", keyword: string): { open: Token; close: Token } {
+        const open = this.tokens.read();
+        const marker = this.tokens.read();
+        const name = this.tokens.read();
+        if (!(open?.type === TokenType.SYMBOL && open.value === "{")
+            || !(marker?.type === TokenType.SYMBOL && marker.value === prefix)
+            || !(name?.type === TokenType.IDENTIFIER && name.value === keyword)) {
+            this.fail(`Expected JSX block marker '{${prefix}${keyword}}'`, this.tokenAt(open));
+        }
+        const close = this.tokens.read();
+        if (!(close?.type === TokenType.SYMBOL && close.value === "}")) {
+            this.fail(`Expected '}' to close JSX block marker`, this.tokenAt(close));
+        }
+        return { open, close };
+    }
+
+    private jsxChildrenAsExpression(children: JsxChild[], fallback: Token): Expr {
+        if (children.length === 1) {
+            const child = children[0]!;
+            if (child instanceof JsxExpressionContainer) {
+                return child.expression;
+            }
+            if (child instanceof JsxElement || child instanceof JsxFragment) {
+                return child;
+            }
+        }
+        return this.attachNodeBounds(
+            new JsxFragment(children),
+            children[0]?.firstToken ?? fallback,
+            children[children.length - 1]?.lastToken ?? fallback
+        );
+    }
+
+    private parseJsxForBlock(): JsxExpressionContainer {
+        const open = this.tokens.read();
+        this.tokens.skip(); // '#'
+        this.tokens.skip(); // 'for'
+        const iteratorToken = this.tokens.read();
+        if (iteratorToken?.type !== TokenType.IDENTIFIER) {
+            this.fail("Expected an iterator name after '{#for'", this.tokenAt(iteratorToken));
+        }
+        const iterationToken = this.tokens.read();
+        if (iterationToken?.type !== TokenType.IDENTIFIER || (iterationToken.value !== "of" && iterationToken.value !== "in")) {
+            this.fail("Expected 'of' or 'in' in JSX for block", this.tokenAt(iterationToken));
+        }
+        const iterable = this.parseAssignment();
+        const headerClose = this.tokens.read();
+        if (!(headerClose?.type === TokenType.SYMBOL && headerClose.value === "}")) {
+            this.fail("Expected '}' to close JSX for block header", this.tokenAt(headerClose));
+        }
+
+        const body = this.jsxChildrenAsExpression(this.parseJsxChildren(true), headerClose);
+        if (!this.isJsxBlockMarker("/", "for")) {
+            this.fail("Expected '{/for}' to close JSX for block", this.tokenAt(this.tokens.peek()));
+        }
+        const closing = this.consumeJsxBlockMarker("/", "for");
+        const comprehension = this.attachNodeBounds(
+            new ArrayComprehension(
+                this.buildIdentifierFromToken(iteratorToken),
+                iterable,
+                body,
+                iterationToken.value as "in" | "of"
+            ),
+            open,
+            closing.close
+        );
+        return this.attachNodeBounds(new JsxExpressionContainer(comprehension), open, closing.close);
+    }
+
+    private parseJsxIfBlock(): JsxExpressionContainer {
+        const open = this.tokens.read();
+        this.tokens.skip(); // '#'
+        this.tokens.skip(); // 'if'
+        const conditions: Expr[] = [this.parseAssignment()];
+        const headerClose = this.tokens.read();
+        if (!(headerClose?.type === TokenType.SYMBOL && headerClose.value === "}")) {
+            this.fail("Expected '}' to close JSX if block header", this.tokenAt(headerClose));
+        }
+
+        const branches: Expr[] = [];
+        let fallback: Expr = this.attachNodeBounds(new NullLiteral(), headerClose, headerClose);
+        while (true) {
+            branches.push(this.jsxChildrenAsExpression(this.parseJsxChildren(true), headerClose));
+            if (!this.isJsxBlockMarker(":", "else")) {
+                break;
+            }
+            this.tokens.skip(); // '{'
+            this.tokens.skip(); // ':'
+            this.tokens.skip(); // 'else'
+            const next = this.tokens.peek();
+            if (next?.type === TokenType.IDENTIFIER && next.value === "if") {
+                this.tokens.skip();
+                conditions.push(this.parseAssignment());
+                const elseIfClose = this.tokens.read();
+                if (!(elseIfClose?.type === TokenType.SYMBOL && elseIfClose.value === "}")) {
+                    this.fail("Expected '}' to close JSX else-if marker", this.tokenAt(elseIfClose));
+                }
+                continue;
+            }
+            const elseClose = this.tokens.read();
+            if (!(elseClose?.type === TokenType.SYMBOL && elseClose.value === "}")) {
+                this.fail("Expected '}' to close JSX else marker", this.tokenAt(elseClose));
+            }
+            fallback = this.jsxChildrenAsExpression(this.parseJsxChildren(true), elseClose);
+            break;
+        }
+
+        if (!this.isJsxBlockMarker("/", "if")) {
+            this.fail("Expected '{/if}' to close JSX if block", this.tokenAt(this.tokens.peek()));
+        }
+        const closing = this.consumeJsxBlockMarker("/", "if");
+        let expression = fallback;
+        for (let index = conditions.length - 1; index >= 0; index -= 1) {
+            expression = this.attachNodeBounds(
+                new ConditionalExpression(conditions[index]!, branches[index]!, expression),
+                conditions[index]!.firstToken ?? open,
+                closing.close
+            );
+        }
+        return this.attachNodeBounds(new JsxExpressionContainer(expression), open, closing.close);
+    }
+
+    private parseJsxChildren(stopAtBlockBoundary: boolean = false): JsxChild[] {
         const children: JsxChild[] = [];
         while (true) {
             const token = this.tokens.peek();
@@ -4314,6 +4448,17 @@ export class Parser {
                 continue;
             }
             if (token.type === TokenType.SYMBOL && token.value === "{") {
+                if (this.isJsxBlockMarker("#", "for")) {
+                    children.push(this.parseJsxForBlock());
+                    continue;
+                }
+                if (this.isJsxBlockMarker("#", "if")) {
+                    children.push(this.parseJsxIfBlock());
+                    continue;
+                }
+                if (stopAtBlockBoundary && (this.isJsxBlockMarker(":") || this.isJsxBlockMarker("/"))) {
+                    break;
+                }
                 const after = this.peekToken(1);
                 if (after?.type === TokenType.SYMBOL && after.value === "}") {
                     // Empty/comment-only expression container: `{}` or `{/* ... */}`.

@@ -1,0 +1,28 @@
+class React {
+  static createElement(name: any?, args: any, ...children: any[]) {
+    if (typeof name == "function") {
+      return name!({ ...args, children })
+    } else {
+      return { name, args, children }
+    }
+  }
+}
+
+func MyComponent({ items: number[], children: any[] }) {
+  return <>
+    {children}
+    <ul>
+    {#for it of items}
+      {#if it % 2 == 0}
+        <li>{it}?</li>
+      {:else if it % 3 == 1}
+        <li>{it}.</li>
+      {:else}
+        <li>{it}!</li>
+      {/if}
+    {/for}
+    </ul>
+  </>
+}
+
+console.log(<MyComponent items={[1,2,3,4,5,6,7,8,9]}>hello</MyComponent>)
