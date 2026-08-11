@@ -62,7 +62,11 @@ class UnconfiguredVfs extends Vfs {
   }
 }
 
-const unconfiguredVfs = new UnconfiguredVfs()
+export function createUnconfiguredVfs(): Vfs {
+  return new UnconfiguredVfs()
+}
+
+const unconfiguredVfs = createUnconfiguredVfs()
 
 class VfsReference {
   constructor(public ref: Vfs) {}

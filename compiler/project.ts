@@ -1,6 +1,5 @@
-import { fileExists, isDirectory } from "./utils/fs";
 import { dirname, resolve } from "./utils/path";
-import { vfs } from "./vfs";
+import { vfs, type Vfs } from "./vfs";
 import { canonicalSyntaxFromConfig, type CanonicalSyntax } from "./canonicalSyntax";
 
 export interface VexaProject {
@@ -12,6 +11,7 @@ export interface VexaProject {
   globalSymbols?: VexaGlobalSymbols;
   jsxFactory?: string;
   jsxFragmentFactory?: string;
+  jsxImportSource?: string;
   libs: string[];
   types: string[];
   bundleEntrypoint?: string;
@@ -63,7 +63,7 @@ class CachedJsonFile {
   constructor(public mtimeMs: number, public value: unknown | null) {}
 }
 
-const jsonFileCache = new Map<string, CachedJsonFile>();
+const jsonFileCaches = new WeakMap<Vfs, Map<string, CachedJsonFile>>();
 
 function stringRecord(section: Record<string, unknown> | undefined): Record<string, string> {
   const result: Record<string, string> = {};
@@ -75,25 +75,35 @@ function stringRecord(section: Record<string, unknown> | undefined): Record<stri
   return result;
 }
 
-async function readJsonFile<T>(path: string): Promise<T | null> {
+function jsonFileCache(activeVfs: Vfs): Map<string, CachedJsonFile> {
+  let cache = jsonFileCaches.get(activeVfs);
+  if (!cache) {
+    cache = new Map<string, CachedJsonFile>();
+    jsonFileCaches.set(activeVfs, cache);
+  }
+  return cache;
+}
+
+async function readJsonFile<T>(path: string, activeVfs: Vfs): Promise<T | null> {
   let mtimeMs: number = -1;
   try {
-    mtimeMs = (await vfs().stat(path)).mtimeMs;
+    mtimeMs = (await activeVfs.stat(path)).mtimeMs;
   } catch {
     return null;
   }
 
-  const cached = jsonFileCache.get(path);
+  const cache = jsonFileCache(activeVfs);
+  const cached = cache.get(path);
   if (cached?.mtimeMs === mtimeMs) {
     return cached.value as T | null;
   }
 
   try {
-    const value = JSON.parse(await vfs().readFile(path)) as T;
-    jsonFileCache.set(path, new CachedJsonFile(mtimeMs, value));
+    const value = JSON.parse(await activeVfs.readFile(path)) as T;
+    cache.set(path, new CachedJsonFile(mtimeMs, value));
     return value;
   } catch {
-    jsonFileCache.set(path, new CachedJsonFile(mtimeMs, null));
+    cache.set(path, new CachedJsonFile(mtimeMs, null));
     return null;
   }
 }
@@ -127,7 +137,11 @@ function typesFromConfig(config: CompilerOptionsConfig | null): string[] {
   return types.filter((entry): entry is string => typeof entry === "string");
 }
 
-function jsxOptionsFromConfig(config: CompilerOptionsConfig | null): { jsxFactory?: string; jsxFragmentFactory?: string } {
+function jsxOptionsFromConfig(config: CompilerOptionsConfig | null): {
+  jsxFactory?: string;
+  jsxFragmentFactory?: string;
+  jsxImportSource?: string;
+} {
   const compilerOptions = config?.compilerOptions;
   if (!compilerOptions) {
     return {};
@@ -146,12 +160,16 @@ function jsxOptionsFromConfig(config: CompilerOptionsConfig | null): { jsxFactor
     };
   }
 
-  // VexaScript currently emits classic JSX factory calls. TypeScript projects that
-  // use Preact's automatic runtime still describe the intended JSX provider via
-  // jsxImportSource, so map that common configuration to Preact's classic
-  // factories until VexaScript has an automatic JSX runtime emitter.
+  // VexaScript emits classic JSX factory calls. TypeScript projects that use
+  // Preact's automatic runtime still describe the provider via jsxImportSource,
+  // so use private factory names that the module graph binds to Preact's classic
+  // exports without requiring user imports or colliding with local identifiers.
   if (compilerOptions.jsxImportSource === "preact") {
-    return { jsxFactory: "h", jsxFragmentFactory: "Fragment" };
+    return {
+      jsxFactory: "__vexaJsxFactory",
+      jsxFragmentFactory: "__vexaJsxFragment",
+      jsxImportSource: "preact"
+    };
   }
 
   return {};
@@ -256,10 +274,15 @@ function globalSymbolsFromConfig(configDir: string, config: VexaScriptConfigJson
   return { paths, emit };
 }
 
-export async function loadProject(startPath: string): Promise<VexaProject | null> {
-  const startDir = (await fileExists(startPath) && !(await isDirectory(startPath)))
-    ? dirname(startPath)
-    : startPath;
+export async function loadProject(startPath: string, activeVfs: Vfs = vfs()): Promise<VexaProject | null> {
+  let startPathIsFile = false;
+  try {
+    startPathIsFile = (await activeVfs.stat(startPath)).isFile;
+  } catch {
+    // A missing start path is treated as a directory candidate, matching the
+    // previous project-discovery behavior.
+  }
+  const startDir = startPathIsFile ? dirname(startPath) : startPath;
 
   let dir = resolve(startDir);
   let packageDir: string | null = null;
@@ -271,7 +294,7 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
   while (true) {
     if (!packageDir) {
       const packageJsonPath = resolve(dir, "package.json");
-      const pkg = await readJsonFile<PackageJsonConfig>(packageJsonPath);
+      const pkg = await readJsonFile<PackageJsonConfig>(packageJsonPath, activeVfs);
       if (pkg) {
         packageDir = dir;
         dependencies = mergeDependencies(pkg);
@@ -279,14 +302,14 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
     }
 
     if (!tsconfig) {
-      tsconfig = await readJsonFile<TsConfigJson>(resolve(dir, "tsconfig.json"));
+      tsconfig = await readJsonFile<TsConfigJson>(resolve(dir, "tsconfig.json"), activeVfs);
       if (tsconfig) {
         tsconfigDir = dir;
       }
     }
 
     if (!vexaConfig) {
-      const candidate = await readJsonFile<VexaScriptConfigJson>(resolve(dir, "vexascript.json"));
+      const candidate = await readJsonFile<VexaScriptConfigJson>(resolve(dir, "vexascript.json"), activeVfs);
       if (candidate) {
         vexaConfig = candidate;
         vexaConfigDir = dir;

@@ -981,6 +981,30 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("binds configured automatic JSX runtime factories in emitted modules", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "main.vx": "const view = <div>Hello</div>\n"
+      },
+      async (dir) => {
+        const result = await bundleModuleGraphAsModules(join(dir, "main.vx"), "conservative", {
+          moduleFormat: "commonjs",
+          jsxFactory: "__vexaJsxFactory",
+          jsxFragmentFactory: "__vexaJsxFragment",
+          jsxImportSource: "preact",
+          typeCheck: false
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(result.entrySource).toContain(
+          'const { h: __vexaJsxFactory, Fragment: __vexaJsxFragment } = require("preact");'
+        );
+        expect(result.entrySource).toContain('__vexaJsxFactory("div", null, "Hello")');
+      }
+    );
+  });
+
   it("keeps namespace-shaped node_modules default imports navigable for member calls", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(

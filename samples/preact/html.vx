@@ -1,71 +1,44 @@
-import { h, render, ComponentChildren, type InputHTMLAttributes, type ContainerNode, type Component } from "preact";
-import { useState, useEffect, useRef } from "preact/hooks";
+import { render, createContext } from "preact";
+import { useState, useContext, useMemo } from "preact/hooks";
 
-/*
-interface InputProperties extends InputHTMLAttributes<HTMLInputElement> {
-	mySpecialProp: any;
+interface CounterContextValue {
+	count: number;
+	increment: () => void;
 }
 
-const Input = (props: InputProperties) => <input {...props} />;
-*/
+const CounterContext = createContext<CounterContextValue | null>(null);
 
-class Clock extends Component {
-	var state = { time: Date.now() }
-	var timer: number? = 10
-
-	// Lifecycle: Called whenever our component is created
-	fun componentDidMount() {
-		// update time every second
-		timer = setInterval({
-			this.setState({ time: Date.now() });
-		}, 1000)
-	}
-
-	// Lifecycle: Called just before our component will be destroyed
-	fun componentWillUnmount() {
-		// stop when not renderable
-		clearInterval(this.timer)
-	}
-
-	fun render() {
-		let time = new Date(this.state.time).toLocaleTimeString()
-		return <span>{time}</span>
-	}
-}
-
-fun MyButton({
-	style: any?,
-	onClick: (() => void),
-	children: ComponentChildren?
-}) => <button style={style} onClick={onClick}>
-	{children}
-</button>
-
-fun App() {
-	var count by useState(0)
-	val countRef = useRef<HTMLSpanElement>();
-
-	useEffect({
-		val timeout = setTimeout({
-			//console.log(countRef.current)
-			
-			countRef.current?.style?.background = "grey"
-			count++
-		}, 1000)
-		return { clearTimeout(timeout) }
-	}, [count])
+function Counter() {
+	const { count, increment } = useContext(CounterContext)!;
 
 	return (
-		<div style="font: 16px Arial; font-weight: bold;">
-			<p class="count" style={count < 0 ? "color:red" : "color:black"}>
-				<span ref={countRef} style="padding: 4px 8px; margin-right: 8px;">Count: {count}</span>
-				
-				<MyButton style={{ color: "red" }} onClick={{ count-- }}>-</MyButton>
-				<MyButton style={{ color: "green" }} onClick={{ count++ }}>+</MyButton>
-			</p>
-			{<Clock />}
+		<div style={{ background: "#eee", padding: "10px" }}>
+			<p>Count: {count}</p>
+			<button onClick={increment}>Add</button>
 		</div>
-	)
+	);
 }
 
-render(<App />, document.getElementById("app")!)
+function App() {
+	const [count, setCount] = useState(0);
+
+	function increment() {
+		setCount(count + 1);
+	}
+
+	const counter = useMemo(() => {
+		return { count, increment };
+	}, [count]);
+
+	return (
+		<CounterContext.Provider value={counter}>
+			<div style={{ display: "flex", gap: "20px" }}>
+				<Counter />
+				<Counter />
+				<Counter />
+			</div>
+		</CounterContext.Provider>
+	);
+}
+
+render(<App />, document.getElementById("app")!);

@@ -18,7 +18,6 @@ import {
   type StorageLike,
 } from "./workspace";
 import { loadProject } from "../../../../compiler/project";
-import { globalVfs, setVfs, Vfs } from "../../../../compiler/vfs";
 import { WorkspaceVfs } from "./workspaceVfs";
 
 class MemoryStorage implements StorageLike {
@@ -210,27 +209,17 @@ describe("monaco workspace VFS", () => {
         return entry?.kind === "file" ? entry.content : null;
       },
     });
-    const previousVfs = globalVfs.ref as Vfs | undefined;
-
-    try {
-      setVfs(vfs);
-      expect(await loadProject("/main.vx")).toEqual({
-        projectDir: "/",
-        dependencies: {
-          preact: "^10.0.0",
-        },
-        libs: ["DOM", "ES2025"],
-        types: [],
-        serveMappings: [],
-        jsxFactory: "h",
-        jsxFragmentFactory: "Fragment",
-      });
-    } finally {
-      if (previousVfs) {
-        setVfs(previousVfs);
-      } else {
-        delete globalVfs.ref;
-      }
-    }
+    expect(await loadProject("/main.vx", vfs)).toEqual({
+      projectDir: "/",
+      dependencies: {
+        preact: "^10.0.0",
+      },
+      libs: ["DOM", "ES2025"],
+      types: [],
+      serveMappings: [],
+      jsxFactory: "__vexaJsxFactory",
+      jsxFragmentFactory: "__vexaJsxFragment",
+      jsxImportSource: "preact",
+    });
   });
 });

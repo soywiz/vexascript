@@ -5769,11 +5769,12 @@ export class TypeChecker {
     const classStatement = this.classStatementsByName.get(type.name);
     if (classStatement) {
       const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters, type);
-      if (classStatement.extendsType) {
+      if (classStatement.extendsType?.name) {
         const parentType = this.typeFromTypeNameLooseWithSubstitutions(classStatement.extendsType.name, substitutions);
         if (parentType instanceof NamedType) parents.push(parentType);
       }
       for (const implementedType of classStatement.implementsTypes ?? []) {
+        if (!implementedType?.name) continue;
         const parentType = this.typeFromTypeNameLooseWithSubstitutions(implementedType.name, substitutions);
         if (parentType instanceof NamedType) parents.push(parentType);
       }
@@ -5783,12 +5784,36 @@ export class TypeChecker {
     if (interfaceStatement) {
       const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters, type);
       for (const parentTypeName of interfaceStatement.extendsTypes ?? []) {
+        if (!parentTypeName?.name) continue;
         const parentType = this.typeFromTypeNameLooseWithSubstitutions(parentTypeName.name, substitutions);
         if (parentType instanceof NamedType) parents.push(parentType);
       }
     }
 
     return parents;
+  }
+
+  private namedSuperTypeWithName(
+    type: NamedType,
+    targetName: string,
+    visited = new Set<string>()
+  ): NamedType | null {
+    const visitKey = type.name;
+    if (visited.has(visitKey)) {
+      return null;
+    }
+    visited.add(visitKey);
+
+    for (const parentType of this.directNamedSuperTypes(type)) {
+      if (parentType.name === targetName) {
+        return parentType;
+      }
+      const inheritedMatch = this.namedSuperTypeWithName(parentType, targetName, visited);
+      if (inheritedMatch) {
+        return inheritedMatch;
+      }
+    }
+    return null;
   }
 
   private objectPropertiesAreAssignable(
@@ -7033,6 +7058,31 @@ export class TypeChecker {
       const parameterTypeArguments: AnalysisType[] = parameterNamed.typeArguments ?? [];
       const argumentTypeArguments: AnalysisType[] = argumentNamed.typeArguments ?? [];
       const promiseLikeArgument = parameterNamed.name === "PromiseLike" && argumentNamed.name === "Promise";
+      if (parameterNamed.name !== argumentNamed.name && !promiseLikeArgument) {
+        const matchingParameterSuperType = this.namedSuperTypeWithName(parameterNamed, argumentNamed.name);
+        if (matchingParameterSuperType) {
+          this.inferTypeParameterSubstitutions(
+            matchingParameterSuperType,
+            argumentNamed,
+            typeParameters,
+            explicitlyProvidedTypeParameters,
+            substitutions
+          );
+          return;
+        }
+
+        const matchingArgumentSuperType = this.namedSuperTypeWithName(argumentNamed, parameterNamed.name);
+        if (matchingArgumentSuperType) {
+          this.inferTypeParameterSubstitutions(
+            parameterNamed,
+            matchingArgumentSuperType,
+            typeParameters,
+            explicitlyProvidedTypeParameters,
+            substitutions
+          );
+          return;
+        }
+      }
       if (
         (parameterNamed.name !== argumentNamed.name && !promiseLikeArgument) ||
         parameterTypeArguments.length !== argumentTypeArguments.length

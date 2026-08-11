@@ -143,6 +143,7 @@ export async function createBundledModuleArtifacts(
     ...(project?.globalSymbols ? { globalSymbols: project.globalSymbols } : {}),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
+    ...(project?.jsxImportSource ? { jsxImportSource: project.jsxImportSource } : {}),
     ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
     ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {}),
     ...(options.profile ? { profile: options.profile } : {})

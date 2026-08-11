@@ -76,6 +76,26 @@ describe("project configuration", () => {
     });
   });
 
+  it("maps Preact jsxImportSource to collision-safe classic runtime bindings", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
+    const input = join(dir, "main.vx");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({
+      compilerOptions: { jsxImportSource: "preact" }
+    }), "utf8");
+    await writeFile(input, "", "utf8");
+
+    expect(await loadProject(input)).toEqual({
+      projectDir: dir,
+      dependencies: {},
+      libs: [],
+      types: [],
+      serveMappings: [],
+      jsxFactory: "__vexaJsxFactory",
+      jsxFragmentFactory: "__vexaJsxFragment",
+      jsxImportSource: "preact"
+    });
+  });
+
   it("loads compilerOptions.lib entries from vexascript.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
     const input = join(dir, "main.vx");

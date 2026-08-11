@@ -52,7 +52,6 @@ describe("samples test", async () => {
 
                 expect(result.trim()).toBe(expected.trim())
             })
-            continue
         }
 
         const project = await resolveProjectForSource(rfile)

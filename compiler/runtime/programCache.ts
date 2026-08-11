@@ -24,6 +24,7 @@ let nodeStorageState:
     vfsRef?: Vfs;
   }
   | null = null;
+const explicitVfsStorage = new WeakMap<Vfs, Promise<CacheStorageLike>>();
 
 function isNodeRuntime(): boolean {
   return typeof process !== "undefined" && !!process.versions?.node;
@@ -152,7 +153,16 @@ async function createNodeFileStorage(fsPromises: NodeFsPromisesLike): Promise<Ca
   };
 }
 
-async function getStorage(): Promise<CacheStorageLike> {
+async function getStorage(activeVfs?: Vfs): Promise<CacheStorageLike> {
+  if (activeVfs) {
+    let storage = explicitVfsStorage.get(activeVfs);
+    if (!storage) {
+      storage = createNodeVfsStorage(activeVfs);
+      explicitVfsStorage.set(activeVfs, storage);
+    }
+    return await storage;
+  }
+
   const browserStorage = getBrowserStorage();
   if (browserStorage) {
     return browserStorage;
@@ -248,9 +258,10 @@ async function generateAndPersist(
 export async function cacheProgram(
   sourceFilePath: string,
   hash: string,
-  generate: () => Promise<Program>
+  generate: () => Promise<Program>,
+  activeVfs?: Vfs
 ): Promise<Program> {
-  const storage = await getStorage();
+  const storage = await getStorage(activeVfs);
   const cachedProgramKey = programKey(sourceFilePath);
   const cachedHashKey = hashKey(sourceFilePath);
   const expectedHash = await hashText(`${PROGRAM_CACHE_VERSION}\0${hash}`);

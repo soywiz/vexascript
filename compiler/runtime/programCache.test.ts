@@ -1,7 +1,7 @@
 import { ExprStatement, Identifier, Program } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { cacheProgram } from "./programCache";
-import { globalVfs, setVfs, Vfs } from "compiler/vfs";
+import { Vfs } from "compiler/vfs";
 
 describe("runtime program cache", () => {
   it("stores and reloads programs by source path and hash in localStorage", async () => {
@@ -79,7 +79,6 @@ describe("runtime program cache", () => {
 
   it("uses the bound vfs in Node without touching localStorage", async () => {
     const previousDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-    const previousVfs = globalVfs.ref;
     const previousBuiltinModule = process.getBuiltinModule;
     const writes = new Map<string, string>();
     let localStorageReads = 0;
@@ -107,7 +106,7 @@ describe("runtime program cache", () => {
       }
     }
 
-    setVfs(new FakeVfs());
+    const fakeVfs = new FakeVfs();
     process.getBuiltinModule = ((id: string) => {
       builtinModuleReads += 1;
       return previousBuiltinModule.call(process, id);
@@ -121,11 +120,11 @@ describe("runtime program cache", () => {
       const first = await cacheProgram(sourceFilePath, "hash-a", async () => {
         generateCount += 1;
         return program;
-      });
+      }, fakeVfs);
       const second = await cacheProgram(sourceFilePath, "hash-a", async () => {
         generateCount += 1;
           return new Program([new ExprStatement(new Identifier("later"))]);
-      });
+      }, fakeVfs);
 
       expect(first).toEqual(program);
       expect(second).toEqual(program);
@@ -134,7 +133,6 @@ describe("runtime program cache", () => {
       expect(builtinModuleReads).toBe(0);
       expect(writes.size).toBe(1);
     } finally {
-      setVfs(previousVfs);
       process.getBuiltinModule = previousBuiltinModule;
       if (previousDescriptor) {
         Object.defineProperty(globalThis, "localStorage", previousDescriptor);

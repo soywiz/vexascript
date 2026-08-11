@@ -1,8 +1,8 @@
 import { FunctionStatement, Identifier, ImportStatement, NodeKind, VarStatement } from "compiler/ast/ast";
-import type { Program, Statement } from "compiler/ast/ast";
+import type { JsxElement, JsxFragment, Program, Statement } from "compiler/ast/ast";
 
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
-import { unwrapExportedDeclaration } from "compiler/ast/traversal";
+import { findNode, unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { compileParsedSource, compileSource } from "compiler/pipeline/compile";
 import type { Analysis } from "compiler/analysis/Analysis";
@@ -65,6 +65,30 @@ const TYPE_DECLARATION_KINDS = new Set<Statement["kind"]>([
   NodeKind.TypeAliasStatement
 ]);
 const EMPTY_DECLARATIONS: Statement[] = [];
+
+function automaticJsxRuntimeBinding(
+  ast: Program | null,
+  options: ModuleGraphOptions,
+  moduleFormat: "esm" | "commonjs"
+): string {
+  if (!ast || !options.jsxImportSource || !options.jsxFactory || !options.jsxFragmentFactory) {
+    return "";
+  }
+  const jsxNode = findNode(
+    ast,
+    (node): node is JsxElement | JsxFragment =>
+      node.kind === NodeKind.JsxElement || node.kind === NodeKind.JsxFragment
+  );
+  if (!jsxNode) {
+    return "";
+  }
+
+  const source = JSON.stringify(options.jsxImportSource);
+  if (moduleFormat === "commonjs") {
+    return `const { h: ${options.jsxFactory}, Fragment: ${options.jsxFragmentFactory} } = require(${source});`;
+  }
+  return `import { h as ${options.jsxFactory}, Fragment as ${options.jsxFragmentFactory} } from ${source};`;
+}
 
 interface CachedModuleTypeContext {
   importKey: string;
@@ -875,9 +899,12 @@ export async function bundleModuleGraphAsModules(
     const emittedWithImplicitExports = moduleFormat === "commonjs"
       ? appendImplicitVexaCommonJsExports(emittedCode, ast, filePath)
       : appendImplicitVexaExports(emittedCode, ast, filePath);
+    const jsxRuntimeBinding = automaticJsxRuntimeBinding(ast, options, moduleFormat);
     emittedByPath.set(
       filePath,
-      [...assetBindingChunks, emittedWithImplicitExports].filter((chunk) => chunk.trim().length > 0).join("\n")
+      [jsxRuntimeBinding, ...assetBindingChunks, emittedWithImplicitExports]
+        .filter((chunk) => chunk.trim().length > 0)
+        .join("\n")
     );
 
     inProgress.delete(filePath);

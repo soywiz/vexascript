@@ -1,5 +1,5 @@
 import { describe, expect, it, join, readFile } from "./test/expect";
-import { globalVfs, vfs } from "./vfs";
+import { createUnconfiguredVfs } from "./vfs";
 
 describe("vfs layering", () => {
   it("keeps compiler/vfs.ts free of Node-specific imports", async () => {
@@ -18,18 +18,11 @@ describe("vfs layering", () => {
   });
 
   it("returns a placeholder VFS object when no global VFS has been configured", async () => {
-    const previousVfs = globalVfs.ref;
+    const unconfiguredVfs = createUnconfiguredVfs();
 
-    delete (globalVfs as { ref?: typeof previousVfs }).ref;
-
-    try {
-      expect(typeof vfs()).toBe("object");
-      expect(vfs()).toBe(vfs());
-      await expect(vfs().readFile("/missing")).rejects.toThrow(
-        "VFS has not been initialized. Call setVfs(...) before using compiler filesystem APIs."
-      );
-    } finally {
-      globalVfs.ref = previousVfs;
-    }
+    expect(typeof unconfiguredVfs).toBe("object");
+    await expect(unconfiguredVfs.readFile("/missing")).rejects.toThrow(
+      "VFS has not been initialized. Call setVfs(...) before using compiler filesystem APIs."
+    );
   });
 });

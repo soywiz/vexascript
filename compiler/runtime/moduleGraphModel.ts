@@ -19,6 +19,8 @@ export interface ModuleGraphOptions {
   vfs?: Vfs;
   jsxFactory?: string;
   jsxFragmentFactory?: string;
+  /** Import classic `h`/`Fragment` bindings for automatic-runtime compatibility. */
+  jsxImportSource?: string;
   ambientDeclarations?: Statement[];
   importMappings?: Readonly<Record<string, string>>;
   globalSymbols?: GlobalSymbolSourceOptions;

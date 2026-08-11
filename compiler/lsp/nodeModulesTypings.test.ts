@@ -680,6 +680,63 @@ describe("node_modules typings resolution", () => {
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("infers generic hook arguments through structurally compatible imported interface inheritance", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "preact");
+    await mkdir(join(pkgDir, "hooks", "src"), { recursive: true });
+    await mkdir(join(pkgDir, "src"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "preact",
+        types: "./src/index.d.ts",
+        exports: {
+          ".": { types: "./src/index.d.ts" },
+          "./hooks": { types: "./hooks/src/index.d.ts" }
+        }
+      }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "src", "index.d.ts"),
+      dedent`
+        export interface Context<T> { value: T; }
+        export interface PreactContext<T> extends Context<T> {}
+        export function createContext<T>(defaultValue: T): Context<T>;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "hooks", "src", "index.d.ts"),
+      dedent`
+        import { PreactContext } from "preact";
+        export function useContext<T>(context: PreactContext<T>): T;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { createContext } from "preact"
+      import { useContext } from "preact/hooks"
+
+      const context = createContext({ count: 0 })
+      const value = useContext(context)
+      const count: number = value.count
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("preserves node_modules named import overloads so calls can select the matching signature", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "preact");

@@ -5,7 +5,6 @@ import { resolveDefinitionWithLocalFallback, resolveMemberHoverAcrossFiles } fro
 import { VEXA_DIAGNOSTIC_CODES } from "compiler/lsp/diagnosticCodes";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import { parseSource } from "compiler/pipeline/parse";
-import { setVfs } from "compiler/vfs";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   createFileEntry,
@@ -179,8 +178,6 @@ async function createPlaygroundHarness() {
       return entry?.kind === "file" ? entry.content : null;
     },
   });
-  setVfs(workspaceVfs);
-
   const ambientDeclarations = (await ensureDomProgram()).body;
   let workspaceRevision = 0;
   let sessionBuilds = 0;
