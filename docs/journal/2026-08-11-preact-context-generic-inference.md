@@ -32,6 +32,15 @@ After the bundle compiled, the real browser exposed a second runtime gap.
 emit bindings for those names, so code written for the automatic JSX runtime
 failed with `ReferenceError: h is not defined` unless it added a manual import.
 
+Two later sample expansions exposed independent gaps in the same end-to-end
+path. Intrinsic JSX attributes were visited without their
+`JSXInternal.IntrinsicElements` prop type, so an inline `onClick` lambda kept an
+`unknown` parameter. Delegated variables were also collected into one global
+emitter map keyed only by source name. A delegate named `count` inside `App`
+therefore rewrote an unrelated `count` inside `Counter`, while an object
+shorthand property such as `{ count, increment }` bypassed delegate reads and
+emitted a free `count` identifier.
+
 ## Resolution
 
 - Generic inference now searches both named types' declared supertype chains
@@ -46,6 +55,14 @@ failed with `ReferenceError: h is not defined` unless it added a manual import.
 - The sample harness now treats console execution and configured bundling as
   independent checks, so samples can and should receive both forms of
   coverage.
+- Intrinsic elements now resolve their framework-provided `IntrinsicElements`
+  entry and pass each attribute's expected type into expression analysis. The
+  contextual-function path also flattens nested optional unions produced by
+  Preact's bivariant event-handler alias.
+- Delegate emission now builds bindings per lexical statement scope instead of
+  exposing every delegate to the whole program. Delegated object shorthand is
+  emitted as an explicit property/value pair, preserving both the JavaScript
+  property name and the delegate read.
 
 ## Investigation Notes
 
@@ -83,3 +100,18 @@ and inlay failures depending on file scheduling. The remaining tests now use
 explicit VFS/cache instances or directly exercise the unconfigured adapter, so
 the official concurrent Node test runner no longer shares mutable filesystem
 state between test files.
+
+The delegate failure was visible in generated JavaScript before browser
+execution: `Counter` read `__$delegate_count[0]` even though that backing value
+belonged to `App`, and `useMemo` returned `{count, increment}` even though no
+plain `count` binding existed. Fixing only the shorthand would have hidden the
+immediate `ReferenceError` while leaving cross-function name capture intact.
+The focused regression therefore asserts both lexical shadowing and shorthand
+lowering.
+
+An attempted checkbox scenario also revealed that the imported Preact input
+attribute chain can currently reduce `event.currentTarget` to `unknown` when a
+member such as `checked` is accessed. That path is separate from the intrinsic
+attribute contextual-typing failure fixed here: the `button` handler carries
+`HTMLButtonElement`, while the remaining input case concerns generic member
+substitution across `InputHTMLAttributes` declarations.

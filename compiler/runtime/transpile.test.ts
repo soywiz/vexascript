@@ -1128,6 +1128,31 @@ c.value`;
     expect(result.code).toContain("value = newValue;");
   });
 
+  it("scopes delegated variable rewrites and lowers object shorthand reads", () => {
+    const source = [
+      "fun useState(value: number) {",
+      "  return [value, (newValue: number) => { value = newValue }]",
+      "}",
+      "fun readPlain() {",
+      "  const count = 7",
+      "  return count",
+      "}",
+      "fun App() {",
+      "  let count by useState(0)",
+      "  fun increment() { count++ }",
+      "  const counter = { count, increment }",
+      "  return counter",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("function readPlain() {\nconst count = 7;\nreturn count;");
+    expect(result.code).toContain("const counter = {count: __$delegate_count[0], increment};");
+    expect(result.code).toContain("__$delegate_count[1](__$delegate_count[0] + 1);");
+  });
+
   it("reports an error when ++ is applied to a non-numeric type", () => {
     const source = `class Foo(val x: int) {}
 let f = Foo(1)

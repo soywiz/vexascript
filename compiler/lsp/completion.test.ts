@@ -498,6 +498,73 @@ describe("createCompletionItemsForPosition", () => {
     );
   });
 
+  it("contextually types intrinsic Preact event-handler parameters", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-preact-event-"));
+    const packageDir = join(root, "node_modules", "preact");
+    const consumerFile = join(root, "consumer.vx");
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "preact", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(packageDir, "index.d.ts"),
+      dedent`
+        export namespace JSXInternal {
+          export type TargetedEvent<Target extends EventTarget> = {
+            readonly currentTarget: Target
+          }
+          export type EventHandler<E> = {
+            bivarianceHack(event: E): void
+          }["bivarianceHack"]
+          export type MouseEventHandler<Target extends EventTarget> = EventHandler<TargetedEvent<Target>>
+          export interface DOMAttributes<Target extends EventTarget> {
+            onClick?: MouseEventHandler<Target> | undefined
+          }
+          export interface ButtonHTMLAttributes<Target extends EventTarget> extends DOMAttributes<Target> {}
+          export interface IntrinsicElements {
+            button: ButtonHTMLAttributes<HTMLButtonElement>
+          }
+        }
+
+        export function render(value: unknown, parent: Element): void
+      `,
+      "utf8"
+    );
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function App() {
+        return <button onClick={event => eve^^^nt}>Add</button>
+      }
+    `);
+    await writeFile(consumerFile, source, "utf8");
+    const baseSession = createAnalysisSession(source);
+    const context = {
+      uri: pathToFileURL(consumerFile).href,
+      sourceRoots: [root]
+    };
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, context);
+    const session = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      invalidImportedBindings: collected.invalidImportedBindings,
+      importedSymbols: collected.importedSymbols
+    });
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: source, ...context }
+    );
+    const event = items.find((item) => item.label === "event");
+
+    expect(event?.detail).not.toBe("In-scope parameter: unknown");
+    expect(event?.detail).toContain("currentTarget: HTMLButtonElement");
+  });
+
   it("offers zod-style namespace type member completions from imported node_modules packages", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-completion-zod-"));
     const packageDir = join(root, "node_modules", "zod");

@@ -6580,11 +6580,19 @@ export class TypeChecker {
         : undefined;
     }
 
-    const expandedUnion = expandedExpectedType as UnionType;
     const nonNullishMembers: AnalysisType[] = [];
-    for (const member of expandedUnion.types) {
-      if (!isNullishType(member)) nonNullishMembers.push(member);
-    }
+    const collectNonNullishMembers = (type: AnalysisType): void => {
+      if (type instanceof UnionType) {
+        for (const member of type.types) {
+          collectNonNullishMembers(member);
+        }
+        return;
+      }
+      if (!isNullishType(type)) {
+        nonNullishMembers.push(type);
+      }
+    };
+    collectNonNullishMembers(expandedExpectedType);
     if (nonNullishMembers.length !== 1) {
       return undefined;
     }
@@ -7932,7 +7940,16 @@ export class TypeChecker {
       }
     }
 
-    if (!componentType || jsxElement.reference === undefined) {
+    if (jsxElement.reference === undefined) {
+      this.visitJsxAttributeValues(
+        jsxElement,
+        scope,
+        this.jsxIntrinsicElementProps(jsxElement.tagName)
+      );
+      return;
+    }
+
+    if (!componentType) {
       this.visitJsxAttributeValues(jsxElement, scope);
       return;
     }
@@ -8072,12 +8089,42 @@ export class TypeChecker {
     );
   }
 
-  private visitJsxAttributeValues(jsxElement: JsxElement, scope: Scope): void {
+  private visitJsxAttributeValues(
+    jsxElement: JsxElement,
+    scope: Scope,
+    expectedProps?: Map<string, AnalysisType> | null
+  ): void {
     for (const attr of jsxElement.attributes) {
       if (attr instanceof JsxAttribute) {
-        this.jsxAttributeValueType(attr as JsxAttribute, scope);
+        const attribute = attr as JsxAttribute;
+        this.jsxAttributeValueType(attribute, scope, expectedProps?.get(attribute.name));
       }
     }
+  }
+
+  private jsxIntrinsicElementProps(tagName: string): Map<string, AnalysisType> | null {
+    const conventionalNames = [
+      "JSX.IntrinsicElements",
+      "JSXInternal.IntrinsicElements",
+      "IntrinsicElements"
+    ];
+    const discoveredNames = [...this.interfaceStatementsByName.keys()]
+      .filter((name) => name.endsWith(".IntrinsicElements"));
+    const candidateNames = [...new Set([...conventionalNames, ...discoveredNames])];
+
+    for (const candidateName of candidateNames) {
+      const intrinsicElements = this.resolveNamedTypeMembers(namedType(candidateName));
+      const propsType = intrinsicElements?.get(tagName);
+      if (!propsType) {
+        continue;
+      }
+      const props = this.propertyMapFromJsxPropsType(propsType);
+      if (props) {
+        return props;
+      }
+    }
+
+    return null;
   }
 
   private jsxAttributeValueType(attribute: JsxAttribute, scope: Scope, expectedType?: AnalysisType): AnalysisType {

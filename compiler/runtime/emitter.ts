@@ -118,6 +118,7 @@ interface ActiveEmitState {
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
   /** Source-name to final JavaScript-name overrides declared via `@JsName("...")`. */
   jsNames: Map<string, string>;
+  variableDelegateDeclarations: ReadonlyMap<Node, RuntimeVariableDelegateInfo>;
   variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
   enumInfos: Map<string, RuntimeEnumInfo>;
   importedExtensionRuntimeNames: Map<string, string[]>;
@@ -160,6 +161,7 @@ function createEmptyEmitState(): ActiveEmitState {
     parameterNames: new Map(),
     javaScriptImplementations: new Map(),
     jsNames: new Map(),
+    variableDelegateDeclarations: new Map(),
     variableDelegates: new Map(),
     enumInfos: new Map(),
     importedExtensionRuntimeNames: new Map(),
@@ -814,6 +816,49 @@ function withVariableDelegateShadows<T>(names: readonly string[], emit: () => T)
   }
 }
 
+function withVariableDelegateScope<T>(statements: readonly Statement[], emit: () => T): T {
+  const previous = activeState;
+  const variableDelegates = new Map(previous.variableDelegates);
+
+  for (const rawStatement of statements) {
+    const statement = unwrapExportedDeclaration(rawStatement) ?? rawStatement;
+    if (statement instanceof VarStatement) {
+      const declarations = statement.declarations && statement.declarations.length > 0
+        ? statement.declarations
+        : [new VarDeclarator(statement.name, undefined, statement.initializer, statement.delegate)];
+      for (const declaration of declarations) {
+        const names = bindingIdentifiers(declaration.name).map((identifier) => identifier.name);
+        for (const name of names) {
+          variableDelegates.delete(name);
+        }
+        if (!declaration.delegate || !(declaration.name instanceof Identifier)) {
+          continue;
+        }
+        const delegate = previous.variableDelegateDeclarations.get(declaration.delegate as unknown as Node);
+        if (delegate) {
+          variableDelegates.set(declaration.name.name, delegate);
+        }
+      }
+      continue;
+    }
+
+    if (
+      statement instanceof FunctionStatement ||
+      statement instanceof ClassStatement ||
+      statement instanceof EnumStatement
+    ) {
+      variableDelegates.delete(statement.name.name);
+    }
+  }
+
+  activeState = { ...previous, variableDelegates };
+  try {
+    return emit();
+  } finally {
+    activeState = previous;
+  }
+}
+
 function functionParameterBindingNames(parameters: FunctionParameter[]): string[] {
   return parameters.flatMap((parameter) => bindingIdentifiers(parameter.name).map((identifier) => identifier.name));
 }
@@ -856,8 +901,11 @@ function variableDelegateKind(type: AnalysisType | undefined, program: Program):
   return "unknownTuple";
 }
 
-function collectVariableDelegates(program: Program, expressionTypes?: ReadonlyMap<Node, AnalysisType>): Map<string, RuntimeVariableDelegateInfo> {
-  const delegates = new Map<string, RuntimeVariableDelegateInfo>();
+function collectVariableDelegateDeclarations(
+  program: Program,
+  expressionTypes?: ReadonlyMap<Node, AnalysisType>
+): Map<Node, RuntimeVariableDelegateInfo> {
+  const delegates = new Map<Node, RuntimeVariableDelegateInfo>();
   walkAst(program, (node) => {
     if (!(node instanceof VarStatement)) return;
     const statement: VarStatement = node;
@@ -871,7 +919,7 @@ function collectVariableDelegates(program: Program, expressionTypes?: ReadonlyMa
       }
       const identifierName: Identifier = declarationName;
       const sourceName = identifierName.name;
-      delegates.set(sourceName, {
+      delegates.set(declaration.delegate as unknown as Node, {
         backingName: variableDelegateBackingName(sourceName),
         kind: variableDelegateKind(expressionTypes?.get(declaration.delegate as unknown as Node), program)
       });
@@ -1764,7 +1812,11 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
             }
             const objectProperty = property as ObjectProperty;
             if (objectProperty.shorthand && objectProperty.key instanceof Identifier) {
-              return (objectProperty.key as Identifier).name;
+              const identifier = objectProperty.key as Identifier;
+              const delegate = activeState.variableDelegates.get(identifier.name);
+              return delegate
+                ? `${identifier.name}: ${emitVariableDelegateRead(delegate)}`
+                : identifier.name;
             }
             const key = emitObjectPropertyKey(objectProperty);
             if (objectProperty.method && objectProperty.value instanceof FunctionExpression) {
@@ -1975,9 +2027,9 @@ function emitBlock(statement: BlockStatement): string {
   if (statement.body.length === 0) {
     return "{}";
   }
-  return `{
+  return withVariableDelegateScope(statement.body, () => `{
 ${statement.body.map((child) => emitStatement(child)).join("\n")}
-}`;
+}`);
 }
 
 function shouldWrapExpressionStatement(expression: Expr): boolean {
@@ -1989,8 +2041,10 @@ function shouldWrapExpressionStatement(expression: Expr): boolean {
 }
 
 function emitScopedBlock(statement: BlockStatement): string {
-  const scope = withOptionalAssignmentTempScope<string[]>(() =>
-    statement.body.map((child) => emitStatement(child))
+  const scope = withVariableDelegateScope(statement.body, () =>
+    withOptionalAssignmentTempScope<string[]>(() =>
+      statement.body.map((child) => emitStatement(child))
+    )
   );
   const emittedStatements = scope.result;
   const temps = scope.temps;
@@ -2966,7 +3020,7 @@ interface EmitProgramRuntimeContext {
   parameterNames: Map<string, string[]>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
   jsNames: Map<string, string>;
-  variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
+  variableDelegateDeclarations: ReadonlyMap<Node, RuntimeVariableDelegateInfo>;
   enumInfos: Map<string, RuntimeEnumInfo>;
   sourceLanguage: "vexa" | "typescript";
   moduleFormat: "esm" | "commonjs";
@@ -3462,7 +3516,7 @@ function collectEmitProgramRuntimeContext(
     });
   }
 
-  const variableDelegates = collectVariableDelegates(contextProgram, expressionTypes);
+  const variableDelegateDeclarations = collectVariableDelegateDeclarations(contextProgram, expressionTypes);
   const foreignStructNames = new Set<string>();
   for (const rawStatement of contextProgram.body) {
     const candidate = unwrapExportedDeclaration(rawStatement);
@@ -3487,7 +3541,7 @@ function collectEmitProgramRuntimeContext(
     parameterNames,
     javaScriptImplementations,
     jsNames,
-    variableDelegates,
+    variableDelegateDeclarations,
     enumInfos,
     sourceLanguage: options.sourceLanguage ?? "vexa",
     moduleFormat: options.moduleFormat ?? "esm",
@@ -3567,7 +3621,8 @@ export function emitProgramStatementPairs(
     parameterNames: runtimeContext.parameterNames,
     javaScriptImplementations: runtimeContext.javaScriptImplementations,
     jsNames: runtimeContext.jsNames,
-    variableDelegates: runtimeContext.variableDelegates,
+    variableDelegateDeclarations: runtimeContext.variableDelegateDeclarations,
+    variableDelegates: new Map(),
     enumInfos: runtimeContext.enumInfos,
     importedExtensionRuntimeNames: runtimeContext.importedExtensionRuntimeNames,
     implicitReceiverIdentifiers,
@@ -3586,10 +3641,12 @@ export function emitProgramStatementPairs(
     optionalAssignmentTempScopes: []
   };
   try {
-    const scope = withOptionalAssignmentTempScope<EmittedProgramStatement[]>(() => program.body.map((statement): EmittedProgramStatement => ({
-      statement,
-      emitted: emitStatement(statement)
-    })));
+    const scope = withVariableDelegateScope(program.body, () =>
+      withOptionalAssignmentTempScope<EmittedProgramStatement[]>(() => program.body.map((statement): EmittedProgramStatement => ({
+        statement,
+        emitted: emitStatement(statement)
+      })))
+    );
     const emittedStatements = scope.result;
     const temps = scope.temps;
     if (temps.length === 0) {
