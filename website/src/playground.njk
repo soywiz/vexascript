@@ -93,9 +93,12 @@ permalink: /playground.html
                 const current = increment(41)
                 const doubled = [for (value of [1, 2, 3]) value * 2]
                 const normal = [for (n in 0 ..< 10) n]
+                const items = [20, 21]
+                const mixed = [1, 2, for (n in 0 ... 2) n, ...items, for (n in 0 ... 2) n * 2, 0]
                 console.log(current.toString())
                 console.log(doubled.join(", "))
                 console.log(normal.join(", "))
+                console.log(mixed.join(", "))
                 console.log(describe(pulseCenter))
                 console.log("character literal", "VexaScript".charCodeAt(0) == 'V')
                 console.log(classify({ kind: "ok", payload: "pattern matching" }))

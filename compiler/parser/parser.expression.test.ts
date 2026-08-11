@@ -1020,6 +1020,45 @@ describe("parseExpression", () => {
         });
     });
 
+    it("mixes array comprehensions with values and spreads", () => {
+        const expression = parseExpression(tokenizeReader(
+            "[1, for (n in 0 ... 2) n, ...items, for (n in 0 ... 2) n * 2, 0]"
+        ));
+
+        expect(expression).toMatchObject({
+            kind: NodeKind.ArrayLiteral,
+            elements: [
+                { kind: NodeKind.IntLiteral, value: 1 },
+                {
+                    kind: NodeKind.SpreadExpression,
+                    comprehensionElement: true,
+                    argument: {
+                        kind: NodeKind.ArrayComprehension,
+                        iterationKind: "in",
+                        iterator: { kind: NodeKind.Identifier, name: "n" },
+                        body: { kind: NodeKind.Identifier, name: "n" }
+                    }
+                },
+                {
+                    kind: NodeKind.SpreadExpression,
+                    argument: { kind: NodeKind.Identifier, name: "items" }
+                },
+                {
+                    kind: NodeKind.SpreadExpression,
+                    comprehensionElement: true,
+                    argument: {
+                        kind: NodeKind.ArrayComprehension,
+                        body: {
+                            kind: NodeKind.BinaryExpression,
+                            operator: "*"
+                        }
+                    }
+                },
+                { kind: NodeKind.IntLiteral, value: 0 }
+            ]
+        });
+    });
+
     it("builds an AST for object literals", () => {
         expect(parseExpression(tokenizeReader("{a: 1, b: 2}"))).toEqual({
             kind: NodeKind.ObjectLiteral,

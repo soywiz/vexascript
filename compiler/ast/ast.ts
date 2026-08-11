@@ -521,7 +521,11 @@ export class NewExpression extends Expr {
 export class SpreadExpression extends Expr {
     declare kind: NodeKind.SpreadExpression
 
-    constructor(public argument: Expr, /** Standalone `...` used as a non-binding array matcher wildcard. */ public matcherWildcard?: boolean) {
+    constructor(
+        public argument: Expr,
+        /** Standalone `...` used as a non-binding array matcher wildcard. */ public matcherWildcard?: boolean,
+        /** Comprehension written directly as an array element without an explicit spread token. */ public comprehensionElement?: boolean
+    ) {
         super(NodeKind.SpreadExpression)
     }
 }

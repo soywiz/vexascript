@@ -2107,27 +2107,30 @@ export class Parser {
 
     private parseArrayLiteral(): ArrayLiteral | ArrayComprehension {
         const startToken = this.getLastReadToken();
-        if (
-            this.language === "vexa" &&
-            this.tokens.peek()?.type === TokenType.IDENTIFIER &&
-            this.tokens.peek()?.value === "for"
-        ) {
-            return this.parseArrayComprehension(startToken);
-        }
         const elements: Expr[] = [];
         let hasMatcherWildcard = false;
+        let hasElementSeparator = false;
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
             if (token?.type === TokenType.SYMBOL && token.value === "]") {
-                this.tokens.skip();
-                return this.withNodeBounds(startToken, () => {
-                    return new ArrayLiteral(elements);
-                });
+                const closeBracket = this.tokens.read();
+                const onlyElement = elements[0];
+                if (
+                    !hasElementSeparator &&
+                    elements.length === 1 &&
+                    onlyElement instanceof SpreadExpression &&
+                    onlyElement.comprehensionElement === true &&
+                    onlyElement.argument instanceof ArrayComprehension
+                ) {
+                    return this.attachNodeBounds(onlyElement.argument, startToken, closeBracket);
+                }
+                return this.attachNodeBounds(new ArrayLiteral(elements), startToken, closeBracket);
             }
 
             if (token?.type === TokenType.SYMBOL && token.value === ",") {
                 const comma = this.tokens.read();
+                hasElementSeparator = true;
                 elements.push(this.attachNodeBounds(new ArrayHole(), comma, comma));
                 continue;
             }
@@ -2144,6 +2147,17 @@ export class Parser {
                 this.tokens.skip();
                 const missing = this.attachNodeBounds(new MissingExpression(), token, token);
                 elements.push(this.attachNodeBounds(new SpreadExpression(missing, true), token, token));
+            } else if (
+                this.language === "vexa" &&
+                token?.type === TokenType.IDENTIFIER &&
+                token.value === "for"
+            ) {
+                const comprehension = this.parseArrayComprehension(token);
+                elements.push(this.attachNodeBounds(
+                    new SpreadExpression(comprehension, undefined, true),
+                    comprehension.firstToken,
+                    comprehension.lastToken
+                ));
             } else {
                 elements.push(this.parseAssignment());
             }
@@ -2151,6 +2165,7 @@ export class Parser {
             const separator = this.tokens.peek();
             if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                 this.tokens.skip();
+                hasElementSeparator = true;
                 if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "]") {
                     continue;
                 }
@@ -2168,7 +2183,7 @@ export class Parser {
     }
 
     private parseArrayComprehension(startToken: Token | undefined): ArrayComprehension {
-        const loop = this.parseForStatement();
+        const loop = this.parseForStatement(true);
         if (loop.isAwait) {
             this.fail("Array comprehensions do not support 'for await'", loop.firstToken);
         }
@@ -2182,11 +2197,6 @@ export class Parser {
             this.fail("Array comprehension bodies must be expressions", loop.body.firstToken);
         }
 
-        const closeBracket = this.tokens.read();
-        if (closeBracket?.type !== TokenType.SYMBOL || closeBracket.value !== "]") {
-            this.fail("Expected ']' after array comprehension", this.tokenAt(closeBracket));
-        }
-
         return this.attachNodeBounds(
             new ArrayComprehension(
                 loop.iterator as VarStatement | Identifier,
@@ -2195,7 +2205,7 @@ export class Parser {
                 loop.iterationKind
             ),
             startToken,
-            closeBracket
+            loop.lastToken
         );
     }
 
@@ -7160,7 +7170,7 @@ export class Parser {
         return this.attachNodeBounds(new DoWhileStatement(body, condition), doKeyword, this.getLastReadToken() ?? doKeyword);
     }
 
-    private parseForStatement(): ForStatement {
+    private parseForStatement(comprehensionBody: boolean = false): ForStatement {
         const forKeyword = this.tokens.read();
         if (forKeyword?.type !== TokenType.IDENTIFIER || forKeyword.value !== "for") {
             this.fail("Expected 'for' statement", this.tokenAt(forKeyword));
@@ -7235,7 +7245,17 @@ export class Parser {
                 this.fail("Expected ')' after for-in/of iterable expression", this.tokenAt(closeParen));
             }
 
-            const body = this.parseStatementOrThrow();
+            let body: Statement;
+            if (comprehensionBody) {
+                const expression = this.parseAssignment();
+                body = this.attachNodeBounds(
+                    new ExprStatement(expression),
+                    expression.firstToken,
+                    expression.lastToken
+                );
+            } else {
+                body = this.parseStatementOrThrow();
+            }
             return this.attachNodeBounds(new ForStatement(
                 body,
                 awaitModifier || undefined,

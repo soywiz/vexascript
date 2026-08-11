@@ -621,19 +621,23 @@ requires an explicit array operation or loop instead.
 val doubled = [for (value of values) value * 2]
 val normal = [for (n in 0 ..< 10) n]
 val labels = [for (val [name, score] of entries) "$name:$score"]
+val mixed = [1, for (n in 0 ... 9) n, ...items, for (n in 0 ... 9) n * 2, 0]
 ```
 
 ```typescript
 const doubled = Array.from(values, value => value * 2);
 const normal = Array.from({ length: 10 }, (_, n) => n);
 const labels = Array.from(entries, ([name, score]) => `${name}:${score}`);
+const mixed = [1, ...range(0, 9), ...items, ...range(0, 9).map(n => n * 2), 0];
 ```
 
 Inside an array comprehension, both `in` and `of` collect iterable values,
 including values from inclusive and exclusive ranges. Comprehension `in`
 follows declaration-free VexaScript loop semantics rather than JavaScript and
 TypeScript object-key iteration. The single expression body determines the
-result array's element type.
+result array's element type. Comprehensions can be interleaved with normal array
+elements and spreads; each comprehension contributes all of its generated
+values in place without requiring an explicit `...`.
 
 ### `is` nominal checks and built-in matcher patterns
 

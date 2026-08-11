@@ -1915,6 +1915,7 @@ header followed by one result expression:
 ```vexa
 val doubled = [for (value of [1, 2, 3]) value * 2]
 val normal = [for (n in 0 ..< 10) n]
+val mixed = [1, 2, for (n in 0 ... 9) n, ...items, for (n in 0 ... 9) n * 2, 0]
 ```
 
 Inside a comprehension, both `in` and `of` visit iterable values in iteration
@@ -1933,6 +1934,11 @@ The array element type is inferred from the result expression. A comprehension
 accepts one `for-in` or `for-of` header and one expression body; classic
 three-clause loops, statement bodies, and `for await` are not supported inside
 the brackets.
+
+A comprehension may also appear wherever an array element may appear. Its
+results are inserted directly into the surrounding array, like an implicit
+spread. Multiple comprehensions, ordinary elements, holes, and explicit spreads
+may be interleaved; every element is evaluated and appended from left to right.
 
 When running in `typescript` parser mode, `for-in` and `for-of` with declaration iterators are supported:
 

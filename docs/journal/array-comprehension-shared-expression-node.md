@@ -57,3 +57,12 @@ properties on the range representation and return an empty array. Expression
 features that embed loop syntax must reuse the language's loop semantics, not
 the target language's spelling; comprehension `in` and `of` now both iterate
 values in the type checker and both emitters.
+
+Mixed array elements reinforced the value of that explicit node. An embedded
+comprehension can be represented as an implicit `SpreadExpression` around the
+same `ArrayComprehension`, so array inference, JavaScript spread emission,
+native `appendAll`, traversal, and lowering need no parallel comprehension
+branches. Only the parser and formatter retain whether the spread token was
+implicit. The parser must parse the comprehension body as an assignment
+expression rather than a comma expression so the following comma remains the
+surrounding array's separator.

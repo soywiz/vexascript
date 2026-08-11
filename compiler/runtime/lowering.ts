@@ -579,7 +579,7 @@ function lowerControlExpression(
     case NodeKind.SpreadExpression: {
       const spread = expression as SpreadExpression;
       return lowerControlExpression(spread.argument, state, (value) => continuation(
-        copyNodeBounds(new SpreadExpression(value), spread)
+        copyNodeBounds(new SpreadExpression(value, spread.matcherWildcard, spread.comprehensionElement), spread)
       ));
     }
     case NodeKind.NamedArgument: {

@@ -13,6 +13,9 @@ describe("formatSource", () => {
     expect(formatSource("val doubled=[for(item of items)item*2]")).toBe(
       "val doubled = [for (item of items) item * 2]"
     );
+    expect(formatSource("val mixed=[1,for(n in 0...2)n,...items,for(n in 0...2)n*2,0]")).toBe(
+      "val mixed = [1, for (n in 0 ... 2) n, ...items, for (n in 0 ... 2) n * 2, 0]"
+    );
   });
 
   it("preserves condition and subject match syntax with matcher patterns", () => {

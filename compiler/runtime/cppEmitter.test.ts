@@ -16,6 +16,18 @@ console.log(rangeValues.join(","))
     expect(result.code).not.toContain("vexa::objectKeys");
   });
 
+  it("mixes native array comprehensions with values and spreads", () => {
+    const result = transpile(`
+const items = [20, 21]
+const values = [1, for (value in 0 ... 2) value, ...items, for (value in 0 ... 2) value * 2, 0]
+console.log(values.join(","))
+`, { emit: "cpp", sourceFilePath: "/tmp/mixed-array-comprehension.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::appendAll");
+    expect(result.code).toContain("__vexa_comprehension_result");
+  });
+
   it("lowers class init blocks into constructor bodies", () => {
     const result = transpile(`
 class Demo {

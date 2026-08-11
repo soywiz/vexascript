@@ -2662,7 +2662,11 @@ class AstFormatter {
       case NodeKind.ObjectLiteral: this.emitObjectLiteral(expr as ObjectLiteral); break;
       case NodeKind.SpreadExpression: {
         const s = expr as SpreadExpression;
-        this.write("..."); this.emitExpr(s.argument);
+        if (s.comprehensionElement === true && s.argument instanceof ArrayComprehension) {
+          this.emitArrayComprehension(s.argument, false);
+        } else {
+          this.write("..."); this.emitExpr(s.argument);
+        }
         break;
       }
       case NodeKind.AsExpression: {
@@ -3048,8 +3052,8 @@ class AstFormatter {
     this.write("]");
   }
 
-  private emitArrayComprehension(expr: ArrayComprehension): void {
-    this.write("[");
+  private emitArrayComprehension(expr: ArrayComprehension, includeBrackets: boolean = true): void {
+    if (includeBrackets) this.write("[");
     this.tok("for");
     this.sp();
     this.write("(");
@@ -3065,7 +3069,7 @@ class AstFormatter {
     this.write(")");
     this.sp();
     this.emitExpr(expr.body);
-    this.write("]");
+    if (includeBrackets) this.write("]");
   }
 
   private emitObjectLiteral(expr: ObjectLiteral): void {

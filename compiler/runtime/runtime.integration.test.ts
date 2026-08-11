@@ -33,6 +33,16 @@ console.log(labels.join(","))
     expect(output).toEqual([["2,4,6"], ["0,1,2,3,4,5,6,7,8,9"], ["Ada:2,Lin:3"]]);
   });
 
+  it("mixes comprehensions with ordinary and spread array elements", () => {
+    const output = executeTranspiled(`
+val items = [20, 21]
+val mixed = [1, 2, for (n in 0 ... 2) n, ...items, for (n in 0 ... 2) n * 2, 0]
+console.log(mixed.join(","))
+`);
+
+    expect(output).toEqual([["1,2,0,1,2,20,21,0,2,4,0"]]);
+  });
+
   it("executes literal, object, nested, array, and nominal is patterns inside match", () => {
     const output = executeTranspiled(`
 class Box(val value: int)
