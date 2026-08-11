@@ -15,7 +15,7 @@ permalink: /syntax/full.html
     </div>
 {% highlightVexaScript %}
 @FFILibrary("libSDL2-2.0.so.0", "SDL2.framework/SDL2")
-ambient class SDL2 {
+declare class SDL2 {
   @FFIName("SDL_Init")
   static func Init(flags: int): int
 

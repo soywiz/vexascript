@@ -38,6 +38,9 @@ function tokenClassName(token) {
   if (token === "string") {
     return "token-string";
   }
+  if (token === "regexp") {
+    return "token-regexp";
+  }
   if (token === "number.float") {
     return "token-number";
   }
@@ -77,6 +80,97 @@ function tokenClassName(token) {
   return "token-plain";
 }
 
+function regexBodyEnd(value) {
+  let inCharacterClass = false;
+  for (let index = 1; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if (character === "[") {
+      inCharacterClass = true;
+      continue;
+    }
+    if (character === "]") {
+      inCharacterClass = false;
+      continue;
+    }
+    if (character === "/" && !inCharacterClass) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function regexCharacterClassEnd(value, start, bodyEnd) {
+  for (let index = start + 1; index < bodyEnd; index += 1) {
+    if (value[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (value[index] === "]") {
+      return index + 1;
+    }
+  }
+  return bodyEnd;
+}
+
+function wrapRegexPart(text, className) {
+  return `<span class="${className}">${escapeHtml(text)}</span>`;
+}
+
+function highlightRegularExpression(value) {
+  const bodyEnd = regexBodyEnd(value);
+  if (bodyEnd <= 1) {
+    return wrapRegexPart(value, "token-regexp");
+  }
+
+  const output = [wrapRegexPart(value.slice(0, 1), "token-regexp-delimiter")];
+  let literalStart = 1;
+  const flushLiteral = (end) => {
+    if (literalStart < end) {
+      output.push(wrapRegexPart(value.slice(literalStart, end), "token-regexp"));
+    }
+  };
+
+  let index = 1;
+  while (index < bodyEnd) {
+    const character = value[index];
+    if (character === "\\") {
+      flushLiteral(index);
+      const end = Math.min(index + 2, bodyEnd);
+      output.push(wrapRegexPart(value.slice(index, end), "token-regexp-escape"));
+      index = end;
+      literalStart = index;
+      continue;
+    }
+    if (character === "[") {
+      flushLiteral(index);
+      const end = regexCharacterClassEnd(value, index, bodyEnd);
+      output.push(wrapRegexPart(value.slice(index, end), "token-regexp-character-class"));
+      index = end;
+      literalStart = index;
+      continue;
+    }
+    if ("^$*+?.()|{}".includes(character)) {
+      flushLiteral(index);
+      output.push(wrapRegexPart(character, "token-regexp-special"));
+      index += 1;
+      literalStart = index;
+      continue;
+    }
+    index += 1;
+  }
+
+  flushLiteral(bodyEnd);
+  output.push(wrapRegexPart(value.slice(bodyEnd, bodyEnd + 1), "token-regexp-delimiter"));
+  if (bodyEnd + 1 < value.length) {
+    output.push(wrapRegexPart(value.slice(bodyEnd + 1), "token-regexp-flag"));
+  }
+  return output.join("");
+}
+
 function resolveCaseToken(text) {
   if (modifierKeywords.has(text)) return "keywordModifier";
   if (functionKeywords.has(text)) return "keywordFunction";
@@ -90,6 +184,9 @@ function resolveCaseToken(text) {
 function wrapToken(text, token) {
   if (!token) {
     return escapeHtml(text);
+  }
+  if (token === "regexp") {
+    return highlightRegularExpression(text);
   }
   const className = tokenClassName(token);
   if (className === "token-plain") {

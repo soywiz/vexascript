@@ -147,7 +147,7 @@ vexa cpp link app.ts -o app
       <p><code>@FFILibrary</code>, ABI-aware structs, pointers, and buffers describe a native API once. Deno uses dynamic FFI while generated C++ calls the same symbols directly.</p>
 {% highlightVexaScript %}
 @FFILibrary("libSDL2.so", "SDL2.framework/SDL2")
-ambient class SDL2 {
+declare class SDL2 {
   static func SDL_Init(flags: int): int
 }
 {% endhighlightVexaScript %}

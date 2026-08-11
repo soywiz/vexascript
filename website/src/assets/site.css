@@ -333,9 +333,6 @@ h3 { font-size: 1.25rem; margin: 0.55rem 0; }
   font-weight: 800;
   box-shadow: 0 10px 24px rgba(75, 46, 214, 0.2);
 }
-.getting-started-card .syntax-block {
-  margin-top: 0;
-}
 .getting-started-card .actions {
   margin-top: 0.25rem;
 }
@@ -471,6 +468,24 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 }
 .token-string {
   color: #f9b66d;
+}
+.token-regexp {
+  color: #d16969;
+}
+.token-regexp-delimiter {
+  color: #d4d4d4;
+}
+.token-regexp-escape {
+  color: #d7ba7d;
+}
+.token-regexp-character-class {
+  color: #4ec9b0;
+}
+.token-regexp-special {
+  color: #c586c0;
+}
+.token-regexp-flag {
+  color: #569cd6;
 }
 .token-number {
   color: #ffd966;

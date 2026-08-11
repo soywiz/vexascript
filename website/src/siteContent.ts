@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import MarkdownIt from "markdown-it";
-import { renderHighlightedCodeBlock } from "./syntaxHighlight.ts";
+import { renderHighlightedCodeBlock } from "./syntaxHighlight.mjs";
 
 const markdown = new MarkdownIt({
   html: false,
