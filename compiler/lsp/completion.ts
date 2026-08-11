@@ -284,7 +284,7 @@ export async function createCompletionItemsForPosition(
     character,
     options
   );
-  if (objectLiteralValueCompletions.length > 0) {
+  if (objectLiteralValueCompletions !== null) {
     return objectLiteralValueCompletions;
   }
 

@@ -141,7 +141,11 @@ export class ArrayType extends AnalysisType {
 export class ObjectType extends AnalysisType {
   declare kind: AnalysisTypeKind.Object;
 
-  constructor(public properties: ReadonlyMap<string, AnalysisType>) {
+  constructor(
+    public properties: ReadonlyMap<string, AnalysisType>,
+    /** Exact declaration owner retained when mapped/utility types copy properties. */
+    public propertyOwnerTypeNames?: ReadonlyMap<string, string>
+  ) {
     super(AnalysisTypeKind.Object);
   }
 }
@@ -255,9 +259,15 @@ export function objectType(): ObjectType {
 }
 
 export function objectTypeWithProperties(
-  properties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>
+  properties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
+  propertyOwnerTypeNames?: ReadonlyMap<string, string>
 ): ObjectType {
-  return new ObjectType(properties instanceof Map ? properties : new Map(Object.entries(properties)));
+  return new ObjectType(
+    properties instanceof Map ? properties : new Map(Object.entries(properties)),
+    propertyOwnerTypeNames && propertyOwnerTypeNames.size > 0
+      ? propertyOwnerTypeNames
+      : undefined
+  );
 }
 
 export function rangeType(elementType: AnalysisType = builtinType("int")): RangeType {

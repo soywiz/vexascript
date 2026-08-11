@@ -138,6 +138,8 @@ export interface CheckedAnalysis {
   extensionPropertyResolutions: ExtensionPropertyResolution[];
   expressionTypes: Map<Node, AnalysisType>;
   contextualObjectLiteralProperties: ReadonlyMap<ObjectLiteral, ReadonlyMap<string, AnalysisType>>;
+  /** Declaration owners resolved by the checker for existing contextual object keys. */
+  contextualObjectLiteralPropertyOwnerTypeNames: ReadonlyMap<ObjectLiteral, ReadonlyMap<string, string>>;
   selectedCallResolutions: SelectedCallResolution[];
   receiverLambdas: ReadonlyMap<Node, ReceiverLambdaInfo>;
   extensionMethodsByReceiver: ReadonlyMap<string, ReadonlyMap<string, AnalysisType>>;

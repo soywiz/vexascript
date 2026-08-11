@@ -225,6 +225,7 @@ export class TypeChecker {
   private readonly assertionCallEffects: WeakMap<CallExpression, { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> }> = new WeakMap<CallExpression, { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> }>();
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private readonly contextualObjectLiteralProperties: Map<ObjectLiteral, ReadonlyMap<string, AnalysisType>> = new Map();
+  private readonly contextualObjectLiteralPropertyOwnerTypeNames: Map<ObjectLiteral, ReadonlyMap<string, string>> = new Map();
   private readonly autoAwaitExpressions: Set<Node> = new Set();
   private readonly asyncForStatements: Set<Node> = new Set();
   private readonly narrowedScopes: Scope[] = [];
@@ -518,6 +519,7 @@ export class TypeChecker {
       extensionPropertyResolutions: [...this.extensionPropertyResolutions.values()],
       expressionTypes: this.expressionTypes,
       contextualObjectLiteralProperties: new Map(this.contextualObjectLiteralProperties),
+      contextualObjectLiteralPropertyOwnerTypeNames: new Map(this.contextualObjectLiteralPropertyOwnerTypeNames),
       selectedCallResolutions: [...this.selectedCallResolutions],
       receiverLambdas: this.receiverLambdas,
       extensionMethodsByReceiver: this.extensionMethodsByReceiver,
@@ -8278,6 +8280,12 @@ export class TypeChecker {
       }
       return null;
     }
+    if (type instanceof ObjectType) {
+      const ownerTypeName = type.propertyOwnerTypeNames?.get(memberName);
+      return ownerTypeName
+        ? this.findJsxPropsMemberResolution(namedType(ownerTypeName), memberName, visited)
+        : null;
+    }
     if (!(type instanceof NamedType)) {
       return null;
     }
@@ -8312,6 +8320,20 @@ export class TypeChecker {
 
     const expanded = this.expandTypeAliases(type);
     return expanded === type ? null : this.findJsxPropsMemberResolution(expanded, memberName, visited);
+  }
+
+  private objectTypeWithPropertyOrigins(
+    properties: ReadonlyMap<string, AnalysisType>,
+    sourceType: AnalysisType
+  ): ObjectType {
+    const propertyOwnerTypeNames = new Map<string, string>();
+    for (const propertyName of properties.keys()) {
+      const resolution = this.findJsxPropsMemberResolution(sourceType, propertyName);
+      if (resolution) {
+        propertyOwnerTypeNames.set(propertyName, resolution.ownerTypeName);
+      }
+    }
+    return objectTypeWithProperties(properties, propertyOwnerTypeNames);
   }
 
   private jsxAttributeValueType(attribute: JsxAttribute, scope: Scope, expectedType?: AnalysisType): AnalysisType {
@@ -10365,7 +10387,7 @@ export class TypeChecker {
           );
         }
       }
-      return objectTypeWithProperties(properties);
+      return this.objectTypeWithPropertyOrigins(properties, sourceType);
     }
 
     const trimmedKeySourceText = keySourceText.trim();
@@ -10420,7 +10442,7 @@ export class TypeChecker {
         );
       }
     }
-    return objectTypeWithProperties(properties);
+    return this.objectTypeWithPropertyOrigins(properties, sourceType);
   }
 
   private resolveMappedUtilityIndexedAccessAliasTarget(
@@ -11594,6 +11616,16 @@ export class TypeChecker {
         this.visitExpression(objectProperty.key, scope);
       }
       const propertyName = this.staticObjectPropertyName(objectProperty);
+      if (propertyName && expectedType) {
+        const resolution = this.findJsxPropsMemberResolution(expectedType, propertyName);
+        if (resolution) {
+          const ownerTypeNames = new Map(
+            this.contextualObjectLiteralPropertyOwnerTypeNames.get(objectLiteral) ?? []
+          );
+          ownerTypeNames.set(propertyName, resolution.ownerTypeName);
+          this.contextualObjectLiteralPropertyOwnerTypeNames.set(objectLiteral, ownerTypeNames);
+        }
+      }
       const propertyType = this.visitExpression(
         objectProperty.value,
         scope,
@@ -14838,7 +14870,7 @@ export class TypeChecker {
         for (const name of sourceMembers.keys()) {
           partialProperties.set(name, this.propertyTypeWithUndefined(sourceMembers.get(name)!));
         }
-        return objectTypeWithProperties(partialProperties);
+        return this.objectTypeWithPropertyOrigins(partialProperties, sourceType);
       }
       if (baseName === "Required") {
         const requiredProperties = new Map<string, AnalysisType>();
@@ -14846,7 +14878,7 @@ export class TypeChecker {
           const type = sourceMembers.get(name)!;
           requiredProperties.set(name, propertyTypeWithoutUndefined(type) ?? type);
         }
-        return objectTypeWithProperties(requiredProperties);
+        return this.objectTypeWithPropertyOrigins(requiredProperties, sourceType);
       }
       if (typeArguments.length < 2) {
         if (baseName !== "WithRequired") return null;
@@ -14855,7 +14887,7 @@ export class TypeChecker {
           const type = sourceMembers.get(name)!;
           requiredProperties.set(name, propertyTypeWithoutUndefined(type) ?? type);
         }
-        return objectTypeWithProperties(requiredProperties);
+        return this.objectTypeWithPropertyOrigins(requiredProperties, sourceType);
       }
       const selectedKeys = new Set(this.stringLiteralKeysFromType(this.typeFromTypeNameLoose(typeArguments[1]!)));
       const selectedProperties = new Map<string, AnalysisType>();
@@ -14868,7 +14900,7 @@ export class TypeChecker {
           selectedProperties.set(name, type);
         }
       }
-      return objectTypeWithProperties(selectedProperties);
+      return this.objectTypeWithPropertyOrigins(selectedProperties, sourceType);
     }
     if (baseName !== "ExtractRendererOptions" || typeArguments.length !== 1) {
       return null;
@@ -14901,7 +14933,7 @@ export class TypeChecker {
       for (const [name, type] of readonlyMembers.entries()) {
         properties.set(toReadonlyPropertyName(name), type);
       }
-      return objectTypeWithProperties(properties);
+      return this.objectTypeWithPropertyOrigins(properties, typeArguments[0]!);
     }
     if (baseName === "Record" && typeArguments.length >= 2) {
       return this.recordUtilityType(typeArguments[0]!, typeArguments[1]!);
@@ -15452,7 +15484,7 @@ export class TypeChecker {
       for (const name of objectSource.properties.keys()) {
         properties.set(name, this.expandTypeAliases(objectSource.properties.get(name)!));
       }
-      return objectTypeWithProperties(properties);
+      return objectTypeWithProperties(properties, objectSource.propertyOwnerTypeNames);
     }
 
     return type;
@@ -15534,7 +15566,10 @@ export class TypeChecker {
           this.substituteTypeParameters(objectSource.properties.get(propertyName)!, substitutions)
         );
       }
-      return objectTypeWithProperties(substitutedProperties);
+      return objectTypeWithProperties(
+        substitutedProperties,
+        objectSource.propertyOwnerTypeNames
+      );
     }
 
     if (sourceType instanceof FunctionType) {

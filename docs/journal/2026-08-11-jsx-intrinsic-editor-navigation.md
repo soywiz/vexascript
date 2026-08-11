@@ -116,13 +116,34 @@ also contain `MathMathMLAttributes.display`, so definition jumped to the
 unrelated MathML attribute. The JSX path must not infer declaration identity
 from a package-wide name match.
 
-Preact models style keys through a mapped type over the DOM
-`CSSStyleDeclaration`. Style-property definition now follows that actual DOM
-owner, while other JSX object attributes return no definition rather than an
-unrelated same-named declaration. Preact intentionally widens CSS property
-values to `string | number | null | undefined`, so literal completion cannot be
-reconstructed from its type text. The style value path supplements that open
-type with CSS keyword suggestions and replaces the contents of an existing
-string literal, allowing values such as `block`, `inline`, and `flex` without
-adding quotes twice. Regression coverage runs both the focused fixture with a
-deliberate MathML name collision and the repository's real Preact LSP session.
+Preact intentionally widens CSS property values to
+`string | number | null | undefined`, so finite value completion cannot be
+reconstructed from its type text. A follow-up briefly added a hand-maintained
+CSS keyword catalog and a `style`-name-based definition fallback. Both were
+removed: they created editor semantics not present in the declarations and
+would inevitably drift across properties and frameworks. The repository rules
+now explicitly forbid that class of heuristic.
+
+Contextual value completion now distinguishes “not in a typed object value”
+from “typed object value with no finite candidates.” The latter returns an
+empty completion result, preventing unrelated local variables from appearing
+inside a string whose declared type is merely `string`. When declarations do
+provide literal unions or aliases, those literals remain the sole source of
+value candidates and replace the current string contents without duplicating
+quotes.
+
+Returning no definition for structurally expanded properties was safe but
+incomplete. A follow-up attempt recovered the declared `CSSProperties` name
+from the JSX attribute and recursively re-resolved it in the LSP. That failed
+for namespace-scoped package declarations and would have rebuilt checker work
+inside navigation. The durable fix retains exact property-owner provenance on
+object types while mapped and utility types copy and transform their members.
+The checker then records the resolved owner for each existing contextual object
+key. Hover still uses Preact's widened property type, while definition uses the
+recorded `CSSStyleDeclaration` owner through the ordinary declared-member
+resolver. This is framework-independent: React, Preact, or another JSX library
+works when its TypeScript declarations carry a traceable mapped-type source.
+
+Regression coverage includes a literal-typed `overflow` property, an open
+Preact style property, mapped `CSSStyleDeclaration` provenance, the deliberate
+MathML name collision, and the repository's real Preact LSP session.

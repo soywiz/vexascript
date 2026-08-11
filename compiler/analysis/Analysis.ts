@@ -137,6 +137,7 @@ export class Analysis {
   private readonly extensionPropertyResolutions: ExtensionPropertyResolution[];
   private readonly expressionTypes: Map<Node, AnalysisType>;
   private readonly contextualObjectLiteralProperties: ReadonlyMap<ObjectLiteral, ReadonlyMap<string, AnalysisType>>;
+  private readonly contextualObjectLiteralPropertyOwnerTypeNames: ReadonlyMap<ObjectLiteral, ReadonlyMap<string, string>>;
   private readonly selectedCallResolutions: SelectedCallResolution[];
   private readonly receiverLambdas: ReadonlyMap<Node, ReceiverLambdaInfo>;
   private readonly extensionMethodsByReceiver: ReadonlyMap<string, ReadonlyMap<string, AnalysisType>>;
@@ -177,6 +178,7 @@ export class Analysis {
       this.extensionPropertyResolutions = [];
       this.expressionTypes = new Map();
       this.contextualObjectLiteralProperties = new Map();
+      this.contextualObjectLiteralPropertyOwnerTypeNames = new Map();
       this.selectedCallResolutions = [];
       this.receiverLambdas = new Map();
       this.extensionMethodsByReceiver = new Map();
@@ -217,6 +219,7 @@ export class Analysis {
     this.extensionPropertyResolutions = checked.extensionPropertyResolutions;
     this.expressionTypes = checked.expressionTypes;
     this.contextualObjectLiteralProperties = checked.contextualObjectLiteralProperties;
+    this.contextualObjectLiteralPropertyOwnerTypeNames = checked.contextualObjectLiteralPropertyOwnerTypeNames;
     this.selectedCallResolutions = checked.selectedCallResolutions;
     this.receiverLambdas = checked.receiverLambdas;
     this.extensionMethodsByReceiver = checked.extensionMethodsByReceiver;
@@ -285,6 +288,13 @@ export class Analysis {
     objectLiteral: ObjectLiteral
   ): ReadonlyMap<string, AnalysisType> | null {
     return this.contextualObjectLiteralProperties.get(objectLiteral) ?? null;
+  }
+
+  getContextualObjectLiteralPropertyOwnerTypeName(
+    objectLiteral: ObjectLiteral,
+    propertyName: string
+  ): string | null {
+    return this.contextualObjectLiteralPropertyOwnerTypeNames.get(objectLiteral)?.get(propertyName) ?? null;
   }
 
   getReceiverLambdas(): ReadonlyMap<Node, ReceiverLambdaInfo> {
@@ -541,14 +551,7 @@ export class Analysis {
   }
 
   getJsxAttributeExpectedTypeAt(line: number, character: number): AnalysisType | null {
-    return this.getJsxAttributeContextAt(line, character)?.type ?? null;
-  }
-
-  getJsxAttributeContextAt(
-    line: number,
-    character: number
-  ): { name: string; type: AnalysisType } | null {
-    let best: { name: string; type: AnalysisType; range: AnalysisRange } | null = null;
+    let best: { type: AnalysisType; range: AnalysisRange } | null = null;
     for (const [element, props] of this.jsxPropsByElement) {
       for (const attribute of element.attributes) {
         if (!(attribute instanceof JsxAttribute)) {
@@ -560,11 +563,11 @@ export class Analysis {
           continue;
         }
         if (!best || this.rangeSize(range) < this.rangeSize(best.range)) {
-          best = { name: attribute.name, type, range };
+          best = { type, range };
         }
       }
     }
-    return best ? { name: best.name, type: best.type } : null;
+    return best?.type ?? null;
   }
 
   getJsxAttributeResolutionAt(

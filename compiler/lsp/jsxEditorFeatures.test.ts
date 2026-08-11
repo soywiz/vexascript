@@ -2,6 +2,7 @@ import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writ
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
 import { parseSource } from "compiler/pipeline/parse";
+import { ObjectLiteral } from "compiler/ast/ast";
 import { createAnalysisSession } from "./analysisSession";
 import { createCompletionItemsForPosition } from "./completion";
 import { resolveDefinitionWithLocalFallback, resolveHoverWithLocalFallback } from "./crossFileNavigation";
@@ -30,14 +31,22 @@ async function createPreactJsxSession(source: string) {
         display?: Signalish<"block" | "inline" | undefined>
       }
       export type Signalish<T> = T
-      export interface CSSProperties {
-        color?: string
-        display?: string | number
-        gap?: string
+      export type DOMCSSProperties = {
+        [key in keyof Omit<CSSStyleDeclaration, "item">]?: string | number | null | undefined
+      }
+      export type AllCSSProperties = {
+        [key: string]: string | number | null | undefined
+      }
+      export interface CSSProperties extends AllCSSProperties, DOMCSSProperties {
+        cssText?: string | null
+      }
+      export interface HTMLAttributes<Target extends EventTarget> extends DOMAttributes<Target> {
+        onAbort?: (() => void)
+        style?: CSSProperties
       }
       export interface IntrinsicElements {
         button: ButtonHTMLAttributes<HTMLButtonElement>
-        div: { onAbort?: (() => void); style?: CSSProperties }
+        div: HTMLAttributes<HTMLDivElement>
       }
     }
 
@@ -53,10 +62,12 @@ async function createPreactJsxSession(source: string) {
     interface Element extends EventTarget {}
     interface HTMLElement extends Element {}
     interface HTMLButtonElement extends HTMLElement {}
+    interface HTMLDivElement extends HTMLElement {}
     interface CSSStyleDeclaration {
       color: string
       display: string
       gap: string
+      overflow: string
     }
   `;
 
@@ -380,23 +391,36 @@ describe("JSX editor features", () => {
       [],
       { text: emptyCursor.source, ...emptySetup.context }
     );
-    const emptyLabels = new Set(emptyItems.map((item) => item.label));
+    const emptyByLabel = new Map(emptyItems.map((item) => [item.label, item]));
+    const emptyLabels = new Set(emptyByLabel.keys());
 
     expect(emptyLabels.has("color")).toBe(true);
     expect(emptyLabels.has("display")).toBe(true);
     expect(emptyLabels.has("gap")).toBe(true);
     expect(emptyLabels.has("count")).toBe(false);
+    expect(emptyByLabel.get("display")?.detail).toBe(
+      "Object property: string | number | null | undefined"
+    );
   });
 
-  it("provides hover and definitions for contextual style properties", async () => {
+  it("provides type-driven hover and definitions for mapped contextual style properties", async () => {
     const cursor = sourceWithCursor(dedent`
       import { render } from "preact"
 
       function App() {
-        return <div style={{ dis^^^play: "flex", gap: "20px" }} />
+        return <div style={{ over^^^flow: "hidden", gap: "20px" }} />
       }
     `);
     const setup = await createPreactJsxSession(cursor.source);
+    const objectLiteral = [...(setup.session.analysis?.getExpressionTypes().keys() ?? [])].find(
+      (node) => node instanceof ObjectLiteral
+    ) as ObjectLiteral | undefined;
+    expect(objectLiteral).not.toBe(undefined);
+    expect(
+      objectLiteral
+        ? setup.session.analysis?.getContextualObjectLiteralPropertyOwnerTypeName(objectLiteral, "overflow")
+        : null
+    ).toBe("CSSStyleDeclaration");
     const hover = await resolveHoverWithLocalFallback({
       ...setup.context,
       line: cursor.line,
@@ -410,14 +434,16 @@ describe("JSX editor features", () => {
       session: setup.session
     });
 
-    expect((hover?.contents as { value?: string } | undefined)?.value).toBe("display: string | number");
+    expect((hover?.contents as { value?: string } | undefined)?.value).toBe(
+      "overflow: string | number | null | undefined"
+    );
     expect(definition?.uri).toBe(pathToFileURL(setup.domPath).toString());
     expect(definition?.range.start.line).toBe(
-      setup.domSource.split("\n").findIndex((line) => line.includes("display: string"))
+      setup.domSource.split("\n").findIndex((line) => line.includes("overflow: string"))
     );
   });
 
-  it("offers CSS display values inside a JSX style string", async () => {
+  it("does not invent values for open JSX style property types", async () => {
     const cursor = sourceWithCursor(dedent`
       import { render } from "preact"
 
@@ -434,25 +460,24 @@ describe("JSX editor features", () => {
       [],
       { text: cursor.source, ...setup.context }
     );
-    const byLabel = new Map(items.map((item) => [item.label, item]));
-
     expect(setup.session.analysis?.getIssues()).toEqual([]);
-    expect(byLabel.get("block")?.textEdit).toMatchObject({ newText: "block" });
-    expect(byLabel.get("inline")?.textEdit).toMatchObject({ newText: "inline" });
-    expect(byLabel.get("flex")?.textEdit).toMatchObject({ newText: "flex" });
-    expect(byLabel.has("count")).toBe(false);
+    expect(items).toEqual([]);
   });
 
-  it("provides CSS value completion for framework-independent JSX style props", async () => {
+  it("derives JSX style value completion from declared literal types", async () => {
     const cursor = sourceWithCursor(dedent`
       import { render } from "preact"
 
-      function Panel({ style: CSSStyleDeclaration }) {
+      interface PanelStyle {
+        overflow?: "visible" | "hidden" | "clip" | "scroll" | "auto"
+      }
+
+      function Panel({ style: PanelStyle }) {
         return <div style={style} />
       }
 
       function App() {
-        return <Panel style={{ display: "^^^" }} />
+        return <Panel style={{ overflow: "^^^" }} />
       }
     `);
     const setup = await createPreactJsxSession(cursor.source);
@@ -466,8 +491,7 @@ describe("JSX editor features", () => {
     );
     const labels = new Set(items.map((item) => item.label));
 
-    expect(labels.has("block")).toBe(true);
-    expect(labels.has("inline")).toBe(true);
-    expect(labels.has("flex")).toBe(true);
+    expect(labels).toEqual(new Set(["visible", "hidden", "clip", "scroll", "auto"]));
+    expect(items.find((item) => item.label === "hidden")?.textEdit).toMatchObject({ newText: "hidden" });
   });
 });

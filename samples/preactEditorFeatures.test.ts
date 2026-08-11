@@ -28,7 +28,8 @@ describe("preact JSX editor features", () => {
       positionInside(source, "currentTarget"),
       positionInside(source, "display: \"flex\"")
     ], [
-      positionInside(source, "\"flex\"")
+      positionInside(source, "\"flex\""),
+      positionInside(source, "display: \"flex\"")
     ]);
     const hoverValues = result.hovers.map((hover) =>
       (hover?.contents as { value?: string } | undefined)?.value ?? ""
@@ -42,9 +43,8 @@ describe("preact JSX editor features", () => {
     expect(result.definitions[1]).not.toBeNull();
     expect(result.definitions[2]).not.toBeNull();
     expect((result.definitions[3] as { uri?: string } | null)?.uri).toContain("compiler/runtime/dom.d.ts");
-    const displayValues = new Set(result.completions[0]?.map((item) => item.label));
-    expect(displayValues.has("block")).toBe(true);
-    expect(displayValues.has("inline")).toBe(true);
-    expect(displayValues.has("flex")).toBe(true);
+    expect(result.completions[0]).toEqual([]);
+    const displayProperty = result.completions[1]?.find((item) => item.label === "display");
+    expect(displayProperty?.detail).toBe("Object property: string | number | null | undefined");
   });
 });
