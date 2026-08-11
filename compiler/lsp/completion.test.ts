@@ -472,6 +472,83 @@ describe("createCompletionItemsForPosition", () => {
     );
   });
 
+  it("does not resolve workspace auto-imports for contextual object property completion", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      interface Style {
+        display?: string
+      }
+
+      function renderStyle(style: Style) {}
+
+      function App() {
+        renderStyle({ test^^^: "test" })
+      }
+    `);
+    const session = createAnalysisSession(source);
+    let exportedSymbolRequests = 0;
+
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        uri: "file:///consumer.vx",
+        sourceRoots: ["/workspace"],
+        getExportedSymbols: async () => {
+          exportedSymbolRequests += 1;
+          return [{ name: "testHelper", filePath: "/workspace/helper.vx", kind: "function" }];
+        }
+      }
+    );
+
+    expect(items.map((item) => item.label)).toContain("display");
+    expect(exportedSymbolRequests).toBe(0);
+  });
+
+  it("does not scan the workspace to prepare every contextual object property", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      interface Style {
+        display?: string
+        overflow?: string
+      }
+
+      function renderStyle(style: Style) {}
+
+      function App() {
+        renderStyle({ ^^^ })
+      }
+    `);
+    const session = createAnalysisSession(source);
+    let directoryReads = 0;
+
+    class CountingVfs extends Vfs {
+      override async readDir() {
+        directoryReads += 1;
+        return [];
+      }
+    }
+
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        uri: "file:///workspace/main.vx",
+        sourceRoots: ["/workspace"],
+        vfs: new CountingVfs()
+      }
+    );
+
+    expect(items.map((item) => item.label)).toEqual(["display", "overflow"]);
+    expect(directoryReads).toBe(0);
+  });
+
   it("computes auto-import completion items for ambient module exports", async () => {
     const { source, line, character } = sourceWithCursor("fun demo() {\n  return gre^^^\n}\n");
     const ast = parseFile(tokenizeReader(source));
@@ -2110,7 +2187,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("canvas")?.insertText).toBe("\"canvas\"");
   });
 
-  it("re-triggers suggest after accepting an object property whose value has literal candidates", async () => {
+  it("resolves object property value suggestions lazily after accepting a property", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       interface ApplicationOptions {
         preference?: "webgl" | "webgpu" | "canvas" | undefined
@@ -2137,7 +2214,10 @@ describe("createCompletionItemsForPosition", () => {
       title: "Trigger suggest",
       command: "editor.action.triggerSuggest"
     });
-    expect(byLabel.get("failIfMajorPerformanceCaveat")?.command).toBe(undefined);
+    expect(byLabel.get("failIfMajorPerformanceCaveat")?.command).toEqual({
+      title: "Trigger suggest",
+      command: "editor.action.triggerSuggest"
+    });
   });
 
   it("offers numeric literal union values inside object literal property values", async () => {

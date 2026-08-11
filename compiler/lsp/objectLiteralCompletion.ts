@@ -1265,10 +1265,10 @@ export async function buildContextualObjectLiteralCompletionItems(
   line: number,
   character: number,
   options: CompletionRequestOptions
-): Promise<CompletionItem[]> {
+): Promise<CompletionItem[] | null> {
   const context = findObjectLiteralCompletionContext(ast, analysis, line, character);
   if (!context) {
-    return [];
+    return null;
   }
 
   const contextualProperties = context.expectedTypeSource.kind === "jsx-attribute"
@@ -1291,24 +1291,19 @@ export async function buildContextualObjectLiteralCompletionItems(
   const availableMembers = shape.members
     .filter((member) => !context.usedPropertyNames.has(member.name));
 
-  const memberSuggestions = await Promise.all(availableMembers.map(async (member, index) => {
-    const valueCandidates = await collectObjectLiteralValueCandidates(member.typeName, ast, options);
+  const memberSuggestions = availableMembers.map((member, index) => {
     return {
       label: member.name,
       kind: CompletionItemKind.Field,
       detail: `Object property: ${member.typeName}`,
       insertText: `${member.name}: `,
       sortText: `0-${String(index).padStart(4, "0")}-${member.name}`,
-      ...(valueCandidates.length > 0
-        ? {
-            command: {
-              title: "Trigger suggest",
-              command: CompletionCommand.TriggerSuggest
-            }
-          }
-        : {})
+      command: {
+        title: "Trigger suggest",
+        command: CompletionCommand.TriggerSuggest
+      }
     };
-  }));
+  });
 
   return memberSuggestions;
 }

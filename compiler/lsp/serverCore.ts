@@ -34,7 +34,7 @@ import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formattin
 import { collectDiagnosticsFromSession } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } from "./crossFileTypeDiagnostics";
-import { buildAmbientModuleSymbolExports, buildAutoImportSuggestions, buildSymbolExports, uriToFilePath } from "./importFixes";
+import { buildAmbientModuleSymbolExports, buildSymbolExports, uriToFilePath } from "./importFixes";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -503,30 +503,16 @@ export function startLspServer(options: LspServerOptions): void {
         { text }
       );
     }
-    const prefix = completionPrefixAt(text, doc.offsetAt(params.position));
-    const visibleSymbols = session.analysis?.getVisibleSymbolsAt(
-      params.position.line,
-      params.position.character
-    ) ?? [];
-    const autoImportSuggestions = await buildAutoImportSuggestions({
-      uri: doc.uri,
-      ast: session.ast,
-      sourceRoots: environment.getSourceRoots(),
-      importMappings: environment.getImportMappings?.() ?? {},
-      getExportedSymbols: () => getExportedSymbolsForSession(session),
-      prefix,
-      excludeSymbols: new Set(visibleSymbols.map((symbol) => symbol.name))
-    });
-
     return createCompletionItemsForPosition(
       session.ast,
       params.position.line,
       params.position.character,
       session.analysis,
-      autoImportSuggestions,
+      [],
       {
         text,
         ...featureContext(doc.uri),
+        getExportedSymbols: () => getExportedSymbolsForSession(session),
         ambientModuleDeclarations: session.ambientModuleDeclarations,
         recoverAnalysisSession: (source) => createAnalysisSession(source, { externalDeclarations: session.externalDeclarations, ambientDeclarations: session.ambientDeclarations, ambientModuleDeclarations: session.ambientModuleDeclarations, ambientModuleLocations: session.ambientModuleLocations, invalidImportedBindings: session.invalidImportedBindings, ambientDeclarationLocations: session.ambientDeclarationLocations, importedSymbols: session.importedSymbols })
       }

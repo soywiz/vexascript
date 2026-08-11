@@ -218,14 +218,6 @@ export async function createCompletionItemsForPosition(
   if (annotationPrefix !== null) {
     return annotationCompletionItems(ast, annotationPrefix);
   }
-  const resolvedAutoImportSuggestions = await resolveAutoImportSuggestions({
-    ast,
-    analysis: resolvedAnalysis,
-    line,
-    character,
-    provided: autoImportSuggestions,
-    options
-  });
   const jsxTagPrefix = jsxTagPrefixAtPosition(options.text, line, character);
   if (jsxTagPrefix !== null) {
     return buildJsxTagCompletionItems(resolvedAnalysis, line, character, jsxTagPrefix);
@@ -273,7 +265,7 @@ export async function createCompletionItemsForPosition(
     character,
     options
   );
-  if (objectLiteralCompletions.length > 0) {
+  if (objectLiteralCompletions !== null) {
     return objectLiteralCompletions;
   }
 
@@ -338,6 +330,14 @@ export async function createCompletionItemsForPosition(
   }
 
   if (!suppressExistingSymbolCompletions) {
+    const resolvedAutoImportSuggestions = await resolveAutoImportSuggestions({
+      ast,
+      analysis: resolvedAnalysis,
+      line,
+      character,
+      provided: autoImportSuggestions,
+      options
+    });
     items.push(...buildAutoImportCompletionItems(ast, resolvedAutoImportSuggestions, seenLabels));
   }
 
