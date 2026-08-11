@@ -35,9 +35,9 @@ func App() {
 	return (
 		<CounterContext.Provider value={counter}>
 			<div style={{ display: "flex", gap: "20px" }}>
+			{#for n in 0..<3}
 				<Counter />
-				<Counter />
-				<Counter />
+			{/for}
 			</div>
 		</CounterContext.Provider>
 	);
