@@ -7,6 +7,37 @@ import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 
 describe("cross-file type diagnostics", () => {
+  it("does not search the workspace for ambient member calls already resolved by analysis", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-resolved-ambient-"));
+    await writeFile(join(root, "unrelated.vx"), "class Unrelated {}\n", "utf8");
+    const ambientSource = dedent`
+      interface Element {}
+      interface Document {
+        getElementById(id: string): Element | null
+      }
+      declare const document: Document
+    `;
+    const source = `document.getElementById("app")`;
+    const ambientProgram = createAnalysisSession(ambientSource).ast!;
+    const session = createAnalysisSession(source, {
+      ambientDeclarations: ambientProgram.body
+    });
+    let sessionRequests = 0;
+
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(join(root, "main.vx")).toString(),
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: async () => {
+        sessionRequests += 1;
+        return null;
+      }
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(sessionRequests).toBe(0);
+  });
+
   it("accepts implicit VexaScript exports for imported extension properties", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
     const utilsFile = join(root, "utils.vx");

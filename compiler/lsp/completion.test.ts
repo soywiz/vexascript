@@ -549,6 +549,46 @@ describe("createCompletionItemsForPosition", () => {
     expect(directoryReads).toBe(0);
   });
 
+  it("does not scan the workspace for open primitive object property values", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      interface Style {
+        accentColor?: string | number | null
+      }
+
+      function renderStyle(style: Style) {}
+
+      function App() {
+        renderStyle({ accentColor: "^^^" })
+      }
+    `);
+    const session = createAnalysisSession(source);
+    let directoryReads = 0;
+
+    class CountingVfs extends Vfs {
+      override async readDir() {
+        directoryReads += 1;
+        return [];
+      }
+    }
+
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        uri: "file:///workspace/main.vx",
+        sourceRoots: ["/workspace"],
+        vfs: new CountingVfs()
+      }
+    );
+
+    expect(items).toEqual([]);
+    expect(directoryReads).toBe(0);
+  });
+
   it("computes auto-import completion items for ambient module exports", async () => {
     const { source, line, character } = sourceWithCursor("fun demo() {\n  return gre^^^\n}\n");
     const ast = parseFile(tokenizeReader(source));

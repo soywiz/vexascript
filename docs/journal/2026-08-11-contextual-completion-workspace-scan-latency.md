@@ -35,3 +35,15 @@ Cold project analysis remained about 788 ms in this profile. It is a separate on
 ## Regression protection
 
 The completion tests now assert both that contextual object completion does not request workspace exports and that preparing a typed property's name list performs no workspace directory scans. Value-completion tests continue to cover literal unions, enums, and imported aliases, preserving the type-driven contract.
+
+## Follow-up: analysis and open primitive values
+
+A follow-up editor reproduction added `accentColor: ""`. Property-name completion was fast, but the value request waited about 450 ms for a new analysis session, while cross-file diagnostics took about 899 ms in the same edit burst.
+
+A CPU profile found that every document analysis eagerly built fully resolved symbols for every declared JSX intrinsic element. Preact exposes a large HTML tag set, so this resolved the complete props graph for tags that the document never used. Intrinsic tag completion only needs the declared tag names and declaration nodes. The checker now records those lightweight symbols directly and retains full props resolution for JSX tags that actually occur in the program. The exact sample's cold analysis fell from about 832 ms to 315 ms; the remaining cold time includes roughly 157 ms of one-time DOM declaration loading.
+
+The cross-file diagnostic fallback also attempted to resolve the already-known ambient `Document.getElementById` call by scanning every project `.vx` file. Calls with a selected semantic-analysis resolution now bypass that legacy fallback. Cross-file type diagnostics in the exact sample fell from hundreds of milliseconds to 1.45 ms without changing diagnostics for unresolved cross-file calls.
+
+Finally, value completion treated open primitive types such as `string | number | null | undefined` as possible enum or alias names and searched the workspace before returning no finite candidates. Built-in open types now terminate immediately. `accentColor` value completion fell from about 42 ms to 0.89 ms. This remains strictly type-driven: open strings produce no invented color suggestions, while declared literal unions, enums, and imported aliases retain their existing completion paths.
+
+The latency profiler itself still used the removed `importedSymbolTypes` and `importedSymbolDisplayTypes` fields, which made its session differ from the real server and produced false missing-export diagnostics. It now passes the unified `importedSymbols` map used by the production LSP.

@@ -6,7 +6,7 @@ import type {
 import type { Hover } from "vscode-languageserver/node.js";
 import type { Location } from "vscode-languageserver/node.js";
 
-import { namedType, typeToString, type AnalysisType } from "compiler/analysis/types";
+import { BUILTIN_TYPE_NAMES, namedType, typeToString, type AnalysisType } from "compiler/analysis/types";
 import { isDynamicPropertyName, propertyTypeWithoutUndefined } from "compiler/analysis/propertyNames";
 import { baseTypeName, findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { Analysis } from "compiler/analysis/Analysis";
@@ -707,6 +707,9 @@ async function collectObjectLiteralValueCandidates(
         seen.add(key);
         candidates.push(literalCandidate);
       }
+      continue;
+    }
+    if (BUILTIN_TYPE_NAMES.has(trimmed)) {
       continue;
     }
     for (const enumCandidate of await enumValueCandidatesFromTypeText(trimmed, ast, options)) {

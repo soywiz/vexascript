@@ -8222,10 +8222,24 @@ export class TypeChecker {
         if (this.jsxIntrinsicElementSymbols.has(member.name.name)) {
           continue;
         }
-        const info = this.jsxIntrinsicElementInfo(member.name.name);
-        if (info) {
-          this.jsxIntrinsicElementSymbols.set(member.name.name, info.symbol);
-        }
+        const declaredTypeName = member instanceof InterfacePropertyMember
+          ? member.typeAnnotation.name
+          : member.returnType?.name ?? "unknown";
+        this.jsxIntrinsicElementSymbols.set(
+          member.name.name,
+          new AnalysisSymbol(
+            member.name.name,
+            "variable",
+            member.name,
+            nodeStartOffset(member.name) ?? -1,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            declaredTypeName
+          )
+        );
       }
     }
   }

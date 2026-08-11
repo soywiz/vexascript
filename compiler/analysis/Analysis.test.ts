@@ -1,4 +1,4 @@
-import { NodeKind } from "compiler/ast/ast";
+import { InterfaceStatement, NamespaceStatement, NodeKind } from "compiler/ast/ast";
 import { describe, expect, it } from "../test/expect";
 import { Parser, parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
@@ -9,6 +9,8 @@ import type { VarStatement } from "compiler/ast/ast";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import dedent from "compiler/utils/dedent";
 import { sourceWithCursor } from "compiler/test/sourceWithCursor";
+import { Binder } from "./Binder";
+import { TypeChecker } from "./TypeChecker";
 
 function namesOfVisibleSymbolsAt(source: string, line: number, character: number): string[] {
   const ast = parseFile(tokenizeReader(source));
@@ -23,6 +25,45 @@ function symbolsOfVisibleSymbolsAt(source: string, line: number, character: numb
 }
 
 describe("Analysis", () => {
+  it("does not resolve props for every unused JSX intrinsic element", () => {
+    const ambientProgram = parseFile(tokenizeReader(dedent`
+      declare namespace JSX {
+        interface UsedProps {
+          id?: string
+        }
+        interface UnusedProps {
+          expensive?: "unused"
+        }
+        interface IntrinsicElements {
+          used: UsedProps
+          unused: UnusedProps
+        }
+      }
+    `), { language: "typescript" });
+    const program = parseFile(tokenizeReader("const view = <used />"));
+    const namespace = ambientProgram.body[0] as NamespaceStatement;
+    const unusedProps = namespace.body.body.find((statement) =>
+      statement instanceof InterfaceStatement && statement.name.name === "UnusedProps"
+    ) as InterfaceStatement;
+    const members = unusedProps.members;
+    let unusedPropsReads = 0;
+    Object.defineProperty(unusedProps, "members", {
+      configurable: true,
+      get: () => {
+        unusedPropsReads += 1;
+        return members;
+      }
+    });
+
+    const bound = new Binder(program, [], ambientProgram.body).bind();
+    const checker = new TypeChecker(program, bound, [], ambientProgram.body);
+    unusedPropsReads = 0;
+    const checked = checker.check();
+
+    expect([...checked.jsxIntrinsicElementSymbols.keys()]).toEqual(["used", "unused"]);
+    expect(unusedPropsReads).toBe(0);
+  });
+
   it("types VexaScript character literals as int", () => {
     const ast = parseFile(tokenizeReader("val code: int = 'a'"));
     const analysis = new Analysis(ast);

@@ -117,6 +117,19 @@ function constructorDiagnosticNode(node: CallExpression | NewExpression) {
   return node.callee instanceof MemberExpression ? (node.callee as MemberExpression).property : node.callee;
 }
 
+function hasSelectedAnalysisCallResolution(
+  node: CallExpression | NewExpression,
+  analysis: NonNullable<AnalysisSession["analysis"]>
+): boolean {
+  const token = node.callee instanceof MemberExpression
+    ? (node.callee as MemberExpression).property.firstToken
+    : node.callee.firstToken;
+  return Boolean(token && analysis.getSelectedCallResolutionAt(
+    token.range.start.line,
+    token.range.start.column
+  ));
+}
+
 function collectCallExpressions(program: Program): CallExpression[] {
   const calls: CallExpression[] = [];
   walkAst(program, (node) => {
@@ -365,6 +378,9 @@ export async function collectCrossFileTypeDiagnostics(
   }
 
   for (const call of collectCallExpressions(session.ast)) {
+    if (hasSelectedAnalysisCallResolution(call, session.analysis)) {
+      continue;
+    }
     const constructorSignature = await resolveConstructorSignatureCached(call.callee, call);
     if (constructorSignature) {
       const providedCount = call.args.length;
@@ -512,6 +528,9 @@ export async function collectCrossFileTypeDiagnostics(
   }
 
   for (const node of walkCallLikeNewExpressions(session.ast)) {
+    if (hasSelectedAnalysisCallResolution(node, session.analysis)) {
+      continue;
+    }
     const constructorSignature = await resolveConstructorSignatureCached(node.callee, node);
     if (!constructorSignature) {
       continue;

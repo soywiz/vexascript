@@ -208,8 +208,7 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
       latestBreakdown = null;
       return {
         externalDeclarations: [],
-        importedSymbolTypes: new Map(),
-        importedSymbolDisplayTypes: new Map(),
+        importedSymbols: new Map(),
         ambientDeclarations: [],
         ambientModuleDeclarations: new Map()
       };
@@ -253,8 +252,7 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
     const importedTimed = await time(async () => collectAllImportedDeclarations(baseSession.ast, context));
     const {
       externalDeclarations,
-      importedSymbolTypes,
-      importedSymbolDisplayTypes,
+      importedSymbols,
       invalidImportedBindings
     } = importedTimed.value;
 
@@ -267,8 +265,7 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
 
     return {
       externalDeclarations,
-      importedSymbolTypes,
-      importedSymbolDisplayTypes,
+      importedSymbols,
       invalidImportedBindings,
       ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
       ambientDeclarationLocations: new Map([
