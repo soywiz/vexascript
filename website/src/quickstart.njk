@@ -34,11 +34,11 @@ npx vexascript run hello.vx
       </div>
       <p>Create a <code>hello.vx</code> file. VexaScript is derived from TypeScript and keeps its ecosystem, with deliberate <code>.vx</code> syntax differences; <code>.ts</code> and <code>.tsx</code> inputs retain TypeScript semantics.</p>
 {% highlightVexaScript %}
-class Greeter(val name: string) {
-  fun greet() => `Hello, ${name}!`
+class Greeter(const name: string) {
+  func greet() => `Hello, ${name}!`
 }
 
-val g = Greeter("world")
+const g = Greeter("world")
 console.log(g.greet())
 {% endhighlightVexaScript %}
       <p>Run it directly or compile to JavaScript:</p>

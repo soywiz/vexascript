@@ -9,24 +9,68 @@ function toNames(ast: ReturnType<typeof parseFile>, line: number, char: number) 
 }
 
 describe("findDeclarationKeywordReplacementsAtPosition", () => {
-  it("suggests const -> val", () => {
-    const ast = parseFile(tokenizeReader("const a = 1"));
+  it("uses const as the default canonical immutable declaration", () => {
+    const ast = parseFile(tokenizeReader("val a = 1"));
     const replacements = findDeclarationKeywordReplacementsAtPosition(ast, 0, 2);
-    expect(replacements).toEqual([
-      {
-        from: "const",
-        to: "val",
-        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }
-      }
-    ]);
+    expect(replacements[0]).toEqual({
+      from: "val",
+      to: "const",
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }
+    });
   });
 
-  it("suggests let -> var (always) and let -> val (when not reassigned)", () => {
+  it("honors a configured canonical immutable declaration", () => {
+    const ast = parseFile(tokenizeReader("const a = 1"));
+    expect(findDeclarationKeywordReplacementsAtPosition(ast, 0, 2, {
+      immutableDeclaration: "val",
+      functionDeclaration: "func"
+    })[0]).toMatchObject({ from: "const", to: "val" });
+  });
+
+  it("normalizes every function declaration spelling to func by default", () => {
+    for (const keyword of ["fun", "fn", "function"] as const) {
+      const ast = parseFile(tokenizeReader(`${keyword} demo() {}`));
+      expect(findDeclarationKeywordReplacementsAtPosition(ast, 0, 1)[0]).toMatchObject({
+        from: keyword,
+        to: "func"
+      });
+    }
+  });
+
+  it("honors a configured canonical function declaration", () => {
+    const ast = parseFile(tokenizeReader("func demo() {}"));
+    expect(findDeclarationKeywordReplacementsAtPosition(ast, 0, 1, {
+      immutableDeclaration: "const",
+      functionDeclaration: "fn"
+    })[0]).toMatchObject({ from: "func", to: "fn" });
+  });
+
+  it("normalizes class and interface method keywords", () => {
+    const ast = parseFile(tokenizeReader(dedent`
+      class Demo {
+        fun save() {}
+      }
+      interface Contract {
+        fn load(): void
+      }
+    `));
+
+    expect(findDeclarationKeywordReplacementsAtPosition(ast, 1, 3)[0]).toMatchObject({
+      from: "fun",
+      to: "func"
+    });
+    expect(findDeclarationKeywordReplacementsAtPosition(ast, 4, 3)[0]).toMatchObject({
+      from: "fn",
+      to: "func"
+    });
+  });
+
+  it("suggests let -> var (always) and let -> const (when not reassigned)", () => {
     const ast = parseFile(tokenizeReader("let a = 1"));
     const replacements = findDeclarationKeywordReplacementsAtPosition(ast, 0, 1);
-    expect(toNames(ast, 0, 1)).toEqual(["var", "val"]);
+    expect(toNames(ast, 0, 1)).toEqual(["var", "const"]);
     expect(replacements[0]).toMatchObject({ from: "let", to: "var" });
-    expect(replacements[1]).toMatchObject({ from: "let", to: "val" });
+    expect(replacements[1]).toMatchObject({ from: "let", to: "const" });
   });
 
   it("suggests let -> var only when variable is reassigned", () => {
@@ -42,17 +86,20 @@ describe("findDeclarationKeywordReplacementsAtPosition", () => {
     expect(toNames(ast2, 0, 1)).toEqual(["var"]);
   });
 
-  it("suggests var -> val only when not reassigned", () => {
+  it("suggests var -> const only when not reassigned", () => {
     const ast = parseFile(tokenizeReader("var a = 1"));
-    expect(toNames(ast, 0, 1)).toEqual(["val"]);
+    expect(toNames(ast, 0, 1)).toEqual(["const"]);
 
     const astReassigned = parseFile(tokenizeReader("var a = 1\na = 2"));
     expect(toNames(astReassigned, 0, 1)).toEqual([]);
   });
 
-  it("suggests val -> var", () => {
+  it("suggests val -> var when val is configured as canonical", () => {
     const ast = parseFile(tokenizeReader("val a = 1"));
-    const replacements = findDeclarationKeywordReplacementsAtPosition(ast, 0, 2);
+    const replacements = findDeclarationKeywordReplacementsAtPosition(ast, 0, 2, {
+      immutableDeclaration: "val",
+      functionDeclaration: "func"
+    });
     expect(replacements).toEqual([
       {
         from: "val",
@@ -69,7 +116,7 @@ describe("findDeclarationKeywordReplacementsAtPosition", () => {
 
   it("finds declaration inside nested blocks using AST traversal", () => {
     const ast = parseFile(tokenizeReader("fun demo() {\nlet nested = 1\n}"));
-    expect(toNames(ast, 1, 1)).toEqual(["var", "val"]);
+    expect(toNames(ast, 1, 1)).toEqual(["var", "const"]);
   });
 
   it("finds declaration inside for initializer", () => {
@@ -80,22 +127,22 @@ describe("findDeclarationKeywordReplacementsAtPosition", () => {
 
   it("finds declaration inside if branches", () => {
     const ast = parseFile(tokenizeReader("if (ok) { let a = 1 } else { let b = 2 }"));
-    expect(toNames(ast, 0, 12)).toEqual(["var", "val"]);
+    expect(toNames(ast, 0, 12)).toEqual(["var", "const"]);
   });
 
   it("finds declaration inside switch cases", () => {
     const ast = parseFile(tokenizeReader("switch (x) { case 1: let y = 2; default: let z = 3 }"));
-    expect(toNames(ast, 0, 23)).toEqual(["var", "val"]);
+    expect(toNames(ast, 0, 23)).toEqual(["var", "const"]);
   });
 
   it("finds declarations nested inside lambda initializers of outer declarations", () => {
     const source = "val run = () => {\n  let inner = 1\n}";
     const ast = parseFile(tokenizeReader(source));
-    expect(toNames(ast, 1, 3)).toEqual(["var", "val"]);
-    expect(toNames(ast, 0, 1)).toEqual(["var"]);
+    expect(toNames(ast, 1, 3)).toEqual(["var", "const"]);
+    expect(toNames(ast, 0, 1)).toEqual(["const"]);
   });
 
-  it("suppresses val suggestion for let when one of multiple declared names is reassigned", () => {
+  it("suppresses the immutable suggestion for let when one of multiple declared names is reassigned", () => {
     const source = dedent`
       let a = 1, b = 2
       b = 3

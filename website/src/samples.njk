@@ -16,7 +16,7 @@ permalink: /samples.html
       <h3>Operator overloading</h3>
       <p>Operator and method overloading and new-less constructions, for concise writing.</p>
 {% highlightVexaScript %}
-class Vec2(val x: number, val y: number) {
+class Vec2(const x: number, const y: number) {
   operator+(other: Vec2) => Vec2(x + other.x, y + other.y)
   operator-(other: Vec2) => Vec2(x - other.x, y - other.y)
 }
@@ -45,10 +45,10 @@ class PathKey {
   }
 }
 
-val grid = Grid<string>()
+const grid = Grid<string>()
 grid[2, 4] = "selected"
-val cell = grid[2, 4]
-val key = PathKey()[2, 4, 8]
+const cell = grid[2, 4]
+const key = PathKey()[2, 4, 8]
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
@@ -58,7 +58,7 @@ val key = PathKey()[2, 4, 8]
 import { h } from "preact"
 import { useState } from "preact/hooks"
 
-fun Counter({ initial: number }) {
+func Counter({ initial: number }) {
   var count by useState(initial)
 
   return <button onClick={ { count++ } }>
@@ -72,7 +72,7 @@ fun Counter({ initial: number }) {
       <p>When no ambiguity happens, <code>this</code> is optional.</p>
 {% highlightVexaScript %}
 class Counter(var value: int) {
-  fun increment(): int => ++value
+  func increment(): int => ++value
 }
 {% endhighlightVexaScript %}
     </article>
@@ -85,12 +85,12 @@ interface Shape {
   fill(color: string): string
 }
 
-class Rectangle(val width: number, val height: number) : Shape {
+class Rectangle(const width: number, const height: number) : Shape {
   area => width * height
   fill(color: string) => `${color}:${width}x${height}`
 }
 
-class ShapeLogger(val shape: Shape, val label: string) : Shape by { shape } {
+class ShapeLogger(const shape: Shape, const label: string) : Shape by { shape } {
   describe() => `${label}: area=${area}`
 }
 {% endhighlightVexaScript %}
@@ -103,7 +103,7 @@ class ShapeLogger(val shape: Shape, val label: string) : Shape by { shape } {
       <h3>Tuple delegate</h3>
       <p>A <code>[value, setter]</code> tuple delegate wires reads and writes through custom accessors — like React's <code>useState</code>.</p>
 {% highlightVexaScript %}
-fun useState(value: number) {
+func useState(value: number) {
   return [() => value, (newValue: number) => { value = newValue }]
 }
 
@@ -117,7 +117,7 @@ count++
       <h3>Object &amp; function delegates</h3>
       <p>A <code>{ value }</code> object or a zero-argument function also work as delegates — all assignments route through the accessor.</p>
 {% highlightVexaScript %}
-fun box<T>(initial: T) {
+func box<T>(initial: T) {
   return { value: initial }
 }
 
@@ -137,18 +137,18 @@ total++
 {% highlightVexaScript %}
 class Slider(var x: number)
 
-class TweenTarget(val property: Property<number>, val src: number, val dst: number)
+class TweenTarget(const property: Property<number>, const src: number, const dst: number)
 
-fun Property<number>.operator[](src: number, dst: number): TweenTarget {
+func Property<number>.operator[](src: number, dst: number): TweenTarget {
   return TweenTarget(this, src, dst)
 }
 
-fun tween(target: TweenTarget) {
+func tween(target: TweenTarget) {
   target.property.value = target.dst
 }
 
-val slider = Slider(5)
-val xRef = slider::x
+const slider = Slider(5)
+const xRef = slider::x
 var x by xRef
 
 x += 10
@@ -165,11 +165,11 @@ console.log(`${xRef.name}:${xRef.value}`)
       <h3>Sync functions</h3>
       <p><code>sync</code> functions auto-await any <code>Promise</code>-typed expression. Write sequential code without explicit <code>await</code>.</p>
 {% highlightVexaScript %}
-sync fun fetchPrice(item: string): number {
+sync func fetchPrice(item: string): number {
   return fetch(`/prices/${item}`).json()
 }
 
-sync fun checkout(): number {
+sync func checkout(): number {
   const base = fetchPrice("book")   // auto-awaited
   const tax = fetchPrice("tax")     // auto-awaited
   return base + tax
@@ -180,7 +180,7 @@ sync fun checkout(): number {
       <h3>The <code>go</code> operator</h3>
       <p>Inside a <code>sync</code> function, prefix an expression with <code>go</code> to keep the raw <code>Promise</code> instead of auto-awaiting it.</p>
 {% highlightVexaScript %}
-sync fun main(): void {
+sync func main(): void {
   // fire-and-forget — result Promise kept, not awaited
   const pending: Promise<number> = go fetchPrice("audit")
 
@@ -200,7 +200,7 @@ sync fun main(): void {
       <h3>Defer</h3>
       <p><code>defer</code> schedules cleanup for the end of the block — it runs even when the block returns early or throws.</p>
 {% highlightVexaScript %}
-fun readValue(): int {
+func readValue(): int {
   console.log("open")
   defer console.log("close-2")
   defer console.log("close-1")
@@ -226,16 +226,16 @@ for (n of 1 ... 5) {
       <h3>Array comprehensions</h3>
       <p>Put a <code>for-of</code> or <code>for-in</code> header inside brackets to collect a typed result array without a temporary accumulator.</p>
 {% highlightVexaScript %}
-val doubled = [for (value of [1, 2, 3]) value * 2]
-val normal = [for (n in 0 ..< 10) n]
-val labels = [for (val [name, score] of entries) "$name:$score"]
+const doubled = [for (value of [1, 2, 3]) value * 2]
+const normal = [for (n in 0 ..< 10) n]
+const labels = [for (const [name, score] of entries) "$name:$score"]
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>Cascade operator</h3>
       <p><code>..</code> keeps applying member operations to the same receiver and then returns that receiver, which is handy for configuration-style code.</p>
 {% highlightVexaScript %}
-val badge = new Graphics()
+const badge = new Graphics()
   ..point = Vec2(centerX, centerY - 16)
   ..beginFill(0xff6b35)
   ..drawRoundedRect(-110, -64, 220, 128, 28)
@@ -246,7 +246,7 @@ val badge = new Graphics()
       <h3>Postfix receiver blocks</h3>
       <p><code>value. { ... }</code> evaluates a value once, makes it the implicit receiver inside the block, and returns that same value for grouped configuration and mutation.</p>
 {% highlightVexaScript %}
-val badge = new Graphics(). {
+const badge = new Graphics(). {
   point = Vec2(centerX, centerY - 16)
   beginFill(0xff6b35)
   drawRoundedRect(-110, -64, 220, 128, 28)
@@ -261,7 +261,7 @@ val badge = new Graphics(). {
 class Cat { meow() {} }
 class Dog { bark() {} }
 
-fun greet(animal: Cat | Dog) {
+func greet(animal: Cat | Dog) {
   if (animal is Cat) {
     animal.meow()   // type narrowed to Cat here
   } else {
@@ -269,13 +269,13 @@ fun greet(animal: Cat | Dog) {
   }
 }
 
-fun greetWithInstanceof(animal: Cat | Dog) {
+func greetWithInstanceof(animal: Cat | Dog) {
   if (animal instanceof Cat) {
     animal.meow()  // same smart cast as `is`
   }
 }
 
-fun clamp(value: int | string) {
+func clamp(value: int | string) {
   if (value in 0 ... 100) {
     const safe: int = value
   }
@@ -286,7 +286,7 @@ fun clamp(value: int | string) {
       <h3>Subject match and bindings</h3>
       <p>A subject is evaluated once. <code>val name</code> captures a matched value; <code>val name: Type</code> checks and captures it with a branch-local type.</p>
 {% highlightVexaScript %}
-fun describe(packet: any): string {
+func describe(packet: any): string {
   return match (packet) {
     { kind: "ok", payload: [val first: string, ...] } ->
       "first=" + first
@@ -301,7 +301,7 @@ fun describe(packet: any): string {
       <h3>Composable matcher patterns</h3>
       <p>Use literals, primitive types, regular expressions, open array shapes, relational checks, and <code>and</code>/<code>or</code>. The compact arrow form omits <code>when</code>; the colon form requires it.</p>
 {% highlightVexaScript %}
-val label = match (value) {
+const label = match (value) {
   /^user-[0-9]+$/i -> "user id"
   >= 10 and < 20 -> "teen"
   "ready" or "running" -> "active"
@@ -318,11 +318,11 @@ if (value is ({ kind: "ok" } and { payload })) {
       <h3>Tail lambdas</h3>
       <p>A lambda after the closing parenthesis — or as the only argument — follows Kotlin/Swift style and reduces visual noise.</p>
 {% highlightVexaScript %}
-val doubled = [1, 2, 3].map { it * 2 }
+const doubled = [1, 2, 3].map { it * 2 }
 
-val even = [1, 2, 3, 4].filter { it % 2 == 0 }
+const even = [1, 2, 3, 4].filter { it % 2 == 0 }
 
-val result = [1, 2, 3].map {
+const result = [1, 2, 3].map {
   const tripled = it * 3
   tripled + 1   // implicit return
 }
@@ -336,26 +336,26 @@ val result = [1, 2, 3].map {
       <h3>Extension properties</h3>
       <p>Add read-only properties to existing types. Import them where needed; access without an import is an error.</p>
 {% highlightVexaScript %}
-class Duration(val milliseconds: number)
+class Duration(const milliseconds: number)
 
-val number.milliseconds => Duration(this)
-val number.seconds: Duration => Duration(this * 1000)
-val number.minutes: Duration => Duration(this * 60_000)
+const number.milliseconds => Duration(this)
+const number.seconds: Duration => Duration(this * 1000)
+const number.minutes: Duration => Duration(this * 60_000)
 
-val d1 = 500.milliseconds
-val d2 = 2.seconds
-val d3 = 1.minutes
+const d1 = 500.milliseconds
+const d2 = 2.seconds
+const d3 = 1.minutes
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>Receiver functions</h3>
       <p>Generic receiver functions can accept a block that operates on the receiver and returns it for fluent calls.</p>
 {% highlightVexaScript %}
-fun <T> T.apply(block: T.() => T) { block(this); return this }
+func <T> T.apply(block: T.() => T) { block(this); return this }
 
 class Point(var x: number, var y: number)
 
-val point = Point(10, 20).apply {
+const point = Point(10, 20).apply {
   x = y * 2
   this
 }
@@ -365,10 +365,10 @@ val point = Point(10, 20).apply {
       <h3>Generic extension methods</h3>
       <p>Extension methods can be generic and work with built-in collection types like <code>Array&lt;T&gt;</code>.</p>
 {% highlightVexaScript %}
-fun <T> Array<T>.second(): T => this[1]
-val <T> Array<T>.doubledLength => length * 2
+func <T> Array<T>.second(): T => this[1]
+const <T> Array<T>.doubledLength => length * 2
 
-val xs = [10, 20, 30]
+const xs = [10, 20, 30]
 console.log(xs.second())        // 20
 console.log(xs.doubledLength)   // 6
 {% endhighlightVexaScript %}
@@ -377,13 +377,13 @@ console.log(xs.doubledLength)   // 6
       <h3>Named arguments</h3>
       <p>Pass arguments by parameter name in any order. The compiler reorders them to match the callee's parameter list.</p>
 {% highlightVexaScript %}
-fun connect(host: string, port: number, tls: boolean = false) {}
+func connect(host: string, port: number, tls: boolean = false) {}
 
 connect(port: 8080, host: "localhost")
 connect("localhost", port: 8080, tls: true)
 
-class Point(val x: number, val y: number)
-val p = Point(y: 2, x: 1)
+class Point(const x: number, const y: number)
+const p = Point(y: 2, x: 1)
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
@@ -410,7 +410,7 @@ declare class NativeC {
   static abs(value: int): int
 }
 
-val distance = NativeC.abs(-42)
+const distance = NativeC.abs(-42)
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
@@ -423,7 +423,7 @@ declare class SDL2 {
   static Init(flags: int): int
 }
 
-val status = SDL2.Init(32)
+const status = SDL2.Init(32)
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
@@ -439,7 +439,7 @@ class Rect(
   @FFIOffset(12) @FFISize(4) var height: int = 0
 )
 
-val rect = Rect(x: 10, y: 20, width: 320, height: 180)
+const rect = Rect(x: 10, y: 20, width: 320, height: 180)
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
@@ -453,10 +453,10 @@ declare class NativeMemory {
   static free(pointer: FFIPointer): void
 }
 
-val pointer = NativeMemory.malloc(8L)
+const pointer = NativeMemory.malloc(8L)
 pointer.setInt32(0, 1234)
 
-val bytes = ArrayBuffer(4)
+const bytes = ArrayBuffer(4)
 NativeMemory.memset(bytes, 65, 4L)
 NativeMemory.free(pointer)
 {% endhighlightVexaScript %}
@@ -471,7 +471,7 @@ declare class SDL2Async {
   static Delay(milliseconds: int): Promise<void>
 }
 
-sync fun nextFrame(): void {
+sync func nextFrame(): void {
   SDL2Async.Delay(16)
 }
 {% endhighlightVexaScript %}

@@ -19,7 +19,7 @@ permalink: /embed.html
 <script src="https://vexa.soywiz.com/assets/generated/vexa-embed.js"></script>
 <script>
   VexaScriptEmbeds.createSimpleEditor("#lesson-editor", {
-    content: "fun add(a: int, b: int): int { return a + b }",
+    content: "func add(a: int, b: int): int { return a + b }",
     inlayHints: false
   })
 </script>
@@ -35,7 +35,7 @@ VexaScriptEmbeds.createWorkspaceEditor("#workspace", {
   activePath: "/main.vx",
   files: [
     { path: "/main.vx", content: "import { greet } from './greeter.vx'\nconsole.log(greet('VexaScript'))" },
-    { path: "/greeter.vx", content: "export fun greet(name: string): string { return $\"Hello {name}\" }" }
+    { path: "/greeter.vx", content: "export func greet(name: string): string { return $\"Hello {name}\" }" }
   ]
 })
 </script>
@@ -53,7 +53,7 @@ VexaScriptEmbeds.createWorkbenchEditor("#workbench", {
   inlayHints: true,
   files: [
     { path: "/src/main.vx", content: "import { greet } from './greeter.vx'\nconsole.log(greet('VexaScript'))" },
-    { path: "/src/greeter.vx", content: "export fun greet(name: string): string => $\"Hello {name}\"" }
+    { path: "/src/greeter.vx", content: "export func greet(name: string): string => $\"Hello {name}\"" }
   ]
 })
 </script>
@@ -111,10 +111,10 @@ VexaScriptEmbeds.createWorkbenchEditor("#workbench", {
         increment(): int => ++value
       }
 
-      val counter = Counter(41)
+      const counter = Counter(41)
       counter.increment()
 
-      sync fun loadBytes(): Uint8Array {
+      sync func loadBytes(): Uint8Array {
         return Uint8Array(fetch("file.bin").arrayBuffer())
       }
     `
@@ -160,14 +160,14 @@ VexaScriptEmbeds.createWorkbenchEditor("#workbench", {
             content: dedent`
             import { increment } from "./counter.vx"
 
-            val current = increment(41)
+            const current = increment(41)
             console.log(current.toString())
           `
           },
           {
             path: "/src/counter.vx",
             content: dedent`
-            export fun increment(value: int): int {
+            export func increment(value: int): int {
               return value + 1
             }
           `

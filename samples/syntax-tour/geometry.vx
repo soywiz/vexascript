@@ -1,4 +1,4 @@
-export class Point(val x: number, val y: number) {
+export class Point(const x: number, const y: number) {
   static origin = Point(0, 0)
 
   get label(): string {
@@ -14,12 +14,12 @@ export class Point(val x: number, val y: number) {
   }
 }
 
-export fun Point.scale(factor: number): Point {
+export func Point.scale(factor: number): Point {
   return Point(x * factor, y * factor)
 }
 
-export val Point.isOrigin: boolean => x == 0 && y == 0
-export val number.px: string => `${this}px`
+export const Point.isOrigin: boolean => x == 0 && y == 0
+export const number.px: string => `${this}px`
 
 class ShapeBase {
   baseArea(): number {

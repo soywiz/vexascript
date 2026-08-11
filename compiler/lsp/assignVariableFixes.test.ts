@@ -24,18 +24,32 @@ describe("assign variable quick fix", () => {
 
     expect(actions).toHaveLength(1);
     expect(actions[0]?.title).toBe("Assign to variable");
-    expect(actions[0]?.edit?.changes?.[URI]?.[0]?.newText).toBe('val variable = join("hello", "world")');
+    expect(actions[0]?.edit?.changes?.[URI]?.[0]?.newText).toBe('const variable = join("hello", "world")');
     expect(actions[0]?.command).toEqual({
       title: "Select variable name",
       command: SELECT_CODE_ACTION_RANGE_COMMAND,
       arguments: [
         URI,
         {
-          start: { line: 0, character: 4 },
-          end: { line: 0, character: 12 }
+          start: { line: 0, character: 6 },
+          end: { line: 0, character: 14 }
         }
       ]
     });
+  });
+
+  it("uses the configured immutable declaration spelling", () => {
+    const cursor = sourceWithCursor('compute^^^()');
+    const session = createAnalysisSession(cursor.source);
+    const actions = createAssignVariableCodeActions({
+      uri: URI,
+      ast: session.ast,
+      text: cursor.source,
+      position: { line: cursor.line, character: cursor.character },
+      canonicalSyntax: { immutableDeclaration: "val", functionDeclaration: "func" }
+    });
+
+    expect(actions[0]?.edit?.changes?.[URI]?.[0]?.newText).toBe("val variable = compute()");
   });
 
   it("does not offer the quick fix for assignment expressions", () => {

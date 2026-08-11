@@ -92,7 +92,7 @@ function isTextualDeclarationNamePosition(
   const uptoCursor = lineText.slice(0, clampedCharacter);
 
   return [
-    /^\s*fun\s+[A-Za-z_][A-Za-z0-9_]*$/u,
+    /^\s*(?:fun|fn|func|function)\s+[A-Za-z_][A-Za-z0-9_]*$/u,
     /^\s*(?:let|val|var|const)\s+[A-Za-z_][A-Za-z0-9_]*$/u,
     /^\s*(?:class|interface|namespace)\s+[A-Za-z_][A-Za-z0-9_]*$/u,
   ].some((pattern) => pattern.test(uptoCursor));

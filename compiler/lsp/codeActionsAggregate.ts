@@ -27,6 +27,7 @@ import { createDuplicateClassVariableCodeActions } from "./duplicateClassVariabl
 import { createCharacterLiteralCodeActions } from "./characterLiteralFixes";
 import { createInitializationCodeActions } from "./initializationFixes";
 import type { SymbolExportProvider } from "./importFixes";
+import type { CanonicalSyntax } from "compiler/canonicalSyntax";
 
 /**
  * Shared code-action collection used by both the LSP server and the Monaco
@@ -50,6 +51,7 @@ export interface CollectCodeActionsParams {
   getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null | Promise<ProjectSessionLike | null>;
   getExportedSymbols?: SymbolExportProvider;
   refreshDiagnosticsCommand?: string;
+  canonicalSyntax?: CanonicalSyntax;
 }
 
 export async function collectCodeActions(params: CollectCodeActionsParams): Promise<CodeAction[]> {
@@ -71,7 +73,8 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
   const replacements = findDeclarationKeywordReplacementsAtPosition(
     ast,
     range.start.line,
-    range.start.character
+    range.start.character,
+    params.canonicalSyntax
   );
   for (const replacement of replacements) {
     actions.push({
@@ -140,7 +143,8 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
     ...createMemberKeywordCodeActions({
       uri,
       ast,
-      position: range.start
+      position: range.start,
+      ...(params.canonicalSyntax ? { canonicalSyntax: params.canonicalSyntax } : {})
     })
   );
 
@@ -237,6 +241,7 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
         ast,
         diagnostics,
         sourceRoots,
+        ...(params.canonicalSyntax ? { canonicalSyntax: params.canonicalSyntax } : {}),
         ...crossFile
       })
     );

@@ -1098,7 +1098,7 @@ function createFoldersForFiles(files: VexaScriptEmbedFile[]): WorkspaceEntry[] {
 function createEntries(files: VexaScriptEmbedFile[]): WorkspaceEntry[] {
   const normalizedFiles = files.length > 0
     ? files
-    : [{ path: "/main.vx", content: "fun main(): string {\n  return \"Hello from VexaScript\"\n}\n" }];
+    : [{ path: "/main.vx", content: "func main(): string {\n  return \"Hello from VexaScript\"\n}\n" }];
   const fileEntries = normalizedFiles.map((file) => createFileEntry(file.path, file.content, {
     ...(file.language ? { language: file.language === "typescript" ? "vexa" : file.language } : {}),
     ...(file.readOnly ? { readOnly: true } : {}),

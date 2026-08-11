@@ -139,7 +139,7 @@ describe("collectCodeActions aggregator", () => {
     });
     const titles = actions.map((action) => action.title);
     expect(titles).toContain("Replace 'let' with 'var'");
-    expect(titles).toContain("Replace 'let' with 'val'");
+    expect(titles).toContain("Replace 'let' with 'const'");
   });
 
   it("offers class-member keyword quick fixes for the preferred member style", async () => {
@@ -156,7 +156,24 @@ describe("collectCodeActions aggregator", () => {
     });
     const titles = actions.map((action) => action.title);
 
-    expect(titles).toContain("Add 'fun' keyword");
+    expect(titles).toContain("Add 'func' keyword");
+  });
+
+  it("uses configured canonical spellings in normalization quick fixes", async () => {
+    const source = "fun demo() {}\n";
+    const session = createAnalysisSession(source);
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(0, 1),
+      diagnostics: [],
+      sourceRoots: [],
+      canonicalSyntax: { immutableDeclaration: "val", functionDeclaration: "fn" }
+    });
+
+    expect(actions.map((action) => action.title)).toContain("Replace 'fun' with 'fn'");
   });
 
   it("offers an explicit return type quick fix", async () => {

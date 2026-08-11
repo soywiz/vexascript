@@ -4,21 +4,21 @@ import { join } from "node:path";
 import { runCli } from "./cli";
 import { runCommandCapture } from "./io";
 
-export const NATIVE_BENCHMARK_SOURCE = `val arrayStart = performance.now()
-val values: int[] = [0]
+export const NATIVE_BENCHMARK_SOURCE = `const arrayStart = performance.now()
+const values: int[] = [0]
 for (index of 1 ..< 100000) values.push(index)
 var arrayTotal: number = 0
 values.forEach((value: int) => { arrayTotal += value })
 console.log("array_ms", performance.now() - arrayStart, arrayTotal)
 
-val bigintStart = performance.now()
+const bigintStart = performance.now()
 var bigintValue = 123456789012345678901234567890n
 for (index of 0 ..< 250) {
   bigintValue = (bigintValue * 33n + 17n) / 3n
 }
 console.log("bigint_ms", performance.now() - bigintStart, bigintValue > 0n)
 
-val eventLoopStart = performance.now()
+const eventLoopStart = performance.now()
 var completedTimers = 0
 for (index of 0 ..< 250) {
   setTimeout(() => { completedTimers += 1 }, 0)

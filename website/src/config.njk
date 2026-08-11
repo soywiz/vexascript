@@ -6,7 +6,7 @@ permalink: /config.html
 <section class="page-hero config-hero">
   <p class="eyebrow">Project configuration</p>
   <h1><code>vexascript.json</code></h1>
-  <p class="lead">Configure project entrypoints, build output, module aliases, ambient types, JSX, global scripts, and static files in one project-level file.</p>
+  <p class="lead">Configure canonical syntax, project entrypoints, build output, module aliases, ambient types, JSX, global scripts, and static files in one project-level file.</p>
 </section>
 
 <section class="doc-shell">
@@ -17,6 +17,10 @@ permalink: /config.html
 {
   "entrypoint": "src/main.vx",
   "outDir": "dist",
+  "canonicalSyntax": {
+    "immutableDeclaration": "const",
+    "functionDeclaration": "func"
+  },
   "compilerOptions": {
     "lib": ["es2025", "dom"],
     "types": [],
@@ -64,6 +68,11 @@ permalink: /config.html
           <td>TypeScript-compatible options currently consumed by VexaScript. See the dedicated table below.</td>
         </tr>
         <tr>
+          <td><code>canonicalSyntax</code></td>
+          <td>object</td>
+          <td>Selects the immutable- and function-declaration spellings used by editor normalization and generated quick fixes.</td>
+        </tr>
+        <tr>
           <td><code>importMappings</code></td>
           <td>object</td>
           <td>Maps exact module specifiers to local source files for JavaScript and native compilation, module resolution, and editor navigation.</td>
@@ -87,6 +96,38 @@ permalink: /config.html
           <td><code>serveMappings</code></td>
           <td>object or array</td>
           <td>Publishes files or directories at public paths during <code>serve</code> and copies them into project build output.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Canonical syntax</h2>
+    <p>All supported aliases remain valid source syntax. These options only select which spelling editor quick fixes normalize to and which spelling generated fixes use.</p>
+{% highlightVexaScript %}
+{
+  "canonicalSyntax": {
+    "immutableDeclaration": "const",
+    "functionDeclaration": "func"
+  }
+}
+{% endhighlightVexaScript %}
+    <table>
+      <thead>
+        <tr>
+          <th>Option</th>
+          <th>Accepted values</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>immutableDeclaration</code></td>
+          <td><code>"const"</code>, <code>"val"</code></td>
+          <td><code>"const"</code></td>
+        </tr>
+        <tr>
+          <td><code>functionDeclaration</code></td>
+          <td><code>"func"</code>, <code>"fn"</code>, <code>"fun"</code>, <code>"function"</code></td>
+          <td><code>"func"</code></td>
         </tr>
       </tbody>
     </table>

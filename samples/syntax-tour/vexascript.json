@@ -1,4 +1,8 @@
 {
+  "canonicalSyntax": {
+    "immutableDeclaration": "const",
+    "functionDeclaration": "func"
+  },
   "compilerOptions": {
     "jsxFactory": "h",
     "jsxFragmentFactory": "Fragment"

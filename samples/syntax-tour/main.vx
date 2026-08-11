@@ -7,7 +7,7 @@ import type { Described, MaybeArray, MutablePair, NameKey, NameValue, Pair } fro
   Syntax tour sample: keep this runnable while showing many supported forms.
 */
 const Fragment = "fragment"
-fun h(type: any, props: any, ...children: any[]) {
+func h(type: any, props: any, ...children: any[]) {
   return { type, props, children }
 }
 
@@ -35,15 +35,15 @@ const val4 = StrEnum[StrEnum.CPP]
 //console.log(value, val1, Demo.HELLO_AND_WORLD, val2, val3, val4, StrEnum.CPP)
 
 annotation DemoAnnotation
-annotation DemoTag(val label: string)
-annotation DemoFlag(val enabled: boolean)
+annotation DemoTag(const label: string)
+annotation DemoFlag(const enabled: boolean)
 
 @JsName("renamedValueRuntime")
-val renamedValue = "renamed"
+const renamedValue = "renamed"
 
 @DemoTag("lowered to JavaScript")
 @JsInline("String(value).toLowerCase()")
-fun lower(value: string): string
+func lower(value: string): string
 
 @DemoAnnotation
 @DemoFlag(true)
@@ -80,14 +80,14 @@ class Counter(var value: number = 0) {
   }
 }
 
-class NamedThing(val name: string) {
+class NamedThing(const name: string) {
   description: string => `thing:${name}`
 }
 
 function overloaded(value: int): string { return `local-int:${value}` }
 function overloaded(value: string): string { return `local-string:${value}` }
 
-fun useState(value: number) {
+func useState(value: number) {
   return [() => value, (newValue: number) => { value = newValue }]
 }
 
@@ -125,16 +125,16 @@ class MultiGrid {
 
 class Slider(var x: number)
 
-class TweenTarget(val property: Property<number>, val src: number, val dst: number)
+class TweenTarget(const property: Property<number>, const src: number, const dst: number)
 
-fun Property<number>.operator[](src: number, dst: number): TweenTarget => TweenTarget(this, src, dst)
+func Property<number>.operator[](src: number, dst: number): TweenTarget => TweenTarget(this, src, dst)
 
-fun tween(target: TweenTarget): string {
+func tween(target: TweenTarget): string {
   target.property.value = target.dst
   return `${target.property.name}:${target.src}->${target.property.value}`
 }
 
-fun withTailLambda(values: number[], transform: (value: number) => number): string {
+func withTailLambda(values: number[], transform: (value: number) => number): string {
   return values.map(transform).join(",")
 }
 
@@ -149,7 +149,7 @@ function unpack(
   return `${name}|${makeDescription()}|${metadata.tag}|${first}|${third}|${tail.join("+")}`
 }
 
-sync fun asyncSection(): string {
+sync func asyncSection(): string {
   const first = fetchNumber(5)
   const pending: Promise<string> = go fetchLabel(first)
   const values = [fetchNumber(1), fetchNumber(2)]
@@ -220,7 +220,7 @@ let commaValue: string = (assign = assign + 1, "comma")
 let view = <section class="card" data-score={objectLiteral[dynamicKey]} disabled><span>{sampleName}</span><br /></section>
 let fragment = <><span {...{ title: "fragment" }}>text</span></>
 
-fun classifyMatch(value: any): string {
+func classifyMatch(value: any): string {
   return match (value) {
     { kind: "ok", payload: [val first: string, ...] } -> "object:" + first
     [string, val amount: number, ...] -> "tuple:" + amount
@@ -311,7 +311,7 @@ console.log(`jsx:${view.type}:${view.props.class}:${view.children[0].type}:${fra
 console.log(await asyncSection())
 ;
 
-fun useState2(value: number) {
+func useState2(value: number) {
   return [() => value, (v: number) => { console.log("update value to", value, "->", v); value = v }]
 }
 

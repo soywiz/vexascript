@@ -115,6 +115,8 @@ const MODIFIER_KEYWORDS = new Set([
   "async",
   "sync",
   "fun",
+  "fn",
+  "func",
   "function",
   "let",
   "var",

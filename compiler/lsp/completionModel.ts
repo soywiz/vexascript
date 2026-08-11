@@ -62,6 +62,8 @@ function isCallableValueType(valueType: string | undefined): boolean {
 
 export const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "fn", kind: CompletionItemKind.Keyword, detail: "Keyword" },
+  { label: "func", kind: CompletionItemKind.Keyword, detail: "Keyword" },
+  { label: "fun", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "type", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "annotation", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "interface", kind: CompletionItemKind.Keyword, detail: "Keyword" },

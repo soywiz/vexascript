@@ -34,13 +34,14 @@ TypeScript requires `${name}` for the first interpolation.
 
 ## Variable declarations
 
-### `val` keyword
+### Immutable declaration aliases
 
-VexaScript adds `val` as an immutable binding keyword, complementing TypeScript's `const`. Use `val` for immutable bindings—it is idiomatic in VexaScript.
+VexaScript accepts both `const` and `val` for immutable bindings. `val` is an
+exact alias, while `const` is the default canonical spelling.
 
 ```vexa
-val name: string = "Ada"   // VexaScript
-const name: string = "Ada" // TypeScript equivalent
+const name: string = "Ada" // default VexaScript and TypeScript spelling
+val alias: string = "Ada"  // equivalent VexaScript alias
 ```
 
 Unlike TypeScript's broadly permissive local declaration rules, VexaScript
@@ -73,13 +74,29 @@ let { name: displayName, age }: { name: string; age: number } = person
 
 ## Functions
 
-### `fun` keyword
+### Function declaration aliases
 
-VexaScript adds `fun` as a concise alternative to `function`.
+VexaScript accepts `func`, `fn`, and `fun` as concise alternatives to
+`function`. `func` is the default canonical spelling.
 
 ```vexa
-fun add(a: number, b: number): number {
+func add(a: number, b: number): number {
   return a + b
+}
+
+fn subtract(a: number, b: number): number => a - b
+fun legacyAlias(): void {}
+```
+
+Normalization quick fixes use `const` and `func` by default. The nearest
+`vexascript.json` can override either choice:
+
+```json
+{
+  "canonicalSyntax": {
+    "immutableDeclaration": "val",
+    "functionDeclaration": "fn"
+  }
 }
 ```
 
@@ -88,9 +105,9 @@ fun add(a: number, b: number): number {
 Named functions and class methods can use `=>` to return a single expression, without a block body.
 
 ```vexa
-fun double(x: number): number => x * 2
+func double(x: number): number => x * 2
 
-class Point(val x: number, val y: number) {
+class Point(const x: number, const y: number) {
   distanceTo(other: Point): number => Math.hypot(x - other.x, y - other.y)
 }
 ```
@@ -101,8 +118,8 @@ The `sync` modifier declares a function that behaves like `async` but **automati
 
 ```vexa
 // VexaScript
-sync fun loadUser(id: string): User {
-  val data = fetchJson(`/users/${id}`)   // auto-awaited; data: User
+sync func loadUser(id: string): User {
+  const data = fetchJson(`/users/${id}`) // auto-awaited; data: User
   return data
 }
 ```
@@ -214,8 +231,8 @@ Annotations are declared explicitly and then applied with `@`:
 
 ```vexa
 annotation Benchmark
-annotation JsName(val name: string)
-annotation JsInline(val replacement: string)
+annotation JsName(const name: string)
+annotation JsInline(const replacement: string)
 ```
 
 Zero-argument annotations may omit parentheses in both declarations and use sites:
@@ -340,19 +357,19 @@ native backend emits the same initialization phase in the C++ constructor.
 
 ### Explicit member kinds in classes and interfaces
 
-Inside class and interface bodies, VexaScript also supports Kotlin/Swift-style member keywords so the declaration kind is visible at a glance. The older TypeScript-style member syntax still works, but `fun` and `val`/`var`/`let`/`const` are the preferred spellings.
+Inside class and interface bodies, VexaScript also supports explicit member keywords so the declaration kind is visible at a glance. The older TypeScript-style member syntax still works; `func` and `const`/`var` are canonical by default, while `fn`, `fun`, `function`, `val`, and `let` remain supported.
 
 ```vexa
 interface Shape {
-  val area: number
-  fun draw(ctx: CanvasCtx): void
+  const area: number
+  func draw(ctx: CanvasCtx): void
 }
 
 class Rect {
-  val width: number
+  const width: number
   var height: number
 
-  fun area(): number => width * height
+  func area(): number => width * height
 }
 ```
 

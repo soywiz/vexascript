@@ -168,7 +168,7 @@ function annotationHoverValue(annotation: AnnotationStatement): string {
   const parameters = annotation.parameters.map((parameter) => {
     const prefix =
       parameter.accessModifier === "public" && parameter.isReadonly === true
-        ? "val "
+        ? "const "
         : parameter.accessModifier === "public"
           ? "var "
           : "";

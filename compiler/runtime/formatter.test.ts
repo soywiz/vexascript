@@ -3,6 +3,12 @@ import dedent from "compiler/utils/dedent";
 import { formatSource } from "./formatter";
 
 describe("formatSource", () => {
+  it("uses const for omitted primary-constructor declaration kinds", () => {
+    expect(formatSource("class Point(x:number,y:number)")).toBe(
+      "class Point(const x: number, const y: number)"
+    );
+  });
+
   it("preserves array comprehension syntax", () => {
     expect(formatSource("val doubled=[for(item of items)item*2]")).toBe(
       "val doubled = [for (item of items) item * 2]"

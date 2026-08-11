@@ -6,9 +6,9 @@ It is designed to be concise for humans and efficient for AI: less syntactic noi
 
 ## Features
 
-- **Concise declarations** — `fun`, `val`, primary-constructor classes, shorthand properties
+- **Concise declarations** — canonical `func`/`const`, aliases such as `fn`/`fun`/`val`, primary-constructor classes, shorthand properties
 - **Operator overloading** — define `operator+`, `operator-`, `operator*`, etc. on any class
-- **Await-less async** — `sync fun` automatically awaits produced promises; `go` opts out
+- **Await-less async** — `sync func` automatically awaits produced promises; `go` opts out
 - **Delegated variables** — Kotlin-style `by` delegates for computed properties and reactive state
 - **New-less instantiation** — call `Point(1, 2)` instead of `new Point(1, 2)`
 - **Optional `this`** — members can omit `this.` in most positions
@@ -94,24 +94,24 @@ Like Vite's TypeScript transform, this per-module transform does not perform who
 
 ```vexascript
 // Primary-constructor class with operator overloading
-class Point(val x: number, val y: number) {
+class Point(const x: number, const y: number) {
   operator-() => Point(-x, -y)
   operator+(other: Point) => Point(x + other.x, y + other.y)
   operator*(scale: number) => Point(x * scale, y * scale)
   length => Math.hypot(x, y)
 }
 
-val origin = Point(0, 0)
-val p = -Point(1, 2) + Point(3, 4) * 2
+const origin = Point(0, 0)
+const p = -Point(1, 2) + Point(3, 4) * 2
 
-// sync fun — await-less async
-sync fun loadUser(id: string): User {
-  val data = fetch(`/api/users/${id}`).json()
+// sync func — await-less async
+sync func loadUser(id: string): User {
+  const data = fetch(`/api/users/${id}`).json()
   return User(data.id, data.name)
 }
 
 // Delegated reactive variable
-fun useState(value: number) {
+func useState(value: number) {
   return [() => value, (v: number) => { value = v }]
 }
 

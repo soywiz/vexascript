@@ -24,6 +24,7 @@ import type {
 } from "vscode-languageserver/node.js";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { ProjectSessionLike } from "compiler/analysis/projectIndex";
+import type { CanonicalSyntax } from "compiler/canonicalSyntax";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import type { AnalysisSession } from "./analysisSession";
@@ -95,6 +96,8 @@ export interface LspServerEnvironment {
   getSourceRoots(): string[];
   /** Bare import aliases from project configuration, keyed by specifier. */
   getImportMappings?(): Readonly<Record<string, string>>;
+  /** Canonical source spellings used by generated code and normalization fixes. */
+  getCanonicalSyntax?(uri: string): CanonicalSyntax;
   /** Resolves the analysis session for a project file; `() => null` without a workspace. */
   getSessionForFilePath: GetSessionForFilePath;
   /** Called with the raw initialize params before capabilities are computed. */
@@ -223,10 +226,12 @@ export function startLspServer(options: LspServerOptions): void {
   }
 
   function featureContext(uri: string) {
+    const canonicalSyntax = environment.getCanonicalSyntax?.(uri);
     return {
       uri,
       sourceRoots: environment.getSourceRoots(),
       importMappings: environment.getImportMappings?.() ?? {},
+      ...(canonicalSyntax ? { canonicalSyntax } : {}),
       getSessionForFilePath: environment.getSessionForFilePath
     };
   }

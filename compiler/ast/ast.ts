@@ -625,7 +625,7 @@ export class ImportStatement extends Statement {
     }
 }
 
-export type FunctionDeclarationKind = "fun" | "function";
+export type FunctionDeclarationKind = "fun" | "fn" | "func" | "function";
 export abstract class CallableParameterNode extends Node {
     protected constructor(kind: NodeKind, public typeAnnotation?: Identifier, public defaultValue?: Expr) {
         super(kind)
@@ -683,6 +683,7 @@ export class VarDeclarator extends Node {
 }
 export class FunctionStatement extends Statement {
     declare kind: NodeKind.FunctionStatement
+    public declarationKeywordToken?: Token
 
     constructor(public declarationKind: FunctionDeclarationKind, public name: Identifier, public parameters: FunctionParameter[], public body: BlockStatement, public declared?: boolean, public async?: boolean, public sync?: boolean, public generator?: boolean, public missingBody?: boolean, public jsInline?: string, public receiverType?: Identifier, public receiverTypeArguments?: Identifier[], public operator?: OverloadableOperator, public typeParameters?: TypeParameter[], public parametersCloseParen?: Token, public returnType?: Identifier, annotations?: AnnotationApplication[], jsName?: string) {
         super(NodeKind.FunctionStatement, annotations, jsName)

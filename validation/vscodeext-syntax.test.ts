@@ -161,7 +161,7 @@ describe("VS Code extension syntax highlighting", () => {
     expect(topLevelIncludes).toContain("#calls");
 
     const repository = grammar.repository ?? {};
-    expect(repository["declarations"]?.patterns?.some((pattern) => pattern.match?.includes("(function|fun)"))).toBe(true);
+    expect(repository["declarations"]?.patterns?.some((pattern) => pattern.match?.includes("(function|fun|fn|func)"))).toBe(true);
     expect(repository["declarations"]?.patterns?.some((pattern) => pattern.match?.includes("(class|interface|annotation|enum|type)"))).toBe(true);
     expect(repository["types"]?.patterns?.some((pattern) => pattern.name === "entity.name.type.vexa")).toBe(true);
     expect(repository["members"]?.patterns?.some((pattern) => pattern.name === "variable.other.property.vexa")).toBe(true);

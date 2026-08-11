@@ -3,7 +3,7 @@ import type { SyntaxTarget } from "./syntaxTargets";
 export { SYNTAX_TARGETS, type SyntaxTarget } from "./syntaxTargets";
 
 export const VEXA_KEYWORD_DECLARATIONS = [
-  "import", "export", "from", "let", "var", "val", "const", "by", "function", "fun",
+  "import", "export", "from", "let", "var", "val", "const", "by", "function", "fun", "fn", "func",
   "declare", "namespace", "class", "interface", "annotation", "enum", "extends", "implements",
   "override", "readonly", "public", "private", "protected", "static", "abstract", "get", "set", "init", "keyof", "infer", "async", "sync"
 ] as const;
@@ -66,7 +66,7 @@ export interface PortableLanguageConfiguration {
 export function createPortableMonarchLanguage(): PortableMonarchLanguage {
   const modifierKeywords = [
     "override", "readonly", "public", "private", "protected", "static", "abstract",
-    "get", "set", "init", "async", "sync", "function", "fun", ...VEXA_STORAGE_TYPES
+    "get", "set", "init", "async", "sync", "function", "fun", "func", ...VEXA_STORAGE_TYPES
   ] as string[];
   const functionKeywords: string[] = [];
   const typeKeywords = [
@@ -95,7 +95,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     token: "identifier",
   };
   const genericDeclarationRule: PortableMonarchRule = {
-    match: String.raw`(?:fun|function|val|var|let|const)(?=\s*<)`,
+    match: String.raw`(?:fun|fn|func|function|val|var|let|const)(?=\s*<)`,
     token: "@cases",
     cases: identifierCases,
     next: "@generic_declaration",
@@ -402,7 +402,7 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
       declarations: {
         patterns: [
           {
-            match: "\\b(function|fun)\\s+([_$A-Za-z][_$A-Za-z0-9]*)",
+            match: "\\b(function|fun|fn|func)\\s+([_$A-Za-z][_$A-Za-z0-9]*)",
             captures: {
               "1": { name: "keyword.declaration.vexa" },
               "2": { name: "entity.name.function.vexa" }

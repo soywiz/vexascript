@@ -5,6 +5,32 @@ import { parseProgram } from "./parser";
 import { tokenizeReader } from "./tokenizer";
 
 describe("parseProgram", () => {
+    it("parses every VexaScript function declaration spelling", () => {
+        const program = parseProgram(tokenizeReader(`
+            fun legacy() {}
+            fn short() {}
+            func canonical() {}
+            function typescriptStyle() {}
+            class Demo {
+                fn shortMethod() {}
+                func canonicalMethod() {}
+            }
+            interface Contract {
+                fn shortMethod(): void
+                func canonicalMethod(): void
+            }
+        `));
+
+        expect(program.body.slice(0, 4).map((statement: any) => statement.declarationKind)).toEqual([
+            "fun",
+            "fn",
+            "func",
+            "function"
+        ]);
+        expect((program.body[4] as any).members.map((member: any) => member.declarationKind)).toEqual(["fn", "func"]);
+        expect((program.body[5] as any).members.map((member: any) => member.declarationKind)).toEqual(["fn", "func"]);
+    });
+
     it("uses typed positional node constructors with class-owned discriminators", () => {
         const key = new Identifier("answer");
         const value = new IntLiteral(42);

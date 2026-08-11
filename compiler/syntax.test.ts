@@ -14,6 +14,8 @@ describe("portable monarch syntax", () => {
     expect(language.declarationKeywords).toContain("val");
     expect(language.modifierKeywords).toContain("readonly");
     expect(language.modifierKeywords).toContain("fun");
+    expect(language.modifierKeywords).toContain("fn");
+    expect(language.modifierKeywords).toContain("func");
     expect(language.modifierKeywords).toContain("init");
     expect(language.functionKeywords).toEqual([]);
     expect(language.controlKeywords).toEqual(expect.arrayContaining(["match", "when", "is", "and", "or"]));
@@ -109,7 +111,7 @@ describe("portable monarch syntax", () => {
     const language = createPortableMonarchLanguage();
     const rootRules = language.tokenizer["root"] ?? [];
     const genericDeclarationIndex = rootRules.findIndex(
-      (rule) => rule.match === String.raw`(?:fun|function|val|var|let|const)(?=\s*<)`
+      (rule) => rule.match === String.raw`(?:fun|fn|func|function|val|var|let|const)(?=\s*<)`
     );
     const jsxTagIndex = rootRules.findIndex(
       (rule) => rule.match === String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`

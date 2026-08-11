@@ -2,6 +2,7 @@ import { AssignmentExpression, ExprStatement, UpdateExpression } from "compiler/
 import type { Expr, Node, Program } from "compiler/ast/ast";
 
 import type { CodeAction } from "vscode-languageserver/node.js";
+import { DEFAULT_CANONICAL_SYNTAX, type CanonicalSyntax } from "compiler/canonicalSyntax";
 import { CodeActionKind } from "./codeActionKinds";
 import { findNodeAtPosition } from "./nodeSearch";
 import { nodeRange, offsetToPosition, type Position } from "./ranges";
@@ -35,8 +36,9 @@ export function createAssignVariableCodeActions(params: {
   ast: Program | null;
   text: string;
   position: Position;
+  canonicalSyntax?: CanonicalSyntax;
 }): CodeAction[] {
-  const { uri, ast, text, position } = params;
+  const { uri, ast, text, position, canonicalSyntax = DEFAULT_CANONICAL_SYNTAX } = params;
   if (!ast) {
     return [];
   }
@@ -59,9 +61,10 @@ export function createAssignVariableCodeActions(params: {
     return [];
   }
 
-  const replacementText = `val variable = ${expressionText}`;
+  const declarationKeyword = canonicalSyntax.immutableDeclaration;
+  const replacementText = `${declarationKeyword} variable = ${expressionText}`;
   const statementStartOffset = positionToOffset(text, statementRange.start);
-  const placeholderStartOffset = statementStartOffset + "val ".length;
+  const placeholderStartOffset = statementStartOffset + declarationKeyword.length + 1;
   const placeholderEndOffset = placeholderStartOffset + "variable".length;
 
   return [

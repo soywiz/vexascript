@@ -19,6 +19,7 @@ import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { loadGlobalSymbolDeclarationFiles } from "compiler/runtime/moduleGraph";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import { loadProject } from "compiler/project";
+import { DEFAULT_CANONICAL_SYNTAX, type CanonicalSyntax } from "compiler/canonicalSyntax";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
@@ -103,6 +104,7 @@ const connection = createConnection(ProposedFeatures.all, process.stdin, process
 const documents = new TextDocuments(LspTextDocument);
 let sourceRoots: string[] = [];
 let importMappings: Readonly<Record<string, string>> = {};
+const canonicalSyntaxByUri = new Map<string, CanonicalSyntax>();
 let projectIndex: ProjectIndex = getProjectIndex([]);
 const REFRESH_DIAGNOSTICS_COMMAND = "vexa.refreshDiagnostics";
 
@@ -143,6 +145,7 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
 
   // Load ambient types from tsconfig compilerOptions.types (e.g. @types/node)
   const project = filePath ? await loadProject(filePath) : null;
+  canonicalSyntaxByUri.set(document.uri, project?.canonicalSyntax ?? DEFAULT_CANONICAL_SYNTAX);
   if (project) {
     importMappings = project.importMappings ?? {};
     projectIndex = getProjectIndex(sourceRoots, undefined, importMappings);
@@ -210,6 +213,7 @@ function syncOpenDocumentWithProjectIndex(document: LspTextDocument): void {
   const filePath = uriToFilePath(document.uri);
   if (filePath) {
     loadProject(filePath).then((project) => {
+      canonicalSyntaxByUri.set(document.uri, project?.canonicalSyntax ?? DEFAULT_CANONICAL_SYNTAX);
       if (project) {
         importMappings = project.importMappings ?? {};
         projectIndex = getProjectIndex(sourceRoots, undefined, importMappings);
@@ -226,6 +230,7 @@ startLspServer({
   environment: {
     getSourceRoots: () => sourceRoots,
     getImportMappings: () => importMappings,
+    getCanonicalSyntax: (uri) => canonicalSyntaxByUri.get(uri) ?? DEFAULT_CANONICAL_SYNTAX,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments,
     onInitialize: (params) => {
       sourceRoots = resolveSourceRoots(params);
@@ -234,6 +239,7 @@ startLspServer({
     onDocumentOpenedOrChanged: syncOpenDocumentWithProjectIndex,
     onDocumentClosed: (document) => {
       const filePath = uriToFilePath(document.uri);
+      canonicalSyntaxByUri.delete(document.uri);
       if (filePath) {
         projectIndex.clearOpenDocument(filePath);
         projectIndex.invalidateFile(filePath);

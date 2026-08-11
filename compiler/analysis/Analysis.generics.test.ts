@@ -57,9 +57,9 @@ describe("Analysis", () => {
         return 1
       }
       fun demo() {
-        let fn = target
-        fn = compatible
-        fn = incompatible
+        let callback = target
+        callback = compatible
+        callback = incompatible
       }
     `;
 

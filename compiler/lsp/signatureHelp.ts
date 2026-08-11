@@ -635,7 +635,7 @@ function findAnnotationDeclaration(program: Program, name: string): AnnotationSt
 function annotationParameterLabel(parameter: AnnotationStatement["parameters"][number]): string {
   const name = bindingNameText(parameter.name);
   const prefix = parameter.accessModifier === "public" && parameter.isReadonly === true
-    ? "val "
+    ? "const "
     : parameter.accessModifier === "public"
       ? "var "
       : "";

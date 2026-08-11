@@ -39,15 +39,15 @@ title: VexaScript — Modern language for the JavaScript ecosystem
   <div class="code-panel" aria-label="VexaScript code sample">
     <div class="panel-title">hello.vx</div>
 {% highlightVexaScript %}
-class Point(val x: number, val y: number) {
+class Point(const x: number, const y: number) {
   operator-() => Point(-x, -y)
   operator+(other: Point) => Point(x + other.x, y + other.y)
   operator*(scale: number) => Point(x * scale, y * scale)
   length => Math.hypot(x, y)
 }
 
-sync fun loadUser(id: string): User {
-  val data = fetch(`/api/users/$id`).json()
+sync func loadUser(id: string): User {
+  const data = fetch(`/api/users/$id`).json()
   return User(data.id, data.name)
 }
 {% endhighlightVexaScript %}
@@ -65,18 +65,18 @@ sync fun loadUser(id: string): User {
       <h3>Integer character literals</h3>
       <p>Single quotes hold exactly one Unicode code point and compile directly to an integer in JavaScript and C++. Double quotes remain strings.</p>
 {% highlightVexaScript %}
-val letter: int = 'a' // 97
-val emoji: int = '😀' // 128512
-val matches = "aaa".charCodeAt(0) == 'a'
+const letter: int = 'a' // 97
+const emoji: int = '😀' // 128512
+const matches = "aaa".charCodeAt(0) == 'a'
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>Primary-constructor classes</h3>
-      <p>Declare class members directly in the constructor signature. <code>val</code> for read-only, <code>var</code> for mutable. No boilerplate.</p>
+      <p>Declare class members directly in the constructor signature. <code>const</code> for read-only, <code>var</code> for mutable. No boilerplate; <code>val</code> remains an alias.</p>
 {% highlightVexaScript %}
-class User(val id: string, var name: string, val score: int = 0)
+class User(const id: string, var name: string, const score: int = 0)
 
-val u = User("u1", "Alice")
+const u = User("u1", "Alice")
 u.name = "Bob"
 {% endhighlightVexaScript %}
     </article>
@@ -84,21 +84,21 @@ u.name = "Bob"
       <h3>Operator overloading</h3>
       <p>Define arithmetic, comparison, and index operators directly on your types. Shorthand arrow syntax keeps definitions terse.</p>
 {% highlightVexaScript %}
-class Vec2(val x: number, val y: number) {
+class Vec2(const x: number, const y: number) {
   operator+(b: Vec2) => Vec2(x + b.x, y + b.y)
   operator*(s: number) => Vec2(x * s, y * s)
   length => Math.hypot(x, y)
 }
 
-val v = Vec2(1, 0) + Vec2(0, 1) * 3
+const v = Vec2(1, 0) + Vec2(0, 1) * 3
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>Await-less async</h3>
-      <p><code>sync fun</code> automatically awaits any <code>Promise</code> produced inside the body. Write async logic that reads like sync code — no <code>await</code> keywords needed.</p>
+      <p><code>sync func</code> automatically awaits any <code>Promise</code> produced inside the body. Write async logic that reads like sync code — no <code>await</code> keywords needed.</p>
 {% highlightVexaScript %}
-sync fun loadBytes(url: string): Uint8Array {
-  val res = fetch(url)
+sync func loadBytes(url: string): Uint8Array {
+  const res = fetch(url)
   return Uint8Array(res.arrayBuffer())
 }
 {% endhighlightVexaScript %}
@@ -107,7 +107,7 @@ sync fun loadBytes(url: string): Uint8Array {
       <h3>Delegated variables</h3>
       <p>Kotlin-style <code>by</code> delegates let you attach custom read/write behaviour to any variable. Works with React-style state tuples out of the box.</p>
 {% highlightVexaScript %}
-fun useState(init: number) {
+func useState(init: number) {
   return [() => init, (v: number) => { init = v }]
 }
 
@@ -120,17 +120,17 @@ console.log(count) // 1
       <h3>Null-aware access</h3>
       <p>Optional chaining and nullish coalescing are fully supported. Non-null assertions let you opt out of null checks when you know better.</p>
 {% highlightVexaScript %}
-val city = user.address?.city ?? "Unknown"
-val label = maybeUser!.name.toUpperCase()
+const city = user.address?.city ?? "Unknown"
+const label = maybeUser!.name.toUpperCase()
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>New-less instantiation</h3>
       <p>Call constructors without <code>new</code>. Classes and built-ins like <code>Map</code>, <code>Set</code>, and <code>Uint8Array</code> work the same way.</p>
 {% highlightVexaScript %}
-val users = Map<string, User>()
-val buf = Uint8Array(1024)
-val pt = Point(3, 4)
+const users = Map<string, User>()
+const buf = Uint8Array(1024)
+const pt = Point(3, 4)
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
@@ -148,7 +148,7 @@ vexa cpp link app.ts -o app
 {% highlightVexaScript %}
 @FFILibrary("libSDL2.so", "SDL2.framework/SDL2")
 ambient class SDL2 {
-  static fun SDL_Init(flags: int): int
+  static func SDL_Init(flags: int): int
 }
 {% endhighlightVexaScript %}
     </article>

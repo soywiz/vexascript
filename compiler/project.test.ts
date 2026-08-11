@@ -3,6 +3,40 @@ import { loadProject } from "./project";
 import { resolveServeBundleInput } from "../cli/cliShared";
 
 describe("project configuration", () => {
+  it("loads canonical syntax preferences from vexascript.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-canonical-syntax-"));
+    const input = join(dir, "main.vx");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({
+      canonicalSyntax: {
+        immutableDeclaration: "val",
+        functionDeclaration: "fn"
+      }
+    }), "utf8");
+    await writeFile(input, "", "utf8");
+
+    expect((await loadProject(input))?.canonicalSyntax).toEqual({
+      immutableDeclaration: "val",
+      functionDeclaration: "fn"
+    });
+  });
+
+  it("falls back invalid canonical syntax values to const and func", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-canonical-defaults-"));
+    const input = join(dir, "main.vx");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({
+      canonicalSyntax: {
+        immutableDeclaration: "let",
+        functionDeclaration: "method"
+      }
+    }), "utf8");
+    await writeFile(input, "", "utf8");
+
+    expect((await loadProject(input))?.canonicalSyntax).toEqual({
+      immutableDeclaration: "const",
+      functionDeclaration: "func"
+    });
+  });
+
   it("resolves TypeScript baseUrl relative to the tsconfig that declares it", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-project-base-url-"));
     const input = join(dir, "src", "main.ts");

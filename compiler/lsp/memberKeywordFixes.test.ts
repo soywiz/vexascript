@@ -6,7 +6,7 @@ import { createMemberKeywordCodeActions } from "./memberKeywordFixes";
 const URI = "file:///demo.vx";
 
 describe("member keyword quick fixes", () => {
-  it("offers 'fun' for legacy class methods", () => {
+  it("offers the default canonical 'func' for legacy class methods", () => {
     const source = dedent`
       class Demo {
         save(): void {
@@ -20,13 +20,13 @@ describe("member keyword quick fixes", () => {
       position: { line: 1, character: 4 }
     });
 
-    expect(actions.map((action) => action.title)).toEqual(["Add 'fun' keyword"]);
+    expect(actions.map((action) => action.title)).toEqual(["Add 'func' keyword"]);
     expect(actions[0]?.edit?.changes?.[URI]?.[0]).toEqual({
       range: {
         start: { line: 1, character: 2 },
         end: { line: 1, character: 6 }
       },
-      newText: "fun save"
+      newText: "func save"
     });
   });
 
@@ -92,7 +92,7 @@ describe("member keyword quick fixes", () => {
     expect(actions).toEqual([]);
   });
 
-  it("offers 'val' by replacing readonly on legacy readonly class fields", () => {
+  it("offers the default canonical 'const' by replacing readonly on legacy readonly class fields", () => {
     const source = dedent`
       class Demo {
         readonly id: string
@@ -105,13 +105,26 @@ describe("member keyword quick fixes", () => {
       position: { line: 1, character: 5 }
     });
 
-    expect(actions.map((action) => action.title)).toEqual(["Replace 'readonly' with 'val'"]);
+    expect(actions.map((action) => action.title)).toEqual(["Replace 'readonly' with 'const'"]);
     expect(actions[0]?.edit?.changes?.[URI]?.[0]).toEqual({
       range: {
         start: { line: 1, character: 2 },
         end: { line: 1, character: 10 }
       },
-      newText: "val"
+      newText: "const"
     });
+  });
+
+  it("uses configured canonical keywords for legacy members", () => {
+    const source = "class Demo { save(): void {} }";
+    const session = createAnalysisSession(source);
+    const actions = createMemberKeywordCodeActions({
+      uri: URI,
+      ast: session.ast,
+      position: { line: 0, character: 14 },
+      canonicalSyntax: { immutableDeclaration: "val", functionDeclaration: "fn" }
+    });
+
+    expect(actions[0]?.title).toBe("Add 'fn' keyword");
   });
 });

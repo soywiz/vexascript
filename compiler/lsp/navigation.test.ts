@@ -196,7 +196,7 @@ describe("lsp navigation", () => {
     const hover = createHover(analysis, marked.line, marked.character, ast);
     expect(hover?.contents).toEqual({
       kind: "plaintext",
-      value: "annotation JsName(val name: string)"
+      value: "annotation JsName(const name: string)"
     });
     expect(hover?.range).toEqual({
       start: { line: 2, character: 1 },
@@ -228,7 +228,7 @@ describe("lsp navigation", () => {
     const hover = createHover(analysis, marked.line, marked.character, ast);
     expect(hover?.contents).toEqual({
       kind: "plaintext",
-      value: "annotation Range(val min: number, val max: number)"
+      value: "annotation Range(const min: number, const max: number)"
     });
     expect(hover?.range).toEqual({
       start: { line: 3, character: 3 },

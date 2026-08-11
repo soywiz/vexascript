@@ -375,8 +375,8 @@ describe("signature help", () => {
     expect(help).toEqual({
       signatures: [
         {
-          label: "JsName(val name: string)",
-          parameters: [{ label: "val name: string" }]
+          label: "JsName(const name: string)",
+          parameters: [{ label: "const name: string" }]
         }
       ],
       activeSignature: 0,
@@ -401,8 +401,8 @@ describe("signature help", () => {
     expect(help).toEqual({
       signatures: [
         {
-          label: "Range(val min: number, val max: number)",
-          parameters: [{ label: "val min: number" }, { label: "val max: number" }]
+          label: "Range(const min: number, const max: number)",
+          parameters: [{ label: "const min: number" }, { label: "const max: number" }]
         }
       ],
       activeSignature: 0,

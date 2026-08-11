@@ -29,7 +29,7 @@ export function upper(value: string): string {
 export function describe(value: int): string { return `int:${value}` }
 export function describe(value: string): string { return `string:${value}` }
 
-export fun identity<T>(value: T): T {
+export fn identity<T>(value: T): T {
   return value
 }
 
@@ -41,11 +41,11 @@ export function summarize({ name : string, describe :: makeDescription, ...metad
   return `${name}:${makeDescription()}:${metadata.tag}:${first}/${second}`
 }
 
-export async fun fetchNumber(seed: number): Promise<number> {
+export async func fetchNumber(seed: number): Promise<number> {
   return seed + 10
 }
 
-export async fun fetchLabel(value: number): Promise<string> {
+export async func fetchLabel(value: number): Promise<string> {
   return `async:${value}`
 }
 

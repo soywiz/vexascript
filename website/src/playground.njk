@@ -70,11 +70,11 @@ permalink: /playground.html
               import { TimeSpan, delay, seconds, milliseconds, operator+, operator/ } from "./time.vx"
               import { drawCard, drawDot } from "./c2d.vx"
 
-              fun describe(point: Point): string {
+              func describe(point: Point): string {
                 return ${BACKTICK}(\${point.x}, \${point.y})${BACKTICK}
               }
 
-              fun classify(value: any): string {
+              func classify(value: any): string {
                 return match (value) {
                   { kind: "ok", payload: val payload: string } -> ${BACKTICK}ok: \$payload${BACKTICK}
                   [string, val count: number, ...] -> ${BACKTICK}batch: \$count${BACKTICK}
@@ -84,15 +84,15 @@ permalink: /playground.html
                 }
               }
 
-              val cardOrigin = Point(36, 28)
-              val cardSize = Point(248, 116)
-              val pulseCenter = cardOrigin + Point(190, 58)
-              val pulseDelay = 1.seconds + 250.milliseconds
+              const cardOrigin = Point(36, 28)
+              const cardSize = Point(248, 116)
+              const pulseCenter = cardOrigin + Point(190, 58)
+              const pulseDelay = 1.seconds + 250.milliseconds
 
-              sync fun example() {
-                val current = increment(41)
-                val doubled = [for (value of [1, 2, 3]) value * 2]
-                val normal = [for (n in 0 ..< 10) n]
+              sync func example() {
+                const current = increment(41)
+                const doubled = [for (value of [1, 2, 3]) value * 2]
+                const normal = [for (n in 0 ..< 10) n]
                 console.log(current.toString())
                 console.log(doubled.join(", "))
                 console.log(normal.join(", "))
@@ -100,8 +100,8 @@ permalink: /playground.html
                 console.log("character literal", "VexaScript".charCodeAt(0) == 'V')
                 console.log(classify({ kind: "ok", payload: "pattern matching" }))
 
-                val app = document.querySelector("#app")!
-                val canvas = document.createElement("canvas")
+                const app = document.querySelector("#app")!
+                const canvas = document.createElement("canvas")
                 canvas
                   ..width = 320
                   ..height = 180
@@ -138,18 +138,18 @@ permalink: /playground.html
               import { Point } from "./point.vx"
 
               /// Renders a circle at [p] with [radius]
-              export fun CanvasRenderingContext2D.circle(p: Point, radius: number) {
+              export func CanvasRenderingContext2D.circle(p: Point, radius: number) {
                 beginPath()
                 arc(p.x, p.y, radius, 0, Math.PI * 2)
               }
 
               /// Renders current shape with a fill with [style]
-              export fun CanvasRenderingContext2D.fillWithStyle(style: string | CanvasGradient | CanvasPattern) {
+              export func CanvasRenderingContext2D.fillWithStyle(style: string | CanvasGradient | CanvasPattern) {
                 fillStyle = style
                 fill()
               }
 
-              export fun CanvasRenderingContext2D.drawCard(origin: Point, size: Point, fill: string, label: string) {
+              export func CanvasRenderingContext2D.drawCard(origin: Point, size: Point, fill: string, label: string) {
                 fillStyle = fill
                 fillRect(origin.x, origin.y, size.x, size.y)
                 fillStyle = "#17324d"
@@ -157,7 +157,7 @@ permalink: /playground.html
                 fillText(label, origin.x + 16, origin.y + 32)
               }
 
-              export fun CanvasRenderingContext2D.drawDot(center: Point, radius: number, fill: string) {
+              export func CanvasRenderingContext2D.drawDot(center: Point, radius: number, fill: string) {
                 circle(center, radius)
                 fillWithStyle(fill)
               }
@@ -166,7 +166,7 @@ permalink: /playground.html
           {
             path: "/src/counter.vx",
             content: dedent`
-              export fun increment(value: int): int {
+              export func increment(value: int): int {
                 return value + 1
               }
 
@@ -184,7 +184,7 @@ permalink: /playground.html
           {
             path: "/src/point.vx",
             content: dedent`
-              export class Point(val x: number, val y: number) {
+              export class Point(const x: number, const y: number) {
                 operator+() => this
                 operator-() => Point(-x, -y)
                 operator+(other: Point) => Point(x + other.x, y + other.y)
@@ -196,17 +196,17 @@ permalink: /playground.html
           {
             path: "/src/time.vx",
             content: dedent`
-              export class TimeSpan(val ms: number)
+              export class TimeSpan(const ms: number)
 
-              export val number.seconds => TimeSpan(this * 1000.0)
-              export val number.milliseconds => TimeSpan(this)
+              export const number.seconds => TimeSpan(this * 1000.0)
+              export const number.milliseconds => TimeSpan(this)
 
-              fun TimeSpan.operator+(other: TimeSpan): TimeSpan => TimeSpan(ms + other.ms)
-              fun TimeSpan.operator-(other: TimeSpan): TimeSpan => TimeSpan(ms - other.ms)
-              fun TimeSpan.operator*(scale: number): TimeSpan => TimeSpan(ms * scale)
-              fun TimeSpan.operator/(scale: number): TimeSpan => TimeSpan(ms / scale)
+              func TimeSpan.operator+(other: TimeSpan): TimeSpan => TimeSpan(ms + other.ms)
+              func TimeSpan.operator-(other: TimeSpan): TimeSpan => TimeSpan(ms - other.ms)
+              func TimeSpan.operator*(scale: number): TimeSpan => TimeSpan(ms * scale)
+              func TimeSpan.operator/(scale: number): TimeSpan => TimeSpan(ms / scale)
 
-              export fun delay(time: TimeSpan) {
+              export func delay(time: TimeSpan) {
                 return new Promise { resolve, reject ->
                   setTimeout(resolve, time.ms)
                 }

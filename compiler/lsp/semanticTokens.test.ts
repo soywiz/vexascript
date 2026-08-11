@@ -543,11 +543,13 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "enum" && token.tokenType === "keywordType")).toBe(true);
   });
 
-  it("highlights fun/function like declaration modifiers", () => {
+  it("highlights every function declaration spelling like a declaration modifier", () => {
     const source = dedent`
       class Demo {
         fun update(): void {
         }
+        fn load(): void {}
+        func save(): void {}
       }
       `;
     const session = createAnalysisSession(source);
@@ -560,6 +562,8 @@ describe("semantic tokens", () => {
 
     expect(decoded.some((token) => token.lexeme === "class" && token.tokenType === "keywordType")).toBe(true);
     expect(decoded.some((token) => token.lexeme === "fun" && token.tokenType === "keywordModifier")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "fn" && token.tokenType === "keywordModifier")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "func" && token.tokenType === "keywordModifier")).toBe(true);
   });
   it("highlights identifiers introduced by destructuring as variables", () => {
     const source = "let { source :: target, nested :: { value }, ...rest } = input\nconst [first, , ...tail] = values";

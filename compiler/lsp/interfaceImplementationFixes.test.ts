@@ -54,7 +54,7 @@ class Map implements MyInterface {
     expect(actions).toHaveLength(1);
     const edit = actions[0]?.edit?.changes?.[uri]?.[0];
     expect(actions[0]?.title).toBe("Implement missing member 'say' in class 'Map'");
-    expect(edit?.newText).toContain("override fun say(a: number): void {");
+    expect(edit?.newText).toContain("override func say(a: number): void {");
     expect(edit?.newText).toContain("throw Error(\"Not implemented\")");
   });
 
@@ -126,7 +126,7 @@ class Demo extends Test {
     expect(actions).toHaveLength(1);
     const edit = actions[0]?.edit?.changes?.[uri]?.[0];
     expect(actions[0]?.title).toBe("Implement missing member 'demo' in class 'Demo'");
-    expect(edit?.newText).toContain("override fun demo(): void {");
+    expect(edit?.newText).toContain("override func demo(): void {");
     expect(edit?.newText).toContain("throw Error(\"Not implemented\")");
   });
 

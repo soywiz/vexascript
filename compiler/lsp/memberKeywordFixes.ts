@@ -6,6 +6,7 @@ import type { CodeAction, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findBestMatchAtPosition } from "./nodeSearch";
 import { nodeRange, tokenRange, type Position } from "./ranges";
+import { DEFAULT_CANONICAL_SYNTAX, type CanonicalSyntax } from "compiler/canonicalSyntax";
 
 const VARIABLE_MEMBER_KEYWORDS = new Set(["var", "val", "let", "const"]);
 
@@ -15,7 +16,11 @@ interface MemberKeywordFix {
   newText: string;
 }
 
-function findClassMemberKeywordFix(ast: Program, position: Position): MemberKeywordFix | null {
+function findClassMemberKeywordFix(
+  ast: Program,
+  position: Position,
+  canonicalSyntax: CanonicalSyntax
+): MemberKeywordFix | null {
   return findBestMatchAtPosition(ast, position, (node) => {
     if (!(node instanceof ClassFieldMember) && !(node instanceof ClassMethodMember)) {
       return null;
@@ -31,15 +36,15 @@ function findClassMemberKeywordFix(ast: Program, position: Position): MemberKeyw
       range,
       build: () => {
         if (member instanceof ClassMethodMember) {
-          return buildMethodKeywordFix(member);
+          return buildMethodKeywordFix(member, canonicalSyntax);
         }
-        return buildFieldKeywordFix(member);
+        return buildFieldKeywordFix(member, canonicalSyntax);
       }
     };
   });
 }
 
-function buildMethodKeywordFix(member: ClassMethodMember): MemberKeywordFix | null {
+function buildMethodKeywordFix(member: ClassMethodMember, canonicalSyntax: CanonicalSyntax): MemberKeywordFix | null {
   const firstTokenValue = member.firstToken?.type === TokenType.IDENTIFIER ? member.firstToken.value : null;
 
   if (firstTokenValue && VARIABLE_MEMBER_KEYWORDS.has(firstTokenValue)) {
@@ -71,13 +76,13 @@ function buildMethodKeywordFix(member: ClassMethodMember): MemberKeywordFix | nu
   }
 
   return {
-    title: "Add 'fun' keyword",
+    title: `Add '${canonicalSyntax.functionDeclaration}' keyword`,
     range: targetRange,
-    newText: `fun ${member.name.name}`
+    newText: `${canonicalSyntax.functionDeclaration} ${member.name.name}`
   };
 }
 
-function buildFieldKeywordFix(member: ClassFieldMember): MemberKeywordFix | null {
+function buildFieldKeywordFix(member: ClassFieldMember, canonicalSyntax: CanonicalSyntax): MemberKeywordFix | null {
   if (member.declarationKind) {
     return null;
   }
@@ -89,9 +94,9 @@ function buildFieldKeywordFix(member: ClassFieldMember): MemberKeywordFix | null
     }
 
     return {
-      title: "Replace 'readonly' with 'val'",
+      title: `Replace 'readonly' with '${canonicalSyntax.immutableDeclaration}'`,
       range: readonlyRange,
-      newText: "val"
+      newText: canonicalSyntax.immutableDeclaration
     };
   }
 
@@ -111,12 +116,17 @@ export function createMemberKeywordCodeActions(params: {
   uri: string;
   ast: Program | null;
   position: Position;
+  canonicalSyntax?: CanonicalSyntax;
 }): CodeAction[] {
   if (!params.ast) {
     return [];
   }
 
-  const fix = findClassMemberKeywordFix(params.ast, params.position);
+  const fix = findClassMemberKeywordFix(
+    params.ast,
+    params.position,
+    params.canonicalSyntax ?? DEFAULT_CANONICAL_SYNTAX
+  );
   if (!fix) {
     return [];
   }

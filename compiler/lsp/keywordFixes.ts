@@ -1,5 +1,17 @@
-import { AssignmentExpression, Identifier, UpdateExpression, VarStatement } from "compiler/ast/ast";
+import {
+  AssignmentExpression,
+  ClassMethodMember,
+  FunctionStatement,
+  Identifier,
+  InterfaceMethodMember,
+  UpdateExpression,
+  VarStatement
+} from "compiler/ast/ast";
 import type { Program } from "compiler/ast/ast";
+import {
+  DEFAULT_CANONICAL_SYNTAX,
+  type CanonicalSyntax
+} from "compiler/canonicalSyntax";
 import { TokenType } from "compiler/parser/tokenizer";
 
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
@@ -7,8 +19,8 @@ import { walkAstUntil } from "compiler/ast/traversal";
 import { findNodeAtPosition } from "./nodeSearch";
 
 export interface KeywordReplacement {
-  from: "let" | "const" | "var" | "val";
-  to: "let" | "const" | "var" | "val";
+  from: "let" | "const" | "var" | "val" | "fun" | "fn" | "func" | "function";
+  to: "let" | "const" | "var" | "val" | "fun" | "fn" | "func" | "function";
   range: {
     start: { line: number; character: number };
     end: { line: number; character: number };
@@ -86,25 +98,46 @@ function isReassigned(ast: Program, names: Set<string>): boolean {
 export function findDeclarationKeywordReplacementsAtPosition(
   ast: Program,
   line: number,
-  character: number
+  character: number,
+  canonicalSyntax: CanonicalSyntax = DEFAULT_CANONICAL_SYNTAX
 ): KeywordReplacement[] {
   const variableStatement = findNodeAtPosition(
     ast,
     { line, character },
     (node): node is VarStatement => node instanceof VarStatement
   );
-  if (!variableStatement) {
-    return [];
+  const functionDeclaration = findNodeAtPosition(
+    ast,
+    { line, character },
+    (node): node is FunctionStatement | ClassMethodMember | InterfaceMethodMember =>
+      node instanceof FunctionStatement ||
+      node instanceof ClassMethodMember ||
+      node instanceof InterfaceMethodMember
+  );
+  const functionToken = functionDeclaration?.declarationKeywordToken;
+  if (functionToken && isPositionInsideTokenRange(functionToken, line, character)) {
+    const from = functionToken.value as KeywordReplacement["from"];
+    if (from === canonicalSyntax.functionDeclaration) {
+      return [];
+    }
+    return [{
+      from,
+      to: canonicalSyntax.functionDeclaration,
+      range: {
+        start: { line: functionToken.range.start.line, character: functionToken.range.start.column },
+        end: { line: functionToken.range.end.line, character: functionToken.range.end.column }
+      }
+    }];
   }
+
+  if (!variableStatement) return [];
 
   const declarationToken = variableStatement.firstToken;
-  if (!declarationToken || declarationToken.type !== TokenType.IDENTIFIER) {
-    return [];
-  }
-
-  if (!isPositionInsideTokenRange(declarationToken, line, character)) {
-    return [];
-  }
+  if (
+    !declarationToken ||
+    declarationToken.type !== TokenType.IDENTIFIER ||
+    !isPositionInsideTokenRange(declarationToken, line, character)
+  ) return [];
 
   const from = declarationToken.value as KeywordReplacement["from"];
   const tokenRange = {
@@ -114,21 +147,23 @@ export function findDeclarationKeywordReplacementsAtPosition(
 
   const replacements: KeywordReplacement[] = [];
 
-  if (from === "const") {
-    replacements.push({ from, to: "val", range: tokenRange });
+  if (from === "const" || from === "val") {
+    replacements.push({
+      from,
+      to: from === canonicalSyntax.immutableDeclaration ? "var" : canonicalSyntax.immutableDeclaration,
+      range: tokenRange
+    });
   } else if (from === "let") {
     replacements.push({ from, to: "var", range: tokenRange });
     const names = collectDeclaredNames(variableStatement);
     if (!isReassigned(ast, names)) {
-      replacements.push({ from, to: "val", range: tokenRange });
+      replacements.push({ from, to: canonicalSyntax.immutableDeclaration, range: tokenRange });
     }
   } else if (from === "var") {
     const names = collectDeclaredNames(variableStatement);
     if (!isReassigned(ast, names)) {
-      replacements.push({ from, to: "val", range: tokenRange });
+      replacements.push({ from, to: canonicalSyntax.immutableDeclaration, range: tokenRange });
     }
-  } else if (from === "val") {
-    replacements.push({ from, to: "var", range: tokenRange });
   }
 
   return replacements;

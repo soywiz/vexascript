@@ -2168,13 +2168,13 @@ describe("parseStatement", () => {
             primaryConstructorParameters: [
                 {
                     kind: NodeKind.ClassPrimaryConstructorParameter,
-                    declarationKind: "val",
+                    declarationKind: "const",
                     name: { kind: NodeKind.Identifier, name: "x" },
                     typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 },
                 {
                     kind: NodeKind.ClassPrimaryConstructorParameter,
-                    declarationKind: "val",
+                    declarationKind: "const",
                     name: { kind: NodeKind.Identifier, name: "y" },
                     typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 }
@@ -2240,13 +2240,13 @@ describe("parseStatement", () => {
             primaryConstructorParameters: [
                 {
                     kind: NodeKind.ClassPrimaryConstructorParameter,
-                    declarationKind: "val",
+                    declarationKind: "const",
                     name: { kind: NodeKind.Identifier, name: "x" },
                     typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 },
                 {
                     kind: NodeKind.ClassPrimaryConstructorParameter,
-                    declarationKind: "val",
+                    declarationKind: "const",
                     name: { kind: NodeKind.Identifier, name: "y" },
                     typeAnnotation: { kind: NodeKind.Identifier, name: "number" }
                 }

@@ -1,6 +1,7 @@
 import { fileExists, isDirectory } from "./utils/fs";
 import { dirname, resolve } from "./utils/path";
 import { vfs } from "./vfs";
+import { canonicalSyntaxFromConfig, type CanonicalSyntax } from "./canonicalSyntax";
 
 export interface VexaProject {
   projectDir: string;
@@ -16,6 +17,7 @@ export interface VexaProject {
   bundleEntrypoint?: string;
   buildOutputDir?: string;
   serveMappings: VexaServeMapping[];
+  canonicalSyntax?: CanonicalSyntax;
 }
 
 export interface VexaServeMapping {
@@ -54,6 +56,7 @@ type VexaScriptConfigJson = CompilerOptionsConfig & {
   nativeImports?: unknown;
   globalSymbols?: unknown;
   serveMappings?: unknown;
+  canonicalSyntax?: unknown;
 };
 
 class CachedJsonFile {
@@ -316,6 +319,7 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
   const importMappings = importMappingsFromConfig(configDir, vexaConfig);
   const nativeImportMappings = resolvedImportMappings(configDir, vexaConfig?.nativeImports);
   const globalSymbols = globalSymbolsFromConfig(configDir, vexaConfig);
+  const canonicalSyntax = canonicalSyntaxFromConfig(vexaConfig?.canonicalSyntax);
   const configuredBaseUrl = typeof vexaConfig?.compilerOptions?.baseUrl === "string"
     ? vexaConfig.compilerOptions.baseUrl
     : typeof tsconfig?.compilerOptions?.baseUrl === "string"
@@ -336,6 +340,7 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
     libs: libsFromConfig(config),
     types: typesFromConfig(config),
     serveMappings,
+    ...(canonicalSyntax ? { canonicalSyntax } : {}),
     ...(bundleEntrypoint !== undefined ? { bundleEntrypoint } : {}),
     ...(buildOutputDir !== undefined ? { buildOutputDir } : {}),
     ...jsxOptionsFromConfig(config)

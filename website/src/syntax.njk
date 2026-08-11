@@ -17,10 +17,10 @@ permalink: /syntax/full.html
 @FFILibrary("libSDL2-2.0.so.0", "SDL2.framework/SDL2")
 ambient class SDL2 {
   @FFIName("SDL_Init")
-  static fun Init(flags: int): int
+  static func Init(flags: int): int
 
   @FFIName("SDL_Delay")
-  static fun Delay(milliseconds: int): Promise<void>
+  static func Delay(milliseconds: int): Promise<void>
 }
 {% endhighlightVexaScript %}
   </section>

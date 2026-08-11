@@ -51,6 +51,8 @@ export function isLikelyStatementStart(token: Token | undefined): boolean {
     token.value === "val" ||
     token.value === "const" ||
     token.value === "fun" ||
+    token.value === "fn" ||
+    token.value === "func" ||
     token.value === "function" ||
     token.value === "enum" ||
     token.value === "declare" ||

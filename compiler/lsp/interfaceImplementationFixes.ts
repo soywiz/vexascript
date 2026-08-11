@@ -4,6 +4,7 @@ import type { ClassStatement, Program } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { splitTopLevelTypeText } from "compiler/analysis/typeNames";
 import { CodeActionKind } from "./codeActionKinds";
+import { DEFAULT_CANONICAL_SYNTAX, type CanonicalSyntax } from "compiler/canonicalSyntax";
 import { bodyEndInsertRange } from "./ranges";
 import { pathToUri } from "./importFixes";
 import {
@@ -273,13 +274,17 @@ function parseFunctionTypeLabel(typeLabel: string): ParsedFunctionType | null {
   };
 }
 
-function signatureToMethodHead(signature: ParsedFunctionType, methodName: string): string {
+function signatureToMethodHead(
+  signature: ParsedFunctionType,
+  methodName: string,
+  functionDeclaration: CanonicalSyntax["functionDeclaration"]
+): string {
   const parameters = signature.parameters
     .map((parameter) => `${parameter.name}${parameter.optional ? "?" : ""}: ${parameter.typeName}`)
     .join(", ");
   // Generated stubs implement a supertype member, so they carry `override` (and
-  // the preferred `fun` spelling for methods).
-  return `override fun ${methodName}(${parameters}): ${signature.returnTypeName}`;
+  // the configured canonical function spelling for methods).
+  return `override ${functionDeclaration} ${methodName}(${parameters}): ${signature.returnTypeName}`;
 }
 
 function createMissingMemberText(classStatement: ClassStatement, memberName: string, typeName: string): string {
@@ -332,6 +337,7 @@ export async function createInterfaceImplementationCodeActions(params: {
   diagnostics: Diagnostic[];
   sourceRoots: string[];
   getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
+  canonicalSyntax?: CanonicalSyntax;
 }): Promise<CodeAction[]> {
   const { uri, ast, diagnostics, sourceRoots } = params;
   if (!ast || diagnostics.length === 0) {
@@ -392,7 +398,11 @@ export async function createInterfaceImplementationCodeActions(params: {
         };
         newText = createMissingMethodText(
           classResolution.classStatement,
-          signatureToMethodHead(signature, parsed.memberName)
+          signatureToMethodHead(
+            signature,
+            parsed.memberName,
+            params.canonicalSyntax?.functionDeclaration ?? DEFAULT_CANONICAL_SYNTAX.functionDeclaration
+          )
         );
       } else {
         newText = createMissingMemberText(

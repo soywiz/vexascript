@@ -13,7 +13,7 @@ type InfixOperator = BinaryOperator | "..." | "..<";
 
 const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "^=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="];
 const VARIABLE_DECLARATION_KEYWORDS: readonly VariableDeclarationKind[] = ["let", "var", "val", "const"];
-const FUNCTION_DECLARATION_KEYWORDS: readonly FunctionDeclarationKind[] = ["fun", "function"];
+const FUNCTION_DECLARATION_KEYWORDS: readonly FunctionDeclarationKind[] = ["fun", "fn", "func", "function"];
 export const CHARACTER_LITERAL_LENGTH_ERROR = "Character literals must contain exactly one Unicode code point; use double quotes for strings";
 
 const BINARY_OPERATOR_INFO: Record<InfixOperator, { precedence: number; assoc: BinaryAssoc }> = {
@@ -5569,6 +5569,7 @@ export class Parser {
         }
 
         const statement: FunctionStatement = new FunctionStatement(declarationKeyword.value as FunctionDeclarationKind, this.buildIdentifierFromToken(nameToken), parameters, body);
+        this.attachNonEnumerableToken(statement, "declarationKeywordToken", declarationKeyword);
         if (receiverType) {
             statement.receiverType = receiverType;
         }
@@ -6607,7 +6608,7 @@ export class Parser {
                 this.fail("Expected parameter name in class primary constructor", this.tokenAt(firstToken));
             }
 
-            let declarationKind: VariableDeclarationKind = "val";
+            let declarationKind: VariableDeclarationKind = "const";
             let parameterNameToken: Token | undefined;
             if (VARIABLE_DECLARATION_KEYWORDS.includes(firstToken.value as VariableDeclarationKind)) {
                 declarationKind = firstToken.value as VariableDeclarationKind;
@@ -6915,7 +6916,11 @@ export class Parser {
                 if (returnType) {
                     member.returnType = returnType;
                 }
-                members.push(this.attachNodeBounds(member, memberNameToken, this.getLastReadToken() ?? memberNameToken));
+                members.push(this.attachNodeBounds(
+                    member,
+                    functionDeclarationKeyword ?? memberNameToken,
+                    this.getLastReadToken() ?? memberNameToken
+                ));
                 this.consumeStatementSeparator("block", this.getLastReadToken());
                 continue;
             }

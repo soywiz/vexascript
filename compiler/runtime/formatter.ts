@@ -105,7 +105,7 @@ const CONTROL_KEYWORDS_WITH_PAREN_LEGACY = new Set(["if", "for", "while", "with"
 // with one of these, it is a statement block rather than a lambda parameter header.
 const STATEMENT_LEADING_KEYWORDS_LEGACY = new Set([
   "if", "for", "while", "with", "switch", "catch", "do", "try", "return", "throw",
-  "break", "continue", "defer", "let", "var", "val", "const", "function", "fun", "class",
+  "break", "continue", "defer", "let", "var", "val", "const", "function", "fun", "fn", "func", "class",
   "enum", "interface", "type", "async", "sync", "await", "yield", "new", "delete",
   "void", "typeof", "import", "export", "case", "default", "else"
 ]);
@@ -557,7 +557,7 @@ function classifyTopLevelLineStartLegacy(token: FormatTokenLegacy): TopLevelLine
     return "variableDeclaration";
   }
 
-  if (token.value === "fun" || token.value === "function" || token.value === "async" || token.value === "sync" || token.value === "class" || token.value === "enum" || token.value === "interface" || token.value === "type") {
+  if (token.value === "fun" || token.value === "fn" || token.value === "func" || token.value === "function" || token.value === "async" || token.value === "sync" || token.value === "class" || token.value === "enum" || token.value === "interface" || token.value === "type") {
     return "functionOrClassDeclaration";
   }
 
