@@ -109,10 +109,20 @@ opening references.
 
 Existing keys in `style={{ display: "flex" }}` already received contextual
 hover from the retained property map, but definition could lose the named
-`CSSProperties` owner after the checker expanded it to a structural type. When
-the checked JSX context confirms that a key is valid and ordinary named-type
-resolution cannot recover the declaration, definition now uses the existing
-imported structural-member lookup. This is deliberately gated by the retained
-contextual map so arbitrary object-literal keys do not acquire unrelated
-definitions from dependencies. The realistic JSX LSP test now covers both the
-dotted closing tag and navigation from an already-written style property.
+`CSSProperties` owner after the checker expanded it to a structural type. An
+initial fallback searched the imported package for any matching property name.
+That appeared to work in the small fixture, but the real Preact declarations
+also contain `MathMathMLAttributes.display`, so definition jumped to the
+unrelated MathML attribute. The JSX path must not infer declaration identity
+from a package-wide name match.
+
+Preact models style keys through a mapped type over the DOM
+`CSSStyleDeclaration`. Style-property definition now follows that actual DOM
+owner, while other JSX object attributes return no definition rather than an
+unrelated same-named declaration. Preact intentionally widens CSS property
+values to `string | number | null | undefined`, so literal completion cannot be
+reconstructed from its type text. The style value path supplements that open
+type with CSS keyword suggestions and replaces the contents of an existing
+string literal, allowing values such as `block`, `inline`, and `flex` without
+adding quotes twice. Regression coverage runs both the focused fixture with a
+deliberate MathML name collision and the repository's real Preact LSP session.

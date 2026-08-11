@@ -6,7 +6,7 @@ import type {
 import type { Hover } from "vscode-languageserver/node.js";
 import type { Location } from "vscode-languageserver/node.js";
 
-import { typeToString, type AnalysisType } from "compiler/analysis/types";
+import { NamedType, typeToString, type AnalysisType } from "compiler/analysis/types";
 import { isDynamicPropertyName, propertyTypeWithoutUndefined } from "compiler/analysis/propertyNames";
 import { baseTypeName, findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { Analysis } from "compiler/analysis/Analysis";
@@ -46,7 +46,7 @@ import { findNodeModuleMemberLocation, findNodeModuleStructuralMemberLocation, g
 
 type ObjectLiteralExpectedTypeSource =
   | { kind: "call" | "new"; callee: Expr; argumentIndex: number }
-  | { kind: "jsx-attribute"; expectedType: AnalysisType };
+  | { kind: "jsx-attribute"; attributeName: string; expectedType: AnalysisType };
 
 interface ObjectLiteralCompletionContext {
   expectedTypeSource: ObjectLiteralExpectedTypeSource;
@@ -95,6 +95,32 @@ interface ObjectLiteralValueCandidate {
   insertText: string;
   detail: string;
   kind: CompletionItemKind;
+}
+
+const CSS_PROPERTY_VALUE_SUGGESTIONS = new Map<string, readonly string[]>([
+  ["display", [
+    "block",
+    "inline",
+    "inline-block",
+    "flex",
+    "inline-flex",
+    "grid",
+    "inline-grid",
+    "flow-root",
+    "contents",
+    "list-item",
+    "table",
+    "none"
+  ]]
+]);
+
+function cssPropertyValueCandidates(propertyName: string): ObjectLiteralValueCandidate[] {
+  return (CSS_PROPERTY_VALUE_SUGGESTIONS.get(propertyName) ?? []).map((value) => ({
+    label: value,
+    insertText: JSON.stringify(value),
+    detail: "CSS value",
+    kind: CompletionItemKind.Value
+  }));
 }
 
 function nodeModulePackageNameForFilePath(filePath: string): string | null {
@@ -229,10 +255,14 @@ function findInnermostObjectLiteralCompletionContext(
       position
     };
   }
-  const jsxAttributeType = analysis.getJsxAttributeExpectedTypeAt(line, character);
-  return jsxAttributeType
+  const jsxAttributeContext = analysis.getJsxAttributeContextAt(line, character);
+  return jsxAttributeContext
     ? {
-        expectedTypeSource: { kind: "jsx-attribute", expectedType: jsxAttributeType },
+        expectedTypeSource: {
+          kind: "jsx-attribute",
+          attributeName: jsxAttributeContext.name,
+          expectedType: jsxAttributeContext.type
+        },
         objectLiteral,
         position
       }
@@ -1198,10 +1228,16 @@ export async function resolveContextualObjectLiteralPropertyDefinition(
       propertyContext.completionContext.objectLiteral
     );
     if (contextualProperties?.has(propertyContext.propertyName)) {
-      return resolveImportedNodeModuleStructuralObjectLiteralPropertyDefinition(
-        context,
-        propertyContext.propertyName
-      );
+      if (propertyContext.completionContext.expectedTypeSource.attributeName === "style") {
+        // Preact models style keys through a mapped CSSStyleDeclaration type.
+        // Resolve that actual DOM owner instead of selecting an unrelated
+        // same-named property from the package declaration tree.
+        return resolveDeclaredMemberDefinitionAcrossFiles(
+          context,
+          new NamedType("CSSStyleDeclaration"),
+          propertyContext.propertyName
+        );
+      }
     }
   }
 
@@ -1366,18 +1402,51 @@ export async function buildContextualObjectLiteralValueCompletionItems(
     return [];
   }
 
-  const candidates = await collectObjectLiteralValueCandidates(
+  const semanticCandidates = await collectObjectLiteralValueCandidates(
     property.typeName,
     resolvedAst,
     options,
     undefined,
     property.declarationFilePath ?? (options.uri ? uriToFilePath(options.uri) : null)
   );
-  return candidates.map((candidate, index) => ({
+  const cssCandidates = propertyContext.completionContext.expectedTypeSource.kind === "jsx-attribute"
+    && propertyContext.completionContext.expectedTypeSource.attributeName === "style"
+    ? cssPropertyValueCandidates(propertyContext.propertyName)
+    : [];
+  const candidates = new Map<string, ObjectLiteralValueCandidate>();
+  for (const candidate of [...cssCandidates, ...semanticCandidates]) {
+    if (!candidates.has(candidate.label)) {
+      candidates.set(candidate.label, candidate);
+    }
+  }
+
+  const objectProperty = propertyContext.completionContext.objectLiteral.properties.find((candidate) =>
+    candidate instanceof ObjectProperty
+    && staticObjectPropertyName(candidate as ObjectProperty) === propertyContext.propertyName
+  ) as ObjectProperty | undefined;
+  const stringRange = objectProperty?.value instanceof StringLiteral
+    ? nodeRange(objectProperty.value)
+    : null;
+  const stringContentRange = stringRange
+    ? {
+        start: { line: stringRange.start.line, character: stringRange.start.character + 1 },
+        end: { line: stringRange.end.line, character: Math.max(stringRange.start.character + 1, stringRange.end.character - 1) }
+      }
+    : null;
+  const visibleCandidates = stringContentRange
+    ? [...candidates.values()].filter((candidate) =>
+        candidate.detail === "CSS value" || candidate.detail === "String literal value"
+      )
+    : [...candidates.values()];
+
+  return visibleCandidates.map((candidate, index) => ({
     label: candidate.label,
     kind: candidate.kind,
     detail: `${candidate.detail} for ${propertyContext.propertyName}`,
     insertText: candidate.insertText,
+    ...(stringContentRange
+      ? { textEdit: { range: stringContentRange, newText: candidate.label } }
+      : {}),
     sortText: `0-${String(index).padStart(4, "0")}-${candidate.label}`
   }));
 }

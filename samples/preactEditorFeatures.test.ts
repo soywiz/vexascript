@@ -25,7 +25,10 @@ describe("preact JSX editor features", () => {
     const result = await openEntrypointInLspSession(sourcePath, process.cwd(), [
       positionInside(source, "button"),
       positionInside(source, "onClick"),
-      positionInside(source, "currentTarget")
+      positionInside(source, "currentTarget"),
+      positionInside(source, "display: \"flex\"")
+    ], [
+      positionInside(source, "\"flex\"")
     ]);
     const hoverValues = result.hovers.map((hover) =>
       (hover?.contents as { value?: string } | undefined)?.value ?? ""
@@ -34,8 +37,14 @@ describe("preact JSX editor features", () => {
     expect(hoverValues[0]).toContain("HTMLButtonElement");
     expect(hoverValues[1]).toContain("HTMLButtonElement");
     expect(hoverValues[2]).toContain("HTMLButtonElement");
+    expect(hoverValues[3]).toContain("display: string | number");
     expect(result.definitions[0]).not.toBeNull();
     expect(result.definitions[1]).not.toBeNull();
     expect(result.definitions[2]).not.toBeNull();
+    expect((result.definitions[3] as { uri?: string } | null)?.uri).toContain("compiler/runtime/dom.d.ts");
+    const displayValues = new Set(result.completions[0]?.map((item) => item.label));
+    expect(displayValues.has("block")).toBe(true);
+    expect(displayValues.has("inline")).toBe(true);
+    expect(displayValues.has("flex")).toBe(true);
   });
 });

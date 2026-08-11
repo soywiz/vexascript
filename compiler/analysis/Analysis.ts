@@ -541,7 +541,14 @@ export class Analysis {
   }
 
   getJsxAttributeExpectedTypeAt(line: number, character: number): AnalysisType | null {
-    let best: { type: AnalysisType; range: AnalysisRange } | null = null;
+    return this.getJsxAttributeContextAt(line, character)?.type ?? null;
+  }
+
+  getJsxAttributeContextAt(
+    line: number,
+    character: number
+  ): { name: string; type: AnalysisType } | null {
+    let best: { name: string; type: AnalysisType; range: AnalysisRange } | null = null;
     for (const [element, props] of this.jsxPropsByElement) {
       for (const attribute of element.attributes) {
         if (!(attribute instanceof JsxAttribute)) {
@@ -553,11 +560,11 @@ export class Analysis {
           continue;
         }
         if (!best || this.rangeSize(range) < this.rangeSize(best.range)) {
-          best = { type, range };
+          best = { name: attribute.name, type, range };
         }
       }
     }
-    return best?.type ?? null;
+    return best ? { name: best.name, type: best.type } : null;
   }
 
   getJsxAttributeResolutionAt(

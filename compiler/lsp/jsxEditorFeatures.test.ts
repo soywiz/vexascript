@@ -26,9 +26,13 @@ async function createPreactJsxSession(source: string) {
         onClick?: MouseEventHandler<Target> | undefined
       }
       export interface ButtonHTMLAttributes<Target extends EventTarget> extends DOMAttributes<Target> {}
+      export interface MathMathMLAttributes<Target extends EventTarget> {
+        display?: Signalish<"block" | "inline" | undefined>
+      }
+      export type Signalish<T> = T
       export interface CSSProperties {
         color?: string
-        display?: string
+        display?: string | number
         gap?: string
       }
       export interface IntrinsicElements {
@@ -49,6 +53,11 @@ async function createPreactJsxSession(source: string) {
     interface Element extends EventTarget {}
     interface HTMLElement extends Element {}
     interface HTMLButtonElement extends HTMLElement {}
+    interface CSSStyleDeclaration {
+      color: string
+      display: string
+      gap: string
+    }
   `;
 
   await mkdir(packageDir, { recursive: true });
@@ -401,10 +410,64 @@ describe("JSX editor features", () => {
       session: setup.session
     });
 
-    expect((hover?.contents as { value?: string } | undefined)?.value).toBe("display: string");
-    expect(definition?.uri).toBe(pathToFileURL(setup.preactPath).toString());
+    expect((hover?.contents as { value?: string } | undefined)?.value).toBe("display: string | number");
+    expect(definition?.uri).toBe(pathToFileURL(setup.domPath).toString());
     expect(definition?.range.start.line).toBe(
-      setup.preactSource.split("\n").findIndex((line) => line.includes("display?:"))
+      setup.domSource.split("\n").findIndex((line) => line.includes("display: string"))
     );
+  });
+
+  it("offers CSS display values inside a JSX style string", async () => {
+    const cursor = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function App() {
+        return <div style={{ display: "^^^" }} />
+      }
+    `);
+    const setup = await createPreactJsxSession(cursor.source);
+    const items = await createCompletionItemsForPosition(
+      setup.session.ast!,
+      cursor.line,
+      cursor.character,
+      setup.session.analysis,
+      [],
+      { text: cursor.source, ...setup.context }
+    );
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(setup.session.analysis?.getIssues()).toEqual([]);
+    expect(byLabel.get("block")?.textEdit).toMatchObject({ newText: "block" });
+    expect(byLabel.get("inline")?.textEdit).toMatchObject({ newText: "inline" });
+    expect(byLabel.get("flex")?.textEdit).toMatchObject({ newText: "flex" });
+    expect(byLabel.has("count")).toBe(false);
+  });
+
+  it("provides CSS value completion for framework-independent JSX style props", async () => {
+    const cursor = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function Panel({ style: CSSStyleDeclaration }) {
+        return <div style={style} />
+      }
+
+      function App() {
+        return <Panel style={{ display: "^^^" }} />
+      }
+    `);
+    const setup = await createPreactJsxSession(cursor.source);
+    const items = await createCompletionItemsForPosition(
+      setup.session.ast!,
+      cursor.line,
+      cursor.character,
+      setup.session.analysis,
+      [],
+      { text: cursor.source, ...setup.context }
+    );
+    const labels = new Set(items.map((item) => item.label));
+
+    expect(labels.has("block")).toBe(true);
+    expect(labels.has("inline")).toBe(true);
+    expect(labels.has("flex")).toBe(true);
   });
 });

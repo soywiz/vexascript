@@ -1,6 +1,6 @@
 import "../cli/localVfs";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import type { Connection, Diagnostic, DocumentHighlight, Hover, Location, Range, TextDocuments } from "vscode-languageserver/node.js";
+import type { CompletionItem, Connection, Diagnostic, DocumentHighlight, Hover, Location, Range, TextDocuments } from "vscode-languageserver/node.js";
 import { AnalysisSessionCache } from "../compiler/lsp/analysisSession";
 import { collectAllImportedDeclarations } from "../compiler/lsp/importedDeclarations";
 import { ensureDomProgram, getDomDeclarationFilePath } from "../compiler/runtime/domDeclarations";
@@ -38,6 +38,7 @@ export interface LspOpenSessionResult {
   definitions: Array<Location | Location[] | null>;
   hovers: Array<Hover | null>;
   documentHighlights: DocumentHighlight[][];
+  completions: CompletionItem[][];
 }
 
 export interface LspPositionProbe {
@@ -283,7 +284,8 @@ function fullDocumentRange(document: TextDocument): Range {
 export async function openEntrypointInLspSession(
   entrypoint: string,
   workspaceRoot = process.cwd(),
-  probes: readonly LspPositionProbe[] = []
+  probes: readonly LspPositionProbe[] = [],
+  completionProbes: readonly LspPositionProbe[] = []
 ): Promise<LspOpenSessionResult> {
   const source = await vfs().readFile(entrypoint);
   const server = await startWorkspaceServer(workspaceRoot);
@@ -353,6 +355,9 @@ export async function openEntrypointInLspSession(
   const documentHighlightsPromise = Promise.all(probes.map((position) => Promise.resolve(
     server.fakeConnection.handlers.get("documentHighlight")!({ textDocument: { uri }, position })
   ) as Promise<DocumentHighlight[]>));
+  const completionsPromise = Promise.all(completionProbes.map((position) => Promise.resolve(
+    server.fakeConnection.handlers.get("completion")!({ textDocument: { uri }, position })
+  ) as Promise<CompletionItem[]>));
   // Keep the full VS Code-like open burst, but let independent requests overlap
   // so shared analysis/cache work can dedupe through the real server paths.
   const codeActionsPromise = server.fakeConnection.handlers.get("codeAction")!({
@@ -375,7 +380,8 @@ export async function openEntrypointInLspSession(
     workspaceDiagnosticReport,
     definitions,
     hovers,
-    documentHighlights
+    documentHighlights,
+    completions
   ] = await Promise.all([
     autoAwaitPromise,
     inlayHintsPromise,
@@ -387,7 +393,8 @@ export async function openEntrypointInLspSession(
     workspaceDiagnosticsPromise,
     definitionsPromise,
     hoversPromise,
-    documentHighlightsPromise
+    documentHighlightsPromise,
+    completionsPromise
   ]);
 
   return {
@@ -395,6 +402,7 @@ export async function openEntrypointInLspSession(
     workspaceDiagnostics: workspaceDiagnosticReport.items.find((item) => item.uri === uri)?.items ?? [],
     definitions,
     hovers,
-    documentHighlights
+    documentHighlights,
+    completions
   };
 }
