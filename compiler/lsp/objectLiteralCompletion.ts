@@ -6,7 +6,8 @@ import type {
 import type { Hover } from "vscode-languageserver/node.js";
 import type { Location } from "vscode-languageserver/node.js";
 
-import { typeToString } from "compiler/analysis/types";
+import { typeToString, type AnalysisType } from "compiler/analysis/types";
+import { isDynamicPropertyName, propertyTypeWithoutUndefined } from "compiler/analysis/propertyNames";
 import { baseTypeName, findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { Analysis } from "compiler/analysis/Analysis";
 import { getProjectSessionForFilePath } from "compiler/analysis/projectIndex";
@@ -43,10 +44,12 @@ import { containsPosition, nodeRange } from "./ranges";
 import { fileURLToPath } from "compiler/utils/path";
 import { findNodeModuleMemberLocation, findNodeModuleStructuralMemberLocation, getNodeModuleTypings } from "./nodeModulesTypings";
 
+type ObjectLiteralExpectedTypeSource =
+  | { kind: "call" | "new"; callee: Expr; argumentIndex: number }
+  | { kind: "jsx-attribute"; expectedType: AnalysisType };
+
 interface ObjectLiteralCompletionContext {
-  kind: "call" | "new";
-  callee: Expr;
-  argumentIndex: number;
+  expectedTypeSource: ObjectLiteralExpectedTypeSource;
   objectLiteral: ObjectLiteral;
   usedPropertyNames: Set<string>;
 }
@@ -70,6 +73,21 @@ interface ObjectLiteralMemberInfo {
 interface ResolvedObjectLiteralShape {
   members: ObjectLiteralMemberInfo[];
   allowsAdditionalProperties: boolean;
+}
+
+function shapeFromContextualProperties(
+  properties: ReadonlyMap<string, AnalysisType>
+): ResolvedObjectLiteralShape {
+  return {
+    members: [...properties]
+      .filter(([name]) => !isDynamicPropertyName(name))
+      .map(([name, type]) => ({
+        name,
+        typeName: typeToString(propertyTypeWithoutUndefined(type) ?? type)
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    allowsAdditionalProperties: [...properties.keys()].some(isDynamicPropertyName)
+  };
 }
 
 interface ObjectLiteralValueCandidate {
@@ -122,15 +140,16 @@ function staticObjectPropertyName(property: ObjectProperty): string | null {
 
 function findObjectLiteralCompletionContext(
   ast: Program,
+  analysis: Analysis,
   line: number,
   character: number
 ): ObjectLiteralCompletionContext | null {
-  const baseContext = findInnermostObjectLiteralCompletionContext(ast, line, character);
+  const baseContext = findInnermostObjectLiteralCompletionContext(ast, analysis, line, character);
   if (!baseContext) {
     return null;
   }
 
-  const { argumentContext, objectLiteral, position } = baseContext;
+  const { objectLiteral, position } = baseContext;
   const usedPropertyNames = new Set<string>();
   let activePropertyName: string | null = null;
   for (const property of objectLiteral.properties) {
@@ -159,9 +178,7 @@ function findObjectLiteralCompletionContext(
   }
 
   return {
-    kind: argumentContext.kind,
-    callee: argumentContext.callee,
-    argumentIndex: argumentContext.argumentIndex,
+    expectedTypeSource: baseContext.expectedTypeSource,
     objectLiteral,
     usedPropertyNames
   };
@@ -169,18 +186,14 @@ function findObjectLiteralCompletionContext(
 
 function findInnermostObjectLiteralCompletionContext(
   ast: Program,
+  analysis: Analysis,
   line: number,
   character: number
 ): {
-  argumentContext: NonNullable<ReturnType<typeof findArgumentCompletionContext>>;
+  expectedTypeSource: ObjectLiteralExpectedTypeSource;
   objectLiteral: ObjectLiteral;
   position: { line: number; character: number };
 } | null {
-  const argumentContext = findArgumentCompletionContext(ast, line, character);
-  if (!argumentContext) {
-    return null;
-  }
-
   const position = { line, character };
   let best: ObjectLiteral | null = null;
   let bestSize = Number.POSITIVE_INFINITY;
@@ -201,15 +214,38 @@ function findInnermostObjectLiteralCompletionContext(
   });
 
   const objectLiteral = best as ObjectLiteral | null;
-  return objectLiteral ? { argumentContext, objectLiteral, position } : null;
+  if (!objectLiteral) {
+    return null;
+  }
+  const argumentContext = findArgumentCompletionContext(ast, line, character);
+  if (argumentContext) {
+    return {
+      expectedTypeSource: {
+        kind: argumentContext.kind,
+        callee: argumentContext.callee,
+        argumentIndex: argumentContext.argumentIndex
+      },
+      objectLiteral,
+      position
+    };
+  }
+  const jsxAttributeType = analysis.getJsxAttributeExpectedTypeAt(line, character);
+  return jsxAttributeType
+    ? {
+        expectedTypeSource: { kind: "jsx-attribute", expectedType: jsxAttributeType },
+        objectLiteral,
+        position
+      }
+    : null;
 }
 
 function findContextualObjectLiteralPropertyDefinitionContext(
   ast: Program,
+  analysis: Analysis,
   line: number,
   character: number
 ): ObjectLiteralPropertyDefinitionContext | null {
-  const completionContext = findObjectLiteralCompletionContext(ast, line, character);
+  const completionContext = findObjectLiteralCompletionContext(ast, analysis, line, character);
   if (!completionContext) {
     return null;
   }
@@ -275,20 +311,19 @@ function cursorLooksLikeMissingObjectPropertyValue(
 
 function findContextualObjectLiteralPropertyValueContext(
   ast: Program,
+  analysis: Analysis,
   line: number,
   character: number,
   text: string | undefined
 ): ObjectLiteralPropertyValueContext | null {
   const position = { line, character };
-  const baseContext = findInnermostObjectLiteralCompletionContext(ast, line, character)
-    ?? findInnermostObjectLiteralCompletionContext(ast, line, Math.max(0, character - 1));
+  const baseContext = findInnermostObjectLiteralCompletionContext(ast, analysis, line, character)
+    ?? findInnermostObjectLiteralCompletionContext(ast, analysis, line, Math.max(0, character - 1));
   if (!baseContext) {
     return null;
   }
   const completionContext: ObjectLiteralCompletionContext = {
-    kind: baseContext.argumentContext.kind,
-    callee: baseContext.argumentContext.callee,
-    argumentIndex: baseContext.argumentContext.argumentIndex,
+    expectedTypeSource: baseContext.expectedTypeSource,
     objectLiteral: baseContext.objectLiteral,
     usedPropertyNames: new Set<string>()
   };
@@ -410,7 +445,7 @@ async function resolveObjectLiteralShape(
   cache = createClassResolverCache(),
   visited = new Set<string>()
 ): Promise<ResolvedObjectLiteralShape | null> {
-  const trimmed = stripEnclosingTypeParens(typeName);
+  const trimmed = unwrapOptionalTypeText(typeName);
   if (trimmed.length === 0) {
     return null;
   }
@@ -551,29 +586,33 @@ async function resolveExpectedArgumentTypeName(
   options: CompletionRequestOptions,
   preferSelectedResolution = true
 ): Promise<string | null> {
-  const calleeRange = nodeRange(context.callee);
+  const source = context.expectedTypeSource;
+  if (source.kind === "jsx-attribute") {
+    return typeToString(source.expectedType);
+  }
+  const calleeRange = nodeRange(source.callee);
   if (preferSelectedResolution && calleeRange) {
     const selectedResolution = analysis.getSelectedCallResolutionAt(
       calleeRange.start.line,
       calleeRange.start.character
     );
-    const selectedParameterType = selectedResolution?.overload.parameters[context.argumentIndex]?.type;
+    const selectedParameterType = selectedResolution?.overload.parameters[source.argumentIndex]?.type;
     if (selectedParameterType) {
       return typeToString(selectedParameterType);
     }
   }
 
   const resolverOptions = classResolverOptionsFromCompletionOptions(options);
-  if (context.kind === "call") {
-    const signature = await resolveCallableSignature(context.callee, analysis, ast, resolverOptions);
-    if (signature?.parameters[context.argumentIndex]?.typeName) {
-      return signature.parameters[context.argumentIndex]?.typeName ?? null;
+  if (source.kind === "call") {
+    const signature = await resolveCallableSignature(source.callee, analysis, ast, resolverOptions);
+    if (signature?.parameters[source.argumentIndex]?.typeName) {
+      return signature.parameters[source.argumentIndex]?.typeName ?? null;
     }
-    const constructorSignature = await resolveConstructorSignature(context.callee, analysis, ast, resolverOptions);
-    return constructorSignature?.parameters[context.argumentIndex]?.typeName ?? null;
+    const constructorSignature = await resolveConstructorSignature(source.callee, analysis, ast, resolverOptions);
+    return constructorSignature?.parameters[source.argumentIndex]?.typeName ?? null;
   }
-  const signature = await resolveConstructorSignature(context.callee, analysis, ast, resolverOptions);
-  return signature?.parameters[context.argumentIndex]?.typeName ?? null;
+  const signature = await resolveConstructorSignature(source.callee, analysis, ast, resolverOptions);
+  return signature?.parameters[source.argumentIndex]?.typeName ?? null;
 }
 
 function unwrapOptionalTypeText(typeName: string): string {
@@ -805,6 +844,16 @@ async function resolveObjectLiteralPropertyTypeName(
   propertyName: string,
   options: CompletionRequestOptions
 ): Promise<ObjectLiteralMemberInfo | null> {
+  const contextualProperties = context.expectedTypeSource.kind === "jsx-attribute"
+    ? analysis.getContextualObjectLiteralProperties(context.objectLiteral)
+    : null;
+  const contextualPropertyType = contextualProperties?.get(propertyName);
+  if (contextualPropertyType) {
+    return {
+      name: propertyName,
+      typeName: typeToString(propertyTypeWithoutUndefined(contextualPropertyType) ?? contextualPropertyType)
+    };
+  }
   const expectedType = resolveExpectedArgumentType(analysis, context);
   const expectedTypeName = expectedType
     ? typeToString(expectedType)
@@ -821,7 +870,11 @@ function resolveExpectedArgumentType(
   analysis: Analysis,
   context: ObjectLiteralCompletionContext
 ) {
-  const calleeRange = nodeRange(context.callee);
+  const source = context.expectedTypeSource;
+  if (source.kind === "jsx-attribute") {
+    return source.expectedType;
+  }
+  const calleeRange = nodeRange(source.callee);
   if (!calleeRange) {
     return null;
   }
@@ -829,7 +882,7 @@ function resolveExpectedArgumentType(
     calleeRange.start.line,
     calleeRange.start.character
   );
-  return selectedResolution?.overload.parameters[context.argumentIndex]?.type ?? null;
+  return selectedResolution?.overload.parameters[source.argumentIndex]?.type ?? null;
 }
 
 async function resolveImportedNodeModuleObjectLiteralPropertyDefinition(
@@ -1086,6 +1139,7 @@ export async function resolveContextualObjectLiteralPropertyDefinition(
 
   const propertyContext = findContextualObjectLiteralPropertyDefinitionContext(
     context.session.ast,
+    context.session.analysis,
     context.line,
     context.character
   );
@@ -1128,15 +1182,30 @@ export async function resolveContextualObjectLiteralPropertyDefinition(
     },
     false
   );
-  if (!expectedTypeName) {
-    return null;
+  if (expectedTypeName) {
+    const declaredDefinition = await resolveDeclaredObjectLiteralPropertyDefinitionFromTypeName(
+      context,
+      expectedTypeName,
+      propertyContext.propertyName
+    );
+    if (declaredDefinition) {
+      return declaredDefinition;
+    }
   }
 
-  return resolveDeclaredObjectLiteralPropertyDefinitionFromTypeName(
-    context,
-    expectedTypeName,
-    propertyContext.propertyName
-  );
+  if (propertyContext.completionContext.expectedTypeSource.kind === "jsx-attribute") {
+    const contextualProperties = context.session.analysis.getContextualObjectLiteralProperties(
+      propertyContext.completionContext.objectLiteral
+    );
+    if (contextualProperties?.has(propertyContext.propertyName)) {
+      return resolveImportedNodeModuleStructuralObjectLiteralPropertyDefinition(
+        context,
+        propertyContext.propertyName
+      );
+    }
+  }
+
+  return null;
 }
 
 export async function resolveContextualObjectLiteralPropertyHover(
@@ -1148,6 +1217,7 @@ export async function resolveContextualObjectLiteralPropertyHover(
 
   const propertyContext = findContextualObjectLiteralPropertyDefinitionContext(
     context.session.ast,
+    context.session.analysis,
     context.line,
     context.character
   );
@@ -1194,18 +1264,24 @@ export async function buildContextualObjectLiteralCompletionItems(
   character: number,
   options: CompletionRequestOptions
 ): Promise<CompletionItem[]> {
-  const context = findObjectLiteralCompletionContext(ast, line, character);
+  const context = findObjectLiteralCompletionContext(ast, analysis, line, character);
   if (!context) {
     return [];
   }
 
-  const expectedType = resolveExpectedArgumentType(analysis, context);
-  const expectedTypeName = expectedType ? typeToString(expectedType) : await resolveExpectedArgumentTypeName(ast, analysis, context, options);
-  if (!expectedTypeName) {
-    return [];
+  const contextualProperties = context.expectedTypeSource.kind === "jsx-attribute"
+    ? analysis.getContextualObjectLiteralProperties(context.objectLiteral)
+    : null;
+  let shape = contextualProperties ? shapeFromContextualProperties(contextualProperties) : null;
+  if (!shape) {
+    const expectedType = resolveExpectedArgumentType(analysis, context);
+    const expectedTypeName = expectedType
+      ? typeToString(expectedType)
+      : await resolveExpectedArgumentTypeName(ast, analysis, context, options);
+    shape = expectedTypeName
+      ? await resolveObjectLiteralShape(expectedTypeName, ast, analysis, options)
+      : null;
   }
-
-  const shape = await resolveObjectLiteralShape(expectedTypeName, ast, analysis, options);
   if (!shape || shape.members.length === 0) {
     return [];
   }
@@ -1242,7 +1318,13 @@ export async function buildContextualObjectLiteralValueCompletionItems(
   character: number,
   options: CompletionRequestOptions
 ): Promise<CompletionItem[]> {
-  let propertyContext = findContextualObjectLiteralPropertyValueContext(ast, line, character, options.text);
+  let propertyContext = findContextualObjectLiteralPropertyValueContext(
+    ast,
+    analysis,
+    line,
+    character,
+    options.text
+  );
   let resolvedAst = ast;
   let resolvedAnalysis = analysis;
   let resolvedText = options.text;
@@ -1253,6 +1335,7 @@ export async function buildContextualObjectLiteralValueCompletionItems(
     if (recoveredSession.ast && recoveredSession.analysis) {
       const recoveredContext = findContextualObjectLiteralPropertyValueContext(
         recoveredSession.ast,
+        recoveredSession.analysis,
         line,
         character,
         recoveredText

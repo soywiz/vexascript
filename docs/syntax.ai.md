@@ -315,6 +315,8 @@ const badge = Graphics()
 
 JSX is always enabled in `.vx` files. Use `value as Type` for casts — `<Type>value` is **not valid** in `.vx`.
 
+- Empty JSX expression containers mean `undefined`: `prop={}` is equivalent to `prop={undefined}` and `{}` in a child list contributes an `undefined` child. Do not treat a following attribute as part of the empty container.
+
 Inside JSX children, control blocks are expressions:
 
 ```vexa

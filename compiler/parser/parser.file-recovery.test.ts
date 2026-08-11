@@ -844,6 +844,34 @@ describe("JavaScript implementation annotations", () => {
             expect(parser.errors.length).toBeGreaterThan(0);
         });
 
+        it("parses empty JSX attribute containers as undefined without consuming the next attribute", () => {
+            const parser = new Parser(
+                tokenizeReader('<div onAbort={} style={{ display: "flex" }} />', { jsx: true }),
+                { language: "vexa" }
+            );
+            const expression = parser.parseExpression();
+
+            expect(parser.errors).toEqual([]);
+            expect(expression).toMatchObject({
+                kind: NodeKind.JsxElement,
+                attributes: [
+                    {
+                        kind: NodeKind.JsxAttribute,
+                        name: "onAbort",
+                        value: {
+                            kind: NodeKind.JsxExpressionContainer,
+                            expression: { kind: NodeKind.UndefinedLiteral }
+                        }
+                    },
+                    {
+                        kind: NodeKind.JsxAttribute,
+                        name: "style",
+                        value: { kind: NodeKind.JsxExpressionContainer }
+                    }
+                ]
+            });
+        });
+
         it("parses double-brace JSX attribute values as zero-argument lambdas when object literals do not parse", () => {
             expect(jsxExpression("<button onClick={{ count-- }} />")).toMatchObject({
                 kind: NodeKind.JsxElement,

@@ -789,6 +789,18 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
 export async function resolveDefinitionWithLocalFallback(
   context: ResolveContext
 ): Promise<Location | null> {
+  const openingTagTarget = context.session.analysis?.getJsxOpeningTagTargetAt(
+    context.line,
+    context.character
+  );
+  if (openingTagTarget) {
+    return resolveDefinitionWithLocalFallback({
+      ...context,
+      line: openingTagTarget.position.line,
+      character: openingTagTarget.position.character
+    });
+  }
+
   const crossFile = await resolveDefinitionAcrossFiles(context);
   if (crossFile) {
     return crossFile;
@@ -817,6 +829,21 @@ export async function resolveReferencesAcrossFiles(
  * 3. Local hover fallback (doc-comment params, annotations, analysis hover)
  */
 export async function resolveHoverWithLocalFallback(context: ResolveContext): Promise<Hover | null> {
+  const openingTagTarget = context.session.analysis?.getJsxOpeningTagTargetAt(
+    context.line,
+    context.character
+  );
+  if (openingTagTarget) {
+    const openingHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: openingTagTarget.position.line,
+      character: openingTagTarget.position.character
+    });
+    return openingHover
+      ? { ...openingHover, range: openingTagTarget.closingRange }
+      : null;
+  }
+
   const importHover = await resolveImportPathHover(context);
   if (importHover) {
     return importHover;

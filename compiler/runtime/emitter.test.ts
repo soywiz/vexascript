@@ -804,6 +804,12 @@ describe("emit embedded XML / JSX", () => {
     );
   });
 
+  it("emits empty JSX attribute expression containers as undefined", () => {
+    expect(emit('val view = <div onAbort={} style={{ display: "flex" }} />')).toBe(
+      'const view = React.createElement("div", { onAbort: undefined, style: {display: "flex"} });'
+    );
+  });
+
   it("emits fragments and quotes non-identifier attribute names", () => {
     expect(emit('val c = <><input data-id="5" /></>')).toBe(
       'const c = React.createElement(React.Fragment, null, React.createElement("input", { "data-id": "5" }));'

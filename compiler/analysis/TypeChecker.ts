@@ -216,6 +216,7 @@ export class TypeChecker {
   private readonly jsxAttributeResolutions: JsxAttributeResolution[] = [];
   private readonly jsxElementResolutions: JsxElementResolution[] = [];
   private readonly jsxIntrinsicElementSymbols: Map<string, AnalysisSymbol> = new Map();
+  private readonly jsxPropsByElement: Map<JsxElement, ReadonlyMap<string, AnalysisType>> = new Map();
   private readonly jsxIntrinsicElementInfoCache: Map<string, JsxIntrinsicElementInfo | null> = new Map();
   private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly extensionPropertyResolutions: Map<MemberExpression, ExtensionPropertyResolution> = new Map();
@@ -223,6 +224,7 @@ export class TypeChecker {
   private readonly receiverLambdas: Map<Node, ReceiverLambdaInfo> = new Map();
   private readonly assertionCallEffects: WeakMap<CallExpression, { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> }> = new WeakMap<CallExpression, { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> }>();
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
+  private readonly contextualObjectLiteralProperties: Map<ObjectLiteral, ReadonlyMap<string, AnalysisType>> = new Map();
   private readonly autoAwaitExpressions: Set<Node> = new Set();
   private readonly asyncForStatements: Set<Node> = new Set();
   private readonly narrowedScopes: Scope[] = [];
@@ -511,9 +513,11 @@ export class TypeChecker {
       jsxAttributeResolutions: [...this.jsxAttributeResolutions],
       jsxElementResolutions: [...this.jsxElementResolutions],
       jsxIntrinsicElementSymbols: new Map(this.jsxIntrinsicElementSymbols),
+      jsxPropsByElement: new Map(this.jsxPropsByElement),
       operatorResolutions: [...this.operatorResolutions],
       extensionPropertyResolutions: [...this.extensionPropertyResolutions.values()],
       expressionTypes: this.expressionTypes,
+      contextualObjectLiteralProperties: new Map(this.contextualObjectLiteralProperties),
       selectedCallResolutions: [...this.selectedCallResolutions],
       receiverLambdas: this.receiverLambdas,
       extensionMethodsByReceiver: this.extensionMethodsByReceiver,
@@ -7957,6 +7961,7 @@ export class TypeChecker {
       const intrinsic = this.jsxIntrinsicElementInfo(jsxElement.tagName);
       if (intrinsic) {
         this.jsxElementResolutions.push(new JsxElementResolution(jsxElement, intrinsic.symbol));
+        this.jsxPropsByElement.set(jsxElement, intrinsic.props);
       }
       this.visitJsxAttributeValues(
         jsxElement,
@@ -7989,6 +7994,7 @@ export class TypeChecker {
       this.visitJsxAttributeValues(jsxElement, scope);
       return;
     }
+    this.jsxPropsByElement.set(jsxElement, expectedProps);
 
     const provided = new Set<string>();
     for (const attr of jsxElement.attributes) {
@@ -11541,11 +11547,14 @@ export class TypeChecker {
     scope: Scope,
     expectedType?: AnalysisType
   ): AnalysisType {
+    const expectedProperties = this.expectedObjectProperties(expectedType);
+    if (expectedProperties) {
+      this.contextualObjectLiteralProperties.set(objectLiteral, new Map(expectedProperties));
+    }
     if (objectLiteral.properties.length === 0) {
       return objectType();
     }
 
-    const expectedProperties = this.expectedObjectProperties(expectedType);
     const allowsAdditionalProperties = this.expectedObjectLiteralAllowsAdditionalProperties(expectedType);
     const canReportUnknownProperties = this.canReportUnknownObjectLiteralProperties(expectedType);
     const properties = new Map<string, AnalysisType>();

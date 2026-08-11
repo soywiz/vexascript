@@ -26,12 +26,22 @@ async function createPreactJsxSession(source: string) {
         onClick?: MouseEventHandler<Target> | undefined
       }
       export interface ButtonHTMLAttributes<Target extends EventTarget> extends DOMAttributes<Target> {}
+      export interface CSSProperties {
+        color?: string
+        display?: string
+        gap?: string
+      }
       export interface IntrinsicElements {
         button: ButtonHTMLAttributes<HTMLButtonElement>
-        div: {}
+        div: { onAbort?: (() => void); style?: CSSProperties }
       }
     }
 
+    export interface Context<T> {
+      Provider: (props: { value: T; children?: unknown }) => unknown
+    }
+
+    export function createContext<T>(defaultValue: T): Context<T>
     export function render(value: unknown, parent: Element): void
   `;
   const domSource = dedent`
@@ -148,6 +158,61 @@ describe("JSX editor features", () => {
     );
   });
 
+  it("uses the opening component reference for hover and definition on closing JSX tags", async () => {
+    const openingCursor = sourceWithCursor(dedent`
+      import { createContext, render } from "preact"
+
+      const CounterContext = createContext(0)
+
+      function App() {
+        return <CounterContext.Pro^^^vider value={0}></CounterContext.Provider>
+      }
+    `);
+    const openingSetup = await createPreactJsxSession(openingCursor.source);
+    const openingHover = await resolveHoverWithLocalFallback({
+      ...openingSetup.context,
+      line: openingCursor.line,
+      character: openingCursor.character,
+      session: openingSetup.session
+    });
+    const openingDefinition = await resolveDefinitionWithLocalFallback({
+      ...openingSetup.context,
+      line: openingCursor.line,
+      character: openingCursor.character,
+      session: openingSetup.session
+    });
+
+    const closingCursor = sourceWithCursor(openingCursor.source.replace(
+      "</CounterContext.Provider>",
+      "</CounterContext.Pro^^^vider>"
+    ));
+    const closingSetup = await createPreactJsxSession(closingCursor.source);
+    const closingHover = await resolveHoverWithLocalFallback({
+      ...closingSetup.context,
+      line: closingCursor.line,
+      character: closingCursor.character,
+      session: closingSetup.session
+    });
+    const closingDefinition = await resolveDefinitionWithLocalFallback({
+      ...closingSetup.context,
+      line: closingCursor.line,
+      character: closingCursor.character,
+      session: closingSetup.session
+    });
+
+    expect((openingHover?.contents as { value?: string } | undefined)?.value).toContain("Provider");
+    expect(openingDefinition?.uri).toBe(pathToFileURL(openingSetup.preactPath).toString());
+    expect(openingDefinition?.range.start.line).toBe(
+      openingSetup.preactSource.split("\n").findIndex((line) => line.includes("Provider:"))
+    );
+    expect((closingHover?.contents as { value?: string } | undefined)?.value).toBe(
+      (openingHover?.contents as { value?: string } | undefined)?.value
+    );
+    expect((closingHover?.contents as { value?: string } | undefined)?.value).not.toContain("JSX.Element");
+    expect(closingDefinition?.uri).toBe(pathToFileURL(closingSetup.preactPath).toString());
+    expect(closingDefinition?.range).toEqual(openingDefinition?.range);
+  });
+
   it("completes intrinsic tags together with callable component symbols", async () => {
     const intrinsicCursor = sourceWithCursor(dedent`
       import { render } from "preact"
@@ -187,5 +252,159 @@ describe("JSX editor features", () => {
 
     expect(componentByLabel.get("Counter")?.kind).toBe(3);
     expect(componentByLabel.get("Counter")?.insertText ?? "Counter").toBe("Counter");
+  });
+
+  it("completes available JSX component attributes as expression snippets", async () => {
+    const cursor = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function Counter({ count: int, increment: () => void }) {
+        return <button onClick={increment}>{count}</button>
+      }
+
+      function App() {
+        return <Counter co^^^ />
+      }
+    `);
+    const setup = await createPreactJsxSession(cursor.source);
+    const items = await createCompletionItemsForPosition(
+      setup.session.ast!,
+      cursor.line,
+      cursor.character,
+      setup.session.analysis,
+      [],
+      { text: cursor.source, ...setup.context }
+    );
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.has("count")).toBe(true);
+    expect(byLabel.has("increment")).toBe(false);
+    expect(byLabel.has("render")).toBe(false);
+    expect(byLabel.get("count")?.insertTextFormat).toBe(2);
+    expect(byLabel.get("count")?.textEdit).toEqual({
+      range: {
+        start: { line: cursor.line, character: cursor.character - 2 },
+        end: { line: cursor.line, character: cursor.character }
+      },
+      newText: "count={$1}"
+    });
+
+    const remainingCursor = sourceWithCursor(cursor.source.replace(
+      "<Counter co />",
+      "<Counter count={0} ^^^/>"
+    ));
+    const remainingSetup = await createPreactJsxSession(remainingCursor.source);
+    const remainingItems = await createCompletionItemsForPosition(
+      remainingSetup.session.ast!,
+      remainingCursor.line,
+      remainingCursor.character,
+      remainingSetup.session.analysis,
+      [],
+      { text: remainingCursor.source, ...remainingSetup.context }
+    );
+    const remainingByLabel = new Map(remainingItems.map((item) => [item.label, item]));
+
+    expect(remainingByLabel.has("count")).toBe(false);
+    expect(remainingByLabel.get("increment")?.textEdit).toMatchObject({
+      newText: "increment={$1}"
+    });
+
+    const intrinsicCursor = sourceWithCursor(cursor.source.replace("<Counter co />", "<div ^^^/>"));
+    const intrinsicSetup = await createPreactJsxSession(intrinsicCursor.source);
+    const intrinsicItems = await createCompletionItemsForPosition(
+      intrinsicSetup.session.ast!,
+      intrinsicCursor.line,
+      intrinsicCursor.character,
+      intrinsicSetup.session.analysis,
+      [],
+      { text: intrinsicCursor.source, ...intrinsicSetup.context }
+    );
+    const intrinsicByLabel = new Map(intrinsicItems.map((item) => [item.label, item]));
+
+    expect(intrinsicByLabel.get("style")?.textEdit).toMatchObject({
+      newText: "style={$1}"
+    });
+  });
+
+  it("completes contextual style properties inside JSX object literals", async () => {
+    const cursor = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function App() {
+        const count = 1
+        return <div onAbort={} style={{ display: "flex", gap: "20px", ^^^ }} />
+      }
+    `);
+    const setup = await createPreactJsxSession(cursor.source);
+    expect(setup.session.analysis?.getIssues()).toEqual([]);
+    expect(setup.session.analysis?.getJsxAttributeExpectedTypeAt(cursor.line, cursor.character)).not.toBe(null);
+    const items = await createCompletionItemsForPosition(
+      setup.session.ast!,
+      cursor.line,
+      cursor.character,
+      setup.session.analysis,
+      [],
+      { text: cursor.source, ...setup.context }
+    );
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("color")?.insertText).toBe("color: ");
+    expect(byLabel.has("display")).toBe(false);
+    expect(byLabel.has("gap")).toBe(false);
+    expect(byLabel.has("count")).toBe(false);
+    expect(byLabel.has("render")).toBe(false);
+
+    const emptyCursor = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function App() {
+        const count = 1
+        return <div onAbort={} style={{ ^^^ }} />
+      }
+    `);
+    const emptySetup = await createPreactJsxSession(emptyCursor.source);
+    const emptyItems = await createCompletionItemsForPosition(
+      emptySetup.session.ast!,
+      emptyCursor.line,
+      emptyCursor.character,
+      emptySetup.session.analysis,
+      [],
+      { text: emptyCursor.source, ...emptySetup.context }
+    );
+    const emptyLabels = new Set(emptyItems.map((item) => item.label));
+
+    expect(emptyLabels.has("color")).toBe(true);
+    expect(emptyLabels.has("display")).toBe(true);
+    expect(emptyLabels.has("gap")).toBe(true);
+    expect(emptyLabels.has("count")).toBe(false);
+  });
+
+  it("provides hover and definitions for contextual style properties", async () => {
+    const cursor = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function App() {
+        return <div style={{ dis^^^play: "flex", gap: "20px" }} />
+      }
+    `);
+    const setup = await createPreactJsxSession(cursor.source);
+    const hover = await resolveHoverWithLocalFallback({
+      ...setup.context,
+      line: cursor.line,
+      character: cursor.character,
+      session: setup.session
+    });
+    const definition = await resolveDefinitionWithLocalFallback({
+      ...setup.context,
+      line: cursor.line,
+      character: cursor.character,
+      session: setup.session
+    });
+
+    expect((hover?.contents as { value?: string } | undefined)?.value).toBe("display: string");
+    expect(definition?.uri).toBe(pathToFileURL(setup.preactPath).toString());
+    expect(definition?.range.start.line).toBe(
+      setup.preactSource.split("\n").findIndex((line) => line.includes("display?:"))
+    );
   });
 });

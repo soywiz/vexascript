@@ -1,5 +1,5 @@
-import { BinaryExpression, Identifier, ImportStatement, nodeStartOffset, UnaryExpression } from "compiler/ast/ast";
-import type { JsxAttribute, JsxElement, Node, Program, Statement } from "compiler/ast/ast";
+import { BinaryExpression, Identifier, ImportStatement, JsxAttribute, JsxElement, nodeStartOffset, UnaryExpression } from "compiler/ast/ast";
+import type { Node, ObjectLiteral, Program, Statement } from "compiler/ast/ast";
 
 import { childNodes } from "compiler/ast/traversal";
 import { Binder } from "./Binder";
@@ -36,6 +36,11 @@ export interface AnalysisSymbolMatch {
 export interface AnalysisHoverInfo {
   contents: string;
   range: AnalysisRange;
+}
+
+export interface JsxOpeningTagTarget {
+  position: { line: number; character: number };
+  closingRange: AnalysisRange;
 }
 
 /**
@@ -127,9 +132,11 @@ export class Analysis {
   private readonly jsxAttributeResolutions: JsxAttributeResolution[];
   private readonly jsxElementResolutions: JsxElementResolution[];
   private readonly jsxIntrinsicElementSymbols: ReadonlyMap<string, AnalysisSymbol>;
+  private readonly jsxPropsByElement: ReadonlyMap<JsxElement, ReadonlyMap<string, AnalysisType>>;
   private readonly operatorResolutions: OperatorResolution[];
   private readonly extensionPropertyResolutions: ExtensionPropertyResolution[];
   private readonly expressionTypes: Map<Node, AnalysisType>;
+  private readonly contextualObjectLiteralProperties: ReadonlyMap<ObjectLiteral, ReadonlyMap<string, AnalysisType>>;
   private readonly selectedCallResolutions: SelectedCallResolution[];
   private readonly receiverLambdas: ReadonlyMap<Node, ReceiverLambdaInfo>;
   private readonly extensionMethodsByReceiver: ReadonlyMap<string, ReadonlyMap<string, AnalysisType>>;
@@ -165,9 +172,11 @@ export class Analysis {
       this.jsxAttributeResolutions = [];
       this.jsxElementResolutions = [];
       this.jsxIntrinsicElementSymbols = new Map();
+      this.jsxPropsByElement = new Map();
       this.operatorResolutions = [];
       this.extensionPropertyResolutions = [];
       this.expressionTypes = new Map();
+      this.contextualObjectLiteralProperties = new Map();
       this.selectedCallResolutions = [];
       this.receiverLambdas = new Map();
       this.extensionMethodsByReceiver = new Map();
@@ -203,9 +212,11 @@ export class Analysis {
     this.jsxAttributeResolutions = checked.jsxAttributeResolutions;
     this.jsxElementResolutions = checked.jsxElementResolutions;
     this.jsxIntrinsicElementSymbols = checked.jsxIntrinsicElementSymbols;
+    this.jsxPropsByElement = checked.jsxPropsByElement;
     this.operatorResolutions = checked.operatorResolutions;
     this.extensionPropertyResolutions = checked.extensionPropertyResolutions;
     this.expressionTypes = checked.expressionTypes;
+    this.contextualObjectLiteralProperties = checked.contextualObjectLiteralProperties;
     this.selectedCallResolutions = checked.selectedCallResolutions;
     this.receiverLambdas = checked.receiverLambdas;
     this.extensionMethodsByReceiver = checked.extensionMethodsByReceiver;
@@ -268,6 +279,12 @@ export class Analysis {
 
   getExpressionTypes(): ReadonlyMap<Node, AnalysisType> {
     return this.expressionTypes;
+  }
+
+  getContextualObjectLiteralProperties(
+    objectLiteral: ObjectLiteral
+  ): ReadonlyMap<string, AnalysisType> | null {
+    return this.contextualObjectLiteralProperties.get(objectLiteral) ?? null;
   }
 
   getReceiverLambdas(): ReadonlyMap<Node, ReceiverLambdaInfo> {
@@ -506,6 +523,43 @@ export class Analysis {
     return this.jsxIntrinsicElementSymbols;
   }
 
+  getJsxPropsAt(
+    line: number,
+    character: number
+  ): { element: JsxElement; props: ReadonlyMap<string, AnalysisType> } | null {
+    let best: { element: JsxElement; props: ReadonlyMap<string, AnalysisType>; range: AnalysisRange } | null = null;
+    for (const [element, props] of this.jsxPropsByElement) {
+      const range = this.nodeToRange(element);
+      if (!range || !this.rangeContains(range, line, character)) {
+        continue;
+      }
+      if (!best || this.rangeSize(range) < this.rangeSize(best.range)) {
+        best = { element, props, range };
+      }
+    }
+    return best ? { element: best.element, props: best.props } : null;
+  }
+
+  getJsxAttributeExpectedTypeAt(line: number, character: number): AnalysisType | null {
+    let best: { type: AnalysisType; range: AnalysisRange } | null = null;
+    for (const [element, props] of this.jsxPropsByElement) {
+      for (const attribute of element.attributes) {
+        if (!(attribute instanceof JsxAttribute)) {
+          continue;
+        }
+        const type = props.get(attribute.name);
+        const range = this.nodeToRange(attribute.value ?? attribute);
+        if (!type || !range || !this.rangeContains(range, line, character)) {
+          continue;
+        }
+        if (!best || this.rangeSize(range) < this.rangeSize(best.range)) {
+          best = { type, range };
+        }
+      }
+    }
+    return best?.type ?? null;
+  }
+
   getJsxAttributeResolutionAt(
     line: number,
     character: number
@@ -529,6 +583,36 @@ export class Analysis {
           return { resolution, range };
         }
       }
+    }
+    return null;
+  }
+
+  /**
+   * Maps a cursor on a closing JSX component tag to the same character in its
+   * opening tag. Closing tags do not own a second expression node, so editor
+   * navigation must reuse the opening tag's bound identifier/member reference.
+   */
+  getJsxOpeningTagTargetAt(line: number, character: number): JsxOpeningTagTarget | null {
+    const pending: Node[] = [this.program];
+    while (pending.length > 0) {
+      const node = pending.pop()!;
+      if (node instanceof JsxElement && !node.selfClosing && node.reference) {
+        const [openingRange, closingRange] = this.jsxElementTagRanges(node);
+        if (openingRange && closingRange && this.rangeContains(closingRange, line, character)) {
+          const offset = Math.max(
+            0,
+            Math.min(character - closingRange.start.character, node.tagName.length)
+          );
+          return {
+            position: {
+              line: openingRange.start.line,
+              character: openingRange.start.character + offset
+            },
+            closingRange
+          };
+        }
+      }
+      pending.push(...childNodes(node));
     }
     return null;
   }

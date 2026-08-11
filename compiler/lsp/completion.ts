@@ -7,13 +7,15 @@
  * shared contracts in completionModel.ts.
  */
 import type { CompletionItem } from "vscode-languageserver/node.js";
-import type { Program } from "compiler/ast/ast";
+import { JsxAttribute, type Program } from "compiler/ast/ast";
 import { Analysis } from "compiler/analysis/Analysis";
+import { typeToString } from "compiler/analysis/types";
 import type { AutoImportSuggestion } from "./importFixes";
 import { buildAutoImportCompletionItems, resolveAutoImportSuggestions } from "./importCompletion";
 import { buildNamedArgumentCompletionItems, inferExpectedTypeForPosition } from "./argumentCompletion";
 import {
   CompletionItemKind,
+  CompletionItemInsertTextFormat,
   KEYWORD_COMPLETIONS,
   matchesCompletionPrefix,
   symbolDetail,
@@ -80,6 +82,122 @@ function buildJsxTagCompletionItems(analysis: Analysis, line: number, character:
   return items;
 }
 
+interface JsxAttributeCompletionContext {
+  prefix: string;
+  editStartCharacter: number;
+}
+
+function jsxAttributeCompletionContextAtPosition(
+  text: string | undefined,
+  line: number,
+  character: number
+): JsxAttributeCompletionContext | null {
+  if (!text) {
+    return null;
+  }
+
+  const lines = text.split("\n");
+  let cursorOffset = 0;
+  for (let currentLine = 0; currentLine < line; currentLine += 1) {
+    cursorOffset += (lines[currentLine]?.length ?? 0) + 1;
+  }
+  cursorOffset += Math.max(0, Math.min(character, lines[line]?.length ?? 0));
+
+  let openingStart = -1;
+  let braceDepth = 0;
+  let quote: "\"" | "'" | null = null;
+  let escaped = false;
+  for (let offset = 0; offset < cursorOffset; offset += 1) {
+    const current = text[offset]!;
+    if (openingStart < 0) {
+      if (current === "<" && /[A-Za-z_]/u.test(text[offset + 1] ?? "")) {
+        openingStart = offset;
+        braceDepth = 0;
+        quote = null;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (current === "\\") {
+        escaped = true;
+      } else if (current === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (current === "\"" || current === "'") {
+      quote = current;
+    } else if (current === "{") {
+      braceDepth += 1;
+    } else if (current === "}" && braceDepth > 0) {
+      braceDepth -= 1;
+    } else if (current === ">" && braceDepth === 0) {
+      openingStart = -1;
+    } else if (current === "<" && braceDepth === 0 && /[A-Za-z_]/u.test(text[offset + 1] ?? "")) {
+      openingStart = offset;
+    }
+  }
+  if (openingStart < 0 || braceDepth !== 0 || quote !== null) {
+    return null;
+  }
+
+  const openingText = text.slice(openingStart + 1, cursorOffset);
+  const tag = /^([A-Za-z_][A-Za-z0-9_.-]*)/u.exec(openingText);
+  if (!tag || !/^\s/u.test(openingText.slice(tag[0].length))) {
+    return null;
+  }
+  const attributeText = openingText.slice(tag[0].length);
+  const prefixMatch = /(?:^|\s)([A-Za-z_][A-Za-z0-9_:-]*)?$/u.exec(attributeText);
+  if (!prefixMatch) {
+    return null;
+  }
+  const prefix = prefixMatch[1] ?? "";
+  return {
+    prefix,
+    editStartCharacter: character - prefix.length
+  };
+}
+
+function buildJsxAttributeCompletionItems(
+  analysis: Analysis,
+  line: number,
+  character: number,
+  context: JsxAttributeCompletionContext
+): CompletionItem[] | null {
+  const resolved = analysis.getJsxPropsAt(line, character);
+  if (!resolved) {
+    return null;
+  }
+  const provided = new Set(
+    resolved.element.attributes
+      .filter((attribute): attribute is JsxAttribute => attribute instanceof JsxAttribute)
+      .map((attribute) => attribute.name)
+  );
+  const items: CompletionItem[] = [];
+  for (const [name, type] of resolved.props) {
+    if (provided.has(name) || !matchesCompletionPrefix(name, context.prefix)) {
+      continue;
+    }
+    items.push({
+      label: name,
+      kind: CompletionItemKind.Property,
+      detail: `JSX attribute: ${typeToString(type)}`,
+      insertTextFormat: CompletionItemInsertTextFormat.Snippet,
+      textEdit: {
+        range: {
+          start: { line, character: context.editStartCharacter },
+          end: { line, character }
+        },
+        newText: `${name}={$1}`
+      },
+      sortText: `0-jsx-attribute-${name}`
+    });
+  }
+  return items;
+}
+
 export async function createCompletionItemsForPosition(
   ast: Program | null,
   line: number,
@@ -111,6 +229,18 @@ export async function createCompletionItemsForPosition(
   const jsxTagPrefix = jsxTagPrefixAtPosition(options.text, line, character);
   if (jsxTagPrefix !== null) {
     return buildJsxTagCompletionItems(resolvedAnalysis, line, character, jsxTagPrefix);
+  }
+  const jsxAttributeContext = jsxAttributeCompletionContextAtPosition(options.text, line, character);
+  if (jsxAttributeContext) {
+    const jsxAttributeItems = buildJsxAttributeCompletionItems(
+      resolvedAnalysis,
+      line,
+      character,
+      jsxAttributeContext
+    );
+    if (jsxAttributeItems !== null) {
+      return jsxAttributeItems;
+    }
   }
   const memberCompletions = await buildMemberAccessCompletions(
     ast,

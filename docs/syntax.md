@@ -1605,6 +1605,13 @@ Supported features mirror JSX/TSX:
 - Attributes: string values (`class="x"`), expression containers (`value={expr}`), boolean shorthand (`disabled`), and spread attributes (`{...props}`).
 - Children: text (with JSX whitespace normalization), expression containers (`{expr}`), nested elements, and Svelte-style `{#for}` / `{#if}` blocks.
 
+An empty JSX expression container, `{}`, is a valid expression whose value is
+`undefined`. This applies both to attribute values and children. For example,
+`<button onAbort={} />` is equivalent to `<button onAbort={undefined} />` and
+emits `onAbort: undefined`; parsing continues normally with any following
+attribute. In a child list, an empty container contributes an `undefined`
+child, which classic JSX renderers normally ignore.
+
 JSX child lists support block control flow without leaving the markup. A `for`
 block accepts `of` or `in`, introduces its iterator only inside the block body,
 and contributes the resulting element array as a child. An `if` block tests its

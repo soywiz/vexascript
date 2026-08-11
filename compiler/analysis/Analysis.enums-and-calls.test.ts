@@ -547,6 +547,19 @@ describe("named call argument analysis", () => {
       expect(messages).toContain("Undefined variable 'missing'");
     });
 
+    it("treats an empty JSX attribute expression container as undefined", () => {
+      const source = dedent`
+        fun Button({ onAbort: (() => void)? }) {
+          return <button></button>
+        }
+
+        const html = <Button onAbort={} />
+      `;
+      const messages = new Analysis(parseFile(tokenizeReader(source, { jsx: true }))).getIssues().map((i) => i.message);
+
+      expect(messages).toEqual([]);
+    });
+
     it("reports undefined variable inside a JSX child expression container", () => {
       const source = dedent`
         fun demo() {

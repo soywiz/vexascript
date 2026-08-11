@@ -830,6 +830,12 @@ val name = maybeString as string
 val elem = <div class="greeting">Hello {name}</div>
 ```
 
+Unlike TSX attribute syntax, VexaScript permits an empty JSX expression
+container. `{}` means `undefined`, so `<button onAbort={} style={styles} />`
+parses and emits exactly as if `onAbort={undefined}` had been written; the
+following `style` attribute remains a separate, normally parsed attribute.
+Empty child containers likewise contribute `undefined`.
+
 VexaScript also extends JSX child lists with Svelte-style control blocks. These
 are not TypeScript/TSX syntax: `{#for item of items}...{/for}` produces a child
 array, while `{#if condition}...{:else if other}...{:else}...{/if}` selects one

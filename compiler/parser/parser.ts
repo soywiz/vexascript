@@ -4263,6 +4263,16 @@ export class Parser {
 
     private parseJsxExpressionContainer(): JsxExpressionContainer {
         const open = this.tokens.read(); // '{'
+        const emptyClose = this.tokens.peek();
+        if (emptyClose?.type === TokenType.SYMBOL && emptyClose.value === "}") {
+            this.tokens.skip();
+            const expression = this.attachNodeBounds(new UndefinedLiteral(), emptyClose, emptyClose);
+            return this.attachNodeBounds(
+                new JsxExpressionContainer(expression),
+                open,
+                emptyClose
+            );
+        }
         const checkpoint = this.beginTokenCheckpoint();
         try {
             const expression = this.parseAssignment();

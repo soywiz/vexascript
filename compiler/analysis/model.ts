@@ -1,4 +1,4 @@
-import type { Identifier, JsxAttribute, JsxElement, MemberExpression, Node, VarStatement } from "compiler/ast/ast";
+import type { Identifier, JsxAttribute, JsxElement, MemberExpression, Node, ObjectLiteral, VarStatement } from "compiler/ast/ast";
 import type { AnalysisRange } from "./Analysis";
 import type { AnalysisType, FunctionType } from "./types";
 import type { AnalysisIssueCode, AnalysisIssueData } from "./issueCodes";
@@ -133,9 +133,11 @@ export interface CheckedAnalysis {
   jsxAttributeResolutions: JsxAttributeResolution[];
   jsxElementResolutions: JsxElementResolution[];
   jsxIntrinsicElementSymbols: ReadonlyMap<string, AnalysisSymbol>;
+  jsxPropsByElement: ReadonlyMap<JsxElement, ReadonlyMap<string, AnalysisType>>;
   operatorResolutions: OperatorResolution[];
   extensionPropertyResolutions: ExtensionPropertyResolution[];
   expressionTypes: Map<Node, AnalysisType>;
+  contextualObjectLiteralProperties: ReadonlyMap<ObjectLiteral, ReadonlyMap<string, AnalysisType>>;
   selectedCallResolutions: SelectedCallResolution[];
   receiverLambdas: ReadonlyMap<Node, ReceiverLambdaInfo>;
   extensionMethodsByReceiver: ReadonlyMap<string, ReadonlyMap<string, AnalysisType>>;
