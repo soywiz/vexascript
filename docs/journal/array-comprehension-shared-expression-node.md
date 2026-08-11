@@ -66,3 +66,21 @@ branches. Only the parser and formatter retain whether the spread token was
 implicit. The parser must parse the comprehension body as an assignment
 expression rather than a comma expression so the following comma remains the
 surrounding array's separator.
+
+Conditional comprehension bodies exposed a lowering boundary that generic
+expression sequencing cannot cross. Lowering the iterable and body together
+materialized an `if` result before the generated loop, where the iterator was
+not yet in scope. Control expressions in a comprehension body must instead be
+lowered within the generated iteration. This keeps the iterator binding visible
+in JavaScript and native emission. A top-level `if` without `else` is retained
+as a loop-local guard so false iterations append nothing; `if` expressions with
+an `else` still lower into a scoped value callable evaluated per iteration.
+
+The next parser regression showed why the comprehension result boundary must
+also be visible inside an unbraced `if` expression. General statement parsing
+treated the comma after a branch as the comma-expression operator, then tried
+to parse the next `for` as an operand. While a comprehension result is being
+parsed, unbraced `if` branches now stop at assignment-expression precedence so
+the surrounding array owns separating and trailing commas. Braced branches
+temporarily restore ordinary statement parsing, preserving comma expressions
+inside the block.

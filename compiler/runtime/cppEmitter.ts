@@ -1901,18 +1901,24 @@ function emitArrayLiteral(array: ArrayLiteral): string {
 }
 
 function emitArrayComprehension(comprehension: ArrayComprehension): string {
+  const filter = comprehension.body instanceof IfStatement && !comprehension.body.elseBranch
+    ? comprehension.body
+    : undefined;
+  const resultExpression = filter?.thenBranch instanceof ExprStatement
+    ? filter.thenBranch.expression
+    : comprehension.body;
   const resultType = emittedCppTypeForExpression(comprehension) ?? cppTypeForExpression(comprehension);
   const elementType = managedArrayElementType(resultType) ??
-    emittedCppTypeForExpression(comprehension.body) ??
-    cppTypeForExpression(comprehension.body);
+    emittedCppTypeForExpression(resultExpression) ??
+    cppTypeForExpression(resultExpression);
   const resultName = `__vexa_comprehension_result_${activeComprehensionTemporaryCounter++}`;
   const resultIdentifier = new Identifier(resultName);
   const append = new CallExpression(
     new MemberExpression(resultIdentifier, new Identifier("push"), false),
-    [comprehension.body]
+    [resultExpression]
   );
   const loop = new ForStatement(
-    new ExprStatement(append),
+    filter ? new IfStatement(filter.condition, new ExprStatement(append)) : new ExprStatement(append),
     undefined,
     "of",
     comprehension.iterator,
@@ -10337,7 +10343,11 @@ function buildCppProgram(
   for (const rawStatement of statements) {
     if (!(rawStatement instanceof VarStatement)) continue;
     const statement = rawStatement as VarStatement;
-    if (!statement.receiverType && statement.name instanceof Identifier && statement.initializer) {
+    if (
+      !statement.receiverType &&
+      statement.name instanceof Identifier &&
+      (statement.initializer || statement.typeAnnotation)
+    ) {
       topLevelVariables.push(statement);
     }
   }

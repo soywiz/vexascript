@@ -2466,6 +2466,23 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("int[]");
   });
 
+  it("infers array comprehension if-expression result types", () => {
+    const source = dedent`
+      const withElse = [for (n in 0 ..< 3) if (n % 2 == 0) n else n * 3]
+      const withoutElse = [for (n in 0 ..< 3) if (n % 2 == 0) n]
+      const combined = [
+        for (n in 0 ..< 3) if (n % 2 == 0) n else n * 3,
+        for (n in 0 ..< 3) if (n % 2 == 0) n,
+      ]
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("withElse")?.valueType).toBe("int[]");
+    expect(symbolsOfVisibleSymbolsAt(source, 1, 6).get("withoutElse")?.valueType).toBe("int[]");
+    expect(symbolsOfVisibleSymbolsAt(source, 2, 6).get("combined")?.valueType).toBe("int[]");
+  });
+
   it("infers Array.from element types from strings", () => {
     const source = dedent`
       const values = Array.from("Ada")

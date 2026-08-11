@@ -366,8 +366,64 @@ function lowerExpressionSequence(
       [...values, saved]
     );
     const laterContainsControl = expressions.slice(index + 1).some(containsControlExpression);
-    return laterContainsControl ? materializeExpression(value, state, next) : next(value);
+    if (!laterContainsControl) return next(value);
+    if (value instanceof SpreadExpression) {
+      return materializeExpression(value.argument, state, (saved) => next(copyNodeBounds(
+        new SpreadExpression(saved, value.matcherWildcard, value.comprehensionElement),
+        value
+      )));
+    }
+    return materializeExpression(value, state, next);
   });
+}
+
+function lowerScopedControlExpression(
+  expression: Expr,
+  state: ControlExpressionLoweringState
+): Expr {
+  if (!containsControlExpression(expression)) return expression;
+  const body = copyNodeBounds(new BlockStatement(
+    lowerControlExpression(expression, state, (value) => [new ReturnStatement(value)])
+  ), expression);
+  const inferredTypeName = state.expressionTypeName?.(expression);
+  const callable = copyNodeBounds(new ArrowFunctionExpression(
+    body,
+    [],
+    undefined,
+    undefined,
+    undefined,
+    inferredTypeName ? new Identifier(inferredTypeName) : undefined
+  ), expression);
+  return copyNodeBounds(new CallExpression(callable, []), expression);
+}
+
+function lowerComprehensionFilter(
+  expression: IfStatement,
+  state: ControlExpressionLoweringState
+): IfStatement {
+  const condition = lowerScopedControlExpression(expression.condition, state);
+  let result: Expr;
+  if (expression.thenBranch instanceof ExprStatement) {
+    result = lowerScopedControlExpression(expression.thenBranch.expression, state);
+  } else {
+    const body = copyNodeBounds(new BlockStatement(
+      lowerValueBranch(expression.thenBranch, state, (value) => [new ReturnStatement(value)])
+    ), expression.thenBranch);
+    const inferredTypeName = state.expressionTypeName?.(expression);
+    const callable = copyNodeBounds(new ArrowFunctionExpression(
+      body,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      inferredTypeName ? new Identifier(inferredTypeName) : undefined
+    ), expression.thenBranch);
+    result = copyNodeBounds(new CallExpression(callable, []), expression.thenBranch);
+  }
+  return copyNodeBounds(new IfStatement(
+    condition,
+    copyNodeBounds(new ExprStatement(result), expression.thenBranch)
+  ), expression);
 }
 
 function lowerAssignmentTarget(
@@ -599,16 +655,18 @@ function lowerControlExpression(
     }
     case NodeKind.ArrayComprehension: {
       const comprehension = expression as ArrayComprehension;
-      return lowerExpressionSequence(
-        [comprehension.iterable, comprehension.body],
+      return lowerControlExpression(
+        comprehension.iterable,
         state,
-        ([iterable, body]) => copyNodeBounds(new ArrayComprehension(
-          comprehension.iterator,
-          iterable!,
-          body!,
-          comprehension.iterationKind
-        ), comprehension),
-        continuation
+        (iterable) => {
+          // Preserve the analyzed comprehension node: native emission uses its
+          // expression type to choose the concrete result-array element type.
+          comprehension.iterable = iterable;
+          comprehension.body = comprehension.body instanceof IfStatement && !comprehension.body.elseBranch
+            ? lowerComprehensionFilter(comprehension.body, state)
+            : lowerScopedControlExpression(comprehension.body, state);
+          return continuation(comprehension);
+        }
       );
     }
     case NodeKind.ObjectLiteral: {

@@ -16,6 +16,15 @@ describe("formatSource", () => {
     expect(formatSource("val mixed=[1,for(n in 0...2)n,...items,for(n in 0...2)n*2,0]")).toBe(
       "val mixed = [1, for (n in 0 ... 2) n, ...items, for (n in 0 ... 2) n * 2, 0]"
     );
+    expect(formatSource("const mixed=[for(n in 0...9)if(n%2==0)n else n*3]")).toBe(
+      "const mixed = [for (n in 0 ... 9) if (n % 2 == 0) n else n * 3]"
+    );
+    expect(formatSource("const mixed=[for(n in 0...9)if(n%2==0)n]")).toBe(
+      "const mixed = [for (n in 0 ... 9) if (n % 2 == 0) n]"
+    );
+    expect(formatSource("const mixed=[for(n in 0...9)if(n%2==0)n else n*3,for(n in 0...9)if(n%2==0)n,]")).toBe(
+      "const mixed = [for (n in 0 ... 9) if (n % 2 == 0) n else n * 3, for (n in 0 ... 9) if (n % 2 == 0) n]"
+    );
   });
 
   it("preserves condition and subject match syntax with matcher patterns", () => {

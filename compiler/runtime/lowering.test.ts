@@ -89,4 +89,22 @@ val decide = (flag: boolean): boolean => flag || return false
     expect(temporaryNames).toContain("__vexa_control_2");
     expect(arrowBodyKind).toBe(NodeKind.BlockStatement);
   });
+
+  it("keeps comprehension filters inside the iterator scope", () => {
+    const program = parseFile(tokenizeReader(`
+const values = [for (n in 0 ... 4) if (n % 2 == 0) n]
+`));
+    const lowered = lowerProgram(program);
+    let comprehensionBody: Node | undefined;
+
+    walkAst(lowered, (node) => {
+      if (node.kind === NodeKind.ArrayComprehension) {
+        comprehensionBody = (node as any).body;
+      }
+    });
+
+    expect(comprehensionBody?.kind).toBe(NodeKind.IfStatement);
+    expect((comprehensionBody as any).elseBranch).toBeUndefined();
+    expect((comprehensionBody as any).thenBranch.kind).toBe(NodeKind.ExprStatement);
+  });
 });

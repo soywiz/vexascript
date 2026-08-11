@@ -219,7 +219,13 @@ for (n of 0 ... 10) { }           // inclusive range (0 through 10)
 const doubled = [for (item of items) item * 2] // fresh inferred array; `of` visits values
 const normal = [for (n in 0 ..< 10) n]        // `in` also visits values; ranges are iterable
 const labels = [for (const [name, score] of entries) "$name:$score"]
+const transformed = [for (n in 0 ... 9) if (n % 2 == 0) n else n * 3]
+const optional = [for (n in 0 ... 9) if (n % 2 == 0) n] // false iterations are omitted
 const mixed = [1, for (n in 0 ... 9) n, ...items, for (n in 0 ... 9) n * 2, 0]
+const conditionalMixed = [
+  for (n in 0 ... 9) if (n % 2 == 0) n else n * 3,
+  for (n in 0 ... 9) if (n % 2 == 0) n,
+]
 
 defer file.close()                 // runs at block exit, like finally
 
@@ -232,6 +238,11 @@ classic `for` headers, statement bodies, and `for await` are invalid.
 Inside a normal array literal, `for` `(` iterator (`of` | `in`) iterable `)`
 result-expression is also an element form. It implicitly spreads every result
 into the surrounding array and may be mixed repeatedly with values and `...`.
+The result expression may be `if (...) value else value`. A top-level `if`
+without `else` is a comprehension filter: false iterations append nothing, and
+the true branch determines the element type. Comprehension elements use normal
+array separators; a comma after an unbraced `if` branch separates elements,
+and a final comma before `]` is valid.
 
 `if` is also an expression. A braced branch yields its last expression, a
 missing `else` adds `undefined`, and `return`/`throw`/`break`/`continue` can be

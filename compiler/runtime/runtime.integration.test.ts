@@ -43,6 +43,31 @@ console.log(mixed.join(","))
     expect(output).toEqual([["1,2,0,1,2,20,21,0,2,4,0"]]);
   });
 
+  it("executes if expressions inside array comprehensions", () => {
+    const output = executeTranspiled(`
+const withElse = [for (n in 0 ... 4) if (n % 2 == 0) n else n * 3]
+const withoutElse = [for (n in 0 ... 4) if (n % 2 == 0) n]
+console.log(withElse.join(","))
+console.log(withoutElse.join(","))
+`);
+
+    expect(output).toEqual([["0,3,2,9,4"], ["0,2,4"]]);
+  });
+
+  it("executes consecutive conditional comprehensions with a trailing comma", () => {
+    const output = executeTranspiled(`
+const mixed = [
+  for (n in 0 ... 9) if (n % 2 == 0) n else n * 3,
+  for (n in 0 ... 9) if (n % 2 == 0) n,
+]
+console.log(mixed.join(","))
+`);
+
+    expect(output).toEqual([[
+      "0,3,2,9,4,15,6,21,8,27,0,2,4,6,8"
+    ]]);
+  });
+
   it("executes literal, object, nested, array, and nominal is patterns inside match", () => {
     const output = executeTranspiled(`
 class Box(val value: int)

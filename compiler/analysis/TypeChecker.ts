@@ -2255,7 +2255,8 @@ export class TypeChecker {
   private visitIfExpression(
     statement: IfStatement,
     scope: Scope,
-    expectedType?: AnalysisType
+    expectedType?: AnalysisType,
+    omitMissingElse: boolean = false
   ): AnalysisType {
     const flow = this.activeFlowContext();
     this.visitExpression(statement.condition, scope);
@@ -2266,6 +2267,7 @@ export class TypeChecker {
       statement.thenBranch
     );
     const thenType = this.visitValueBranch(statement.thenBranch, thenScope, flow, expectedType);
+    if (!statement.elseBranch && omitMissingElse) return thenType;
     const elseType = statement.elseBranch
       ? this.visitValueBranch(
           statement.elseBranch,
@@ -4289,11 +4291,14 @@ export class TypeChecker {
           [parameter],
           expectedIterator
         );
-        const bodyType = this.visitExpression(
-          comprehension.body,
-          comprehensionScope,
-          this.expectedArrayElementType(expectedType)
-        );
+        const expectedElementType = this.expectedArrayElementType(expectedType);
+        const filter = comprehension.body instanceof IfStatement && !comprehension.body.elseBranch
+          ? comprehension.body
+          : undefined;
+        const bodyType = filter
+          ? this.visitIfExpression(filter, comprehensionScope, expectedElementType, true)
+          : this.visitExpression(comprehension.body, comprehensionScope, expectedElementType);
+        if (filter) this.expressionTypes.set(filter, bodyType);
         result = arrayType(bodyType);
         break;
       }

@@ -621,13 +621,21 @@ requires an explicit array operation or loop instead.
 val doubled = [for (value of values) value * 2]
 val normal = [for (n in 0 ..< 10) n]
 val labels = [for (val [name, score] of entries) "$name:$score"]
+val transformed = [for (n in 0 ... 9) if (n % 2 == 0) n else n * 3]
+val optional = [for (n in 0 ... 9) if (n % 2 == 0) n]
 val mixed = [1, for (n in 0 ... 9) n, ...items, for (n in 0 ... 9) n * 2, 0]
+val conditionalMixed = [
+  for (n in 0 ... 9) if (n % 2 == 0) n else n * 3,
+  for (n in 0 ... 9) if (n % 2 == 0) n,
+]
 ```
 
 ```typescript
 const doubled = Array.from(values, value => value * 2);
 const normal = Array.from({ length: 10 }, (_, n) => n);
 const labels = Array.from(entries, ([name, score]) => `${name}:${score}`);
+const transformed = Array.from(range(0, 9), n => n % 2 === 0 ? n : n * 3);
+const optional = Array.from(range(0, 9)).filter(n => n % 2 === 0);
 const mixed = [1, ...range(0, 9), ...items, ...range(0, 9).map(n => n * 2), 0];
 ```
 
@@ -637,7 +645,12 @@ follows declaration-free VexaScript loop semantics rather than JavaScript and
 TypeScript object-key iteration. The single expression body determines the
 result array's element type. Comprehensions can be interleaved with normal array
 elements and spreads; each comprehension contributes all of its generated
-values in place without requiring an explicit `...`.
+values in place without requiring an explicit `...`. An `if` expression may be
+the result expression. If a top-level result `if` omits `else`, it acts as a
+filter: false iterations append nothing, and the true branch determines the
+element type. Separating and trailing commas work normally when comprehensions
+are array elements, even when the array begins with a conditional
+comprehension.
 
 ### `is` nominal checks and built-in matcher patterns
 

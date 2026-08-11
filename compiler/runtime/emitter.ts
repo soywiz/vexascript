@@ -2353,11 +2353,18 @@ function isAsyncFor(statement: ForStatement): boolean {
 
 function emitArrayComprehension(comprehension: ArrayComprehension): string {
   const resultName = nextGeneratedSymbol("$$comprehension");
+  const filter = comprehension.body instanceof IfStatement && !comprehension.body.elseBranch
+    ? comprehension.body
+    : undefined;
+  const resultExpression = filter?.thenBranch instanceof ExprStatement
+    ? filter.thenBranch.expression
+    : comprehension.body;
+  const append = new ExprStatement(new CallExpression(
+    new MemberExpression(new Identifier(resultName), new Identifier("push"), false),
+    [resultExpression]
+  ));
   const loop = new ForStatement(
-    new ExprStatement(new CallExpression(
-      new MemberExpression(new Identifier(resultName), new Identifier("push"), false),
-      [comprehension.body]
-    )),
+    filter ? new IfStatement(filter.condition, append) : append,
     undefined,
     "of",
     comprehension.iterator,

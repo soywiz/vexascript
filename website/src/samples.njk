@@ -229,6 +229,10 @@ for (n of 1 ... 5) {
 const doubled = [for (value of [1, 2, 3]) value * 2]
 const normal = [for (n in 0 ..< 10) n]
 const labels = [for (const [name, score] of entries) "$name:$score"]
+const conditionalMixed = [
+  for (n in 0 ... 9) if (n % 2 == 0) n else n * 3,
+  for (n in 0 ... 9) if (n % 2 == 0) n,
+]
 const mixed = [1, for (n in 0 ... 9) n, ...items, for (n in 0 ... 9) n * 2, 0]
 {% endhighlightVexaScript %}
     </article>

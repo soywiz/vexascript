@@ -1059,6 +1059,76 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses if expressions as array comprehension bodies", () => {
+        expect(parseExpression(tokenizeReader(
+            "[for (n in 0 ... 9) if (n % 2 == 0) n else n * 3]"
+        ))).toMatchObject({
+            kind: NodeKind.ArrayComprehension,
+            body: {
+                kind: NodeKind.IfStatement,
+                thenBranch: {
+                    kind: NodeKind.ExprStatement,
+                    expression: { kind: NodeKind.Identifier, name: "n" }
+                },
+                elseBranch: {
+                    kind: NodeKind.ExprStatement,
+                    expression: { kind: NodeKind.BinaryExpression, operator: "*" }
+                }
+            }
+        });
+
+        expect(parseExpression(tokenizeReader(
+            "[for (n in 0 ... 9) if (n % 2 == 0) n]"
+        ))).toMatchObject({
+            kind: NodeKind.ArrayComprehension,
+            body: {
+                kind: NodeKind.IfStatement,
+                thenBranch: {
+                    kind: NodeKind.ExprStatement,
+                    expression: { kind: NodeKind.Identifier, name: "n" }
+                }
+            }
+        });
+    });
+
+    it("parses trailing and consecutive conditional comprehensions", () => {
+        expect(parseExpression(tokenizeReader(
+            "[for (n in 0 ... 9) n,]"
+        ))).toMatchObject({
+            kind: NodeKind.ArrayLiteral,
+            elements: [{
+                kind: NodeKind.SpreadExpression,
+                comprehensionElement: true,
+                argument: { kind: NodeKind.ArrayComprehension }
+            }]
+        });
+
+        expect(parseExpression(tokenizeReader(`[
+            for (n in 0 ... 9) if (n % 2 == 0) n else n * 3,
+            for (n in 0 ... 9) if (n % 2 == 0) n,
+        ]`))).toMatchObject({
+            kind: NodeKind.ArrayLiteral,
+            elements: [
+                {
+                    kind: NodeKind.SpreadExpression,
+                    comprehensionElement: true,
+                    argument: {
+                        kind: NodeKind.ArrayComprehension,
+                        body: { kind: NodeKind.IfStatement, elseBranch: { kind: NodeKind.ExprStatement } }
+                    }
+                },
+                {
+                    kind: NodeKind.SpreadExpression,
+                    comprehensionElement: true,
+                    argument: {
+                        kind: NodeKind.ArrayComprehension,
+                        body: { kind: NodeKind.IfStatement }
+                    }
+                }
+            ]
+        });
+    });
+
     it("builds an AST for object literals", () => {
         expect(parseExpression(tokenizeReader("{a: 1, b: 2}"))).toEqual({
             kind: NodeKind.ObjectLiteral,

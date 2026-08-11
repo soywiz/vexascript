@@ -28,6 +28,28 @@ console.log(values.join(","))
     expect(result.code).toContain("__vexa_comprehension_result");
   });
 
+  it("emits comprehension if expressions through native lowering", () => {
+    const result = transpile(`
+const withElse = [for (n in 0 ... 4) if (n % 2 == 0) n else n * 3]
+const withoutElse = [for (n in 0 ... 4) if (n % 2 == 0) n]
+const combined = [
+  for (n in 0 ... 4) if (n % 2 == 0) n else n * 3,
+  for (n in 0 ... 4) if (n % 2 == 0) n,
+]
+console.log(withElse.join(","), withoutElse.length, combined.length)
+`, { emit: "cpp", sourceFilePath: "/tmp/conditional-array-comprehension.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("__vexa_comprehension_result");
+    expect(result.code).toContain("vexa::makeArray<std::int32_t>()");
+    expect(result.code).toContain("vexa::appendAll");
+    expect(result.code).toContain("vexa::ArrayObject<std::int32_t>* combined");
+    expect(result.code).not.toContain("vexa::Value::undefined()");
+    expect(result.code).not.toContain("vexa::makeArray<vexa::Value>()");
+    expect(result.code).not.toContain("makeArray<auto>");
+    expect(result.code).not.toContain("convertValue<auto>");
+  });
+
   it("lowers class init blocks into constructor bodies", () => {
     const result = transpile(`
 class Demo {

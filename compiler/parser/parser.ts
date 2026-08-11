@@ -141,6 +141,7 @@ export class Parser {
     private matcherPatternDepth = 0;
     private matcherBindingDepth = 0;
     private subjectMatchArmBodyDepth = 0;
+    private arrayComprehensionBodyDepth = 0;
 
     constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
         this.language = options.language ?? "vexa";
@@ -7247,12 +7248,17 @@ export class Parser {
 
             let body: Statement;
             if (comprehensionBody) {
-                const expression = this.parseAssignment();
-                body = this.attachNodeBounds(
-                    new ExprStatement(expression),
-                    expression.firstToken,
-                    expression.lastToken
-                );
+                this.arrayComprehensionBodyDepth += 1;
+                try {
+                    const expression = this.parseAssignment();
+                    body = this.attachNodeBounds(
+                        new ExprStatement(expression),
+                        expression.firstToken,
+                        expression.lastToken
+                    );
+                } finally {
+                    this.arrayComprehensionBodyDepth -= 1;
+                }
             } else {
                 body = this.parseStatementOrThrow();
             }
@@ -7323,7 +7329,7 @@ export class Parser {
             this.fail("Expected ')' after if condition", this.tokenAt(closeParen));
         }
 
-        const thenBranch = this.parseStatementOrThrow();
+        const thenBranch = this.parseIfBranch();
         let elseBranch: Statement | undefined;
         if (
             this.tokens.peek()?.type === TokenType.SYMBOL &&
@@ -7335,7 +7341,7 @@ export class Parser {
         }
         if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "else") {
             this.tokens.skip();
-            elseBranch = this.parseStatementOrThrow();
+            elseBranch = this.parseIfBranch();
         }
 
         const statement: IfStatement = new IfStatement(condition, thenBranch);
@@ -7343,6 +7349,28 @@ export class Parser {
             statement.elseBranch = elseBranch;
         }
         return this.attachNodeBounds(statement, ifKeyword, this.getLastReadToken() ?? ifKeyword);
+    }
+
+    private parseIfBranch(): Statement {
+        if (this.arrayComprehensionBodyDepth === 0) {
+            return this.parseStatementOrThrow();
+        }
+        const token = this.tokens.peek();
+        if (token?.type === TokenType.SYMBOL && token.value === "{") {
+            const previousDepth = this.arrayComprehensionBodyDepth;
+            this.arrayComprehensionBodyDepth = 0;
+            try {
+                return this.parseStatementOrThrow();
+            } finally {
+                this.arrayComprehensionBodyDepth = previousDepth;
+            }
+        }
+        const expression = this.parseAssignment();
+        return this.attachNodeBounds(
+            new ExprStatement(expression),
+            expression.firstToken,
+            expression.lastToken
+        );
     }
 
     private parseSwitchStatement(): SwitchStatement {
