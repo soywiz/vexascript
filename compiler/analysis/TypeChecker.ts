@@ -12830,14 +12830,17 @@ export class TypeChecker {
       return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
     }
     if (resolvedObjectType instanceof ObjectType) {
-      return (resolvedObjectType as ObjectType).properties.get(memberName) ?? fallbackExtensionType();
+      return this.memberTypeFromProperties(
+        (resolvedObjectType as ObjectType).properties,
+        memberName
+      ) ?? fallbackExtensionType();
     }
     if (resolvedObjectType instanceof ArrayType) {
       const arrayMembers = this.membersForArrayAlias(resolvedObjectType);
       if (!arrayMembers) {
         return fallbackExtensionType();
       }
-      return arrayMembers.get(memberName) ?? fallbackExtensionType();
+      return this.memberTypeFromProperties(arrayMembers, memberName) ?? fallbackExtensionType();
     }
     if (resolvedObjectType instanceof BuiltinType) {
       const boxedName = boxedInterfaceNameForBuiltin(resolvedObjectType.name);
@@ -12845,7 +12848,9 @@ export class TypeChecker {
         return fallbackExtensionType();
       }
       const boxedMembers = this.resolveNamedTypeMembers(namedType(boxedName));
-      return boxedMembers?.get(memberName) ?? fallbackExtensionType();
+      return boxedMembers
+        ? this.memberTypeFromProperties(boxedMembers, memberName) ?? fallbackExtensionType()
+        : fallbackExtensionType();
     }
     if (resolvedObjectType instanceof LiteralType) {
       const boxedName = boxedInterfaceNameForBuiltin(resolvedObjectType.base);
@@ -12853,7 +12858,9 @@ export class TypeChecker {
         return fallbackExtensionType();
       }
       const boxedMembers = this.resolveNamedTypeMembers(namedType(boxedName));
-      return boxedMembers?.get(memberName) ?? fallbackExtensionType();
+      return boxedMembers
+        ? this.memberTypeFromProperties(boxedMembers, memberName) ?? fallbackExtensionType()
+        : fallbackExtensionType();
     }
     if (!(resolvedObjectType instanceof NamedType)) {
       return fallbackExtensionType();
@@ -12863,7 +12870,7 @@ export class TypeChecker {
     if (!classMembers) {
       return fallbackExtensionType();
     }
-    return classMembers.get(memberName) ?? fallbackExtensionType();
+    return this.memberTypeFromProperties(classMembers, memberName) ?? fallbackExtensionType();
   }
 
   private enumValueMemberAccessType(member: MemberExpression, objectType: AnalysisType): AnalysisType | null {
@@ -12903,7 +12910,7 @@ export class TypeChecker {
     }
     if (
       resolvedObjectType instanceof ObjectType &&
-      (resolvedObjectType as ObjectType).properties.has(memberName)
+      propertyTypeFrom((resolvedObjectType as ObjectType).properties, memberName) !== undefined
     ) {
       return null;
     }

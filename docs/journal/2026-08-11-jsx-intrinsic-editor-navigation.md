@@ -147,3 +147,28 @@ works when its TypeScript declarations carry a traceable mapped-type source.
 Regression coverage includes a literal-typed `overflow` property, an open
 Preact style property, mapped `CSSStyleDeclaration` provenance, the deliberate
 MathML name collision, and the repository's real Preact LSP session.
+
+## Follow-up: readonly structural event members
+
+Implicit JSX event parameters could display the fully specialized structural
+type, such as `{ readonly currentTarget: HTMLButtonElement }`, while accessing
+`it.currentTarget` still produced `unknown`. This initially looked like another
+generic-substitution failure in Preact's `EventHandler<TargetedEvent<Target>>`
+aliases. Inspecting the checked expression types disproved that hypothesis: the
+identifier already contained `HTMLButtonElement`; only the member expression
+lost it.
+
+The ordinary member resolver read `ObjectType.properties` with a direct map
+lookup. Parsed structural types preserve `readonly` in their internal property
+keys, so looking up `currentTarget` did not match `readonly currentTarget`.
+Other checker paths already used the shared property-name matcher, which is why
+hover on the parameter and some navigation surfaces appeared correct while
+child completion did not.
+
+Member access now uses the shared normalized property lookup for structural,
+array, boxed primitive, and named member maps. The symbol path uses the same
+normalization, removing the parallel exact-name behavior. A minimal imported
+Preact-shaped declaration test covers `it.currentTarget.click`, and a manual
+full-session check against `preact@10.29.2` confirmed DOM members such as
+`click`, `classList`, and `clientWidth` are derived from the actual package and
+DOM declarations with no framework-specific or CSS/DOM keyword tables.

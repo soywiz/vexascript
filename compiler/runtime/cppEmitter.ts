@@ -2456,7 +2456,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
     }
     if (binary.right instanceof ArrayLiteral && (binary.right as ArrayLiteral).elements.length === 0) {
       const contextualLeft = declaredLeft !== "auto" && declaredLeft !== "vexa::Value" ? declaredLeft : left;
-      if (contextualLeft) return contextualLeft;
+      if (contextualLeft && managedArrayElementType(contextualLeft) !== null) return contextualLeft;
     }
     if (left === "vexa::Value") {
       const analysisType = activeExpressionTypes.get(expression as Node);

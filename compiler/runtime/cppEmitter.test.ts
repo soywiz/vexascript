@@ -279,6 +279,19 @@ export const names: ReadonlySet<string> = new Set<Name>(["alpha", "beta"]);
     expect(result.code).not.toContain("vexa::setFromIterable<vexa::Value>");
   });
 
+  it("does not impose a Map result type on a nullish iterable fallback", () => {
+    const result = transpile(`
+function copy(existing: ReadonlyMap<string, string> | undefined): Map<string, string> {
+  return new Map(existing ?? []);
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/map-nullish-iterable.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::mapFromIterable<std::u16string, std::u16string>(vexa::nullishCoalesce(");
+    expect(result.code).toContain("return vexa::toValue(vexa::makeArray<vexa::Value>({}));");
+    expect(result.code).not.toContain("toInstance<vexa::MapObject<std::u16string, std::u16string>*>(vexa::makeArray");
+  });
+
   it("lowers WeakMap iterables, radix string conversion, and native binary helpers", () => {
     const result = transpile(`
 const key = { kind: "buffer" }

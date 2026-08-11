@@ -61,7 +61,10 @@ async function createPreactJsxSession(source: string) {
     interface EventTarget {}
     interface Element extends EventTarget {}
     interface HTMLElement extends Element {}
-    interface HTMLButtonElement extends HTMLElement {}
+    interface HTMLButtonElement extends HTMLElement {
+      click(): void
+      disabled: boolean
+    }
     interface HTMLDivElement extends HTMLElement {}
     interface CSSStyleDeclaration {
       color: string
@@ -106,6 +109,32 @@ async function createPreactJsxSession(source: string) {
 }
 
 describe("JSX editor features", () => {
+  it("preserves the concrete target type through implicit JSX event parameters", async () => {
+    const cursor = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function App() {
+        return <button onClick={{
+          it.currentTarget.cl^^^
+        }}>Add</button>
+      }
+    `);
+    const setup = await createPreactJsxSession(cursor.source);
+    const items = await createCompletionItemsForPosition(
+      setup.session.ast!,
+      cursor.line,
+      cursor.character,
+      setup.session.analysis,
+      [],
+      { text: cursor.source, ...setup.context }
+    );
+
+    expect(items.some((item) => item.label === "click")).toBe(true);
+    expect(setup.session.analysis?.getIssues().some((issue) =>
+      issue.message.includes("on type 'unknown'")
+    )).toBe(false);
+  });
+
   it("provides hover and definitions for intrinsic tags and attributes", async () => {
     const tagCursor = sourceWithCursor(dedent`
       import { render } from "preact"

@@ -28,7 +28,7 @@ func App() {
 		count++
 	}
 
-	const counter = useMemo(() => {
+	const counter = useMemo({
 		return { count, increment };
 	}, [count]);
 
