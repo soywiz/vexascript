@@ -105,6 +105,7 @@ export interface CompletionSessionLike {
 
 export interface CompletionRequestOptions {
   text?: string;
+  triggerCharacter?: string;
   uri?: string;
   sourceRoots?: string[];
   ambientDeclarations?: Statement[];

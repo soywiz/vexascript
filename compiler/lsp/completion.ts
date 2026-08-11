@@ -87,6 +87,26 @@ interface JsxAttributeCompletionContext {
   editStartCharacter: number;
 }
 
+function offsetAtPosition(text: string, line: number, character: number): number {
+  const lines = text.split("\n");
+  let offset = 0;
+  for (let currentLine = 0; currentLine < line; currentLine += 1) {
+    offset += (lines[currentLine]?.length ?? 0) + 1;
+  }
+  return offset + Math.max(0, Math.min(character, lines[line]?.length ?? 0));
+}
+
+function followsCommaAtPosition(text: string | undefined, line: number, character: number): boolean {
+  if (!text) {
+    return false;
+  }
+  let offset = offsetAtPosition(text, line, character) - 1;
+  while (offset >= 0 && /\s/u.test(text[offset]!)) {
+    offset -= 1;
+  }
+  return text[offset] === ",";
+}
+
 function jsxAttributeCompletionContextAtPosition(
   text: string | undefined,
   line: number,
@@ -96,12 +116,7 @@ function jsxAttributeCompletionContextAtPosition(
     return null;
   }
 
-  const lines = text.split("\n");
-  let cursorOffset = 0;
-  for (let currentLine = 0; currentLine < line; currentLine += 1) {
-    cursorOffset += (lines[currentLine]?.length ?? 0) + 1;
-  }
-  cursorOffset += Math.max(0, Math.min(character, lines[line]?.length ?? 0));
+  const cursorOffset = offsetAtPosition(text, line, character);
 
   let openingStart = -1;
   let braceDepth = 0;
@@ -160,6 +175,23 @@ function jsxAttributeCompletionContextAtPosition(
   };
 }
 
+export function isJsxAttributeCompletionPosition(
+  text: string | undefined,
+  line: number,
+  character: number
+): boolean {
+  return jsxAttributeCompletionContextAtPosition(text, line, character) !== null;
+}
+
+export function isContextualSpaceCompletionPosition(
+  text: string | undefined,
+  line: number,
+  character: number
+): boolean {
+  return isJsxAttributeCompletionPosition(text, line, character)
+    || followsCommaAtPosition(text, line, character);
+}
+
 function buildJsxAttributeCompletionItems(
   analysis: Analysis,
   line: number,
@@ -206,6 +238,12 @@ export async function createCompletionItemsForPosition(
   autoImportSuggestions: AutoImportSuggestion[] = [],
   options: CompletionRequestOptions = {}
 ): Promise<CompletionItem[]> {
+  const jsxAttributeContext = jsxAttributeCompletionContextAtPosition(options.text, line, character);
+  const continuesCommaCompletion = options.triggerCharacter === " "
+    && followsCommaAtPosition(options.text, line, character);
+  if (options.triggerCharacter === " " && !jsxAttributeContext && !continuesCommaCompletion) {
+    return [];
+  }
   const jsxBlockItems = jsxBlockCompletionItemsAtPosition(options.text, line, character);
   if (jsxBlockItems !== null) {
     return jsxBlockItems;
@@ -222,7 +260,6 @@ export async function createCompletionItemsForPosition(
   if (jsxTagPrefix !== null) {
     return buildJsxTagCompletionItems(resolvedAnalysis, line, character, jsxTagPrefix);
   }
-  const jsxAttributeContext = jsxAttributeCompletionContextAtPosition(options.text, line, character);
   if (jsxAttributeContext) {
     const jsxAttributeItems = buildJsxAttributeCompletionItems(
       resolvedAnalysis,
@@ -278,6 +315,10 @@ export async function createCompletionItemsForPosition(
   );
   if (objectLiteralValueCompletions !== null) {
     return objectLiteralValueCompletions;
+  }
+
+  if (options.triggerCharacter === "," || continuesCommaCompletion) {
+    return [];
   }
 
   const expectedTypeName = await inferExpectedTypeForPosition(

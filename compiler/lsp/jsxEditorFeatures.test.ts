@@ -337,13 +337,14 @@ describe("JSX editor features", () => {
       intrinsicCursor.character,
       intrinsicSetup.session.analysis,
       [],
-      { text: intrinsicCursor.source, ...intrinsicSetup.context }
+      { text: intrinsicCursor.source, triggerCharacter: " ", ...intrinsicSetup.context }
     );
     const intrinsicByLabel = new Map(intrinsicItems.map((item) => [item.label, item]));
 
     expect(intrinsicByLabel.get("style")?.textEdit).toMatchObject({
       newText: "style={$1}"
     });
+
   });
 
   it("completes contextual style properties inside JSX object literals", async () => {
@@ -352,7 +353,7 @@ describe("JSX editor features", () => {
 
       function App() {
         const count = 1
-        return <div onAbort={} style={{ display: "flex", gap: "20px", ^^^ }} />
+        return <div onAbort={} style={{ display: "flex", gap: "20px",^^^ }} />
       }
     `);
     const setup = await createPreactJsxSession(cursor.source);
@@ -364,7 +365,7 @@ describe("JSX editor features", () => {
       cursor.character,
       setup.session.analysis,
       [],
-      { text: cursor.source, ...setup.context }
+      { text: cursor.source, triggerCharacter: ",", ...setup.context }
     );
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
@@ -373,6 +374,25 @@ describe("JSX editor features", () => {
     expect(byLabel.has("gap")).toBe(false);
     expect(byLabel.has("count")).toBe(false);
     expect(byLabel.has("render")).toBe(false);
+
+    const continuedCursor = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function App() {
+        return <div style={{ display: "flex", ^^^ }} />
+      }
+    `);
+    const continuedSetup = await createPreactJsxSession(continuedCursor.source);
+    const continuedItems = await createCompletionItemsForPosition(
+      continuedSetup.session.ast!,
+      continuedCursor.line,
+      continuedCursor.character,
+      continuedSetup.session.analysis,
+      [],
+      { text: continuedCursor.source, triggerCharacter: " ", ...continuedSetup.context }
+    );
+
+    expect(continuedItems.some((item) => item.label === "gap")).toBe(true);
 
     const emptyCursor = sourceWithCursor(dedent`
       import { render } from "preact"

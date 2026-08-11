@@ -14,8 +14,8 @@ func Counter() {
 	return (
 		<div style={{ background: "#eee", padding: "10px" }}>
 			<p>Count: {count}</p>
-			<button onClick={event => {
-				if (event.currentTarget) increment();
+			<button onClick={{
+				if (it.currentTarget) increment();
 			}}>Add</button>
 		</div>
 	);

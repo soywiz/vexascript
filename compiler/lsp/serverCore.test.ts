@@ -410,11 +410,11 @@ describe("LSP server core", () => {
     assert.deepEqual(nodeResult.capabilities["codeLensProvider"], { resolveProvider: false });
     assert.deepEqual(nodeResult.capabilities["completionProvider"], {
       resolveProvider: false,
-      triggerCharacters: [".", "@", ":", "$", "#", "/"]
+      triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ","]
     });
     assert.deepEqual(browserResult.capabilities["completionProvider"], {
       resolveProvider: false,
-      triggerCharacters: [".", "@", ":", "$", "#", "/"]
+      triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ","]
     });
     const sharedCapabilities = Object.keys(nodeResult.capabilities).filter(
       (capability) => !["executeCommandProvider", "workspaceSymbolProvider"].includes(capability)
@@ -446,6 +446,64 @@ describe("LSP server core", () => {
       position: { line, character }
     }) as { contents: { value: string } } | null;
     assert.equal(hover?.contents.value.includes("add"), true);
+  });
+
+  it("serves contextual JSX and object completions for space and comma triggers", async () => {
+    const server = startServer(false);
+    const declarations = [
+      "interface Style { display?: string; gap?: string }",
+      "function Counter({ id: string, style: Style }) { return null }"
+    ];
+    const attributeCursor = sourceWithCursor([
+      ...declarations,
+      "function App() {",
+      "  return <Counter ^^^/>",
+      "}",
+      ""
+    ].join("\n"));
+    const attributeDocument = openedDocument(server, attributeCursor.source);
+    const attributeItems = await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: attributeDocument.uri },
+      position: { line: attributeCursor.line, character: attributeCursor.character },
+      context: { triggerKind: 2, triggerCharacter: " " }
+    }) as Array<{ label: string }>;
+
+    assert.equal(attributeItems.some((item) => item.label === "id"), true);
+    assert.equal(attributeItems.some((item) => item.label === "style"), true);
+
+    const styleCursor = sourceWithCursor([
+      ...declarations,
+      "function App() {",
+      "  return <Counter style={{ display: \"flex\",^^^ }} />",
+      "}",
+      ""
+    ].join("\n"));
+    const styleDocument = openedDocument(server, styleCursor.source, "file:///workspace/style.vx");
+    const styleItems = await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: styleDocument.uri },
+      position: { line: styleCursor.line, character: styleCursor.character },
+      context: { triggerKind: 2, triggerCharacter: "," }
+    }) as Array<{ label: string }>;
+
+    assert.equal(styleItems.some((item) => item.label === "gap"), true);
+    assert.equal(styleItems.some((item) => item.label === "display"), false);
+
+    const continuedCursor = sourceWithCursor([
+      ...declarations,
+      "function App() {",
+      "  return <Counter style={{ display: \"flex\", ^^^ }} />",
+      "}",
+      ""
+    ].join("\n"));
+    const continuedDocument = openedDocument(server, continuedCursor.source, "file:///workspace/continued-style.vx");
+    const continuedItems = await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: continuedDocument.uri },
+      position: { line: continuedCursor.line, character: continuedCursor.character },
+      context: { triggerKind: 2, triggerCharacter: " " }
+    }) as Array<{ label: string }>;
+
+    assert.equal(continuedItems.some((item) => item.label === "gap"), true);
+
   });
 
   it("serves JSX block snippets even when the unfinished marker has no AST", async () => {

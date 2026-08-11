@@ -37,7 +37,8 @@ import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } fro
 import { buildAmbientModuleSymbolExports, buildSymbolExports, uriToFilePath } from "./importFixes";
 import {
   createCompletionItemsForPosition,
-  createKeywordOnlyCompletionItems
+  createKeywordOnlyCompletionItems,
+  isContextualSpaceCompletionPosition
 } from "./completion";
 import {
   resolveDefinitionWithLocalFallback,
@@ -407,7 +408,7 @@ export function startLspServer(options: LspServerOptions): void {
           textDocumentSync: TextDocumentSyncKind.Incremental,
           completionProvider: {
             resolveProvider: false,
-            triggerCharacters: [".", "@", ":", "$", "#", "/"]
+            triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ","]
           },
           codeActionProvider: {
             resolveProvider: true
@@ -491,8 +492,16 @@ export function startLspServer(options: LspServerOptions): void {
       return createKeywordOnlyCompletionItems();
     }
 
-    const session = await analysisSessions.getForDocumentAsync(doc);
     const text = doc.getText();
+    const triggerCharacter = params.context?.triggerCharacter;
+    if (
+      triggerCharacter === " "
+      && !isContextualSpaceCompletionPosition(text, params.position.line, params.position.character)
+    ) {
+      return [];
+    }
+    const session = await analysisSessions.getForDocumentAsync(doc);
+    const triggerOptions = triggerCharacter ? { triggerCharacter } : {};
     if (!session.ast) {
       return createCompletionItemsForPosition(
         null,
@@ -500,7 +509,7 @@ export function startLspServer(options: LspServerOptions): void {
         params.position.character,
         null,
         [],
-        { text }
+        { text, ...triggerOptions }
       );
     }
     return createCompletionItemsForPosition(
@@ -511,6 +520,7 @@ export function startLspServer(options: LspServerOptions): void {
       [],
       {
         text,
+        ...triggerOptions,
         ...featureContext(doc.uri),
         getExportedSymbols: () => getExportedSymbolsForSession(session),
         ambientModuleDeclarations: session.ambientModuleDeclarations,

@@ -34,6 +34,28 @@ function recoverSessionFrom(source: string, session: ReturnType<typeof createAna
 }
 
 describe("createCompletionItemsForPosition", () => {
+  it("does not open generic completions for contextual space and comma triggers", async () => {
+    for (const triggerCharacter of [" ", ","]) {
+      const { source, line, character } = sourceWithCursor(dedent`
+        function App() {
+          const value = 1${triggerCharacter}^^^
+          return value
+        }
+      `);
+      const session = createAnalysisSession(source);
+      const items = await createCompletionItemsForPosition(
+        session.ast!,
+        line,
+        character,
+        session.analysis,
+        [],
+        { text: source, triggerCharacter }
+      );
+
+      expect(items).toEqual([]);
+    }
+  });
+
   it("offers snippets that open and close JSX for and if blocks", async () => {
     const forCursor = sourceWithCursor(dedent`
       func View({ items: number[] }) {

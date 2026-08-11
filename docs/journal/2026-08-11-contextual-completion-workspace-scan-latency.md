@@ -47,3 +47,9 @@ The cross-file diagnostic fallback also attempted to resolve the already-known a
 Finally, value completion treated open primitive types such as `string | number | null | undefined` as possible enum or alias names and searched the workspace before returning no finite candidates. Built-in open types now terminate immediately. `accentColor` value completion fell from about 42 ms to 0.89 ms. This remains strictly type-driven: open strings produce no invented color suggestions, while declared literal unions, enums, and imported aliases retain their existing completion paths.
 
 The latency profiler itself still used the removed `importedSymbolTypes` and `importedSymbolDisplayTypes` fields, which made its session differ from the real server and produced false missing-export diagnostics. It now passes the unified `importedSymbols` map used by the production LSP.
+
+## Follow-up: contextual editor triggers
+
+The completion engine already returned JSX attributes after a space in an opening tag and remaining contextual object properties after a comma. Manual completion tests therefore passed, but typing those characters in VS Code did nothing because the LSP did not advertise them as completion triggers.
+
+The server now advertises space and comma and forwards the triggering character into the shared completion orchestrator. Space is accepted while the cursor is in a JSX opening-tag attribute list or when it immediately continues a comma-triggered contextual completion; comma falls through only when contextual object completion recognizes the position. This keeps the property list open for the natural `, ` typing sequence without opening generic symbol and keyword suggestions after unrelated spaces or commas. The LSP route is covered separately from the completion-engine tests so future changes cannot preserve manual completion while silently breaking typed-character activation again.
