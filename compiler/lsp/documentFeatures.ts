@@ -74,7 +74,12 @@ export function createDocumentHighlights(
   const references = createReferences(analysis, "", line, character, true, program);
   return references.map(({ range }) => ({
     range,
-    kind: DocumentHighlightKind.Read
+    // VS Code briefly paints provisional selection highlights while this
+    // request is pending. Its regular Read decoration can then become
+    // effectively invisible in low-contrast themes, which looks like the
+    // references were cleared. Use the strong occurrence style for the whole
+    // semantic reference set so every resolved occurrence stays visible.
+    kind: DocumentHighlightKind.Write
   }));
 }
 

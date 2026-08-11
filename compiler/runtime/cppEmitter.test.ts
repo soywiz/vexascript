@@ -2,6 +2,42 @@ import { describe, expect, it } from "../test/expect";
 import { transpile } from "./transpile";
 
 describe("C++ emitter", () => {
+  it("declares recursive local callbacks before assigning their lambda", () => {
+    const result = transpile(`
+class Node {}
+function visit(root: Node): void {
+  const visitNode = (node: Node): void => {
+    if (node) visitNode(node);
+  };
+  visitNode(root);
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/recursive-local-callback.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("std::function<void(Node*)> visitNode;");
+    expect(result.code).toContain("visitNode = [&](Node* node) mutable -> void");
+    expect(result.code).not.toContain("auto visitNode = [&]");
+  });
+
+  it("preserves generic callback result arguments when inferring function templates", () => {
+    const result = transpile(`
+class Box<T> {
+  constructor(readonly value: T) {}
+}
+function box<T>(value: T): Box<T> {
+  return new Box<T>(value);
+}
+function through<T>(callback: () => T): T {
+  return callback();
+}
+const result = through(() => box<string>("ready"));
+`, { emit: "cpp", sourceFilePath: "/tmp/generic-callback-result.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("through<Box<std::u16string>*>(");
+    expect(result.code).not.toContain("through<Box>(");
+  });
+
   it("emits array comprehensions through the native loop path", () => {
     const result = transpile(`
 const values = [for (value of [1, 2, 3]) value * 2]

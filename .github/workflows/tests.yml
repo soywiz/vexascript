@@ -137,7 +137,7 @@ jobs:
       - name: Run native test suite
         env:
           VEXA_NATIVE_SINGLE_FILE: "1"
-          VEXA_SKIP_NATIVE_SELF_COMPILATION: "1"
+          VEXA_SKIP_NATIVE_COMPILER_CLI: "1"
         run: >-
           node --import tsx --import ./scripts/registerTextModuleLoader.cjs
           --test --test-reporter spec

@@ -294,7 +294,7 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
   });
 
   it("self-compiles the native C++ CLI", {
-    skip: process.env["VEXA_SKIP_NATIVE_SELF_COMPILATION"] === "1",
+    skip: process.env["VEXA_SKIP_NATIVE_COMPILER_CLI"] === "1",
   }, async () => {
     const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-cli-self-compilation-"));
     const nativeCliPath = join(outputRoot, "vexa-native-cli");
@@ -333,7 +333,9 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
     }
   });
 
-  it("uses the native C++ CLI to produce fixture and Pixi JavaScript bundles", async () => {
+  it("uses the native C++ CLI to produce fixture and Pixi JavaScript bundles", {
+    skip: process.env["VEXA_SKIP_NATIVE_COMPILER_CLI"] === "1",
+  }, async () => {
     const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-cli-bundle-"));
     const nativeCliPath = join(outputRoot, "vexa-native-cli");
     const bundlePath = join(outputRoot, "sample.js");

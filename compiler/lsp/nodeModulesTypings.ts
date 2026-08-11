@@ -7,7 +7,7 @@ import {
   type ModuleResolutionOptions
 } from "compiler/moduleResolution";
 import { vfs } from "compiler/vfs";
-import { nodeRange } from "./ranges";
+import { nodeRange, offsetToPosition, positionToOffset } from "./ranges";
 import {
   clearDtsModuleGraphCache,
   extractTripleSlashReferencePaths,
@@ -892,6 +892,59 @@ function findStructuralMemberLocationInDeclarationEntries(
   return null;
 }
 
+async function findStructuralTypeAliasMemberLocation(
+  declarationEntries: readonly NodeModuleDeclarationEntry[],
+  memberName: string,
+  activeVfs: ReturnType<typeof vfs>,
+  sourceCache = new Map<string, string>(),
+  visitedNamespaces = new Set<Statement>()
+): Promise<NodeModuleMemberLocation | null> {
+  const escapedMemberName = memberName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const memberPattern = new RegExp(`\\b${escapedMemberName}\\??\\s*:`, "u");
+  for (let index = declarationEntries.length - 1; index >= 0; index -= 1) {
+    const entry = declarationEntries[index]!;
+    const candidate = entry.statement instanceof ExportStatement
+      ? (entry.statement as { declaration?: Statement }).declaration ?? entry.statement
+      : entry.statement;
+    if (candidate instanceof NamespaceStatement) {
+      if (visitedNamespaces.has(candidate)) continue;
+      const nestedVisited = new Set(visitedNamespaces);
+      nestedVisited.add(candidate);
+      const nested = await findStructuralTypeAliasMemberLocation(
+        candidate.body.body.map((statement) => ({ statement, typingsPath: entry.typingsPath })),
+        memberName,
+        activeVfs,
+        sourceCache,
+        nestedVisited
+      );
+      if (nested) return nested;
+      continue;
+    }
+    if (!(candidate instanceof TypeAliasStatement)) continue;
+    const targetRange = nodeRange(candidate.targetType);
+    if (!targetRange) continue;
+    let source = sourceCache.get(entry.typingsPath);
+    if (source === undefined) {
+      source = await activeVfs.readFile(entry.typingsPath);
+      sourceCache.set(entry.typingsPath, source);
+    }
+    const startOffset = positionToOffset(source, targetRange.start);
+    const endOffset = positionToOffset(source, targetRange.end);
+    const match = memberPattern.exec(source.slice(startOffset, endOffset));
+    if (!match) continue;
+    const memberOffset = startOffset + match.index;
+    const start = offsetToPosition(source, memberOffset);
+    return {
+      typingsPath: entry.typingsPath,
+      range: {
+        start,
+        end: { line: start.line, character: start.character + memberName.length }
+      }
+    };
+  }
+  return null;
+}
+
 export async function findNodeModuleStructuralMemberLocation(
   importerFilePath: string,
   packageName: string,
@@ -910,6 +963,10 @@ export async function findNodeModuleStructuralMemberLocation(
     typings.declarationEntries,
     memberName,
     new Set([NodeKind.ClassStatement])
+  ) ?? await findStructuralTypeAliasMemberLocation(
+    typings.declarationEntries,
+    memberName,
+    activeVfs
   );
 }
 

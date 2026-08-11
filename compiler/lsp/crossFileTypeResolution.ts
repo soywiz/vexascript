@@ -313,6 +313,16 @@ export function parseObjectTypeMemberInfo(
   memberName: string
 ): ObjectTypeMemberInfo | null {
   const targetTypeText = objectTypeText.trim();
+  const intersectionMembers = splitTopLevelTypeText(targetTypeText, "&");
+  if (intersectionMembers.length > 1) {
+    for (const intersectionMember of intersectionMembers) {
+      const member = parseObjectTypeMemberInfo(intersectionMember, memberName);
+      if (member) {
+        return member;
+      }
+    }
+    return null;
+  }
   if (!targetTypeText.startsWith("{") || !targetTypeText.endsWith("}")) {
     return null;
   }
@@ -350,7 +360,11 @@ export function parseObjectTypeMemberInfo(
     if (propertyColon < 0) {
       continue;
     }
-    const candidateName = trimmedEntry.slice(0, propertyColon).trim().replace(/\?$/, "");
+    const candidateName = trimmedEntry
+      .slice(0, propertyColon)
+      .trim()
+      .replace(/^readonly\s+/u, "")
+      .replace(/\?$/, "");
     if (candidateName !== memberName) {
       continue;
     }

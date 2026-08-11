@@ -16,7 +16,9 @@ describe("native CLI syntax", () => {
     return { code: codeParts.join("\n"), syntaxPath };
   }
 
-  it("cpp build accepts the complete TypeScript CLI", async () => {
+  it("cpp build accepts the complete TypeScript CLI", {
+    skip: process.env["VEXA_SKIP_NATIVE_COMPILER_CLI"] === "1",
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-self-host-"));
     const output = join(dir, "vexa-cli.cpp");
     try {

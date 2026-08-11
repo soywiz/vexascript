@@ -11,7 +11,11 @@ import type { ResolveContext } from "./crossFileContext";
 import { effectiveSourceRoots, findModuleReceiverImport } from "./crossFileContext";
 import { findTopLevelDeclarationInProgram, resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { pathToUri, uriToFilePath } from "./importFixes";
-import { findNodeModuleExportLocation, findNodeModuleMemberLocation } from "./nodeModulesTypings";
+import {
+  findNodeModuleExportLocation,
+  findNodeModuleMemberLocation,
+  findNodeModuleStructuralMemberLocation
+} from "./nodeModulesTypings";
 import { getProjectSessionForFilePath } from "./projectAnalysis";
 import { nodeRange } from "./ranges";
 
@@ -35,6 +39,30 @@ export async function resolveNodeModulesMemberDefinition(
         uri: pathToUri(location.typingsPath),
         range: location.range
       };
+    }
+  }
+  return null;
+}
+
+export async function resolveNodeModulesStructuralMemberDefinition(
+  context: ResolveContext,
+  memberName: string
+): Promise<Location | null> {
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath || !context.session.ast) return null;
+
+  for (const statement of context.session.ast.body) {
+    if (!(statement instanceof ImportStatement)) continue;
+    const from = (statement as ImportStatement).from.value;
+    if (from.startsWith(".") || from.startsWith("/")) continue;
+    const location = await findNodeModuleStructuralMemberLocation(
+      currentFilePath,
+      from,
+      memberName,
+      { vfs: context.vfs }
+    );
+    if (location) {
+      return { uri: pathToUri(location.typingsPath), range: location.range };
     }
   }
   return null;

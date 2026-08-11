@@ -1,4 +1,4 @@
-import { describe, it, readdir, resolve } from "../compiler/test/expect";
+import { describe, expect, it, readdir, resolve } from "../compiler/test/expect";
 import { ensureRuntimeDependencies, resolveProjectForSource } from "../cli/cliShared";
 import { fileExists, isDirectory } from "../compiler/utils/fs";
 import { openEntrypointInLspSession } from "./lspOpenSession";
@@ -43,13 +43,20 @@ describe("all sample LSP sessions", async () => {
       // Keep the full fake-VS Code request burst in this test. The extra calls
       // intentionally emulate what the editor asks for on open, so this suite
       // can catch hangs, infinite loops, and thrown errors a real user would see.
-      const result = await openEntrypointInLspSession(entrypoint, workspaceRoot);
+      const highlightProbes = sampleName === "preact"
+        ? [{ line: 31, character: 12 }]
+        : [];
+      const result = await openEntrypointInLspSession(entrypoint, workspaceRoot, highlightProbes);
       const errors = [...result.documentDiagnostics, ...result.workspaceDiagnostics]
         .filter((diagnostic) => diagnostic.severity === 1)
         .map((diagnostic) => diagnostic.message);
 
       if (errors.length > 0) {
         throw new Error(`Unexpected LSP error diagnostics for ${sampleName}:\n${errors.join("\n")}`);
+      }
+      if (sampleName === "preact") {
+        expect(result.documentHighlights[0]).toHaveLength(4);
+        expect(result.documentHighlights[0]?.every((highlight) => highlight.kind === 3)).toBe(true);
       }
     });
   }

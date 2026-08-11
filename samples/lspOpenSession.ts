@@ -1,6 +1,6 @@
 import "../cli/localVfs";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import type { Connection, Diagnostic, Hover, Location, Range, TextDocuments } from "vscode-languageserver/node.js";
+import type { Connection, Diagnostic, DocumentHighlight, Hover, Location, Range, TextDocuments } from "vscode-languageserver/node.js";
 import { AnalysisSessionCache } from "../compiler/lsp/analysisSession";
 import { collectAllImportedDeclarations } from "../compiler/lsp/importedDeclarations";
 import { ensureDomProgram, getDomDeclarationFilePath } from "../compiler/runtime/domDeclarations";
@@ -37,6 +37,7 @@ export interface LspOpenSessionResult {
   workspaceDiagnostics: Diagnostic[];
   definitions: Array<Location | Location[] | null>;
   hovers: Array<Hover | null>;
+  documentHighlights: DocumentHighlight[][];
 }
 
 export interface LspPositionProbe {
@@ -349,6 +350,9 @@ export async function openEntrypointInLspSession(
   const hoversPromise = Promise.all(probes.map((position) => Promise.resolve(
     server.fakeConnection.handlers.get("hover")!({ textDocument: { uri }, position })
   ) as Promise<Hover | null>));
+  const documentHighlightsPromise = Promise.all(probes.map((position) => Promise.resolve(
+    server.fakeConnection.handlers.get("documentHighlight")!({ textDocument: { uri }, position })
+  ) as Promise<DocumentHighlight[]>));
   // Keep the full VS Code-like open burst, but let independent requests overlap
   // so shared analysis/cache work can dedupe through the real server paths.
   const codeActionsPromise = server.fakeConnection.handlers.get("codeAction")!({
@@ -370,7 +374,8 @@ export async function openEntrypointInLspSession(
     ,
     workspaceDiagnosticReport,
     definitions,
-    hovers
+    hovers,
+    documentHighlights
   ] = await Promise.all([
     autoAwaitPromise,
     inlayHintsPromise,
@@ -381,13 +386,15 @@ export async function openEntrypointInLspSession(
     semanticTokensRangePromise,
     workspaceDiagnosticsPromise,
     definitionsPromise,
-    hoversPromise
+    hoversPromise,
+    documentHighlightsPromise
   ]);
 
   return {
     documentDiagnostics: documentDiagnosticReport.items,
     workspaceDiagnostics: workspaceDiagnosticReport.items.find((item) => item.uri === uri)?.items ?? [],
     definitions,
-    hovers
+    hovers,
+    documentHighlights
   };
 }

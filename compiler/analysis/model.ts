@@ -1,4 +1,4 @@
-import type { Identifier, JsxAttribute, MemberExpression, Node, VarStatement } from "compiler/ast/ast";
+import type { Identifier, JsxAttribute, JsxElement, MemberExpression, Node, VarStatement } from "compiler/ast/ast";
 import type { AnalysisRange } from "./Analysis";
 import type { AnalysisType, FunctionType } from "./types";
 import type { AnalysisIssueCode, AnalysisIssueData } from "./issueCodes";
@@ -86,7 +86,15 @@ export class IdentifierResolution {
 }
 
 export class JsxAttributeResolution {
-  constructor(public attribute: JsxAttribute, public symbol: AnalysisSymbol) {}
+  constructor(
+    public attribute: JsxAttribute,
+    public symbol: AnalysisSymbol,
+    public ownerTypeName?: string
+  ) {}
+}
+
+export class JsxElementResolution {
+  constructor(public element: JsxElement, public symbol: AnalysisSymbol) {}
 }
 
 export class OperatorResolution {
@@ -123,6 +131,8 @@ export interface CheckedAnalysis {
   issues: AnalysisIssue[];
   identifierResolutions: IdentifierResolution[];
   jsxAttributeResolutions: JsxAttributeResolution[];
+  jsxElementResolutions: JsxElementResolution[];
+  jsxIntrinsicElementSymbols: ReadonlyMap<string, AnalysisSymbol>;
   operatorResolutions: OperatorResolution[];
   extensionPropertyResolutions: ExtensionPropertyResolution[];
   expressionTypes: Map<Node, AnalysisType>;

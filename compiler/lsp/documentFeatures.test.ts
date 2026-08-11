@@ -3,6 +3,7 @@ import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { buildAnalysisForSource } from "./analysisSession";
 import { createDocumentHighlights, createFoldingRanges, createOnTypeFormattingEdits, createReferenceCodeLenses, createSelectionRanges, prepareCallHierarchy, createIncomingCalls, createOutgoingCalls } from "./documentFeatures";
+import { sourceWithCursor } from "../test/sourceWithCursor";
 
 const parse = (source: string) => parseFile(tokenizeReader(source, { jsx: true }));
 
@@ -10,6 +11,24 @@ describe("LSP document features", () => {
   it("highlights a symbol declaration and its references", () => {
     const analysis = buildAnalysisForSource("let value = 1\nvalue + value\n")!;
     expect(createDocumentHighlights(analysis, 1, 1)).toHaveLength(3);
+  });
+
+  it("keeps delegated variable highlights across nested functions and object shorthand", () => {
+    const { source, line, character } = sourceWithCursor([
+      "func App() {",
+      "  let count by useState(0)",
+      "  func increment() { count++ }",
+      "  const counter = useMemo(() => {",
+      "    return { cou^^^nt, increment }",
+      "  }, [count])",
+      "}"
+    ].join("\n"));
+    const analysis = buildAnalysisForSource(source)!;
+
+    const highlights = createDocumentHighlights(analysis, line, character);
+
+    expect(highlights).toHaveLength(4);
+    expect(highlights.every((highlight) => highlight.kind === 3)).toBe(true);
   });
 
   it("creates folding ranges for multiline structural nodes", () => {

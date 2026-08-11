@@ -1,5 +1,5 @@
 import { BinaryExpression, Identifier, ImportStatement, nodeStartOffset, UnaryExpression } from "compiler/ast/ast";
-import type { JsxAttribute, Node, Program, Statement } from "compiler/ast/ast";
+import type { JsxAttribute, JsxElement, Node, Program, Statement } from "compiler/ast/ast";
 
 import { childNodes } from "compiler/ast/traversal";
 import { Binder } from "./Binder";
@@ -8,6 +8,7 @@ import type {
   AnalysisSymbol,
   ExtensionPropertyResolution,
   JsxAttributeResolution,
+  JsxElementResolution,
   OperatorResolution,
   ReceiverLambdaInfo,
   SelectedCallResolution,
@@ -15,7 +16,7 @@ import type {
 } from "./model";
 import { TypeChecker } from "./TypeChecker";
 import { DefiniteAssignmentChecker } from "./DefiniteAssignmentChecker";
-import { type AnalysisType, typeToString, FunctionType } from "./types";
+import { type AnalysisType, typeToString, FunctionType, isUnknownType } from "./types";
 import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
 import { IdentifierResolution, resolveScopeSymbol, type BoundAnalysis } from "./model";
 import { monotonicNow } from "compiler/utils/time";
@@ -124,6 +125,8 @@ export class Analysis {
   private readonly issues: AnalysisIssue[];
   private readonly identifierResolutions: IdentifierResolution[];
   private readonly jsxAttributeResolutions: JsxAttributeResolution[];
+  private readonly jsxElementResolutions: JsxElementResolution[];
+  private readonly jsxIntrinsicElementSymbols: ReadonlyMap<string, AnalysisSymbol>;
   private readonly operatorResolutions: OperatorResolution[];
   private readonly extensionPropertyResolutions: ExtensionPropertyResolution[];
   private readonly expressionTypes: Map<Node, AnalysisType>;
@@ -160,6 +163,8 @@ export class Analysis {
       collectBoundImplicitReceiverResolutions(program, bound.rootScope, bound, identifierResolutions);
       this.identifierResolutions = identifierResolutions;
       this.jsxAttributeResolutions = [];
+      this.jsxElementResolutions = [];
+      this.jsxIntrinsicElementSymbols = new Map();
       this.operatorResolutions = [];
       this.extensionPropertyResolutions = [];
       this.expressionTypes = new Map();
@@ -196,6 +201,8 @@ export class Analysis {
       : [...bound.issues];
     this.identifierResolutions = checked.identifierResolutions;
     this.jsxAttributeResolutions = checked.jsxAttributeResolutions;
+    this.jsxElementResolutions = checked.jsxElementResolutions;
+    this.jsxIntrinsicElementSymbols = checked.jsxIntrinsicElementSymbols;
     this.operatorResolutions = checked.operatorResolutions;
     this.extensionPropertyResolutions = checked.extensionPropertyResolutions;
     this.expressionTypes = checked.expressionTypes;
@@ -235,6 +242,24 @@ export class Analysis {
       result.push(value);
     }
     return result;
+  }
+
+  getExpressionType(node: Node): AnalysisType | undefined {
+    const inferred = this.expressionTypes.get(node);
+    if (!(node instanceof Identifier)) {
+      return inferred;
+    }
+    for (let index = this.identifierResolutions.length - 1; index >= 0; index -= 1) {
+      const resolution = this.identifierResolutions[index]!;
+      if (
+        resolution.identifier === node &&
+        resolution.symbol.type &&
+        !isUnknownType(resolution.symbol.type)
+      ) {
+        return resolution.symbol.type;
+      }
+    }
+    return inferred;
   }
 
   getIssues(): AnalysisIssue[] {
@@ -447,11 +472,14 @@ export class Analysis {
       }
     }
 
-    for (const resolution of this.jsxAttributeResolutions) {
-      const range = this.jsxAttributeNameRange(resolution.attribute);
-      if (range && this.rangeContains(range, line, character)) {
-        return { symbol: resolution.symbol, range };
-      }
+    const jsxAttribute = this.getJsxAttributeResolutionAt(line, character);
+    if (jsxAttribute) {
+      return { symbol: jsxAttribute.resolution.symbol, range: jsxAttribute.range };
+    }
+
+    const jsxElement = this.getJsxElementResolutionAt(line, character);
+    if (jsxElement) {
+      return { symbol: jsxElement.resolution.symbol, range: jsxElement.range };
     }
 
     const visible = this.getVisibleSymbolsAt(line, character);
@@ -472,6 +500,37 @@ export class Analysis {
       }
     }
     return best;
+  }
+
+  getJsxIntrinsicElementSymbols(): ReadonlyMap<string, AnalysisSymbol> {
+    return this.jsxIntrinsicElementSymbols;
+  }
+
+  getJsxAttributeResolutionAt(
+    line: number,
+    character: number
+  ): { resolution: JsxAttributeResolution; range: AnalysisRange } | null {
+    for (const resolution of this.jsxAttributeResolutions) {
+      const range = this.jsxAttributeNameRange(resolution.attribute);
+      if (range && this.rangeContains(range, line, character)) {
+        return { resolution, range };
+      }
+    }
+    return null;
+  }
+
+  getJsxElementResolutionAt(
+    line: number,
+    character: number
+  ): { resolution: JsxElementResolution; range: AnalysisRange } | null {
+    for (const resolution of this.jsxElementResolutions) {
+      for (const range of this.jsxElementTagRanges(resolution.element)) {
+        if (this.rangeContains(range, line, character)) {
+          return { resolution, range };
+        }
+      }
+    }
+    return null;
   }
 
   getDefinitionAt(line: number, character: number): AnalysisSymbolMatch | null {
@@ -747,6 +806,27 @@ export class Analysis {
         character: token.range.start.column + attribute.name.length
       }
     };
+  }
+
+  private jsxElementTagRanges(element: JsxElement): AnalysisRange[] {
+    const firstToken = element.firstToken;
+    if (!firstToken) {
+      return [];
+    }
+    const openingStart = firstToken.range.start.column + 1;
+    const ranges: AnalysisRange[] = [{
+      start: { line: firstToken.range.start.line, character: openingStart },
+      end: { line: firstToken.range.start.line, character: openingStart + element.tagName.length }
+    }];
+    const lastToken = element.lastToken;
+    if (!element.selfClosing && lastToken) {
+      const closingEnd = lastToken.range.start.column;
+      ranges.push({
+        start: { line: lastToken.range.start.line, character: closingEnd - element.tagName.length },
+        end: { line: lastToken.range.start.line, character: closingEnd }
+      });
+    }
+    return ranges;
   }
 
   private rangeContains(range: AnalysisRange, line: number, character: number): boolean {

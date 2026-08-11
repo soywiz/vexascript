@@ -1,4 +1,4 @@
-import { ArrayType, NamedType, BuiltinType, UnionType, IntersectionType } from "../analysis/types";
+import { ArrayType, NamedType, BuiltinType, ObjectType, UnionType, IntersectionType } from "../analysis/types";
 import { ClassStatement, Identifier, MemberExpression } from "compiler/ast/ast";
 export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
 
@@ -34,7 +34,8 @@ import {
   resolveNodeModulesModuleObjectMemberDefinition,
   resolveInScopeExtensionMemberDeclarationAcrossFiles,
   resolveImportedExtensionMemberDeclarationAcrossFiles,
-  resolveNodeModulesMemberDefinition
+  resolveNodeModulesMemberDefinition,
+  resolveNodeModulesStructuralMemberDefinition
 } from "./crossFileMemberDefinitionSources";
 import {
   resolveImplicitReceiverMemberDefinition
@@ -83,6 +84,47 @@ function resolveImportedSymbolDefinitionLocation(
     uri: pathToUri(origin.filePath),
     range
   };
+}
+
+async function resolveJsxDefinition(context: ResolveContext): Promise<Location | null> {
+  const analysis = context.session.analysis;
+  if (!analysis) {
+    return null;
+  }
+  for (const character of candidateCharacters(context.character)) {
+    const element = analysis.getJsxElementResolutionAt(context.line, character);
+    if (element) {
+      const definition = await resolveTypeDefinitionAcrossFiles(context, element.resolution.symbol.name);
+      const range = definition ? nodeRange(definition.declaration.name) : null;
+      if (definition && range) {
+        return { uri: pathToUri(definition.filePath), range };
+      }
+    }
+
+    const attribute = analysis.getJsxAttributeResolutionAt(context.line, character);
+    const ownerTypeName = attribute?.resolution.ownerTypeName;
+    if (attribute && ownerTypeName) {
+      const definition = await resolveNodeModulesMemberDefinition(
+        context,
+        ownerTypeName,
+        attribute.resolution.attribute.name
+      );
+      if (definition) {
+        return definition;
+      }
+    }
+  }
+  return null;
+}
+
+function containsStructuralObjectType(type: AnalysisType): boolean {
+  if (type instanceof ObjectType) {
+    return true;
+  }
+  if (type instanceof IntersectionType || type instanceof UnionType) {
+    return type.types.some((member) => containsStructuralObjectType(member));
+  }
+  return false;
 }
 
 function resolveImportedBindingDefinitionFromSession(
@@ -546,7 +588,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     return jsonDefinition;
   }
 
-  const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
+  const objectType = context.session.analysis.getExpressionType(memberExpression.object);
   if (!objectType) {
     return null;
   }
@@ -614,6 +656,13 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     return declaredMemberDefinition;
   }
 
+  if (containsStructuralObjectType(objectType)) {
+    const structuralDefinition = await resolveNodeModulesStructuralMemberDefinition(context, memberName);
+    if (structuralDefinition) {
+      return structuralDefinition;
+    }
+  }
+
   const importedExtensionDeclaration = await resolveImportedExtensionMemberDeclarationAcrossFiles(
     context,
     memberName
@@ -654,6 +703,11 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
   const importSpecifierDefinition = await resolveImportSpecifierDefinition(context);
   if (importSpecifierDefinition) {
     return importSpecifierDefinition;
+  }
+
+  const jsxDefinition = await resolveJsxDefinition(context);
+  if (jsxDefinition) {
+    return jsxDefinition;
   }
 
   for (const character of candidateCharacters(context.character)) {

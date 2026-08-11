@@ -19,6 +19,7 @@ import {
   FlowLabel,
   IdentifierResolution,
   JsxAttributeResolution,
+  JsxElementResolution,
   OperatorResolution,
   ReceiverLambdaInfo,
   Scope,
@@ -146,6 +147,12 @@ interface SupertypeMemberContext {
   hasSupertype: boolean;
 }
 
+interface JsxIntrinsicElementInfo {
+  props: Map<string, AnalysisType>;
+  propsType: AnalysisType;
+  symbol: AnalysisSymbol;
+}
+
 abstract class EnumResolvedValue {}
 
 class ConstantIntEnumResolvedValue extends EnumResolvedValue {
@@ -207,6 +214,9 @@ export class TypeChecker {
   private readonly issues: AnalysisIssue[] = [];
   private readonly identifierResolutions: IdentifierResolution[] = [];
   private readonly jsxAttributeResolutions: JsxAttributeResolution[] = [];
+  private readonly jsxElementResolutions: JsxElementResolution[] = [];
+  private readonly jsxIntrinsicElementSymbols: Map<string, AnalysisSymbol> = new Map();
+  private readonly jsxIntrinsicElementInfoCache: Map<string, JsxIntrinsicElementInfo | null> = new Map();
   private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly extensionPropertyResolutions: Map<MemberExpression, ExtensionPropertyResolution> = new Map();
   private readonly selectedCallResolutions: SelectedCallResolution[] = [];
@@ -494,10 +504,13 @@ export class TypeChecker {
 
   check(): CheckedAnalysis {
     this.visitProgram(this.program, this.bound.rootScope, new FlowContext(0, 0, []));
+    this.collectJsxIntrinsicElementSymbols();
     return {
       issues: [...this.issues],
       identifierResolutions: [...this.identifierResolutions],
       jsxAttributeResolutions: [...this.jsxAttributeResolutions],
+      jsxElementResolutions: [...this.jsxElementResolutions],
+      jsxIntrinsicElementSymbols: new Map(this.jsxIntrinsicElementSymbols),
       operatorResolutions: [...this.operatorResolutions],
       extensionPropertyResolutions: [...this.extensionPropertyResolutions.values()],
       expressionTypes: this.expressionTypes,
@@ -7941,10 +7954,15 @@ export class TypeChecker {
     }
 
     if (jsxElement.reference === undefined) {
+      const intrinsic = this.jsxIntrinsicElementInfo(jsxElement.tagName);
+      if (intrinsic) {
+        this.jsxElementResolutions.push(new JsxElementResolution(jsxElement, intrinsic.symbol));
+      }
       this.visitJsxAttributeValues(
         jsxElement,
         scope,
-        this.jsxIntrinsicElementProps(jsxElement.tagName)
+        intrinsic?.props,
+        intrinsic?.propsType
       );
       return;
     }
@@ -8092,17 +8110,40 @@ export class TypeChecker {
   private visitJsxAttributeValues(
     jsxElement: JsxElement,
     scope: Scope,
-    expectedProps?: Map<string, AnalysisType> | null
+    expectedProps?: Map<string, AnalysisType> | null,
+    propsType?: AnalysisType
   ): void {
     for (const attr of jsxElement.attributes) {
       if (attr instanceof JsxAttribute) {
         const attribute = attr as JsxAttribute;
-        this.jsxAttributeValueType(attribute, scope, expectedProps?.get(attribute.name));
+        const expectedType = expectedProps?.get(attribute.name);
+        if (expectedType && propsType) {
+          const member = this.findJsxPropsMemberResolution(propsType, attribute.name);
+          if (member) {
+            this.jsxAttributeResolutions.push(new JsxAttributeResolution(
+              attribute,
+              new AnalysisSymbol(
+                attribute.name,
+                member.symbol.kind,
+                member.symbol.node,
+                member.symbol.declaredOffset,
+                member.symbol.isReadonly,
+                undefined,
+                undefined,
+                undefined,
+                expectedType,
+                typeToString(expectedType)
+              ),
+              member.ownerTypeName
+            ));
+          }
+        }
+        this.jsxAttributeValueType(attribute, scope, expectedType);
       }
     }
   }
 
-  private jsxIntrinsicElementProps(tagName: string): Map<string, AnalysisType> | null {
+  private jsxIntrinsicElementTypeNames(): string[] {
     const conventionalNames = [
       "JSX.IntrinsicElements",
       "JSXInternal.IntrinsicElements",
@@ -8110,21 +8151,161 @@ export class TypeChecker {
     ];
     const discoveredNames = [...this.interfaceStatementsByName.keys()]
       .filter((name) => name.endsWith(".IntrinsicElements"));
-    const candidateNames = [...new Set([...conventionalNames, ...discoveredNames])];
+    return [...new Set([...conventionalNames, ...discoveredNames])];
+  }
 
-    for (const candidateName of candidateNames) {
+  private jsxIntrinsicElementInfo(tagName: string): JsxIntrinsicElementInfo | null {
+    if (this.jsxIntrinsicElementInfoCache.has(tagName)) {
+      return this.jsxIntrinsicElementInfoCache.get(tagName) ?? null;
+    }
+    for (const candidateName of this.jsxIntrinsicElementTypeNames()) {
       const intrinsicElements = this.resolveNamedTypeMembers(namedType(candidateName));
       const propsType = intrinsicElements?.get(tagName);
       if (!propsType) {
         continue;
       }
       const props = this.propertyMapFromJsxPropsType(propsType);
-      if (props) {
-        return props;
+      if (!props) {
+        continue;
+      }
+
+      const interfaceStatement = this.interfaceStatementsByName.get(candidateName);
+      const member = interfaceStatement?.members.find((candidate) => candidate.name.name === tagName);
+      const elementType = this.findJsxElementType(propsType);
+      const elementDeclaration = elementType
+        ? this.interfaceStatementsByName.get(elementType.name) ?? this.classStatementsByName.get(elementType.name)
+        : undefined;
+      const declarationNode = elementDeclaration?.name ?? member?.name;
+      if (!declarationNode) {
+        continue;
+      }
+      const displayedType = elementType ?? propsType;
+      const info = {
+        props,
+        propsType,
+        symbol: new AnalysisSymbol(
+          elementType?.name ?? tagName,
+          elementType ? "class" : "variable",
+          declarationNode,
+          nodeStartOffset(declarationNode) ?? -1,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          displayedType,
+          typeToString(displayedType)
+        )
+      };
+      this.jsxIntrinsicElementInfoCache.set(tagName, info);
+      return info;
+    }
+
+    this.jsxIntrinsicElementInfoCache.set(tagName, null);
+    return null;
+  }
+
+  private collectJsxIntrinsicElementSymbols(): void {
+    for (const candidateName of this.jsxIntrinsicElementTypeNames()) {
+      const statement = this.interfaceStatementsByName.get(candidateName);
+      if (!statement) {
+        continue;
+      }
+      for (const member of statement.members) {
+        if (this.jsxIntrinsicElementSymbols.has(member.name.name)) {
+          continue;
+        }
+        const info = this.jsxIntrinsicElementInfo(member.name.name);
+        if (info) {
+          this.jsxIntrinsicElementSymbols.set(member.name.name, info.symbol);
+        }
+      }
+    }
+  }
+
+  private findJsxElementType(type: AnalysisType, visited = new Set<string>()): NamedType | null {
+    if (type instanceof NamedType) {
+      const key = typeToString(type);
+      if (visited.has(key)) {
+        return null;
+      }
+      visited.add(key);
+      for (const argument of type.typeArguments ?? []) {
+        const elementType = this.findJsxElementType(argument, visited);
+        if (elementType) {
+          return elementType;
+        }
+      }
+      if (
+        type.name.endsWith("Element") &&
+        (this.interfaceStatementsByName.has(type.name) || this.classStatementsByName.has(type.name))
+      ) {
+        return type;
+      }
+      const expanded = this.expandTypeAliases(type);
+      if (expanded !== type) {
+        return this.findJsxElementType(expanded, visited);
+      }
+      return null;
+    }
+    if (type instanceof IntersectionType || type instanceof UnionType) {
+      for (const member of type.types) {
+        const elementType = this.findJsxElementType(member, visited);
+        if (elementType) {
+          return elementType;
+        }
+      }
+    }
+    return null;
+  }
+
+  private findJsxPropsMemberResolution(
+    type: AnalysisType,
+    memberName: string,
+    visited = new Set<string>()
+  ): { symbol: AnalysisSymbol; ownerTypeName: string } | null {
+    if (type instanceof IntersectionType || type instanceof UnionType) {
+      for (const candidate of type.types) {
+        const resolution = this.findJsxPropsMemberResolution(candidate, memberName, visited);
+        if (resolution) {
+          return resolution;
+        }
+      }
+      return null;
+    }
+    if (!(type instanceof NamedType)) {
+      return null;
+    }
+
+    const visitKey = `${typeToString(type)}.${memberName}`;
+    if (visited.has(visitKey)) {
+      return null;
+    }
+    visited.add(visitKey);
+    const statement = this.interfaceStatementsByName.get(type.name);
+    if (statement) {
+      const member = statement.members.find((candidate) => candidate.name.name === memberName);
+      if (member) {
+        return {
+          ownerTypeName: type.name,
+          symbol: new AnalysisSymbol(
+            memberName,
+            member instanceof InterfaceMethodMember ? "method" : "variable",
+            member.name,
+            nodeStartOffset(member.name) ?? -1
+          )
+        };
+      }
+      for (const parentType of statement.extendsTypes ?? []) {
+        const resolvedParent = this.typeFromTypeNameLoose(parentType.name);
+        const inherited = this.findJsxPropsMemberResolution(resolvedParent, memberName, visited);
+        if (inherited) {
+          return inherited;
+        }
       }
     }
 
-    return null;
+    const expanded = this.expandTypeAliases(type);
+    return expanded === type ? null : this.findJsxPropsMemberResolution(expanded, memberName, visited);
   }
 
   private jsxAttributeValueType(attribute: JsxAttribute, scope: Scope, expectedType?: AnalysisType): AnalysisType {
@@ -12754,7 +12935,22 @@ export class TypeChecker {
     }
 
     const symbol = this.findNamedTypeMemberSymbol(resolvedObjectType.name, memberName);
-    if (symbol || this.membersForType(resolvedObjectType)?.has(memberName)) {
+    const memberType = this.membersForType(resolvedObjectType)?.get(memberName);
+    if (symbol && memberType && (!symbol.type || symbol.valueType === "unknown")) {
+      return new AnalysisSymbol(
+        symbol.name,
+        symbol.kind,
+        symbol.node,
+        symbol.declaredOffset,
+        symbol.isReadonly,
+        symbol.implicitReceiver,
+        symbol.implicitReceiverClassName,
+        symbol.implicitReceiverExtensionReceiver,
+        memberType,
+        typeToString(memberType)
+      );
+    }
+    if (symbol || memberType) {
       return symbol;
     }
     return genericExtensionSymbol();
@@ -12791,6 +12987,15 @@ export class TypeChecker {
       }
     }
 
+    const mergedInterfaceSymbol = this.findInterfaceMemberSymbol(
+      this.interfaceStatementsByName.get(typeName),
+      memberName,
+      visited
+    );
+    if (mergedInterfaceSymbol) {
+      return mergedInterfaceSymbol;
+    }
+
     const classStatement = this.classStatementsByName.get(typeName);
     if (!classStatement) {
       return null;
@@ -12800,15 +13005,6 @@ export class TypeChecker {
     const classSymbol = classScope ? classScope.symbols.get(memberName) : undefined;
     if (classSymbol) {
       return classSymbol;
-    }
-
-    const mergedInterfaceSymbol = this.findInterfaceMemberSymbol(
-      this.interfaceStatementsByName.get(typeName),
-      memberName,
-      visited
-    );
-    if (mergedInterfaceSymbol) {
-      return mergedInterfaceSymbol;
     }
 
     if (classStatement.extendsType) {

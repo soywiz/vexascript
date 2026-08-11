@@ -12,7 +12,14 @@ import { Analysis } from "compiler/analysis/Analysis";
 import type { AutoImportSuggestion } from "./importFixes";
 import { buildAutoImportCompletionItems, resolveAutoImportSuggestions } from "./importCompletion";
 import { buildNamedArgumentCompletionItems, inferExpectedTypeForPosition } from "./argumentCompletion";
-import { KEYWORD_COMPLETIONS, withCallSnippet } from "./completionModel";
+import {
+  CompletionItemKind,
+  KEYWORD_COMPLETIONS,
+  matchesCompletionPrefix,
+  symbolDetail,
+  symbolKindToCompletionKind,
+  withCallSnippet
+} from "./completionModel";
 import type { CompletionRequestOptions } from "./completionModel";
 import { buildExtensionMemberCompletionItems, buildMemberAccessCompletions } from "./memberCompletion";
 import { parseMemberAccessTarget } from "./memberCompletionParsing";
@@ -28,6 +35,50 @@ import {
   jsxBlockCompletionItemsAtPosition,
   shouldSuppressExistingSymbolCompletions
 } from "./completionContext";
+
+function jsxTagPrefixAtPosition(text: string | undefined, line: number, character: number): string | null {
+  const linePrefix = text?.split("\n")[line]?.slice(0, character);
+  if (linePrefix === undefined) {
+    return null;
+  }
+  const match = /<([A-Za-z_][A-Za-z0-9_.-]*)?$/u.exec(linePrefix);
+  return match ? (match[1] ?? "") : null;
+}
+
+function buildJsxTagCompletionItems(analysis: Analysis, line: number, character: number, prefix: string): CompletionItem[] {
+  const items: CompletionItem[] = [];
+  const seen = new Set<string>();
+  for (const [tagName, symbol] of analysis.getJsxIntrinsicElementSymbols()) {
+    if (!matchesCompletionPrefix(tagName, prefix) || seen.has(tagName)) {
+      continue;
+    }
+    seen.add(tagName);
+    items.push({
+      label: tagName,
+      kind: CompletionItemKind.Value,
+      detail: `Intrinsic JSX element: ${symbol.valueType}`,
+      sortText: `0-${tagName}`
+    });
+  }
+  for (const symbol of analysis.getVisibleSymbolsAt(line, character)) {
+    if (
+      symbolKindToCompletionKind(symbol) !== CompletionItemKind.Function ||
+      !/^[A-Z]/u.test(symbol.name) ||
+      !matchesCompletionPrefix(symbol.name, prefix) ||
+      seen.has(symbol.name)
+    ) {
+      continue;
+    }
+    seen.add(symbol.name);
+    items.push({
+      label: symbol.name,
+      kind: CompletionItemKind.Function,
+      detail: symbolDetail(symbol),
+      sortText: `1-${symbol.name}`
+    });
+  }
+  return items;
+}
 
 export async function createCompletionItemsForPosition(
   ast: Program | null,
@@ -57,6 +108,10 @@ export async function createCompletionItemsForPosition(
     provided: autoImportSuggestions,
     options
   });
+  const jsxTagPrefix = jsxTagPrefixAtPosition(options.text, line, character);
+  if (jsxTagPrefix !== null) {
+    return buildJsxTagCompletionItems(resolvedAnalysis, line, character, jsxTagPrefix);
+  }
   const memberCompletions = await buildMemberAccessCompletions(
     ast,
     resolvedAnalysis,

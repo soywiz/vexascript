@@ -102,7 +102,7 @@ export async function resolveMemberHoverAcrossFiles(
     return null;
   }
 
-  const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
+  const objectType = context.session.analysis.getExpressionType(memberExpression.object);
   if (!objectType) {
     return null;
   }
@@ -135,7 +135,7 @@ export async function resolveMemberHoverAcrossFiles(
     ? await resolveTypeDefinitionAcrossFiles(context, resolvedClassName)
     : null;
   if (!primaryResolution) {
-    const inferredMemberType = context.session.analysis.getExpressionTypes().get(memberExpression);
+    const inferredMemberType = context.session.analysis.getExpressionType(memberExpression);
     const inferredMemberTypeLabel = inferredMemberType ? typeToString(inferredMemberType) : null;
     if (
       !structuralMember &&
@@ -242,7 +242,7 @@ export async function resolveMemberHoverAcrossFiles(
       : null);
   const resolvedMember = resolvedClassMember ?? resolvedInterfaceMember;
   const memberRange = nodeRange(memberExpression.property) ?? nodeRange(memberExpression);
-  const inferredMemberType = context.session.analysis.getExpressionTypes().get(memberExpression);
+  const inferredMemberType = context.session.analysis.getExpressionType(memberExpression);
   const inferredMemberTypeLabel = inferredMemberType ? typeToString(inferredMemberType) : null;
   if (
     !resolvedMember &&

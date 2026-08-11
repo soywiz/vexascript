@@ -4685,16 +4685,19 @@ function methodTemplateBindings(
     if (callbackParameter && !bindings.has(callbackParameter.name.name)) {
       if (analyzedArgumentType instanceof FunctionType) {
         const declaredResult = declaredTypeNameForExpression(argument);
-        const analyzedResult = analyzedArgumentType.returnType instanceof NamedType
-          ? analyzedArgumentType.returnType.name
-          : analyzedArgumentType.returnType instanceof BuiltinType
-            ? analyzedArgumentType.returnType.name
-            : analyzedArgumentType.returnType instanceof LiteralType
-              ? analyzedArgumentType.returnType.base
-            : null;
+        let analyzedResult = cppTypeForAnalysisType(analyzedArgumentType.returnType);
+        if (!analyzedResult) {
+          if (analyzedArgumentType.returnType instanceof NamedType) {
+            analyzedResult = analyzedArgumentType.returnType.name;
+          } else if (analyzedArgumentType.returnType instanceof BuiltinType) {
+            analyzedResult = analyzedArgumentType.returnType.name;
+          } else if (analyzedArgumentType.returnType instanceof LiteralType) {
+            analyzedResult = analyzedArgumentType.returnType.base;
+          }
+        }
         bindings.set(
           callbackParameter.name.name,
-          declaredResult ?? analyzedResult ?? cppTypeForAnalysisType(analyzedArgumentType.returnType) ?? "vexa::Value"
+          analyzedResult ?? declaredResult ?? "vexa::Value"
         );
       } else if (argument instanceof ArrowFunctionExpression || argument instanceof FunctionExpression) {
         const callbackResult = callableExpressionResultCppType(argument as ArrowFunctionExpression | FunctionExpression);
@@ -7180,6 +7183,13 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
   }
   const declaredTypeName = statement.typeAnnotation?.name;
   const declaredCppType = declaredTypeName ? cppTypeForDeclaredName(declaredTypeName) : "";
+  const recursiveCallableCppType = (
+    statement.initializer instanceof ArrowFunctionExpression ||
+    statement.initializer instanceof FunctionExpression
+  ) && nativeFunctionCaptureNames(statement.initializer).has(sourceName)
+    ? emittedCppTypeForExpression(statement.initializer) ??
+      cppTypeForAnalysisType(activeExpressionTypes.get(statement.initializer as Node) ?? builtinType("unknown"))
+    : null;
   if (declaredTypeName && !declaredCppType) {
     const shape = parseTypeNameShape(declaredTypeName);
     const genericStatement = activeClassStatements.get(shape.baseName) ?? activeInterfaceStatements.get(shape.baseName);
@@ -7193,6 +7203,8 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
   let type: string;
   if (forInitializer) {
     type = cppTypeForExpression(statement.initializer);
+  } else if (recursiveCallableCppType?.startsWith("std::function<")) {
+    type = recursiveCallableCppType;
   } else if (declaredCppType.length === 0) {
     type = "auto";
   } else {
@@ -7272,6 +7284,9 @@ function emitVariable(statement: VarStatement, forInitializer = false): string {
     activeGcArrayTypes.set(sourceName, arrayType.slice(0, -1));
   }
   clearExpressionTypeCaches();
+  if (recursiveCallableCppType?.startsWith("std::function<")) {
+    return `${recursiveCallableCppType} ${name};\n${name} = ${initializer}`;
+  }
   if (sharesMutableBinding && emittedVariableType && emittedVariableType !== "vexa::Value") {
     activeSharedBindingNames.add(sourceName);
     const storesPointer: boolean = Boolean(emittedVariableType.endsWith("*"));
