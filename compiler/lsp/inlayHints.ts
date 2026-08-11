@@ -2,6 +2,7 @@ import { NamedType } from "../analysis/types";
 import { CallExpression, ClassFieldMember, ClassMethodMember, Identifier, MemberExpression, NamedArgument, NodeKind, ObjectSpreadProperty, VarStatement } from "compiler/ast/ast";
 import type { ArrayLiteral, AsExpression, AssignmentExpression, BinaryExpression, BlockStatement, ChainExpression, ClassStatement, CommaExpression, ConditionalExpression, DoWhileStatement, Expr, ExprStatement, ForStatement, FunctionParameter, FunctionStatement, IfStatement, LabeledStatement, NewExpression, NonNullExpression, ObjectLiteral, Program, RangeExpression, ReturnStatement, SatisfiesExpression, Statement, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
+import type { ArrayComprehension } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
 import { typeToString } from "compiler/analysis/types";
 import { parseTypeNameShape, splitTopLevelTypeText } from "compiler/analysis/typeNames";
@@ -624,6 +625,10 @@ export async function createInlayHints(
         for (const element of (expression as ArrayLiteral).elements) {
           await visitExpression(element);
         }
+        return;
+      case NodeKind.ArrayComprehension:
+        await visitExpression((expression as ArrayComprehension).iterable);
+        await visitExpression((expression as ArrayComprehension).body);
         return;
       case NodeKind.ObjectLiteral:
         for (const property of (expression as ObjectLiteral).properties) {

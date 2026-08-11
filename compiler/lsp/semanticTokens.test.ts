@@ -57,6 +57,19 @@ function decodeTokens(source: string, data: number[]): DecodedToken[] {
 }
 
 describe("semantic tokens", () => {
+  it("visits iterator, iterable, and result expressions in array comprehensions", () => {
+    const source = "val labels = [for (value of values) value.toString()]\n";
+    const session = createAnalysisSession(source);
+    const decoded = decodeTokens(source, createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    }).data);
+
+    expect(decoded.some((token) => token.lexeme === "value" && token.tokenType === "variable")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "toString" && token.tokenType === "method")).toBe(true);
+  });
+
   it("highlights valid character literals as numbers and invalid ones as strings", () => {
     const source = "val code = 'a'\nval invalid = 'aaa'\n";
     const session = createAnalysisSession(source);

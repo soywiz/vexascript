@@ -96,6 +96,7 @@ export const enum NodeKind {
     JsxExpressionContainer,
     JsxText,
     Program,
+    ArrayComprehension,
 }
 
 const NODE_KIND_NAMES = [
@@ -193,6 +194,7 @@ const NODE_KIND_NAMES = [
     "JsxExpressionContainer",
     "JsxText",
     "Program",
+    "ArrayComprehension",
 ] as const satisfies { readonly [Kind in NodeKind]: string }
 
 export function nodeKindName(kind: NodeKind): string {
@@ -203,7 +205,7 @@ export function isNodeKind(value: unknown): value is NodeKind {
     return typeof value === "number"
         && Number.isInteger(value)
         && value >= NodeKind.IntLiteral
-        && value <= NodeKind.Program
+        && value <= NodeKind.ArrayComprehension
 }
 
 export abstract class Node {
@@ -557,6 +559,18 @@ export class ArrayLiteral extends Expr {
 
     constructor(public elements: ArrayLiteralElement[], /** Internal marker for an omitted native rest argument. */ public __vexaEmptyRest?: boolean) {
         super(NodeKind.ArrayLiteral)
+    }
+}
+export class ArrayComprehension extends Expr {
+    declare kind: NodeKind.ArrayComprehension
+
+    constructor(
+        public iterator: VarStatement | Identifier,
+        public iterable: Expr,
+        public body: Expr,
+        public iterationKind: "in" | "of"
+    ) {
+        super(NodeKind.ArrayComprehension)
     }
 }
 export class ObjectProperty extends Node {

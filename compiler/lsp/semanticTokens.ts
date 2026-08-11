@@ -1,6 +1,7 @@
 import { BlockStatement, ClassFieldMember, FunctionExpression, Identifier, MemberExpression, NodeKind, ObjectSpreadProperty, VarStatement } from "compiler/ast/ast";
 import type { AnnotationApplication, AnnotationStatement, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, CallExpression, CatchClause, ChainExpression, ClassMethodMember, ClassStatement, CommaExpression, ConditionalExpression, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, ForStatement, FunctionParameter, FunctionStatement, IfStatement, ImportStatement, LabeledStatement, NamespaceStatement, NewExpression, NonNullExpression, ObjectLiteral, ObjectProperty, Program, RangeExpression, ReturnStatement, SatisfiesExpression, Statement, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, VarDeclarator, WhileStatement, WithStatement } from "compiler/ast/ast";
 import { bindingElements, bindingIdentifiers } from "compiler/ast/bindingPatterns";
+import type { ArrayComprehension } from "compiler/ast/ast";
 
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { SourceRange, Token } from "compiler/parser/tokenizer";
@@ -709,6 +710,17 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
           visitExpression(element);
         }
         return;
+      case NodeKind.ArrayComprehension: {
+        const comprehension = expression as ArrayComprehension;
+        if (comprehension.iterator instanceof VarStatement) {
+          visitStatement(comprehension.iterator);
+        } else {
+          markIdentifier(kinds, comprehension.iterator, "variable");
+        }
+        visitExpression(comprehension.iterable);
+        visitExpression(comprehension.body);
+        return;
+      }
       case NodeKind.ObjectLiteral:
         for (const property of (expression as ObjectLiteral).properties) {
           if (property instanceof ObjectSpreadProperty) {

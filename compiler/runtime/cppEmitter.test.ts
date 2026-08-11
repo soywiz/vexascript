@@ -2,6 +2,20 @@ import { describe, expect, it } from "../test/expect";
 import { transpile } from "./transpile";
 
 describe("C++ emitter", () => {
+  it("emits array comprehensions through the native loop path", () => {
+    const result = transpile(`
+const values = [for (value of [1, 2, 3]) value * 2]
+const rangeValues = [for (value in 0 ..< 3) value]
+console.log(values.join(","))
+console.log(rangeValues.join(","))
+`, { emit: "cpp", sourceFilePath: "/tmp/array-comprehension.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("__vexa_comprehension_result");
+    expect(result.code).toContain("for (auto value");
+    expect(result.code).not.toContain("vexa::objectKeys");
+  });
+
   it("lowers class init blocks into constructor bodies", () => {
     const result = transpile(`
 class Demo {

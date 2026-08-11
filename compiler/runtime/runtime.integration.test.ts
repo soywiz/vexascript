@@ -20,6 +20,19 @@ function executeTranspiled(source: string, target: TranspileTarget = "optimized"
 }
 
 describe("runtime integration", () => {
+  it("executes array comprehensions", () => {
+    const output = executeTranspiled(`
+val doubled = [for (item of [1, 2, 3]) item * 2]
+val normal = [for (n in 0 ..< 10) n]
+val labels = [for (val [name, score] of [["Ada", 2], ["Lin", 3]]) name + ":" + score]
+console.log(doubled.join(","))
+console.log(normal.join(","))
+console.log(labels.join(","))
+`);
+
+    expect(output).toEqual([["2,4,6"], ["0,1,2,3,4,5,6,7,8,9"], ["Ada:2,Lin:3"]]);
+  });
+
   it("executes literal, object, nested, array, and nominal is patterns inside match", () => {
     const output = executeTranspiled(`
 class Box(val value: int)

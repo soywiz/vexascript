@@ -1005,6 +1005,21 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for array comprehensions", () => {
+        expect(parseExpression(tokenizeReader("[for (item of items) item * 2]"))).toEqual({
+            kind: NodeKind.ArrayComprehension,
+            iterationKind: "of",
+            iterator: { kind: NodeKind.Identifier, name: "item" },
+            iterable: { kind: NodeKind.Identifier, name: "items" },
+            body: {
+                kind: NodeKind.BinaryExpression,
+                operator: "*",
+                left: { kind: NodeKind.Identifier, name: "item" },
+                right: { kind: NodeKind.IntLiteral, value: 2 }
+            }
+        });
+    });
+
     it("builds an AST for object literals", () => {
         expect(parseExpression(tokenizeReader("{a: 1, b: 2}"))).toEqual({
             kind: NodeKind.ObjectLiteral,

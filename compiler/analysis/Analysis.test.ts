@@ -2444,6 +2444,18 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("int[]");
   });
 
+  it("infers array comprehension element types", () => {
+    const source = dedent`
+      const values = [for (value of [1, 2]) value.toString()]
+      const rangeValues = [for (value in 0 ..< 3) value]
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("string[]");
+    expect(symbolsOfVisibleSymbolsAt(source, 1, 6).get("rangeValues")?.valueType).toBe("int[]");
+  });
+
   it("infers Array.from element types from strings", () => {
     const source = dedent`
       const values = Array.from("Ada")

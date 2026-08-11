@@ -1,4 +1,5 @@
 import { ExportStatement, NodeKind } from "compiler/ast/ast";
+import type { ArrayComprehension } from "./ast";
 import type {
   AnnotationApplication,
   AnnotationStatement,
@@ -294,6 +295,13 @@ export function appendChildNodes(node: Node, children: Node[], keys?: string[]):
     case NodeKind.ArrayLiteral:
       appendNodes(children, (node as ArrayLiteral).elements, "elements", keys);
       break;
+    case NodeKind.ArrayComprehension: {
+      const current = node as ArrayComprehension;
+      appendNode(children, current.iterator, "iterator", keys);
+      appendNode(children, current.iterable, "iterable", keys);
+      appendNode(children, current.body, "body", keys);
+      break;
+    }
     case NodeKind.ObjectProperty: {
       const current = node as ObjectProperty;
       appendNode(children, current.key, "key", keys);

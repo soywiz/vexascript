@@ -1,5 +1,6 @@
 import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, CatchClause, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, ConditionalExpression, ContinueStatement, DebuggerStatement, DeferStatement, DoWhileStatement, EmptyStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionDeclarationKind, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportSpecifier, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MatcherBindingPattern, MemberExpression, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, Node, NodeKind, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectLiteralProperty, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchCase, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VarDeclarator, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import { ListReader } from "compiler/utils/ListReader";
+import { ArrayComprehension } from "compiler/ast/ast";
 import { ClassInitBlock } from "compiler/ast/ast";
 import { SourcePosition, SourceRange, Token, TokenType, type TokenizeLanguage } from "./tokenizer";
 import { hasLineBreakBetween, isClassMemberModifier, isEofToken, isLikelyStatementStart, typeTokenText } from "./tokenHelpers";
@@ -2104,8 +2105,15 @@ export class Parser {
         }
     }
 
-    private parseArrayLiteral(): ArrayLiteral {
+    private parseArrayLiteral(): ArrayLiteral | ArrayComprehension {
         const startToken = this.getLastReadToken();
+        if (
+            this.language === "vexa" &&
+            this.tokens.peek()?.type === TokenType.IDENTIFIER &&
+            this.tokens.peek()?.value === "for"
+        ) {
+            return this.parseArrayComprehension(startToken);
+        }
         const elements: Expr[] = [];
         let hasMatcherWildcard = false;
 
@@ -2157,6 +2165,38 @@ export class Parser {
         }
 
         this.fail("Expected ',' or ']' in array literal", this.tokenAt());
+    }
+
+    private parseArrayComprehension(startToken: Token | undefined): ArrayComprehension {
+        const loop = this.parseForStatement();
+        if (loop.isAwait) {
+            this.fail("Array comprehensions do not support 'for await'", loop.firstToken);
+        }
+        if (!loop.iterationKind || !loop.iterator || !loop.iterable) {
+            this.fail("Array comprehensions require a for-in or for-of iterator", loop.firstToken);
+        }
+        if (!(loop.iterator instanceof VarStatement) && !(loop.iterator instanceof Identifier)) {
+            this.fail("Array comprehension iterators must be identifiers or declarations", loop.iterator.firstToken);
+        }
+        if (!(loop.body instanceof ExprStatement)) {
+            this.fail("Array comprehension bodies must be expressions", loop.body.firstToken);
+        }
+
+        const closeBracket = this.tokens.read();
+        if (closeBracket?.type !== TokenType.SYMBOL || closeBracket.value !== "]") {
+            this.fail("Expected ']' after array comprehension", this.tokenAt(closeBracket));
+        }
+
+        return this.attachNodeBounds(
+            new ArrayComprehension(
+                loop.iterator as VarStatement | Identifier,
+                loop.iterable,
+                (loop.body as ExprStatement).expression,
+                loop.iterationKind
+            ),
+            startToken,
+            closeBracket
+        );
     }
 
     private parseObjectLiteral(): ObjectLiteral {

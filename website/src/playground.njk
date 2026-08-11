@@ -91,7 +91,11 @@ permalink: /playground.html
 
               sync fun example() {
                 val current = increment(41)
+                val doubled = [for (value of [1, 2, 3]) value * 2]
+                val normal = [for (n in 0 ..< 10) n]
                 console.log(current.toString())
+                console.log(doubled.join(", "))
+                console.log(normal.join(", "))
                 console.log(describe(pulseCenter))
                 console.log("character literal", "VexaScript".charCodeAt(0) == 'V')
                 console.log(classify({ kind: "ok", payload: "pattern matching" }))

@@ -58,6 +58,7 @@ import {
 } from "compiler/ast/ast";
 
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
+import { ArrayComprehension } from "compiler/ast/ast";
 import { childNodes, walkAst } from "compiler/ast/traversal";
 
 export interface LoweringOptions {
@@ -235,6 +236,10 @@ function containsControlExpression(expression: Expr): boolean {
       return containsControlExpression((expression as NamedArgument).value);
     case NodeKind.ArrayLiteral:
       return (expression as ArrayLiteral).elements.some(containsControlExpression);
+    case NodeKind.ArrayComprehension: {
+      const comprehension = expression as ArrayComprehension;
+      return containsControlExpression(comprehension.iterable) || containsControlExpression(comprehension.body);
+    }
     case NodeKind.ObjectLiteral:
       return (expression as ObjectLiteral).properties.some((property) => property instanceof ObjectProperty
         ? containsControlExpression(property.key) || containsControlExpression(property.value)
@@ -589,6 +594,20 @@ function lowerControlExpression(
         array.elements,
         state,
         (elements) => copyNodeBounds(new ArrayLiteral(elements, array.__vexaEmptyRest), array),
+        continuation
+      );
+    }
+    case NodeKind.ArrayComprehension: {
+      const comprehension = expression as ArrayComprehension;
+      return lowerExpressionSequence(
+        [comprehension.iterable, comprehension.body],
+        state,
+        ([iterable, body]) => copyNodeBounds(new ArrayComprehension(
+          comprehension.iterator,
+          iterable!,
+          body!,
+          comprehension.iterationKind
+        ), comprehension),
         continuation
       );
     }

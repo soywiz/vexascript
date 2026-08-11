@@ -1876,6 +1876,33 @@ Range iteration syntax is supported and transpiles to a classic index loop:
 for (a of 0 ... 10) console.log(a)
 ```
 
+### Array comprehensions
+
+VexaScript array comprehensions build a new array from a `for-of` or `for-in`
+header followed by one result expression:
+
+```vexa
+val doubled = [for (value of [1, 2, 3]) value * 2]
+val normal = [for (n in 0 ..< 10) n]
+```
+
+Inside a comprehension, both `in` and `of` visit iterable values in iteration
+order. The `in` spelling follows declaration-free VexaScript loops rather than
+JavaScript and TypeScript `for-in` object-key iteration. Ranges are iterable, so
+either spelling works with `...` and `..<`. The iterator may omit its declaration
+keyword, or it may use a normal declaration and binding pattern:
+
+```vexa
+val labels = [for (val [name, score] of entries) "$name:$score"]
+```
+
+The iterable is evaluated once, the result expression is evaluated once per
+iteration, and the resulting values are appended in order to a fresh array.
+The array element type is inferred from the result expression. A comprehension
+accepts one `for-in` or `for-of` header and one expression body; classic
+three-clause loops, statement bodies, and `for await` are not supported inside
+the brackets.
+
 When running in `typescript` parser mode, `for-in` and `for-of` with declaration iterators are supported:
 
 ```typescript

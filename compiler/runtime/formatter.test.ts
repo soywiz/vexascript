@@ -3,6 +3,12 @@ import dedent from "compiler/utils/dedent";
 import { formatSource } from "./formatter";
 
 describe("formatSource", () => {
+  it("preserves array comprehension syntax", () => {
+    expect(formatSource("val doubled=[for(item of items)item*2]")).toBe(
+      "val doubled = [for (item of items) item * 2]"
+    );
+  });
+
   it("preserves condition and subject match syntax with matcher patterns", () => {
     expect(formatSource('val label=match(value){>=10 and <20->"range" else->"other"}')).toBe(dedent`
       val label = match (value) {

@@ -1,6 +1,7 @@
 import { ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingHole, BlockStatement, BooleanLiteral, CallExpression, ChainExpression, CharacterLiteral, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMember, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxAttributeLike, JsxChild, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, JsxText, LabeledStatement, LongLiteral, MatcherBindingPattern, MemberExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, VarDeclarator, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { BindingElement, BindingName, Node } from "compiler/ast/ast";
 import { ClassInitBlock } from "compiler/ast/ast";
+import { ArrayComprehension } from "compiler/ast/ast";
 
 
 
@@ -1752,6 +1753,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         return emitExpression((expression as NamedArgument).value, parentPrecedence, side);
       case NodeKind.ArrayLiteral:
         return `[${(expression as ArrayLiteral).elements.map((element) => emitListElement(element)).join(", ")}]`;
+      case NodeKind.ArrayComprehension:
+        return emitArrayComprehension(expression as ArrayComprehension);
       case NodeKind.ObjectLiteral: {
         const objectLiteral = expression as ObjectLiteral;
         return `{${objectLiteral.properties
@@ -2346,6 +2349,21 @@ function isAsyncFor(statement: ForStatement): boolean {
     if ((node as { firstToken?: unknown }).firstToken === statement.firstToken) return true;
   }
   return false;
+}
+
+function emitArrayComprehension(comprehension: ArrayComprehension): string {
+  const resultName = nextGeneratedSymbol("$$comprehension");
+  const loop = new ForStatement(
+    new ExprStatement(new CallExpression(
+      new MemberExpression(new Identifier(resultName), new Identifier("push"), false),
+      [comprehension.body]
+    )),
+    undefined,
+    "of",
+    comprehension.iterator,
+    comprehension.iterable
+  );
+  return `(() => { const ${resultName} = []; ${emitForStatement(loop)} return ${resultName}; })()`;
 }
 
 function emitForStatement(statement: ForStatement): string {

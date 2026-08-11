@@ -2,6 +2,7 @@ import { ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, 
 
 
 import { bindingElementPropertyName, bindingIdentifiers } from "compiler/ast/bindingPatterns";
+import { ArrayComprehension } from "compiler/ast/ast";
 import { childNodes } from "compiler/ast/traversal";
 import { statementAlwaysExits } from "compiler/analysis/controlFlow";
 import {
@@ -195,6 +196,7 @@ let activeSwitchTemporaryCounter = 0;
 let activeDestructureTemporaryCounter = 0;
 let activeInstanceofTemporaryCounter = 0;
 let activeDelegateTemporaryCounter = 0;
+let activeComprehensionTemporaryCounter = 0;
 let activeSourceFilePath: string | null = null;
 let activeEmitSourceLocations = false;
 let activeExpectedExpressionCppType: string | null = null;
@@ -1896,6 +1898,40 @@ function emitArrayLiteral(array: ArrayLiteral): string {
       ? inferredType
       : syntacticElementType;
   return emitArrayElements(array.elements, elementType);
+}
+
+function emitArrayComprehension(comprehension: ArrayComprehension): string {
+  const resultType = emittedCppTypeForExpression(comprehension) ?? cppTypeForExpression(comprehension);
+  const elementType = managedArrayElementType(resultType) ??
+    emittedCppTypeForExpression(comprehension.body) ??
+    cppTypeForExpression(comprehension.body);
+  const resultName = `__vexa_comprehension_result_${activeComprehensionTemporaryCounter++}`;
+  const resultIdentifier = new Identifier(resultName);
+  const append = new CallExpression(
+    new MemberExpression(resultIdentifier, new Identifier("push"), false),
+    [comprehension.body]
+  );
+  const loop = new ForStatement(
+    new ExprStatement(append),
+    undefined,
+    "of",
+    comprehension.iterator,
+    comprehension.iterable
+  );
+
+  const previousLocalNames = activeLocalNames;
+  const previousLocalCppTypes = activeLocalCppTypes;
+  activeLocalNames = new Set(activeLocalNames).add(resultName);
+  activeLocalCppTypes = new Map(activeLocalCppTypes).set(resultName, `vexa::ArrayObject<${elementType}>*`);
+  clearExpressionTypeCaches();
+  try {
+    const emittedLoop = emitFor(loop, "  ");
+    return `([&]() {\n  auto* ${resultName} = vexa::makeArray<${elementType}>();\n${emittedLoop}\n  return ${resultName};\n}())`;
+  } finally {
+    activeLocalNames = previousLocalNames;
+    activeLocalCppTypes = previousLocalCppTypes;
+    clearExpressionTypeCaches();
+  }
 }
 
 function objectPropertyName(property: ObjectProperty): string | null {
@@ -6223,6 +6259,8 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
     }
     case NodeKind.ArrayLiteral:
       return emitArrayLiteral(expression as unknown as ArrayLiteral);
+    case NodeKind.ArrayComprehension:
+      return emitArrayComprehension(expression as ArrayComprehension);
     case NodeKind.ObjectLiteral:
       return emitObjectLiteral(expression as ObjectLiteral);
     case NodeKind.CommaExpression:
@@ -10279,6 +10317,7 @@ function buildCppProgram(
   activeDestructureTemporaryCounter = 0;
   activeInstanceofTemporaryCounter = 0;
   activeDelegateTemporaryCounter = 0;
+  activeComprehensionTemporaryCounter = 0;
   activeCurrentClassName = null;
   activeCurrentClassStatement = null;
   clearExpressionTypeCaches();

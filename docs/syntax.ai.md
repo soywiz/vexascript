@@ -198,10 +198,18 @@ for (key in map) { }
 for (n of 0 ..< 10) { }           // exclusive range → for (let n = 0; n < 10; n++)
 for (n of 0 ... 10) { }           // inclusive range (0 through 10)
 
+val doubled = [for (item of items) item * 2] // fresh inferred array; `of` visits values
+val normal = [for (n in 0 ..< 10) n]        // `in` also visits values; ranges are iterable
+val labels = [for (val [name, score] of entries) "$name:$score"]
+
 defer file.close()                 // runs at block exit, like finally
 
 if (x is Circle) { x.radius }      // basic `is` is instanceof; both smart-cast
 ```
+
+Array-comprehension grammar: `[` `for` `(` iterator (`of` | `in`) iterable
+`)` result-expression `]`. It supports one loop header and one expression;
+classic `for` headers, statement bodies, and `for await` are invalid.
 
 `if` is also an expression. A braced branch yields its last expression, a
 missing `else` adds `undefined`, and `return`/`throw`/`break`/`continue` can be

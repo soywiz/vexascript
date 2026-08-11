@@ -223,6 +223,15 @@ for (n of 1 ... 5) {
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
+      <h3>Array comprehensions</h3>
+      <p>Put a <code>for-of</code> or <code>for-in</code> header inside brackets to collect a typed result array without a temporary accumulator.</p>
+{% highlightVexaScript %}
+val doubled = [for (value of [1, 2, 3]) value * 2]
+val normal = [for (n in 0 ..< 10) n]
+val labels = [for (val [name, score] of entries) "$name:$score"]
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
       <h3>Cascade operator</h3>
       <p><code>..</code> keeps applying member operations to the same receiver and then returns that receiver, which is handy for configuration-style code.</p>
 {% highlightVexaScript %}

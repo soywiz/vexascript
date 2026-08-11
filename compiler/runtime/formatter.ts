@@ -1,5 +1,6 @@
 import { ArrayHole, ArrowFunctionExpression, AssignmentExpression, BindingHole, BlockStatement, BreakStatement, CallExpression, ClassFieldMember, ClassInitBlock, ClassMethodMember, ContinueStatement, ExprStatement, Identifier, IfStatement, ImportStatement, InterfacePropertyMember, MatcherBindingPattern, MemberExpression, NodeKind, ObjectSpreadProperty, ReturnStatement, ThrowStatement, VarStatement } from "compiler/ast/ast";
 import { parseSource } from "../pipeline/parse";
+import { ArrayComprehension } from "../ast/ast";
 import type {
   AnnotationApplication, ArrayBindingPattern, ArrayLiteral,
   AsExpression,
@@ -2657,6 +2658,7 @@ class AstFormatter {
       case NodeKind.FunctionExpression: this.emitFunctionExpr(expr as FunctionExpression); break;
       case NodeKind.ClassExpression: this.emitClassExpr(expr as ClassExpression); break;
       case NodeKind.ArrayLiteral: this.emitArrayLiteral(expr as ArrayLiteral); break;
+      case NodeKind.ArrayComprehension: this.emitArrayComprehension(expr as ArrayComprehension); break;
       case NodeKind.ObjectLiteral: this.emitObjectLiteral(expr as ObjectLiteral); break;
       case NodeKind.SpreadExpression: {
         const s = expr as SpreadExpression;
@@ -3043,6 +3045,26 @@ class AstFormatter {
       if (i > 0) { this.write(","); this.sp(); }
       if (!((el as Node) instanceof ArrayHole)) this.emitExpr(el as Expr);
     });
+    this.write("]");
+  }
+
+  private emitArrayComprehension(expr: ArrayComprehension): void {
+    this.write("[");
+    this.tok("for");
+    this.sp();
+    this.write("(");
+    if (expr.iterator instanceof VarStatement) {
+      this.emitVarStmtNoSemi(expr.iterator);
+    } else {
+      this.emitExpr(expr.iterator);
+    }
+    this.sp();
+    this.write(expr.iterationKind);
+    this.sp();
+    this.emitExpr(expr.iterable);
+    this.write(")");
+    this.sp();
+    this.emitExpr(expr.body);
     this.write("]");
   }
 

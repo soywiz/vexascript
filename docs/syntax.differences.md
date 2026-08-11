@@ -595,6 +595,29 @@ for (const item of items) process(item);
 for (const key in map) use(key);
 ```
 
+### Array comprehensions
+
+VexaScript can collect a loop expression directly into a new array. TypeScript
+requires an explicit array operation or loop instead.
+
+```vexa
+val doubled = [for (value of values) value * 2]
+val normal = [for (n in 0 ..< 10) n]
+val labels = [for (val [name, score] of entries) "$name:$score"]
+```
+
+```typescript
+const doubled = Array.from(values, value => value * 2);
+const normal = Array.from({ length: 10 }, (_, n) => n);
+const labels = Array.from(entries, ([name, score]) => `${name}:${score}`);
+```
+
+Inside an array comprehension, both `in` and `of` collect iterable values,
+including values from inclusive and exclusive ranges. Comprehension `in`
+follows declaration-free VexaScript loop semantics rather than JavaScript and
+TypeScript object-key iteration. The single expression body determines the
+result array's element type.
+
 ### `is` nominal checks and built-in matcher patterns
 
 The basic `value is ClassName` form remains VexaScript's shorter spelling of

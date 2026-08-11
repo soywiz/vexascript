@@ -1,6 +1,7 @@
 import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MatcherBindingPattern, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import { ClassInitBlock } from "compiler/ast/ast";
+import { ArrayComprehension } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 
 
@@ -4261,6 +4262,41 @@ export class TypeChecker {
       case NodeKind.ArrayLiteral:
         result = this.inferArrayLiteralType(expression as ArrayLiteral, scope, expectedType);
         break;
+      case NodeKind.ArrayComprehension: {
+        const comprehension = expression as ArrayComprehension;
+        const iterableType = this.visitExpression(comprehension.iterable, scope);
+        const iteratorType = elementTypeFromIterable(iterableType);
+        const iteratorStatement = comprehension.iterator instanceof VarStatement
+          ? comprehension.iterator as VarStatement
+          : undefined;
+        const iteratorName = iteratorStatement?.name ?? comprehension.iterator as Identifier;
+        const parameter = new FunctionParameter(
+          iteratorName,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          iteratorStatement?.typeAnnotation
+        );
+        const expectedIterator = functionType(
+          [new FunctionTypeParameter(bindingNameText(iteratorName), iteratorType)],
+          UNKNOWN_TYPE
+        ) as FunctionType;
+        const comprehensionScope = this.createFunctionLikeExpressionScope(
+          scope,
+          comprehension,
+          [parameter],
+          expectedIterator
+        );
+        const bodyType = this.visitExpression(
+          comprehension.body,
+          comprehensionScope,
+          this.expectedArrayElementType(expectedType)
+        );
+        result = arrayType(bodyType);
+        break;
+      }
       case NodeKind.ArrayHole:
         result = builtinType("undefined");
         break;
