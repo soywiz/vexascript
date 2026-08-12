@@ -35,6 +35,27 @@ function recoverSessionFrom(source: string, session: ReturnType<typeof createAna
 }
 
 describe("createCompletionItemsForPosition", () => {
+  it("completes the nearest pending JSX closing tag", async () => {
+    const cursor = sourceWithCursor("func View() { return <button><div></^^^");
+    const items = await createCompletionItemsForPosition(
+      null,
+      cursor.line,
+      cursor.character,
+      null,
+      [],
+      { text: cursor.source }
+    );
+    const div = items.find((item) => item.label === "div");
+
+    expect(div?.textEdit).toEqual({
+      range: {
+        start: { line: cursor.line, character: cursor.character },
+        end: { line: cursor.line, character: cursor.character }
+      },
+      newText: "div>"
+    });
+  });
+
   it("completes intrinsic JSX tags while the opening tag is still parser-incomplete", async () => {
     const cursor = sourceWithCursor("func View() { return <di^^^");
     const ambient = parseSource(dedent`

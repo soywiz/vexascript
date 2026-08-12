@@ -167,6 +167,9 @@ export function createReferenceCodeLenses(ast: Program, analysis: Analysis, uri:
 }
 
 export function createOnTypeFormattingEdits(text: string, point: Position, character: string): TextEdit[] {
+  if (character === ">") {
+    return createJsxTagClosingEdit(text, point);
+  }
   if (character !== "\n" && character !== "}") return [];
   const lines = text.split(/\r?\n/);
   const current = lines[point.line] ?? "";
@@ -176,6 +179,128 @@ export function createOnTypeFormattingEdits(text: string, point: Position, chara
   const currentIndent = current.match(/^\s*/)?.[0] ?? "";
   if (currentIndent === desired) return [];
   return [{ range: { start: position(point.line, 0), end: position(point.line, currentIndent.length) }, newText: desired }];
+}
+
+function textOffsetAt(text: string, point: Position): number {
+  let offset = 0;
+  for (let line = 0; line < point.line; line += 1) {
+    const newline = text.indexOf("\n", offset);
+    if (newline < 0) return text.length;
+    offset = newline + 1;
+  }
+  return Math.min(offset + point.character, text.length);
+}
+
+function createJsxTagClosingEdit(text: string, point: Position): TextEdit[] {
+  const offset = textOffsetAt(text, point);
+  if (offset === 0 || text[offset - 1] !== ">") return [];
+
+  const openingTag = findJsxOpeningTag(text, offset);
+  if (!openingTag || hasJsxClosingTagAfter(text, offset, openingTag.name)) return [];
+
+  return [{
+    range: { start: point, end: point },
+    newText: `</${openingTag.name}>`
+  }];
+}
+
+function findJsxOpeningTag(text: string, offset: number): { name: string } | null {
+  for (let start = text.lastIndexOf("<", offset - 1); start >= 0; start = text.lastIndexOf("<", start - 1)) {
+    if (!isCodePosition(text, start) || !isLikelyJsxTagStart(text, start)) continue;
+    const candidate = text.slice(start, offset);
+    const match = /^<([A-Za-z_][A-Za-z0-9_.:-]*)([\s\S]*)>$/.exec(candidate);
+    if (!match) continue;
+    if (match[2]!.trim().endsWith("/")) return null;
+    return { name: match[1]! };
+  }
+  return null;
+}
+
+function isLikelyJsxTagStart(text: string, start: number): boolean {
+  const before = text.slice(0, start).trimEnd();
+  if (!before) return true;
+  const previous = before[before.length - 1]!;
+  if (/[A-Za-z0-9_$)]/u.test(previous)) {
+    const word = /[A-Za-z_$][A-Za-z0-9_$]*$/u.exec(before)?.[0];
+    return ["case", "else", "return", "throw", "yield"].includes(word ?? "")
+      || hasActiveJsxOpeningTag(text, start);
+  }
+  return "([{=:,;!?+-*/%&|^~>".includes(previous);
+}
+
+function hasActiveJsxOpeningTag(text: string, offset: number): boolean {
+  const openingStart = text.lastIndexOf("<", offset - 1);
+  const openingEnd = text.lastIndexOf(">", offset - 1);
+  if (openingStart < 0 || openingEnd < openingStart) return false;
+  const tag = text.slice(openingStart, openingEnd + 1);
+  return /^<[A-Za-z_][A-Za-z0-9_.:-]*(?:\s[\s\S]*)?>$/u.test(tag)
+    && !/\/\s*>$/u.test(tag);
+}
+
+function isCodePosition(text: string, offset: number): boolean {
+  let quote: string | null = null;
+  let blockComment = false;
+  let lineComment = false;
+  let jsxDepth = 0;
+  let jsxOpening: "open" | "close" | null = null;
+  let jsxSelfClosing = false;
+  for (let index = 0; index < offset; index += 1) {
+    const current = text[index]!;
+    const next = text[index + 1];
+    if (lineComment) {
+      if (current === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (current === "*" && next === "/") {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (jsxDepth > 0 && !jsxOpening) {
+      if (current === "<" && next === "/") {
+        jsxOpening = "close";
+        index += 1;
+      } else if (current === "<" && /^[A-Za-z_]/u.test(next ?? "")) {
+        jsxOpening = "open";
+        jsxSelfClosing = false;
+      }
+      continue;
+    }
+    if (quote) {
+      if (current === "\\") {
+        index += 1;
+      } else if (current === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (current === "/" && next === "/") {
+      lineComment = true;
+      index += 1;
+    } else if (current === "/" && next === "*") {
+      blockComment = true;
+      index += 1;
+    } else if (current === "<" && /^[A-Za-z_]/u.test(next ?? "")) {
+      jsxOpening = "open";
+      jsxSelfClosing = false;
+    } else if (current === '"' || current === "'" || current === "`") {
+      quote = current;
+    } else if (jsxOpening) {
+      if (current === "/") jsxSelfClosing = true;
+      if (current === ">") {
+        jsxDepth = jsxOpening === "close" || jsxSelfClosing ? Math.max(jsxDepth - (jsxOpening === "close" ? 1 : 0), 0) : jsxDepth + 1;
+        jsxOpening = null;
+      }
+    }
+  }
+  return !quote && !blockComment && !lineComment;
+}
+
+function hasJsxClosingTagAfter(text: string, offset: number, name: string): boolean {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`<\\/\\s*${escapedName}\\s*>`, "u").test(text.slice(offset));
 }
 
 

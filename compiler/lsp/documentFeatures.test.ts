@@ -68,4 +68,40 @@ describe("LSP document features", () => {
   it("indents after an opening brace during on-type formatting", () => {
     expect(createOnTypeFormattingEdits("fun test() {\n", { line: 1, character: 0 }, "\n")[0]?.newText).toBe("  ");
   });
+
+  it("closes JSX opening tags after typing the angle bracket", () => {
+    const source = "return <SignalCounter>";
+    const edits = createOnTypeFormattingEdits(source, { line: 0, character: source.length }, ">");
+
+    expect(edits).toEqual([{
+      range: {
+        start: { line: 0, character: source.length },
+        end: { line: 0, character: source.length }
+      },
+      newText: "</SignalCounter>"
+    }]);
+  });
+
+  it("does not close self-closing, closing, or already-closed JSX tags", () => {
+    const selfClosing = "return <SignalCounter />";
+    const closing = "return </SignalCounter>";
+    const alreadyClosed = "return <SignalCounter>child</SignalCounter>";
+    expect(createOnTypeFormattingEdits(selfClosing, { line: 0, character: selfClosing.length }, ">")).toEqual([]);
+    expect(createOnTypeFormattingEdits(closing, { line: 0, character: closing.length }, ">")).toEqual([]);
+    expect(createOnTypeFormattingEdits(alreadyClosed, { line: 0, character: "return <SignalCounter>".length }, ">")).toEqual([]);
+  });
+
+  it("does not treat comparisons, strings, or comments as JSX tags", () => {
+    const comparison = "value < other >";
+    expect(createOnTypeFormattingEdits(comparison, { line: 0, character: comparison.length }, ">")).toEqual([]);
+    const compactComparison = "value <other>";
+    expect(createOnTypeFormattingEdits(compactComparison, { line: 0, character: compactComparison.length }, ">")).toEqual([]);
+    expect(createOnTypeFormattingEdits('const text = "<other>"', { line: 0, character: 22 }, ">")).toEqual([]);
+    expect(createOnTypeFormattingEdits("// <other>", { line: 0, character: 10 }, ">")).toEqual([]);
+  });
+
+  it("keeps closing nested JSX tags after apostrophes in JSX text", () => {
+    const source = "return <div>it's <span>";
+    expect(createOnTypeFormattingEdits(source, { line: 0, character: source.length }, ">")[0]?.newText).toBe("</span>");
+  });
 });

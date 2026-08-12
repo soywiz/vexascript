@@ -47,6 +47,15 @@ function jsxTagPrefixAtPosition(text: string | undefined, line: number, characte
   return match ? (match[1] ?? "") : null;
 }
 
+function jsxClosingTagPrefixAtPosition(text: string | undefined, line: number, character: number): string | null {
+  const linePrefix = text?.split("\n")[line]?.slice(0, character);
+  if (linePrefix === undefined) {
+    return null;
+  }
+  const match = /<\/([A-Za-z_][A-Za-z0-9_.:-]*)?$/u.exec(linePrefix);
+  return match ? (match[1] ?? "") : null;
+}
+
 /** Makes an incomplete opening JSX tag parseable so its declaration context can be reused. */
 export function recoverSourceForJsxTagCompletion(text: string): string | null {
   const lines = text.split("\n");
@@ -102,6 +111,72 @@ function buildJsxTagCompletionItems(analysis: Analysis, line: number, character:
     });
   }
   return items;
+}
+
+function findTagEnd(text: string, start: number): number {
+  let quote: string | null = null;
+  let braceDepth = 0;
+  for (let offset = start + 1; offset < text.length; offset += 1) {
+    const current = text[offset]!;
+    if (quote) {
+      if (current === "\\") offset += 1;
+      else if (current === quote) quote = null;
+      continue;
+    }
+    if (current === '"' || current === "'") quote = current;
+    else if (current === "{") braceDepth += 1;
+    else if (current === "}" && braceDepth > 0) braceDepth -= 1;
+    else if (current === ">" && braceDepth === 0) return offset;
+  }
+  return -1;
+}
+
+function pendingJsxTagNames(text: string, cursorOffset: number): string[] {
+  const stack: string[] = [];
+  for (let offset = 0; offset < cursorOffset; offset += 1) {
+    if (text[offset] !== "<") continue;
+    const end = findTagEnd(text, offset);
+    if (end < 0 || end >= cursorOffset) break;
+    const tagText = text.slice(offset, end + 1);
+    const closing = /^<\/([A-Za-z_][A-Za-z0-9_.:-]*)\s*>$/u.exec(tagText);
+    if (closing) {
+      const index = stack.lastIndexOf(closing[1]!);
+      if (index >= 0) stack.splice(index, 1);
+      offset = end;
+      continue;
+    }
+    const opening = /^<([A-Za-z_][A-Za-z0-9_.:-]*)(?:\s|\/?>)/u.exec(tagText);
+    if (opening && !/\/\s*>$/u.test(tagText)) {
+      stack.push(opening[1]!);
+    }
+    offset = end;
+  }
+  return stack;
+}
+
+function buildJsxClosingTagCompletionItems(
+  text: string,
+  line: number,
+  character: number,
+  prefix: string
+): CompletionItem[] {
+  const names = pendingJsxTagNames(text, offsetAtPosition(text, line, character));
+  const range = {
+    start: { line, character: character - prefix.length },
+    end: { line, character }
+  };
+  const seen = new Set<string>();
+  return names.reverse().flatMap((name) => {
+    if (seen.has(name) || !matchesCompletionPrefix(name, prefix)) return [];
+    seen.add(name);
+    return [{
+      label: name,
+      kind: CompletionItemKind.Value,
+      detail: "Closing JSX element",
+      textEdit: { range, newText: `${name}>` },
+      sortText: `0-${name}`
+    }];
+  });
 }
 
 interface JsxAttributeCompletionContext {
@@ -269,6 +344,10 @@ export async function createCompletionItemsForPosition(
   const jsxBlockItems = jsxBlockCompletionItemsAtPosition(options.text, line, character);
   if (jsxBlockItems !== null) {
     return jsxBlockItems;
+  }
+  const jsxClosingTagPrefix = jsxClosingTagPrefixAtPosition(options.text, line, character);
+  if (jsxClosingTagPrefix !== null && options.text) {
+    return buildJsxClosingTagCompletionItems(options.text, line, character, jsxClosingTagPrefix);
   }
   if (!ast) {
     const jsxTagPrefix = jsxTagPrefixAtPosition(options.text, line, character);

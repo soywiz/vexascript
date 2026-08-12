@@ -434,7 +434,7 @@ export function startLspServer(options: LspServerOptions): void {
           },
           documentOnTypeFormattingProvider: {
             firstTriggerCharacter: "\n",
-            moreTriggerCharacter: ["}"]
+            moreTriggerCharacter: ["}", ">"]
           },
           hoverProvider: true,
           referencesProvider: true,

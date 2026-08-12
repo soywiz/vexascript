@@ -417,6 +417,10 @@ describe("LSP server core", () => {
       resolveProvider: false,
       triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ",", "<"]
     });
+    assert.deepEqual(nodeResult.capabilities["documentOnTypeFormattingProvider"], {
+      firstTriggerCharacter: "\n",
+      moreTriggerCharacter: ["}", ">"]
+    });
     const sharedCapabilities = Object.keys(nodeResult.capabilities).filter(
       (capability) => !["executeCommandProvider", "workspaceSymbolProvider"].includes(capability)
     );
@@ -574,6 +578,38 @@ describe("LSP server core", () => {
 
     assert.equal(items.some((item) => item.label === "div"), true);
     assert.equal(items.some((item) => item.label === "h1"), false);
+  });
+
+  it("serves the nearest pending JSX closing tag through the LSP route", async () => {
+    const server = startServer(false);
+    const source = "func View() { return <button><div></";
+    const document = openedDocument(server, source);
+    const items = await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: document.uri },
+      position: { line: 0, character: source.length },
+      context: { triggerKind: 2, triggerCharacter: "/" }
+    }) as Array<{ label: string; textEdit?: { newText?: string } }>;
+
+    assert.equal(items.find((item) => item.label === "div")?.textEdit?.newText, "div>");
+  });
+
+  it("closes JSX tags through the shared on-type formatting route", () => {
+    const server = startServer(false);
+    const source = "function View() { return <SignalCounter>";
+    const document = openedDocument(server, source);
+    const edits = server.fakeConnection.handlers.get("documentOnTypeFormatting")!({
+      textDocument: { uri: document.uri },
+      position: { line: 0, character: source.length },
+      ch: ">"
+    }) as Array<{ range: unknown; newText: string }>;
+
+    assert.deepEqual(edits, [{
+      range: {
+        start: { line: 0, character: source.length },
+        end: { line: 0, character: source.length }
+      },
+      newText: "</SignalCounter>"
+    }]);
   });
 
   it("consumes an existing auto-inserted brace through the LSP completion route", async () => {

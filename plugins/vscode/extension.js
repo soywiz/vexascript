@@ -122,8 +122,70 @@ function activate(context) {
 
   const ready = client.start();
 
+  registerVexaTagAutoClosing(context, client, ready);
   registerAutoAwaitGutterIcons(context, client, ready);
   registerDeprecatedDiagnosticDecorations(context);
+}
+
+/**
+ * VS Code only requests standard on-type formatting when editor.formatOnType is
+ * enabled. Tag closing is an editing aid rather than formatting, so mirror the
+ * shared LSP decision for users who keep that setting disabled.
+ */
+function registerVexaTagAutoClosing(context, client, ready) {
+  context.subscriptions.push(
+    workspace.onDidChangeTextDocument(async (event) => {
+      const document = event.document;
+      if (document.languageId !== "vexa") {
+        return;
+      }
+      if (workspace.getConfiguration("editor", document.uri).get("formatOnType") === true) {
+        return;
+      }
+      const change = event.contentChanges.find((entry) => entry.text === ">" && entry.rangeLength === 0);
+      if (!change || change.range.start.line !== change.range.end.line) {
+        return;
+      }
+      const editor = window.visibleTextEditors.find((candidate) => candidate.document.uri.toString() === document.uri.toString());
+      if (!editor) {
+        return;
+      }
+
+      const version = document.version;
+      const position = new Position(change.range.start.line, change.range.start.character + 1);
+      try {
+        await ready;
+        const edits = await client.sendRequest("textDocument/onTypeFormatting", {
+          textDocument: { uri: document.uri.toString() },
+          position: { line: position.line, character: position.character },
+          ch: ">",
+          options: {}
+        });
+        if (document.version !== version || !Array.isArray(edits)) {
+          return;
+        }
+        const originalSelections = editor.selections;
+        const applied = await editor.edit((builder) => {
+          for (const edit of edits) {
+            if (!edit?.range || edit.range.start.line !== edit.range.end.line
+              || edit.range.start.character !== edit.range.end.character) {
+              continue;
+            }
+            builder.insert(
+              new Position(edit.range.start.line, edit.range.start.character),
+              edit.newText
+            );
+          }
+        });
+        if (applied) {
+          editor.selections = originalSelections;
+        }
+      } catch {
+        // The regular LSP on-type path remains available when this fallback races
+        // with shutdown or a document version change.
+      }
+    })
+  );
 }
 
 function registerVexaConfigDefinitionProvider(context) {

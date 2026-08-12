@@ -695,7 +695,7 @@ function registerFormattingProviders(): void {
   });
 
   monaco.languages.registerOnTypeFormattingEditProvider("vexa", {
-    autoFormatTriggerCharacters: ["\n", "}"],
+    autoFormatTriggerCharacters: ["\n", "}", ">"],
     async provideOnTypeFormattingEdits(model, position, character) {
       const response = await requestVexaLanguageWorker<any[]>(model, "formatOnType", {
         position,

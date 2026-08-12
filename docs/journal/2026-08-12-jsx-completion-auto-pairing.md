@@ -47,3 +47,30 @@ when loading imported declarations and reuses that session only for completion.
 The original document remains responsible for diagnostics. `<` is registered
 as a completion trigger in the LSP and Monaco providers so typing a tag starts
 the same type-driven completion flow automatically.
+
+## JSX tag closing while typing
+
+The same incomplete-document problem appears immediately after typing an
+opening tag's `>`: without an automatic closing edit, the document temporarily
+contains an unbalanced JSX tree and diagnostics can cascade while the user is
+still typing. The shared on-type formatting path now inserts the matching
+`</Tag>` for real opening tags and registers `>` as a trigger in both the LSP
+server and Monaco worker.
+
+The edit deliberately leaves self-closing tags, closing tags, existing closing
+tags, strings, comments, and spaced comparison expressions untouched. This
+keeps recovery/editor assistance focused on JSX instead of masking ordinary
+source text.
+
+## Editor integration follow-up
+
+The shared on-type handler was correct in isolation, but VS Code does not
+request `textDocument/onTypeFormatting` when `editor.formatOnType` is disabled.
+The extension now calls that same handler as a narrow fallback only for a
+single inserted `>` when the setting is disabled, preserving the editor
+selection after the insertion. This keeps binary `>` expressions unaffected
+because the shared JSX-context check still returns no edit.
+
+Closing-tag completion is also independent of a valid AST: after `</`, the
+completion path scans the pending JSX opening-tag stack and offers the nearest
+matching name, including when the document is temporarily parser-incomplete.
