@@ -73,15 +73,39 @@ then protected by smaller regression tests.
   semantic layer did not visit JSX attributes and classified their identifier
   tokens as variables. It also gave lexical keyword categories precedence over
   AST roles, so an attribute named `class` became a type keyword. Semantic AST
-  roles now take precedence, JSX attributes are properties (including bare and
-  hyphenated attributes), and their value expressions are traversed normally.
+  roles now take precedence and JSX value expressions are traversed normally.
+  Generic `property` and `string` semantic types were still insufficient: a
+  user's active theme could recolor them after the initial TextMate pass. JSX
+  attribute names now use a dedicated `jsxAttribute` semantic type, while
+  quoted values use TypeScript's `stringLiteral` semantic type. Both have
+  explicit TextMate scope fallbacks in the VS Code manifest. Reusing
+  `stringLiteral` is necessary for themes such as Dark 2026, whose ordinary
+  TextMate strings are cyan but whose TypeScript string literals are orange.
+  This preserves the intended JSX colors after the delayed LSP response.
+- JSX component references were traversed like ordinary identifiers, so a
+  component such as `Fragment` became a white variable after semantic tokens
+  arrived. JSX elements now classify their callable component reference as a
+  function, including the matching closing tag, while intrinsic lowercase tags
+  remain under the JSX/TextMate tag color.
 - Definition fallback assumed every analysis session had a non-null analysis,
   even though parse/tokenization failures explicitly produce nullable session
   artifacts. A parallel Monaco workspace test reached that valid state and
   crashed navigation. The shared fallback now returns no definition when the
   session cannot provide semantic analysis instead of dereferencing null.
+- Parallel full-suite runs exposed declaration resolver crashes while loading
+  React and DOM typings. The resolver assumed every declaration-shaped recovery
+  node had a `name`; recovered third-party declarations can omit it while their
+  parser diagnostics remain available. Declaration indexing now skips those
+  nameless nodes and continues to later valid declarations.
 
 ## Investigation branches that did not work
+
+- The intermittent declaration crash initially looked like mutation of the
+  shared DOM declaration cache. Repeated cache serialization/revival checks and
+  focused DOM runs preserved every top-level name. The decisive stack trace and
+  a minimal recovery-node reproduction instead showed that the unsafe
+  `declaration.name.name` access was the common failure point; guarding the
+  declaration index fixes all affected consumers through their shared path.
 
 - Adding explicit callback parameter annotations made the Preact form compile,
   but only concealed the missing contextual type for JSX component props. A

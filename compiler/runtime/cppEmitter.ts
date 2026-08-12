@@ -724,6 +724,16 @@ function stripOuterTypeParentheses(typeName: string): string {
   return current;
 }
 
+function typePredicateTargetName(typeName: string): string | null {
+  const trimmed = typeName.trim();
+  const separator = trimmed.indexOf(" is ");
+  if (separator <= 0 || !/^[A-Za-z_$][\w$]*$/.test(trimmed.slice(0, separator))) {
+    return null;
+  }
+  const target = trimmed.slice(separator + 4).trim();
+  return target.length > 0 ? target : null;
+}
+
 function cppTypeForDeclaredName(typeName: string, visitedAliases?: Set<string>): string {
   if (visitedAliases !== undefined) return computeCppTypeForDeclaredName(typeName, visitedAliases);
   const cacheKey = activeCppTypeParameterCacheKey.length === 0
@@ -780,7 +790,7 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
   if (typeName === "never") return "void";
   if (typeName.startsWith("typeof ")) return "vexa::Value";
   if (/^asserts\s+/.test(typeName)) return "void";
-  if (/^[A-Za-z_$][\w$]*\s+is\s+/.test(typeName)) return "bool";
+  if (typePredicateTargetName(typeName)) return "bool";
   if (typeName.includes("=>")) {
     const functionType = parseFunctionTypeAnnotation(typeName);
     if (!functionType) return "vexa::Value";
@@ -1747,6 +1757,17 @@ function emitConvertedValue(expression: Expr, resultType: string): string {
     const result = emitNativeConversion(emitExpression(expression), resultType);
     activeExpectedExpressionCppType = previous;
     return result;
+  }
+  if (resultType.endsWith("*") && expression instanceof CallExpression) {
+    const previous = activeExpectedExpressionCppType;
+    activeExpectedExpressionCppType = resultType;
+    let emitted: string;
+    try {
+      emitted = emitExpression(expression);
+    } finally {
+      activeExpectedExpressionCppType = previous;
+    }
+    return emitNativeConversion(emitted, resultType);
   }
   if (resultType.endsWith("*")) {
     let interfaceName: string | null = null;
@@ -4658,6 +4679,17 @@ function methodTemplateBindings(
     }
   }
   const resultType = cppTypeForExpression(call);
+  const directReturnParameter = method.returnType
+    ? typeParameters.find((candidate) => candidate.name.name === method.returnType!.name)
+    : undefined;
+  if (
+    directReturnParameter &&
+    activeExpectedExpressionCppType &&
+    activeExpectedExpressionCppType !== "auto" &&
+    !bindings.has(directReturnParameter.name.name)
+  ) {
+    bindings.set(directReturnParameter.name.name, activeExpectedExpressionCppType);
+  }
   const resultElementType = managedArrayElementType(resultType);
   const returnArray: ArraySuffixTypeName | null = method.returnType
     ? splitArraySuffixTypeName(method.returnType.name)
@@ -4678,12 +4710,23 @@ function methodTemplateBindings(
     if (direct && !bindings.has(direct.name.name)) bindings.set(direct.name.name, argumentType);
     const callback = parseFunctionTypeAnnotation(parameter.typeAnnotation.name);
     const callbackReturn = callback?.returnTypeName;
-    const callbackParameter = callbackReturn
-      ? typeParameters.find((candidate) => candidate.name.name === callbackReturn)
+    const callbackResultPattern = callbackReturn
+      ? typePredicateTargetName(callbackReturn) ?? callbackReturn
+      : null;
+    const callbackParameter = callbackResultPattern
+      ? typeParameters.find((candidate) => candidate.name.name === callbackResultPattern)
       : undefined;
     const analyzedArgumentType = activeExpressionTypes.get(argument as Node);
     if (callbackParameter && !bindings.has(callbackParameter.name.name)) {
-      if (analyzedArgumentType instanceof FunctionType) {
+      const declaredPredicateTarget = argument instanceof CallableExpression && argument.returnType
+        ? typePredicateTargetName(argument.returnType.name)
+        : null;
+      if (declaredPredicateTarget) {
+        bindings.set(
+          callbackParameter.name.name,
+          cppTypeForDeclaredNameOr(declaredPredicateTarget, declaredPredicateTarget)
+        );
+      } else if (analyzedArgumentType instanceof FunctionType) {
         const declaredResult = declaredTypeNameForExpression(argument);
         let analyzedResult = cppTypeForAnalysisType(analyzedArgumentType.returnType);
         if (!analyzedResult) {

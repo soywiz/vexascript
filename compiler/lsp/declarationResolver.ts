@@ -54,13 +54,13 @@ export function isInterfaceStatement(statement: Statement): statement is Interfa
 export function topLevelDeclarationNames(statement: Statement): string[] {
   if (statement instanceof VarStatement) {
     const varStatement = statement as VarStatement;
-    if (varStatement.receiverType) {
+    if (varStatement.receiverType && varStatement.name) {
       return bindingIdentifiers(varStatement.name).map((identifier) => identifier.name);
     }
   }
   if (statement instanceof FunctionStatement) {
     const functionStatement = statement as FunctionStatement;
-    if (functionStatement.receiverType) {
+    if (functionStatement.receiverType && functionStatement.name) {
       return [functionStatement.name.name];
     }
   }
@@ -75,8 +75,10 @@ export function topLevelDeclarationNames(statement: Statement): string[] {
     case NodeKind.InterfaceStatement:
     case NodeKind.EnumStatement:
     case NodeKind.TypeAliasStatement:
-    case NodeKind.FunctionStatement:
-      return [(declaration as NamedTopLevelDeclaration).name.name];
+    case NodeKind.FunctionStatement: {
+      const name = (declaration as NamedTopLevelDeclaration).name;
+      return name ? [name.name] : [];
+    }
     case NodeKind.VarStatement: {
       const variableStatement = declaration as VarStatement;
       return [

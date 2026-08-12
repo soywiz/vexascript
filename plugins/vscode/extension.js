@@ -19,6 +19,9 @@ const {
 const {
   collectDeprecatedDiagnosticRanges
 } = require("./deprecatedDecorations.js");
+const {
+  findConfigSchemaDefinition
+} = require("./jsonSchemaDefinition.js");
 
 /** @type {LanguageClient | undefined} */
 let client;
@@ -48,6 +51,8 @@ function activate(context) {
       );
     })
   );
+
+  registerVexaConfigDefinitionProvider(context);
 
   context.subscriptions.push(
     commands.registerCommand(SELECT_CODE_ACTION_RANGE_COMMAND, async (uri, range) => {
@@ -119,6 +124,35 @@ function activate(context) {
 
   registerAutoAwaitGutterIcons(context, client, ready);
   registerDeprecatedDiagnosticDecorations(context);
+}
+
+function registerVexaConfigDefinitionProvider(context) {
+  const schemaUri = Uri.file(path.resolve(
+    context.extensionPath,
+    "schemas",
+    "vexascript.schema.json"
+  ));
+
+  context.subscriptions.push(languages.registerDefinitionProvider(
+    { scheme: "file", pattern: "**/vexascript.json" },
+    {
+      async provideDefinition(document, position) {
+        const schemaDocument = await workspace.openTextDocument(schemaUri);
+        const definition = findConfigSchemaDefinition(
+          document.getText(),
+          document.offsetAt(position),
+          schemaDocument.getText()
+        );
+        if (!definition) {
+          return undefined;
+        }
+        return new Location(schemaUri, new Range(
+          schemaDocument.positionAt(definition.range.start),
+          schemaDocument.positionAt(definition.range.end)
+        ));
+      }
+    }
+  ));
 }
 
 /**

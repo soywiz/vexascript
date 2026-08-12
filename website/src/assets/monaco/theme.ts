@@ -42,6 +42,8 @@ export function createVexaScriptMonacoTheme(): MonacoStandaloneThemeData {
       { token: "type", foreground: "4EC9B0" },
       { token: "number", foreground: "B5CEA8" },
       { token: "string", foreground: "CE9178" },
+      { token: "jsxAttribute", foreground: "9CDCFE" },
+      { token: "stringLiteral", foreground: "CE9178" },
       { token: "regexp", foreground: "D16969" },
       { token: "regexpDelimiter", foreground: "D4D4D4" },
       { token: "regexpEscape", foreground: "D7BA7D" },

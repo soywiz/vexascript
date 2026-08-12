@@ -216,7 +216,7 @@ This section is the fast onboarding map for agents and contributors.
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
   - Extension entrypoint (LSP client that launches `compiler/lsp/server.ts` over stdio): `plugins/vscode/extension.js`
   - TextMate grammar generated from the compiler's shared syntax source and checked in for packaging: `plugins/vscode/syntaxes/vexa.tmLanguage.json`
-  - VS Code extension manifest/config and checked-in language configuration generated from the compiler's shared syntax source: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
+  - VS Code extension manifest/config, schema-backed VexaScript project-configuration completion/navigation, and checked-in language configuration generated from the compiler's shared syntax source: `plugins/vscode/package.json`, `plugins/vscode/jsonSchemaDefinition.js`, `plugins/vscode/schemas/vexascript.schema.json`, `plugins/vscode/language-configuration.json`
   - Syntax tests: `validation/vscodeext-syntax.test.ts`
 - GitHub automation:
   - Continuous-integration workflow that runs the complete repository suite with LCOV coverage on Ubuntu, uploads same-repository coverage reports to Codecov, performs optimized single-file compiler self-hosting on an isolated runner, and performs focused single-file native validation on Linux plus compiled native validation on macOS and Windows, including Windows-specific toolchain/package regressions, on pushes to `main` and relevant pull requests: `.github/workflows/tests.yml`

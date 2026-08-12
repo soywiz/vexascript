@@ -16,6 +16,7 @@
   "files": [
     "dist/**",
     "icons/**",
+    "schemas/**",
     "syntaxes/**",
     "themes/**",
     "language-configuration.json",
@@ -33,6 +34,12 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "jsonValidation": [
+      {
+        "fileMatch": "**/vexascript.json",
+        "url": "./schemas/vexascript.schema.json"
+      }
+    ],
     "languages": [
       {
         "id": "vexa",
@@ -55,6 +62,30 @@
         "language": "vexa",
         "scopeName": "source.vexa",
         "path": "./syntaxes/vexa.tmLanguage.json"
+      }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "jsxAttribute",
+        "description": "A JSX attribute name."
+      },
+      {
+        "id": "stringLiteral",
+        "description": "A string literal colored like TypeScript."
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "vexa",
+        "scopes": {
+          "jsxAttribute": [
+            "entity.other.attribute-name.vexa"
+          ],
+          "stringLiteral": [
+            "string.quoted.double.vexa",
+            "string.quoted.single.vexa"
+          ]
+        }
       }
     ],
     "configuration": {

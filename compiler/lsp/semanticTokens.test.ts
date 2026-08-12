@@ -85,7 +85,7 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "FilterControls" && token.tokenType === "function")).toBe(true);
   });
 
-  it("highlights JSX attribute names as properties instead of variables or keywords", () => {
+  it("preserves JSX-specific attribute and string colors after semantic tokens arrive", () => {
     const source = dedent`
       export func Form() {
         return (
@@ -106,8 +106,34 @@ describe("semantic tokens", () => {
     }).data);
 
     for (const attribute of ["class", "aria-label", "disabled", "onInput"]) {
-      expect(decoded.some((token) => token.lexeme === attribute && token.tokenType === "property")).toBe(true);
+      expect(decoded.some((token) => token.lexeme === attribute && token.tokenType === "jsxAttribute")).toBe(true);
     }
+    for (const string of ['"field"', '"Task"']) {
+      expect(decoded.some((token) => token.lexeme === string && token.tokenType === "stringLiteral")).toBe(true);
+    }
+  });
+
+  it("distinguishes JSX component references from intrinsic tags", () => {
+    const source = dedent`
+      export func View() {
+        return (
+          <Fragment>
+            <Widget />
+            <div />
+          </Fragment>
+        )
+      }
+    `;
+    const session = createAnalysisSession(source);
+    const decoded = decodeTokens(source, createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    }).data);
+
+    expect(decoded.filter((token) => token.lexeme === "Fragment" && token.tokenType === "function").length).toBe(2);
+    expect(decoded.filter((token) => token.lexeme === "Widget" && token.tokenType === "function").length).toBe(1);
+    expect(decoded.some((token) => token.lexeme === "div" && token.tokenType === "function")).toBe(false);
   });
 
   it("visits iterator, iterable, and result expressions in array comprehensions", () => {

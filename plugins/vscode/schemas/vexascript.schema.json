@@ -1,0 +1,219 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VexaScript project configuration",
+  "description": "Configures VexaScript project discovery, compilation, module resolution, global declarations, and build or serve output.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "entrypoint": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The .vx or .ts entry file used when a CLI command receives a project directory.",
+      "examples": ["src/main.vx"]
+    },
+    "outDir": {
+      "type": "string",
+      "minLength": 1,
+      "default": "dist",
+      "description": "Output directory for project builds. A command-line --out value takes precedence."
+    },
+    "outputDir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Legacy alias for outDir. Prefer outDir in new projects.",
+      "deprecationMessage": "Use outDir instead."
+    },
+    "compilerOptions": {
+      "type": "object",
+      "description": "TypeScript-compatible compiler options currently consumed by VexaScript.",
+      "additionalProperties": false,
+      "properties": {
+        "lib": {
+          "type": "array",
+          "description": "Built-in declaration libraries made available to the project.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "examples": [["es2025", "dom"]]
+        },
+        "types": {
+          "type": "array",
+          "description": "Ambient declaration packages to load. An empty array disables values inherited from tsconfig.json.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "examples": [["node"]]
+        },
+        "baseUrl": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Base directory for non-relative source imports, resolved from this configuration file.",
+          "examples": ["."]
+        },
+        "jsxFactory": {
+          "type": "string",
+          "minLength": 1,
+          "default": "React.createElement",
+          "description": "Function used to emit JSX elements.",
+          "examples": ["h"]
+        },
+        "jsxFragmentFactory": {
+          "type": "string",
+          "minLength": 1,
+          "default": "React.Fragment",
+          "description": "Value used to emit JSX fragments.",
+          "examples": ["Fragment"]
+        },
+        "jsxImportSource": {
+          "type": "string",
+          "enum": ["preact"],
+          "description": "Maps JSX emission to Preact's classic h and Fragment factories. Automatic JSX runtime emission is not yet supported."
+        }
+      }
+    },
+    "canonicalSyntax": {
+      "type": "object",
+      "description": "Selects the declaration spellings used by editor normalization and generated quick fixes.",
+      "additionalProperties": false,
+      "properties": {
+        "immutableDeclaration": {
+          "type": "string",
+          "enum": ["const", "val"],
+          "default": "const",
+          "description": "Preferred spelling for immutable declarations."
+        },
+        "functionDeclaration": {
+          "type": "string",
+          "enum": ["func", "fn", "fun", "function"],
+          "default": "func",
+          "description": "Preferred spelling for function declarations."
+        }
+      }
+    },
+    "importMappings": {
+      "type": "object",
+      "description": "Maps exact module specifiers to local source files for JavaScript and native compilation, module resolution, and editor navigation.",
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      },
+      "examples": [{"@app/state": "src/state.vx"}]
+    },
+    "imports": {
+      "type": "object",
+      "description": "Legacy alias for importMappings. Prefer importMappings in new projects.",
+      "deprecationMessage": "Use importMappings instead.",
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "nativeImports": {
+      "type": "object",
+      "description": "Adds or overrides module mappings only for the native C++ backend.",
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      },
+      "examples": [{"myengine": "native/myengine.vx"}]
+    },
+    "globalSymbols": {
+      "description": "Loads source files whose declarations should be available globally without imports.",
+      "oneOf": [
+        {
+          "type": "array",
+          "description": "Source paths emitted onto globalThis.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "paths": {
+              "type": "array",
+              "description": "Source files or directories containing global declarations.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "files": {
+              "type": "array",
+              "description": "Alias for paths.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "include": {
+              "type": "array",
+              "description": "Alias for paths.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "emit": {
+              "type": "string",
+              "enum": ["globalThis", "assume"],
+              "default": "globalThis",
+              "description": "Whether declarations are emitted onto globalThis or assumed to be provided by the runtime host."
+            }
+          }
+        }
+      ]
+    },
+    "serveMappings": {
+      "description": "Publishes files or directories at public paths during serve and copies them into project build output.",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Maps source paths to public destination paths.",
+          "propertyNames": {
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          },
+          "examples": [{"public/assets": "assets"}]
+        },
+        {
+          "type": "array",
+          "description": "Legacy array form of source-to-destination mappings.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "to"],
+            "properties": {
+              "from": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Source file or directory relative to vexascript.json."
+              },
+              "to": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Destination path relative to the served or built site root."
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

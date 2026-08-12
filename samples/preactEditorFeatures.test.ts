@@ -23,8 +23,11 @@ function hoverText(value: unknown): string {
   return ((value as { contents?: { value?: string } } | null)?.contents?.value ?? "");
 }
 
-function semanticTokenType(source: string, text: string, data: number[]): string | undefined {
-  const offset = source.indexOf(text);
+function semanticTokenType(source: string, text: string, data: number[], occurrence: number = 0): string | undefined {
+  let offset = -1;
+  for (let index = 0; index <= occurrence; index += 1) {
+    offset = source.indexOf(text, offset + 1);
+  }
   if (offset < 0) throw new Error(`Expected sample source to contain '${text}'`);
   const before = source.slice(0, offset);
   const targetLine = before.split("\n").length - 1;
@@ -65,12 +68,12 @@ async function openSampleFile(
   result.definitions.slice(0, requiredDefinitionCount).forEach((definition, index) => {
     if (definition === null) throw new Error(`Missing definition for '${hoverTexts[index]}' in ${relativePath}`);
   });
-  return { result, hovers: result.hovers.map(hoverText) };
+  return { source, result, hovers: result.hovers.map(hoverText) };
 }
 
 describe("preact JSX editor features", () => {
   it("keeps advanced hooks and context typed across the project", async () => {
-    const { result, hovers } = await openSampleFile(
+    const { source, result, hovers } = await openSampleFile(
       "src/App.vx",
       ["useReducer", "useErrorBoundary", "useLayoutEffect", "currentTheme"],
       ["theme."],
@@ -82,17 +85,17 @@ describe("preact JSX editor features", () => {
     expect(hovers[2]).toContain("useLayoutEffect");
     expect(hovers[3]).toContain("Theme");
     expect(result.completions[0]?.some((item) => item.label === "accent")).toBe(true);
+    expect(semanticTokenType(source, "class", result.semanticTokens.data)).toBe("jsxAttribute");
+    expect(semanticTokenType(source, '"eyebrow"', result.semanticTokens.data)).toBe("stringLiteral");
   });
 
   it("keeps forms, event targets and imperative refs typed", async () => {
-    const { result, hovers } = await openSampleFile(
+    const { source, result, hovers } = await openSampleFile(
       "src/forms.vx",
       ["useImperativeHandle", "onInput", "currentTarget"],
       ["event.currentTarget.", "formRef.current?."],
       3
     );
-    const source = await readFile(resolve(process.cwd(), "samples/preact/src/forms.vx"), "utf8");
-
     expect(hovers[0]).toContain("useImperativeHandle");
     expect(hovers[1]).toContain("HTMLInputElement");
     expect(hovers[2]).toContain("HTMLInputElement");
@@ -102,12 +105,12 @@ describe("preact JSX editor features", () => {
     expect(semanticTokenType(source, "FilterControls", result.semanticTokens.data)).toBe("function");
     expect(semanticTokenType(source, "FilterControls", result.semanticTokensRange.data)).toBe("function");
     for (const attribute of ["class", "ref", "onInput", "aria-label"]) {
-      expect(semanticTokenType(source, attribute, result.semanticTokens.data)).toBe("property");
+      expect(semanticTokenType(source, attribute, result.semanticTokens.data)).toBe("jsxAttribute");
     }
   });
 
   it("keeps signals, class components and lifecycle APIs typed", async () => {
-    const { result, hovers } = await openSampleFile(
+    const { source, result, hovers } = await openSampleFile(
       "src/components.vx",
       ["useSignal", "useComputed", "useSignalEffect", "componentDidMount"],
       ["theme.", "visibleTasks."]
@@ -119,6 +122,7 @@ describe("preact JSX editor features", () => {
     expect(hovers[3]).toContain("componentDidMount");
     expect(result.completions[0]?.some((item) => item.label === "accent")).toBe(true);
     expect(result.completions[1]?.some((item) => item.label === "value")).toBe(true);
+    expect(semanticTokenType(source, "Fragment", result.semanticTokens.data, 1)).toBe("function");
   });
 
   it("keeps core signal primitives typed in shared state", async () => {

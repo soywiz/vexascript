@@ -63,7 +63,9 @@ const TOKEN_TYPES = [
   "regexpEscape",
   "regexpCharacterClass",
   "regexpSpecial",
-  "regexpFlag"
+  "regexpFlag",
+  "jsxAttribute",
+  "stringLiteral"
 ] as const;
 
 const TOKEN_MODIFIERS = [
@@ -267,8 +269,32 @@ function isPascalCaseIdentifier(identifier: Identifier | undefined): boolean {
   return identifier !== undefined && /^[A-Z]/.test(identifier.name);
 }
 
-function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeName> {
+function collectTokenKindsFromAst(program: Program, tokens: readonly Token[]): Map<string, TokenTypeName> {
   const kinds = new Map<string, TokenTypeName>();
+  const tokenIndexByRange = new Map(
+    tokens.map((token, index) => [semanticTokenRangeKey(token.range), index])
+  );
+
+  const markClosingJsxComponentTag = (element: JsxElement): void => {
+    if (element.selfClosing || !element.lastToken) return;
+    const endIndex = tokenIndexByRange.get(semanticTokenRangeKey(element.lastToken.range));
+    if (endIndex === undefined) return;
+
+    const identifiers: Token[] = [];
+    for (let index = endIndex - 1; index >= 0; index -= 1) {
+      const token = tokens[index]!;
+      if (token.value === "/") {
+        if (tokens[index - 1]?.value === "<") {
+          for (const identifier of identifiers) {
+            kinds.set(semanticTokenRangeKey(identifier.range), "function");
+          }
+        }
+        return;
+      }
+      if (token.value === "<") return;
+      if (token.type === TokenType.IDENTIFIER) identifiers.push(token);
+    }
+  };
 
   const visitVarDeclarator = (declaration: VarDeclarator): void => {
     for (const identifier of bindingIdentifiers(declaration.name)) markIdentifier(kinds, identifier, "variable");
@@ -615,6 +641,23 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
     visitExpression(callee);
   };
 
+  const visitJsxComponentReference = (reference: Expr): void => {
+    if (reference instanceof Identifier) {
+      markIdentifier(kinds, reference, "function");
+      return;
+    }
+    if (reference instanceof MemberExpression) {
+      visitExpression(reference.object);
+      if (reference.computed) {
+        visitExpression(reference.property);
+      } else if (reference.property instanceof Identifier) {
+        markIdentifier(kinds, reference.property, "function");
+      }
+      return;
+    }
+    visitExpression(reference);
+  };
+
   const visitExpression = (expression: Expr): void => {
     switch (expression.kind) {
       case NodeKind.Identifier:
@@ -734,12 +777,17 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
       case NodeKind.JsxElement: {
         const element = expression as JsxElement;
         if (element.reference) {
-          visitExpression(element.reference);
+          visitJsxComponentReference(element.reference);
+          markClosingJsxComponentTag(element);
         }
         for (const attribute of element.attributes) {
           if (attribute instanceof JsxAttribute) {
             const key = firstTokenRangeKey(attribute);
-            if (key) kinds.set(key, "property");
+            if (key) kinds.set(key, "jsxAttribute");
+            if (attribute.value?.kind === NodeKind.StringLiteral) {
+              const valueKey = firstTokenRangeKey(attribute.value);
+              if (valueKey) kinds.set(valueKey, "stringLiteral");
+            }
             if (attribute.value instanceof JsxExpressionContainer) {
               visitExpression(attribute.value.expression);
             }
@@ -885,9 +933,13 @@ function intersectsRange(tokenRange: SourceRange, queryRange?: DocumentRange): b
 
 function classifyToken(
   token: Token,
-  identifierKinds: Map<string, TokenTypeName>,
+  tokenKinds: Map<string, TokenTypeName>,
   analysis?: Analysis | null
 ): TokenTypeName | null {
+  const astKind = tokenKinds.get(semanticTokenRangeKey(token.range));
+  if (astKind) {
+    return astKind;
+  }
   if (token.type === TokenType.NUMBER) {
     return "number";
   }
@@ -905,10 +957,6 @@ function classifyToken(
   }
   if (token.type !== TokenType.IDENTIFIER) {
     return null;
-  }
-  const astKind = identifierKinds.get(semanticTokenRangeKey(token.range));
-  if (astKind) {
-    return astKind;
   }
   if (CONTROL_KEYWORDS.has(token.value)) {
     return "keywordControl";
@@ -1037,7 +1085,7 @@ export function createSemanticTokens(params: SemanticTokenParams): SemanticToken
   } catch {
     return { data: [] };
   }
-  const identifierKinds = params.ast ? collectIdentifierKindsFromAst(params.ast) : new Map();
+  const tokenKinds = params.ast ? collectTokenKindsFromAst(params.ast, tokens) : new Map();
   const builder = new SimpleSemanticTokensBuilder();
 
   for (const token of tokens) {
@@ -1077,7 +1125,7 @@ export function createSemanticTokens(params: SemanticTokenParams): SemanticToken
       continue;
     }
 
-    const tokenType = classifyToken(token, identifierKinds, params.analysis);
+    const tokenType = classifyToken(token, tokenKinds, params.analysis);
     if (!tokenType) {
       continue;
     }

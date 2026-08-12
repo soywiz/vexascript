@@ -7,6 +7,7 @@ This extension wires VS Code `.vx` files to the VexaScript language server.
 - Registers language id `vexa` for `*.vx`.
 - Adds syntax highlighting for `.vx` via TextMate grammar (`source.vexa`).
 - Adds a custom language icon for `.vx` without replacing the active file icon theme.
+- Provides schema-backed completion, hover descriptions, validation, and go-to-definition from configuration keys to their `vexascript.json` schema entries.
 - Starts the bundled server using:
   - `node ./dist/vexa.mjs --lsp`
 - Uses stdio transport via `vscode-languageclient`.

@@ -38,6 +38,53 @@ const result = through(() => box<string>("ready"));
     expect(result.code).not.toContain("through<Box>(");
   });
 
+  it("infers return-only function templates from nullable call results", () => {
+    const result = transpile(`
+class Node {}
+class JsxElement extends Node {}
+class JsxFragment extends Node {}
+function findNode<T extends Node>(
+  root: Node,
+  predicate: (node: Node) => node is T
+): T | null {
+  return null;
+}
+const program = new Node();
+const jsxNode = findNode(
+  program,
+  (node): node is JsxElement | JsxFragment =>
+    node instanceof JsxElement || node instanceof JsxFragment
+);
+`, {
+      emit: "cpp",
+      sourceFilePath: "/tmp/generic-nullable-result.ts",
+      typeCheck: false
+    });
+
+    expect(result.code).toContain("findNode<Node*>(");
+  });
+
+  it("keeps nullable object results when inferring callback templates", () => {
+    const result = transpile(`
+function withResult<T>(action: () => T): T {
+  return action();
+}
+function collect(): ReadonlyMap<string, string> | undefined {
+  return withResult(() => {
+    const values = new Map<string, string>();
+    return values.size > 0 ? values : undefined;
+  });
+}
+`, {
+      emit: "cpp",
+      sourceFilePath: "/tmp/generic-nullable-callback-result.ts",
+      typeCheck: false
+    });
+
+    expect(result.code).toContain("withResult<vexa::MapObject<std::u16string, std::u16string>*>(");
+    expect(result.code).not.toContain("withResult<vexa::Undefined>(");
+  });
+
   it("emits array comprehensions through the native loop path", () => {
     const result = transpile(`
 const values = [for (value of [1, 2, 3]) value * 2]

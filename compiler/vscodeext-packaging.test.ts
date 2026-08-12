@@ -13,6 +13,18 @@ type VscodePackageJson = {
   files?: string[];
   main?: string;
   scripts?: Record<string, string>;
+  contributes?: {
+    jsonValidation?: Array<{ fileMatch?: string | string[]; url?: string }>;
+    semanticTokenTypes?: Array<{ id?: string; superType?: string }>;
+    semanticTokenScopes?: Array<{ language?: string; scopes?: Record<string, string[]> }>;
+  };
+};
+
+type JsonSchema = {
+  properties?: Record<string, JsonSchema>;
+  enum?: unknown[];
+  oneOf?: JsonSchema[];
+  type?: string;
 };
 
 describe("VS Code extension packaging", () => {
@@ -56,6 +68,7 @@ describe("VS Code extension packaging", () => {
     expect(pkg.files).toEqual([
       "dist/**",
       "icons/**",
+      "schemas/**",
       "syntaxes/**",
       "themes/**",
       "language-configuration.json",
@@ -91,15 +104,76 @@ describe("VS Code extension packaging", () => {
     );
   });
 
+  it("provides JSON Schema completion for vexascript.json", async () => {
+    const packageJsonPath = resolve(process.cwd(), "plugins", "vscode", "package.json");
+    const schemaPath = resolve(process.cwd(), "plugins", "vscode", "schemas", "vexascript.schema.json");
+    const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as VscodePackageJson;
+    const schema = JSON.parse(await readFile(schemaPath, "utf8")) as JsonSchema;
+
+    expect(pkg.contributes?.jsonValidation).toEqual([{
+      fileMatch: "**/vexascript.json",
+      url: "./schemas/vexascript.schema.json"
+    }]);
+    expect(Object.keys(schema.properties ?? {})).toEqual([
+      "entrypoint",
+      "outDir",
+      "outputDir",
+      "compilerOptions",
+      "canonicalSyntax",
+      "importMappings",
+      "imports",
+      "nativeImports",
+      "globalSymbols",
+      "serveMappings"
+    ]);
+    expect(Object.keys(schema.properties?.["compilerOptions"]?.properties ?? {})).toEqual([
+      "lib",
+      "types",
+      "baseUrl",
+      "jsxFactory",
+      "jsxFragmentFactory",
+      "jsxImportSource"
+    ]);
+    expect(schema.properties?.["canonicalSyntax"]?.properties?.["immutableDeclaration"]?.enum).toEqual(["const", "val"]);
+    expect(schema.properties?.["canonicalSyntax"]?.properties?.["functionDeclaration"]?.enum).toEqual([
+      "func",
+      "fn",
+      "fun",
+      "function"
+    ]);
+    expect(schema.properties?.["globalSymbols"]?.oneOf?.length).toBe(2);
+    expect(schema.properties?.["serveMappings"]?.oneOf?.length).toBe(2);
+  });
+
   it("launches the packaged extension server from the extension dist directory", async () => {
     const extensionPath = resolve(process.cwd(), "plugins", "vscode", "extension.js");
     const extensionSource = await readFile(extensionPath, "utf8");
     const serverSource = await readFile(resolve(process.cwd(), "compiler", "lsp", "server.ts"), "utf8");
 
     expect(extensionSource).toContain("context.extensionPath");
+    expect(extensionSource).toContain("registerVexaConfigDefinitionProvider(context)");
+    expect(extensionSource).toContain("languages.registerDefinitionProvider");
+    expect(extensionSource).toContain('require("./jsonSchemaDefinition.js")');
     expect(extensionSource).toContain('"dist"');
     expect(extensionSource).toContain('"vexa.mjs"');
     expect(extensionSource).not.toContain('".."');
     expect(serverSource).toContain("setVfs(new NodeServerVfs());");
+  });
+
+  it("maps JSX semantic tokens back to their TextMate scopes", async () => {
+    const packageJsonPath = resolve(process.cwd(), "plugins", "vscode", "package.json");
+    const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as VscodePackageJson;
+
+    expect(pkg.contributes?.semanticTokenTypes).toEqual([
+      { id: "jsxAttribute", description: "A JSX attribute name." },
+      { id: "stringLiteral", description: "A string literal colored like TypeScript." }
+    ]);
+    expect(pkg.contributes?.semanticTokenScopes).toEqual([{
+      language: "vexa",
+      scopes: {
+        jsxAttribute: ["entity.other.attribute-name.vexa"],
+        stringLiteral: ["string.quoted.double.vexa", "string.quoted.single.vexa"]
+      }
+    }]);
   });
 });

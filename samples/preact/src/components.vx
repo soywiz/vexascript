@@ -8,23 +8,23 @@ import { ThemeContext } from "./theme.vx";
 import type { Theme } from "./theme.vx";
 
 export func SignalCounter() {
-	const clicks = useSignal(0);
-	const doubled = useComputed(() => clicks.value * 2);
+	const clicks = useSignal(0)
+	const doubled = useComputed { clicks.value * 2 }
 
 	useSignalEffect(() => {
-		console.debug("signal counter", doubled.value);
+		console.debug("signal counter", doubled.value)
 	});
 
 	return (
-		<button class="signal-counter" onClick={() => { clicks.value++; }}>
-			Local signal: {clicks.value} · computed: {doubled}
+		<button class="signal-counter" onClick={{ clicks.value++; }}>
+			Local signal: {clicks} · computed: {doubled}
 		</button>
 	);
 }
 
 export func TaskList() {
-	const theme = useContext(ThemeContext);
-	const visibleCount = useVisibleTaskCount();
+	const theme = useContext(ThemeContext)
+	const visibleCount = useVisibleTaskCount()
 
 	return (
 		<Fragment>
@@ -39,12 +39,12 @@ export func TaskList() {
 							<input
 								type="checkbox"
 								checked={task.done}
-								onChange={() => {
-									tasks.value = tasks.value.map((candidate) =>
-										candidate.id == task.id
-											? { ...candidate, done: !candidate.done }
-											: candidate
-									);
+								onChange={{
+									tasks.value = tasks.value.map {
+										it.id == task.id
+											? { ...it, done: !it.done }
+											: it
+									};
 								}}
 							/>
 							<span>{task.title}</span>

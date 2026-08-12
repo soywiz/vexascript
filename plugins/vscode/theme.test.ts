@@ -65,6 +65,8 @@ describe("VS Code color theme", () => {
     expect(theme.semanticTokenColors?.["type"]).toBe("#4EC9B0");
     expect(theme.semanticTokenColors?.["number"]).toBe("#B5CEA8");
     expect(theme.semanticTokenColors?.["string"]).toBe("#CE9178");
+    expect(theme.semanticTokenColors?.["jsxAttribute"]).toBe("#9CDCFE");
+    expect(theme.semanticTokenColors?.["stringLiteral"]).toBe("#CE9178");
     expect(theme.semanticTokenColors?.["operator"]).toBe("#D4D4D4");
     expect(theme.semanticTokenColors?.["*.deprecated"]).toEqual({ fontStyle: "strikethrough" });
   });

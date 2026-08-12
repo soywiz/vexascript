@@ -1,8 +1,12 @@
-import { NodeKind } from "compiler/ast/ast";
-import type { ClassStatement } from "compiler/ast/ast";
+import { Identifier, InterfaceStatement, NodeKind, Program } from "compiler/ast/ast";
+import type { ClassStatement, Statement } from "compiler/ast/ast";
 import { compileSource } from "compiler/pipeline/compile";
 import { describe, expect, it, join, mkdir, mkdtemp, resolve, tmpdir, writeFile } from "compiler/test/expect";
-import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
+import {
+  findTopLevelDeclarationInProgram,
+  resolveTopLevelDeclarationAcrossFiles,
+  topLevelDeclarationNames
+} from "./declarationResolver";
 
 function isClassStatement(statement: unknown): statement is ClassStatement {
   return (statement as { kind?: unknown }).kind === NodeKind.ClassStatement;
@@ -61,5 +65,22 @@ describe("resolveTopLevelDeclarationAcrossFiles", () => {
     expect(resolved?.filePath.endsWith("/node_modules/pixi.js/index.d.ts")).toBe(true);
     expect(resolved?.declaration.kind).toBe(NodeKind.ClassStatement);
     expect(resolved?.declaration.name.name).toBe("Graphics");
+  });
+});
+
+describe("declaration resolver recovery", () => {
+  it("skips recovered named declarations that have no name", () => {
+    const recovered = Object.assign(Object.create(InterfaceStatement.prototype), {
+      kind: NodeKind.InterfaceStatement
+    }) as Statement;
+    const valid = new InterfaceStatement(new Identifier("Node"), []);
+    const program = new Program([recovered, valid]);
+
+    expect(topLevelDeclarationNames(recovered)).toEqual([]);
+    expect(findTopLevelDeclarationInProgram(
+      program,
+      "Node",
+      (statement): statement is InterfaceStatement => statement instanceof InterfaceStatement
+    )).toBe(valid);
   });
 });
