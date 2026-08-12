@@ -327,7 +327,7 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
       expect(selfLink.code, `${selfLink.stdout}\n${selfLink.stderr}`).toBe(0);
       const selfVersion = await runCommandCapture(selfExecutablePath, ["--version"], { cwd: process.cwd() });
       expect(selfVersion.code).toBe(0);
-      expect(selfVersion.stdout.trim()).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/);
+      expect(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(selfVersion.stdout.trim())).toBe(true);
     } finally {
       await rm(outputRoot, { recursive: true, force: true });
     }
