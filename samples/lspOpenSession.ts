@@ -206,12 +206,14 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
     };
     const {
       externalDeclarations,
+      externalDeclarationLocations,
       importedSymbols,
       invalidImportedBindings
     } = await collectAllImportedDeclarations(baseSession.ast, context);
 
     return {
       externalDeclarations,
+      externalDeclarationLocations,
       importedSymbols,
       invalidImportedBindings,
       ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],

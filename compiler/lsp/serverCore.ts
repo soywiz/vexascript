@@ -524,7 +524,7 @@ export function startLspServer(options: LspServerOptions): void {
         ...featureContext(doc.uri),
         getExportedSymbols: () => getExportedSymbolsForSession(session),
         ambientModuleDeclarations: session.ambientModuleDeclarations,
-        recoverAnalysisSession: (source) => createAnalysisSession(source, { externalDeclarations: session.externalDeclarations, ambientDeclarations: session.ambientDeclarations, ambientModuleDeclarations: session.ambientModuleDeclarations, ambientModuleLocations: session.ambientModuleLocations, invalidImportedBindings: session.invalidImportedBindings, ambientDeclarationLocations: session.ambientDeclarationLocations, importedSymbols: session.importedSymbols })
+        recoverAnalysisSession: (source) => createAnalysisSession(source, { externalDeclarations: session.externalDeclarations, externalDeclarationLocations: session.externalDeclarationLocations, ambientDeclarations: session.ambientDeclarations, ambientModuleDeclarations: session.ambientModuleDeclarations, ambientModuleLocations: session.ambientModuleLocations, invalidImportedBindings: session.invalidImportedBindings, ambientDeclarationLocations: session.ambientDeclarationLocations, importedSymbols: session.importedSymbols })
       }
     );
   }));

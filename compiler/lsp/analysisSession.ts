@@ -10,6 +10,12 @@ import {
   type ImportedSymbolResolution
 } from "compiler/importedSymbols";
 
+export interface DeclarationLocation {
+  filePath: string;
+  line: number;
+  character: number;
+}
+
 export interface AnalysisSession {
   ast: Program | null;
   parserErrors: ParseIssue[];
@@ -18,6 +24,7 @@ export interface AnalysisSession {
   tokenizeError: TokenizeError | null;
   fatalError: string | null;
   externalDeclarations: Statement[];
+  externalDeclarationLocations: ReadonlyMap<Statement, DeclarationLocation>;
   importedSymbols: ReadonlyMap<string, ImportedSymbolResolution>;
   invalidImportedBindings: ReadonlySet<string>;
   ambientDeclarations: Statement[];
@@ -28,6 +35,7 @@ export interface AnalysisSession {
 
 export interface AnalysisSessionOptions {
   externalDeclarations?: Statement[];
+  externalDeclarationLocations?: ReadonlyMap<Statement, DeclarationLocation>;
   ambientDeclarations?: Statement[];
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
   ambientModuleLocations?: ReadonlyMap<string, AmbientModuleLocation>;
@@ -42,6 +50,7 @@ export function createAnalysisSession(
   options: AnalysisSessionOptions = {}
 ): AnalysisSession {
   const externalDeclarations = options.externalDeclarations ?? [];
+  const externalDeclarationLocations = options.externalDeclarationLocations ?? new Map();
   const ambientDeclarations = options.ambientDeclarations ?? [];
   const ambientDeclarationLocations = options.ambientDeclarationLocations ?? new Map();
   const ambientModuleDeclarations = options.ambientModuleDeclarations ?? new Map();
@@ -68,6 +77,7 @@ export function createAnalysisSession(
     tokenizeError: artifacts.tokenizeError,
     fatalError: artifacts.fatalError,
     externalDeclarations: [...externalDeclarations],
+    externalDeclarationLocations,
     importedSymbols: normalizedImportedSymbols,
     invalidImportedBindings: normalizedInvalidImportedBindings,
     ambientDeclarations: [...ambientDeclarations],
@@ -89,6 +99,7 @@ export function buildAnalysisForSource(source: string): Analysis | null {
  */
 export interface ResolvedExternals {
   externalDeclarations: Statement[];
+  externalDeclarationLocations?: ReadonlyMap<Statement, DeclarationLocation>;
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   invalidImportedBindings?: ReadonlySet<string>;
   ambientDeclarations?: Statement[];
@@ -108,6 +119,7 @@ function buildSessionFromResolved(
   resolved: ResolvedExternals
 ): AnalysisSession {
   const externalDeclarations = resolved.externalDeclarations ?? [];
+  const externalDeclarationLocations = resolved.externalDeclarationLocations ?? new Map();
   const importedSymbols = resolved.importedSymbols ?? new Map();
   const ambientDeclarations = resolved.ambientDeclarations ?? [];
   const ambientDeclarationLocations = resolved.ambientDeclarationLocations ?? new Map();
@@ -116,6 +128,7 @@ function buildSessionFromResolved(
   const invalidImportedBindings = resolved.invalidImportedBindings ?? new Set();
   if (
     externalDeclarations.length === 0 &&
+    externalDeclarationLocations.size === 0 &&
     importedSymbols.size === 0 &&
     invalidImportedBindings.size === 0 &&
     ambientDeclarations.length === 0 &&
@@ -126,6 +139,7 @@ function buildSessionFromResolved(
   }
   return createAnalysisSession(docText, {
     externalDeclarations,
+    externalDeclarationLocations,
     ambientDeclarations,
     ambientModuleDeclarations,
     ambientModuleLocations,

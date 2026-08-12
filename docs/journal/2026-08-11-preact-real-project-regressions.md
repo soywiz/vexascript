@@ -20,6 +20,13 @@ then protected by smaller regression tests.
   resolves local imports transitively, analyzes the target with those imports,
   propagates supporting declarations, and guards cycles with the active file
   path set.
+- Transitive import analysis propagated supporting declaration AST nodes but
+  not their source files. Hover could therefore know that `visibleTasks.value`
+  was `Task[]`, while Go to Definition fell through to local navigation and
+  paired the external `ReadonlySignal.value` range with `hooks.vx`. VS Code
+  clamped that impossible range to the end of the consumer file. External
+  declarations now carry one shared location map through collection, recursive
+  imports, analysis sessions, completion recovery, and type-member navigation.
 - Generic constraints and defaults were resolved without their type-parameter
   scope. Preact signatures such as `K extends keyof S` consequently lost `S`.
   Both maps now resolve while the complete parameter list is active.
@@ -68,12 +75,26 @@ then protected by smaller regression tests.
   identity rather than object identity.
 - Testing only the bundled entrypoint missed editor regressions in the new
   modules. Dedicated LSP sessions for the hooks/context, forms/refs, class
-  components/signals, shared signal state, and Vite entrypoint now verify
-  diagnostics, hover, definitions, and completion against the real packages.
+  components/signals, shared signal state, the transitive `hooks.vx` signal
+  consumer, and Vite entrypoint now verify diagnostics, hover, definitions,
+  and completion against the real packages.
+- Scanning only the consumer's direct package imports could not resolve this
+  member: `hooks.vx` imports `tasks.vx`, while only `tasks.vx` imports Preact
+  Signals. Recursively scanning packages again inside navigation would duplicate
+  import analysis and still risk same-name matches. Preserving declaration
+  provenance at collection time lets navigation consume the type checker's
+  actual external declarations instead.
 - A successful `vite build` also missed the undefined JSX factory because
   bundling validates symbol syntax, not execution. Loading the production
   transform in a browser and clicking the counter exposed the failure; the
   browser check remains an essential acceptance step for framework samples.
+- After the transitive-import source fix and extension bundle were installed,
+  an already-running VS Code language-server process continued executing the
+  previous bundle from memory. Its process start time predated the installed
+  `vexa.mjs`, so rebuilding or overwriting the VSIX alone could not update the
+  active editor session. Restart the language-server process (or reload the VS
+  Code window) after local extension installation, and distinguish the live
+  process from the bundle on disk before reopening a solved compiler bug.
 
 ## Lesson
 

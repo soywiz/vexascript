@@ -189,6 +189,7 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
   };
   const {
     externalDeclarations,
+    externalDeclarationLocations,
     importedSymbols,
     invalidImportedBindings
   } =
@@ -196,6 +197,7 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
 
   return {
     externalDeclarations,
+    externalDeclarationLocations,
     importedSymbols,
     invalidImportedBindings,
     ambientDeclarations: [...globalDeclarations, ...ambientTypes.globalDeclarations, ...domDeclarations],

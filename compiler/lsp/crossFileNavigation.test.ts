@@ -54,6 +54,71 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
 }
 
 describe("cross-file navigation", () => {
+  it("navigates a member whose declaration arrives through a transitive inferred import", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-transitive-member-definition-"));
+    const packageDirectory = join(root, "node_modules", "signals-like");
+    const packageFile = join(packageDirectory, "index.d.ts");
+    const stateFile = join(root, "state.vx");
+    const consumerFile = join(root, "consumer.vx");
+    const marked = sourceWithCursor(dedent`
+      import { visible } from "./state.vx"
+
+      const count = visible.va^^^lue.length
+    `);
+
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(
+      join(packageDirectory, "package.json"),
+      JSON.stringify({ name: "signals-like", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      packageFile,
+      dedent`
+        export interface ReadonlyBox<T> {
+          readonly value: T;
+        }
+
+        export function computed<T>(compute: () => T): ReadonlyBox<T>;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      stateFile,
+      'import { computed } from "signals-like"\nexport const visible = computed(() => ["Ada"])\n',
+      "utf8"
+    );
+    await writeFile(consumerFile, marked.source, "utf8");
+
+    const getSessionForFilePath = async (filePath: string) => {
+      const source = await readFile(filePath, "utf8").catch(() => null);
+      return source === null ? null : createAnalysisSession(source);
+    };
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(consumerFile).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath
+    });
+    const session = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      externalDeclarationLocations: collected.externalDeclarationLocations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(consumerFile).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath
+    });
+
+    expect(location?.uri).toBe(pathToFileURL(packageFile).toString());
+    expect(location?.range.start).toEqual({ line: 1, character: 11 });
+  });
+
   it("provides member hover for properties imported from local JSON", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-json-import-hover-"));
     const jsonFile = join(root, "data.json");

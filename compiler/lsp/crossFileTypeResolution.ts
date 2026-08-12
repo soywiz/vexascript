@@ -17,7 +17,7 @@ import {
   readTextDocument
 } from "./crossFileContext";
 import type { ResolveContext } from "./crossFileContext";
-import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
+import { findTopLevelDeclarationInProgram, resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { resolveInScopeExtensionMemberDeclarationAcrossFiles } from "./crossFileMemberDefinitionSources";
 import { uriToFilePath } from "./importFixes";
 import { findBestMatchAtPosition } from "./nodeSearch";
@@ -388,13 +388,35 @@ export async function resolveTypeDefinitionAcrossFiles(
     return null;
   }
 
+  const isTypeLikeDeclaration = (statement: Statement): statement is TypeLikeDeclaration =>
+    statement instanceof ClassStatement || statement instanceof InterfaceStatement;
+  const localDeclaration = findTopLevelDeclarationInProgram(
+    context.session.ast,
+    typeName,
+    isTypeLikeDeclaration
+  );
+  if (localDeclaration) {
+    return { declaration: localDeclaration, filePath: currentFilePath };
+  }
+
+  for (const statement of context.session.externalDeclarations ?? []) {
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
+    if (!isTypeLikeDeclaration(declaration) || declaration.name.name !== typeName) {
+      continue;
+    }
+    const location = context.session.externalDeclarationLocations?.get(statement)
+      ?? context.session.externalDeclarationLocations?.get(declaration);
+    if (location) {
+      return { declaration, filePath: location.filePath };
+    }
+  }
+
   const roots = effectiveSourceRoots(context.sourceRoots, currentFilePath);
   const resolved = await resolveTopLevelDeclarationAcrossFiles({
     ast: context.session.ast,
     name: typeName,
     currentFilePath,
-    predicate: (statement): statement is TypeLikeDeclaration =>
-      statement instanceof ClassStatement || statement instanceof InterfaceStatement,
+    predicate: isTypeLikeDeclaration,
     includeRuntime: true,
     sourceRoots: roots,
     ...(context.getSessionForFilePath

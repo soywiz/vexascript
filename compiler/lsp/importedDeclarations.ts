@@ -69,6 +69,7 @@ import {
   type ImportedSymbolResolution
 } from "compiler/importedSymbols";
 import { Analysis } from "compiler/analysis/Analysis";
+import type { DeclarationLocation } from "./analysisSession";
 
 /**
  * Top-level declarations that contribute a named type and whose members the
@@ -3061,6 +3062,7 @@ function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
 
 export interface CollectedImportedDeclarations {
   externalDeclarations: Statement[];
+  externalDeclarationLocations: Map<Statement, DeclarationLocation>;
   importedSymbols: Map<string, ImportedSymbolResolution>;
   invalidImportedBindings: Set<string>;
 }
@@ -3361,12 +3363,25 @@ export async function collectAllImportedDeclarations(
   if (!currentFilePath) {
     return {
       externalDeclarations: [],
+      externalDeclarationLocations: new Map(),
       importedSymbols,
       invalidImportedBindings: collectInvalidImportedBindings(importedSymbols)
     };
   }
 
   const externalDeclarations: Statement[] = [];
+  const externalDeclarationLocations = new Map<Statement, DeclarationLocation>();
+  const addExternalDeclaration = (declaration: Statement, filePath?: string): void => {
+    externalDeclarations.push(declaration);
+    if (!filePath) {
+      return;
+    }
+    externalDeclarationLocations.set(declaration, {
+      filePath,
+      line: declaration.firstToken?.range.start.line ?? 0,
+      character: declaration.firstToken?.range.start.column ?? 0
+    });
+  };
   const seen = new Set<ImportableDeclaration>();
   const resolvingFilePaths = new Set(context.resolvingFilePaths ?? []);
   resolvingFilePaths.add(currentFilePath);
@@ -3396,8 +3411,14 @@ export async function collectAllImportedDeclarations(
         );
       if (nodeModuleTypings) {
         const nodeModuleIndex = getNodeModuleDeclarationIndex(nodeModuleTypings.declarations);
+        const nodeModulePathByStatement = new Map<Statement, string>();
         const declarationOriginByExportedName = new Map<string, ImportedSymbolDeclarationOrigin>();
         for (const entry of nodeModuleTypings.declarationEntries) {
+          nodeModulePathByStatement.set(entry.statement, entry.typingsPath);
+          const unwrappedEntry = unwrapExportedDeclaration(entry.statement);
+          if (unwrappedEntry) {
+            nodeModulePathByStatement.set(unwrappedEntry, entry.typingsPath);
+          }
           for (const exportedName of nodeModuleExportedNamesForStatement(entry.statement)) {
             if (declarationOriginByExportedName.has(exportedName)) {
               continue;
@@ -3413,6 +3434,7 @@ export async function collectAllImportedDeclarations(
           wantedNames.add(nodeModuleTypings.defaultExportName);
         }
         const importedNodeModuleDeclarations: Statement[] = [];
+        const importedNodeModuleDeclarationPaths = new Map<Statement, string>();
         const supportingDeclarationNames = new Set<string>();
         const pendingSupportingDeclarationNames: string[] = [];
         const seenNodeModuleStatements = new Set<Statement>();
@@ -3439,6 +3461,10 @@ export async function collectAllImportedDeclarations(
             seenNodeModuleStatements.add(targetStatement);
             const rawDeclaration = unwrapExportedDeclaration(targetStatement) ?? targetStatement;
             importedNodeModuleDeclarations.push(rawDeclaration);
+            const declarationPath = nodeModulePathByStatement.get(targetStatement) ?? nodeModulePathByStatement.get(rawDeclaration);
+            if (declarationPath) {
+              importedNodeModuleDeclarationPaths.set(rawDeclaration, declarationPath);
+            }
             queueSupportingDependencyNames(targetStatement);
             return;
           }
@@ -3448,6 +3474,10 @@ export async function collectAllImportedDeclarations(
           seen.add(declaration);
           seenNodeModuleStatements.add(targetStatement);
           importedNodeModuleDeclarations.push(declaration);
+          const declarationPath = nodeModulePathByStatement.get(targetStatement) ?? nodeModulePathByStatement.get(declaration);
+          if (declarationPath) {
+            importedNodeModuleDeclarationPaths.set(declaration, declarationPath);
+          }
           queueSupportingDependencyNames(targetStatement);
         };
         // For node_modules .d.ts files, include all top-level declarations so
@@ -3471,7 +3501,9 @@ export async function collectAllImportedDeclarations(
             includeNodeModuleDeclaration(targetStatement);
           }
         }
-        externalDeclarations.push(...importedNodeModuleDeclarations);
+        for (const declaration of importedNodeModuleDeclarations) {
+          addExternalDeclaration(declaration, importedNodeModuleDeclarationPaths.get(declaration));
+        }
         if (nodeModuleTypings.defaultExportName) {
           const needsDefaultLikeImportType = importStatement.defaultImport || importStatement.namespaceImport;
           const exportType = needsDefaultLikeImportType
@@ -3586,7 +3618,7 @@ export async function collectAllImportedDeclarations(
           for (const targetStatement of ambientDecls) {
             if (!seen.has(targetStatement as ImportableDeclaration)) {
               seen.add(targetStatement as ImportableDeclaration);
-              externalDeclarations.push(targetStatement);
+              addExternalDeclaration(targetStatement);
             }
           }
         }
@@ -3704,7 +3736,11 @@ export async function collectAllImportedDeclarations(
         const declaration = unwrapDeclaration(supportingDeclaration);
         if (!declaration || seen.has(declaration)) continue;
         seen.add(declaration);
-        externalDeclarations.push(declaration);
+        addExternalDeclaration(
+          declaration,
+          nestedImports.externalDeclarationLocations.get(supportingDeclaration)?.filePath
+            ?? nestedImports.externalDeclarationLocations.get(declaration)?.filePath
+        );
       }
       targetAnalysis = new Analysis(targetSession.ast, {
         externalDeclarations: nestedImports.externalDeclarations,
@@ -3734,7 +3770,7 @@ export async function collectAllImportedDeclarations(
           continue;
         }
         seen.add(declaration);
-        externalDeclarations.push(declaration);
+        addExternalDeclaration(declaration, targetFilePath);
       }
     }
 
@@ -3790,6 +3826,7 @@ export async function collectAllImportedDeclarations(
 
   return {
     externalDeclarations,
+    externalDeclarationLocations,
     importedSymbols,
     invalidImportedBindings: collectInvalidImportedBindings(importedSymbols)
   };

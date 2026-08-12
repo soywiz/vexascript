@@ -105,4 +105,22 @@ describe("preact JSX editor features", () => {
     expect(hovers[2]).toContain("effect");
     expect(hovers[3]).toContain("peek");
   });
+
+  it("preserves an inferred signal type through a transitive local import", async () => {
+    const { result, hovers } = await openSampleFile(
+      "src/hooks.vx",
+      ["visibleTasks", "value"],
+      ["visibleTasks.value."]
+    );
+
+    expect(hovers[0]).toContain("ReadonlySignal<Task[]>");
+    expect(hovers[1]).toContain("Task[]");
+    expect(result.completions[0]?.some((item) => item.label === "length")).toBe(true);
+    expect(result.completions[0]?.some((item) => item.label === "map")).toBe(true);
+    const valueDefinition = Array.isArray(result.definitions[1])
+      ? result.definitions[1][0]
+      : result.definitions[1];
+    expect(decodeURIComponent(valueDefinition?.uri ?? "")).toContain("/@preact/signals-core/dist/signals-core.d.ts");
+    expect(valueDefinition?.range.start).toEqual({ line: 81, character: 13 });
+  });
 });

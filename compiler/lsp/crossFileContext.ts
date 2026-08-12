@@ -19,6 +19,7 @@ import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { ImportedSymbolResolution } from "compiler/importedSymbols";
 import type { AmbientModuleLocation } from "./ambientTypesLoader";
+import type { DeclarationLocation } from "./analysisSession";
 import { candidateImportTargetFilePaths, nodeBuiltinSpecifierCandidates, resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { getDomDeclarationFilePath, isDomRuntimeNode } from "compiler/runtime/domDeclarations";
 import {
@@ -33,6 +34,7 @@ export interface SessionLike {
   ast: Program | null;
   analysis: Analysis | null;
   externalDeclarations?: Statement[];
+  externalDeclarationLocations?: ReadonlyMap<Statement, DeclarationLocation>;
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   ambientDeclarations?: Statement[];
   ambientDeclarationLocations?: ReadonlyMap<Statement, AmbientModuleLocation>;

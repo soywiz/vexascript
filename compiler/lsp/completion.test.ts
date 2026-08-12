@@ -30,7 +30,7 @@ function parseAmbientModule(src: string, moduleName: string) {
 }
 
 function recoverSessionFrom(source: string, session: ReturnType<typeof createAnalysisSession>) {
-  return createAnalysisSession(source, { externalDeclarations: session.externalDeclarations, ambientDeclarations: session.ambientDeclarations, ambientModuleDeclarations: session.ambientModuleDeclarations, ambientModuleLocations: session.ambientModuleLocations, invalidImportedBindings: session.invalidImportedBindings, ambientDeclarationLocations: session.ambientDeclarationLocations, importedSymbols: session.importedSymbols });
+  return createAnalysisSession(source, { externalDeclarations: session.externalDeclarations, externalDeclarationLocations: session.externalDeclarationLocations, ambientDeclarations: session.ambientDeclarations, ambientModuleDeclarations: session.ambientModuleDeclarations, ambientModuleLocations: session.ambientModuleLocations, invalidImportedBindings: session.invalidImportedBindings, ambientDeclarationLocations: session.ambientDeclarationLocations, importedSymbols: session.importedSymbols });
 }
 
 describe("createCompletionItemsForPosition", () => {
