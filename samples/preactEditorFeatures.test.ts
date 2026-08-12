@@ -101,6 +101,9 @@ describe("preact JSX editor features", () => {
     expect(result.completions[1]?.some((item) => item.label === "focus")).toBe(true);
     expect(semanticTokenType(source, "FilterControls", result.semanticTokens.data)).toBe("function");
     expect(semanticTokenType(source, "FilterControls", result.semanticTokensRange.data)).toBe("function");
+    for (const attribute of ["class", "ref", "onInput", "aria-label"]) {
+      expect(semanticTokenType(source, attribute, result.semanticTokens.data)).toBe("property");
+    }
   });
 
   it("keeps signals, class components and lifecycle APIs typed", async () => {

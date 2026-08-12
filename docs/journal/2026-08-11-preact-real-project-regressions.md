@@ -69,6 +69,12 @@ then protected by smaller regression tests.
   returned an empty token set, leaving TextMate as the only highlighting layer.
   VexaScript semantic-token requests now tokenize with JSX enabled by default;
   TypeScript-only angle-bracket assertion tests opt out explicitly.
+- JSX attribute names had a correct TextMate scope and theme color, but the
+  semantic layer did not visit JSX attributes and classified their identifier
+  tokens as variables. It also gave lexical keyword categories precedence over
+  AST roles, so an attribute named `class` became a type keyword. Semantic AST
+  roles now take precedence, JSX attributes are properties (including bare and
+  hyphenated attributes), and their value expressions are traversed normally.
 - Definition fallback assumed every analysis session had a non-null analysis,
   even though parse/tokenization failures explicitly produce nullable session
   artifacts. A parallel Monaco workspace test reached that valid state and

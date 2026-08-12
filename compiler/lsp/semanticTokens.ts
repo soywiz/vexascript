@@ -1,4 +1,4 @@
-import { BlockStatement, ClassFieldMember, FunctionExpression, Identifier, MemberExpression, NodeKind, ObjectSpreadProperty, VarStatement } from "compiler/ast/ast";
+import { BlockStatement, ClassFieldMember, FunctionExpression, Identifier, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, MemberExpression, NodeKind, ObjectSpreadProperty, VarStatement } from "compiler/ast/ast";
 import type { AnnotationApplication, AnnotationStatement, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, CallExpression, CatchClause, ChainExpression, ClassMethodMember, ClassStatement, CommaExpression, ConditionalExpression, DoWhileStatement, EnumStatement, ExportStatement, Expr, ExprStatement, ForStatement, FunctionParameter, FunctionStatement, IfStatement, ImportStatement, LabeledStatement, NamespaceStatement, NewExpression, NonNullExpression, ObjectLiteral, ObjectProperty, Program, RangeExpression, ReturnStatement, SatisfiesExpression, Statement, SwitchStatement, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression, VarDeclarator, WhileStatement, WithStatement } from "compiler/ast/ast";
 import { bindingElements, bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { ArrayComprehension } from "compiler/ast/ast";
@@ -235,6 +235,10 @@ function identifierRangeKey(identifier: Identifier): string | null {
     return null;
   }
   return `${identifier.firstToken.range.start.offset}:${identifier.lastToken.range.end.offset}`;
+}
+
+function firstTokenRangeKey(node: { firstToken?: Token }): string | null {
+  return node.firstToken ? semanticTokenRangeKey(node.firstToken.range) : null;
 }
 
 function markIdentifier(
@@ -724,6 +728,43 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         visitExpression(comprehension.body);
         return;
       }
+      case NodeKind.JsxExpressionContainer:
+        visitExpression((expression as JsxExpressionContainer).expression);
+        return;
+      case NodeKind.JsxElement: {
+        const element = expression as JsxElement;
+        if (element.reference) {
+          visitExpression(element.reference);
+        }
+        for (const attribute of element.attributes) {
+          if (attribute instanceof JsxAttribute) {
+            const key = firstTokenRangeKey(attribute);
+            if (key) kinds.set(key, "property");
+            if (attribute.value instanceof JsxExpressionContainer) {
+              visitExpression(attribute.value.expression);
+            }
+          } else if (attribute instanceof JsxSpreadAttribute) {
+            visitExpression(attribute.expression);
+          }
+        }
+        for (const child of element.children) {
+          if (child instanceof JsxExpressionContainer) {
+            visitExpression(child.expression);
+          } else if (child instanceof JsxElement || child instanceof JsxFragment) {
+            visitExpression(child);
+          }
+        }
+        return;
+      }
+      case NodeKind.JsxFragment:
+        for (const child of (expression as JsxFragment).children) {
+          if (child instanceof JsxExpressionContainer) {
+            visitExpression(child.expression);
+          } else if (child instanceof JsxElement || child instanceof JsxFragment) {
+            visitExpression(child);
+          }
+        }
+        return;
       case NodeKind.ObjectLiteral:
         for (const property of (expression as ObjectLiteral).properties) {
           if (property instanceof ObjectSpreadProperty) {
@@ -866,7 +907,7 @@ function classifyToken(
     return null;
   }
   const astKind = identifierKinds.get(semanticTokenRangeKey(token.range));
-  if (token.value === "init" && astKind) {
+  if (astKind) {
     return astKind;
   }
   if (CONTROL_KEYWORDS.has(token.value)) {
@@ -883,10 +924,6 @@ function classifyToken(
   }
   if (token.value === "is") {
     return "keyword";
-  }
-
-  if (astKind) {
-    return astKind;
   }
 
   if (analysis) {
