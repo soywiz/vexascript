@@ -17,7 +17,7 @@ export func SignalCounter() {
 
 	return (
 		<button class="signal-counter" onClick={() => { clicks.value++; }}>
-			Local signal: {clicks} · computed: {doubled}
+			Local signal: {clicks.value} · computed: {doubled}
 		</button>
 	);
 }
@@ -33,7 +33,7 @@ export func TaskList() {
 				<span>{visibleCount} visible</span>
 			</div>
 			<ul class="tasks">
-				{visibleTasks.value.map((task) => (
+				{#for task of visibleTasks.value}
 					<li key={task.id} class={task.done ? "done" : ""}>
 						<label>
 							<input
@@ -48,10 +48,12 @@ export func TaskList() {
 								}}
 							/>
 							<span>{task.title}</span>
-							{task.urgent ? <mark>urgent</mark> : null}
+							{#if task.urgent}
+							  <mark>urgent</mark>
+							{/if}
 						</label>
-					</li>
-				))}
+					</li>				  
+				{/for}
 			</ul>
 		</Fragment>
 	);

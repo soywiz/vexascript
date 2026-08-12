@@ -1,6 +1,6 @@
 import "../cli/localVfs";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import type { CompletionItem, Connection, Diagnostic, DocumentHighlight, Hover, Location, Range, TextDocuments } from "vscode-languageserver/node.js";
+import type { CompletionItem, Connection, Diagnostic, DocumentHighlight, Hover, Location, Range, SemanticTokens, TextDocuments } from "vscode-languageserver/node.js";
 import { AnalysisSessionCache } from "../compiler/lsp/analysisSession";
 import { collectAllImportedDeclarations } from "../compiler/lsp/importedDeclarations";
 import { ensureDomProgram, getDomDeclarationFilePath } from "../compiler/runtime/domDeclarations";
@@ -39,6 +39,8 @@ export interface LspOpenSessionResult {
   hovers: Array<Hover | null>;
   documentHighlights: DocumentHighlight[][];
   completions: CompletionItem[][];
+  semanticTokens: SemanticTokens;
+  semanticTokensRange: SemanticTokens;
 }
 
 export interface LspPositionProbe {
@@ -339,11 +341,11 @@ export async function openEntrypointInLspSession(
   }) as Promise<{ items: Diagnostic[] }>;
   const semanticTokensPromise = server.fakeConnection.handlers.get("semanticTokens")!({
     textDocument: { uri }
-  });
+  }) as Promise<SemanticTokens>;
   const semanticTokensRangePromise = server.fakeConnection.handlers.get("semanticTokensRange")!({
     textDocument: { uri },
     range
-  });
+  }) as Promise<SemanticTokens>;
   const workspaceDiagnosticsPromise = server.fakeConnection.handlers.get("workspaceDiagnostics")!({}) as Promise<{
     items: Array<{ uri: string; items: Diagnostic[] }>;
   }>;
@@ -378,8 +380,8 @@ export async function openEntrypointInLspSession(
     ,
     ,
     ,
-    ,
-    ,
+    semanticTokens,
+    semanticTokensRange,
     workspaceDiagnosticReport,
     definitions,
     hovers,
@@ -406,6 +408,8 @@ export async function openEntrypointInLspSession(
     definitions,
     hovers,
     documentHighlights,
-    completions
+    completions,
+    semanticTokens,
+    semanticTokensRange
   };
 }

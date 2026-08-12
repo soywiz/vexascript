@@ -31,18 +31,18 @@ export func FilterControls() {
 	return (
 		<fieldset class="filters">
 			<legend>Signal filter</legend>
-			{(["all", "active", "done"] as Filter[]).map((filter) => (
+			{#for filter of ["all", "active", "done"] as Filter[]}
 				<label key={filter}>
 					<input
 						type="radio"
 						name="filter"
 						value={filter}
 						checked={selectedFilter.value == filter}
-						onChange={() => { selectedFilter.value = filter; }}
+						onChange={{ selectedFilter.value = filter }}
 					/>
 					{filter}
-				</label>
-			))}
+				</label>			  
+			{/for}
 			<select
 				aria-label="Task filter"
 				value={selectedFilter.value}

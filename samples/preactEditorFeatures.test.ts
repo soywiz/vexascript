@@ -1,5 +1,6 @@
 import { describe, expect, it, readFile, resolve } from "../compiler/test/expect";
 import { ensureRuntimeDependencies, resolveProjectForSource } from "../cli/cliShared";
+import { VEXA_SEMANTIC_TOKENS_LEGEND } from "../compiler/lsp/semanticTokens";
 import { openEntrypointInLspSession, type LspPositionProbe } from "./lspOpenSession";
 
 function positionInside(source: string, text: string): LspPositionProbe {
@@ -20,6 +21,27 @@ function positionAfter(source: string, text: string): LspPositionProbe {
 
 function hoverText(value: unknown): string {
   return ((value as { contents?: { value?: string } } | null)?.contents?.value ?? "");
+}
+
+function semanticTokenType(source: string, text: string, data: number[]): string | undefined {
+  const offset = source.indexOf(text);
+  if (offset < 0) throw new Error(`Expected sample source to contain '${text}'`);
+  const before = source.slice(0, offset);
+  const targetLine = before.split("\n").length - 1;
+  const targetCharacter = before.length - (before.lastIndexOf("\n") + 1);
+  let line = 0;
+  let character = 0;
+
+  for (let index = 0; index < data.length; index += 5) {
+    const deltaLine = data[index] ?? 0;
+    line += deltaLine;
+    character = deltaLine === 0 ? character + (data[index + 1] ?? 0) : (data[index + 1] ?? 0);
+    if (line === targetLine && character === targetCharacter && data[index + 2] === text.length) {
+      return VEXA_SEMANTIC_TOKENS_LEGEND.tokenTypes[data[index + 3] ?? -1];
+    }
+  }
+
+  return undefined;
 }
 
 async function openSampleFile(
@@ -69,6 +91,7 @@ describe("preact JSX editor features", () => {
       ["event.currentTarget.", "formRef.current?."],
       3
     );
+    const source = await readFile(resolve(process.cwd(), "samples/preact/src/forms.vx"), "utf8");
 
     expect(hovers[0]).toContain("useImperativeHandle");
     expect(hovers[1]).toContain("HTMLInputElement");
@@ -76,13 +99,15 @@ describe("preact JSX editor features", () => {
     expect(result.completions[0]?.some((item) => item.label === "value")).toBe(true);
     expect(result.completions[0]?.some((item) => item.label === "selectionStart")).toBe(true);
     expect(result.completions[1]?.some((item) => item.label === "focus")).toBe(true);
+    expect(semanticTokenType(source, "FilterControls", result.semanticTokens.data)).toBe("function");
+    expect(semanticTokenType(source, "FilterControls", result.semanticTokensRange.data)).toBe("function");
   });
 
   it("keeps signals, class components and lifecycle APIs typed", async () => {
     const { result, hovers } = await openSampleFile(
       "src/components.vx",
       ["useSignal", "useComputed", "useSignalEffect", "componentDidMount"],
-      ["theme.", "visibleTasks.value."]
+      ["theme.", "visibleTasks."]
     );
 
     expect(hovers[0]).toContain("useSignal");
@@ -90,7 +115,7 @@ describe("preact JSX editor features", () => {
     expect(hovers[2]).toContain("useSignalEffect");
     expect(hovers[3]).toContain("componentDidMount");
     expect(result.completions[0]?.some((item) => item.label === "accent")).toBe(true);
-    expect(result.completions[1]?.some((item) => item.label === "map")).toBe(true);
+    expect(result.completions[1]?.some((item) => item.label === "value")).toBe(true);
   });
 
   it("keeps core signal primitives typed in shared state", async () => {

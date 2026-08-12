@@ -57,6 +57,34 @@ function decodeTokens(source: string, data: number[]): DecodedToken[] {
 }
 
 describe("semantic tokens", () => {
+  it("continues highlighting declarations after multiline self-closing JSX", () => {
+    const source = dedent`
+      export func SearchBox() {
+        return (
+          <label>
+            <input
+              value="query"
+            />
+          </label>
+        )
+      }
+
+      export func FilterControls() {
+        return <fieldset />
+      }
+    `;
+    const session = createAnalysisSession(source);
+    const decoded = decodeTokens(source, createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    }).data);
+
+    expect(decoded.some((token) => token.lexeme === "export" && token.line === 10 && token.tokenType === "keywordType")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "func" && token.line === 10 && token.tokenType === "keywordModifier")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "FilterControls" && token.tokenType === "function")).toBe(true);
+  });
+
   it("visits iterator, iterable, and result expressions in array comprehensions", () => {
     const source = "val labels = [for (value of values) value.toString()]\n";
     const session = createAnalysisSession(source);
@@ -170,7 +198,8 @@ describe("semantic tokens", () => {
     const semantic = createSemanticTokens({
       text: source,
       ast,
-      analysis
+      analysis,
+      jsx: false
     });
 
     const decoded = decodeTokens(source, semantic.data);
@@ -398,7 +427,7 @@ describe("semantic tokens", () => {
   it("highlights ambient namespace paths and parsed body declarations", () => {
     const source = "declare namespace Company.Tools {\nexport const version: string;\n}";
     const ast = parseFile(tokenizeReader(source), { language: "typescript" });
-    const semantic = createSemanticTokens({ text: source, ast, analysis: new Analysis(ast) });
+    const semantic = createSemanticTokens({ text: source, ast, analysis: new Analysis(ast), jsx: false });
     const decoded = decodeTokens(source, semantic.data);
 
     expect(decoded.filter((token) => token.tokenType === "namespace").map((token) => token.lexeme)).toEqual(["Company", "Tools"]);

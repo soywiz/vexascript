@@ -221,6 +221,7 @@ interface SemanticTokenParams {
   text: string;
   ast?: Program | null;
   analysis?: Analysis | null;
+  jsx?: boolean;
   range?: DocumentRange;
   tokenModifiersByRangeKey?: ReadonlyMap<string, number>;
 }
@@ -995,7 +996,7 @@ function regularExpressionSemanticParts(value: string): RegExpSemanticPart[] {
 export function createSemanticTokens(params: SemanticTokenParams): SemanticTokens {
   let tokens: Token[] = [];
   try {
-    tokens = tokenize(params.text);
+    tokens = tokenize(params.text, { jsx: params.jsx ?? true });
   } catch {
     return { data: [] };
   }

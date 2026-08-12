@@ -54,6 +54,22 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
 }
 
 describe("cross-file navigation", () => {
+  it("returns no fallback definition when a session has no analysis", async () => {
+    const source = "const value = 1\n";
+    const session = { ...createAnalysisSession(source), analysis: null };
+
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: "file:///workspace/main.vx",
+      line: 0,
+      character: 7,
+      session,
+      sourceRoots: ["/workspace"],
+      getSessionForFilePath: () => null
+    });
+
+    expect(location).toBeNull();
+  });
+
   it("navigates a member whose declaration arrives through a transitive inferred import", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-transitive-member-definition-"));
     const packageDirectory = join(root, "node_modules", "signals-like");

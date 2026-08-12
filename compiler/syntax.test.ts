@@ -127,4 +127,17 @@ describe("portable monarch syntax", () => {
       (rule) => rule.match === String.raw`>` && rule.next === "@pop"
     )).toBe(true);
   });
+
+  it("closes multiline self-closing JSX elements without consuming a parent closing tag", () => {
+    const vscodeGrammar = createVscodeTmLanguageGrammar();
+    const repository = vscodeGrammar["repository"] as Record<string, unknown>;
+    const pairedElement = repository["jsx-paired-element"] as {
+      end: string;
+      endCaptures: Record<string, { name: string }>;
+    };
+
+    expect(pairedElement.end).toBe("(/>)|(</)(\\2)\\s*(>)");
+    expect(pairedElement.endCaptures["1"]?.name).toBe("punctuation.definition.tag.end.vexa");
+    expect(pairedElement.endCaptures["3"]?.name).toBe("entity.name.tag.vexa");
+  });
 });

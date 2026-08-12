@@ -473,15 +473,18 @@
           "name": "entity.name.tag.vexa"
         }
       },
-      "end": "(</)([_$A-Za-z][-_$A-Za-z0-9.]*)?\\s*(>)",
+      "end": "(/>)|(</)(\\2)\\s*(>)",
       "endCaptures": {
         "1": {
-          "name": "punctuation.definition.tag.begin.vexa"
+          "name": "punctuation.definition.tag.end.vexa"
         },
         "2": {
-          "name": "entity.name.tag.vexa"
+          "name": "punctuation.definition.tag.begin.vexa"
         },
         "3": {
+          "name": "entity.name.tag.vexa"
+        },
+        "4": {
           "name": "punctuation.definition.tag.end.vexa"
         }
       },

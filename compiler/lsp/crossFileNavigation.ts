@@ -805,8 +805,11 @@ export async function resolveDefinitionWithLocalFallback(
   if (crossFile) {
     return crossFile;
   }
+  if (!context.session.analysis) {
+    return null;
+  }
   return createDefinitionLocation(
-    context.session.analysis!,
+    context.session.analysis,
     context.uri,
     context.line,
     context.character,

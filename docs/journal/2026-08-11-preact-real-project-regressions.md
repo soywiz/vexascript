@@ -58,6 +58,22 @@ then protected by smaller regression tests.
   runtime with an undefined `__vexaJsxFactory`. Automatic classic-runtime
   binding now lives in `transpile()` itself, so direct Vite transforms and
   module-graph emission use the same implementation and source-map accounting.
+- The TextMate rule for self-closing JSX required `/>` on the same line as the
+  opening tag. A multiline `<input ... />` therefore entered the paired-element
+  rule, whose closing pattern accepted the parent `</label>`. The parent scope
+  remained open and later declarations such as `export func FilterControls`
+  were parsed as unhighlighted JSX text. Paired elements now close either at a
+  multiline `/>` or at the matching opening-tag backreference.
+- Semantic-token generation independently called the tokenizer with JSX
+  disabled. Tokenization threw for the same sample and the defensive error path
+  returned an empty token set, leaving TextMate as the only highlighting layer.
+  VexaScript semantic-token requests now tokenize with JSX enabled by default;
+  TypeScript-only angle-bracket assertion tests opt out explicitly.
+- Definition fallback assumed every analysis session had a non-null analysis,
+  even though parse/tokenization failures explicitly produce nullable session
+  artifacts. A parallel Monaco workspace test reached that valid state and
+  crashed navigation. The shared fallback now returns no definition when the
+  session cannot provide semantic analysis instead of dereferencing null.
 
 ## Investigation branches that did not work
 
@@ -95,6 +111,12 @@ then protected by smaller regression tests.
   active editor session. Restart the language-server process (or reload the VS
   Code window) after local extension installation, and distinguish the live
   process from the bundle on disk before reopening a solved compiler bug.
+- The first highlighting inspection focused on declaration classification
+  because only the later function name appeared gray. Directly invoking the
+  semantic-token builder on `forms.vx` showed that it returned no tokens at all;
+  inspecting the TextMate scope lifetime then revealed the independent leaked
+  JSX scope. Testing both editor layers was necessary because fixing either one
+  alone would leave the other regression hidden.
 
 ## Lesson
 

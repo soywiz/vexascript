@@ -499,11 +499,12 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
         name: "meta.tag.vexa",
         begin: "(?<![\\w)\\]])(<)([_$A-Za-z][-_$A-Za-z0-9.]*)",
         beginCaptures: { "1": { name: "punctuation.definition.tag.begin.vexa" }, "2": { name: "entity.name.tag.vexa" } },
-        end: "(</)([_$A-Za-z][-_$A-Za-z0-9.]*)?\\s*(>)",
+        end: "(/>)|(</)(\\2)\\s*(>)",
         endCaptures: {
-          "1": { name: "punctuation.definition.tag.begin.vexa" },
-          "2": { name: "entity.name.tag.vexa" },
-          "3": { name: "punctuation.definition.tag.end.vexa" },
+          "1": { name: "punctuation.definition.tag.end.vexa" },
+          "2": { name: "punctuation.definition.tag.begin.vexa" },
+          "3": { name: "entity.name.tag.vexa" },
+          "4": { name: "punctuation.definition.tag.end.vexa" },
         },
         patterns: [
           { include: "#jsx-attributes" },
