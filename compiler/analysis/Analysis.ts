@@ -366,6 +366,31 @@ export class Analysis {
     for (const resolution of this.extensionPropertyResolutions) {
       markDeclarationUsed(resolution.declaration);
     }
+    const importedNames = new Set<string>();
+    for (const statement of this.program.body) {
+      if (!(statement instanceof ImportStatement)) continue;
+      const importStatement = statement as ImportStatement;
+      if (importStatement.defaultImport) importedNames.add(importStatement.defaultImport.name);
+      if (importStatement.namespaceImport) importedNames.add(importStatement.namespaceImport.name);
+      for (const specifier of importStatement.specifiers) {
+        importedNames.add((specifier.local ?? specifier.imported).name);
+      }
+    }
+    const collectNestedTypeReferences = (node: Node): void => {
+      if (node instanceof ImportStatement) return;
+      if (node instanceof Identifier) {
+        for (const importedName of importedNames) {
+          if (
+            node.name !== importedName &&
+            new RegExp(`(?:^|\\W)${importedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|\\W)`).test(node.name)
+          ) {
+            usedImportedNames.add(importedName);
+          }
+        }
+      }
+      for (const child of childNodes(node)) collectNestedTypeReferences(child);
+    };
+    collectNestedTypeReferences(this.program);
 
     const unused: Identifier[] = [];
     for (const statement of this.program.body) {

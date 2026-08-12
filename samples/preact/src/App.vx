@@ -1,0 +1,65 @@
+import { useCallback, useEffect, useErrorBoundary, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
+import { FilterControls, TaskForm } from "./forms.vx";
+import { LifecycleCard, SampleBoundary, SignalCounter, TaskList } from "./components.vx";
+import { ThemeContext, darkTheme, lightTheme } from "./theme.vx";
+import type { CounterAction } from "./model.vx";
+
+export func App() {
+	let dark by useState(false);
+	const [count, dispatch] = useReducer((state: number, action: CounterAction) => {
+		if (action == "reset") return 0;
+		return state + 1;
+	}, 0);
+	const doubled = useMemo(() => count * 2, [count]);
+	const increment = useCallback(() => dispatch("increment"), []);
+	const titleRef = useRef<HTMLHeadingElement>(null);
+	const id = useId();
+	const [error, resetError] = useErrorBoundary((caught) => {
+		console.error("Hook boundary", caught);
+	});
+
+	useEffect(() => {
+		document.title = `Preact advanced sample · ${count}`;
+		return () => { document.title = "Preact advanced sample"; };
+	}, [count]);
+
+	useLayoutEffect(() => {
+		const width = titleRef.current?.getBoundingClientRect().width ?? 0;
+		console.debug("heading width", width);
+	}, []);
+
+	if (error) {
+		return <button onClick={resetError}>Reset hook error boundary</button>;
+	}
+
+	const theme = dark ? darkTheme : lightTheme;
+	return (
+		<ThemeContext.Provider value={theme}>
+			<main class={dark ? "app dark" : "app"} style={{ background: theme.panel }}>
+				<header ref={(node) => {
+					if (node) node.dataset.mounted = "true";
+					return () => { console.debug("header callback ref cleanup"); };
+				}}>
+					<p class="eyebrow">VexaScript + Preact</p>
+					<h1 ref={titleRef}>Advanced Preact feature lab</h1>
+					<p>Components, hooks, signals, forms, refs and context in one runnable project.</p>
+					<div class="toolbar">
+						<button onClick={increment}>Reducer count: {count} / memo: {doubled}</button>
+						<button onClick={() => dispatch("reset")}>Reset reducer</button>
+						<button id={id} onClick={() => { dark = !dark; }}>Toggle theme</button>
+					</div>
+				</header>
+				<ThemeContext.Consumer>
+					{(currentTheme) => <p class="context-readout">Consumer theme: {currentTheme.name}</p>}
+				</ThemeContext.Consumer>
+				<FilterControls />
+				<TaskForm />
+				<SignalCounter />
+				<SampleBoundary>
+					<TaskList />
+					<LifecycleCard label="Class component lifecycle" />
+				</SampleBoundary>
+			</main>
+		</ThemeContext.Provider>
+	);
+}

@@ -1,4 +1,4 @@
-# VexaScript + Vite
+# VexaScript + Preact + Vite
 
 This project models an external Vite application. It links the repository package only so the sample can exercise the unpublished local build; a published consumer would use the normal `vexascript` npm version instead.
 
@@ -8,5 +8,7 @@ pnpm dev
 ```
 
 `vite.config.mjs` imports `vexascript()` from `vexascript/vite`. Vite owns module resolution, dependency bundling, assets, production builds, and HMR; the plugin transforms each `.vx` module to ESM with a source map.
+
+`src/main.vx` also imports Preact and `preact/hooks` from `node_modules`. The small counter demonstrates that VexaScript JSX, a third-party UI library, local `.vx` modules, Vite dependency bundling, and HMR work together in an ordinary external application.
 
 The transform intentionally does not perform whole-project type checking. Use the VexaScript language server while editing and run the VexaScript CLI in CI when a dedicated semantic check is required.

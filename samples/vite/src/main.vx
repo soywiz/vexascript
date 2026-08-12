@@ -1,9 +1,28 @@
-import { greeting } from "./greeting.vx"
+import { render } from "preact";
+import { useState } from "preact/hooks";
+import { greeting } from "./greeting.vx";
 
-val message = greeting("browser")
-val target = document.querySelector("#app")
-if (target) {
-  target.textContent = message
+func App() {
+  let clicks by useState(0);
+  const message = greeting("Preact in Vite");
+
+  return (
+    <section>
+      <p class="eyebrow">VexaScript library interop</p>
+      <h1>{message}</h1>
+      <p>Preact is imported from node_modules and bundled by Vite.</p>
+      <button onClick={(event) => {
+        event.currentTarget.blur();
+        clicks++;
+      }}>
+        Clicks: {clicks}
+      </button>
+    </section>
+  );
 }
 
-console.log(message)
+const root = document.getElementById("app");
+if (!root) throw Error("Missing #app root");
+
+render(<App />, root);
+console.log(greeting("browser"));

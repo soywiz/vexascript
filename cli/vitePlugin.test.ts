@@ -69,6 +69,31 @@ describe("Vite plugin", () => {
     expect(overridden!.code).toContain('customH("div"');
   });
 
+  it("imports Preact factories for projects configured with jsxImportSource", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-vite-preact-"));
+    temporaryDirectories.push(root);
+    const sourceDir = join(root, "src");
+    const sourcePath = join(sourceDir, "main.vx");
+    await mkdir(sourceDir);
+    await writeFile(
+      join(root, "vexascript.json"),
+      '{"compilerOptions":{"jsxImportSource":"preact"}}\n',
+      "utf8"
+    );
+
+    const plugin = vexascript();
+    const result = await plugin.transform!.call(
+      transformContext(),
+      "export const view = <div>Hello</div>",
+      sourcePath
+    );
+
+    expect(result!.code).toContain(
+      'import { h as __vexaJsxFactory, Fragment as __vexaJsxFragment } from "preact";'
+    );
+    expect(result!.code).toContain('__vexaJsxFactory("div", null, "Hello")');
+  });
+
   it("leaves non-module and asset requests to Vite", async () => {
     const plugin = vexascript();
 

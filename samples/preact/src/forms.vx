@@ -1,0 +1,110 @@
+import { useImperativeHandle, useRef, useState } from "preact/hooks";
+import { batch, untracked } from "@preact/signals";
+import type { Filter, SearchBoxProps, SearchHandle } from "./model.vx";
+import { selectedFilter, tasks } from "./tasks.vx";
+
+export func SearchBox({ inputRef, query, onQuery }: SearchBoxProps) {
+	const localInput = useRef<HTMLInputElement>(null);
+
+	useImperativeHandle(inputRef, () => ({
+		focus: () => localInput.current?.focus(),
+		select: () => localInput.current?.select()
+	}), []);
+
+	return (
+		<label class="field">
+			<span>Task title</span>
+			<input
+				ref={localInput}
+				value={query}
+				onInput={(event) => {
+					const selectionStart = event.currentTarget.selectionStart ?? 0;
+					onQuery(event.currentTarget.value);
+					console.debug("selection", selectionStart);
+				}}
+			/>
+		</label>
+	);
+}
+
+export func FilterControls() {
+	return (
+		<fieldset class="filters">
+			<legend>Signal filter</legend>
+			{(["all", "active", "done"] as Filter[]).map((filter) => (
+				<label key={filter}>
+					<input
+						type="radio"
+						name="filter"
+						value={filter}
+						checked={selectedFilter.value == filter}
+						onChange={() => { selectedFilter.value = filter; }}
+					/>
+					{filter}
+				</label>
+			))}
+			<select
+				aria-label="Task filter"
+				value={selectedFilter.value}
+				onChange={(event) => { selectedFilter.value = event.currentTarget.value as Filter; }}
+			>
+				<option value="all">All tasks</option>
+				<option value="active">Active tasks</option>
+				<option value="done">Completed tasks</option>
+			</select>
+		</fieldset>
+	);
+}
+
+export func TaskForm() {
+	let query by useState("");
+	let urgent by useState(false);
+	const formRef = useRef<SearchHandle>(null);
+	const uncontrolledRef = useRef<HTMLInputElement>(null);
+
+	func addTask() {
+		const title = query.trim();
+		if (!title) {
+			formRef.current?.focus();
+			return;
+		}
+
+		const previousCount = untracked(() => tasks.value.length);
+		batch(() => {
+			tasks.value = [...tasks.value, {
+				id: previousCount + 1,
+				title,
+				done: false,
+				urgent
+			}];
+			query = "";
+			urgent = false;
+		});
+		formRef.current?.select();
+	}
+
+	return (
+		<form class="task-form" onSubmit={(event) => {
+			event.preventDefault();
+			addTask();
+		}}>
+			<SearchBox inputRef={formRef} query={query} onQuery={(value) => { query = value; }} />
+			<label class="check-field">
+				<input
+					type="checkbox"
+					checked={urgent}
+					onChange={(event) => { urgent = event.currentTarget.checked; }}
+				/>
+				Urgent
+			</label>
+			<label class="field">
+				<span>Uncontrolled owner</span>
+				<input ref={uncontrolledRef} defaultValue="Vexa team" />
+			</label>
+			<button type="submit">Add task</button>
+			<button type="button" onClick={() => {
+				console.log(uncontrolledRef.current?.value ?? "anonymous");
+			}}>Read uncontrolled value</button>
+		</form>
+	);
+}

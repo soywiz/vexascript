@@ -1,0 +1,24 @@
+import { computed, effect, signal } from "@preact/signals";
+import type { Filter, Task } from "./model.vx";
+
+export const tasks = signal<Task[]>([
+	{ id: 1, title: "Explore typed components", done: true, urgent: false },
+	{ id: 2, title: "Inspect hook completions", done: false, urgent: true },
+	{ id: 3, title: "Verify signals in JSX", done: false, urgent: false }
+]);
+
+export const selectedFilter = signal<Filter>("all");
+export const auditTrail = signal<string[]>([]);
+export const remaining = computed(() => tasks.value.filter((task) => !task.done).length);
+export const visibleTasks = computed(() => tasks.value.filter((task) => {
+	if (selectedFilter.value == "active") return !task.done;
+	if (selectedFilter.value == "done") return task.done;
+	return true;
+}));
+
+effect(() => {
+	const summary = `${remaining.value} remaining`;
+	if (auditTrail.peek().at(-1) != summary) {
+		auditTrail.value = [...auditTrail.peek(), summary];
+	}
+});

@@ -16,15 +16,24 @@ async function createPreactJsxSession(source: string) {
   const consumerPath = join(root, "consumer.vx");
   const preactSource = dedent`
     export namespace JSXInternal {
-      export type TargetedEvent<Target extends EventTarget> = {
+      export type TargetedEvent<
+        Target extends EventTarget = EventTarget,
+        TypedEvent extends Event = Event
+      > = Omit<TypedEvent, "currentTarget"> & {
         readonly currentTarget: Target
       }
+      export interface RefObject<T> {
+        current: T | null
+      }
+      export type RefCallback<T> = (instance: T | null) => void | (() => void)
+      export type Ref<T> = RefObject<T> | RefCallback<T> | null
       export type EventHandler<E> = {
         bivarianceHack(event: E): void
       }["bivarianceHack"]
       export type MouseEventHandler<Target extends EventTarget> = EventHandler<TargetedEvent<Target>>
       export interface DOMAttributes<Target extends EventTarget> {
         onClick?: MouseEventHandler<Target> | undefined
+        onSubmit?: EventHandler<TargetedEvent<Target>> | undefined
       }
       export interface ButtonHTMLAttributes<Target extends EventTarget> extends DOMAttributes<Target> {}
       export interface MathMathMLAttributes<Target extends EventTarget> {
@@ -42,11 +51,14 @@ async function createPreactJsxSession(source: string) {
       }
       export interface HTMLAttributes<Target extends EventTarget> extends DOMAttributes<Target> {
         onAbort?: (() => void)
+        ref?: Ref<Target> | undefined
         style?: CSSProperties
       }
       export interface IntrinsicElements {
         button: ButtonHTMLAttributes<HTMLButtonElement>
         div: HTMLAttributes<HTMLDivElement>
+        form: HTMLAttributes<HTMLFormElement>
+        header: HTMLAttributes<HTMLElement>
       }
     }
 
@@ -59,8 +71,17 @@ async function createPreactJsxSession(source: string) {
   `;
   const domSource = dedent`
     interface EventTarget {}
+    interface Event {
+      preventDefault(): void
+    }
+    interface DOMStringMap {
+      [name: string]: string | undefined
+    }
     interface Element extends EventTarget {}
-    interface HTMLElement extends Element {}
+    interface HTMLElement extends Element {
+      dataset: DOMStringMap
+    }
+    interface HTMLFormElement extends HTMLElement {}
     interface HTMLButtonElement extends HTMLElement {
       click(): void
       disabled: boolean
@@ -104,11 +125,43 @@ async function createPreactJsxSession(source: string) {
     ambientDeclarations: domProgram.body,
     ambientDeclarationLocations
   });
+  if (session.fatalError) {
+    throw new Error(session.fatalError);
+  }
 
   return { context, domPath, domSource, preactPath, preactSource, session };
 }
 
 describe("JSX editor features", () => {
+  it("preserves base Event members through Preact TargetedEvent utility types", async () => {
+    const source = dedent`
+      import { render } from "preact"
+
+      function App() {
+        return <form onSubmit={(event) => event.preventDefault()}></form>
+      }
+    `;
+    const setup = await createPreactJsxSession(source);
+
+    expect(setup.session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("contextually types cleanup-capable callback refs from intrinsic JSX attributes", async () => {
+    const source = dedent`
+      import { render } from "preact"
+
+      function App() {
+        return <header ref={(node) => {
+          if (node) node.dataset.mounted = "true"
+          return () => {}
+        }}></header>
+      }
+    `;
+    const setup = await createPreactJsxSession(source);
+
+    expect(setup.session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
   it("preserves the concrete target type through implicit JSX event parameters", async () => {
     const cursor = sourceWithCursor(dedent`
       import { render } from "preact"

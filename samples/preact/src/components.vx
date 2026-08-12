@@ -1,0 +1,122 @@
+import { Component, Fragment, createRef } from "preact";
+import type { ComponentChildren, ErrorInfo } from "preact";
+import { useContext } from "preact/hooks";
+import { useComputed, useSignal, useSignalEffect } from "@preact/signals";
+import { useVisibleTaskCount } from "./hooks.vx";
+import { remaining, tasks, visibleTasks } from "./tasks.vx";
+import { ThemeContext } from "./theme.vx";
+import type { Theme } from "./theme.vx";
+
+export func SignalCounter() {
+	const clicks = useSignal(0);
+	const doubled = useComputed(() => clicks.value * 2);
+
+	useSignalEffect(() => {
+		console.debug("signal counter", doubled.value);
+	});
+
+	return (
+		<button class="signal-counter" onClick={() => { clicks.value++; }}>
+			Local signal: {clicks} · computed: {doubled}
+		</button>
+	);
+}
+
+export func TaskList() {
+	const theme = useContext(ThemeContext);
+	const visibleCount = useVisibleTaskCount();
+
+	return (
+		<Fragment>
+			<div class="summary" style={{ borderColor: theme.accent }}>
+				<strong>{remaining}</strong>
+				<span>{visibleCount} visible</span>
+			</div>
+			<ul class="tasks">
+				{visibleTasks.value.map((task) => (
+					<li key={task.id} class={task.done ? "done" : ""}>
+						<label>
+							<input
+								type="checkbox"
+								checked={task.done}
+								onChange={() => {
+									tasks.value = tasks.value.map((candidate) =>
+										candidate.id == task.id
+											? { ...candidate, done: !candidate.done }
+											: candidate
+									);
+								}}
+							/>
+							<span>{task.title}</span>
+							{task.urgent ? <mark>urgent</mark> : null}
+						</label>
+					</li>
+				))}
+			</ul>
+		</Fragment>
+	);
+}
+
+interface LifecycleProps {
+	label: string;
+}
+
+interface LifecycleState {
+	updates: number;
+}
+
+export class LifecycleCard extends Component<LifecycleProps, LifecycleState> {
+	static contextType = ThemeContext;
+	state: LifecycleState = { updates: 0 };
+	inputRef = createRef<HTMLInputElement>();
+
+	componentDidMount() {
+		this.inputRef.current?.focus();
+	}
+
+	componentDidUpdate() {
+		console.debug("LifecycleCard updated");
+	}
+
+	componentWillUnmount() {
+		console.debug("LifecycleCard unmounted");
+	}
+
+	render(props: LifecycleProps, state: LifecycleState) {
+		const theme = this.context as Theme;
+		return (
+			<section class="lifecycle" style={{ borderColor: theme.accent }}>
+				<strong>{props.label}</strong>
+				<input ref={this.inputRef} value={String(state.updates)} readOnly />
+				<button onClick={() => this.setState((previous) => ({ updates: previous.updates + 1 }))}>
+					Trigger update
+				</button>
+			</section>
+		);
+	}
+}
+
+interface BoundaryProps {
+	children: ComponentChildren;
+}
+
+interface BoundaryState {
+	failed: boolean;
+}
+
+export class SampleBoundary extends Component<BoundaryProps, BoundaryState> {
+	state: BoundaryState = { failed: false };
+
+	static getDerivedStateFromError(_error: unknown) {
+		return { failed: true };
+	}
+
+	componentDidCatch(error: unknown, errorInfo: ErrorInfo) {
+		console.error("Preact boundary", error, errorInfo);
+	}
+
+	render(props: BoundaryProps, state: BoundaryState) {
+		if (state.failed) return <p role="alert">The component was recovered by the boundary.</p>;
+		return props.children;
+	}
+}

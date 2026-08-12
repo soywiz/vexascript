@@ -57,6 +57,7 @@ async function transformVexaScript(
   const project = await loadProject(dirname(sourcePath));
   const jsxFactory = options.jsxFactory ?? project?.jsxFactory;
   const jsxFragmentFactory = options.jsxFragmentFactory ?? project?.jsxFragmentFactory;
+  const jsxImportSource = project?.jsxImportSource;
   const result = transpile(code, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPathFor(sourcePath),
@@ -65,7 +66,8 @@ async function transformVexaScript(
     emitSourceMap: true,
     moduleFormat: "esm",
     ...(jsxFactory ? { jsxFactory } : {}),
-    ...(jsxFragmentFactory ? { jsxFragmentFactory } : {})
+    ...(jsxFragmentFactory ? { jsxFragmentFactory } : {}),
+    ...(jsxImportSource ? { jsxImportSource } : {})
   });
 
   if (result.errors.length > 0) {

@@ -4,47 +4,105 @@ import { openEntrypointInLspSession, type LspPositionProbe } from "./lspOpenSess
 
 function positionInside(source: string, text: string): LspPositionProbe {
   const offset = source.indexOf(text);
-  if (offset < 0) {
-    throw new Error(`Expected sample source to contain '${text}'`);
-  }
-  const before = source.slice(0, offset);
+  if (offset < 0) throw new Error(`Expected sample source to contain '${text}'`);
+  const before = source.slice(0, offset + Math.max(1, Math.floor(text.length / 2)));
   const lines = before.split("\n");
-  return {
-    line: lines.length - 1,
-    character: (lines.at(-1)?.length ?? 0) + Math.floor(text.length / 2)
-  };
+  return { line: lines.length - 1, character: lines.at(-1)?.length ?? 0 };
+}
+
+function positionAfter(source: string, text: string): LspPositionProbe {
+  const offset = source.lastIndexOf(text);
+  if (offset < 0) throw new Error(`Expected sample source to contain '${text}'`);
+  const before = source.slice(0, offset + text.length);
+  const lines = before.split("\n");
+  return { line: lines.length - 1, character: lines.at(-1)?.length ?? 0 };
+}
+
+function hoverText(value: unknown): string {
+  return ((value as { contents?: { value?: string } } | null)?.contents?.value ?? "");
+}
+
+async function openSampleFile(
+  relativePath: string,
+  hoverTexts: string[],
+  completionTexts: string[],
+  requiredDefinitionCount: number = hoverTexts.length
+) {
+  const sourcePath = resolve(process.cwd(), "samples/preact", relativePath);
+  const source = await readFile(sourcePath, "utf8");
+  const project = await resolveProjectForSource(sourcePath);
+  await ensureRuntimeDependencies(sourcePath, project);
+  const result = await openEntrypointInLspSession(
+    sourcePath,
+    process.cwd(),
+    hoverTexts.map((text) => positionInside(source, text)),
+    completionTexts.map((text) => positionAfter(source, text))
+  );
+  expect(result.documentDiagnostics).toEqual([]);
+  expect(result.workspaceDiagnostics).toEqual([]);
+  result.definitions.slice(0, requiredDefinitionCount).forEach((definition, index) => {
+    if (definition === null) throw new Error(`Missing definition for '${hoverTexts[index]}' in ${relativePath}`);
+  });
+  return { result, hovers: result.hovers.map(hoverText) };
 }
 
 describe("preact JSX editor features", () => {
-  it("keeps intrinsic and contextual event navigation aligned in the real LSP session", async () => {
-    const sourcePath = resolve(process.cwd(), "samples/preact/html.vx");
-    const source = await readFile(sourcePath, "utf8");
-    const project = await resolveProjectForSource(sourcePath);
-    await ensureRuntimeDependencies(sourcePath, project);
-
-    const result = await openEntrypointInLspSession(sourcePath, process.cwd(), [
-      positionInside(source, "button"),
-      positionInside(source, "onClick"),
-      positionInside(source, "currentTarget"),
-      positionInside(source, "display: \"flex\"")
-    ], [
-      positionInside(source, "\"flex\""),
-      positionInside(source, "display: \"flex\"")
-    ]);
-    const hoverValues = result.hovers.map((hover) =>
-      (hover?.contents as { value?: string } | undefined)?.value ?? ""
+  it("keeps advanced hooks and context typed across the project", async () => {
+    const { result, hovers } = await openSampleFile(
+      "src/App.vx",
+      ["useReducer", "useErrorBoundary", "useLayoutEffect", "currentTheme"],
+      ["theme."],
+      3
     );
 
-    expect(hoverValues[0]).toContain("HTMLButtonElement");
-    expect(hoverValues[1]).toContain("HTMLButtonElement");
-    expect(hoverValues[2]).toContain("HTMLButtonElement");
-    expect(hoverValues[3]).toContain("display: string | number");
-    expect(result.definitions[0]).not.toBeNull();
-    expect(result.definitions[1]).not.toBeNull();
-    expect(result.definitions[2]).not.toBeNull();
-    expect((result.definitions[3] as { uri?: string } | null)?.uri).toContain("compiler/runtime/dom.d.ts");
-    expect(result.completions[0]).toEqual([]);
-    const displayProperty = result.completions[1]?.find((item) => item.label === "display");
-    expect(displayProperty?.detail).toBe("Object property: string | number | null | undefined");
+    expect(hovers[0]).toContain("useReducer");
+    expect(hovers[1]).toContain("useErrorBoundary");
+    expect(hovers[2]).toContain("useLayoutEffect");
+    expect(hovers[3]).toContain("Theme");
+    expect(result.completions[0]?.some((item) => item.label === "accent")).toBe(true);
+  });
+
+  it("keeps forms, event targets and imperative refs typed", async () => {
+    const { result, hovers } = await openSampleFile(
+      "src/forms.vx",
+      ["useImperativeHandle", "onInput", "currentTarget"],
+      ["event.currentTarget.", "formRef.current?."],
+      3
+    );
+
+    expect(hovers[0]).toContain("useImperativeHandle");
+    expect(hovers[1]).toContain("HTMLInputElement");
+    expect(hovers[2]).toContain("HTMLInputElement");
+    expect(result.completions[0]?.some((item) => item.label === "value")).toBe(true);
+    expect(result.completions[0]?.some((item) => item.label === "selectionStart")).toBe(true);
+    expect(result.completions[1]?.some((item) => item.label === "focus")).toBe(true);
+  });
+
+  it("keeps signals, class components and lifecycle APIs typed", async () => {
+    const { result, hovers } = await openSampleFile(
+      "src/components.vx",
+      ["useSignal", "useComputed", "useSignalEffect", "componentDidMount"],
+      ["theme.", "visibleTasks.value."]
+    );
+
+    expect(hovers[0]).toContain("useSignal");
+    expect(hovers[1]).toContain("useComputed");
+    expect(hovers[2]).toContain("useSignalEffect");
+    expect(hovers[3]).toContain("componentDidMount");
+    expect(result.completions[0]?.some((item) => item.label === "accent")).toBe(true);
+    expect(result.completions[1]?.some((item) => item.label === "map")).toBe(true);
+  });
+
+  it("keeps core signal primitives typed in shared state", async () => {
+    const { hovers } = await openSampleFile(
+      "src/tasks.vx",
+      ["signal", "computed", "effect", "peek"],
+      []
+    );
+
+    expect(hovers[0]).toContain("signal");
+    expect(hovers[1]).toContain("computed");
+    expect(hovers[2]).toContain("effect");
+    expect(hovers[3]).toContain("peek");
   });
 });

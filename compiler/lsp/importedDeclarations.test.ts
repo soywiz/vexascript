@@ -622,6 +622,45 @@ test("supports trailing closures") {
     expect(origin?.statement.kind).toBe(NodeKind.ClassStatement);
   });
 
+  it("preserves inferred export types through transitive local imports", async () => {
+    await import("../../cli/localVfs");
+    const root = await mkdtemp(join(tmpdir(), "vexa-transitive-import-types-"));
+    const factoryFile = join(root, "factory.vx");
+    const stateFile = join(root, "state.vx");
+    const consumerFile = join(root, "consumer.vx");
+
+    await writeFile(
+      factoryFile,
+      "export interface Box<T> { value: T }\nexport func makeBox<T>(value: T): Box<T> => ({ value })\n",
+      "utf8"
+    );
+    await writeFile(
+      stateFile,
+      'import { makeBox } from "./factory.vx"\nexport const names = makeBox<string[]>(["Ada"])\n',
+      "utf8"
+    );
+    const source = 'import { names } from "./state.vx"\nconst count = names.value.length\n';
+    await writeFile(consumerFile, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(consumerFile).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: async (filePath) => {
+        const fileSource = await readFile(filePath, "utf8").catch(() => null);
+        return fileSource === null ? null : createAnalysisSession(fileSource);
+      }
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: imported.externalDeclarations,
+      importedSymbols: imported.importedSymbols,
+      invalidImportedBindings: imported.invalidImportedBindings
+    });
+
+    expect(typeToString(imported.importedSymbols.get("names")!.type!)).toContain("Box<string[]>");
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
   it("tracks declaration origins for aliased node_modules exports in the shared collection result", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-imported-node-origin-"));
     const packageDir = join(root, "node_modules", "zod-like");

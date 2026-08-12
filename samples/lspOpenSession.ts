@@ -200,6 +200,7 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
       uri: document.uri,
       sourceRoots: [workspaceRoot],
       getSessionForFilePath,
+      ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
       ambientModuleDeclarations: ambientTypes.moduleDeclarations,
       ambientGlobalDeclarations: ambientTypes.globalDeclarations
     };

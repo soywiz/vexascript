@@ -1,0 +1,21 @@
+import { createContext } from "preact";
+
+export interface Theme {
+	name: string;
+	accent: string;
+	panel: string;
+}
+
+export const lightTheme: Theme = {
+	name: "light",
+	accent: "#5b4bdb",
+	panel: "#ffffff"
+};
+
+export const darkTheme: Theme = {
+	name: "dark",
+	accent: "#9b8cff",
+	panel: "#211f2b"
+};
+
+export const ThemeContext = createContext<Theme>(lightTheme);

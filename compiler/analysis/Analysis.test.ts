@@ -445,6 +445,23 @@ describe("Analysis", () => {
     );
   });
 
+  it("prefers an interface's own method over an inherited broader signature", () => {
+    const source = dedent`
+      interface Element {}
+      interface HTMLElement extends Element { dataset: string }
+      interface ParentDocument { getElementById(id: string): Element | null }
+      interface Document extends ParentDocument { getElementById(id: string): HTMLElement | null }
+      declare const document: Document
+
+      const root = document.getElementById("app")
+      root?.dataset
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
   it("enforces inferred generic DOM constraints on method calls", async () => {
     const source = "document.body.appendChild(10)\n";
     const ast = parseFile(tokenizeReader(source));
@@ -1718,6 +1735,37 @@ let bad = "Ada" satisfies number
       NodeKind.ReturnStatement,
       NodeKind.ReturnStatement
     ]);
+  });
+
+  it("allows empty returns in functions whose return type is inferred", () => {
+    const source = dedent`
+      function stopEarly(flag: boolean) {
+        if (flag) return
+        console.log("continue")
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("propagates optional access through the remainder of a member chain", () => {
+    const source = dedent`
+      interface Rect { width: number }
+      interface ElementRef {
+        current: { getBoundingClientRect(): Rect } | null
+      }
+      declare const elementRef: ElementRef
+
+      function measure() {
+        return elementRef.current?.getBoundingClientRect().width ?? 0
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues()).toEqual([]);
   });
 
   it("reports empty template interpolations as semantic missing-expression errors", () => {
@@ -3297,6 +3345,26 @@ let bad = "Ada" satisfies number
       "Second element of property delegate tuple must be a setter function, got 'Dispatch<int>'"
     );
 
+    const ambientDeclarations = parseFile(tokenizeReader(
+      "type Dispatch<T> = (value: T) => void",
+      { language: "typescript" }
+    )).body;
+    const externalDeclarations = parseFile(tokenizeReader(
+      "export type Dispatch<T> = (value: T) => void",
+      { language: "typescript" }
+    )).body;
+    const aliasCollisionSource = dedent`
+      declare function state<T>(value: T): [T, Dispatch<T>]
+      var count by state(0)
+    `;
+    const aliasCollisionAnalysis = new Analysis(
+      parseFile(tokenizeReader(aliasCollisionSource)),
+      { ambientDeclarations, externalDeclarations }
+    );
+    expect(aliasCollisionAnalysis.getIssues().map((issue) => issue.message)).not.toContain(
+      "Second element of property delegate tuple must be a setter function, got 'Dispatch<int>'"
+    );
+
     // [value, setter] with mismatched types: invalid
     expect(issues("fun f() => [1, (value: string) => {}]\nvar a by f()")).toContain(
       "Getter type 'int' is not assignable to setter parameter type 'string'"
@@ -3952,6 +4020,18 @@ let bad = "Ada" satisfies number
     const messages = analysis.getIssues().map((issue) => issue.message);
 
     expect(messages.some((message) => message.includes("'Point'"))).toBe(false);
+  });
+
+  it("counts imported types used inside generic array arguments as used", () => {
+    const source = dedent`
+      import type { Task } from "./model"
+      declare function signal<T>(value: T): T
+      const tasks = signal<Task[]>([])
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getUnusedImportIdentifiers().map((identifier) => identifier.name)).toEqual([]);
   });
 
   it("resolves symbols introduced by default, namespace, and aliased imports", () => {

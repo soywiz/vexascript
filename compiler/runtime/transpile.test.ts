@@ -1100,6 +1100,21 @@ c.value`;
     expect(result.code).toContain('h(Fragment, null, h("span", null))');
   });
 
+  it("binds automatic JSX runtime factories in standalone ESM transforms", () => {
+    const result = transpile("const view = <><span/></>\n", {
+      moduleFormat: "esm",
+      jsxFactory: "__vexaJsxFactory",
+      jsxFragmentFactory: "__vexaJsxFragment",
+      jsxImportSource: "preact"
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain(
+      'import { h as __vexaJsxFactory, Fragment as __vexaJsxFragment } from "preact";'
+    );
+    expect(result.code).toContain('__vexaJsxFactory(__vexaJsxFragment, null, __vexaJsxFactory("span", null))');
+  });
+
 
   it("lowers delegated variables through type-directed getter and setter shapes", () => {
     const source = [

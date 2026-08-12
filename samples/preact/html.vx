@@ -1,46 +1,8 @@
-import { render, createContext } from "preact";
-import { useState, useContext, useMemo } from "preact/hooks";
+import { render } from "preact";
+import { App } from "./src/App.vx";
 
-interface CounterContextValue {
-	count: number;
-	increment: () => void;
-}
+const root = document.getElementById("app");
+if (!root) throw Error("Missing #app root");
 
-const CounterContext = createContext<CounterContextValue?>(undefined);
-
-func Counter() {
-	const { count, increment } = useContext(CounterContext)!;
-
-	return (
-		<div style={{ background: "#eee", padding: "10px" }}>
-			<p>Count: {count}</p>
-			<button onClick={{
-				if (it.currentTarget) increment();
-			}}>Add</button>
-		</div>
-	);
-}
-
-func App() {
-	let count by useState(0);
-
-	func increment() {
-		count++
-	}
-
-	const counter = useMemo({
-		return { count, increment };
-	}, [count]);
-
-	return (
-		<CounterContext.Provider value={counter}>
-			<div style={{ display: "flex", gap: "20px" }}>
-			{#for n in 0..<3}
-				<Counter />
-			{/for}
-			</div>
-		</CounterContext.Provider>
-	);
-}
-
-render(<App />, document.getElementById("app")!);
+render(<App />, root);
+console.log("preact-advanced-sample-ready");

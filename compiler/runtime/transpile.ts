@@ -20,7 +20,16 @@ import {
 } from "./emitter";
 import { lowerProgram } from "./lowering";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
-import { Program, type Expr, type Node, type Statement } from "compiler/ast/ast";
+import {
+  NodeKind,
+  Program,
+  type Expr,
+  type JsxElement,
+  type JsxFragment,
+  type Node,
+  type Statement
+} from "compiler/ast/ast";
+import { findNode } from "compiler/ast/traversal";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type { AnalysisSymbol, ExtensionPropertyResolution, ReceiverLambdaInfo } from "compiler/analysis/model";
 import type { SourceRange } from "compiler/parser/tokenizer";
@@ -142,6 +151,8 @@ export interface TranspileOptions {
    * `React.Fragment`.
    */
   jsxFragmentFactory?: string;
+  /** Import classic `h`/`Fragment` bindings when JSX factories are inferred from an automatic runtime. */
+  jsxImportSource?: string;
   /** Top-level module emission format. Defaults to ESM. */
   moduleFormat?: EmitOptions["moduleFormat"];
   /** Precomputed runtime metadata for ambient and imported declarations. */
@@ -337,6 +348,25 @@ function parserOptionsForTranspile(options: TranspileOptions): ParserOptions {
     return { language: "typescript", jsx: true };
   }
   return {};
+}
+
+function automaticJsxRuntimeBinding(program: Program | null, options: TranspileOptions): string {
+  if (!program || !options.jsxImportSource || !options.jsxFactory || !options.jsxFragmentFactory) {
+    return "";
+  }
+  const jsxNode = findNode(
+    program,
+    (node): node is JsxElement | JsxFragment =>
+      node.kind === NodeKind.JsxElement || node.kind === NodeKind.JsxFragment
+  );
+  if (!jsxNode) {
+    return "";
+  }
+
+  const source = JSON.stringify(options.jsxImportSource);
+  return options.moduleFormat === "commonjs"
+    ? `const { h: ${options.jsxFactory}, Fragment: ${options.jsxFragmentFactory} } = require(${source});`
+    : `import { h as ${options.jsxFactory}, Fragment as ${options.jsxFragmentFactory} } from ${source};`;
 }
 
 export function transpile(source: string, options: TranspileOptions = {}): TranspileResult {
@@ -539,13 +569,20 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   } else {
     emittedWithOffsets = emittedSegments.map((segment) => (segment as EmittedStatementSegment).emitted).join("\n");
   }
-  const code = options.preserveSourceLineOffsets
+  const emittedCode = options.preserveSourceLineOffsets
     ? ensureTrailingSemicolonPreservingLines(emittedWithOffsets)
     : ensureTrailingSemicolon(emittedWithOffsets);
   const sourceLinesByGeneratedLine: number[] = [];
   for (const segment of emittedSegments) {
     const segmentSourceLines = sourceLinesForEmittedStatement(segment.statement, segment.emitted);
     for (const sourceLine of segmentSourceLines) sourceLinesByGeneratedLine.push(sourceLine);
+  }
+  const jsxRuntimeBinding = automaticJsxRuntimeBinding(artifacts.ast, options);
+  const code = [jsxRuntimeBinding, emittedCode]
+    .filter((chunk) => chunk.trim().length > 0)
+    .join("\n");
+  if (jsxRuntimeBinding) {
+    sourceLinesByGeneratedLine.unshift(0);
   }
   const result: TranspileResult = {
     code,

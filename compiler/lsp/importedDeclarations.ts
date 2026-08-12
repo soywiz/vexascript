@@ -6,6 +6,7 @@ import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnal
 import { uriToFilePath } from "./importFixes";
 import { nodeBuiltinSpecifierCandidates, resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { extname } from "compiler/utils/path";
+import { pathToFileURL } from "compiler/utils/path";
 import { vfs } from "compiler/vfs";
 import { resolveTextModuleImportPath, textModuleSourceSpecifier } from "compiler/runtime/textModuleImports";
 import { importableTopLevelDeclarationNames } from "./declarationResolver";
@@ -67,6 +68,7 @@ import {
   type ImportedSymbolDeclarationOrigin,
   type ImportedSymbolResolution
 } from "compiler/importedSymbols";
+import { Analysis } from "compiler/analysis/Analysis";
 
 /**
  * Top-level declarations that contribute a named type and whose members the
@@ -2990,8 +2992,10 @@ export function ambientModuleHasNamedExport(
 
 export interface CollectImportedDeclarationsContext extends ProjectContext {
   uri?: string;
+  ambientDeclarations?: readonly Statement[];
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
   ambientGlobalDeclarations?: readonly Statement[];
+  resolvingFilePaths?: ReadonlySet<string>;
 }
 
 async function resolveImportTargetInContext(
@@ -3364,6 +3368,8 @@ export async function collectAllImportedDeclarations(
 
   const externalDeclarations: Statement[] = [];
   const seen = new Set<ImportableDeclaration>();
+  const resolvingFilePaths = new Set(context.resolvingFilePaths ?? []);
+  resolvingFilePaths.add(currentFilePath);
 
   for (const statement of ast.body) {
     if (!(statement instanceof ImportStatement)) {
@@ -3687,6 +3693,27 @@ export async function collectAllImportedDeclarations(
     }
 
     const targetSession = await getProjectSessionForFilePath(targetFilePath, context);
+    let targetAnalysis = targetSession?.analysis ?? null;
+    if (targetSession?.ast && !resolvingFilePaths.has(targetFilePath)) {
+      const nestedImports = await collectAllImportedDeclarations(targetSession.ast, {
+        ...context,
+        uri: pathToFileURL(targetFilePath).toString(),
+        resolvingFilePaths
+      });
+      for (const supportingDeclaration of nestedImports.externalDeclarations) {
+        const declaration = unwrapDeclaration(supportingDeclaration);
+        if (!declaration || seen.has(declaration)) continue;
+        seen.add(declaration);
+        externalDeclarations.push(declaration);
+      }
+      targetAnalysis = new Analysis(targetSession.ast, {
+        externalDeclarations: nestedImports.externalDeclarations,
+        importedSymbols: nestedImports.importedSymbols,
+        invalidImportedBindings: nestedImports.invalidImportedBindings,
+        ambientDeclarations: [...(context.ambientDeclarations ?? context.ambientGlobalDeclarations ?? [])],
+        projectOwnedExternalDeclarations: true
+      });
+    }
     const exportedNames = new Set<string>();
     const declarationByExportedName = new Map<string, Statement>();
 
@@ -3711,17 +3738,17 @@ export async function collectAllImportedDeclarations(
       }
     }
 
-    if (targetSession?.analysis && wantedNames.size > 0) {
+    if (targetAnalysis && wantedNames.size > 0) {
       for (const specifier of importStatement.specifiers) {
         const localName = (specifier.local ?? specifier.imported).name;
         const declaration = declarationByExportedName.get(specifier.imported.name);
         const extensionType = declaration instanceof FunctionStatement && (declaration as FunctionStatement).receiverType
-          ? targetSession.analysis.getExtensionMethodType(
+          ? targetAnalysis.getExtensionMethodType(
             (declaration as FunctionStatement).receiverType!.name,
             (declaration as FunctionStatement).name.name
           )
           : undefined;
-        const importedType = targetSession.analysis.getTopLevelSymbolType(specifier.imported.name) ?? extensionType;
+        const importedType = targetAnalysis.getTopLevelSymbolType(specifier.imported.name) ?? extensionType;
         if (importedType) {
           setImportedSymbolType(importedSymbols, localName, importedType);
           if (declaration) {

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@preact/signals':
+        specifier: 2.10.0
+        version: 2.10.0(preact@10.29.2)
       preact:
         specifier: 10.29.2
         version: 10.29.2
@@ -177,6 +180,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@preact/signals-core@1.14.4':
+    resolution: {integrity: sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA==}
+
+  '@preact/signals@2.10.0':
+    resolution: {integrity: sha512-avH1zQLZR6c0DmH3pT/sn4RIzsNDXAue+MEoyS5RIvApKALSU8m05KyBOL8ua21gxeDYp1DclTMcFd+N1zaL1Q==}
+    peerDependencies:
+      preact: '>= 10.25.0 || >=11.0.0-0'
+
   esbuild@0.28.0:
     resolution: {integrity: sha512-sNR9MHpXSUV/XB4zmsFKN+QgVG82Cc7+/aaxJ8Adi8hyOac+EXptIp45QBPaVyX3N70664wRbTcLTOemCAnyqw==}
     engines: {node: '>=18'}
@@ -279,6 +290,13 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.0':
     optional: true
+
+  '@preact/signals-core@1.14.4': {}
+
+  '@preact/signals@2.10.0(preact@10.29.2)':
+    dependencies:
+      '@preact/signals-core': 1.14.4
+      preact: 10.29.2
 
   esbuild@0.28.0:
     optionalDependencies:

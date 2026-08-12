@@ -1,0 +1,8 @@
+import { useDebugValue } from "preact/hooks";
+import { visibleTasks } from "./tasks.vx";
+
+export func useVisibleTaskCount(): number {
+	const count = visibleTasks.value.length;
+	useDebugValue(count, (value) => `${value} visible tasks`);
+	return count;
+}

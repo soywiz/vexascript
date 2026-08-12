@@ -13,6 +13,7 @@ import dedent from "compiler/utils/dedent";
 import { AnalysisTypeKind, typeToString } from "compiler/analysis/types";
 import type { Identifier, Statement, VarStatement } from "compiler/ast/ast";
 import { sourceWithCursor } from "../test/sourceWithCursor";
+import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 
 const MINI_DTS = dedent`
   declare function pkg(x: string): pkg.Result;
@@ -2806,7 +2807,12 @@ describe("node_modules typings resolution", () => {
       dedent`
         export abstract class Component<S> {
           state: Readonly<S>;
-          setState<K extends keyof S>(state: Pick<S, K> | Partial<S> | null, callback?: () => void): void;
+          setState<K extends keyof S>(
+            state:
+              | ((previous: Readonly<S>) => Pick<S, K> | Partial<S> | null)
+              | (Pick<S, K> | Partial<S> | null),
+            callback?: () => void
+          ): void;
         }
       `
     );
@@ -2820,6 +2826,7 @@ describe("node_modules typings resolution", () => {
 
         componentDidMount() {
           this.setState({ time: Date.now() })
+          this.setState((previous) => ({ time: previous.time + 1 }))
         }
       }
     `;
@@ -3607,15 +3614,19 @@ describe("node_modules typings resolution", () => {
       root,
       "preact",
       dedent`
+        type Node = { internal: number };
+        declare class Signal { private node?: Node; }
+        export function signal(): Signal;
+
         export interface ContainerNode {
           readonly nodeType: number;
           readonly parentNode: ContainerNode | null;
           readonly firstChild: ContainerNode | null;
           readonly childNodes: ArrayLike<ContainerNode>;
           contains(other: ContainerNode | null): boolean;
-          insertBefore<T extends ContainerNode>(node: T, child: ContainerNode | null): T;
-          appendChild<T extends ContainerNode>(node: T): T;
-          removeChild<T extends ContainerNode>(child: T): T;
+          insertBefore(node: ContainerNode, child: ContainerNode | null): ContainerNode;
+          appendChild(node: ContainerNode): ContainerNode;
+          removeChild(child: ContainerNode): ContainerNode;
         }
 
         export function render(vnode: unknown, parent: ContainerNode): void;
@@ -3624,54 +3635,25 @@ describe("node_modules typings resolution", () => {
 
     const mainPath = join(root, "main.vx");
     const source = dedent`
-      import { render } from "preact"
+      import { render, signal } from "preact"
 
-      interface ArrayLike<T> {
-        readonly length: int;
-        readonly [n: number]: T;
-      }
-
-      interface NodeListOf<TNode extends Node> extends ArrayLike<TNode> {
-        [index: number]: TNode;
-      }
-
-      interface ParentNode extends Node {
-      }
-
-      interface ChildNode extends Node {
-      }
-
-      interface Node {
-        readonly nodeType: number;
-        readonly parentNode: ParentNode | null;
-        readonly firstChild: ChildNode | null;
-        readonly childNodes: NodeListOf<ChildNode>;
-        contains(other: Node | null): boolean;
-        insertBefore<T extends Node>(node: T, child: Node | null): T;
-        appendChild<T extends Node>(node: T): T;
-        removeChild<T extends Node>(child: T): T;
-      }
-
-      interface HTMLElement extends Node {
-      }
-
-      interface HTMLDivElement extends HTMLElement {
-      }
-
-      declare const div: HTMLDivElement
-      render(null, div)
+      signal()
+      const root = document.getElementById("app")
+      if (!root) throw Error("missing root")
+      render(null, root)
     `;
     await writeFile(mainPath, source, "utf8");
 
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+    const richSession = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols,
+      ambientDeclarations: (await ensureDomProgram()).body
+    });
 
-    const messages = richSession.semanticIssues.map((issue) => issue.message);
-    expect(messages).not.toContain(
-      "Argument 2 of type 'HTMLDivElement' is not assignable to parameter 'parent' of type 'ContainerNode'"
-    );
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
   it("collectAllImportedDeclarations returns empty results for unknown file URI", async () => {

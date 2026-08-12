@@ -655,5 +655,26 @@ describe("named call argument analysis", () => {
       const analysis = new Analysis(parseFile(tokenizeReader(source, { jsx: true })));
       expect(analysis.getIssues()).toEqual([]);
     });
+
+    it("contextually types equivalent callable members in JSX callback prop unions", () => {
+      const source = dedent`
+        type QueryCallback = (query: string) => void
+
+        fun SearchBox({ onQuery: QueryCallback | QueryCallback }) {
+          return <button onClick={{ onQuery("next") }}></button>
+        }
+
+        fun App() {
+          let query = ""
+          return <SearchBox onQuery={(value) => {
+            query = value
+            value.trim()
+          }} />
+        }
+      `;
+      const analysis = new Analysis(parseFile(tokenizeReader(source, { jsx: true })));
+
+      expect(analysis.getIssues()).toEqual([]);
+    });
   });
 });

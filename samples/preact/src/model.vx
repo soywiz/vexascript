@@ -1,0 +1,22 @@
+import type { RefObject } from "preact";
+
+export type Filter = "all" | "active" | "done";
+export type CounterAction = "increment" | "reset";
+
+export interface Task {
+	id: number;
+	title: string;
+	done: boolean;
+	urgent: boolean;
+}
+
+export interface SearchHandle {
+	focus: () => void;
+	select: () => void;
+}
+
+export interface SearchBoxProps {
+	inputRef: RefObject<SearchHandle>;
+	query: string;
+	onQuery: (query: string) => void;
+}

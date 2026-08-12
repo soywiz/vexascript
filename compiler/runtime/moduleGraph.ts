@@ -1,8 +1,8 @@
 import { FunctionStatement, Identifier, ImportStatement, NodeKind, VarStatement } from "compiler/ast/ast";
-import type { JsxElement, JsxFragment, Program, Statement } from "compiler/ast/ast";
+import type { Program, Statement } from "compiler/ast/ast";
 
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
-import { findNode, unwrapExportedDeclaration } from "compiler/ast/traversal";
+import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { compileParsedSource, compileSource } from "compiler/pipeline/compile";
 import type { Analysis } from "compiler/analysis/Analysis";
@@ -65,30 +65,6 @@ const TYPE_DECLARATION_KINDS = new Set<Statement["kind"]>([
   NodeKind.TypeAliasStatement
 ]);
 const EMPTY_DECLARATIONS: Statement[] = [];
-
-function automaticJsxRuntimeBinding(
-  ast: Program | null,
-  options: ModuleGraphOptions,
-  moduleFormat: "esm" | "commonjs"
-): string {
-  if (!ast || !options.jsxImportSource || !options.jsxFactory || !options.jsxFragmentFactory) {
-    return "";
-  }
-  const jsxNode = findNode(
-    ast,
-    (node): node is JsxElement | JsxFragment =>
-      node.kind === NodeKind.JsxElement || node.kind === NodeKind.JsxFragment
-  );
-  if (!jsxNode) {
-    return "";
-  }
-
-  const source = JSON.stringify(options.jsxImportSource);
-  if (moduleFormat === "commonjs") {
-    return `const { h: ${options.jsxFactory}, Fragment: ${options.jsxFragmentFactory} } = require(${source});`;
-  }
-  return `import { h as ${options.jsxFactory}, Fragment as ${options.jsxFragmentFactory} } from ${source};`;
-}
 
 interface CachedModuleTypeContext {
   importKey: string;
@@ -590,7 +566,8 @@ export async function bundleModuleGraph(
       ambientDeclarations: moduleAmbientDeclarations,
       typeCheck: options.typeCheck ?? true,
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
-      ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
+      ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {}),
+      ...(options.jsxImportSource ? { jsxImportSource: options.jsxImportSource } : {})
     });
     errors.push(...result.errors);
     diagnostics.push(...result.diagnostics);
@@ -649,7 +626,8 @@ export async function bundleModuleGraph(
         ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
         typeCheck: options.typeCheck ?? true,
         ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
-        ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
+        ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {}),
+        ...(options.jsxImportSource ? { jsxImportSource: options.jsxImportSource } : {})
       });
       errors.push(...result.errors);
       diagnostics.push(...result.diagnostics);
@@ -866,7 +844,8 @@ export async function bundleModuleGraphAsModules(
       typeCheck: options.typeCheck ?? true,
       ...(emitRuntimeSeed ? { emitRuntimeSeed } : {}),
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
-      ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
+      ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {}),
+      ...(options.jsxImportSource ? { jsxImportSource: options.jsxImportSource } : {})
     });
     phaseTimings.emit += monotonicNow() - emitStartedAt;
     errors.push(...result.errors);
@@ -899,10 +878,9 @@ export async function bundleModuleGraphAsModules(
     const emittedWithImplicitExports = moduleFormat === "commonjs"
       ? appendImplicitVexaCommonJsExports(emittedCode, ast, filePath)
       : appendImplicitVexaExports(emittedCode, ast, filePath);
-    const jsxRuntimeBinding = automaticJsxRuntimeBinding(ast, options, moduleFormat);
     emittedByPath.set(
       filePath,
-      [jsxRuntimeBinding, ...assetBindingChunks, emittedWithImplicitExports]
+      [...assetBindingChunks, emittedWithImplicitExports]
         .filter((chunk) => chunk.trim().length > 0)
         .join("\n")
     );
@@ -938,7 +916,8 @@ export async function bundleModuleGraphAsModules(
         ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
         typeCheck: options.typeCheck ?? true,
         ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
-        ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
+        ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {}),
+        ...(options.jsxImportSource ? { jsxImportSource: options.jsxImportSource } : {})
       });
       phaseTimings.emit += monotonicNow() - emitStartedAt;
       errors.push(...result.errors);

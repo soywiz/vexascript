@@ -1,5 +1,6 @@
 {
     "dependencies": {
+        "@preact/signals": "2.10.0",
         "preact": "10.29.2",
         "preact-render-to-string": "6.7.0"
     },
