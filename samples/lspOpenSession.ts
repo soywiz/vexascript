@@ -1,7 +1,7 @@
 import "../cli/localVfs";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import type { CompletionItem, Connection, Diagnostic, DocumentHighlight, Hover, Location, Range, SemanticTokens, TextDocuments } from "vscode-languageserver/node.js";
-import { AnalysisSessionCache } from "../compiler/lsp/analysisSession";
+import { AnalysisSessionCache, createAnalysisSession } from "../compiler/lsp/analysisSession";
 import { collectAllImportedDeclarations } from "../compiler/lsp/importedDeclarations";
 import { ensureDomProgram, getDomDeclarationFilePath } from "../compiler/runtime/domDeclarations";
 import { loadAmbientTypesForProject } from "../compiler/lsp/ambientTypesLoader";
@@ -11,6 +11,7 @@ import { startLspServer, type LspServerEnvironment } from "../compiler/lsp/serve
 import { resolve as resolvePath } from "../compiler/utils/path";
 import { loadProject } from "../compiler/project";
 import { vfs } from "../compiler/vfs";
+import { recoverSourceForJsxTagCompletion } from "../compiler/lsp/completion";
 
 type Handler = (...args: unknown[]) => unknown;
 
@@ -172,7 +173,9 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
   }
 
   const analysisSessions = new AnalysisSessionCache(async (document, baseSession) => {
-    if (!baseSession.ast) {
+    const recoveredSource = baseSession.ast ? null : recoverSourceForJsxTagCompletion(document.getText());
+    const importAst = baseSession.ast ?? (recoveredSource ? createAnalysisSession(recoveredSource).ast : null);
+    if (!importAst) {
       return {
         externalDeclarations: [],
         importedSymbols: new Map(),
@@ -211,7 +214,7 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
       externalDeclarationLocations,
       importedSymbols,
       invalidImportedBindings
-    } = await collectAllImportedDeclarations(baseSession.ast, context);
+    } = await collectAllImportedDeclarations(importAst, context);
 
     return {
       externalDeclarations,

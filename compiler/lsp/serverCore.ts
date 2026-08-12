@@ -408,7 +408,7 @@ export function startLspServer(options: LspServerOptions): void {
           textDocumentSync: TextDocumentSyncKind.Incremental,
           completionProvider: {
             resolveProvider: false,
-            triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ","]
+            triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ",", "<"]
           },
           codeActionProvider: {
             resolveProvider: true
@@ -502,6 +502,23 @@ export function startLspServer(options: LspServerOptions): void {
     }
     const session = await analysisSessions.getForDocumentAsync(doc);
     const triggerOptions = triggerCharacter ? { triggerCharacter } : {};
+    const completionOptions = {
+      text,
+      ...triggerOptions,
+      ...featureContext(doc.uri),
+      getExportedSymbols: () => getExportedSymbolsForSession(session),
+      ambientModuleDeclarations: session.ambientModuleDeclarations,
+      recoverAnalysisSession: (source: string) => createAnalysisSession(source, {
+        externalDeclarations: session.externalDeclarations,
+        externalDeclarationLocations: session.externalDeclarationLocations,
+        ambientDeclarations: session.ambientDeclarations,
+        ambientModuleDeclarations: session.ambientModuleDeclarations,
+        ambientModuleLocations: session.ambientModuleLocations,
+        invalidImportedBindings: session.invalidImportedBindings,
+        ambientDeclarationLocations: session.ambientDeclarationLocations,
+        importedSymbols: session.importedSymbols
+      })
+    };
     if (!session.ast) {
       return createCompletionItemsForPosition(
         null,
@@ -509,7 +526,7 @@ export function startLspServer(options: LspServerOptions): void {
         params.position.character,
         null,
         [],
-        { text, ...triggerOptions }
+        completionOptions
       );
     }
     return createCompletionItemsForPosition(
@@ -518,14 +535,7 @@ export function startLspServer(options: LspServerOptions): void {
       params.position.character,
       session.analysis,
       [],
-      {
-        text,
-        ...triggerOptions,
-        ...featureContext(doc.uri),
-        getExportedSymbols: () => getExportedSymbolsForSession(session),
-        ambientModuleDeclarations: session.ambientModuleDeclarations,
-        recoverAnalysisSession: (source) => createAnalysisSession(source, { externalDeclarations: session.externalDeclarations, externalDeclarationLocations: session.externalDeclarationLocations, ambientDeclarations: session.ambientDeclarations, ambientModuleDeclarations: session.ambientModuleDeclarations, ambientModuleLocations: session.ambientModuleLocations, invalidImportedBindings: session.invalidImportedBindings, ambientDeclarationLocations: session.ambientDeclarationLocations, importedSymbols: session.importedSymbols })
-      }
+      completionOptions
     );
   }));
 

@@ -59,6 +59,7 @@ async function createPreactJsxSession(source: string) {
         div: HTMLAttributes<HTMLDivElement>
         form: HTMLAttributes<HTMLFormElement>
         header: HTMLAttributes<HTMLElement>
+        h1: HTMLAttributes<HTMLElement>
       }
     }
 
@@ -354,6 +355,35 @@ describe("JSX editor features", () => {
 
     expect(componentByLabel.get("Counter")?.kind).toBe(3);
     expect(componentByLabel.get("Counter")?.insertText ?? "Counter").toBe("Counter");
+  });
+
+  it("completes intrinsic JSX tags immediately after the opening angle bracket", async () => {
+    const cursor = sourceWithCursor(dedent`
+      import { render } from "preact"
+
+      function App() {
+        return <^^^div />
+      }
+    `);
+    const setup = await createPreactJsxSession(cursor.source);
+    const items = await createCompletionItemsForPosition(
+      setup.session.ast!,
+      cursor.line,
+      cursor.character,
+      setup.session.analysis,
+      [],
+      { text: cursor.source, ...setup.context }
+    );
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("div")?.textEdit).toEqual({
+      range: {
+        start: { line: cursor.line, character: cursor.character },
+        end: { line: cursor.line, character: cursor.character }
+      },
+      newText: "div"
+    });
+    expect(byLabel.has("h1")).toBe(true);
   });
 
   it("completes available JSX component attributes as expression snippets", async () => {

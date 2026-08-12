@@ -11,6 +11,7 @@ import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
 } from "./completion";
+import { recoverSourceForJsxTagCompletion } from "./completion";
 import { createClassResolverCache, resolveClassMemberNames, resolveClassStatementAcrossFiles } from "./classResolver";
 import { resolveDefinitionAcrossFiles } from "./crossFileNavigation";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
@@ -34,6 +35,40 @@ function recoverSessionFrom(source: string, session: ReturnType<typeof createAna
 }
 
 describe("createCompletionItemsForPosition", () => {
+  it("completes intrinsic JSX tags while the opening tag is still parser-incomplete", async () => {
+    const cursor = sourceWithCursor("func View() { return <di^^^");
+    const ambient = parseSource(dedent`
+      namespace JSX {
+        interface IntrinsicElements {
+          div: any
+          h1: any
+        }
+      }
+    `, { language: "typescript" }).ast!.body;
+
+    expect(recoverSourceForJsxTagCompletion(cursor.source)).toBe("func View() { return <di />");
+    const items = await createCompletionItemsForPosition(
+      null,
+      cursor.line,
+      cursor.character,
+      null,
+      [],
+      {
+        text: cursor.source,
+        recoverAnalysisSession: (source) => createAnalysisSession(source, { ambientDeclarations: ambient })
+      }
+    );
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("div")?.textEdit).toEqual({
+      range: {
+        start: { line: cursor.line, character: cursor.character - 2 },
+        end: { line: cursor.line, character: cursor.character }
+      },
+      newText: "div"
+    });
+  });
+
   it("does not open generic completions for contextual space and comma triggers", async () => {
     for (const triggerCharacter of [" ", ","]) {
       const { source, line, character } = sourceWithCursor(dedent`
@@ -103,6 +138,33 @@ describe("createCompletionItemsForPosition", () => {
 
     expect(closeByLabel.get("close for block")?.textEdit?.newText).toBe("for}");
     expect(closeByLabel.get("close if block")?.textEdit?.newText).toBe("if}");
+  });
+
+  it("consumes the auto-inserted closing brace when completing a JSX block", async () => {
+    const cursor = sourceWithCursor(dedent`
+      func View({ items: number[] }) {
+        return <ul>
+          {#for^^^}
+        </ul>
+      }
+    `);
+    const session = createAnalysisSession(cursor.source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      cursor.line,
+      cursor.character,
+      session.analysis,
+      [],
+      { text: cursor.source }
+    );
+    const forBlock = items.find((item) => item.label === "for block");
+    const edit = forBlock?.textEdit as {
+      range: { end: { character: number } };
+      newText: string;
+    };
+
+    expect(edit.range.end.character).toBe(cursor.character + 1);
+    expect(edit.newText).toBe("for ${1:item} of ${2:items}}\n  $0\n{/for}");
   });
 
   it("offers JSX else and else-if branch snippets", async () => {

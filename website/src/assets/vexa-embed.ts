@@ -587,7 +587,7 @@ function toMonacoPos(position: { line: number; character: number }): monaco.IPos
 
 function registerCompletionProvider(): void {
   monaco.languages.registerCompletionItemProvider("vexa", {
-    triggerCharacters: [".", ":", "$", "#", "/"],
+    triggerCharacters: [".", ":", "$", "#", "/", "<"],
     async provideCompletionItems(model, position) {
       const word = model.getWordUntilPosition(position);
       const fallbackRange = new monaco.Range(

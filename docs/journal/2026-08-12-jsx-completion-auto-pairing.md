@@ -1,0 +1,49 @@
+# JSX completion must consume editor auto-pairs
+
+## Symptom
+
+VS Code inserts the closing `}` when the user types `{` in JSX. The JSX
+control-flow completion snippet also inserts its own header-closing `}`, so
+accepting `{#for}` left an extra brace at the end of the generated block.
+
+## Investigation
+
+The completion provider already generated the correct block snippet. The
+problem was the LSP edit range: it replaced only the text before the cursor,
+leaving the auto-inserted brace immediately after the cursor untouched.
+Testing the completion item through the shared LSP server reproduced the same
+range, confirming this was not a VS Code-only rendering issue.
+
+An empty JSX tag probe (`< />`) also showed that the parser can return no AST
+while a tag name is still being typed. A hardcoded list of HTML tags would have
+made that case appear to work, but would violate the editor's type-driven
+completion contract and would diverge from framework declarations. The valid
+JSX completion path already obtains intrinsic names from the resolved
+`IntrinsicElements` declaration, so the regression coverage keeps that source
+of truth and makes its replacement range explicit.
+
+## Resolution
+
+JSX block completion now extends its replacement range by one character when a
+`}` is immediately under the cursor. The snippet replaces the editor's pair
+with the generated closing brace, while normal completion without an existing
+brace keeps the original range.
+
+Intrinsic JSX tag and component completions now return explicit text edits that
+replace only the typed tag prefix. This makes accepting `div`, `h1`, or a
+component after `<` deterministic across LSP clients without inventing a
+framework-specific tag catalog.
+
+## Follow-up regression
+
+The first implementation worked for a valid JSX AST but not while the user
+was still typing the opening name. At `<di`, the parser intentionally returns
+no AST, so the LSP's null-AST fallback returned only keyword completions. The
+completion provider also did not advertise `<` as a trigger character, which
+prevented automatic requests from starting at the opening angle bracket.
+
+The LSP now recovers an incomplete opening tag as a temporary self-closing tag
+when loading imported declarations and reuses that session only for completion.
+The original document remains responsible for diagnostics. `<` is registered
+as a completion trigger in the LSP and Monaco providers so typing a tag starts
+the same type-driven completion flow automatically.

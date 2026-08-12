@@ -15,6 +15,7 @@ import type { Connection, TextDocuments } from "vscode-languageserver/node.js";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import { sourceWithCursor } from "compiler/test/sourceWithCursor";
+import { parseSource } from "compiler/pipeline/parse";
 import { VEXA_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
@@ -410,11 +411,11 @@ describe("LSP server core", () => {
     assert.deepEqual(nodeResult.capabilities["codeLensProvider"], { resolveProvider: false });
     assert.deepEqual(nodeResult.capabilities["completionProvider"], {
       resolveProvider: false,
-      triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ","]
+      triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ",", "<"]
     });
     assert.deepEqual(browserResult.capabilities["completionProvider"], {
       resolveProvider: false,
-      triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ","]
+      triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ",", "<"]
     });
     const sharedCapabilities = Object.keys(nodeResult.capabilities).filter(
       (capability) => !["executeCommandProvider", "workspaceSymbolProvider"].includes(capability)
@@ -530,6 +531,73 @@ describe("LSP server core", () => {
     const forBlock = completionItems.find((item) => item.label === "for block");
     assert.equal(forBlock?.textEdit?.newText, "for ${1:item} of ${2:items}}\n  $0\n{/for}");
     assert.equal(forBlock?.insertTextFormat, 2);
+  });
+
+  it("serves intrinsic JSX tags through the LSP route while the opening tag is incomplete", async () => {
+    const ambientDeclarations = parseSource([
+      "namespace JSX {",
+      "  interface IntrinsicElements {",
+      "    div: any",
+      "    h1: any",
+      "  }",
+      "}"
+    ].join("\n"), { language: "typescript" }).ast!.body;
+    const fakeConnection = createFakeConnection();
+    const fakeDocuments = createFakeDocuments();
+    const analysisSessions = new AnalysisSessionCache(async () => ({
+      externalDeclarations: [],
+      importedSymbols: new Map(),
+      invalidImportedBindings: new Set(),
+      ambientDeclarations,
+      ambientDeclarationLocations: new Map(),
+      ambientModuleDeclarations: new Map(),
+      ambientModuleLocations: new Map()
+    }));
+
+    startLspServer({
+      connection: fakeConnection.connection,
+      documents: fakeDocuments.documents,
+      analysisSessions,
+      environment: {
+        getSourceRoots: () => [],
+        getSessionForFilePath: () => null
+      }
+    });
+
+    const source = "func View() { return <di";
+    const document = TextDocument.create("file:///workspace/main.vx", "vexa", 1, source);
+    fakeDocuments.open(document);
+    const items = await fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: document.uri },
+      position: { line: 0, character: source.length }
+    }) as Array<{ label: string }>;
+
+    assert.equal(items.some((item) => item.label === "div"), true);
+    assert.equal(items.some((item) => item.label === "h1"), false);
+  });
+
+  it("consumes an existing auto-inserted brace through the LSP completion route", async () => {
+    const server = startServer(false);
+    const { source, line, character } = sourceWithCursor([
+      "func View({ items: number[] }) {",
+      "  return <div>",
+      "    {#for^^^}",
+      "  </div>",
+      "}",
+      ""
+    ].join("\n"));
+    const document = openedDocument(server, source);
+
+    const completionItems = await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: document.uri },
+      position: { line, character }
+    }) as Array<{
+      label: string;
+      textEdit?: { range?: { end?: { character?: number } } };
+    }>;
+    const forBlock = completionItems.find((item) => item.label === "for block");
+
+    assert.equal(forBlock?.textEdit?.range?.end?.character, character + 1);
   });
 
   it("reports full diagnostics for open documents", async () => {

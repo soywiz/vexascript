@@ -14,7 +14,7 @@ import {
   type InitializeParams
 } from "vscode-languageserver/node.js";
 import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocument";
-import { AnalysisSessionCache } from "./analysisSession";
+import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { loadGlobalSymbolDeclarationFiles } from "compiler/runtime/moduleGraph";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
@@ -24,6 +24,7 @@ import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
 import { startLspServer } from "./serverCore";
+import { recoverSourceForJsxTagCompletion } from "./completion";
 import { resolve as resolvePath } from "compiler/utils/path";
 import { setVfs, Vfs, type VfsDirEntry, type VfsStat } from "compiler/vfs";
 
@@ -133,7 +134,9 @@ async function getSessionForFilePathFromOpenDocuments(filePath: string) {
 }
 
 const analysisSessions = new AnalysisSessionCache(async (document, baseSession) => {
-  if (!baseSession.ast) {
+  const recoveredSource = baseSession.ast ? null : recoverSourceForJsxTagCompletion(document.getText());
+  const importAst = baseSession.ast ?? (recoveredSource ? createAnalysisSession(recoveredSource).ast : null);
+  if (!importAst) {
     return {
       externalDeclarations: [],
       importedSymbols: new Map(),
@@ -193,7 +196,7 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
     importedSymbols,
     invalidImportedBindings
   } =
-    await collectAllImportedDeclarations(baseSession.ast, context);
+    await collectAllImportedDeclarations(importAst, context);
 
   return {
     externalDeclarations,

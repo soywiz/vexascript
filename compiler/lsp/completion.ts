@@ -47,9 +47,29 @@ function jsxTagPrefixAtPosition(text: string | undefined, line: number, characte
   return match ? (match[1] ?? "") : null;
 }
 
+/** Makes an incomplete opening JSX tag parseable so its declaration context can be reused. */
+export function recoverSourceForJsxTagCompletion(text: string): string | null {
+  const lines = text.split("\n");
+  let recovered = false;
+  const result = lines.map((line) => {
+    const match = /<([A-Za-z_][A-Za-z0-9_.-]*)?\s*$/u.exec(line);
+    if (!match) {
+      return line;
+    }
+    recovered = true;
+    const tag = match[1] ?? "div";
+    return `${line.slice(0, match.index)}<${tag} />`;
+  });
+  return recovered ? result.join("\n") : null;
+}
+
 function buildJsxTagCompletionItems(analysis: Analysis, line: number, character: number, prefix: string): CompletionItem[] {
   const items: CompletionItem[] = [];
   const seen = new Set<string>();
+  const textEditRange = {
+    start: { line, character: character - prefix.length },
+    end: { line, character }
+  };
   for (const [tagName, symbol] of analysis.getJsxIntrinsicElementSymbols()) {
     if (!matchesCompletionPrefix(tagName, prefix) || seen.has(tagName)) {
       continue;
@@ -59,6 +79,7 @@ function buildJsxTagCompletionItems(analysis: Analysis, line: number, character:
       label: tagName,
       kind: CompletionItemKind.Value,
       detail: `Intrinsic JSX element: ${symbol.valueType}`,
+      textEdit: { range: textEditRange, newText: tagName },
       sortText: `0-${tagName}`
     });
   }
@@ -76,6 +97,7 @@ function buildJsxTagCompletionItems(analysis: Analysis, line: number, character:
       label: symbol.name,
       kind: CompletionItemKind.Function,
       detail: symbolDetail(symbol),
+      textEdit: { range: textEditRange, newText: symbol.name },
       sortText: `1-${symbol.name}`
     });
   }
@@ -249,6 +271,16 @@ export async function createCompletionItemsForPosition(
     return jsxBlockItems;
   }
   if (!ast) {
+    const jsxTagPrefix = jsxTagPrefixAtPosition(options.text, line, character);
+    if (jsxTagPrefix !== null && options.text && options.recoverAnalysisSession) {
+      const recoveredSource = recoverSourceForJsxTagCompletion(options.text);
+      if (recoveredSource) {
+        const recovered = await options.recoverAnalysisSession(recoveredSource);
+        if (recovered.analysis) {
+          return buildJsxTagCompletionItems(recovered.analysis, line, character, jsxTagPrefix);
+        }
+      }
+    }
     return createKeywordOnlyCompletionItems();
   }
   const resolvedAnalysis = analysis ?? new Analysis(ast);

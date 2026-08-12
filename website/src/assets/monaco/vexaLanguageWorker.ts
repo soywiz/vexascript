@@ -11,6 +11,7 @@ import { createAutoAwaitDecorations } from "compiler/lsp/autoAwaitDecorations";
 import { collectCodeActions } from "compiler/lsp/codeActionsAggregate";
 import {
   createCompletionItemsForPosition,
+  recoverSourceForJsxTagCompletion,
 } from "compiler/lsp/completion";
 import { createClassResolverCache } from "compiler/lsp/classResolver";
 import { collectDeprecatedSemanticTokenModifiers } from "compiler/lsp/deprecatedSemanticTokens";
@@ -332,11 +333,13 @@ async function createSession(snapshot: WorkerSnapshot, context: ReturnType<typeo
     return createAnalysisSession(snapshot.source);
   }
   const { ast } = parseSource(snapshot.source);
-  if (!ast) {
+  const recoveredSource = ast ? null : recoverSourceForJsxTagCompletion(snapshot.source);
+  const importAst = ast ?? (recoveredSource ? parseSource(recoveredSource).ast : null);
+  if (!importAst) {
     return createAnalysisSession(snapshot.source, { ambientDeclarations });
   }
   const { externalDeclarations, importedSymbols, invalidImportedBindings } =
-    await collectAllImportedDeclarations(ast, context.resolverContext);
+    await collectAllImportedDeclarations(importAst, context.resolverContext);
   const globalDeclarations = await context.getWorkspaceGlobalDeclarations();
   return createAnalysisSession(snapshot.source, {
     externalDeclarations,
@@ -391,6 +394,21 @@ async function runFeature(request: WorkerRequest): Promise<unknown> {
       return !session.ast || !session.analysis ? [] : createAutoAwaitDecorations(session.ast, session.analysis);
 
     case "completion": {
+      const completionOptions = {
+        text: request.snapshot.source,
+        ...context.resolverContext,
+        ambientDeclarations: session.ambientDeclarations,
+        recoverAnalysisSession: (source: string) => createAnalysisSession(source, {
+          externalDeclarations: session.externalDeclarations,
+          ambientDeclarations: session.ambientDeclarations,
+          ambientModuleDeclarations: session.ambientModuleDeclarations,
+          ambientModuleLocations: session.ambientModuleLocations,
+          invalidImportedBindings: session.invalidImportedBindings,
+          ambientDeclarationLocations: session.ambientDeclarationLocations,
+          importedSymbols: session.importedSymbols
+        }),
+        classResolverCache: createClassResolverCache(),
+      };
       if (!session.ast || !session.analysis) {
         const items = await createCompletionItemsForPosition(
           session.ast,
@@ -398,7 +416,7 @@ async function runFeature(request: WorkerRequest): Promise<unknown> {
           (params.column as number) - 1,
           session.analysis,
           [],
-          { text: request.snapshot.source }
+          completionOptions
         );
         return { keywordOnly: true, items };
       }
@@ -408,21 +426,7 @@ async function runFeature(request: WorkerRequest): Promise<unknown> {
         (params.column as number) - 1,
         session.analysis,
         [],
-        {
-          text: request.snapshot.source,
-          ...context.resolverContext,
-          ambientDeclarations: session.ambientDeclarations,
-          recoverAnalysisSession: (source: string) => createAnalysisSession(source, {
-            externalDeclarations: session.externalDeclarations,
-            ambientDeclarations: session.ambientDeclarations,
-            ambientModuleDeclarations: session.ambientModuleDeclarations,
-            ambientModuleLocations: session.ambientModuleLocations,
-            invalidImportedBindings: session.invalidImportedBindings,
-            ambientDeclarationLocations: session.ambientDeclarationLocations,
-            importedSymbols: session.importedSymbols
-          }),
-          classResolverCache: createClassResolverCache(),
-        }
+        completionOptions
       );
       return { keywordOnly: false, items };
     }

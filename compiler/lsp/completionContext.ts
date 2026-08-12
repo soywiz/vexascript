@@ -160,6 +160,8 @@ export function jsxBlockCompletionItemsAtPosition(
           }
         ];
   const normalizedPrefix = context.prefix.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+  const lineText = text?.split("\n")[line] ?? "";
+  const completionEndCharacter = lineText[character] === "}" ? character + 1 : character;
 
   return candidates
     .filter((candidate) => candidate.filterText.startsWith(normalizedPrefix))
@@ -170,7 +172,7 @@ export function jsxBlockCompletionItemsAtPosition(
       textEdit: {
         range: {
           start: { line, character: context.editStartCharacter },
-          end: { line, character }
+          end: { line, character: completionEndCharacter }
         },
         newText: insertText
       },
