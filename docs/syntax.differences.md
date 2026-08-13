@@ -669,6 +669,12 @@ element type. Separating and trailing commas work normally when comprehensions
 are array elements, even when the array begins with a conditional
 comprehension.
 
+VexaScript also allows an unbraced `if` without `else` as an element of an
+ordinary array literal. It conditionally contributes one element, equivalent to
+`...(if (condition) [value] else [])`. The comma after the branch separates
+array elements; an intentional comma expression must be parenthesized, such as
+`[(a, b)]`.
+
 ### `is` nominal checks and built-in matcher patterns
 
 The basic `value is ClassName` form remains VexaScript's shorter spelling of

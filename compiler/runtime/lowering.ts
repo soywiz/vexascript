@@ -377,6 +377,27 @@ function lowerExpressionSequence(
   });
 }
 
+function conditionalArrayElement(expression: IfStatement): Expr {
+  const branch = expression.thenBranch;
+  const value = branch instanceof ExprStatement
+    ? branch.expression
+    : branch instanceof BlockStatement && branch.body.length === 1 && branch.body[0] instanceof ExprStatement
+      ? (branch.body[0] as ExprStatement).expression
+      : undefined;
+  if (value === undefined) {
+    return expression;
+  }
+
+  const thenArray = copyNodeBounds(new ArrayLiteral([value]), branch);
+  const elseArray = copyNodeBounds(new ArrayLiteral([]), expression);
+  const conditional = copyNodeBounds(new IfStatement(
+    expression.condition,
+    copyNodeBounds(new ExprStatement(thenArray), branch),
+    copyNodeBounds(new ExprStatement(elseArray), expression)
+  ), expression);
+  return copyNodeBounds(new SpreadExpression(conditional), expression);
+}
+
 function lowerScopedControlExpression(
   expression: Expr,
   state: ControlExpressionLoweringState
@@ -646,8 +667,13 @@ function lowerControlExpression(
     }
     case NodeKind.ArrayLiteral: {
       const array = expression as ArrayLiteral;
+      const elements = array.elements.map((element) =>
+        element instanceof IfStatement && !element.elseBranch
+          ? conditionalArrayElement(element)
+          : element
+      );
       return lowerExpressionSequence(
-        array.elements,
+        elements,
         state,
         (elements) => copyNodeBounds(new ArrayLiteral(elements, array.__vexaEmptyRest), array),
         continuation

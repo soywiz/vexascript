@@ -84,3 +84,13 @@ parsed, unbraced `if` branches now stop at assignment-expression precedence so
 the surrounding array owns separating and trailing commas. Braced branches
 temporarily restore ordinary statement parsing, preserving comma expressions
 inside the block.
+
+A related regression appeared in ordinary array literals: `[1, if (false) 2,
+3]` initially parsed the `, 3` as part of the `if` branch's comma expression,
+then lowered the false branch to an `undefined` array slot. Reusing the
+comprehension-only parser depth was not enough because normal array elements
+also need an expression boundary. The parser now tracks ordinary array-element
+context separately, while lowering models an unbraced no-`else` element as the
+equivalent conditional spread `...(if (condition) [value] else [])`. An explicit
+comma expression remains available through parentheses, for example
+`[(a, b)]`.

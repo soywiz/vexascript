@@ -2212,6 +2212,25 @@ describe("parseExpression", () => {
         });
     });
 
+    it("keeps commas after an array if element as array separators", () => {
+        expect(parseExpression(tokenizeReader("[1, if (false) 2, 3]"))).toMatchObject({
+            kind: NodeKind.ArrayLiteral,
+            elements: [
+                { kind: NodeKind.IntLiteral, value: 1 },
+                {
+                    kind: NodeKind.IfStatement,
+                    condition: { kind: NodeKind.BooleanLiteral, value: false },
+                    thenBranch: {
+                        kind: NodeKind.ExprStatement,
+                        expression: { kind: NodeKind.IntLiteral, value: 2 }
+                    },
+                    elseBranch: undefined
+                },
+                { kind: NodeKind.IntLiteral, value: 3 }
+            ]
+        });
+    });
+
     it("reports member-access parse errors at the trailing dot token", () => {
         try {
             parseExpression(tokenizeReader("a.b['d']."));

@@ -142,6 +142,7 @@ export class Parser {
     private matcherBindingDepth = 0;
     private subjectMatchArmBodyDepth = 0;
     private arrayComprehensionBodyDepth = 0;
+    private arrayLiteralElementDepth = 0;
 
     constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
         this.language = options.language ?? "vexa";
@@ -2160,7 +2161,12 @@ export class Parser {
                     comprehension.lastToken
                 ));
             } else {
-                elements.push(this.parseAssignment());
+                this.arrayLiteralElementDepth += 1;
+                try {
+                    elements.push(this.parseAssignment());
+                } finally {
+                    this.arrayLiteralElementDepth -= 1;
+                }
             }
 
             const separator = this.tokens.peek();
@@ -7507,17 +7513,20 @@ export class Parser {
     }
 
     private parseIfBranch(): Statement {
-        if (this.arrayComprehensionBodyDepth === 0) {
+        if (this.arrayComprehensionBodyDepth === 0 && this.arrayLiteralElementDepth === 0) {
             return this.parseStatementOrThrow();
         }
         const token = this.tokens.peek();
         if (token?.type === TokenType.SYMBOL && token.value === "{") {
             const previousDepth = this.arrayComprehensionBodyDepth;
+            const previousArrayElementDepth = this.arrayLiteralElementDepth;
             this.arrayComprehensionBodyDepth = 0;
+            this.arrayLiteralElementDepth = 0;
             try {
                 return this.parseStatementOrThrow();
             } finally {
                 this.arrayComprehensionBodyDepth = previousDepth;
+                this.arrayLiteralElementDepth = previousArrayElementDepth;
             }
         }
         const expression = this.parseAssignment();

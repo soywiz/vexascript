@@ -54,6 +54,21 @@ console.log(withoutElse.join(","))
     expect(output).toEqual([["0,3,2,9,4"], ["0,2,4"]]);
   });
 
+  it("conditionally includes ordinary array elements without treating separators as comma expressions", () => {
+    const output = executeTranspiled(`
+const omitted = [1, if (false) 2, 3]
+const included = [1, if (true) 2, 3]
+const spreadEquivalent = [1, ...(if (false) [2] else []), 3]
+const commaExpression = [1, (2, 3), 4]
+console.log(omitted.join(","))
+console.log(included.join(","))
+console.log(spreadEquivalent.join(","))
+console.log(commaExpression.join(","))
+`);
+
+    expect(output).toEqual([["1,3"], ["1,2,3"], ["1,3"], ["1,3,4"]]);
+  });
+
   it("executes consecutive conditional comprehensions with a trailing comma", () => {
     const output = executeTranspiled(`
 const mixed = [

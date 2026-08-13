@@ -247,6 +247,11 @@ classic `for` headers, statement bodies, and `for await` are invalid.
 Inside a normal array literal, `for` `(` iterator (`of` | `in`) iterable `)`
 result-expression is also an element form. It implicitly spreads every result
 into the surrounding array and may be mixed repeatedly with values and `...`.
+An ordinary array element may also be `if` `(` condition `)` value with no
+`else`; it conditionally contributes `value`, equivalent to spreading
+`if (condition) [value] else []`. The comma after an unbraced `if` value is the
+array separator, not a comma expression. Parenthesized `(a, b)` remains a comma
+expression.
 The result expression may be `if (...) value else value`. A top-level `if`
 without `else` is a comprehension filter: false iterations append nothing, and
 the true branch determines the element type. Comprehension elements use normal

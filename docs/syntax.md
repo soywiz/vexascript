@@ -1716,11 +1716,12 @@ Assignments may also target optional member chains such as `countRef.current?.st
 
 ### Array literals
 
-Array literals preserve TypeScript/JavaScript sparse holes during emission and runtime execution. A hole contributes `undefined` to semantic element inference, so `[1, , 3]` is compatible with an `(int | undefined)[]` expectation and emits as a sparse JavaScript array. TypeScript-style tuple type annotations use square brackets, including labeled tuple elements such as `[value: T, setter: (newValue: T) => void]`.
+Array literals preserve TypeScript/JavaScript sparse holes during emission and runtime execution. A hole contributes `undefined` to semantic element inference, so `[1, , 3]` is compatible with an `(int | undefined)[]` expectation and emits as a sparse JavaScript array. VexaScript also supports an unbraced `if` without `else` as a conditional element: the element is included only when the condition is true, equivalent to spreading `if (condition) [value] else []`. The comma after its branch is the array separator, not part of a comma expression; use parentheses for an intentional comma expression such as `[(a, b)]`. TypeScript-style tuple type annotations use square brackets, including labeled tuple elements such as `[value: T, setter: (newValue: T) => void]`.
 
 ```vexa
 let values: (int | undefined)[] = [1, , 3]
 let state: [value: int, setter: (newValue: int) => void] = [0, (newValue: int) => {}]
+let filtered = [1, if (enabled) 2, 3]
 ```
 
 ### Object literals
