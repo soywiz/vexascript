@@ -138,6 +138,24 @@ Only literal-valued properties qualify as discriminants: treating broad status
 properties such as React Query's `isLoading: boolean` as exact branch tags caused
 valid result data to collapse to `never`.
 
+## Type-alias hover presentation follow-up
+
+Resolved aliases were semantically correct but still reached the editor as a
+single `plaintext` line such as `class User: { ... }`. The misleading `class`
+label came from the binder's shared type-symbol category, while plaintext kept
+VS Code and Monaco from applying language syntax highlighting. The shared hover
+resolver now recognizes the actual `TypeAliasStatement` and returns Markdown
+with a fenced `typescript` declaration. Structural object types are rendered
+over multiple indented lines with TypeScript separators; VexaScript's postfix
+optional display and anonymous index signature display are translated to
+`T | undefined` and `[key: string]` inside that presentation layer.
+
+Keep this conversion at the shared LSP boundary. Changing `typeToString` would
+also change diagnostics, caches, mangled names, and compiler tests, while adding
+separate VS Code and Monaco formatters would let the two editor surfaces drift.
+The regression uses `resolveHoverWithLocalFallback`, and the real Zod session
+asserts the same Markdown shape for its expanded `User` alias.
+
 ## Regression strategy
 
 Keep both layers of coverage:

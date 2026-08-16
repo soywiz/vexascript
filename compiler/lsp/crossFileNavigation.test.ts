@@ -54,6 +54,107 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
 }
 
 describe("cross-file navigation", () => {
+  it("formats resolved type alias hovers as highlighted multiline TypeScript", async () => {
+    const marked = sourceWithCursor(dedent`
+      type Us^^^er = {
+        id: string,
+        contact: { email: string, phone: string? },
+        role: "admin" | "user",
+        tags: string[],
+        metadata: Record<string, string>
+      }
+    `);
+    const session = createAnalysisSession(marked.source);
+
+    const hover = await resolveHoverWithLocalFallback({
+      uri: "file:///workspace/main.vx",
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: ["/workspace"],
+      getSessionForFilePath: () => null
+    });
+
+    expect(hover?.contents).toEqual({
+      kind: "markdown",
+      value: [
+        "```typescript",
+        "type User = {",
+        "  id: string;",
+        "  contact: {",
+        "    email: string;",
+        "    phone?: string;",
+        "  };",
+        '  role: "admin" | "user";',
+        "  tags: string[];",
+        "  metadata: {",
+        "    [key: string]: string;",
+        "  };",
+        "}",
+        "```"
+      ].join("\n")
+    });
+  });
+
+  it("formats imported type alias hovers from the declaring file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-imported-type-hover-"));
+    const modelsFile = join(root, "models.vx");
+    const mainFile = join(root, "main.vx");
+    const modelsSource = dedent`
+      export type UserEvent =
+        { kind: "created", userId: string } |
+        { kind: "renamed", userId: string, name: string }
+    `;
+    const marked = sourceWithCursor(dedent`
+      import type { UserEvent } from "./models.vx"
+
+      const event: UserEv^^^ent = { kind: "created", userId: "1" }
+    `);
+    await writeFile(modelsFile, modelsSource, "utf8");
+    await writeFile(mainFile, marked.source, "utf8");
+
+    const getSessionForFilePath = async (filePath: string) => {
+      const source = await readFile(filePath, "utf8").catch(() => null);
+      return source === null ? null : createAnalysisSession(source);
+    };
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainFile).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath
+    });
+    const session = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      externalDeclarationLocations: collected.externalDeclarationLocations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    const hover = await resolveHoverWithLocalFallback({
+      uri: pathToFileURL(mainFile).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath
+    });
+
+    expect(hover?.contents).toEqual({
+      kind: "markdown",
+      value: [
+        "```typescript",
+        "type UserEvent = {",
+        '  kind: "created";',
+        "  userId: string;",
+        "} | {",
+        '  kind: "renamed";',
+        "  userId: string;",
+        "  name: string;",
+        "}",
+        "```"
+      ].join("\n")
+    });
+  });
+
   it("returns no fallback definition when a session has no analysis", async () => {
     const source = "const value = 1\n";
     const session = { ...createAnalysisSession(source), analysis: null };

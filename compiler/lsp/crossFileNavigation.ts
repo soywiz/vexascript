@@ -1,5 +1,6 @@
 import { ArrayType, NamedType, BuiltinType, ObjectType, UnionType, IntersectionType } from "../analysis/types";
-import { ClassStatement, Identifier, MemberExpression } from "compiler/ast/ast";
+import { ClassStatement, Identifier, MemberExpression, NodeKind } from "compiler/ast/ast";
+import type { TypeAliasStatement } from "compiler/ast/ast";
 export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
 
 /**
@@ -61,7 +62,13 @@ import {
   resolveImportSpecifierDefinition
 } from "./importPathNavigation";
 import { findAmbientNamespaceLocation } from "./crossFileContext";
-import { candidateCharacters, createDefinitionLocation, createHover } from "./navigation";
+import {
+  candidateCharacters,
+  createDefinitionLocation,
+  createHover,
+  createTypeAliasHoverContents,
+  createTypeAliasHoverContentsFromDeclaration
+} from "./navigation";
 import { findNodeModuleExportLocation, findNodeModuleMemberLocation, type NodeModuleMemberLocation } from "./nodeModulesTypings";
 import { extname } from "compiler/utils/path";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
@@ -215,6 +222,29 @@ function resolveLocalTypeIdentifierHover(context: ResolveContext, identifier: Id
     return null;
   }
   const typeLabel = symbol.valueType ?? (symbol.type ? typeToString(symbol.type) : "unknown");
+  const typeAliasContents = createTypeAliasHoverContents(context.session.ast ?? undefined, identifier.name, typeLabel);
+  if (typeAliasContents) {
+    return {
+      contents: typeAliasContents,
+      range
+    };
+  }
+  const importBinding = context.session.ast
+    ? findImportForSymbolNode(context.session.ast, symbol.node)
+    : null;
+  const importedDeclaration = importBinding
+    ? context.session.importedSymbols?.get(importBinding.localName)?.declarationOrigin?.statement
+    : undefined;
+  if (importedDeclaration?.kind === NodeKind.TypeAliasStatement) {
+    return {
+      contents: createTypeAliasHoverContentsFromDeclaration(
+        importedDeclaration as TypeAliasStatement,
+        identifier.name,
+        typeLabel
+      ),
+      range
+    };
+  }
   return {
     contents: {
       kind: "plaintext",

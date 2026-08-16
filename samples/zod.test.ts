@@ -56,6 +56,7 @@ describe("zod sample editor features", () => {
 
     const schemaHoverText = JSON.stringify(result.hovers[0]?.contents ?? "");
     const hoverText = JSON.stringify(result.hovers[1]?.contents ?? "");
+    const userTypeHover = result.hovers[2]?.contents as { kind?: string; value?: string } | undefined;
     const completionLabels = result.completions[0]?.map((item) => item.label) ?? [];
     expect(schemaHoverText).toContain("ZodEnum");
     expect(hoverText).toContain("admin");
@@ -66,6 +67,12 @@ describe("zod sample editor features", () => {
     expect(completionLabels).not.toContain("console");
     expect(hoverText).not.toContain("unknown");
     expect(hoverText).not.toContain("object & unknown");
+    expect(userTypeHover?.kind).toBe("markdown");
+    expect(userTypeHover?.value).toContain("```typescript\ntype User = {\n");
+    expect(userTypeHover?.value).toContain("  id: string;\n");
+    expect(userTypeHover?.value).toContain("  contact: {\n");
+    expect(userTypeHover?.value).toContain("    phone?: string;\n");
+    expect(userTypeHover?.value).not.toContain("    phone: string | undefined;\n");
     const aliasHoverTexts = aliasExpectations.map((_, index) =>
       JSON.stringify(result.hovers[index + 2]?.contents ?? "")
     );
@@ -79,5 +86,22 @@ describe("zod sample editor features", () => {
     expect(result.completionDurationsMs[0] ?? Number.POSITIVE_INFINITY).toBeLessThan(4_000);
     expect(Math.max(...result.warmHoverDurationsMs)).toBeLessThan(500);
     expect(result.warmCompletionDurationsMs[0] ?? Number.POSITIVE_INFINITY).toBeLessThan(500);
+
+    const parsingSourcePath = resolve(process.cwd(), "samples/zod/parsing.vx");
+    const parsingSource = await vfs().readFile(parsingSourcePath);
+    const importedAliasResult = await openEntrypointInLspSession(
+      parsingSourcePath,
+      process.cwd(),
+      [positionAfter(parsingSource, "event: UserEvent", -2)],
+      [],
+      parsingSource,
+      true,
+      true
+    );
+    const importedAliasHover = importedAliasResult.hovers[0]?.contents as { kind?: string; value?: string } | undefined;
+    expect(importedAliasHover?.kind).toBe("markdown");
+    expect(importedAliasHover?.value).toContain("```typescript\ntype UserEvent = {\n");
+    expect(importedAliasHover?.value).toContain('  kind: "created";\n');
+    expect(importedAliasHover?.value).toContain("} | {\n");
   });
 });

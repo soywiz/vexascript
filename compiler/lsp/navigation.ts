@@ -1,5 +1,5 @@
 import { Identifier } from "compiler/ast/ast";
-import type { AnnotationStatement, FunctionParameter, Program } from "compiler/ast/ast";
+import type { AnnotationStatement, FunctionParameter, Program, TypeAliasStatement } from "compiler/ast/ast";
 import type {
   Hover,
   Location,
@@ -337,6 +337,183 @@ export function createDefinitionLocation(
   };
 }
 
+function objectPropertySeparatorIndex(text: string): number {
+  let quote: string | null = null;
+  let escaped = false;
+  let parentheses = 0;
+  let brackets = 0;
+  let angles = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") parentheses += 1;
+    else if (character === ")") parentheses = Math.max(0, parentheses - 1);
+    else if (character === "[") brackets += 1;
+    else if (character === "]") brackets = Math.max(0, brackets - 1);
+    else if (character === "<") angles += 1;
+    else if (character === ">") angles = Math.max(0, angles - 1);
+    else if (character === ":" && parentheses === 0 && brackets === 0 && angles === 0) return index;
+  }
+  return -1;
+}
+
+function formatTypeTextForHover(typeText: string): string {
+  const lines: string[] = [];
+  let line = "";
+  let indent = 0;
+  const delimiters: string[] = [];
+  let quote: string | null = null;
+  let escaped = false;
+
+  const trimLineEnd = (): void => {
+    line = line.replace(/\s+$/, "");
+  };
+  const writeIndent = (): void => {
+    if (line.length === 0) line = "  ".repeat(indent);
+  };
+  const nextLine = (): void => {
+    trimLineEnd();
+    lines.push(line);
+    line = "";
+  };
+
+  for (let index = 0; index < typeText.length; index += 1) {
+    const character = typeText[index]!;
+    if (quote) {
+      line += character;
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      writeIndent();
+      line += character;
+      quote = character;
+      continue;
+    }
+    if (character === "{") {
+      writeIndent();
+      trimLineEnd();
+      line += line.trim().length === 0 ? "{" : " {";
+      delimiters.push(character);
+      indent += 1;
+      nextLine();
+      continue;
+    }
+    if (character === "}") {
+      trimLineEnd();
+      if (line.trim().length > 0) {
+        if (!line.endsWith(";")) line += ";";
+        nextLine();
+      }
+      indent = Math.max(0, indent - 1);
+      line = `${"  ".repeat(indent)}}`;
+      if (delimiters.at(-1) === "{") delimiters.pop();
+      continue;
+    }
+    if (character === "(" || character === "[" || character === "<") {
+      writeIndent();
+      line += character;
+      delimiters.push(character);
+      continue;
+    }
+    if (character === ")" || character === "]" || character === ">") {
+      writeIndent();
+      line += character;
+      const expectedOpening = character === ")" ? "(" : character === "]" ? "[" : "<";
+      if (delimiters.at(-1) === expectedOpening) delimiters.pop();
+      continue;
+    }
+    if ((character === "," || character === ";") && delimiters.at(-1) === "{") {
+      trimLineEnd();
+      if (!line.endsWith(";")) line += ";";
+      nextLine();
+      continue;
+    }
+    if (character === ",") {
+      trimLineEnd();
+      line += ", ";
+      while (/\s/.test(typeText[index + 1] ?? "")) index += 1;
+      continue;
+    }
+    if (character === "?") {
+      const remaining = typeText.slice(index + 1);
+      const nextNonWhitespace = remaining.match(/\S/)?.[0];
+      if (nextNonWhitespace && [",", ";", "}", ")", "]", ">"].includes(nextNonWhitespace)) {
+        if (delimiters.at(-1) === "{") {
+          const separatorIndex = objectPropertySeparatorIndex(line);
+          const propertyName = separatorIndex >= 0 ? line.slice(0, separatorIndex).trim() : "";
+          if (propertyName && !propertyName.startsWith("[")) {
+            line = `${line.slice(0, separatorIndex)}?:${line.slice(separatorIndex + 1)}`;
+            continue;
+          }
+        }
+        line += " | undefined";
+        continue;
+      }
+    }
+    if (/\s/.test(character)) {
+      if (line.length > 0 && !line.endsWith(" ")) line += " ";
+      continue;
+    }
+    writeIndent();
+    line += character;
+  }
+
+  trimLineEnd();
+  if (line.length > 0) lines.push(line);
+  return lines.join("\n").replace(/\[(string|number|symbol)\]:/g, "[key: $1]:");
+}
+
+export function createTypeAliasHoverContentsFromDeclaration(
+  typeAlias: TypeAliasStatement,
+  name: string,
+  typeLabel: string,
+  documentation?: string
+): MarkupContent {
+  const typeParameters = typeAlias.typeParameters?.length
+    ? `<${typeAlias.typeParameters.map((parameter) => parameter.name.name).join(", ")}>`
+    : "";
+  const declaration = `type ${name}${typeParameters} = ${formatTypeTextForHover(typeLabel)}`;
+  const code = `\`\`\`typescript\n${declaration}\n\`\`\``;
+  return {
+    kind: "markdown",
+    value: documentation ? `${code}\n\n${documentation}` : code
+  };
+}
+
+export function createTypeAliasHoverContents(
+  program: Program | undefined,
+  name: string,
+  typeLabel: string,
+  documentation?: string
+): MarkupContent | null {
+  const typeAlias = program
+    ? declarationIndexForStatements(program.body).typeAliases.find((candidate) => candidate.name.name === name)
+    : undefined;
+  return typeAlias
+    ? createTypeAliasHoverContentsFromDeclaration(typeAlias, name, typeLabel, documentation)
+    : null;
+}
+
 export function createHover(
   analysis: Analysis,
   line: number,
@@ -373,6 +550,20 @@ export function createHover(
     program && symbolNode instanceof Identifier
       ? readDocumentationForSymbol(program, symbolNode as Identifier, options)
       : undefined;
+  const typeAliasContents = target.symbolAt
+    ? createTypeAliasHoverContents(
+        program,
+        target.symbolAt.symbol.name,
+        target.symbolAt.symbol.valueType,
+        documentation
+      )
+    : null;
+  if (typeAliasContents) {
+    return {
+      contents: typeAliasContents,
+      range: target.hover.range
+    };
+  }
   const hoverValue = documentation ? `${hoverTypeText}\n\n${documentation}` : hoverTypeText;
 
   return {
