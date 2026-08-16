@@ -91,3 +91,16 @@ could not expose this. The guard now follows nested JSX tags and stops at the
 first unmatched closing tag, which bounds the lookup to the current JSX tree.
 Regression tests should include a later unrelated component reusing the same
 intrinsic tag name, not only an isolated opening tag.
+
+## Enter indentation after JSX opening tags
+
+Closing-tag insertion alone does not give VS Code enough information to indent
+a new child line. The shared language configuration previously increased
+indentation only after braces and receiver arrows, so pressing Enter at the end
+of `<button ...>` left the cursor aligned with the opening tag.
+
+The shared configuration now recognizes non-self-closing JSX opening tags and
+fragments as indentation boundaries, recognizes their closing forms as
+outdent boundaries, and supplies explicit on-enter rules for adjacent opening
+and closing tags. The rule excludes self-closing tags and is generated for both
+VS Code and Monaco from the same source.

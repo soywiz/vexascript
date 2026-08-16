@@ -1,10 +1,11 @@
 import * as ast from "compiler/ast/ast";
 import type { Program } from "compiler/ast/ast";
-import { globalVfs, vfs, type Vfs } from "compiler/vfs";
+import type { Vfs } from "compiler/vfs";
 
 // Numeric NodeKind values replaced the legacy string discriminators in cached ASTs.
 const PROGRAM_CACHE_VERSION = 4;
 const STORAGE_KEY_PREFIX = `vexa.runtime.program-cache.v${PROGRAM_CACHE_VERSION}.`;
+const VFS_CACHE_FILE_PATH = `/vexa-runtime-program-cache-v${PROGRAM_CACHE_VERSION}.json`;
 const memoryStorage = new Map<string, string>();
 
 interface CacheStorageLike {
@@ -12,18 +13,6 @@ interface CacheStorageLike {
   setItem(key: string, value: string): Promise<void>;
 }
 
-interface NodeFsPromisesLike {
-  readFile(path: string, encoding: "utf8"): Promise<string>;
-  writeFile(path: string, value: string): Promise<void>;
-}
-
-let nodeStorageState:
-  | {
-    backend: "memory" | "fs" | "vfs";
-    storagePromise: Promise<CacheStorageLike>;
-    vfsRef?: Vfs;
-  }
-  | null = null;
 const explicitVfsStorage = new WeakMap<Vfs, Promise<CacheStorageLike>>();
 
 function isNodeRuntime(): boolean {
@@ -73,44 +62,9 @@ function getMemoryStorage(): CacheStorageLike {
   };
 }
 
-function getNodeFsPromises(): NodeFsPromisesLike | null {
-  const builtinLoader = process.getBuiltinModule;
-  if (typeof builtinLoader !== "function") {
-    return null;
-  }
-  const builtin = builtinLoader("node:fs/promises");
-  if (!builtin || typeof builtin !== "object") {
-    return null;
-  }
-
-  const fsPromises = builtin as Partial<NodeFsPromisesLike>;
-  if (
-    typeof fsPromises.readFile !== "function" ||
-    typeof fsPromises.writeFile !== "function"
-  ) {
-    return null;
-  }
-
-  return fsPromises as NodeFsPromisesLike;
-}
-
-function getNodeCacheDirectory(): string {
-  return (
-    process.env["TMPDIR"] ||
-    process.env["TEMP"] ||
-    process.env["TMP"] ||
-    "/tmp"
-  ).replace(/[\\/]$/, "");
-}
-
-function getNodeCacheFilePath(): string {
-  return `${getNodeCacheDirectory()}/vexa-runtime-program-cache-v${PROGRAM_CACHE_VERSION}-${process.pid}.json`;
-}
-
-async function createNodeVfsStorage(boundVfs: Vfs): Promise<CacheStorageLike> {
-  const cacheKey = getNodeCacheFilePath();
+async function createVfsStorage(boundVfs: Vfs): Promise<CacheStorageLike> {
   try {
-    const content = await boundVfs.readFile(cacheKey);
+    const content = await boundVfs.readFile(VFS_CACHE_FILE_PATH);
     const parsed = JSON.parse(content) as Record<string, string>;
     for (const [key, value] of Object.entries(parsed)) {
       memoryStorage.set(key, value);
@@ -125,39 +79,23 @@ async function createNodeVfsStorage(boundVfs: Vfs): Promise<CacheStorageLike> {
     },
     async setItem(key: string, value: string): Promise<void> {
       memoryStorage.set(key, value);
-      await boundVfs.writeFile(cacheKey, JSON.stringify(Object.fromEntries(memoryStorage)));
-    },
-  };
-}
-
-async function createNodeFileStorage(fsPromises: NodeFsPromisesLike): Promise<CacheStorageLike> {
-  const cacheFilePath = getNodeCacheFilePath();
-  try {
-    const content = await fsPromises.readFile(cacheFilePath, "utf8");
-    const parsed = JSON.parse(content) as Record<string, string>;
-    for (const [key, value] of Object.entries(parsed)) {
-      memoryStorage.set(key, value);
-    }
-  } catch {
-    // Cold cache or unreadable file: keep the in-memory map empty.
-  }
-
-  return {
-    async getItem(key: string): Promise<string | null> {
-      return memoryStorage.get(key) ?? null;
-    },
-    async setItem(key: string, value: string): Promise<void> {
-      memoryStorage.set(key, value);
-      await fsPromises.writeFile(cacheFilePath, JSON.stringify(Object.fromEntries(memoryStorage)));
+      await boundVfs.writeFile(VFS_CACHE_FILE_PATH, JSON.stringify(Object.fromEntries(memoryStorage)));
     },
   };
 }
 
 async function getStorage(activeVfs?: Vfs): Promise<CacheStorageLike> {
+  // A Node process already keeps this module and its declaration programs alive.
+  // Persisting the same AST under a PID only creates stale-schema collisions when
+  // the operating system reuses that PID, so Node deliberately stays in memory.
+  if (isNodeRuntime() && !isBrowserRuntime()) {
+    return getMemoryStorage();
+  }
+
   if (activeVfs) {
     let storage = explicitVfsStorage.get(activeVfs);
     if (!storage) {
-      storage = createNodeVfsStorage(activeVfs);
+      storage = createVfsStorage(activeVfs);
       explicitVfsStorage.set(activeVfs, storage);
     }
     return await storage;
@@ -167,41 +105,7 @@ async function getStorage(activeVfs?: Vfs): Promise<CacheStorageLike> {
   if (browserStorage) {
     return browserStorage;
   }
-
-  if (!isNodeRuntime()) {
-    return getMemoryStorage();
-  }
-
-  if (globalVfs.ref) {
-    if (!nodeStorageState || nodeStorageState.backend !== "vfs" || nodeStorageState.vfsRef !== globalVfs.ref) {
-      nodeStorageState = {
-        backend: "vfs",
-        vfsRef: globalVfs.ref,
-        storagePromise: createNodeVfsStorage(vfs()),
-      };
-    }
-    return await nodeStorageState.storagePromise;
-  }
-
-  const fsPromises = getNodeFsPromises();
-  if (fsPromises) {
-    if (!nodeStorageState || nodeStorageState.backend !== "fs") {
-      nodeStorageState = {
-        backend: "fs",
-        storagePromise: createNodeFileStorage(fsPromises),
-      };
-    }
-    return await nodeStorageState.storagePromise;
-  }
-
-  if (!nodeStorageState || nodeStorageState.backend !== "memory") {
-    nodeStorageState = {
-      backend: "memory",
-      storagePromise: Promise.resolve(getMemoryStorage()),
-    };
-  }
-
-  return await nodeStorageState.storagePromise;
+  return getMemoryStorage();
 }
 
 function programKey(sourceFilePath: string): string {

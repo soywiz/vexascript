@@ -75,10 +75,23 @@
     ]
   ],
   "indentationRules": {
-    "increaseIndentPattern": "^.*(\\{[^}\"']*|->)\\s*$",
-    "decreaseIndentPattern": "^\\s*\\}"
+    "increaseIndentPattern": "^.*(?:\\{[^}\"']*|->|<(?:>|(?!/)(?![^<>]*\\/>)[A-Za-z_$][\\w$:-]*(?:\\.[A-Za-z_$][\\w$:-]*)*(?:\\s+[^<>]*)?>))\\s*$",
+    "decreaseIndentPattern": "^\\s*(?:\\}|<\\/(?:>|[A-Za-z_$][\\w$:-]*(?:\\.[A-Za-z_$][\\w$:-]*)*\\s*>))"
   },
   "onEnterRules": [
+    {
+      "beforeText": "<(?:>|(?!/)(?![^<>]*\\/>)[A-Za-z_$][\\w$:-]*(?:\\.[A-Za-z_$][\\w$:-]*)*(?:\\s+[^<>]*)?>)\\s*$",
+      "afterText": "^\\s*<\\/(?:>|[A-Za-z_$][\\w$:-]*(?:\\.[A-Za-z_$][\\w$:-]*)*\\s*>)",
+      "action": {
+        "indent": "indentOutdent"
+      }
+    },
+    {
+      "beforeText": "<(?:>|(?!/)(?![^<>]*\\/>)[A-Za-z_$][\\w$:-]*(?:\\.[A-Za-z_$][\\w$:-]*)*(?:\\s+[^<>]*)?>)\\s*$",
+      "action": {
+        "indent": "indent"
+      }
+    },
     {
       "beforeText": "->\\s*$",
       "afterText": "^\\s*[)\\]}]",

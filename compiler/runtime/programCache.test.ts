@@ -77,12 +77,13 @@ describe("runtime program cache", () => {
     }
   });
 
-  it("uses the bound vfs in Node without touching localStorage", async () => {
+  it("keeps Node programs in memory without touching VFS or localStorage", async () => {
     const previousDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
     const previousBuiltinModule = process.getBuiltinModule;
     const writes = new Map<string, string>();
     let localStorageReads = 0;
     let builtinModuleReads = 0;
+    let vfsReads = 0;
 
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,
@@ -94,6 +95,7 @@ describe("runtime program cache", () => {
 
     class FakeVfs extends Vfs {
       override async readFile(path: string): Promise<string> {
+        vfsReads += 1;
         const value = writes.get(path);
         if (!value) {
           throw new Error(`missing ${path}`);
@@ -131,7 +133,8 @@ describe("runtime program cache", () => {
       expect(generateCount).toBe(1);
       expect(localStorageReads).toBe(0);
       expect(builtinModuleReads).toBe(0);
-      expect(writes.size).toBe(1);
+      expect(vfsReads).toBe(0);
+      expect(writes.size).toBe(0);
     } finally {
       process.getBuiltinModule = previousBuiltinModule;
       if (previousDescriptor) {
@@ -141,4 +144,5 @@ describe("runtime program cache", () => {
       }
     }
   });
+
 });

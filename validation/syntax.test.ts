@@ -34,6 +34,17 @@ describe("shared syntax generators", () => {
     expect(config.surroundingPairs.some((pair) => pair.open === "<" && pair.close === ">")).toBe(true);
   });
 
+  it("indents JSX children after Enter and outdents closing tags", () => {
+    const config = createPortableLanguageConfiguration();
+    const increaseIndent = new RegExp(config.indentationRules.increaseIndentPattern);
+    const decreaseIndent = new RegExp(config.indentationRules.decreaseIndentPattern);
+
+    expect(increaseIndent.test('        <button class="signal-counter">')).toBe(true);
+    expect(increaseIndent.test("        <Component.Widget value={count}>")).toBe(true);
+    expect(increaseIndent.test("        <input />")).toBe(false);
+    expect(decreaseIndent.test("        </button>")).toBe(true);
+  });
+
   it("renders Monaco targets from the same embedded source", () => {
     const monacoLanguage = JSON.parse(renderSyntaxTarget("monaco-language")) as { tokenizer?: unknown };
     const monacoConfiguration = JSON.parse(renderSyntaxTarget("monaco-configuration")) as { comments?: unknown };

@@ -24,6 +24,8 @@ export const VEXA_PRIMITIVE_TYPES = [
 
 const VEXA_OPERATOR_NAME_PATTERN = String.raw`\boperator(?:\[\]=?|[+\-*/%&|^~<>!=?:]+)`;
 const VEXA_REGEXP_LITERAL_PATTERN = String.raw`/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+/[dgimsuvy]*`;
+const JSX_OPENING_TAG_PATTERN = String.raw`<(?:>|(?!/)(?![^<>]*\/>)[A-Za-z_$][\w$:-]*(?:\.[A-Za-z_$][\w$:-]*)*(?:\s+[^<>]*)?>)`;
+const JSX_CLOSING_TAG_PATTERN = String.raw`<\/(?:>|[A-Za-z_$][\w$:-]*(?:\.[A-Za-z_$][\w$:-]*)*\s*>)`;
 
 export interface PortableMonarchRule {
   match: string;
@@ -258,10 +260,16 @@ export function createPortableLanguageConfiguration(): PortableLanguageConfigura
       { open: "'", close: "'" },
     ],
     indentationRules: {
-      increaseIndentPattern: String.raw`^.*(\{[^}"']*|->)\s*$`,
-      decreaseIndentPattern: String.raw`^\s*\}`,
+      increaseIndentPattern: `^.*(?:\\{[^}"']*|->|${JSX_OPENING_TAG_PATTERN})\\s*$`,
+      decreaseIndentPattern: `^\\s*(?:\\}|${JSX_CLOSING_TAG_PATTERN})`,
     },
     onEnterRules: [
+      {
+        afterText: `^\\s*${JSX_CLOSING_TAG_PATTERN}`,
+        beforeText: `${JSX_OPENING_TAG_PATTERN}\\s*$`,
+        indentAction: "indentOutdent"
+      },
+      { beforeText: `${JSX_OPENING_TAG_PATTERN}\\s*$`, indentAction: "indent" },
       { afterText: String.raw`^\s*[)\]}]`, beforeText: String.raw`->\s*$`, indentAction: "indentOutdent" },
       { beforeText: String.raw`->\s*$`, indentAction: "indent" },
     ],
