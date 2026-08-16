@@ -113,6 +113,36 @@ export type ExternalDeclarationsResolver = (
   session: AnalysisSession
 ) => ResolvedExternals | Promise<ResolvedExternals>;
 
+export interface AnalysisSessionCacheMetrics {
+  synchronousRequests: number;
+  asynchronousRequests: number;
+  sessionCacheHits: number;
+  sessionCacheMisses: number;
+  pendingSessionReuses: number;
+  externalCacheHits: number;
+  externalCacheMisses: number;
+  pendingExternalReuses: number;
+  externalResolverRuns: number;
+  baseSessionBuilds: number;
+  resolvedSessionBuilds: number;
+}
+
+function emptyAnalysisSessionCacheMetrics(): AnalysisSessionCacheMetrics {
+  return {
+    synchronousRequests: 0,
+    asynchronousRequests: 0,
+    sessionCacheHits: 0,
+    sessionCacheMisses: 0,
+    pendingSessionReuses: 0,
+    externalCacheHits: 0,
+    externalCacheMisses: 0,
+    pendingExternalReuses: 0,
+    externalResolverRuns: 0,
+    baseSessionBuilds: 0,
+    resolvedSessionBuilds: 0
+  };
+}
+
 function externalResolutionKey(source: string, session: AnalysisSession): string | null {
   if (!session.ast) {
     return null;
@@ -175,11 +205,20 @@ export class AnalysisSessionCache {
   private readonly pending = new Map<string, { version: number; promise: Promise<AnalysisSession> }>();
   private readonly resolvedExternals = new Map<string, { key: string; resolved: ResolvedExternals }>();
   private readonly pendingExternals = new Map<string, { key: string; promise: Promise<ResolvedExternals> }>();
+  private metrics = emptyAnalysisSessionCacheMetrics();
 
   constructor(
     private readonly resolveExternalDeclarations?: ExternalDeclarationsResolver,
     private readonly onSessionUpdated?: () => void
   ) {}
+
+  getMetrics(): Readonly<AnalysisSessionCacheMetrics> {
+    return { ...this.metrics };
+  }
+
+  resetMetrics(): void {
+    this.metrics = emptyAnalysisSessionCacheMetrics();
+  }
 
   private resolveExternals(
     document: TextDocument,
@@ -188,16 +227,23 @@ export class AnalysisSessionCache {
   ): Promise<ResolvedExternals> {
     const key = externalResolutionKey(document.getText(), baseSession);
     if (key === null) {
+      this.metrics.externalCacheMisses += 1;
+      this.metrics.externalResolverRuns += 1;
       return Promise.resolve(resolver(document, baseSession));
     }
     const cached = this.resolvedExternals.get(document.uri);
     if (cached?.key === key) {
+      this.metrics.externalCacheHits += 1;
       return Promise.resolve(cached.resolved);
     }
     const pending = this.pendingExternals.get(document.uri);
     if (pending?.key === key) {
+      this.metrics.pendingExternalReuses += 1;
       return pending.promise;
     }
+
+    this.metrics.externalCacheMisses += 1;
+    this.metrics.externalResolverRuns += 1;
 
     let promise: Promise<ResolvedExternals>;
     promise = Promise.resolve(resolver(document, baseSession)).then((resolved) => {
@@ -229,6 +275,7 @@ export class AnalysisSessionCache {
       try {
         const resolved = await this.resolveExternals(document, baseSession, resolveExternalDeclarations);
         const session = buildSessionFromResolved(docText, baseSession, resolved);
+        this.metrics.resolvedSessionBuilds += 1;
         const still = this.cache.get(docUri);
         if (!still || still.version <= docVersion) {
           this.cache.set(docUri, { version: docVersion, session });
@@ -249,15 +296,20 @@ export class AnalysisSessionCache {
   }
 
   getForDocument(document: TextDocument): AnalysisSession {
+    this.metrics.synchronousRequests += 1;
     const cached = this.cache.get(document.uri);
     if (cached && cached.version === document.version) {
+      this.metrics.sessionCacheHits += 1;
       return cached.session;
     }
+
+    this.metrics.sessionCacheMisses += 1;
 
     const docText = document.getText();
     const docVersion = document.version;
     const docUri = document.uri;
     const baseSession = createAnalysisSession(docText);
+    this.metrics.baseSessionBuilds += 1;
 
     if (!this.resolveExternalDeclarations) {
       this.cache.set(docUri, { version: docVersion, session: baseSession });
@@ -275,19 +327,25 @@ export class AnalysisSessionCache {
   }
 
   async getForDocumentAsync(document: TextDocument): Promise<AnalysisSession> {
+    this.metrics.asynchronousRequests += 1;
     const cached = this.cache.get(document.uri);
     if (cached && cached.version === document.version) {
+      this.metrics.sessionCacheHits += 1;
       return cached.session;
     }
 
     // Reuse an in-flight resolution only when it is for the same document version
     const pending = this.pending.get(document.uri);
     if (pending && pending.version === document.version) {
+      this.metrics.pendingSessionReuses += 1;
       return pending.promise;
     }
 
+    this.metrics.sessionCacheMisses += 1;
+
     const docText = document.getText();
     const baseSession = createAnalysisSession(docText);
+    this.metrics.baseSessionBuilds += 1;
     return this.startAsyncResolution(document, baseSession);
   }
 

@@ -17,7 +17,7 @@ function positionAfter(source: string, text: string, offsetAdjustment = 0): LspP
 }
 
 describe("zod sample editor features", () => {
-  it("preserves inferred alias types and completes their members promptly", async () => {
+  it("preserves inferred alias types with bounded reusable analysis work", async () => {
     const sourcePath = resolve(process.cwd(), "samples/zod/models.vx");
     const project = await resolveProjectForSource(sourcePath);
     await ensureRuntimeDependencies(sourcePath, project);
@@ -25,11 +25,13 @@ describe("zod sample editor features", () => {
     const source = `${await vfs().readFile(sourcePath)}\nval role: Role = "admin"\nrole.`;
     const aliasExpectations = [
       ["User", "name", "User"],
+      ["UserInput", "name", "User"],
       ["PublicUser", "role", "PublicUser"],
       ["UserPatch", "id", "UserPatch"],
       ["Coordinates", "number", "Coordinates"],
       ["Setting", "boolean", "Setting"],
       ["UserEvent", "created", "Event"],
+      ["UserEventInput", "created", "Event"],
       ["Permissions", "boolean", "Permissions"],
       ["StringNumberMap", "Map", "StringNumberMap"],
       ["StringSet", "Set", "StringSet"],
@@ -44,10 +46,11 @@ describe("zod sample editor features", () => {
       positionAfter(source, `typeof ${schemaName}Schema`)
     );
     const completionProbe = positionAfter(source, "role.");
+    const hoverProbes = [schemaProbe, roleProbe, ...aliasProbes, ...schemaProbes];
     const result = await openEntrypointInLspSession(
       sourcePath,
       process.cwd(),
-      [schemaProbe, roleProbe, ...aliasProbes, ...schemaProbes],
+      hoverProbes,
       [completionProbe],
       source,
       true,
@@ -82,17 +85,42 @@ describe("zod sample editor features", () => {
       expect(aliasHoverText).not.toContain("unknown");
       expect(aliasHoverText).not.toContain("object & unknown");
     });
-    expect(Math.max(...result.hoverDurationsMs)).toBeLessThan(4_000);
-    expect(result.completionDurationsMs[0] ?? Number.POSITIVE_INFINITY).toBeLessThan(4_000);
-    expect(Math.max(...result.warmHoverDurationsMs)).toBeLessThan(500);
-    expect(result.warmCompletionDurationsMs[0] ?? Number.POSITIVE_INFINITY).toBeLessThan(500);
+    expect(result.workMetrics).toMatchObject({
+      externalResolverRuns: 1,
+      importedDeclarationCollections: 1
+    });
+    expect(result.workMetrics.baseSessionBuilds).toBeLessThan(6);
+    expect(result.workMetrics.resolvedSessionBuilds).toBeLessThan(3);
+    expect(result.workMetrics.sessionRequests).toBeLessThanOrEqual(hoverProbes.length * 65);
+    expect(result.workMetrics.diskSessionCacheMisses).toBeLessThan(100);
+    expect(result.workMetrics.diskSessionBuilds).toBeLessThan(100);
+    expect(result.warmWorkMetrics).toMatchObject({
+      sessionCacheMisses: 0,
+      externalResolverRuns: 0,
+      baseSessionBuilds: 0,
+      resolvedSessionBuilds: 0,
+      importedDeclarationCollections: 0,
+      diskSessionCacheMisses: 0,
+      diskStatCalls: 0,
+      diskReadCalls: 0,
+      diskSessionBuilds: 0
+    });
+    expect(result.warmWorkMetrics.sessionRequests).toBeLessThanOrEqual((hoverProbes.length + 1) * 5);
 
     const parsingSourcePath = resolve(process.cwd(), "samples/zod/parsing.vx");
     const parsingSource = await vfs().readFile(parsingSourcePath);
+    expect(/\b(?:any|unknown)\b/.test(parsingSource)).toBe(false);
     const importedAliasResult = await openEntrypointInLspSession(
       parsingSourcePath,
       process.cwd(),
-      [positionAfter(parsingSource, "event: UserEvent", -2)],
+      [
+        positionAfter(parsingSource, "event: UserEvent", -2),
+        positionAfter(parsingSource, "EventSchema.parse", -8),
+        positionAfter(parsingSource, "EventSchema.parse", -2),
+        positionAfter(parsingSource, '== "created"', -3),
+        positionAfter(parsingSource, "event.kind", -2),
+        positionAfter(parsingSource, "event.name", -2)
+      ],
       [],
       parsingSource,
       true,
@@ -103,5 +131,27 @@ describe("zod sample editor features", () => {
     expect(importedAliasHover?.value).toContain("```typescript\ntype UserEvent = {\n");
     expect(importedAliasHover?.value).toContain('  kind: "created";\n');
     expect(importedAliasHover?.value).toContain("} | {\n");
+    const importedSchemaHover = importedAliasResult.hovers[1]?.contents as { kind?: string; value?: string } | undefined;
+    expect(importedSchemaHover?.kind).toBe("markdown");
+    expect(importedSchemaHover?.value).toContain("```typescript\nconst EventSchema: ZodDiscriminatedUnion<");
+    expect(importedSchemaHover?.value).toContain('ZodLiteral<"created">');
+    const parseHover = importedAliasResult.hovers[2]?.contents as { kind?: string; value?: string } | undefined;
+    expect(parseHover?.kind).toBe("markdown");
+    expect(parseHover?.value).toContain("```typescript\nparse: (data: unknown, params?: core.ParseContext<core.$ZodIssue>) => core.output<this>\n```");
+    const literalHover = importedAliasResult.hovers[3]?.contents as { kind?: string; value?: string } | undefined;
+    expect(literalHover).toEqual({
+      kind: "markdown",
+      value: "```typescript\nexpression: string\n```"
+    });
+    const kindHover = importedAliasResult.hovers[4]?.contents as { kind?: string; value?: string } | undefined;
+    expect(kindHover).toEqual({
+      kind: "markdown",
+      value: '```typescript\nkind: "created"\n```'
+    });
+    const nameHover = importedAliasResult.hovers[5]?.contents as { kind?: string; value?: string } | undefined;
+    expect(nameHover).toEqual({
+      kind: "markdown",
+      value: "```typescript\nname: string\n```"
+    });
   });
 });

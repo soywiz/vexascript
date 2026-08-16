@@ -261,7 +261,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root]
     });
 
-    expect((hover?.contents as { value?: string } | undefined)?.value).toBe("title: string");
+    expect((hover?.contents as { value?: string } | undefined)?.value).toBe("```typescript\ntitle: string\n```");
   });
 
   it("navigates JSON member access to the property key in the JSON file", async () => {
@@ -1164,18 +1164,21 @@ describe("cross-file navigation", () => {
 
     expect(inferLocation?.uri).toBe(pathToFileURL(join(libDir, "external.d.ts")).toString());
     expect(inferLocation?.range.start.line).toBe(inferLine);
-    expect(inferHover?.contents).toEqual({ kind: "plaintext", value: "type z.infer" });
+    expect(inferHover?.contents).toEqual({
+      kind: "markdown",
+      value: "```typescript\ntype z.infer\n```"
+    });
     expect(schemaLocation?.uri).toBe(pathToFileURL(mainPath).toString());
     expect(schemaLocation?.range.start.line).toBe(schemaLine);
     expect(schemaHover?.contents).toEqual({
-      kind: "plaintext",
-      value: "variable UserSchema: ZObject<{ name: ZString, age: ZNumber }>"
+      kind: "markdown",
+      value: "```typescript\nvariable UserSchema: ZObject<{\n  name: ZString;\n  age: ZNumber;\n}>\n```"
     });
     expect(importedSchemaLocation?.uri).toBe(pathToFileURL(join(libDir, "external.d.ts")).toString());
     expect(importedSchemaLocation?.range.start.line).toBe(defaultSchemaLine);
     expect(importedSchemaHover?.contents).toEqual({
-      kind: "plaintext",
-      value: "variable defaultSchema: ZObject<{ title: ZString }>"
+      kind: "markdown",
+      value: "```typescript\nvariable defaultSchema: ZObject<{\n  title: ZString;\n}>\n```"
     });
   });
 
@@ -1243,8 +1246,8 @@ describe("cross-file navigation", () => {
     expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
     expect(location?.range.start.line).toBe(defaultLine);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "function defaultSchema: () => Schema"
+      kind: "markdown",
+      value: "```typescript\nfunction defaultSchema: () => Schema\n```"
     });
   });
 
@@ -1370,32 +1373,32 @@ describe("cross-file navigation", () => {
     expect(schemaLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
     expect(schemaLocation?.range.start.line).toBe(schemaLine);
     expect(schemaHover?.contents).toEqual({
-      kind: "plaintext",
-      value: 'type import("shape-kit").Schema'
+      kind: "markdown",
+      value: '```typescript\ntype import("shape-kit").Schema\n```'
     });
     expect(defaultSchemaLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
     expect(defaultSchemaLocation?.range.start.line).toBe(defaultSchemaLine);
     expect(defaultSchemaHover?.contents).toEqual({
-      kind: "plaintext",
-      value: 'type import("shape-kit").defaultSchema'
+      kind: "markdown",
+      value: '```typescript\ntype import("shape-kit").defaultSchema\n```'
     });
     expect(defaultExportLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
     expect(defaultExportLocation?.range.start.line).toBe(defaultExportLine);
     expect(defaultExportHover?.contents).toEqual({
-      kind: "plaintext",
-      value: 'type import("shape-kit").default'
+      kind: "markdown",
+      value: '```typescript\ntype import("shape-kit").default\n```'
     });
     expect(namespaceLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
     expect(namespaceLocation?.range.start.line).toBe(namespaceLine);
     expect(namespaceHover?.contents).toEqual({
-      kind: "plaintext",
-      value: 'type import("shape-kit").Models'
+      kind: "markdown",
+      value: '```typescript\ntype import("shape-kit").Models\n```'
     });
     expect(nestedUserLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
     expect(nestedUserLocation?.range.start.line).toBe(nestedUserLine);
     expect(nestedUserHover?.contents).toEqual({
-      kind: "plaintext",
-      value: 'type import("shape-kit").Models.User'
+      kind: "markdown",
+      value: '```typescript\ntype import("shape-kit").Models.User\n```'
     });
   });
 
@@ -1446,8 +1449,8 @@ describe("cross-file navigation", () => {
     expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "src", "models.d.ts")).toString());
     expect(location?.range.start.line).toBe(0);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: 'type import("shape-kit").Models.User'
+      kind: "markdown",
+      value: '```typescript\ntype import("shape-kit").Models.User\n```'
     });
   });
 
@@ -1501,8 +1504,8 @@ describe("cross-file navigation", () => {
     expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "factory.d.ts")).toString());
     expect(location?.range.start.line).toBe(sourceLine);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: 'type import("shape-kit").default'
+      kind: "markdown",
+      value: '```typescript\ntype import("shape-kit").default\n```'
     });
   });
 
@@ -1994,8 +1997,8 @@ describe("cross-file navigation", () => {
     });
 
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "x: number"
+      kind: "markdown",
+      value: "```typescript\nx: number\n```"
     });
     expect(hover?.range).toEqual({
       start: { line: 0, character: 20 },
@@ -2024,8 +2027,8 @@ describe("cross-file navigation", () => {
     });
 
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "y: number"
+      kind: "markdown",
+      value: "```typescript\ny: number\n```"
     });
     expect(hover?.range).toEqual({
       start: { line: 3, character: 8 },
@@ -2057,8 +2060,8 @@ describe("cross-file navigation", () => {
     });
 
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "value: int"
+      kind: "markdown",
+      value: "```typescript\nvalue: int\n```"
     });
   });
 
@@ -2094,8 +2097,8 @@ describe("cross-file navigation", () => {
 
     expect(definition?.uri).toBe(pathToFileURL(await getEcmaScriptRuntimeDeclarationFilePath()).toString());
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "valueOf: () => number\n\nReturns the primitive value of the specified object."
+      kind: "markdown",
+      value: "```typescript\nvalueOf: () => number\n```\n\nReturns the primitive value of the specified object."
     });
   });
 
@@ -2152,8 +2155,8 @@ describe("cross-file navigation", () => {
       }
     });
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "source: string"
+      kind: "markdown",
+      value: "```typescript\nsource: string\n```"
     });
   });
 
@@ -2212,8 +2215,8 @@ describe("cross-file navigation", () => {
       }
     });
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "operator: string"
+      kind: "markdown",
+      value: "```typescript\noperator: string\n```"
     });
   });
 
@@ -2272,8 +2275,8 @@ describe("cross-file navigation", () => {
       }
     });
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "operator: string"
+      kind: "markdown",
+      value: "```typescript\noperator: string\n```"
     });
   });
 
@@ -2316,8 +2319,8 @@ describe("cross-file navigation", () => {
     expect(typeDefinition?.uri).toBe(pathToFileURL(getDomDeclarationFilePath()).toString());
     expect(memberDefinition?.uri).toBe(pathToFileURL(getDomDeclarationFilePath()).toString());
     expect(memberHover?.contents).toEqual({
-      kind: "plaintext",
-      value: "className: string\n\nThe **string** property of the of the specified element.\n\n[MDN Reference](https://developer.mozilla.org/docs/Web/API/Element/className)"
+      kind: "markdown",
+      value: "```typescript\nclassName: string\n```\n\nThe **string** property of the of the specified element.\n\n[MDN Reference](https://developer.mozilla.org/docs/Web/API/Element/className)"
     });
   });
 
@@ -2419,8 +2422,8 @@ describe("cross-file navigation", () => {
     });
 
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "a: string"
+      kind: "markdown",
+      value: "```typescript\na: string\n```"
     });
     expect(hover?.range).toEqual({
       start: { line: 6, character: 6 },
@@ -2461,8 +2464,8 @@ describe("cross-file navigation", () => {
     });
 
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "value: string"
+      kind: "markdown",
+      value: "```typescript\nvalue: string\n```"
     });
     expect(hover?.range).toEqual({
       start: { line: 3, character: 8 },
@@ -2504,8 +2507,8 @@ describe("cross-file navigation", () => {
     });
 
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "x: number\n\nThe x coordinate."
+      kind: "markdown",
+      value: "```typescript\nx: number\n```\n\nThe x coordinate."
     });
   });
 
@@ -3929,8 +3932,8 @@ describe("cross-file navigation", () => {
       });
 
       expect(hover?.contents).toEqual({
-        kind: "plaintext",
-        value: "function readFile: (path: string) => Promise<string>\n\nReads the entire contents of a file."
+        kind: "markdown",
+        value: "```typescript\nfunction readFile: (path: string) => Promise<string>\n```\n\nReads the entire contents of a file."
       });
     });
 
@@ -4449,7 +4452,8 @@ describe("cross-file navigation", () => {
         getSessionForFilePath: () => null
       });
 
-      expect((hover?.contents as { value?: string } | undefined)?.value).toContain("data: { title: string } | undefined");
+      expect((hover?.contents as { value?: string } | undefined)?.value)
+        .toContain("data: {\n  title: string;\n} | undefined");
       expect(location?.uri.endsWith("/node_modules/pkg/index.d.ts")).toBe(true);
       expect(location?.range.start.line).toBe(18);
     });
@@ -4764,7 +4768,9 @@ describe("cross-file navigation", () => {
       expect(location).not.toBeNull();
       expect(location?.uri.endsWith("/node_modules/pixi-like/scene/text/TextStyle.d.ts")).toBe(true);
       expect(location?.range.start.line).toBe(2);
-      expect((hover?.contents as { value?: string } | undefined)?.value).toBe("fontSize: number | string");
+      expect((hover?.contents as { value?: string } | undefined)?.value).toBe(
+        "```typescript\nfontSize: number | string\n```"
+      );
     });
 
     it("falls back to local definition when no cross-file resolution matches", async () => {

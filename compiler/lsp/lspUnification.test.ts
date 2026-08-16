@@ -50,7 +50,7 @@ describe("LSP unification", () => {
       const references = createReferences(analysis, TEST_URI, line, character, true, ast);
 
       // All three should resolve to greet
-      expect(hover?.contents).toEqual(expect.objectContaining({ kind: "plaintext" }));
+      expect(hover?.contents).toEqual(expect.objectContaining({ kind: "markdown" }));
       expect(definition?.uri).toBe(TEST_URI);
       // definition should point to line 0 where greet is declared
       expect(definition?.range.start.line).toBe(0);
@@ -103,8 +103,8 @@ describe("LSP unification", () => {
       expect(signatureHelp?.signatures.length).toBe(1);
       expect(signatureHelp?.signatures[0]?.label).toBe("greet(name: string): string");
       expect(hover?.contents).toEqual({
-        kind: "plaintext",
-        value: "function greet: (name: string) => string"
+        kind: "markdown",
+        value: "```typescript\nfunction greet: (name: string) => string\n```"
       });
     });
   });
@@ -292,7 +292,7 @@ describe("LSP unification", () => {
       const definition = createDefinitionLocation(analysis, TEST_URI, line, character, ast);
 
       // hover should say "annotation MyAnnotation(...)"
-      expect(hover?.contents).toEqual(expect.objectContaining({ kind: "plaintext" }));
+      expect(hover?.contents).toEqual(expect.objectContaining({ kind: "markdown" }));
       const hoverValue = (hover?.contents as { value: string }).value;
       expect(hoverValue).toContain("annotation MyAnnotation");
       expect(hoverValue).toContain("value: string");
@@ -316,8 +316,8 @@ describe("LSP unification", () => {
       const definition = createDefinitionLocation(analysis, TEST_URI, line, character, ast);
 
       expect(hover?.contents).toEqual({
-        kind: "plaintext",
-        value: "parameter a: number"
+        kind: "markdown",
+        value: "```typescript\nparameter a: number\n```"
       });
       // definition should point to parameter `a` in the function signature
       expect(definition?.uri).toBe(TEST_URI);
@@ -359,8 +359,8 @@ describe("LSP unification", () => {
 
       // Hover should show x's type
       expect(hover?.contents).toEqual({
-        kind: "plaintext",
-        value: "x: number"
+        kind: "markdown",
+        value: "```typescript\nx: number\n```"
       });
       // Definition should point to a.vx
       expect(definition?.uri).toBe(pathToFileURL(fileA).toString());
@@ -419,8 +419,8 @@ describe("LSP unification", () => {
 
       // Hover should describe both overload signatures.
       expect(hover?.contents).toEqual({
-        kind: "plaintext",
-        value: "function greet: () => string | (name: string) => string"
+        kind: "markdown",
+        value: "```typescript\nfunction greet: () => string | (name: string) => string\n```"
       });
       // Definition/rename/references all anchor on the first overload (line 0).
       expect(definition?.uri).toBe(TEST_URI);
@@ -491,7 +491,7 @@ describe("LSP unification", () => {
       const hover = await resolveHoverWithLocalFallback(context);
       const definition = await resolveDefinitionWithLocalFallback(context);
 
-      expect(hover?.contents).toEqual(expect.objectContaining({ kind: "plaintext" }));
+      expect(hover?.contents).toEqual(expect.objectContaining({ kind: "markdown" }));
       const hoverValue = (hover?.contents as { value: string }).value;
       expect(hoverValue).toContain("function parseInt");
 

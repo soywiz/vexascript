@@ -20,6 +20,36 @@ export interface ProjectContext {
   getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null | Promise<ProjectSessionLike | null>;
 }
 
+export interface ProjectIndexMetrics {
+  sessionRequests: number;
+  indexedDataRequests: number;
+  openOverrideHits: number;
+  openSessionBuilds: number;
+  diskSessionRequests: number;
+  diskSessionCacheHits: number;
+  diskSessionCacheMisses: number;
+  pendingDiskSessionReuses: number;
+  diskStatCalls: number;
+  diskReadCalls: number;
+  diskSessionBuilds: number;
+}
+
+function emptyProjectIndexMetrics(): ProjectIndexMetrics {
+  return {
+    sessionRequests: 0,
+    indexedDataRequests: 0,
+    openOverrideHits: 0,
+    openSessionBuilds: 0,
+    diskSessionRequests: 0,
+    diskSessionCacheHits: 0,
+    diskSessionCacheMisses: 0,
+    pendingDiskSessionReuses: 0,
+    diskStatCalls: 0,
+    diskReadCalls: 0,
+    diskSessionBuilds: 0
+  };
+}
+
 export type ProjectTopLevelDeclarationKind = "class" | "interface" | "type" | "function" | "variable";
 
 export interface ProjectTopLevelDeclaration {
@@ -49,7 +79,6 @@ interface IndexedFileData {
 }
 
 interface CachedDiskSession {
-  mtimeMs: number;
   session: ProjectSessionLike;
   indexed: IndexedFileData;
 }
@@ -274,8 +303,10 @@ export class ProjectIndex {
   private readonly sourceRoots: string[];
   private readonly vfs: Vfs;
   private importMappings: Readonly<Record<string, string>>;
-  private readonly diskSessions = new Map<string, CachedDiskSession>();
+  private readonly diskSessions = new Map<string, CachedDiskSession | null>();
+  private readonly pendingDiskSessions = new Map<string, Promise<CachedDiskSession | null>>();
   private readonly openOverrides = new Map<string, OpenFileOverride>();
+  private metrics = emptyProjectIndexMetrics();
 
   constructor(sourceRoots: string[], vfsValue: Vfs = vfs(), importMappings: Readonly<Record<string, string>> = {}) {
     this.sourceRoots = [...sourceRoots];
@@ -283,10 +314,24 @@ export class ProjectIndex {
     this.importMappings = importMappings;
   }
 
+  getMetrics(): Readonly<ProjectIndexMetrics> {
+    return { ...this.metrics };
+  }
+
+  resetMetrics(): void {
+    this.metrics = emptyProjectIndexMetrics();
+  }
+
   setSourceRoots(sourceRoots: string[], importMappings: Readonly<Record<string, string>> = this.importMappings): void {
+    const configurationChanged = rootsKey(this.sourceRoots, this.vfs, this.importMappings)
+      !== rootsKey(sourceRoots, this.vfs, importMappings);
     this.sourceRoots.length = 0;
     this.sourceRoots.push(...sourceRoots);
     this.importMappings = importMappings;
+    if (configurationChanged) {
+      this.diskSessions.clear();
+      this.pendingDiskSessions.clear();
+    }
   }
 
   async scanMyFiles(): Promise<string[]> {
@@ -323,6 +368,7 @@ export class ProjectIndex {
 
   async upsertOpenDocument(filePath: string, source: string): Promise<void> {
     const normalized = resolve(filePath);
+    this.metrics.openSessionBuilds += 1;
     const session = compileToSession(source);
     const indexed = await indexFileData(session.ast, normalized, this.vfs, this.importMappings);
     this.openOverrides.set(normalized, { session, indexed });
@@ -333,13 +379,15 @@ export class ProjectIndex {
   }
 
   invalidateFile(filePath: string): void {
-    this.diskSessions.delete(resolve(filePath));
+    const normalized = resolve(filePath);
+    this.diskSessions.delete(normalized);
+    this.pendingDiskSessions.delete(normalized);
   }
 
-  private async getDiskSession(filePath: string): Promise<CachedDiskSession | null> {
-    const normalized = resolve(filePath);
+  private async loadDiskSession(normalized: string): Promise<CachedDiskSession | null> {
     let fileStats;
     try {
+      this.metrics.diskStatCalls += 1;
       fileStats = await this.vfs.stat(normalized);
     } catch {
       return null;
@@ -347,13 +395,9 @@ export class ProjectIndex {
     if (!fileStats || fileStats.isFile === false) {
       return null;
     }
-    const cached = this.diskSessions.get(normalized);
-    if (cached && cached.mtimeMs === fileStats.mtimeMs) {
-      return cached;
-    }
-
     let source;
     try {
+      this.metrics.diskReadCalls += 1;
       source = await this.vfs.readFile(normalized);
     } catch {
       return null;
@@ -361,21 +405,51 @@ export class ProjectIndex {
     if (source === null) {
       return null;
     }
+    this.metrics.diskSessionBuilds += 1;
     const session = compileToSession(source);
     const indexed = await indexFileData(session.ast, normalized, this.vfs, this.importMappings);
     const next: CachedDiskSession = {
-      mtimeMs: fileStats.mtimeMs,
       session,
       indexed
     };
-    this.diskSessions.set(normalized, next);
     return next;
   }
 
+  private async getDiskSession(filePath: string): Promise<CachedDiskSession | null> {
+    const normalized = resolve(filePath);
+    this.metrics.diskSessionRequests += 1;
+    if (this.diskSessions.has(normalized)) {
+      this.metrics.diskSessionCacheHits += 1;
+      return this.diskSessions.get(normalized) ?? null;
+    }
+    const pending = this.pendingDiskSessions.get(normalized);
+    if (pending) {
+      this.metrics.pendingDiskSessionReuses += 1;
+      return pending;
+    }
+
+    this.metrics.diskSessionCacheMisses += 1;
+    let promise: Promise<CachedDiskSession | null>;
+    promise = this.loadDiskSession(normalized).then((loaded) => {
+      if (this.pendingDiskSessions.get(normalized) === promise) {
+        this.diskSessions.set(normalized, loaded);
+      }
+      return loaded;
+    }).finally(() => {
+      if (this.pendingDiskSessions.get(normalized) === promise) {
+        this.pendingDiskSessions.delete(normalized);
+      }
+    });
+    this.pendingDiskSessions.set(normalized, promise);
+    return promise;
+  }
+
   async getSessionForFilePath(filePath: string): Promise<ProjectSessionLike | null> {
+    this.metrics.sessionRequests += 1;
     const normalized = resolve(filePath);
     const open = this.openOverrides.get(normalized);
     if (open) {
+      this.metrics.openOverrideHits += 1;
       return open.session;
     }
 
@@ -384,9 +458,11 @@ export class ProjectIndex {
   }
 
   async getIndexedFileData(filePath: string): Promise<IndexedFileData | null> {
+    this.metrics.indexedDataRequests += 1;
     const normalized = resolve(filePath);
     const open = this.openOverrides.get(normalized);
     if (open) {
+      this.metrics.openOverrideHits += 1;
       return open.indexed;
     }
     const disk = await this.getDiskSession(normalized);

@@ -26,6 +26,7 @@ import { uriToFilePath } from "./importFixes";
 import { resolveInScopeExtensionMemberDeclarationAcrossFiles } from "./crossFileMemberDefinitionSources";
 import { inferExtensionReturnTypeName } from "./memberCompletionExtensions";
 import { nodeRange } from "./ranges";
+import { createTypedHoverContents } from "./navigation";
 
 export interface ResolveMemberHoverOptions {
   classResolverCache?: ReturnType<typeof createClassResolverCache>;
@@ -85,10 +86,10 @@ export async function resolveMemberHoverAcrossFiles(
   );
   if (declaration) {
     return {
-      contents: {
-        kind: "plaintext",
-        value: createMemberHoverContents(declaration.member)
-      },
+      contents: createTypedHoverContents(
+        declaration.member.memberName,
+        declaration.member.typeLabel
+      ),
       range: declaration.member.range
     };
   }
@@ -146,14 +147,8 @@ export async function resolveMemberHoverAcrossFiles(
     }
     const memberRange = nodeRange(memberExpression.property) ?? nodeRange(memberExpression);
     const typeLabel = structuralMember?.typeLabel ?? extensionTypeLabel ?? inferredMemberTypeLabel;
-    const hoverValue = extensionDocumentation
-      ? `${memberName}: ${typeLabel}\n\n${extensionDocumentation}`
-      : `${memberName}: ${typeLabel}`;
     return {
-      contents: {
-        kind: "plaintext",
-        value: hoverValue
-      },
+      contents: createTypedHoverContents(memberName, typeLabel!, extensionDocumentation),
       ...(memberRange ? { range: memberRange } : {})
     };
   }
@@ -277,12 +272,8 @@ export async function resolveMemberHoverAcrossFiles(
   const documentation = extensionTypeLabel
     ? extensionDocumentation ?? resolvedMember?.documentation
     : resolvedMember?.documentation ?? extensionDocumentation;
-  const hoverValue = documentation ? `${memberName}: ${typeLabel}\n\n${documentation}` : `${memberName}: ${typeLabel}`;
   return {
-    contents: {
-      kind: "plaintext",
-      value: hoverValue
-    },
+    contents: createTypedHoverContents(memberName, typeLabel, documentation),
     ...(memberRange ? { range: memberRange } : {})
   };
 }

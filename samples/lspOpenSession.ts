@@ -1,11 +1,16 @@
 import "../cli/localVfs";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import type { CompletionItem, Connection, Diagnostic, DocumentHighlight, Hover, Location, Range, SemanticTokens, TextDocuments } from "vscode-languageserver/node.js";
-import { AnalysisSessionCache, createAnalysisSession } from "../compiler/lsp/analysisSession";
+import {
+  AnalysisSessionCache,
+  createAnalysisSession,
+  type AnalysisSessionCacheMetrics
+} from "../compiler/lsp/analysisSession";
 import { collectAllImportedDeclarations } from "../compiler/lsp/importedDeclarations";
 import { ensureDomProgram, getDomDeclarationFilePath } from "../compiler/runtime/domDeclarations";
 import { loadAmbientTypesForProject } from "../compiler/lsp/ambientTypesLoader";
 import { getProjectIndex, type ProjectIndex } from "../compiler/lsp/projectAnalysis";
+import type { ProjectIndexMetrics } from "../compiler/analysis/projectIndex";
 import { uriToFilePath } from "../compiler/lsp/importFixes";
 import { startLspServer, type LspServerEnvironment } from "../compiler/lsp/serverCore";
 import { resolve as resolvePath } from "../compiler/utils/path";
@@ -31,19 +36,25 @@ interface StartedWorkspaceServer {
   fakeConnection: FakeConnection;
   fakeDocuments: FakeDocuments;
   projectIndex: ProjectIndex;
+  analysisSessions: AnalysisSessionCache;
+  auxiliaryMetrics: LspAuxiliaryWorkMetrics;
 }
+
+interface LspAuxiliaryWorkMetrics {
+  importedDeclarationCollections: number;
+}
+
+export interface LspWorkMetrics extends AnalysisSessionCacheMetrics, ProjectIndexMetrics, LspAuxiliaryWorkMetrics {}
 
 export interface LspOpenSessionResult {
   documentDiagnostics: Diagnostic[];
   workspaceDiagnostics: Diagnostic[];
   definitions: Array<Location | Location[] | null>;
   hovers: Array<Hover | null>;
-  hoverDurationsMs: number[];
-  warmHoverDurationsMs: number[];
   documentHighlights: DocumentHighlight[][];
   completions: CompletionItem[][];
-  completionDurationsMs: number[];
-  warmCompletionDurationsMs: number[];
+  workMetrics: LspWorkMetrics;
+  warmWorkMetrics: LspWorkMetrics;
   semanticTokens: SemanticTokens;
   semanticTokensRange: SemanticTokens;
 }
@@ -168,9 +179,13 @@ function createFakeDocuments(): FakeDocuments {
 async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promise<{
   analysisSessions: AnalysisSessionCache;
   projectIndex: ProjectIndex;
+  auxiliaryMetrics: LspAuxiliaryWorkMetrics;
   getSessionForFilePath: (filePath: string) => Promise<ReturnType<ProjectIndex["getSessionForFilePath"]> extends Promise<infer T> ? T : never>;
 }> {
   const projectIndex = getProjectIndex([workspaceRoot]);
+  const auxiliaryMetrics: LspAuxiliaryWorkMetrics = {
+    importedDeclarationCollections: 0
+  };
 
   async function getSessionForFilePath(filePath: string) {
     return projectIndex.getSessionForFilePath(resolvePath(filePath));
@@ -213,6 +228,7 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
       ambientModuleDeclarations: ambientTypes.moduleDeclarations,
       ambientGlobalDeclarations: ambientTypes.globalDeclarations
     };
+    auxiliaryMetrics.importedDeclarationCollections += 1;
     const {
       externalDeclarations,
       externalDeclarationLocations,
@@ -238,6 +254,7 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
   return {
     analysisSessions,
     projectIndex,
+    auxiliaryMetrics,
     getSessionForFilePath
   };
 }
@@ -245,7 +262,12 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
 async function startWorkspaceServer(workspaceRoot: string): Promise<StartedWorkspaceServer> {
   const fakeConnection = createFakeConnection();
   const fakeDocuments = createFakeDocuments();
-  const { analysisSessions, projectIndex, getSessionForFilePath } = await createWorkspaceAnalysisSessionCache(workspaceRoot);
+  const {
+    analysisSessions,
+    projectIndex,
+    auxiliaryMetrics,
+    getSessionForFilePath
+  } = await createWorkspaceAnalysisSessionCache(workspaceRoot);
 
   const environment: LspServerEnvironment = {
     getSourceRoots: () => [workspaceRoot],
@@ -277,7 +299,45 @@ async function startWorkspaceServer(workspaceRoot: string): Promise<StartedWorks
     environment
   });
 
-  return { fakeConnection, fakeDocuments, projectIndex };
+  return { fakeConnection, fakeDocuments, projectIndex, analysisSessions, auxiliaryMetrics };
+}
+
+function workMetricsSnapshot(server: StartedWorkspaceServer): LspWorkMetrics {
+  return {
+    ...server.analysisSessions.getMetrics(),
+    ...server.projectIndex.getMetrics(),
+    ...server.auxiliaryMetrics
+  };
+}
+
+function workMetricsDelta(after: LspWorkMetrics, before: LspWorkMetrics): LspWorkMetrics {
+  return {
+    synchronousRequests: after.synchronousRequests - before.synchronousRequests,
+    asynchronousRequests: after.asynchronousRequests - before.asynchronousRequests,
+    sessionCacheHits: after.sessionCacheHits - before.sessionCacheHits,
+    sessionCacheMisses: after.sessionCacheMisses - before.sessionCacheMisses,
+    pendingSessionReuses: after.pendingSessionReuses - before.pendingSessionReuses,
+    externalCacheHits: after.externalCacheHits - before.externalCacheHits,
+    externalCacheMisses: after.externalCacheMisses - before.externalCacheMisses,
+    pendingExternalReuses: after.pendingExternalReuses - before.pendingExternalReuses,
+    externalResolverRuns: after.externalResolverRuns - before.externalResolverRuns,
+    baseSessionBuilds: after.baseSessionBuilds - before.baseSessionBuilds,
+    resolvedSessionBuilds: after.resolvedSessionBuilds - before.resolvedSessionBuilds,
+    importedDeclarationCollections:
+      after.importedDeclarationCollections - before.importedDeclarationCollections,
+    sessionRequests: after.sessionRequests - before.sessionRequests,
+    indexedDataRequests: after.indexedDataRequests - before.indexedDataRequests,
+    openOverrideHits: after.openOverrideHits - before.openOverrideHits,
+    openSessionBuilds: after.openSessionBuilds - before.openSessionBuilds,
+    diskSessionRequests: after.diskSessionRequests - before.diskSessionRequests,
+    diskSessionCacheHits: after.diskSessionCacheHits - before.diskSessionCacheHits,
+    diskSessionCacheMisses: after.diskSessionCacheMisses - before.diskSessionCacheMisses,
+    pendingDiskSessionReuses:
+      after.pendingDiskSessionReuses - before.pendingDiskSessionReuses,
+    diskStatCalls: after.diskStatCalls - before.diskStatCalls,
+    diskReadCalls: after.diskReadCalls - before.diskReadCalls,
+    diskSessionBuilds: after.diskSessionBuilds - before.diskSessionBuilds
+  };
 }
 
 function toFileUri(filePath: string): string {
@@ -300,7 +360,7 @@ export async function openEntrypointInLspSession(
   completionProbes: readonly LspPositionProbe[] = [],
   sourceOverride?: string,
   primeBeforeChange = false,
-  measureWarmFeatureDurations = false
+  collectWarmFeatureMetrics = false
 ): Promise<LspOpenSessionResult> {
   const source = sourceOverride ?? await vfs().readFile(entrypoint);
   const server = await startWorkspaceServer(workspaceRoot);
@@ -369,29 +429,19 @@ export async function openEntrypointInLspSession(
   const definitionsPromise = Promise.all(probes.map((position) => Promise.resolve(
     server.fakeConnection.handlers.get("definition")!({ textDocument: { uri }, position })
   ) as Promise<Location | Location[] | null>));
-  const requestHovers = (): Promise<Array<{ hover: Hover | null; durationMs: number }>> => Promise.all(probes.map(async (position) => {
-    const startedAt = performance.now();
-    const hover = await Promise.resolve(
+  const requestHovers = (): Promise<Array<Hover | null>> => Promise.all(probes.map(async (position) => {
+    return await Promise.resolve(
       server.fakeConnection.handlers.get("hover")!({ textDocument: { uri }, position })
     ) as Hover | null;
-    return {
-      hover,
-      durationMs: performance.now() - startedAt
-    };
   }));
   const hoversPromise = requestHovers();
   const documentHighlightsPromise = Promise.all(probes.map((position) => Promise.resolve(
     server.fakeConnection.handlers.get("documentHighlight")!({ textDocument: { uri }, position })
   ) as Promise<DocumentHighlight[]>));
-  const requestCompletions = (): Promise<Array<{ items: CompletionItem[]; durationMs: number }>> => Promise.all(completionProbes.map(async (position) => {
-    const startedAt = performance.now();
-    const items = await Promise.resolve(
+  const requestCompletions = (): Promise<Array<CompletionItem[]>> => Promise.all(completionProbes.map(async (position) => {
+    return await Promise.resolve(
       server.fakeConnection.handlers.get("completion")!({ textDocument: { uri }, position })
     ) as CompletionItem[];
-    return {
-      items,
-      durationMs: performance.now() - startedAt
-    };
   }));
   const completionsPromise = requestCompletions();
   // Keep the full VS Code-like open burst, but let independent requests overlap
@@ -436,21 +486,21 @@ export async function openEntrypointInLspSession(
     documentHighlightsPromise,
     completionsPromise
   ]);
-  const [warmHoverResults, warmCompletionResults] = measureWarmFeatureDurations
-    ? await Promise.all([requestHovers(), requestCompletions()])
-    : [[], []];
+  const workBeforeWarmRequests = workMetricsSnapshot(server);
+  if (collectWarmFeatureMetrics) {
+    await Promise.all([requestHovers(), requestCompletions()]);
+  }
+  const workAfterWarmRequests = workMetricsSnapshot(server);
 
   return {
     documentDiagnostics: documentDiagnosticReport.items,
     workspaceDiagnostics: workspaceDiagnosticReport.items.find((item) => item.uri === uri)?.items ?? [],
     definitions,
-    hovers: hoverResults.map((result) => result.hover),
-    hoverDurationsMs: hoverResults.map((result) => result.durationMs),
-    warmHoverDurationsMs: warmHoverResults.map((result) => result.durationMs),
+    hovers: hoverResults,
     documentHighlights,
-    completions: completionResults.map((result) => result.items),
-    completionDurationsMs: completionResults.map((result) => result.durationMs),
-    warmCompletionDurationsMs: warmCompletionResults.map((result) => result.durationMs),
+    completions: completionResults,
+    workMetrics: workAfterWarmRequests,
+    warmWorkMetrics: workMetricsDelta(workAfterWarmRequests, workBeforeWarmRequests),
     semanticTokens,
     semanticTokensRange
   };

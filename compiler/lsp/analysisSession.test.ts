@@ -94,6 +94,21 @@ describe("lsp analysis session", () => {
 
     expect(sessionV1First).toBe(sessionV1Second);
     expect(sessionV2).not.toBe(sessionV1First);
+    expect(cache.getMetrics()).toMatchObject({
+      synchronousRequests: 3,
+      asynchronousRequests: 0,
+      sessionCacheHits: 1,
+      sessionCacheMisses: 2,
+      baseSessionBuilds: 2
+    });
+
+    cache.resetMetrics();
+    expect(cache.getMetrics()).toMatchObject({
+      synchronousRequests: 0,
+      sessionCacheHits: 0,
+      sessionCacheMisses: 0,
+      baseSessionBuilds: 0
+    });
   });
 
   it("keeps shorthand class methods with explicit return types compatible with implemented interfaces", () => {
@@ -233,6 +248,17 @@ describe("lsp analysis session", () => {
     )).toBe(true);
   });
 
+  it("accepts properties in nested object literals contextually typed as an empty object shape", () => {
+    const source = dedent`
+      fun accept(input: { metadata: {} }): void {}
+
+      accept({ metadata: { language: "vexa" } })
+    `;
+    const session = createAnalysisSession(source);
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
   it("resolves extracted renderer option aliases from ambient system lists", () => {
     const ambientSource = dedent`
       declare interface System {
@@ -326,6 +352,15 @@ describe("lsp analysis session", () => {
 
     expect(s1).toBe(s2);
     expect(resolveCount).toBe(1);
+    expect(cache.getMetrics()).toMatchObject({
+      asynchronousRequests: 2,
+      sessionCacheMisses: 1,
+      pendingSessionReuses: 1,
+      externalCacheMisses: 1,
+      externalResolverRuns: 1,
+      baseSessionBuilds: 1,
+      resolvedSessionBuilds: 1
+    });
   });
 
   it("getForDocumentAsync reuses the in-flight resolution started by getForDocument", async () => {

@@ -567,7 +567,7 @@ describe("JSX editor features", () => {
     });
 
     expect((hover?.contents as { value?: string } | undefined)?.value).toBe(
-      "overflow: string | number | null | undefined"
+      "```typescript\noverflow: string | number | null | undefined\n```"
     );
     expect(definition?.uri).toBe(pathToFileURL(setup.domPath).toString());
     expect(definition?.range.start.line).toBe(

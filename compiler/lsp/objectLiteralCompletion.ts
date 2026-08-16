@@ -43,6 +43,7 @@ import { formatFunctionTypeLabel } from "./functionTypeDisplay";
 import { containsPosition, nodeRange } from "./ranges";
 import { fileURLToPath } from "compiler/utils/path";
 import { findNodeModuleMemberLocation, findNodeModuleStructuralMemberLocation, getNodeModuleTypings } from "./nodeModulesTypings";
+import { createTypedHoverContents } from "./navigation";
 
 type ObjectLiteralExpectedTypeSource =
   | { kind: "call" | "new"; callee: Expr; argumentIndex: number }
@@ -1254,10 +1255,7 @@ export async function resolveContextualObjectLiteralPropertyHover(
   const keyRange = property ? nodeRange(property.key) : null;
 
   return {
-    contents: {
-      kind: "plaintext",
-      value: `${propertyContext.propertyName}: ${propertyInfo.typeName}`
-    },
+    contents: createTypedHoverContents(propertyContext.propertyName, propertyInfo.typeName),
     ...(keyRange ? { range: keyRange } : {})
   };
 }

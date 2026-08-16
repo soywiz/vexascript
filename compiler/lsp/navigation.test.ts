@@ -35,8 +35,8 @@ describe("lsp navigation", () => {
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(createHover(analysis, marked.line, marked.character, ast)?.contents).toEqual({
-      kind: "plaintext",
-      value: "variable it: T"
+      kind: "markdown",
+      value: "```typescript\nconst it: T\n```"
     });
   });
 
@@ -65,8 +65,8 @@ describe("lsp navigation", () => {
 
     const hover = createHover(analysis, marked.line, marked.character, ast);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "parameter a: Point"
+      kind: "markdown",
+      value: "```typescript\nparameter a: Point\n```"
     });
     expect(hover?.range).toEqual({
       start: { line: 1, character: 5 },
@@ -96,8 +96,8 @@ describe("lsp navigation", () => {
 
     const hover = createHover(analysis, marked.line, marked.character);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "parameter name: string"
+      kind: "markdown",
+      value: "```typescript\nparameter name: string\n```"
     });
     expect(hover?.range).toEqual({
       start: { line: 4, character: 19 },
@@ -141,14 +141,14 @@ describe("lsp navigation", () => {
 
     const symbolHover = createHover(analysis, 0, 5);
     expect(symbolHover?.contents).toEqual({
-      kind: "plaintext",
-      value: "variable value: int"
+      kind: "markdown",
+      value: "```typescript\nlet value: int\n```"
     });
 
     const expressionHover = createHover(analysis, 0, 12);
     expect(expressionHover?.contents).toEqual({
-      kind: "plaintext",
-      value: "expression: int"
+      kind: "markdown",
+      value: "```typescript\nexpression: int\n```"
     });
   });
 
@@ -162,8 +162,8 @@ describe("lsp navigation", () => {
 
     const hover = createHover(analysis, 1, 18);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "expression: any"
+      kind: "markdown",
+      value: "```typescript\nexpression: any\n```"
     });
   });
 
@@ -177,8 +177,8 @@ describe("lsp navigation", () => {
 
     const hover = createHover(analysis, 0, 9);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "variable value: int"
+      kind: "markdown",
+      value: "```typescript\nlet value: int\n```"
     });
   });
 
@@ -195,8 +195,8 @@ describe("lsp navigation", () => {
 
     const hover = createHover(analysis, marked.line, marked.character, ast);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "annotation JsName(const name: string)"
+      kind: "markdown",
+      value: "```typescript\nannotation JsName(const name: string)\n```"
     });
     expect(hover?.range).toEqual({
       start: { line: 2, character: 1 },
@@ -227,8 +227,8 @@ describe("lsp navigation", () => {
 
     const hover = createHover(analysis, marked.line, marked.character, ast);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "annotation Range(const min: number, const max: number)"
+      kind: "markdown",
+      value: "```typescript\nannotation Range(const min: number, const max: number)\n```"
     });
     expect(hover?.range).toEqual({
       start: { line: 3, character: 3 },
@@ -320,8 +320,8 @@ describe("lsp navigation", () => {
 
     const expressionHover = createHover(analysis, 1, 9);
     expect(expressionHover?.contents).toEqual({
-      kind: "plaintext",
-      value: "expression: Point"
+      kind: "markdown",
+      value: "```typescript\nexpression: Point\n```"
     });
   });
 
@@ -333,8 +333,8 @@ describe("lsp navigation", () => {
 
     const expressionHover = createHover(analysis, 0, 9);
     expect(expressionHover?.contents).toEqual({
-      kind: "plaintext",
-      value: "expression: string"
+      kind: "markdown",
+      value: "```typescript\nexpression: string\n```"
     });
   });
 
@@ -344,8 +344,8 @@ describe("lsp navigation", () => {
 
     const symbolHover = createHover(analysis, 2, 8);
     expect(symbolHover?.contents).toEqual({
-      kind: "plaintext",
-      value: "variable map: Map<string, int>"
+      kind: "markdown",
+      value: "```typescript\nconst map: Map<string, int>\n```"
     });
   });
 
@@ -366,8 +366,8 @@ describe("lsp navigation", () => {
 
     const hover = createHover(analysis, 8, 12);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "method operator+: (other: Point) => Point"
+      kind: "markdown",
+      value: "```typescript\nmethod operator+: (other: Point) => Point\n```"
     });
     expect(hover?.range).toEqual({
       start: { line: 8, character: 12 },
@@ -400,8 +400,8 @@ describe("lsp navigation", () => {
 
     const hover = createHover(analysis, 7, 12);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "function operator+: (other: Point) => Point"
+      kind: "markdown",
+      value: "```typescript\nfunction operator+: (other: Point) => Point\n```"
     });
     expect(hover?.range).toEqual({
       start: { line: 7, character: 12 },
@@ -428,8 +428,8 @@ describe("lsp navigation", () => {
     const analysis = new Analysis(ast);
 
     expect(createHover(analysis, marked.line, marked.character, ast)?.contents).toEqual({
-      kind: "plaintext",
-      value: "variable x: number"
+      kind: "markdown",
+      value: "```typescript\nlet x: number\n```"
     });
 
     expect(createDefinitionLocation(analysis, URI, marked.line, marked.character, ast)).toEqual({
@@ -603,8 +603,8 @@ describe("lsp navigation", () => {
     });
 
     expect(createHover(analysis, 5, 9)?.contents).toEqual({
-      kind: "plaintext",
-      value: "method increment: () => int"
+      kind: "markdown",
+      value: "```typescript\nmethod increment: () => int\n```"
     });
 
     expect(createDefinitionLocation(analysis, URI, 5, 9)).toEqual({
@@ -778,8 +778,8 @@ describe("lsp navigation", () => {
 
     const hover = createHover(analysis, marked.line, marked.character, ast);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "function greet: (name: string) => string\n\nGreets a person by name."
+      kind: "markdown",
+      value: "```typescript\nfunction greet: (name: string) => string\n```\n\nGreets a person by name."
     });
   });
 
@@ -792,8 +792,8 @@ describe("lsp navigation", () => {
 
     const hover = createHover(analysis, marked.line, marked.character, ast);
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "function greet: (name: string) => string"
+      kind: "markdown",
+      value: "```typescript\nfunction greet: (name: string) => string\n```"
     });
   });
 });

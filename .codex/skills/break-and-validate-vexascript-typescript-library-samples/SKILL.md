@@ -28,6 +28,16 @@ library validation repeats it until the coverage matrix is complete.
   dependency.
 - Do not modify sample code to hide a compiler, emitter, bundler, or LSP defect.
   Reduce the defect to a focused automated test and fix the shared layer.
+- Never add sample-owned `any` or `unknown` annotations, `as any`/`as unknown`
+  casts, declaration overrides, or diagnostic suppressions to bypass inference or
+  make compatibility checks compile. Derive input and output types from the real
+  library declarations (for example, `z.input<typeof Schema>` and
+  `z.output<typeof Schema>`) and fix VexaScript when those types do not resolve.
+  A library declaration may itself expose `any` or `unknown`; observe that
+  contract without copying the broad type into sample APIs as an escape hatch.
+- Use deliberate invalid inputs only in negative runtime or diagnostic coverage.
+  Keep those values structurally typed through the library's declared input type
+  so invalid data does not weaken unrelated compile-time validation.
 - Derive editor behavior from declarations. Never hardcode library-specific
   symbols, values, members, or completion catalogs.
 - Make runnable sample additions observable through `expected.txt`, bundling, or
@@ -138,3 +148,8 @@ For both modes, run focused tests, `pnpm test`, and
 browser. Update `docs/file.structure.md` for new architectural pieces and add a
 journal entry for reusable regression patterns, infrastructure weaknesses, and
 meaningful dead ends.
+
+Before declaring coverage complete, search modified samples for `any`, `unknown`,
+casts, suppressions, and local declaration shims. Every occurrence must come
+from the unmodified library contract or a focused negative test, never from a
+sample-side compatibility workaround.

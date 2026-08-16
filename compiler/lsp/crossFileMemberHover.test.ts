@@ -21,8 +21,8 @@ describe("crossFileMemberHover", () => {
     });
 
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "value: string"
+      kind: "markdown",
+      value: "```typescript\nvalue: string\n```"
     });
   });
 
@@ -46,8 +46,8 @@ describe("crossFileMemberHover", () => {
     });
 
     expect(hover?.contents).toEqual({
-      kind: "plaintext",
-      value: "value: string\n\nBox value docs"
+      kind: "markdown",
+      value: "```typescript\nvalue: string\n```\n\nBox value docs"
     });
   });
 });

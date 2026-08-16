@@ -12424,7 +12424,8 @@ export class TypeChecker {
       return false;
     }
     if (type instanceof ObjectType) {
-      return !this.objectPropertiesHaveDynamicKeys((type as ObjectType).properties);
+      const properties = (type as ObjectType).properties;
+      return propertyEntries(properties).length > 0 && !this.objectPropertiesHaveDynamicKeys(properties);
     }
     if (type instanceof BuiltinType) {
       return false;
@@ -12505,7 +12506,8 @@ export class TypeChecker {
       return type.name === "any" || type.name === "unknown" || type.name === "object";
     }
     if (type instanceof ObjectType) {
-      return this.objectPropertiesHaveDynamicKeys((type as ObjectType).properties);
+      const properties = (type as ObjectType).properties;
+      return propertyEntries(properties).length === 0 || this.objectPropertiesHaveDynamicKeys(properties);
     }
     if (type instanceof NamedType) {
       if (this.objectTypeTextHasDynamicProperties(type.name)) {

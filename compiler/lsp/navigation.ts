@@ -71,10 +71,9 @@ function hoverFromDocumentationReference(
     return null;
   }
   return {
-    contents: {
-      kind: "plaintext",
-      value: parameterHoverValue(reference.parameter, reference.referenceName)
-    },
+    contents: createAnalysisHoverContents(
+      parameterHoverValue(reference.parameter, reference.referenceName)
+    ),
     range: {
       start: {
         line: reference.referenceRange.start.line,
@@ -412,7 +411,10 @@ function formatTypeTextForHover(typeText: string): string {
     if (character === "{") {
       writeIndent();
       trimLineEnd();
-      line += line.trim().length === 0 ? "{" : " {";
+      const previousCharacter = line.at(-1);
+      line += line.trim().length === 0 || previousCharacter === "<" || previousCharacter === "(" || previousCharacter === "["
+        ? "{"
+        : " {";
       delimiters.push(character);
       indent += 1;
       nextLine();
@@ -483,6 +485,37 @@ function formatTypeTextForHover(typeText: string): string {
   return lines.join("\n").replace(/\[(string|number|symbol)\]:/g, "[key: $1]:");
 }
 
+export function createTypescriptHoverContents(declaration: string, documentation?: string): MarkupContent {
+  const code = `\`\`\`typescript\n${declaration}\n\`\`\``;
+  return {
+    kind: "markdown",
+    value: documentation ? `${code}\n\n${documentation}` : code
+  };
+}
+
+export function createTypedHoverContents(
+  label: string,
+  typeLabel: string,
+  documentation?: string
+): MarkupContent {
+  return createTypescriptHoverContents(
+    `${label}: ${formatTypeTextForHover(typeLabel)}`,
+    documentation
+  );
+}
+
+function createAnalysisHoverContents(hoverText: string, documentation?: string): MarkupContent {
+  const separatorIndex = hoverText.indexOf(": ");
+  if (separatorIndex < 0) {
+    return createTypescriptHoverContents(hoverText, documentation);
+  }
+  return createTypedHoverContents(
+    hoverText.slice(0, separatorIndex),
+    hoverText.slice(separatorIndex + 2),
+    documentation
+  );
+}
+
 export function createTypeAliasHoverContentsFromDeclaration(
   typeAlias: TypeAliasStatement,
   name: string,
@@ -493,11 +526,7 @@ export function createTypeAliasHoverContentsFromDeclaration(
     ? `<${typeAlias.typeParameters.map((parameter) => parameter.name.name).join(", ")}>`
     : "";
   const declaration = `type ${name}${typeParameters} = ${formatTypeTextForHover(typeLabel)}`;
-  const code = `\`\`\`typescript\n${declaration}\n\`\`\``;
-  return {
-    kind: "markdown",
-    value: documentation ? `${code}\n\n${documentation}` : code
-  };
+  return createTypescriptHoverContents(declaration, documentation);
 }
 
 export function createTypeAliasHoverContents(
@@ -522,6 +551,7 @@ export function createHover(
   options: {
     externalDeclarations?: readonly import("compiler/ast/ast").Statement[] | undefined;
     ambientModuleDeclarations?: ReadonlyMap<string, import("compiler/ast/ast").Statement[]> | undefined;
+    importedSymbols?: ReadonlyMap<string, import("compiler/importedSymbols").ImportedSymbolResolution> | undefined;
   } = {}
 ): Hover | null {
   const target = resolveCursorTarget(analysis, line, character, program);
@@ -533,10 +563,7 @@ export function createHover(
   }
   if (target.kind === "annotation") {
     return {
-      contents: {
-        kind: "plaintext",
-        value: annotationHoverValue(target.reference.declaration)
-      },
+      contents: createTypescriptHoverContents(annotationHoverValue(target.reference.declaration)),
       range: target.reference.referenceRange
     };
   }
@@ -564,13 +591,20 @@ export function createHover(
       range: target.hover.range
     };
   }
-  const hoverValue = documentation ? `${hoverTypeText}\n\n${documentation}` : hoverTypeText;
-
+  if (target.symbolAt?.symbol.kind === "variable") {
+    const importedResolution = options.importedSymbols?.get(target.symbolAt.symbol.name);
+    const isReadonly = importedResolution !== undefined || target.symbolAt.symbol.isReadonly === true;
+    const declarationKeyword = isReadonly ? "const" : "let";
+    return {
+      contents: createTypescriptHoverContents(
+        `${declarationKeyword} ${target.symbolAt.symbol.name}: ${formatTypeTextForHover(target.symbolAt.symbol.valueType)}`,
+        documentation
+      ),
+      range: target.hover.range
+    };
+  }
   return {
-    contents: {
-      kind: "plaintext",
-      value: hoverValue
-    },
+    contents: createAnalysisHoverContents(hoverTypeText, documentation),
     range: target.hover.range
   };
 }

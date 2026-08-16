@@ -44,6 +44,60 @@ describe("ProjectIndex", () => {
     expect(await index.findTopLevelDeclaration(file, "Point")).toBeTruthy();
   });
 
+  it("exposes reusable disk-session work without repeated filesystem probes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-project-index-metrics-"));
+    const file = join(root, "cached.vx");
+    await writeFile(file, "class Cached\n", "utf8");
+
+    const index = getProjectIndex([root]);
+    const [first, concurrent] = await Promise.all([
+      index.getSessionForFilePath(file),
+      index.getSessionForFilePath(file)
+    ]);
+    const warm = await index.getSessionForFilePath(file);
+
+    expect(first === concurrent).toBe(true);
+    expect(warm === first).toBe(true);
+    expect(index.getMetrics()).toMatchObject({
+      sessionRequests: 3,
+      diskSessionCacheHits: 1,
+      pendingDiskSessionReuses: 1,
+      diskSessionCacheMisses: 1,
+      diskStatCalls: 1,
+      diskReadCalls: 1,
+      diskSessionBuilds: 1
+    });
+
+    const missingFile = join(root, "missing.vx");
+    const [missingFirst, missingConcurrent] = await Promise.all([
+      index.getSessionForFilePath(missingFile),
+      index.getSessionForFilePath(missingFile)
+    ]);
+    const missingWarm = await index.getSessionForFilePath(missingFile);
+    expect(missingFirst).toBeNull();
+    expect(missingConcurrent).toBeNull();
+    expect(missingWarm).toBeNull();
+    expect(index.getMetrics()).toMatchObject({
+      sessionRequests: 6,
+      diskSessionCacheHits: 2,
+      pendingDiskSessionReuses: 2,
+      diskSessionCacheMisses: 2,
+      diskStatCalls: 2,
+      diskReadCalls: 1,
+      diskSessionBuilds: 1
+    });
+
+    index.invalidateFile(file);
+    await index.getSessionForFilePath(file);
+    expect(index.getMetrics()).toMatchObject({
+      sessionRequests: 7,
+      diskSessionCacheMisses: 3,
+      diskStatCalls: 3,
+      diskReadCalls: 2,
+      diskSessionBuilds: 2
+    });
+  });
+
   it("reuses the project index for an empty root set", () => {
     const first = getProjectIndex([]);
     const second = getProjectIndex([]);

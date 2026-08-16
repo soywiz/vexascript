@@ -66,6 +66,8 @@ import {
   candidateCharacters,
   createDefinitionLocation,
   createHover,
+  createTypedHoverContents,
+  createTypescriptHoverContents,
   createTypeAliasHoverContents,
   createTypeAliasHoverContentsFromDeclaration
 } from "./navigation";
@@ -246,10 +248,7 @@ function resolveLocalTypeIdentifierHover(context: ResolveContext, identifier: Id
     };
   }
   return {
-    contents: {
-      kind: "plaintext",
-      value: `${symbol.kind} ${symbol.name}: ${typeLabel}`
-    },
+    contents: createTypedHoverContents(`${symbol.kind} ${symbol.name}`, typeLabel),
     range
   };
 }
@@ -386,30 +385,23 @@ async function resolveTypeIdentifierHover(context: ResolveContext): Promise<Hove
     const importTypeDefinition = await resolveImportTypeMemberDefinition(context, typeIdentifier);
     if (importTypeDefinition) {
       return {
-        contents: {
-          kind: "plaintext",
-          value: `type ${typeIdentifier.name}`
-        },
+        contents: createTypescriptHoverContents(`type ${typeIdentifier.name}`),
         range
       };
     }
     const qualifiedDefinition = await resolveQualifiedTypeMemberDefinition(context, typeIdentifier);
     if (qualifiedDefinition) {
       return {
-        contents: {
-          kind: "plaintext",
-          value: `type ${typeIdentifier.name}`
-        },
+        contents: createTypescriptHoverContents(`type ${typeIdentifier.name}`),
         range
       };
     }
     const typeDefinition = await resolveTypeDefinitionAcrossFiles(context, typeIdentifier.name);
     if (typeDefinition) {
       return {
-        contents: {
-          kind: "plaintext",
-          value: `${typeDefinition.declaration instanceof ClassStatement ? "class" : "interface"} ${typeIdentifier.name}`
-        },
+        contents: createTypescriptHoverContents(
+          `${typeDefinition.declaration instanceof ClassStatement ? "class" : "interface"} ${typeIdentifier.name}`
+        ),
         range
       };
     }
@@ -904,7 +896,8 @@ export async function resolveHoverWithLocalFallback(context: ResolveContext): Pr
     return typeIdentifierHover;
   }
   return createHover(context.session.analysis, context.line, context.character, context.session.ast ?? undefined, {
-    ambientModuleDeclarations: context.session.ambientModuleDeclarations
+    ambientModuleDeclarations: context.session.ambientModuleDeclarations,
+    importedSymbols: context.session.importedSymbols
   });
 }
 
