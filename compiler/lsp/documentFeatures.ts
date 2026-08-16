@@ -299,8 +299,21 @@ function isCodePosition(text: string, offset: number): boolean {
 }
 
 function hasJsxClosingTagAfter(text: string, offset: number, name: string): boolean {
-  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`<\\/\\s*${escapedName}\\s*>`, "u").test(text.slice(offset));
+  const tagPattern = /<(\/?)\s*([A-Za-z_][A-Za-z0-9_.:-]*)\b([^<>]*)>/gu;
+  let nestedDepth = 0;
+  tagPattern.lastIndex = offset;
+
+  for (let match = tagPattern.exec(text); match; match = tagPattern.exec(text)) {
+    const closing = match[1] === "/";
+    if (closing) {
+      if (nestedDepth === 0) return match[2] === name;
+      nestedDepth -= 1;
+    } else if (!match[3]!.trimEnd().endsWith("/")) {
+      nestedDepth += 1;
+    }
+  }
+
+  return false;
 }
 
 

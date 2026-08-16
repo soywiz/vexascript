@@ -143,6 +143,7 @@ export class Parser {
     private subjectMatchArmBodyDepth = 0;
     private arrayComprehensionBodyDepth = 0;
     private arrayLiteralElementDepth = 0;
+    private readonly jsxOpenTagNames: Array<string | null> = [];
 
     constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
         this.language = options.language ?? "vexa";
@@ -4118,8 +4119,18 @@ export class Parser {
         const next = this.tokens.peek();
         if (next?.type === TokenType.SYMBOL && next.value === ">") {
             this.tokens.skip(); // '>'
-            const children = this.parseJsxChildren();
-            this.consumeJsxClosingTag(null);
+            let children: JsxChild[];
+            this.jsxOpenTagNames.push(null);
+            try {
+                children = this.parseJsxChildren();
+                if (this.shouldImplicitlyCloseJsxElement(null)) {
+                    this.emitError("JSX fragment is missing closing tag </>", open);
+                } else {
+                    this.consumeJsxClosingTag(null);
+                }
+            } finally {
+                this.jsxOpenTagNames.pop();
+            }
             const close = this.getLastReadToken();
             return this.attachNodeBounds(
                 new JsxFragment(children),
@@ -4149,14 +4160,56 @@ export class Parser {
             this.fail("Expected '>' in JSX opening tag", this.tokenAt(afterAttributes));
         }
 
-        const children = this.parseJsxChildren();
-        this.consumeJsxClosingTag(tagName);
+        let children: JsxChild[];
+        this.jsxOpenTagNames.push(tagName);
+        try {
+            children = this.parseJsxChildren();
+            if (this.shouldImplicitlyCloseJsxElement(tagName)) {
+                this.emitError(`JSX element <${tagName}> is missing closing tag </${tagName}>`, open);
+            } else {
+                this.consumeJsxClosingTag(tagName);
+            }
+        } finally {
+            this.jsxOpenTagNames.pop();
+        }
         const close = this.getLastReadToken();
         return this.attachNodeBounds(
             new JsxElement(tagName, attributes, children, false, reference),
             open,
             close ?? open
         );
+    }
+
+    private shouldImplicitlyCloseJsxElement(expectedTagName: string | null): boolean {
+        const closeLt = this.tokens.peek();
+        const slash = this.peekToken(1);
+        if (
+            !(closeLt?.type === TokenType.SYMBOL && closeLt.value === "<")
+            || !(slash?.type === TokenType.SYMBOL && slash.value === "/")
+        ) {
+            return false;
+        }
+
+        const firstName = this.peekToken(2);
+        let actualTagName: string | null;
+        if (firstName?.type === TokenType.SYMBOL && firstName.value === ">") {
+            actualTagName = null;
+        } else if (firstName?.type === TokenType.IDENTIFIER) {
+            actualTagName = firstName.value;
+            let offset = 3;
+            while (this.peekToken(offset)?.type === TokenType.SYMBOL && this.peekToken(offset)?.value === ".") {
+                const segment = this.peekToken(offset + 1);
+                if (segment?.type !== TokenType.IDENTIFIER) return false;
+                actualTagName += "." + segment.value;
+                offset += 2;
+            }
+        } else {
+            return false;
+        }
+
+        if (actualTagName === expectedTagName) return false;
+        const currentIndex = this.jsxOpenTagNames.length - 1;
+        return this.jsxOpenTagNames.slice(0, currentIndex).includes(actualTagName);
     }
 
     private consumeJsxClosingTag(expectedTagName: string | null): void {

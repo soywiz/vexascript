@@ -1125,6 +1125,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
   let pendingComments: TokenComment[] = [];
   let previousSignificantToken: Token | undefined;
   let readJsxElement: () => void;
+  const jsxOpenTagNames: Array<string | null> = [];
 
   const pushFragment = (fragment: TokenFragment): Token => {
     const leadingComments: TokenComment[] | undefined =
@@ -1155,7 +1156,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
 
   // Reads a single JSX name segment, allowing hyphens for custom elements and
   // namespaced/data attributes (e.g. `data-id`).
-  const readJsxNameToken = (): void => {
+  const readJsxNameToken = (): string => {
     const start = snapshot(reader);
     let value = "";
     while (reader.hasMore) {
@@ -1167,17 +1168,43 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       break;
     }
     pushFragment(new TokenFragment(TokenType.IDENTIFIER, value, sourceRange(start, snapshot(reader))));
+    return value;
   };
 
   // Reads a (possibly dotted) JSX tag name such as `div` or `Foo.Bar`.
-  const readJsxTagName = (): void => {
-    readJsxNameToken();
+  const readJsxTagName = (): string => {
+    let value = readJsxNameToken();
     while (reader.hasMore && reader.peekCode() === CODE_DOT) {
       const dotStart = snapshot(reader);
       advanceCode(reader);
       pushSymbol(".", dotStart);
-      readJsxNameToken();
+      value += "." + readJsxNameToken();
     }
+    return value;
+  };
+
+  const peekJsxClosingTagName = (): string | null | undefined => {
+    const source = reader.str;
+    let index = reader.offset;
+    if (source.charCodeAt(index) !== CODE_LT || source.charCodeAt(index + 1) !== CODE_SLASH) {
+      return undefined;
+    }
+    index += 2;
+    while (isWhitespaceCode(source.charCodeAt(index))) index += 1;
+    if (source.charCodeAt(index) === CODE_GT) return null;
+    if (!isIdentifierStartCode(source.charCodeAt(index))) return undefined;
+
+    const segments: string[] = [];
+    while (true) {
+      const start = index;
+      while (isIdentifierPartCode(source.charCodeAt(index)) || source.charCodeAt(index) === CODE_MINUS) index += 1;
+      segments.push(source.slice(start, index));
+      if (source.charCodeAt(index) !== CODE_DOT) break;
+      index += 1;
+      if (!isIdentifierStartCode(source.charCodeAt(index))) return undefined;
+    }
+    while (isWhitespaceCode(source.charCodeAt(index))) index += 1;
+    return source.charCodeAt(index) === CODE_GT ? segments.join(".") : undefined;
   };
 
   // Reads `{ ... }` as the open brace, the inner code tokens (which may contain
@@ -1348,6 +1375,16 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       }
       // code === CODE_LT
       if (peekNextCode(reader) === CODE_SLASH) {
+        const closingTagName = peekJsxClosingTagName();
+        const currentIndex = jsxOpenTagNames.length - 1;
+        const currentTagName = jsxOpenTagNames[currentIndex];
+        if (
+          closingTagName !== undefined
+          && closingTagName !== currentTagName
+          && jsxOpenTagNames.slice(0, currentIndex).includes(closingTagName)
+        ) {
+          return;
+        }
         readJsxClosingTag();
         return;
       }
@@ -1365,11 +1402,16 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       const gtStart = snapshot(reader);
       advanceCode(reader);
       pushSymbol(">", gtStart);
-      readJsxChildren();
+      jsxOpenTagNames.push(null);
+      try {
+        readJsxChildren();
+      } finally {
+        jsxOpenTagNames.pop();
+      }
       return;
     }
 
-    readJsxTagName();
+    const tagName = readJsxTagName();
     readJsxAttributes();
 
     if (reader.peekCode() === CODE_SLASH) {
@@ -1391,7 +1433,12 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
     }
     advanceCode(reader);
     pushSymbol(">", gtStart);
-    readJsxChildren();
+    jsxOpenTagNames.push(tagName);
+    try {
+      readJsxChildren();
+    } finally {
+      jsxOpenTagNames.pop();
+    }
   };
 
   while (reader.hasMore) {

@@ -74,3 +74,20 @@ because the shared JSX-context check still returns no edit.
 Closing-tag completion is also independent of a valid AST: after `</`, the
 completion path scans the pending JSX opening-tag stack and offers the nearest
 matching name, including when the document is temporarily parser-incomplete.
+
+The VS Code fallback also needs the editor's current text explicitly. Asking
+the standard LSP on-type method immediately from a document-change listener
+can race the language client's document synchronization, so the adapter now
+uses a small shared-server request that receives the current text. The change
+detector accepts multi-character insertions such as a completion edit, but
+ignores the `</...>` edit that it inserts itself; otherwise the fallback would
+re-enter recursively and append repeated closing tags.
+
+A second failure only appeared in a larger real file. The duplicate-closing
+guard originally searched the entire suffix for a matching closing tag. Typing
+`<div>` in one component was therefore suppressed when a different component
+later in the file happened to contain `</div>`. Small single-expression tests
+could not expose this. The guard now follows nested JSX tags and stops at the
+first unmatched closing tag, which bounds the lookup to the current JSX tree.
+Regression tests should include a later unrelated component reusing the same
+intrinsic tag name, not only an isolated opening tag.

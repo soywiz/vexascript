@@ -588,6 +588,21 @@ describe("tokenizer", () => {
             ]);
         });
 
+        it("lets an ancestor closing tag terminate an unclosed nested element", () => {
+            const tokens = jsxTokens("return <button><div></button>; let ok = 1");
+
+            expect(tokens.map((token) => token.value)).toContain("ok");
+            expect(tokens.filter((token) => token.value === "button")).toHaveLength(2);
+            expect(tokens.filter((token) => token.value === "div")).toHaveLength(1);
+        });
+
+        it("closes the current element when an ancestor uses the same tag name", () => {
+            const tokens = jsxTokens("return <div><div>nested</div></div>; let ok = 1");
+
+            expect(tokens.map((token) => token.value)).toContain("ok");
+            expect(tokens.filter((token) => token.value === "div")).toHaveLength(4);
+        });
+
         it("does not treat less-than between operands as JSX", () => {
             expect(jsxTokens("a < b")).toStrictEqual([
                 { type: "identifier", value: "a" },

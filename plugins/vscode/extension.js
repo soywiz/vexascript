@@ -136,14 +136,16 @@ function registerVexaTagAutoClosing(context, client, ready) {
   context.subscriptions.push(
     workspace.onDidChangeTextDocument(async (event) => {
       const document = event.document;
-      if (document.languageId !== "vexa") {
+      if (document.languageId !== "vexa" && !document.uri.fsPath.endsWith(".vx")) {
         return;
       }
       if (workspace.getConfiguration("editor", document.uri).get("formatOnType") === true) {
         return;
       }
-      const change = event.contentChanges.find((entry) => entry.text === ">" && entry.rangeLength === 0);
-      if (!change || change.range.start.line !== change.range.end.line) {
+      const change = event.contentChanges.find((entry) =>
+        entry.text.endsWith(">") && !entry.text.startsWith("</") && entry.rangeLength === 0
+      );
+      if (!change || change.range.start.line !== change.range.end.line || change.text.includes("\n")) {
         return;
       }
       const editor = window.visibleTextEditors.find((candidate) => candidate.document.uri.toString() === document.uri.toString());
@@ -152,14 +154,17 @@ function registerVexaTagAutoClosing(context, client, ready) {
       }
 
       const version = document.version;
-      const position = new Position(change.range.start.line, change.range.start.character + 1);
+      const position = new Position(
+        change.range.start.line,
+        change.range.start.character + change.text.length
+      );
       try {
         await ready;
-        const edits = await client.sendRequest("textDocument/onTypeFormatting", {
+        const edits = await client.sendRequest("vexa/onTypeFormatting", {
           textDocument: { uri: document.uri.toString() },
           position: { line: position.line, character: position.character },
           ch: ">",
-          options: {}
+          text: document.getText()
         });
         if (document.version !== version || !Array.isArray(edits)) {
           return;

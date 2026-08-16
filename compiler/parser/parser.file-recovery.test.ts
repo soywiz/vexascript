@@ -830,6 +830,23 @@ describe("JavaScript implementation annotations", () => {
             expect(parser.errors.length).toBeGreaterThan(0);
         });
 
+        it("implicitly closes an unclosed child at its ancestor closing tag", () => {
+            const parser = new Parser(
+                tokenizeReader("let view = <button><div></button>; let ok = 1;", { jsx: true }),
+                { language: "vexa" }
+            );
+            const ast = parser.parseFile();
+
+            expect(parser.errors).toHaveLength(1);
+            expect(parser.errors[0]?.message).toContain("<div>");
+            expect(parser.errors[0]?.message).toContain("</div>");
+            expect(parser.errors[0]?.token?.value).toBe("<");
+            expect(ast.body[ast.body.length - 1]).toMatchObject({
+                kind: NodeKind.VarStatement,
+                name: { kind: NodeKind.Identifier, name: "ok" }
+            });
+        });
+
         it("reports an error for a corrupted expression inside a child container", () => {
             const reader = tokenizeReader("<div>{=}</div>", { jsx: true });
             const parser = new Parser(reader, { language: "vexa" });

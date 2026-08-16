@@ -37,6 +37,25 @@ describe("lsp diagnostics", () => {
     ).toBe(true);
   });
 
+  it("reports an unclosed nested JSX element at its opening tag", () => {
+    const source = dedent`
+      export func View() {
+        return (
+          <button>
+            <div>
+          </button>
+        )
+      }
+    `;
+    const diagnostic = diagnosticsFor(source).find((item) =>
+      item.message === "JSX element <div> is missing closing tag </div>"
+    );
+
+    expect(diagnostic?.code).toBe(VEXA_DIAGNOSTIC_CODES.PARSER_ERROR);
+    expect(diagnostic?.range.start).toEqual({ line: 3, character: 6 });
+    expect(diagnostic?.range.end).toEqual({ line: 3, character: 7 });
+  });
+
   it("uses precomputed semantic issues from the analysis session", () => {
     const source = "let ok = missing\n";
     const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);

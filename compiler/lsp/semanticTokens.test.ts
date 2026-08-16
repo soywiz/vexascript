@@ -85,6 +85,33 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "FilterControls" && token.tokenType === "function")).toBe(true);
   });
 
+  it("keeps semantic colors after an unclosed nested JSX element", () => {
+    const source = dedent`
+      export func View() {
+        return (
+          <button>
+            <div>
+          </button>
+        )
+      }
+
+      export func Later() {
+        const value = compute()
+        return <span>{value}</span>
+      }
+    `;
+    const session = createAnalysisSession(source);
+    const decoded = decodeTokens(source, createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    }).data);
+
+    expect(decoded.some((token) => token.lexeme === "Later" && token.tokenType === "function")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "compute" && token.tokenType === "function")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "value" && token.line === 10 && token.tokenType === "variable")).toBe(true);
+  });
+
   it("preserves JSX-specific attribute and string colors after semantic tokens arrive", () => {
     const source = dedent`
       export func Form() {

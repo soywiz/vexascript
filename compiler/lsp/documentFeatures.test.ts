@@ -80,15 +80,35 @@ describe("LSP document features", () => {
       },
       newText: "</SignalCounter>"
     }]);
+
+    const intrinsic = "return <div>";
+    expect(createOnTypeFormattingEdits(intrinsic, { line: 0, character: intrinsic.length }, ">")[0]?.newText).toBe("</div>");
+  });
+
+  it("does not confuse a later unrelated JSX closing tag with the tag being typed", () => {
+    const source = [
+      "return (",
+      "  <button>",
+      "    <div>",
+      "  </button>",
+      ")",
+      "func Other() {",
+      "  return <div>other</div>",
+      "}"
+    ].join("\n");
+
+    expect(createOnTypeFormattingEdits(source, { line: 2, character: 9 }, ">")[0]?.newText).toBe("</div>");
   });
 
   it("does not close self-closing, closing, or already-closed JSX tags", () => {
     const selfClosing = "return <SignalCounter />";
     const closing = "return </SignalCounter>";
     const alreadyClosed = "return <SignalCounter>child</SignalCounter>";
+    const nestedAlreadyClosed = "return <div><span>child</span></div>";
     expect(createOnTypeFormattingEdits(selfClosing, { line: 0, character: selfClosing.length }, ">")).toEqual([]);
     expect(createOnTypeFormattingEdits(closing, { line: 0, character: closing.length }, ">")).toEqual([]);
     expect(createOnTypeFormattingEdits(alreadyClosed, { line: 0, character: "return <SignalCounter>".length }, ">")).toEqual([]);
+    expect(createOnTypeFormattingEdits(nestedAlreadyClosed, { line: 0, character: "return <div>".length }, ">")).toEqual([]);
   });
 
   it("does not treat comparisons, strings, or comments as JSX tags", () => {

@@ -612,6 +612,26 @@ describe("LSP server core", () => {
     }]);
   });
 
+  it("closes JSX tags from the editor's current text when requested by the VS Code adapter", () => {
+    const server = startServer(false);
+    const source = "function View() { return <div>";
+    const document = openedDocument(server, "function View() { return <div");
+    const edits = server.fakeConnection.handlers.get("request:vexa/onTypeFormatting")!({
+      textDocument: { uri: document.uri },
+      position: { line: 0, character: source.length },
+      ch: ">",
+      text: source
+    }) as Array<{ range: unknown; newText: string }>;
+
+    assert.deepEqual(edits, [{
+      range: {
+        start: { line: 0, character: source.length },
+        end: { line: 0, character: source.length }
+      },
+      newText: "</div>"
+    }]);
+  });
+
   it("consumes an existing auto-inserted brace through the LSP completion route", async () => {
     const server = startServer(false);
     const { source, line, character } = sourceWithCursor([

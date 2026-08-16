@@ -910,6 +910,16 @@ export function startLspServer(options: LspServerOptions): void {
     })
   );
 
+  connection.onRequest("vexa/onTypeFormatting", (params: {
+    textDocument: { uri: string };
+    position: { line: number; character: number };
+    ch: string;
+    text?: string;
+  }) => logTimedOperationSync("vexa/onTypeFormatting", () => {
+    const text = params.text ?? documents.get(params.textDocument.uri)?.getText();
+    return text === undefined ? [] : createOnTypeFormattingEdits(text, params.position, params.ch);
+  }));
+
   connection.onDidChangeConfiguration((() => logTimedOperation("workspace/didChangeConfiguration", async () => {
     const config = await connection.workspace.getConfiguration("vexa");
     const newParameters = config?.inlayHints?.parameters !== false;
