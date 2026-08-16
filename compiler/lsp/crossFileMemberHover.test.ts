@@ -50,4 +50,28 @@ describe("crossFileMemberHover", () => {
       value: "```typescript\nvalue: string\n```\n\nBox value docs"
     });
   });
+
+  it("shows the instantiated return type for a generic member call", async () => {
+    const source = dedent`
+      interface Mapper {
+        map<T>(value: T): T
+      }
+      declare const mapper: Mapper
+      const value = mapper.map("ready")
+    `;
+    const session = createAnalysisSession(source);
+    const callLine = source.split("\n").findIndex((line) => line.includes("mapper.map"));
+    const hover = await resolveMemberHoverAcrossFiles({
+      uri: "file:///virtual/main.vx",
+      line: callLine,
+      character: source.split("\n")[callLine]!.indexOf(".map") + 2,
+      session,
+      sourceRoots: []
+    });
+
+    expect(hover?.contents).toEqual({
+      kind: "markdown",
+      value: "```typescript\nmap: (value: string) => string\n```"
+    });
+  });
 });

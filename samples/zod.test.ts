@@ -140,27 +140,29 @@ describe("zod sample editor features", () => {
     const parsingSourcePath = resolve(process.cwd(), "samples/zod/parsing.vx");
     const parsingSource = await vfs().readFile(parsingSourcePath);
     expect(/\b(?:any|unknown)\b/.test(parsingSource)).toBe(false);
+    const inferredParsingSource = parsingSource.replace("const event: UserEvent =", "const event =");
+    expect(inferredParsingSource === parsingSource).toBe(false);
     const importedAliasResult = await openEntrypointInLspSession(
       parsingSourcePath,
       process.cwd(),
       [
-        positionAfter(parsingSource, "event: UserEvent", -2),
-        positionAfter(parsingSource, "EventSchema.parse", -8),
-        positionAfter(parsingSource, "EventSchema.parse", -2),
-        positionAfter(parsingSource, '== "created"', -3),
-        positionAfter(parsingSource, "event.kind", -2),
-        positionAfter(parsingSource, "event.name", -2),
-        positionAfter(parsingSource, "z.core.$ZodIssue", -2),
-        positionAfter(parsingSource, "issue.message", -2)
+        positionAfter(inferredParsingSource, "const event =", -2),
+        positionAfter(inferredParsingSource, "EventSchema.parse", -8),
+        positionAfter(inferredParsingSource, "EventSchema.parse", -2),
+        positionAfter(inferredParsingSource, '== "created"', -3),
+        positionAfter(inferredParsingSource, "event.kind", -2),
+        positionAfter(inferredParsingSource, "event.name", -2),
+        positionAfter(inferredParsingSource, "z.core.$ZodIssue", -2),
+        positionAfter(inferredParsingSource, "issue.message", -2)
       ],
       [],
-      parsingSource,
+      inferredParsingSource,
       true,
       true
     );
     const importedAliasHover = importedAliasResult.hovers[0]?.contents as { kind?: string; value?: string } | undefined;
     expect(importedAliasHover?.kind).toBe("markdown");
-    expect(importedAliasHover?.value).toContain("```typescript\ntype UserEvent = {\n");
+    expect(importedAliasHover?.value).toContain("```typescript\nconst event: {\n");
     expect(importedAliasHover?.value).toContain('  kind: "created";\n');
     expect(importedAliasHover?.value).toContain("} | {\n");
     const importedSchemaHover = importedAliasResult.hovers[1]?.contents as { kind?: string; value?: string } | undefined;
@@ -169,7 +171,9 @@ describe("zod sample editor features", () => {
     expect(importedSchemaHover?.value).toContain('ZodLiteral<"created">');
     const parseHover = importedAliasResult.hovers[2]?.contents as { kind?: string; value?: string } | undefined;
     expect(parseHover?.kind).toBe("markdown");
-    expect(parseHover?.value).toContain("```typescript\nparse: (data: unknown, params?: core.ParseContext<core.$ZodIssue>) => core.output<this>\n```");
+    expect(parseHover?.value).toContain("```typescript\nparse: (data: unknown");
+    expect(parseHover?.value).toContain('=> {\n  kind: "created";\n');
+    expect(parseHover?.value).not.toContain("=> unknown");
     const literalHover = importedAliasResult.hovers[3]?.contents as { kind?: string; value?: string } | undefined;
     expect(literalHover).toEqual({
       kind: "markdown",
@@ -218,7 +222,14 @@ describe("zod sample editor features", () => {
     const parseDefinitionResult = await openEntrypointInLspSession(
       mainSourcePath,
       process.cwd(),
-      [positionAfter(mainSource, "PublicUserSchema.parse", -2)],
+      [
+        positionAfter(mainSource, "PublicUserSchema.parse", -2),
+        positionAfter(mainSource, "EvenSchema.parse", -8),
+        positionAfter(mainSource, "EvenSchema.parse", -2),
+        positionAfter(mainSource, "const json =", -2),
+        positionAfter(mainSource, "const even =", -2),
+        positionAfter(mainSource, "const fallback =", -2)
+      ],
       [],
       mainSource,
       true
@@ -241,5 +252,17 @@ describe("zod sample editor features", () => {
     expect(parseDefinition.range.start.character).toBe(
       zodSchemasSource.split("\n")[parseDeclarationLine]!.indexOf("parse")
     );
+    const evenSchemaHoverText = JSON.stringify(parseDefinitionResult.hovers[1]?.contents ?? "");
+    const evenParseHoverText = JSON.stringify(parseDefinitionResult.hovers[2]?.contents ?? "");
+    const jsonHoverText = JSON.stringify(parseDefinitionResult.hovers[3]?.contents ?? "");
+    const evenHoverText = JSON.stringify(parseDefinitionResult.hovers[4]?.contents ?? "");
+    const fallbackHoverText = JSON.stringify(parseDefinitionResult.hovers[5]?.contents ?? "");
+    expect(evenSchemaHoverText).toContain("ZodNumber");
+    expect(evenSchemaHoverText).not.toContain("unknown");
+    expect(evenParseHoverText).toContain("parse:");
+    expect(evenParseHoverText).toContain("=> number");
+    expect(jsonHoverText).toContain("const json: string | number | boolean | null");
+    expect(evenHoverText).toContain("const even: number");
+    expect(fallbackHoverText).toContain("const fallback: number");
   });
 });

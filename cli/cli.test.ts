@@ -560,15 +560,23 @@ describe("CLI", () => {
       const openedUrl = await new Promise<string>((resolvePromise, reject) => {
         const startedAt = Date.now();
         const check = () => {
+          const retry = () => {
+            if (Date.now() - startedAt > 10000) {
+              reject(new Error(`Timed out waiting for browser open.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+              return;
+            }
+            setTimeout(check, 50);
+          };
           void readFile(openedUrlFile, "utf8").then(
-            (content) => resolvePromise(content.trim()),
-            () => {
-              if (Date.now() - startedAt > 10000) {
-                reject(new Error(`Timed out waiting for browser open.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+            (content) => {
+              const openedUrl = content.trim();
+              if (openedUrl.length > 0) {
+                resolvePromise(openedUrl);
                 return;
               }
-              setTimeout(check, 50);
-            }
+              retry();
+            },
+            retry
           );
         };
         check();
@@ -580,10 +588,13 @@ describe("CLI", () => {
       expect(Number.parseInt(opened.port, 10) > 0).toBe(true);
       expect(stdout).toContain("Serving at http://localhost:");
     } finally {
+      const closed = child.exitCode !== null || child.signalCode !== null
+        ? Promise.resolve()
+        : new Promise<void>((resolvePromise) => {
+            child.once("close", () => resolvePromise());
+          });
       child.kill();
-      await new Promise<void>((resolvePromise) => {
-        child.once("close", () => resolvePromise());
-      });
+      await closed;
     }
   });
 

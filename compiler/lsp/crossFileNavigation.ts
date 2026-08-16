@@ -1,6 +1,7 @@
 import { ObjectType, UnionType, IntersectionType } from "../analysis/types";
 import { ClassStatement, Identifier, MemberExpression, NodeKind } from "compiler/ast/ast";
 import type { TypeAliasStatement } from "compiler/ast/ast";
+import { bindingNameText } from "compiler/ast/bindingPatterns";
 export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
 
 /**
@@ -77,6 +78,8 @@ import {
 import { findNodeModuleExportLocation, findNodeModuleMemberLocation, type NodeModuleMemberLocation } from "./nodeModulesTypings";
 import { extname } from "compiler/utils/path";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { readDocumentationInfoFromParameterLike } from "./documentation";
+import { resolveConstructorCall, resolveNamedArgumentParameter } from "./callNavigation";
 
 async function resolveImportedSymbolDefinitionLocation(
   context: ResolveContext,
@@ -725,6 +728,24 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
   }
 
   for (const character of candidateCharacters(context.character)) {
+    const namedArgument = await resolveNamedArgumentParameter(
+      context,
+      character,
+      resolveDefinitionWithLocalFallback
+    );
+    if (namedArgument) {
+      return namedArgument.location;
+    }
+  }
+
+  for (const character of candidateCharacters(context.character)) {
+    const constructorCall = await resolveConstructorCall(context, character);
+    if (constructorCall) {
+      return constructorCall.location;
+    }
+  }
+
+  for (const character of candidateCharacters(context.character)) {
     const objectLiteralPropertyDefinition = await resolveContextualObjectLiteralPropertyDefinition({ ...context, character });
     if (objectLiteralPropertyDefinition) {
       return objectLiteralPropertyDefinition;
@@ -864,6 +885,35 @@ export async function resolveHoverWithLocalFallback(context: ResolveContext): Pr
   const importHover = await resolveImportPathHover(context);
   if (importHover) {
     return importHover;
+  }
+
+  for (const character of candidateCharacters(context.character)) {
+    const namedArgument = await resolveNamedArgumentParameter(
+      context,
+      character,
+      resolveDefinitionWithLocalFallback
+    );
+    if (namedArgument) {
+      const documentation = readDocumentationInfoFromParameterLike(namedArgument.declaration)?.text;
+      return {
+        contents: createTypedHoverContents(
+          `parameter ${bindingNameText(namedArgument.declaration.name)}`,
+          namedArgument.declaration.typeAnnotation?.name ?? "unknown",
+          documentation
+        ),
+        range: namedArgument.argumentRange
+      };
+    }
+  }
+
+  for (const character of candidateCharacters(context.character)) {
+    const constructorCall = await resolveConstructorCall(context, character);
+    if (constructorCall) {
+      return {
+        contents: createTypescriptHoverContents(constructorCall.label, constructorCall.documentation),
+        range: constructorCall.callRange
+      };
+    }
   }
 
   for (const character of candidateCharacters(context.character)) {

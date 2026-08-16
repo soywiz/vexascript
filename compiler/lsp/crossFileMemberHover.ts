@@ -1,4 +1,4 @@
-import { ArrayType, NamedType, BuiltinType } from "../analysis/types";
+import { ArrayType, NamedType, BuiltinType, FunctionType, isUnknownType } from "../analysis/types";
 import { ClassStatement, Identifier, InterfaceStatement, NodeKind, VarStatement } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
@@ -34,6 +34,21 @@ export interface ResolveMemberHoverOptions {
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function instantiatedCallTypeLabel(typeLabel: string): string {
+  const typeParameterPrefix = /^<([^>]*)>/.exec(typeLabel);
+  if (!typeParameterPrefix) {
+    return typeLabel;
+  }
+  const body = typeLabel.slice(typeParameterPrefix[0].length);
+  const parameterNames = typeParameterPrefix[1]!
+    .split(",")
+    .map((parameter) => /^[A-Za-z_$][\w$]*/.exec(parameter.trim())?.[0])
+    .filter((name): name is string => name !== undefined);
+  return parameterNames.every((name) => !new RegExp(`\\b${escapeRegExp(name)}\\b`).test(body))
+    ? body
+    : typeLabel;
 }
 
 function referencesUnsubstitutedTypeParameter(
@@ -109,6 +124,26 @@ export async function resolveMemberHoverAcrossFiles(
   }
 
   const memberName = (memberExpression.property as Identifier).name;
+  const inferredMemberType = context.session.analysis.getExpressionType(memberExpression);
+  let inferredMemberTypeLabel = inferredMemberType ? typeToString(inferredMemberType) : null;
+  const selectedCall = context.session.analysis.getSelectedCallResolutionAt(context.line, context.character);
+  if (selectedCall) {
+    inferredMemberTypeLabel = instantiatedCallTypeLabel(typeToString(selectedCall.resolvedOverload));
+  }
+  const selectedCallReturnType = selectedCall
+    ? context.session.analysis.getExpressionType(selectedCall.call)
+    : null;
+  if (
+    inferredMemberType instanceof FunctionType
+    && selectedCallReturnType
+    && !isUnknownType(selectedCallReturnType)
+    && inferredMemberTypeLabel
+  ) {
+    const returnSeparator = inferredMemberTypeLabel.lastIndexOf(" => ");
+    if (returnSeparator >= 0) {
+      inferredMemberTypeLabel = `${inferredMemberTypeLabel.slice(0, returnSeparator)} => ${typeToString(selectedCallReturnType)}`;
+    }
+  }
   const objectTypeLabel = typeToString(objectType);
   const structuralMember = parseObjectTypeMemberInfo(objectTypeLabel, memberName);
   const extensionMember = await resolveInScopeExtensionMemberDeclarationAcrossFiles(
@@ -136,8 +171,6 @@ export async function resolveMemberHoverAcrossFiles(
     ? await resolveTypeDefinitionAcrossFiles(context, resolvedClassName)
     : null;
   if (!primaryResolution) {
-    const inferredMemberType = context.session.analysis.getExpressionType(memberExpression);
-    const inferredMemberTypeLabel = inferredMemberType ? typeToString(inferredMemberType) : null;
     if (
       !structuralMember &&
       !extensionTypeLabel &&
@@ -237,8 +270,6 @@ export async function resolveMemberHoverAcrossFiles(
       : null);
   const resolvedMember = resolvedClassMember ?? resolvedInterfaceMember;
   const memberRange = nodeRange(memberExpression.property) ?? nodeRange(memberExpression);
-  const inferredMemberType = context.session.analysis.getExpressionType(memberExpression);
-  const inferredMemberTypeLabel = inferredMemberType ? typeToString(inferredMemberType) : null;
   if (
     !resolvedMember &&
     !fallbackMember &&
@@ -255,7 +286,8 @@ export async function resolveMemberHoverAcrossFiles(
     inferredMemberTypeLabel !== null
     && inferredMemberTypeLabel !== "unknown"
     && (
-      referencesUnsubstitutedTypeParameter(resolvedTypeLabel, primaryResolution.declaration)
+      selectedCall !== null
+      || referencesUnsubstitutedTypeParameter(resolvedTypeLabel, primaryResolution.declaration)
       || referencesUnsubstitutedTypeParameter(fallbackTypeLabel, fallbackClassResolution?.classStatement ?? fallbackInterfaceResolution?.interfaceStatement ?? null)
     );
   // A receiver-matched extension member takes precedence over the class member,
@@ -264,7 +296,7 @@ export async function resolveMemberHoverAcrossFiles(
   // extension instead of the shadowed node_modules class member.
   const typeLabel = extensionTypeLabel
     ?? (shouldPreferInferredType
-      ? inferredMemberTypeLabel
+      ? inferredMemberTypeLabel!
       : resolvedTypeLabel
         ?? fallbackTypeLabel
         ?? structuralMember?.typeLabel

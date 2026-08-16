@@ -24,14 +24,11 @@ import {
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "compiler/lsp/formatting";
 import { collectAllImportedDeclarations } from "compiler/lsp/importedDeclarations";
 import { createInlayHints } from "compiler/lsp/inlayHints";
-import {
-  createPrepareRename,
-  createHover,
-} from "compiler/lsp/navigation";
+import { createPrepareRename } from "compiler/lsp/navigation";
 import {
   resolveDefinitionWithLocalFallback,
+  resolveHoverWithLocalFallback,
   resolveReferencesAcrossFiles,
-  resolveMemberHoverAcrossFiles,
   resolveRenameAcrossFiles,
 } from "compiler/lsp/crossFileNavigation";
 import { createSignatureHelp } from "compiler/lsp/signatureHelp";
@@ -433,12 +430,12 @@ async function runFeature(request: WorkerRequest): Promise<unknown> {
 
     case "hover": {
       if (!session.analysis || !session.ast) return null;
-      return await resolveMemberHoverAcrossFiles({
+      return resolveHoverWithLocalFallback({
         line: (params.lineNumber as number) - 1,
         character: (params.column as number) - 1,
         session,
         ...context.resolverContext,
-      }) ?? createHover(session.analysis, (params.lineNumber as number) - 1, (params.column as number) - 1, session.ast ?? undefined);
+      });
     }
 
     case "signatureHelp":

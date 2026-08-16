@@ -3756,7 +3756,13 @@ export class TypeChecker {
           result = receiverType;
           break;
         }
-        const calleeType = this.visitExpression(call.callee, scope);
+        const rawCalleeType = this.visitExpression(call.callee, scope);
+        const calleeType = call.callee instanceof MemberExpression
+          && this.typeContainsTypeParameterReference(rawCalleeType, new Set(["this"]))
+          ? this.substituteTypeParameters(rawCalleeType, new Map([
+              ["this", this.visitExpression((call.callee as MemberExpression).object, scope)]
+            ]))
+          : rawCalleeType;
         const argumentTypes: AnalysisType[] = [];
         const initialArgumentIssueRanges: Array<IssueRange | null> = [];
         for (const argument of call.args) {
@@ -6164,6 +6170,9 @@ export class TypeChecker {
     const referencesLocalTypeParameter = [...localTypeParameterNames].some((name) =>
       new RegExp(`\\b${this.escapeRegexText(name)}\\b`).test(normalizedTypeName)
     );
+    if (referencesLocalTypeParameter && parseConditionalTypeText(normalizedTypeName)) {
+      return namedType(normalizedTypeName);
+    }
     if (normalizedTypeName === "this" && contextualThisTypeName) {
       return this.typeFromTypeNameLoose(contextualThisTypeName);
     }
@@ -16346,7 +16355,8 @@ export class TypeChecker {
           if (this.typeContainsActiveTypeParameterReference(substitutedComputedType)) {
             return substitutedComputedType;
           }
-          return this.resolveMappedUtilityTypeText(substitutedComputedName, new Map())
+          return this.resolveConditionalTypeText(substitutedComputedName, new Map(), this.bound.rootScope)
+            ?? this.resolveMappedUtilityTypeText(substitutedComputedName, new Map())
             ?? this.typeFromTypeNameLoose(substitutedComputedName);
         }
         return namedSource;

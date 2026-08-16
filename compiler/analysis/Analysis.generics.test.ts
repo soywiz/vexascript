@@ -2222,6 +2222,33 @@ describe("Analysis", () => {
     expect(messages).toEqual([]);
   });
 
+  it("selects a generic method conditional return branch while preserving contextual this", () => {
+    const source = dedent`
+      interface Schema<Output = unknown> {
+        parse(value: unknown): Output
+      }
+      interface NumberSchema extends Schema<number> {
+        refine<Ch extends (arg: number) => unknown>(
+          check: Ch
+        ): Ch extends (arg: any) => arg is infer R
+          ? this & Schema<R>
+          : this
+      }
+      declare const schema: NumberSchema
+      const refined = schema.refine((value) => value > 0)
+      const result = refined.parse(1)
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const resultLine = source.split("\n").findIndex((line) => line.includes("const result"));
+    const symbols = symbolsOfVisibleSymbolsAt(source, resultLine, source.split("\n")[resultLine]!.length);
+
+    expect(symbols.get("refined")?.valueType).toBe("NumberSchema");
+    expect(symbols.get("result")?.valueType).toBe("number");
+    expect(messages).toEqual([]);
+  });
+
   it("preserves literal unions through mapped enum schema outputs", () => {
     const source = dedent`
       type EnumValue = string | number

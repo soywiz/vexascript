@@ -54,6 +54,158 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
 }
 
 describe("cross-file navigation", () => {
+  it("resolves named argument hover and definition to the called function parameter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-named-argument-navigation-"));
+    const geometryFile = join(root, "geometry.vx");
+    const mainFile = join(root, "main.vx");
+    const declared = sourceWithCursor(dedent`
+      export function SDLRect(x: int, y: int, wid^^^th: int, height: int): int {
+        return width
+      }
+    `);
+    const marked = sourceWithCursor(dedent`
+      import { SDLRect } from "./geometry.vx"
+
+      const rectangle = SDLRect(x: 368, y: 193, wid^^^th: 64, height: 64)
+    `);
+    await writeFile(geometryFile, declared.source, "utf8");
+    await writeFile(mainFile, marked.source, "utf8");
+
+    const geometrySession = createAnalysisSession(declared.source);
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainFile).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => filePath === geometryFile ? geometrySession : null
+    });
+    const session = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      externalDeclarationLocations: collected.externalDeclarationLocations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+    const context = {
+      uri: pathToFileURL(mainFile).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath: string) => {
+        if (filePath === geometryFile) return geometrySession;
+        if (filePath === mainFile) return session;
+        return null;
+      }
+    };
+
+    const definition = await resolveDefinitionWithLocalFallback(context);
+    expect(definition).toEqual({
+      uri: pathToFileURL(geometryFile).toString(),
+      range: {
+        start: { line: declared.line, character: declared.character - 3 },
+        end: { line: declared.line, character: declared.character + 2 }
+      }
+    });
+
+    const hover = await resolveHoverWithLocalFallback(context);
+    expect(hover).toEqual({
+      contents: {
+        kind: "markdown",
+        value: "```typescript\nparameter width: int\n```"
+      },
+      range: {
+        start: { line: marked.line, character: marked.character - 3 },
+        end: { line: marked.line, character: marked.character + 2 }
+      }
+    });
+  });
+
+  it("resolves named arguments to primary constructor parameters", async () => {
+    const declaration = sourceWithCursor(dedent`
+      class SDLRect(
+        val x: int,
+        val y: int,
+        val wid^^^th: int,
+        val height: int
+      )
+
+      const rectangle = SDLRect(x: 368, y: 193, width: 64, height: 64)
+      const bytes = ArrayBuffer(4)
+    `);
+    const usage = sourceWithCursor(declaration.source.replace("width: 64", "wid^^^th: 64"));
+    const session = createAnalysisSession(usage.source);
+    const context = {
+      uri: "file:///workspace/main.vx",
+      line: usage.line,
+      character: usage.character,
+      session,
+      sourceRoots: ["/workspace"],
+      getSessionForFilePath: () => null
+    };
+
+    const definition = await resolveDefinitionWithLocalFallback(context);
+    expect(definition?.uri).toBe(context.uri);
+    expect(definition?.range).toEqual({
+      start: { line: declaration.line, character: declaration.character - 3 },
+      end: { line: declaration.line, character: declaration.character + 2 }
+    });
+
+    const hover = await resolveHoverWithLocalFallback(context);
+    expect(hover?.contents).toEqual({
+      kind: "markdown",
+      value: "```typescript\nparameter width: int\n```"
+    });
+  });
+
+  it("resolves constructor-style calls through variables to the new signature", async () => {
+    const runtimeProgram = await ensureEcmaScriptRuntimeProgram();
+    const arrayBufferConstructor = runtimeProgram.body.find(
+      (statement) =>
+        statement.kind === NodeKind.InterfaceStatement &&
+        (statement as { name?: { name?: string } }).name?.name === "ArrayBufferConstructor"
+    ) as { members?: Array<{ name?: { name?: string; firstToken?: { range: { start: { line: number; column: number }; end: { line: number; column: number } } } } }> } | undefined;
+    const newSignature = arrayBufferConstructor?.members?.find((member) => member.name?.name === "constructor");
+    const declarationRange = newSignature?.name?.firstToken?.range;
+    expect(declarationRange).not.toBeNull();
+
+    const marked = sourceWithCursor("const bytes = ArrayBu^^^ffer(4)");
+    const session = createAnalysisSession(marked.source);
+    const runtimePath = getEcmaScriptRuntimeDeclarationFilePath();
+    const context = {
+      uri: "file:///workspace/main.vx",
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: ["/workspace"],
+      getSessionForFilePath: (filePath: string) =>
+        filePath === runtimePath ? { ast: runtimeProgram, analysis: null } : null
+    };
+
+    const definition = await resolveDefinitionWithLocalFallback(context);
+    expect(definition).toEqual({
+      uri: pathToUri(runtimePath),
+      range: {
+        start: {
+          line: declarationRange!.start.line,
+          character: declarationRange!.start.column
+        },
+        end: {
+          line: declarationRange!.end.line,
+          character: declarationRange!.end.column
+        }
+      }
+    });
+
+    const hover = await resolveHoverWithLocalFallback(context);
+    const hoverValue = typeof hover?.contents === "object" && "value" in hover.contents
+      ? hover.contents.value
+      : "";
+    expect(hoverValue).toContain("new ArrayBuffer(byteLength: number): ArrayBuffer");
+    expect(hover?.range).toEqual({
+      start: { line: marked.line, character: marked.character - 7 },
+      end: { line: marked.line, character: marked.character + 4 }
+    });
+  });
+
   it("formats resolved type alias hovers as highlighted multiline TypeScript", async () => {
     const marked = sourceWithCursor(dedent`
       type Us^^^er = {

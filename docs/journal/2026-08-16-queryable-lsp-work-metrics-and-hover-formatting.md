@@ -143,3 +143,41 @@ member of a union alias: `$ZodIssue` and `message` both land in
 code block. A package-level unit test covers the namespace/barrel mechanics
 without the cost of loading Zod, and the real multi-file Zod test covers the
 complete editor session.
+
+## Conditional generic methods and polymorphic `this`
+
+Zod's `refine` exposed a separate inference failure that explicit result
+annotations had hidden. Its return type is a generic conditional:
+`Ch extends predicate ? this & ZodType<R, ...> : this`. The loose method-type
+reader treated that text as an ordinary generic name and retained only a
+fragment ending in `: this`. Consequently `EvenSchema` degraded to a malformed
+type and `EvenSchema.parse(8)` inferred `unknown`.
+
+Conditional method returns are now preserved as deferred type expressions.
+After call arguments infer the method type parameters, the normal conditional
+resolver selects the branch and substitutes polymorphic `this` with the actual
+receiver. This is compiler behavior rather than a Zod/refine catalog: the
+minimal regression uses a generic `NumberSchema` interface with the same
+TypeScript type construct.
+
+The first receiver substitution ran for every member call and nearly doubled
+the real Zod editor test. The queryable work bounds did not fail, but elapsed
+time made the duplicated semantic work visible during focused validation.
+Substitution now runs only when the callable type actually references `this`.
+The Zod test returned to its prior cost while still inferring `ZodNumber` and
+`number`.
+
+Member hover also used the unspecialized declaration after the call itself had
+been inferred correctly. Hover now reuses the selected call resolution and its
+actual expression return type, so generic calls display their instantiated
+parameter and return types. `EventSchema.parse` shows the discriminated union,
+and `EvenSchema.parse` shows `number`, matching the inferred variables instead
+of presenting `unknown` from a parallel hover path.
+
+Final validation exposed an unrelated race in the CLI `serve --open` test. The
+fake browser used `writeFile`, so the polling reader could observe the newly
+created output file before its URL contents were visible and immediately try
+to parse an empty string. The test now waits for non-empty content without
+weakening its URL assertions, applies the same timeout to empty and missing
+files, and registers the child-process close listener before killing it. This
+keeps a failed browser launch from turning a useful assertion into a hung test.
