@@ -688,4 +688,100 @@ test("supports trailing closures") {
     expect(origin).not.toBeNull();
     expect(origin?.filePath).toBe(join(libDir, "types.d.ts"));
   });
+
+  it("resolves a re-exported namespace binding with its generic schema hierarchy", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-zod4-namespace-"));
+    const packageDir = join(root, "node_modules", "zod-like");
+    const consumerFile = join(root, "consumer.vx");
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "zod-like", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(packageDir, "index.d.ts"),
+      [
+        'import * as z from "./external";',
+        'export * from "./external";',
+        'export { z };'
+      ].join("\n"),
+      "utf8"
+    );
+    await writeFile(
+      join(packageDir, "external.d.ts"),
+      [
+        'export * as core from "./core";',
+        'export * from "./schemas";',
+        'export type { infer, input, output } from "./core";'
+      ].join("\n"),
+      "utf8"
+    );
+    await writeFile(
+      join(packageDir, "core.d.ts"),
+      [
+        'export interface SomeType { _zod: { input: unknown; output: unknown } }',
+        'export type input<T> = T extends { _zod: { input: any } } ? T["_zod"]["input"] : unknown;',
+        'export type output<T> = T extends { _zod: { output: any } } ? T["_zod"]["output"] : unknown;',
+        'export type { output as infer };'
+      ].join("\n"),
+      "utf8"
+    );
+    await writeFile(
+      join(packageDir, "schemas.d.ts"),
+      [
+        'import * as core from "./core";',
+        'export interface ZodType<Output = unknown, Input = Output> extends core.SomeType { _zod: { input: Input; output: Output }; parse(data: unknown): Output; }',
+        'export interface ZodString extends ZodType<string, string> { min(length: number): this; }',
+        'export interface ZodArray<T extends core.SomeType> extends ZodType<core.output<T>[], unknown[]> {}',
+        'export interface ZodObject<T extends Record<string, core.SomeType>> extends ZodType<{ [K in keyof T]: core.output<T[K]> }, { [K in keyof T]: core.input<T[K]> }> { shape: T; }',
+        'export interface ZodUnion<T extends readonly core.SomeType[]> extends ZodType<core.output<T[number]>> {}',
+        'export interface ZodEnum<T extends readonly string[]> extends ZodType<T[number]> {}',
+        'export interface ZodLiteral<T> extends ZodType<T> {}',
+        'export declare function string(): ZodString;',
+        'export declare function array<T extends core.SomeType>(element: T): ZodArray<T>;',
+        'export declare function object<T extends Record<string, core.SomeType>>(shape: T): ZodObject<T>;',
+        'export declare function union<T extends readonly core.SomeType[]>(options: T): ZodUnion<T>;',
+        'export declare function enum<T extends readonly string[]>(values: T): ZodEnum<T>;',
+        'export declare function literal<T extends readonly string[]>(value: T): ZodLiteral<T[number]>;',
+        'export declare function literal<T>(value: T): ZodLiteral<T>;'
+      ].join("\n"),
+      "utf8"
+    );
+
+    const source = [
+      'import { z } from "zod-like"',
+      'const StringSchema = z.string()',
+      'type StringOutput = z.infer<typeof StringSchema>',
+      'type StringInput = z.input<typeof StringSchema>',
+      'const raw: StringInput = "Ada"',
+      'const text: StringOutput = StringSchema.parse("Ada")',
+      'const textUpper: string = text.toUpperCase()',
+      'const UserSchema = z.object({ name: z.string().min(1) })',
+      'const TagsSchema = z.array(z.string())',
+      'const RoleSchema = z.enum(["admin", "user"])',
+      'const UnionSchema = z.union([z.literal("admin"), z.literal("user")])',
+      'type User = z.infer<typeof UserSchema>',
+      'const user: User = UserSchema.parse({ name: "Ada" })',
+      'const upper: string = user.name.toUpperCase()'
+    ].join("\n");
+    await writeFile(consumerFile, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(consumerFile).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: imported.externalDeclarations,
+      importedSymbols: imported.importedSymbols,
+      invalidImportedBindings: imported.invalidImportedBindings
+    });
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+    const memberLineIndex = source.split("\n").findIndex((line) => line.includes("user.name"));
+    const memberLine = source.split("\n")[memberLineIndex]!;
+    expect(session.analysis?.getHoverAt(memberLineIndex, memberLine.indexOf("name") + 1)?.contents).toContain("string");
+  });
 });

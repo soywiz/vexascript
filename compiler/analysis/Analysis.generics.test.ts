@@ -2173,4 +2173,154 @@ describe("Analysis", () => {
     expect(messages).toContain("Cannot assign to 'first' because it is a constant");
   });
 
+  it("resolves conditional indexed output types through inherited generic members", () => {
+    const source = dedent`
+      interface SomeType { _zod: { output: unknown } }
+      interface Schema<Output = unknown> extends SomeType {
+        _zod: { output: Output }
+      }
+      interface StringSchema extends Schema<string> {}
+      type output<T> = T extends { _zod: { output: any } }
+        ? T["_zod"]["output"]
+        : unknown
+      type StringOutput = output<StringSchema>
+      const value: StringOutput = "ready"
+      const upper: string = value.toUpperCase()
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
+  it("maps conditional schema outputs across object shapes", () => {
+    const source = dedent`
+      namespace core {
+        export interface SomeType { _zod: { output: unknown } }
+        export type output<T> = T extends { _zod: { output: any } }
+          ? T["_zod"]["output"]
+          : unknown
+      }
+      interface Schema<Output = unknown> extends core.SomeType {
+        _zod: { output: Output }
+      }
+      interface StringSchema extends Schema<string> {}
+      type Shape = Record<string, core.SomeType>
+      type ObjectOutput<T extends Shape> = {
+        [K in keyof T]: core.output<T[K]>
+      }
+      interface ObjectSchema<T extends Shape> extends Schema<ObjectOutput<T>> {
+        shape: T
+      }
+      type User = core.output<ObjectSchema<{ name: StringSchema }>>
+      const user: User = { name: "Ada" }
+      const upper: string = user.name.toUpperCase()
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
+  it("preserves literal unions through mapped enum schema outputs", () => {
+    const source = dedent`
+      type EnumValue = string | number
+      type EnumLike = Readonly<Record<string, EnumValue>>
+      type ToEnum<T extends EnumValue> = { [K in T]: K }
+      type EnumOutput<T extends EnumLike> = T[keyof T] & {}
+      type DirectEntries = ToEnum<"admin" | "editor" | "user">
+      type DirectOutput = EnumOutput<DirectEntries>
+      const directRole: DirectOutput = "admin"
+      type BroadEntries = ToEnum<string>
+      const broadEntries: BroadEntries = { admin: "admin" }
+      type InlineBroadOutput = { [K: string]: string }[keyof { [K: string]: string }]
+      const inlineBroadRole: InlineBroadOutput = "admin"
+      type EnumOutputRaw<T extends EnumLike> = T[keyof T]
+      type BroadRawOutput = EnumOutputRaw<BroadEntries>
+      const broadRawRole: BroadRawOutput = "admin"
+      type BroadOutput = EnumOutput<BroadEntries>
+      const broadRole: BroadOutput = "admin"
+      namespace util {
+        export type NamespacedToEnum<T extends EnumValue> = { [K in T]: K }
+      }
+      interface Internals<Output = unknown> { output: Output }
+      interface Schema<Output = unknown> { _zod: Internals<Output> }
+      interface EnumSchema<T extends EnumLike> extends Schema<EnumOutput<T>> {}
+      declare fun enumSchema<T extends readonly string[]>(values: T): EnumSchema<ToEnum<T[number]>>
+      type output<T> = T extends { _zod: { output: any } }
+        ? T["_zod"]["output"]
+        : unknown
+      type ViaSchema = output<EnumSchema<ToEnum<string>>>
+      const viaSchemaRole: ViaSchema = "admin"
+      type ViaQualifiedSchema = output<EnumSchema<util.NamespacedToEnum<string>>>
+      const viaQualifiedSchemaRole: ViaQualifiedSchema = "admin"
+      const RoleSchema = enumSchema(["admin", "editor", "user"])
+      type Role = output<typeof RoleSchema>
+      const role: Role = "admin"
+      const upper: string = role.toUpperCase()
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
+    const symbols = symbolsOfVisibleSymbolsAt(source, 20, 6);
+
+    expect(symbols.get("RoleSchema")?.valueType).toContain("EnumSchema");
+    expect(symbols.get("directRole")?.valueType).not.toContain("unknown");
+    expect(symbols.get("broadEntries")?.valueType).toContain("[K: string]: string");
+    expect(symbols.get("inlineBroadRole")?.valueType).toBe("string");
+    expect(symbols.get("broadRawRole")?.valueType).toBe("string");
+    expect(symbols.get("broadRole")?.valueType).toBe("string");
+    expect(symbols.get("viaSchemaRole")?.valueType).toBe("string");
+    expect(symbols.get("viaQualifiedSchemaRole")?.valueType).toBe("string");
+    expect(symbols.get("role")?.valueType).toBe("string");
+    expect(messages).toEqual([]);
+  });
+
+  it("treats unknown as the identity element in object intersections", () => {
+    const source = dedent`
+      type DirectOptions = unknown & { message?: string }
+      const directOptions: DirectOptions = { message: "Expected an even number" }
+      type Options = Partial<unknown & { message?: string }>
+      const options: Options = { message: "Expected an even number" }
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
+
+    const symbols = symbolsOfVisibleSymbolsAt(source, 3, 6);
+    expect(symbols.get("directOptions")?.valueType).toContain("message");
+    expect(symbols.get("options")?.valueType).toContain("message");
+    expect(messages).toEqual([]);
+  });
+
+  it("accepts values for conservatively unresolved mapped parameter types", () => {
+    const source = dedent`
+      declare fun acceptOptions(options?: string | { [P in keyof unknown]?: unknown }): void
+      acceptOptions({ message: "Expected an even number" })
+    `;
+    const ast = parseFile(tokenizeReader(source));
+
+    expect(new Analysis(ast).getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("expands nested aliases after selecting a conditional indexed-array branch", () => {
+    const source = dedent`
+      declare class Schema<Output> { readonly _output: Output }
+      declare class StringSchema extends Schema<string> {}
+      type ArrayOutput<T extends Schema<any>, Cardinality extends "many" | "one"> =
+        Cardinality extends "one" ? [T["_output"]] : T["_output"][]
+      declare class ArraySchema<T extends Schema<any>, Cardinality extends "many" | "one">
+        extends Schema<ArrayOutput<T, Cardinality>> {}
+      type TypeOf<T extends Schema<any>> = T["_output"]
+      type Infer<T extends Schema<any>> = TypeOf<T>
+      type Tags = Infer<ArraySchema<StringSchema, "many">>
+      const tags: Tags = ["types", "runtime"]
+      const upper: string = tags[0].toUpperCase()
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(10, 6).map((symbol) => [symbol.name, symbol]));
+
+    expect(symbols.get("tags")?.valueType).toBe("string[]");
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
 });

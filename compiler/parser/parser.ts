@@ -796,7 +796,16 @@ export class Parser {
             if (this.consumeGenericCloseAngle()) {
                 break;
             }
-            const token = this.tokens.read();
+            const firstToken = this.tokens.read();
+            let token = firstToken;
+            if (this.language === "typescript") {
+                while (
+                    token?.type === TokenType.IDENTIFIER
+                    && ["const", "in", "out"].includes(token.value)
+                ) {
+                    token = this.tokens.read();
+                }
+            }
             if (token?.type !== TokenType.IDENTIFIER) {
                 this.fail("Expected type parameter name", this.tokenAt(token));
             }
@@ -811,7 +820,7 @@ export class Parser {
             }
             parameters.push(this.attachNodeBounds(
                 parameter,
-                token,
+                firstToken ?? token,
                 parameter.defaultType?.lastToken ?? parameter.constraint?.lastToken ?? token
             ));
 

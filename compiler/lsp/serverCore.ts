@@ -144,6 +144,7 @@ export function startLspServer(options: LspServerOptions): void {
   const workspaceMemberDiagnosticsCache = new Map<string, { version: number; promise: Promise<Diagnostic[]> }>();
   const semanticTokensCache = new Map<string, { version: number; promise: Promise<SemanticTokens> }>();
   const codeActionCache = new Map<string, { version: number; promise: Promise<ReturnType<typeof deferCodeActions>> }>();
+  let workspaceSymbolExportsPromise: ReturnType<typeof buildSymbolExports> | null = null;
 
   function nowMs(): number {
     return typeof globalThis.performance?.now === "function"
@@ -224,6 +225,7 @@ export function startLspServer(options: LspServerOptions): void {
     workspaceMemberDiagnosticsCache.clear();
     semanticTokensCache.clear();
     codeActionCache.clear();
+    workspaceSymbolExportsPromise = null;
   }
 
   function featureContext(uri: string) {
@@ -237,9 +239,17 @@ export function startLspServer(options: LspServerOptions): void {
     };
   }
 
+  function getWorkspaceSymbolExports() {
+    workspaceSymbolExportsPromise ??= buildSymbolExports(
+      environment.getSourceRoots(),
+      environment.getImportMappings?.() ?? {}
+    );
+    return workspaceSymbolExportsPromise;
+  }
+
   async function getExportedSymbolsForSession(session: AnalysisSession) {
     return [
-      ...await buildSymbolExports(environment.getSourceRoots(), environment.getImportMappings?.() ?? {}),
+      ...await getWorkspaceSymbolExports(),
       ...buildAmbientModuleSymbolExports({
         moduleDeclarations: session.ambientModuleDeclarations,
         moduleLocations: session.ambientModuleLocations
@@ -461,6 +471,7 @@ export function startLspServer(options: LspServerOptions): void {
 
   connection.onInitialized(() => {
     connection.console.info(`VexaScript compiler version: ${COMPILER_VERSION}`);
+    void getWorkspaceSymbolExports();
   });
 
   documents.onDidOpen((event) => {

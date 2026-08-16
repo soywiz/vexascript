@@ -30,9 +30,12 @@ describe("memberCompletionTypeNames", () => {
     expect(arrayTypeNameToArrayAlias("Map<string, int>")).toBeNull();
   });
 
-  it("boxes nullable primitive receiver types for completion lookup", () => {
+  it("boxes primitive and literal receiver types for completion lookup", () => {
     expect(boxedCompletionTypeName("int | null")).toBe("Number");
     expect(boxedCompletionTypeName("boolean")).toBe("Boolean");
+    expect(boxedCompletionTypeName('"admin"')).toBe("String");
+    expect(boxedCompletionTypeName("42")).toBe("Number");
+    expect(boxedCompletionTypeName("false")).toBe("Boolean");
   });
 
   it("recovers receiver types from analyzed expression endings and recovery members", () => {

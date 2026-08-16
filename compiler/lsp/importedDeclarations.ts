@@ -827,6 +827,9 @@ function parseAmbientObjectTypeAnnotation(
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
     return null;
   }
+  if (findMatchingTypeDelimiter(trimmed, 0, "{", "}") !== trimmed.length - 1) {
+    return null;
+  }
   const body = trimmed.slice(1, -1).trim();
   if (body.length === 0) {
     return [];
@@ -2527,7 +2530,7 @@ function collectNodeModuleNamespaceExportedProperties(
     if (declaration instanceof FunctionStatement) {
       const fn = declaration as FunctionStatement;
       const overloads = functionOverloads.get(fn.name.name) ?? [];
-      overloads.push(buildFunctionTypeFromStatement(fn) as FunctionType);
+      overloads.push(buildFunctionTypeFromStatement(fn, statements) as FunctionType);
       functionOverloads.set(fn.name.name, overloads);
       continue;
     }
@@ -2564,10 +2567,7 @@ function collectNodeModuleNamespaceExportedProperties(
     }
   }
   for (const [name, overloads] of functionOverloads) {
-    // Namespace-shaped object properties do not preserve call-site overload
-    // resolution well. Prefer the first declared signature over widening to a
-    // union-like collapsed callable that can degrade downstream inference.
-    properties[name] = overloads[0]!;
+    properties[name] = overloads.length === 1 ? overloads[0]! : unionType(overloads);
   }
   resolutionCache.namespaceExportProperties = properties;
   return properties;

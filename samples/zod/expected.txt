@@ -1,1 +1,1 @@
-Ada:42:ADA:43:types:true:ADMIN:user:Grace:user
+Ada|admin|Grace|40.4|true|42|true|ok|compiler|2|ADA|id:Invalid input: expected string, received undefined|created:550e8400-e29b-41d4-a716-446655440000|{"supported":true,"versions":[3,4]}|8|0|available

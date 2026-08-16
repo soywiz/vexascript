@@ -849,6 +849,9 @@ export function parseObjectTypeAnnotation(typeName: string): ObjectTypeAnnotatio
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
     return null;
   }
+  if (findMatchingTypeDelimiter(trimmed, 0, "{", "}") !== trimmed.length - 1) {
+    return null;
+  }
 
   const body = trimmed.slice(1, -1).trim();
   if (body.length === 0) {

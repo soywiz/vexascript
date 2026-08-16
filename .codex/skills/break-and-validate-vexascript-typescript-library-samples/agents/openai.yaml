@@ -1,0 +1,4 @@
+interface:
+  display_name: "Break and Validate VexaScript Libraries"
+  short_description: "Stress-test TypeScript libraries with samples"
+  default_prompt: "Use $break-and-validate-vexascript-typescript-library-samples to stress-test and validate an unmodified TypeScript library in VexaScript."

@@ -349,7 +349,7 @@ describe("lsp analysis session", () => {
     expect(resolveCount).toBe(1);
   });
 
-  it("getForDocumentAsync does not reuse a pending resolution for a different version", async () => {
+  it("reuses resolved externals across document versions when imports are unchanged", async () => {
     const source1 = "let a = 1\n";
     const source2 = "let b = 2\n";
     const docV1 = TextDocument.create("file:///test.vx", "vexa", 1, source1);
@@ -364,10 +364,24 @@ describe("lsp analysis session", () => {
     // Establish a v1 session in the cache
     await cache.getForDocumentAsync(docV1);
 
-    // Requesting v2 must not reuse v1's resolution and must produce its own session
     const sessionV2 = await cache.getForDocumentAsync(docV2);
     expect(sessionV2.ast?.body.length).toBeGreaterThan(0);
-    // The resolver was called at least once for v1 and at least once for v2
-    expect(callCount).toBeGreaterThanOrEqual(2);
+    expect(callCount).toBe(1);
+  });
+
+  it("resolves externals again when imports change between document versions", async () => {
+    const uri = "file:///test.vx";
+    const docV1 = TextDocument.create(uri, "vexa", 1, 'import { one } from "one"\none\n');
+    const docV2 = TextDocument.create(uri, "vexa", 2, 'import { two } from "two"\ntwo\n');
+    let callCount = 0;
+    const cache = new AnalysisSessionCache(async () => {
+      callCount++;
+      return { externalDeclarations: [], importedSymbols: new Map() };
+    });
+
+    await cache.getForDocumentAsync(docV1);
+    await cache.getForDocumentAsync(docV2);
+
+    expect(callCount).toBe(2);
   });
 });

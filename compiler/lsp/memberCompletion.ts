@@ -61,12 +61,14 @@ export async function buildMemberCompletionItemsForType(
   // Array types (`T[]`) resolve their members from the declared `class Array<T>`.
   const narrowedClassName = boxedCompletionTypeName(className);
   const resolvedClassName = arrayTypeNameToArrayAlias(narrowedClassName) ?? narrowedClassName;
-  const classStatement = (await resolveClassStatementAcrossFiles(
-    ast,
-    baseTypeName(resolvedClassName),
-    resolverOptions,
-    resolverCache
-  ))?.classStatement;
+  const classStatement = narrowedClassName === className
+    ? (await resolveClassStatementAcrossFiles(
+        ast,
+        baseTypeName(resolvedClassName),
+        resolverOptions,
+        resolverCache
+      ))?.classStatement
+    : undefined;
   const extensionItems = await buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis);
   const classItems = classStatement
     ? await buildClassMemberCompletionItems(

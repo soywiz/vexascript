@@ -1,0 +1,31 @@
+import { z } from "zod"
+
+export const SearchSchema = z.object({
+  query: z.string().trim().min(1),
+  page: z.coerce.number().int().positive().default(1)
+})
+
+export const NormalizedNameSchema = z.string()
+  .trim()
+  .transform((value) => value.toUpperCase())
+
+export const EvenSchema = z.number().refine(
+  (value) => value % 2 == 0,
+  { message: "Expected an even number" }
+)
+
+export const ResilientCountSchema = z.number().catch(0)
+export const JsonSchema = z.json()
+
+export type SearchInput = z.input<typeof SearchSchema>
+export type Search = z.output<typeof SearchSchema>
+export type NormalizedNameInput = z.input<typeof NormalizedNameSchema>
+export type NormalizedName = z.output<typeof NormalizedNameSchema>
+
+export async fun validateAvailableName(value: string): Promise<string> {
+  val schema = z.string().min(3).refine(
+    async (candidate) => candidate != "taken",
+    { message: "Name is already taken" }
+  )
+  return await schema.parseAsync(value)
+}

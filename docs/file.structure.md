@@ -91,7 +91,7 @@ This section is the fast onboarding map for agents and contributors.
   - JSX block-control sample: `samples/jsx-blocks/` validates eager component dispatch in a minimal custom classic factory plus nested `{#for}` and `{#if}` / `{:else if}` / `{:else}` children at runtime.
   - Focused React Query browser sample: `samples/react-query/` isolates `@tanstack/react-query` hook options, async result typing, and JSX result rendering behind a minimal React + ReactDOM browser shell.
   - Focused React Router browser sample: `samples/react-router/` isolates `react-router-dom` MemoryRouter, Link navigation, and location-driven JSX output behind a minimal React + ReactDOM browser shell.
-  - Focused Zod sample: `samples/zod/` validates real `zod` package imports, runtime schema parsing, and imported namespace type extraction through `z.infer<typeof Schema>`.
+  - Multi-file Zod 4 compatibility sample: `samples/zod/` uses the unmodified published package across schema, model, parsing, transformation, and entry modules; it covers namespace and type-only imports, `z.infer`/`z.input`/`z.output`, object composition, collections, unions, errors, coercion, transforms, refinements, JSON values, and async parsing with deterministic runtime output.
   - Focused date-fns sample: `samples/date-fns/` validates named-export barrels and date utility typing/runtime against the real `date-fns` package.
   - THREE.js browser sample: `samples/threejs/` uses `samples/threejs/html.vx` together with `samples/threejs/vexascript.json` and supporting modules such as `scene-data.vx`/`extensions.vx`, validating normal module imports from the Three npm package directly inside VexaScript browser code.
   - DOM-emulation sample: `samples/virtual-dom/` uses a lightweight local DOM shim plus `samples/virtual-dom/vexascript.json` with `lib: ["es2025", "dom"]` to validate DOM globals and DOM element types without a heavy third-party runtime.
@@ -233,7 +233,7 @@ This section is the fast onboarding map for agents and contributors.
 - Processed journal notes that have already been ingested into actionable architecture or follow-up tasks: `docs/journal/processed/`
 - Repo-local Codex skills: `.codex/skills/`
   - Website validation and production deployment workflow, including real-browser playground checks and the guarded `HEAD:web` push: `.codex/skills/deploy-vexascript-website/SKILL.md`
-  - Sample/library stress workflow skill for intentionally exposing compiler, parser, type checker, emitter, and LSP hover/go-to-definition gaps with realistic samples or package typings: `.codex/skills/break-vexascript-with-samples/SKILL.md`
+  - Unified workflow for breaking and validating VexaScript against TypeScript libraries through focused regressions or comprehensive multi-file package samples, covering compiler, bundler, and LSP behavior: `.codex/skills/break-and-validate-vexascript-typescript-library-samples/SKILL.md`
   - Sample-creation workflow skill for browser and Node samples: `.codex/skills/create-vexascript-samples/SKILL.md`
   - Destructive subtractive-refactor workflow skill for negative-net cleanup, dead-code deletion, and removal of internal compatibility layers when compiler/CLI behavior remains stable: `.codex/skills/destructive-negative-net-refactor/SKILL.md`
   - Journal-ingestion workflow skill for turning engineering notes into actionable follow-up tasks and moving processed notes aside: `.codex/skills/ingest-vexascript-journal/SKILL.md`

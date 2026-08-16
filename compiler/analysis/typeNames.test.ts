@@ -216,6 +216,7 @@ describe("parseObjectTypeAnnotation", () => {
   it("returns null for a non-object type text", () => {
     expect(parseObjectTypeAnnotation("string")).toBeNull();
     expect(parseObjectTypeAnnotation("(x: string) => void")).toBeNull();
+    expect(parseObjectTypeAnnotation("{ name: string } & { age: number }")).toBeNull();
   });
 
   it("parses a constructor signature", () => {

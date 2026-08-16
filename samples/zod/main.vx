@@ -1,47 +1,84 @@
-import { z } from "zod"
+import {
+  AuditedSchema,
+  CoordinatesSchema,
+  PermissionsSchema,
+  PublicUserSchema,
+  StringNumberMapSchema,
+  StringSetSchema,
+  UserPatchSchema
+} from "./schemas.vx"
+import type {
+  Coordinates,
+  StringNumberMap,
+  StringSet,
+} from "./models.vx"
+import { firstIssue, parseUser, summarizeEvent } from "./parsing.vx"
+import {
+  EvenSchema,
+  JsonSchema,
+  NormalizedNameSchema,
+  ResilientCountSchema,
+  SearchSchema,
+  validateAvailableName
+} from "./transforms.vx"
+import type { NormalizedName, Search, SearchInput } from "./transforms.vx"
 
-const UserSchema = z.object({
-  name: z.string().min(1),
-  age: z.number().int()
-})
-
-const SettingsSchema = z.object({
-  tags: z.array(z.string()),
-  active: z.boolean()
-})
-
-const RoleSchema = z.enum(["admin", "user"])
-const UnionRoleSchema = z.union([z.literal("admin"), z.literal("user")])
-const ProfileSchema = z.object({
-  name: z.string(),
-  role: UnionRoleSchema.default("user")
-})
-
-type User = z.infer<typeof UserSchema>
-type Settings = z.infer<typeof SettingsSchema>
-type Role = z.infer<typeof RoleSchema>
-type UnionRole = z.infer<typeof UnionRoleSchema>
-type Profile = z.infer<typeof ProfileSchema>
-
-const user: User = UserSchema.parse({
-  name: "Ada",
-  age: 42
-})
-
-const settings: Settings = SettingsSchema.parse({
+const user = parseUser({
+  id: "550e8400-e29b-41d4-a716-446655440000",
+  name: " Ada ",
+  age: 42,
+  role: "admin",
+  contact: { email: "ada@example.com" },
   tags: ["types", "runtime"],
-  active: true
+  metadata: { language: "vexa" },
+  nickname: null
 })
 
-const upperName: string = user.name.toUpperCase()
-const nextAge: number = user.age + 1
-const firstTag: string = settings.tags[0]
-const role: Role = RoleSchema.parse("admin")
-const roleLabel: string = role.toUpperCase()
-const unionRole: UnionRole = UnionRoleSchema.parse("user")
-const profile: Profile = ProfileSchema.parse({
-  name: "Grace"
-})
-const profileRole: UnionRole = profile.role
+PublicUserSchema.parse({ id: user.id, name: user.name, role: user.role })
+const patchInput = { id: user.id, name: "Grace" }
+UserPatchSchema.parse(patchInput)
+const coordinates: Coordinates = CoordinatesSchema.parse([40.4, -3.7])
+const permissionsInput = { read: true, write: false }
+PermissionsSchema.parse(permissionsInput)
+const lookup: StringNumberMap = StringNumberMapSchema.parse(new Map([["answer", 42]]))
+const labels: StringSet = StringSetSchema.parse(new Set(["zod", "vexa"]))
+const auditedInput = {
+  value: "ok",
+  updatedAt: "2026-08-16T12:00:00.000Z"
+}
+AuditedSchema.parse(auditedInput)
 
-console.log(`${user.name}:${user.age}:${upperName}:${nextAge}:${firstTag}:${settings.active}:${roleLabel}:${unionRole}:${profile.name}:${profileRole}`)
+const searchInput: SearchInput = { query: "  compiler  ", page: "2" }
+const search: Search = SearchSchema.parse(searchInput)
+const normalized: NormalizedName = NormalizedNameSchema.parse("  ada  ")
+
+const invalidIssue = firstIssue({ name: "" })
+const created = summarizeEvent({
+  kind: "created",
+  userId: "550e8400-e29b-41d4-a716-446655440000"
+})
+
+const json = JsonSchema.parse({ supported: true, versions: [3, 4] })
+const even = EvenSchema.parse(8)
+const fallback = ResilientCountSchema.parse("not a number")
+const available = await validateAvailableName("available")
+
+console.log([
+  user.name,
+  user.role,
+  patchInput.name,
+  coordinates[0],
+  permissionsInput.read,
+  lookup.get("answer"),
+  labels.has("zod"),
+  auditedInput.value,
+  search.query,
+  search.page,
+  normalized,
+  invalidIssue,
+  created,
+  JSON.stringify(json),
+  even,
+  fallback,
+  available
+].join("|"))

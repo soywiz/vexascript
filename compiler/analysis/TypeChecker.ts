@@ -88,6 +88,7 @@ import { primitiveMatcherKind } from "./matcherPatterns";
 import {
   isDynamicPropertyName,
   isReadonlyPropertyName,
+  normalizeIndexSignaturePropertyName,
   normalizePropertyName,
   propertyEntries,
   propertyTypeAllowsUndefined,
@@ -1885,7 +1886,13 @@ export class TypeChecker {
 
   private visitTypeAliasStatement(statement: TypeAliasStatement, scope: Scope): void {
     this.withTypeParameters(typeParameterNameList(statement.typeParameters ?? []), () => {
-      this.resolveTypeAnnotation(statement.targetType, scope);
+      const resolvedType = this.resolveTypeAnnotation(statement.targetType, scope);
+      if ((statement.typeParameters?.length ?? 0) === 0 && resolvedType) {
+        // Project-module consumers receive the checked top-level symbol type.
+        // Keeping the binder's loose annotation text here loses namespace
+        // imports that only exist in the alias's declaring file.
+        this.updateSymbolType(scope, statement.name.name, resolvedType);
+      }
     }, this.typeParameterConstraintMap(statement.typeParameters ?? [], scope));
   }
 
@@ -5299,6 +5306,10 @@ export class TypeChecker {
       return true;
     }
 
+    if (isUnknownType(targetType)) {
+      return true;
+    }
+
     if (targetType instanceof NamedType && this.isActiveTypeParameter(targetType.name)) {
       return true;
     }
@@ -5942,6 +5953,13 @@ export class TypeChecker {
   }
 
   private isPropertyAssignableToTargetType(sourceType: AnalysisType, targetType: AnalysisType): boolean {
+    if (
+      isUnknownType(targetType)
+      || (targetType instanceof BuiltinType && targetType.name === "unknown")
+      || (targetType instanceof NamedType && targetType.name === "unknown")
+    ) {
+      return true;
+    }
     if (this.isTypeAssignable(sourceType, targetType)) {
       return true;
     }
@@ -6214,14 +6232,20 @@ export class TypeChecker {
     }
     const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
     if (intersectionParts.length > 1) {
-      return intersectionType(intersectionParts.map((part): AnalysisType =>
-        this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
-      ));
+      return this.intersectionWithNonNullishObjectIdentity(
+        intersectionParts.map((part): AnalysisType =>
+          this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
+        )
+      );
     }
     if (looksLikeFunctionTypeAnnotation(typeName)) {
       return UNKNOWN_TYPE;
     }
-    if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
+    if (
+      normalizedTypeName.startsWith("[")
+      && normalizedTypeName.endsWith("]")
+      && !splitIndexedAccessTypeName(normalizedTypeName)
+    ) {
       const tupleBody = normalizedTypeName.slice(1, -1).trim();
       return tupleType(
         tupleBody.length === 0
@@ -6556,6 +6580,12 @@ export class TypeChecker {
   }
 
   private contextualArrayLiteralExpectedType(expectedType: AnalysisType): AnalysisType | null {
+    if (expectedType instanceof NamedType && this.isActiveTypeParameter(expectedType.name)) {
+      const constraint = this.activeTypeParameterConstraint(expectedType.name);
+      if (constraint && !isSameType(constraint, expectedType)) {
+        return this.contextualArrayLiteralExpectedType(constraint);
+      }
+    }
     const expandedExpectedType = this.expandTypeAliases(this.normalizeLooseNamedType(expectedType));
     if (
       expandedExpectedType instanceof ArrayType ||
@@ -6584,6 +6614,12 @@ export class TypeChecker {
   }
 
   private contextualObjectLiteralExpectedType(expectedType: AnalysisType): AnalysisType | null {
+    if (expectedType instanceof NamedType && this.isActiveTypeParameter(expectedType.name)) {
+      const constraint = this.activeTypeParameterConstraint(expectedType.name);
+      if (constraint && !isSameType(constraint, expectedType)) {
+        return this.contextualObjectLiteralExpectedType(constraint);
+      }
+    }
     const expandedExpectedType: AnalysisType = this.expandTypeAliases(this.normalizeLooseNamedType(expectedType));
     if (expandedExpectedType instanceof ObjectType || expandedExpectedType instanceof NamedType) {
       return expandedExpectedType;
@@ -7356,8 +7392,10 @@ export class TypeChecker {
     typeParameters: ReadonlySet<string>
   ): boolean {
     if (type instanceof NamedType) {
-      if (typeParameters.has(type.name)) {
-        return true;
+      for (const typeParameter of typeParameters) {
+        if (new RegExp(`\\b${this.escapeRegexText(typeParameter)}\\b`).test(type.name)) {
+          return true;
+        }
       }
       for (const argument of type.typeArguments ?? []) {
         if (this.typeContainsTypeParameterReference(argument, typeParameters)) return true;
@@ -7395,8 +7433,21 @@ export class TypeChecker {
     return false;
   }
 
+  private typeContainsActiveTypeParameterReference(type: AnalysisType): boolean {
+    return this.activeTypeParameterScopes.some((scope) =>
+      this.typeContainsTypeParameterReference(type, scope)
+    );
+  }
+
+  private escapeRegexText(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
   private typeContainsUnknown(type: AnalysisType): boolean {
     if (isUnknownType(type)) {
+      return true;
+    }
+    if (type instanceof BuiltinType && (type.name === "unknown" || type.name === "any")) {
       return true;
     }
     if (type instanceof NamedType) {
@@ -9520,6 +9571,25 @@ export class TypeChecker {
     return this.resolveTypeNameText(typeNameIdentifier.name, typeNameIdentifier, scope, true);
   }
 
+  private intersectionWithNonNullishObjectIdentity(types: AnalysisType[]): AnalysisType {
+    const hasEmptyTypeLiteral = types.some((type) =>
+      type instanceof ObjectType && type.properties.size === 0
+    );
+    const meaningfulTypes = types
+      .filter((type) =>
+        !isUnknownType(type)
+        && !(type instanceof BuiltinType && type.name === "unknown")
+        && (!hasEmptyTypeLiteral || !(type instanceof ObjectType && type.properties.size === 0))
+      )
+      .map((type) => hasEmptyTypeLiteral ? removeNullishFromType(type) : type);
+    if (meaningfulTypes.length === 0) {
+      return hasEmptyTypeLiteral ? objectType() : builtinType("unknown");
+    }
+    return meaningfulTypes.length === 1
+      ? meaningfulTypes[0]!
+      : intersectionType(meaningfulTypes);
+  }
+
   private resolveTypeNameText(
     typeName: string,
     node: Node,
@@ -9572,9 +9642,11 @@ export class TypeChecker {
 
     const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
     if (intersectionParts.length > 1) {
-      return intersectionType(intersectionParts.map((part): AnalysisType =>
-        this.resolveTypeNameText(part, node, scope, false)
-      ));
+      return this.intersectionWithNonNullishObjectIdentity(
+        intersectionParts.map((part): AnalysisType =>
+          this.resolveTypeNameText(part, node, scope, false)
+        )
+      );
     }
 
     const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
@@ -9586,7 +9658,11 @@ export class TypeChecker {
       return elementType;
     }
 
-    if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
+    if (
+      normalizedTypeName.startsWith("[")
+      && normalizedTypeName.endsWith("]")
+      && !splitIndexedAccessTypeName(normalizedTypeName)
+    ) {
       const tupleBody = normalizedTypeName.slice(1, -1);
       const elements: AnalysisType[] = tupleBody.trim().length === 0
         ? []
@@ -9675,9 +9751,27 @@ export class TypeChecker {
             this.identifierResolutions.push(new IdentifierResolution(node as Identifier, symbol));
           }
         }
-        this.validateNamedTypeArgumentConstraints(parsed.baseName, resolvedTypeArguments, node, scope);
+        const deferAliasResolution = resolvedTypeArguments.some((argument) =>
+          this.typeContainsActiveTypeParameterReference(argument)
+        );
+        if (!deferAliasResolution) {
+          this.validateNamedTypeArgumentConstraints(parsed.baseName, resolvedTypeArguments, node, scope);
+        }
         if (typeAlias) {
-          resolvedBase = this.resolveTypeAliasTarget(typeAlias, resolvedTypeArguments, scope);
+          const importedAliasType = resolvedTypeArguments.length === 0
+            && this.externalDeclarationNodes.has(typeAlias)
+            && symbol?.type
+            && !isUnknownType(symbol.type)
+            && !(symbol.type instanceof NamedType && symbol.type.name === parsed.baseName)
+            ? symbol.type
+            : null;
+          // A project import has already resolved its exported alias in the
+          // declaring module. Reusing that type preserves imports referenced by
+          // the alias instead of reinterpreting its text in the consumer scope.
+          resolvedBase = importedAliasType
+            ?? (deferAliasResolution
+              ? namedType(parsed.baseName, resolvedTypeArguments)
+              : this.resolveTypeAliasTarget(typeAlias, resolvedTypeArguments, scope));
         } else {
           resolvedBase = namedType(parsed.baseName, resolvedTypeArguments);
         }
@@ -9828,7 +9922,9 @@ export class TypeChecker {
 
     const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
     if (intersectionParts.length > 1) {
-      return intersectionType(intersectionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part)));
+      return this.intersectionWithNonNullishObjectIdentity(
+        intersectionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part))
+      );
     }
 
     const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
@@ -9878,12 +9974,15 @@ export class TypeChecker {
   }
 
   private isDeferredAdvancedTypeName(typeName: string): boolean {
+    const trimmedTypeName = typeName.trim();
+    const isMappedObjectType = trimmedTypeName.startsWith("{") &&
+      trimmedTypeName.endsWith("}") &&
+      parseMappedTypeMemberText(
+        trimmedTypeName.slice(1, -1).trim().replace(/;$/, "").trim()
+      ) !== null;
     return (
       typeName.startsWith("infer ") ||
-      typeName.startsWith("{ [") ||
-      typeName.startsWith("{ readonly [") ||
-      typeName.startsWith("{ +readonly [") ||
-      typeName.startsWith("{ -readonly [") ||
+      isMappedObjectType ||
       parseConditionalTypeText(typeName) !== null
     );
   }
@@ -9893,8 +9992,20 @@ export class TypeChecker {
     if (keys.length === 0) {
       return builtinType("never");
     }
-    const keyTypes: AnalysisType[] = keys.map((key) => literalType("string", key));
-    return keyTypes.length === 1 ? keyTypes[0]! : unionType(keyTypes);
+    const keyTypes: AnalysisType[] = keys.map((key) => {
+      const indexSignature = normalizeIndexSignaturePropertyName(key);
+      if (key === "[string]" || indexSignature === "[string]") {
+        return builtinType("string");
+      }
+      if (
+        key === "[number]" || key === "[int]" ||
+        indexSignature === "[number]" || indexSignature === "[int]"
+      ) {
+        return builtinType("number");
+      }
+      return literalType("string", key);
+    });
+    return combineTypes(keyTypes);
   }
 
   private indexedAccessType(objectType: AnalysisType, indexType: AnalysisType, node?: Node): AnalysisType {
@@ -9924,6 +10035,12 @@ export class TypeChecker {
         }
       }
       const propertyName = String(indexType.value);
+      if (propertyName === "_zod") {
+        const syntheticOutputType = this.syntheticSchemaOutputType(objectType);
+        if (syntheticOutputType) {
+          return objectTypeWithProperties({ output: syntheticOutputType });
+        }
+      }
       if (propertyName === "_output") {
         const syntheticOutputType = this.syntheticSchemaOutputType(objectType);
         if (syntheticOutputType) {
@@ -9956,6 +10073,13 @@ export class TypeChecker {
       }
     }
 
+    if (indexType instanceof BuiltinType && indexType.name === "string") {
+      const stringMemberType = this.memberTypeFromObjectType(objectType, "[key: string]");
+      if (stringMemberType) {
+        return stringMemberType;
+      }
+    }
+
     if (indexType instanceof BuiltinType && indexType.name === "int") {
       return this.indexedAccessType(objectType, builtinType("number"), node);
     }
@@ -9963,28 +10087,119 @@ export class TypeChecker {
     return UNKNOWN_TYPE;
   }
 
-  private syntheticSchemaOutputType(type: AnalysisType): AnalysisType | null {
+  private syntheticSchemaOutputType(
+    type: AnalysisType,
+    visited: Set<string> = new Set()
+  ): AnalysisType | null {
+    return this.syntheticSchemaIndexedType(type, "output", visited);
+  }
+
+  private syntheticSchemaIndexedType(
+    type: AnalysisType,
+    memberName: "input" | "output",
+    visited: Set<string> = new Set()
+  ): AnalysisType | null {
+    const visitKey = typeToString(type);
+    if (visited.has(visitKey)) {
+      return null;
+    }
+    visited.add(visitKey);
     const shapeType = this.memberTypeFromObjectType(type, "shape");
-    if (!shapeType || !(shapeType instanceof ObjectType)) {
-      return null;
+    let shapeProperties: ReadonlyMap<string, AnalysisType> | null = null;
+    if (shapeType && type instanceof NamedType) {
+      for (const typeArgument of type.typeArguments ?? []) {
+        const candidateProperties = this.nestedObjectLikeProperties(typeArgument);
+        if (candidateProperties) {
+          shapeProperties = candidateProperties;
+          break;
+        }
+      }
+    }
+    shapeProperties ??= shapeType ? this.objectLikePropertyEntries(shapeType) : null;
+    if (shapeProperties) {
+      const properties = new Map<string, AnalysisType>();
+      for (const [propertyName, schemaMemberType] of shapeProperties) {
+        const directOutputType = this.memberTypeFromObjectType(
+          schemaMemberType,
+          memberName === "output" ? "_output" : "_input"
+        );
+        if (directOutputType && !isUnknownType(directOutputType)) {
+          properties.set(propertyName, directOutputType);
+          continue;
+        }
+        const nestedOutputType = this.syntheticSchemaIndexedType(schemaMemberType, memberName, visited);
+        if (nestedOutputType) {
+          properties.set(propertyName, nestedOutputType);
+          continue;
+        }
+        const parseType = memberName === "output"
+          ? this.memberTypeFromObjectType(schemaMemberType, "parse")
+          : null;
+        if (parseType instanceof FunctionType && !isUnknownType(parseType.returnType)) {
+          properties.set(propertyName, parseType.returnType);
+          continue;
+        }
+        properties.clear();
+        break;
+      }
+      if (properties.size === shapeProperties.size) {
+        visited.delete(visitKey);
+        return objectTypeWithProperties(properties);
+      }
     }
 
-    const properties = new Map<string, AnalysisType>();
-    for (const [propertyName, schemaMemberType] of shapeType.properties) {
-      const directOutputType = this.memberTypeFromObjectType(schemaMemberType, "_output");
-      if (directOutputType) {
-        properties.set(propertyName, directOutputType);
-        continue;
-      }
-      const parseType = this.memberTypeFromObjectType(schemaMemberType, "parse");
-      if (parseType instanceof FunctionType) {
-        properties.set(propertyName, parseType.returnType);
-        continue;
-      }
+    const internalsType = this.memberTypeFromObjectType(type, "_zod");
+    const internalsOutputType = internalsType
+      ? this.memberTypeFromObjectType(internalsType, memberName)
+      : null;
+    if (internalsOutputType && !isUnknownType(internalsOutputType)) {
+      visited.delete(visitKey);
+      return this.expandTypeAliases(internalsOutputType);
+    }
+    visited.delete(visitKey);
+    return null;
+  }
+
+  private nestedObjectLikeProperties(
+    type: AnalysisType,
+    visited: Set<string> = new Set()
+  ): ReadonlyMap<string, AnalysisType> | null {
+    const visitKey = typeToString(type);
+    if (visited.has(visitKey)) {
       return null;
     }
+    visited.add(visitKey);
+    if (type instanceof ObjectType && type.properties.size > 0) {
+      return type.properties;
+    }
+    if (type instanceof NamedType) {
+      for (const typeArgument of type.typeArguments ?? []) {
+        const nested = this.nestedObjectLikeProperties(typeArgument, visited);
+        if (nested) {
+          return nested;
+        }
+      }
+    }
+    const direct = this.objectLikePropertyEntries(type);
+    return direct && direct.size > 0 ? direct : null;
+  }
 
-    return objectTypeWithProperties(properties);
+  private structuralIndexedOutputAliasTarget(
+    typeAlias: TypeAliasStatement,
+    typeArguments: readonly AnalysisType[],
+    scope: Scope
+  ): AnalysisType | null {
+    const indexedMember = /\[\s*["']_zod["']\s*\]\s*\[\s*["'](input|output)["']\s*\]/.exec(
+      typeAlias.targetType.name
+    )?.[1] as "input" | "output" | undefined;
+    if (typeArguments.length !== 1 || !indexedMember) {
+      return null;
+    }
+    const typeArgument = typeArguments[0]!;
+    const sourceType = typeArgument instanceof NamedType && typeArgument.name.startsWith("typeof ")
+      ? this.resolveTypeNameText(typeToString(typeArgument), typeAlias.targetType, scope, false)
+      : typeArgument;
+    return this.syntheticSchemaIndexedType(sourceType, indexedMember);
   }
 
   private indexedAccessTypeText(indexType: AnalysisType): string {
@@ -10191,6 +10406,13 @@ export class TypeChecker {
         const typeArgument = typeArguments[index]!;
         const rawConstraint = this.resolveTypeAnnotation(typeParameter.constraint, scope) ?? UNKNOWN_TYPE;
         const constraint = this.substituteTypeParameters(rawConstraint, substitutions);
+        if (
+          constraint instanceof BuiltinType
+          && constraint.name === "never"
+          && /\bkeyof\b/.test(typeParameter.constraint.name)
+        ) {
+          continue;
+        }
         this.validateTypeArgumentConstraint(
           typeParameter.name.name,
           typeArgument,
@@ -10210,6 +10432,13 @@ export class TypeChecker {
     if (isUnknownType(typeArgument) || isUnknownType(constraint)) {
       return;
     }
+    const expandedConstraint = this.expandTypeAliases(constraint);
+    if (
+      !this.canReliablyValidateTypeArgumentConstraint(expandedConstraint) ||
+      !this.canReliablyValidateTypeArgumentConstraint(typeArgument)
+    ) {
+      return;
+    }
     if (typeArgument instanceof NamedType && (typeArgument.name === typeParameterName || this.isActiveTypeParameter(typeArgument.name))) {
       return;
     }
@@ -10222,6 +10451,47 @@ export class TypeChecker {
     });
   }
 
+  private canReliablyValidateTypeArgumentConstraint(type: AnalysisType): boolean {
+    if (isUnknownType(type) || this.typeContainsUnknown(type)) {
+      return false;
+    }
+    if (type instanceof UnionType || type instanceof IntersectionType) {
+      return type.types.every((member) => this.canReliablyValidateTypeArgumentConstraint(member));
+    }
+    if (type instanceof TupleType) {
+      return type.elements.every((member) => this.canReliablyValidateTypeArgumentConstraint(member));
+    }
+    if (type instanceof ArrayType) {
+      return this.canReliablyValidateTypeArgumentConstraint(type.elementType);
+    }
+    if (type instanceof ObjectType) {
+      for (const [propertyName, propertyType] of type.properties) {
+        if (isDynamicPropertyName(propertyName) && this.typeContainsLiteral(propertyType)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (type instanceof NamedType && (type.name.includes(".") || type.name.includes("["))) {
+      // Qualified and computed constraints are deferred until namespace aliases,
+      // indexed access, and inherited generic members have been materialized.
+      return false;
+    }
+    return true;
+  }
+
+  private typeContainsLiteral(type: AnalysisType): boolean {
+    if (type instanceof LiteralType) return true;
+    if (type instanceof UnionType || type instanceof IntersectionType) {
+      return type.types.some((member) => this.typeContainsLiteral(member));
+    }
+    if (type instanceof ArrayType) return this.typeContainsLiteral(type.elementType);
+    if (type instanceof TupleType) return type.elements.some((member) => this.typeContainsLiteral(member));
+    if (type instanceof NamedType) return (type.typeArguments ?? []).some((member) => this.typeContainsLiteral(member));
+    if (type instanceof ObjectType) return [...type.properties.values()].some((member) => this.typeContainsLiteral(member));
+    return false;
+  }
+
   private resolveTypeAliasTarget(
     typeAlias: TypeAliasStatement,
     typeArguments: AnalysisType[],
@@ -10229,6 +10499,11 @@ export class TypeChecker {
   ): AnalysisType {
     if (this.activeTypeAliasNames.has(typeAlias.name.name)) {
       return namedType(typeAlias.name.name, typeArguments);
+    }
+
+    const structuralOutputTarget = this.structuralIndexedOutputAliasTarget(typeAlias, typeArguments, scope);
+    if (structuralOutputTarget) {
+      return structuralOutputTarget;
     }
 
     const substitutions = new Map<string, AnalysisType>();
@@ -10251,6 +10526,14 @@ export class TypeChecker {
       return conditionalTarget;
     }
 
+    const substitutedComputedTarget = this.substitutedComputedTypeAliasTargetText(typeAlias, substitutions);
+    if (substitutedComputedTarget) {
+      this.activeTypeAliasNames.add(typeAlias.name.name);
+      const targetType = this.resolveTypeNameText(substitutedComputedTarget, typeAlias.targetType, scope, false);
+      this.activeTypeAliasNames.delete(typeAlias.name.name);
+      return targetType;
+    }
+
     this.activeTypeAliasNames.add(typeAlias.name.name);
     const targetType = this.withTypeParametersResult<AnalysisType>(
       typeParameterNameList(typeParameters),
@@ -10259,7 +10542,22 @@ export class TypeChecker {
     );
     this.activeTypeAliasNames.delete(typeAlias.name.name);
 
-    return this.substituteTypeParameters(targetType, substitutions);
+    return this.expandTypeAliases(this.substituteTypeParameters(targetType, substitutions));
+  }
+
+  private substitutedComputedTypeAliasTargetText(
+    typeAlias: TypeAliasStatement,
+    substitutions: Map<string, AnalysisType>
+  ): string | null {
+    const hasComputedTypeParameterTarget = (typeAlias.typeParameters ?? []).some((parameter) => {
+      const escapedName = this.escapeRegexText(parameter.name.name);
+      return new RegExp(`(?:\\bkeyof\\s+${escapedName}\\b|\\b${escapedName}\\s*\\[)`).test(
+        typeAlias.targetType.name
+      );
+    });
+    return hasComputedTypeParameterTarget
+      ? this.substituteTypeParametersInComputedName(typeAlias.targetType.name, substitutions)
+      : null;
   }
 
   private typeAliasResolutionScope(typeAlias: TypeAliasStatement): Scope {
@@ -10322,6 +10620,15 @@ export class TypeChecker {
     const selectedBranch = branchSubstitutions !== null
       ? conditional.trueTypeText
       : conditional.falseTypeText;
+    if (
+      selectedBranch === conditional.trueTypeText
+      && /\[\s*["']_zod["']\s*\]\s*\[\s*["']output["']\s*\]$/.test(selectedBranch.trim())
+    ) {
+      const structuralOutputType = this.syntheticSchemaOutputType(checkType);
+      if (structuralOutputType) {
+        return structuralOutputType;
+      }
+    }
     const finalSubstitutions = new Map<string, AnalysisType>(substitutions);
     if (branchSubstitutions) {
       for (const [name, type] of branchSubstitutions.entries()) {
@@ -10348,10 +10655,47 @@ export class TypeChecker {
     substitutions: Map<string, AnalysisType>
   ): AnalysisType | null {
     const trimmedTarget = stripEnclosingTypeParens(typeAlias.targetType.name.trim());
+    const intersectionParts = splitTopLevelTypeText(trimmedTarget, "&");
+    if (intersectionParts.length > 1) {
+      const resolvedParts = intersectionParts.map((part) =>
+        this.resolveMappedUtilityTypeText(stripEnclosingTypeParens(part.trim()), substitutions)
+      );
+      if (resolvedParts.every((part): part is AnalysisType => part !== null)) {
+        return this.intersectionWithNonNullishObjectIdentity(resolvedParts);
+      }
+    }
     const indexedMappedTarget = this.resolveMappedUtilityIndexedAccessAliasTarget(trimmedTarget, substitutions);
     if (indexedMappedTarget) {
       return indexedMappedTarget;
     }
+    const directMappedTarget = this.resolveMappedUtilityTypeText(trimmedTarget, substitutions);
+    if (directMappedTarget) {
+      return directMappedTarget;
+    }
+
+    const wrappedTarget = parseTypeNameShape(trimmedTarget);
+    if (wrappedTarget.arrayDepth === 0 && wrappedTarget.typeArguments.length === 1) {
+      const mappedArgument = this.resolveMappedUtilityTypeText(wrappedTarget.typeArguments[0]!, substitutions);
+      if (mappedArgument) {
+        const wrapperName = this.normalizeLooseNamedTypeReference(wrappedTarget.baseName);
+        const wrapperAlias = this.typeAliasForResolution(wrapperName);
+        if (wrapperAlias && wrapperAlias !== typeAlias) {
+          return this.resolveTypeAliasTarget(
+            wrapperAlias,
+            [mappedArgument],
+            this.typeAliasResolutionScope(wrapperAlias)
+          );
+        }
+        return this.resolveSpecialNamedType(wrapperName, [mappedArgument]);
+      }
+    }
+    return null;
+  }
+
+  private resolveMappedUtilityTypeText(
+    trimmedTarget: string,
+    substitutions: Map<string, AnalysisType>
+  ): AnalysisType | null {
     if (!trimmedTarget.startsWith("{") || !trimmedTarget.endsWith("}")) {
       return null;
     }
@@ -10369,6 +10713,59 @@ export class TypeChecker {
     const valueTypeText = mappedMember.valueTypeText;
     if (!keyParameterName || !keySourceText || !valueTypeText) {
       return null;
+    }
+
+    const directKeySourceParameterName = /^([A-Za-z_$][\w$]*)$/.exec(keySourceText.trim())?.[1];
+    if (directKeySourceParameterName) {
+      const substitutedKeySource = substitutions.get(directKeySourceParameterName);
+      if (!substitutedKeySource) {
+        return null;
+      }
+      const expandedKeySource = this.expandTypeAliases(substitutedKeySource);
+      const keyTypes = expandedKeySource instanceof UnionType
+        ? expandedKeySource.types
+        : [expandedKeySource];
+      const properties = new Map<string, AnalysisType>();
+      for (const keyType of keyTypes) {
+        let propertyName: string;
+        if (
+          keyType instanceof LiteralType &&
+          (keyType.base === "string" || keyType.base === "number")
+        ) {
+          propertyName = String(keyType.value);
+        } else if (
+          keyType instanceof BuiltinType &&
+          (keyType.name === "string" || keyType.name === "number" || keyType.name === "int")
+        ) {
+          propertyName = `[${keyParameterName}: ${keyType.name === "int" ? "number" : keyType.name}]`;
+        } else {
+          return null;
+        }
+
+        const propertySubstitutions = new Map(substitutions);
+        propertySubstitutions.set(keyParameterName, keyType);
+        const mappedPropertyType = this.typeFromTypeNameLooseWithSubstitutions(
+          valueTypeText.trim(),
+          propertySubstitutions
+        );
+        const remappedKeys = this.resolveMappedUtilityRemappedKeys(
+          keyRemapText,
+          keyParameterName,
+          propertyName,
+          propertySubstitutions
+        );
+        if (!remappedKeys) {
+          return null;
+        }
+        const finalPropertyType = this.applyMappedUtilityOptionalModifier(mappedPropertyType, optionalModifier);
+        for (const remappedKey of remappedKeys) {
+          properties.set(
+            this.applyMappedUtilityReadonlyModifier(remappedKey, propertyName, readonlyModifier),
+            finalPropertyType
+          );
+        }
+      }
+      return objectTypeWithProperties(properties);
     }
 
     const sourceTypeParameterName = /^keyof\s+([A-Za-z_$][\w$]*)$/.exec(keySourceText.trim())?.[1]
@@ -11713,6 +12110,12 @@ export class TypeChecker {
     if (!expectedType || isUnknownType(expectedType)) {
       return undefined;
     }
+    if (expectedType instanceof NamedType && this.isActiveTypeParameter(expectedType.name)) {
+      const constraint = this.activeTypeParameterConstraint(expectedType.name);
+      if (constraint && !isSameType(constraint, expectedType)) {
+        return this.expectedArrayElementType(constraint);
+      }
+    }
     if (expectedType instanceof ArrayType) {
       return expectedType.elementType;
     }
@@ -12424,6 +12827,55 @@ export class TypeChecker {
         this.nonExternalTypeAliasStatementsByName.set(typeAliasStatement.name.name, typeAliasStatement);
       }
       this.typeAliasStatementsByName.set(typeAliasStatement.name.name, typeAliasStatement);
+    }
+
+    const pending: Array<{ statement: Statement; namespacePrefix: string }> = statements.map((statement) => ({
+      statement,
+      namespacePrefix: ""
+    }));
+    while (pending.length > 0) {
+      const { statement, namespacePrefix } = pending.shift()!;
+      const exportStatement = statement instanceof ExportStatement ? statement as ExportStatement : null;
+      const declaration = exportStatement?.declaration ?? statement;
+      if (declaration instanceof NamespaceStatement) {
+        const namespaceName = declaration.names?.[0]?.name;
+        const nestedPrefix = namespaceName
+          ? namespacePrefix
+            ? `${namespacePrefix}.${namespaceName}`
+            : namespaceName
+          : namespacePrefix;
+        pending.push(...declaration.body.body.map((nestedStatement) => ({
+          statement: nestedStatement,
+          namespacePrefix: nestedPrefix
+        })));
+      }
+      if (declaration instanceof TypeAliasStatement) {
+        const qualifiedName = namespacePrefix
+          ? `${namespacePrefix}.${declaration.name.name}`
+          : declaration.name.name;
+        nameSet?.add(qualifiedName);
+        if (nameSet === this.nonExternalNamedTypeNames) {
+          this.nonExternalTypeAliasStatementsByName.set(qualifiedName, declaration);
+        }
+        this.typeAliasStatementsByName.set(qualifiedName, declaration);
+      }
+      for (const specifier of exportStatement?.specifiers ?? []) {
+        const localName = specifier.local?.name ?? specifier.exported.name;
+        const aliasedType = declaration instanceof TypeAliasStatement && localName === declaration.name.name
+          ? declaration
+          : this.typeAliasStatementsByName.get(localName);
+        if (!aliasedType) {
+          continue;
+        }
+        const exportedName = namespacePrefix
+          ? `${namespacePrefix}.${specifier.exported.name}`
+          : specifier.exported.name;
+        nameSet?.add(exportedName);
+        if (nameSet === this.nonExternalNamedTypeNames) {
+          this.nonExternalTypeAliasStatementsByName.set(exportedName, aliasedType);
+        }
+        this.typeAliasStatementsByName.set(exportedName, aliasedType);
+      }
     }
   }
 
@@ -14665,7 +15117,9 @@ export class TypeChecker {
     }
     const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
     if (intersectionParts.length > 1) {
-      return intersectionType(intersectionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part)));
+      return this.intersectionWithNonNullishObjectIdentity(
+        intersectionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part))
+      );
     }
     const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
     if (arraySuffix) {
@@ -15441,6 +15895,10 @@ export class TypeChecker {
     }
     if (type instanceof NamedType) {
       const namedSource = type as NamedType;
+      const normalizedName = this.normalizeLooseNamedTypeReference(namedSource.name);
+      if (normalizedName !== namedSource.name) {
+        return this.expandTypeAliases(namedType(normalizedName, namedSource.typeArguments));
+      }
       if (namedSource.name === "Awaited" && (namedSource.typeArguments?.length ?? 0) === 1) {
         const innerExpanded = this.expandTypeAliases(namedSource.typeArguments![0]!);
         if (innerExpanded instanceof NamedType) {
@@ -15498,6 +15956,14 @@ export class TypeChecker {
       this.activeTypeAliasNames.add(namedSource.name);
       try {
         const substitutions = this.typeParameterSubstitutions(typeAlias.typeParameters, namedSource);
+        const structuralOutputTarget = this.structuralIndexedOutputAliasTarget(
+          typeAlias,
+          namedSource.typeArguments ?? [],
+          this.typeAliasResolutionScope(typeAlias)
+        );
+        if (structuralOutputTarget) {
+          return this.expandTypeAliases(structuralOutputTarget);
+        }
         const mappedUtilityTarget = this.resolveMappedUtilityAliasTarget(typeAlias, substitutions);
         if (mappedUtilityTarget) {
           return this.expandTypeAliases(mappedUtilityTarget);
@@ -15516,6 +15982,10 @@ export class TypeChecker {
           )
         ) {
           return this.expandTypeAliases(conditionalTarget);
+        }
+        const substitutedComputedTarget = this.substitutedComputedTypeAliasTargetText(typeAlias, substitutions);
+        if (substitutedComputedTarget) {
+          return this.expandTypeAliases(this.typeFromTypeNameLoose(substitutedComputedTarget));
         }
         const typeParameterNames = typeParameterNameList(typeAlias.typeParameters ?? []);
         const targetType = this.withTypeParametersResult<AnalysisType>(typeParameterNames, (): AnalysisType =>

@@ -150,18 +150,19 @@ function nodeModuleDeclarationName(entry: NodeModuleDeclarationEntry): string | 
 }
 
 export function nodeModuleExportedNamesForStatement(statement: Statement): string[] {
-  const directName = declarationNameFromStatement(statement);
-  if (directName) {
-    return [directName];
-  }
   if (!(statement instanceof ExportStatement)) {
-    return [];
+    const directName = declarationNameFromStatement(statement);
+    return directName ? [directName] : [];
   }
   const exportStatement = statement as ExportStatement;
   if (exportStatement.namespaceExport) {
     return [exportStatement.namespaceExport.name];
   }
-  return (exportStatement.specifiers ?? []).map((specifier) => specifier.exported.name);
+  if ((exportStatement.specifiers?.length ?? 0) > 0) {
+    return exportStatement.specifiers!.map((specifier) => specifier.exported.name);
+  }
+  const directName = declarationNameFromStatement(statement);
+  return directName ? [directName] : [];
 }
 
 function nodeModuleExportedNames(entry: NodeModuleDeclarationEntry): string[] {

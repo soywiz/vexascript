@@ -1095,7 +1095,6 @@ function readNonTemplateCodeFragment(
     code === CODE_SLASH &&
     peekNextCode(reader) !== CODE_SLASH &&
     peekNextCode(reader) !== CODE_STAR &&
-    peekNextCode(reader) !== CODE_EQUALS &&
     (tokenAllowsRegExpLiteral(previousSignificantToken) || regularExpressionMatchArm)
   ) {
     type = TokenType.REGEXP;

@@ -40,6 +40,7 @@ export interface LspOpenSessionResult {
   hovers: Array<Hover | null>;
   documentHighlights: DocumentHighlight[][];
   completions: CompletionItem[][];
+  completionDurationsMs: number[];
   semanticTokens: SemanticTokens;
   semanticTokensRange: SemanticTokens;
 }
@@ -293,9 +294,11 @@ export async function openEntrypointInLspSession(
   entrypoint: string,
   workspaceRoot = process.cwd(),
   probes: readonly LspPositionProbe[] = [],
-  completionProbes: readonly LspPositionProbe[] = []
+  completionProbes: readonly LspPositionProbe[] = [],
+  sourceOverride?: string,
+  primeBeforeChange = false
 ): Promise<LspOpenSessionResult> {
-  const source = await vfs().readFile(entrypoint);
+  const source = sourceOverride ?? await vfs().readFile(entrypoint);
   const server = await startWorkspaceServer(workspaceRoot);
   const uri = toFileUri(entrypoint);
 
@@ -312,6 +315,12 @@ export async function openEntrypointInLspSession(
   const openedDocument = TextDocument.create(uri, "vexa", 1, source);
   server.fakeDocuments.open(openedDocument);
   await server.projectIndex.upsertOpenDocument(entrypoint, source);
+
+  if (primeBeforeChange) {
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri }
+    });
+  }
 
   const changedDocument = TextDocument.create(uri, "vexa", 2, source);
   server.fakeDocuments.change(changedDocument);
@@ -353,7 +362,6 @@ export async function openEntrypointInLspSession(
     items: Array<{ uri: string; items: Diagnostic[] }>;
   }>;
 
-  const documentDiagnosticReport = await documentDiagnosticsPromise;
   const definitionsPromise = Promise.all(probes.map((position) => Promise.resolve(
     server.fakeConnection.handlers.get("definition")!({ textDocument: { uri }, position })
   ) as Promise<Location | Location[] | null>));
@@ -363,19 +371,28 @@ export async function openEntrypointInLspSession(
   const documentHighlightsPromise = Promise.all(probes.map((position) => Promise.resolve(
     server.fakeConnection.handlers.get("documentHighlight")!({ textDocument: { uri }, position })
   ) as Promise<DocumentHighlight[]>));
-  const completionsPromise = Promise.all(completionProbes.map((position) => Promise.resolve(
-    server.fakeConnection.handlers.get("completion")!({ textDocument: { uri }, position })
-  ) as Promise<CompletionItem[]>));
+  const completionsPromise = Promise.all(completionProbes.map(async (position) => {
+    const startedAt = performance.now();
+    const items = await Promise.resolve(
+      server.fakeConnection.handlers.get("completion")!({ textDocument: { uri }, position })
+    ) as CompletionItem[];
+    return {
+      items,
+      durationMs: performance.now() - startedAt
+    };
+  }));
   // Keep the full VS Code-like open burst, but let independent requests overlap
   // so shared analysis/cache work can dedupe through the real server paths.
-  const codeActionsPromise = server.fakeConnection.handlers.get("codeAction")!({
-    textDocument: { uri },
-    range,
-    context: {
-      diagnostics: documentDiagnosticReport.items,
-      only: []
-    }
-  });
+  const codeActionsPromise = documentDiagnosticsPromise.then((documentDiagnosticReport) =>
+    server.fakeConnection.handlers.get("codeAction")!({
+      textDocument: { uri },
+      range,
+      context: {
+        diagnostics: documentDiagnosticReport.items,
+        only: []
+      }
+    })
+  );
 
   const [
     ,
@@ -386,10 +403,11 @@ export async function openEntrypointInLspSession(
     semanticTokens,
     semanticTokensRange,
     workspaceDiagnosticReport,
+    documentDiagnosticReport,
     definitions,
     hovers,
     documentHighlights,
-    completions
+    completionResults
   ] = await Promise.all([
     autoAwaitPromise,
     inlayHintsPromise,
@@ -399,6 +417,7 @@ export async function openEntrypointInLspSession(
     semanticTokensPromise,
     semanticTokensRangePromise,
     workspaceDiagnosticsPromise,
+    documentDiagnosticsPromise,
     definitionsPromise,
     hoversPromise,
     documentHighlightsPromise,
@@ -411,7 +430,8 @@ export async function openEntrypointInLspSession(
     definitions,
     hovers,
     documentHighlights,
-    completions,
+    completions: completionResults.map((result) => result.items),
+    completionDurationsMs: completionResults.map((result) => result.durationMs),
     semanticTokens,
     semanticTokensRange
   };

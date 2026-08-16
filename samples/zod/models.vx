@@ -1,0 +1,26 @@
+import { z } from "zod"
+import {
+  AuditedSchema,
+  CoordinatesSchema,
+  EventSchema,
+  PermissionsSchema,
+  PublicUserSchema,
+  RoleSchema,
+  SettingSchema,
+  StringNumberMapSchema,
+  StringSetSchema,
+  UserPatchSchema,
+  UserSchema
+} from "./schemas.vx"
+
+export type Role = z.infer<typeof RoleSchema>
+export type User = z.infer<typeof UserSchema>
+export type PublicUser = z.infer<typeof PublicUserSchema>
+export type UserPatch = z.infer<typeof UserPatchSchema>
+export type Coordinates = z.infer<typeof CoordinatesSchema>
+export type Setting = z.infer<typeof SettingSchema>
+export type UserEvent = z.infer<typeof EventSchema>
+export type Permissions = z.infer<typeof PermissionsSchema>
+export type StringNumberMap = z.infer<typeof StringNumberMapSchema>
+export type StringSet = z.infer<typeof StringSetSchema>
+export type Audited = z.infer<typeof AuditedSchema>

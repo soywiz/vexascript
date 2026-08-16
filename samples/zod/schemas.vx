@@ -1,0 +1,57 @@
+import { z } from "zod"
+
+export const RoleSchema = z.enum(["admin", "editor", "user"])
+
+export const ContactSchema = z.object({
+  email: z.email(),
+  phone: z.string().optional()
+})
+
+export const UserSchema = z.strictObject({
+  id: z.uuid(),
+  name: z.string().trim().min(2),
+  age: z.number().int().nonnegative(),
+  role: RoleSchema.default("user"),
+  contact: ContactSchema,
+  tags: z.array(z.string()).min(1),
+  metadata: z.record(z.string(), z.string()),
+  nickname: z.string().nullable(),
+  active: z.boolean().default(true)
+})
+
+export const PublicUserSchema = UserSchema.pick({
+  id: true,
+  name: true,
+  role: true
+})
+
+export const UserPatchSchema = UserSchema.partial().required({ id: true })
+
+export const CoordinatesSchema = z.tuple([
+  z.number(),
+  z.number()
+])
+
+export const SettingSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean()
+])
+
+export const EventSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("created"), userId: z.uuid() }),
+  z.object({ kind: z.literal("renamed"), userId: z.uuid(), name: z.string() })
+])
+
+export const PermissionsSchema = z.record(
+  z.enum(["read", "write"]),
+  z.boolean()
+)
+
+export const StringNumberMapSchema = z.map(z.string(), z.number())
+export const StringSetSchema = z.set(z.string()).min(1)
+
+export const AuditedSchema = z.intersection(
+  z.object({ value: z.string() }),
+  z.object({ updatedAt: z.iso.datetime() })
+)

@@ -1,0 +1,6 @@
+{
+  "entrypoint": "main.vx",
+  "compilerOptions": {
+    "types": []
+  }
+}

@@ -285,5 +285,15 @@ export function arrayTypeNameToArrayAlias(typeName: string): string | null {
 }
 
 export function boxedCompletionTypeName(typeName: string): string {
-  return boxedPrimitiveTypeName(nonNullishTypeName(typeName) ?? typeName);
+  const nonNullish = nonNullishTypeName(typeName) ?? typeName;
+  if (/^(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')$/u.test(nonNullish)) {
+    return "String";
+  }
+  if (/^-?(?:\d+|\d*\.\d+)$/u.test(nonNullish)) {
+    return "Number";
+  }
+  if (nonNullish === "true" || nonNullish === "false") {
+    return "Boolean";
+  }
+  return boxedPrimitiveTypeName(nonNullish);
 }

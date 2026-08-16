@@ -523,6 +523,37 @@ describe("tokenizer", () => {
         ]);
     })
 
+    it("distinguishes regular expressions starting with equals from division assignment", () => {
+        expect(simplifyTokens('value.replace(/=/g, ""); value /= divisor')).toStrictEqual([
+            { type: "identifier", value: "value" },
+            { type: "symbol", value: "." },
+            { type: "identifier", value: "replace" },
+            { type: "symbol", value: "(" },
+            { type: "regexp", value: "/=/g" },
+            { type: "symbol", value: "," },
+            { type: "string", value: "" },
+            { type: "symbol", value: ")" },
+            { type: "symbol", value: ";" },
+            { type: "identifier", value: "value" },
+            { type: "symbol", value: "/=" },
+            { type: "identifier", value: "divisor" }
+        ]);
+    })
+
+    it("keeps assignment-like operator text inside regular expression bodies", () => {
+        const regularExpressions = simplifyTokens(
+            '[/==/g, /\\*=/g, /\\+=/g, /\\/=/g, /&&=/g]'
+        ).filter((token) => token.type === "regexp");
+
+        expect(regularExpressions).toStrictEqual([
+            { type: "regexp", value: "/==/g" },
+            { type: "regexp", value: "/\\*=/g" },
+            { type: "regexp", value: "/\\+=/g" },
+            { type: "regexp", value: "/\\/=/g" },
+            { type: "regexp", value: "/&&=/g" }
+        ]);
+    })
+
     describe("embedded XML / JSX", () => {
         function jsxTokens(input: string) {
             return tokenize(input, { jsx: true })

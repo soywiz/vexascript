@@ -2465,6 +2465,37 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses TypeScript const and variance type parameter modifiers", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("declare function union<const T extends readonly SomeType[]>(value: T): Schema<T>;"),
+                { language: "typescript" }
+            )
+        ).toMatchObject({
+            kind: NodeKind.FunctionStatement,
+            name: { name: "union" },
+            typeParameters: [
+                {
+                    kind: NodeKind.TypeParameter,
+                    name: { name: "T" },
+                    constraint: { name: "readonly SomeType[]" }
+                }
+            ]
+        });
+        expect(
+            parseStatement(
+                tokenizeReader("interface Schema<out Output, in Input> {}"),
+                { language: "typescript" }
+            )
+        ).toMatchObject({
+            kind: NodeKind.InterfaceStatement,
+            typeParameters: [
+                { name: { name: "Output" } },
+                { name: { name: "Input" } }
+            ]
+        });
+    });
+
     it("parses 'declare function' as a function declaration in vexa mode", () => {
         expect(
             parseStatement(

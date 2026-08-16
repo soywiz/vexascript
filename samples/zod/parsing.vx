@@ -1,0 +1,24 @@
+import { z } from "zod"
+import { EventSchema, UserSchema } from "./schemas.vx"
+import type { User, UserEvent } from "./models.vx"
+
+export fun parseUser(input: unknown): User {
+  return UserSchema.parse(input)
+}
+
+export fun summarizeEvent(input: unknown): string {
+  const event: UserEvent = EventSchema.parse(input)
+  if (event.kind == "created") {
+    return `created:${event.userId}`
+  }
+  return `renamed:${event.name}`
+}
+
+export fun firstIssue(input: unknown): string {
+  const result = UserSchema.safeParse(input)
+  if (result.success) {
+    return "valid"
+  }
+  const issue: z.core.$ZodIssue = result.error.issues[0]
+  return `${issue.path.join(".")}:${issue.message}`
+}

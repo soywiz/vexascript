@@ -1,5 +1,5 @@
 import type { Analysis, AnalysisIssue } from "compiler/analysis/Analysis";
-import type { Program, Statement } from "compiler/ast/ast";
+import { ExportStatement, ImportStatement, type Program, type Statement } from "compiler/ast/ast";
 import type { ParseIssue } from "compiler/parser/parser";
 import type { TokenizeError } from "compiler/parser/tokenizer";
 import { compileSource } from "compiler/pipeline/compile";
@@ -113,6 +113,25 @@ export type ExternalDeclarationsResolver = (
   session: AnalysisSession
 ) => ResolvedExternals | Promise<ResolvedExternals>;
 
+function externalResolutionKey(source: string, session: AnalysisSession): string | null {
+  if (!session.ast) {
+    return null;
+  }
+  return session.ast.body
+    .filter((statement) =>
+      statement instanceof ImportStatement ||
+      (statement instanceof ExportStatement && statement.from !== undefined)
+    )
+    .map((statement) => {
+      const start = statement.firstToken?.range.start.offset;
+      const end = statement.lastToken?.range.end.offset;
+      return start !== undefined && end !== undefined
+        ? source.slice(start, end)
+        : "";
+    })
+    .join("\0");
+}
+
 function buildSessionFromResolved(
   docText: string,
   baseSession: AnalysisSession,
@@ -154,11 +173,44 @@ export class AnalysisSessionCache {
   // Pending stores version alongside the promise so getForDocumentAsync can
   // safely reuse an in-flight resolution only when it is for the same version.
   private readonly pending = new Map<string, { version: number; promise: Promise<AnalysisSession> }>();
+  private readonly resolvedExternals = new Map<string, { key: string; resolved: ResolvedExternals }>();
+  private readonly pendingExternals = new Map<string, { key: string; promise: Promise<ResolvedExternals> }>();
 
   constructor(
     private readonly resolveExternalDeclarations?: ExternalDeclarationsResolver,
     private readonly onSessionUpdated?: () => void
   ) {}
+
+  private resolveExternals(
+    document: TextDocument,
+    baseSession: AnalysisSession,
+    resolver: ExternalDeclarationsResolver
+  ): Promise<ResolvedExternals> {
+    const key = externalResolutionKey(document.getText(), baseSession);
+    if (key === null) {
+      return Promise.resolve(resolver(document, baseSession));
+    }
+    const cached = this.resolvedExternals.get(document.uri);
+    if (cached?.key === key) {
+      return Promise.resolve(cached.resolved);
+    }
+    const pending = this.pendingExternals.get(document.uri);
+    if (pending?.key === key) {
+      return pending.promise;
+    }
+
+    let promise: Promise<ResolvedExternals>;
+    promise = Promise.resolve(resolver(document, baseSession)).then((resolved) => {
+      this.resolvedExternals.set(document.uri, { key, resolved });
+      return resolved;
+    }).finally(() => {
+      if (this.pendingExternals.get(document.uri)?.promise === promise) {
+        this.pendingExternals.delete(document.uri);
+      }
+    });
+    this.pendingExternals.set(document.uri, { key, promise });
+    return promise;
+  }
 
   private startAsyncResolution(
     document: TextDocument,
@@ -175,7 +227,7 @@ export class AnalysisSessionCache {
     let pendingPromise: Promise<AnalysisSession> | undefined;
     pendingPromise = (async () => {
       try {
-        const resolved = await resolveExternalDeclarations(document, baseSession);
+        const resolved = await this.resolveExternals(document, baseSession, resolveExternalDeclarations);
         const session = buildSessionFromResolved(docText, baseSession, resolved);
         const still = this.cache.get(docUri);
         if (!still || still.version <= docVersion) {
@@ -242,10 +294,14 @@ export class AnalysisSessionCache {
   delete(uri: string): void {
     this.cache.delete(uri);
     this.pending.delete(uri);
+    this.resolvedExternals.delete(uri);
+    this.pendingExternals.delete(uri);
   }
 
   clear(): void {
     this.cache.clear();
     this.pending.clear();
+    this.resolvedExternals.clear();
+    this.pendingExternals.clear();
   }
 }
