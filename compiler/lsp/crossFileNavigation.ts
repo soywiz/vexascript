@@ -59,7 +59,9 @@ import { resolveContextualObjectLiteralPropertyHover } from "./objectLiteralComp
 import {
   resolveImportPathDefinition,
   resolveImportPathHover,
-  resolveImportSpecifierDefinition
+  resolveImportBindingDefinition,
+  resolveImportSpecifierDefinition,
+  resolveExportedSymbolDefinition
 } from "./importPathNavigation";
 import { findAmbientNamespaceLocation } from "./crossFileContext";
 import {
@@ -75,13 +77,22 @@ import { findNodeModuleExportLocation, findNodeModuleMemberLocation, type NodeMo
 import { extname } from "compiler/utils/path";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 
-function resolveImportedSymbolDefinitionLocation(
+async function resolveImportedSymbolDefinitionLocation(
   context: ResolveContext,
   localName: string
-): Location | null {
+): Promise<Location | null> {
   const origin = context.session.importedSymbols?.get(localName)?.declarationOrigin;
   if (!origin) {
     return null;
+  }
+
+  const canonicalDefinition = await resolveExportedSymbolDefinition(
+    context,
+    origin.filePath,
+    origin.exportedName
+  );
+  if (canonicalDefinition) {
+    return canonicalDefinition;
   }
 
   const range = declarationRangeForName(origin.statement, origin.exportedName) ?? nodeRange(origin.statement);
@@ -136,10 +147,10 @@ function containsStructuralObjectType(type: AnalysisType): boolean {
   return false;
 }
 
-function resolveImportedBindingDefinitionFromSession(
+async function resolveImportedBindingDefinitionFromSession(
   context: ResolveContext,
   character: number
-): Location | null {
+): Promise<Location | null> {
   if (!context.session.analysis || !context.session.ast) {
     return null;
   }
@@ -156,6 +167,14 @@ function resolveImportedBindingDefinitionFromSession(
     return null;
   }
 
+  const currentFilePath = uriToFilePath(context.uri);
+  const binding = findImportBindingByLocalName(context.session.ast.body, importBinding.localName);
+  if (currentFilePath && binding) {
+    const canonicalDefinition = await resolveImportBindingDefinition(context, currentFilePath, binding);
+    if (canonicalDefinition) {
+      return canonicalDefinition;
+    }
+  }
   return resolveImportedSymbolDefinitionLocation(context, importBinding.localName);
 }
 
@@ -193,13 +212,22 @@ function visibleSymbolForTypeIdentifier(context: ResolveContext, identifier: Ide
     .find((candidate) => candidate.name === identifier.name) ?? null;
 }
 
-function resolveLocalTypeIdentifierDefinition(context: ResolveContext, identifier: Identifier): Location | null {
+async function resolveLocalTypeIdentifierDefinition(
+  context: ResolveContext,
+  identifier: Identifier
+): Promise<Location | null> {
   const symbol = visibleSymbolForTypeIdentifier(context, identifier);
   if (symbol && context.session.ast) {
     const importBinding = findImportForSymbolNode(context.session.ast, symbol.node);
-    const importedDefinition = importBinding
-      ? resolveImportedSymbolDefinitionLocation(context, importBinding.localName)
+    const binding = importBinding
+      ? findImportBindingByLocalName(context.session.ast.body, importBinding.localName)
       : null;
+    const currentFilePath = uriToFilePath(context.uri);
+    const importedDefinition = currentFilePath && binding
+      ? await resolveImportBindingDefinition(context, currentFilePath, binding)
+      : importBinding
+        ? await resolveImportedSymbolDefinitionLocation(context, importBinding.localName)
+        : null;
     if (importedDefinition) {
       return importedDefinition;
     }
@@ -357,7 +385,7 @@ async function resolveTypeIdentifierDefinition(context: ResolveContext): Promise
         range: nodeRange(typeDefinition.declaration.name) ?? nodeRange(typeIdentifier)!
       };
     }
-    const localDefinition = resolveLocalTypeIdentifierDefinition(context, typeIdentifier);
+    const localDefinition = await resolveLocalTypeIdentifierDefinition(context, typeIdentifier);
     if (localDefinition) {
       return localDefinition;
     }
@@ -764,7 +792,7 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
   }
 
   for (const character of candidateCharacters(context.character)) {
-    const importedBindingDefinition = resolveImportedBindingDefinitionFromSession(context, character);
+    const importedBindingDefinition = await resolveImportedBindingDefinitionFromSession(context, character);
     if (importedBindingDefinition) {
       return importedBindingDefinition;
     }

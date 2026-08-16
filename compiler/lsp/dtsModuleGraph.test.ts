@@ -1,5 +1,8 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "../test/expect";
-import { extractTripleSlashReferencePaths } from "./dtsModuleGraph";
+import { extractTripleSlashReferencePaths, resolveRelativeDtsPath } from "./dtsModuleGraph";
 
 describe("extractTripleSlashReferencePaths", () => {
   it("extracts double-quoted reference paths", () => {
@@ -21,5 +24,23 @@ describe("extractTripleSlashReferencePaths", () => {
 
   it("ignores ordinary comments and code", () => {
     expect(extractTripleSlashReferencePaths(`// just a comment\nconst x = 1;\n`)).toEqual([]);
+  });
+});
+
+describe("resolveRelativeDtsPath", () => {
+  it("preserves CommonJS and ESM declaration formats when resolving JavaScript specifiers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-dts-module-format-"));
+    const ctsPath = join(root, "external.d.cts");
+    const mtsPath = join(root, "external.d.mts");
+    const tsPath = join(root, "external.d.ts");
+    await Promise.all([
+      writeFile(ctsPath, "export declare const cts: true\n", "utf8"),
+      writeFile(mtsPath, "export declare const mts: true\n", "utf8"),
+      writeFile(tsPath, "export declare const ts: true\n", "utf8")
+    ]);
+
+    expect(await resolveRelativeDtsPath(join(root, "index.d.cts"), "./external.cjs")).toBe(ctsPath);
+    expect(await resolveRelativeDtsPath(join(root, "index.d.mts"), "./external.mjs")).toBe(mtsPath);
+    expect(await resolveRelativeDtsPath(join(root, "index.d.ts"), "./external.js")).toBe(tsPath);
   });
 });

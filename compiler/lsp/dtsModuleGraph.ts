@@ -85,18 +85,27 @@ export async function resolveRelativeDtsPath(
   const activeVfs = options.vfs ?? vfs();
   const basePath = resolve(dirname(importerFilePath), specifier);
   const baseExt = extname(basePath);
-  const declarationSiblingCandidates = [".js", ".mjs", ".cjs", ".jsx"].includes(baseExt)
-    ? [
-        `${basePath.slice(0, -baseExt.length)}.d.ts`,
-        `${basePath.slice(0, -baseExt.length)}.ts`
-      ]
-    : [];
+  const sourceBase = baseExt ? basePath.slice(0, -baseExt.length) : basePath;
+  const declarationSiblingCandidates = baseExt === ".cjs"
+    ? [`${sourceBase}.d.cts`, `${sourceBase}.cts`, `${sourceBase}.d.ts`, `${sourceBase}.ts`]
+    : baseExt === ".mjs"
+      ? [`${sourceBase}.d.mts`, `${sourceBase}.mts`, `${sourceBase}.d.ts`, `${sourceBase}.ts`]
+      : [".js", ".jsx"].includes(baseExt)
+        ? [`${sourceBase}.d.ts`, `${sourceBase}.ts`]
+        : [];
+  const importerDeclarationExtension = importerFilePath.endsWith(".d.cts")
+    ? ".d.cts"
+    : importerFilePath.endsWith(".d.mts")
+      ? ".d.mts"
+      : ".d.ts";
   const candidates = [
     ...declarationSiblingCandidates,
     basePath,
-    extname(basePath) === "" ? `${basePath}.d.ts` : "",
+    extname(basePath) === "" ? `${basePath}${importerDeclarationExtension}` : "",
+    extname(basePath) === "" && importerDeclarationExtension !== ".d.ts" ? `${basePath}.d.ts` : "",
     extname(basePath) === "" ? `${basePath}.ts` : "",
-    resolve(basePath, "index.d.ts"),
+    resolve(basePath, `index${importerDeclarationExtension}`),
+    importerDeclarationExtension !== ".d.ts" ? resolve(basePath, "index.d.ts") : "",
     resolve(basePath, "index.ts")
   ].filter(Boolean);
 

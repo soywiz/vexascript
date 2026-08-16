@@ -155,6 +155,48 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("navigates imported values in typeof aliases to their original declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-imported-typeof-definition-"));
+    const schemasPath = join(root, "schemas.vx");
+    const modelsPath = join(root, "models.vx");
+    const schemasSource = 'export const RoleSchema = "schema"\n';
+    const marked = sourceWithCursor(dedent`
+      import { RoleSchema } from "./schemas.vx"
+      export type Role = typeof RoleSch^^^ema
+    `);
+    await writeFile(schemasPath, schemasSource, "utf8");
+    await writeFile(modelsPath, marked.source, "utf8");
+
+    const schemasSession = createAnalysisSession(schemasSource);
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(modelsPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => filePath === schemasPath ? schemasSession : null
+    });
+    const session = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(modelsPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => {
+        if (filePath === schemasPath) return schemasSession;
+        if (filePath === modelsPath) return session;
+        return null;
+      }
+    });
+
+    expect(location?.uri).toBe(pathToFileURL(schemasPath).toString());
+    expect(location?.range.start.line).toBe(0);
+  });
+
   it("returns no fallback definition when a session has no analysis", async () => {
     const source = "const value = 1\n";
     const session = { ...createAnalysisSession(source), analysis: null };
@@ -1055,6 +1097,7 @@ describe("cross-file navigation", () => {
       type ImportedSchema = typeof defaultSchema
     `;
     const inferMarked = sourceWithCursor(source.replace("z.infer", "z.in^^^fer"));
+    const namespaceMarked = sourceWithCursor(source.replace("import { z,", "import { z^^^,"));
     const schemaMarked = sourceWithCursor(source.replace("typeof UserSchema", "typeof Us^^^erSchema"));
     const importedSchemaMarked = sourceWithCursor(source.replace("typeof defaultSchema", "typeof defaultSc^^^hema"));
     const packageSource = dedent`
@@ -1136,6 +1179,11 @@ describe("cross-file navigation", () => {
       line: inferMarked.line,
       character: inferMarked.character
     });
+    const namespaceLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: namespaceMarked.line,
+      character: namespaceMarked.character
+    });
     const inferHover = await resolveHoverWithLocalFallback({
       ...context,
       line: inferMarked.line,
@@ -1168,6 +1216,7 @@ describe("cross-file navigation", () => {
       kind: "markdown",
       value: "```typescript\ntype z.infer\n```"
     });
+    expect(namespaceLocation?.uri).toBe(pathToFileURL(join(libDir, "external.d.ts")).toString());
     expect(schemaLocation?.uri).toBe(pathToFileURL(mainPath).toString());
     expect(schemaLocation?.range.start.line).toBe(schemaLine);
     expect(schemaHover?.contents).toEqual({

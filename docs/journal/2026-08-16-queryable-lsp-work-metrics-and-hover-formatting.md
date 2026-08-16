@@ -69,3 +69,26 @@ does not provide a finite property catalog for excess-property checking. Empty
 interfaces and object shapes still report misspelled properties. Replacing
 broad sample inputs with real library types made this compiler failure
 observable instead of bypassing it.
+
+## Canonical definition navigation
+
+Correct type inference did not imply correct navigation. `RoleSchema` inside a
+`typeof` query resolved to the local import specifier, while Zod's `z` binding
+stopped at `export { z }` in the package entry point. Both failures came from
+definition branches returning the first declaration-shaped node instead of
+following the same import binding to its canonical source.
+
+Import-specifier, imported-value, and type-query navigation now share one
+recursive import/export resolver. It follows named and default re-exports,
+local export lists, namespace imports, and export-star barrels, with cycle
+protection. Explicit exports are checked before export-star fallbacks; the
+first implementation used source order and the queryable work metrics exposed
+an unnecessary traversal of Zod's declaration graph before reaching its
+explicit `z` export.
+
+The node_modules path also exposed a declaration-format bug. A `.d.cts` file
+importing `./external.cjs` was resolved to `external.d.ts` even when
+`external.d.cts` existed. The shared declaration graph now preserves CommonJS
+and ESM declaration formats (`.cjs` to `.d.cts`, `.mjs` to `.d.mts`) before
+falling back to ordinary `.d.ts` files. Regression coverage includes the real
+Zod package chain, not only a synthetic local barrel.

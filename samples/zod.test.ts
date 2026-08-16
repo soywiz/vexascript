@@ -45,8 +45,17 @@ describe("zod sample editor features", () => {
     const schemaProbes = aliasExpectations.map(([, , schemaName]) =>
       positionAfter(source, `typeof ${schemaName}Schema`)
     );
+    const roleSchemaUsageProbe = positionAfter(source, "typeof RoleSchema");
+    const zImportProbe = positionAfter(source, "import { z", -1);
     const completionProbe = positionAfter(source, "role.");
-    const hoverProbes = [schemaProbe, roleProbe, ...aliasProbes, ...schemaProbes];
+    const hoverProbes = [
+      schemaProbe,
+      roleProbe,
+      ...aliasProbes,
+      ...schemaProbes,
+      roleSchemaUsageProbe,
+      zImportProbe
+    ];
     const result = await openEntrypointInLspSession(
       sourcePath,
       process.cwd(),
@@ -76,6 +85,25 @@ describe("zod sample editor features", () => {
     expect(userTypeHover?.value).toContain("  contact: {\n");
     expect(userTypeHover?.value).toContain("    phone?: string;\n");
     expect(userTypeHover?.value).not.toContain("    phone: string | undefined;\n");
+    const roleSchemaDefinition = result.definitions.at(-2);
+    expect(Array.isArray(roleSchemaDefinition)).toBe(false);
+    if (!roleSchemaDefinition || Array.isArray(roleSchemaDefinition)) {
+      throw new Error("Expected a single RoleSchema definition");
+    }
+    const schemasPath = resolve(process.cwd(), "samples/zod/schemas.vx");
+    const schemasSource = await vfs().readFile(schemasPath);
+    expect(roleSchemaDefinition.uri.endsWith("/samples/zod/schemas.vx")).toBe(true);
+    expect(roleSchemaDefinition.range.start.line).toBe(
+      schemasSource.split("\n").findIndex((line) => line.includes("export const RoleSchema"))
+    );
+    const zDefinition = result.definitions.at(-1);
+    expect(Array.isArray(zDefinition)).toBe(false);
+    if (!zDefinition || Array.isArray(zDefinition)) {
+      throw new Error("Expected a single z definition");
+    }
+    if (!zDefinition.uri.endsWith("/zod/v4/classic/external.d.cts")) {
+      throw new Error(`Expected z to resolve to its base declaration module, got ${zDefinition.uri}`);
+    }
     const aliasHoverTexts = aliasExpectations.map((_, index) =>
       JSON.stringify(result.hovers[index + 2]?.contents ?? "")
     );
