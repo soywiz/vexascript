@@ -197,6 +197,64 @@ describe("cross-file navigation", () => {
     expect(location?.range.start.line).toBe(0);
   });
 
+  it("navigates inherited package members through a transitive local re-export", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-transitive-package-member-definition-"));
+    const packageDir = join(root, "node_modules", "schema-lib");
+    const typingsPath = join(packageDir, "index.d.ts");
+    const schemasPath = join(root, "schemas.vx");
+    const mainPath = join(root, "main.vx");
+    const typingsSource = dedent`
+      export interface Schema {
+        parse(value: string): string;
+      }
+      export type PublicSchema = Schema;
+      export declare const PublicUserSchema: PublicSchema;
+    `;
+    const schemasSource = dedent`
+      import { PublicUserSchema } from "schema-lib"
+      export { PublicUserSchema }
+    `;
+    const marked = sourceWithCursor(dedent`
+      import { PublicUserSchema } from "./schemas.vx"
+      PublicUserSchema.pa^^^rse("value")
+    `);
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ types: "index.d.ts" }), "utf8");
+    await writeFile(typingsPath, typingsSource, "utf8");
+    await writeFile(schemasPath, schemasSource, "utf8");
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const schemasSession = createAnalysisSession(schemasSource);
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => filePath === schemasPath ? schemasSession : null
+    });
+    const session = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      externalDeclarationLocations: collected.externalDeclarationLocations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => {
+        if (filePath === schemasPath) return schemasSession;
+        if (filePath === mainPath) return session;
+        return null;
+      }
+    });
+
+    expect(location?.uri).toBe(pathToFileURL(typingsPath).toString());
+    expect(location?.range.start.line).toBe(1);
+    expect(location?.range.start.character).toBe(2);
+  });
+
   it("returns no fallback definition when a session has no analysis", async () => {
     const source = "const value = 1\n";
     const session = { ...createAnalysisSession(source), analysis: null };
@@ -1095,11 +1153,17 @@ describe("cross-file navigation", () => {
 
       type User = z.infer<typeof UserSchema>
       type ImportedSchema = typeof defaultSchema
+
+      fun issueMessage(issue: z.core.Issue): string {
+        return issue.message
+      }
     `;
     const inferMarked = sourceWithCursor(source.replace("z.infer", "z.in^^^fer"));
     const namespaceMarked = sourceWithCursor(source.replace("import { z,", "import { z^^^,"));
     const schemaMarked = sourceWithCursor(source.replace("typeof UserSchema", "typeof Us^^^erSchema"));
     const importedSchemaMarked = sourceWithCursor(source.replace("typeof defaultSchema", "typeof defaultSc^^^hema"));
+    const issueTypeMarked = sourceWithCursor(source.replace("z.core.Issue", "z.core.Is^^^sue"));
+    const issueMessageMarked = sourceWithCursor(source.replace("issue.message", "issue.mes^^^sage"));
     const packageSource = dedent`
       import * as z from "./external";
       export * from "./external";
@@ -1107,6 +1171,8 @@ describe("cross-file navigation", () => {
       export default z;
     `;
     const externalSource = dedent`
+      export * as core from "./errors";
+
       export interface ZType<Output> {
         parse(value: unknown): Output;
         _output: Output;
@@ -1132,6 +1198,18 @@ describe("cross-file navigation", () => {
 
       export { stringType as string, numberType as number, objectType as object };
     `;
+    const errorsSource = dedent`
+      export interface IssueBase {
+        readonly message: string;
+      }
+      export interface IssueA extends IssueBase {
+        readonly code: "a";
+      }
+      export interface IssueB extends IssueBase {
+        readonly code: "b";
+      }
+      export type Issue = IssueA | IssueB;
+    `;
 
     await mkdir(libDir, { recursive: true });
     await writeFile(
@@ -1149,6 +1227,7 @@ describe("cross-file navigation", () => {
     );
     await writeFile(join(libDir, "index.d.ts"), packageSource, "utf8");
     await writeFile(join(libDir, "external.d.ts"), externalSource, "utf8");
+    await writeFile(join(libDir, "errors.d.ts"), errorsSource, "utf8");
     await writeFile(mainPath, source, "utf8");
 
     const baseSession = createAnalysisSession(source);
@@ -1209,6 +1288,21 @@ describe("cross-file navigation", () => {
       line: importedSchemaMarked.line,
       character: importedSchemaMarked.character
     });
+    const issueTypeLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: issueTypeMarked.line,
+      character: issueTypeMarked.character
+    });
+    const issueTypeHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: issueTypeMarked.line,
+      character: issueTypeMarked.character
+    });
+    const issueMessageLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: issueMessageMarked.line,
+      character: issueMessageMarked.character
+    });
 
     expect(inferLocation?.uri).toBe(pathToFileURL(join(libDir, "external.d.ts")).toString());
     expect(inferLocation?.range.start.line).toBe(inferLine);
@@ -1216,7 +1310,9 @@ describe("cross-file navigation", () => {
       kind: "markdown",
       value: "```typescript\ntype z.infer\n```"
     });
-    expect(namespaceLocation?.uri).toBe(pathToFileURL(join(libDir, "external.d.ts")).toString());
+    expect(namespaceLocation?.uri).toBe(pathToFileURL(join(libDir, "index.d.ts")).toString());
+    expect(namespaceLocation?.range.start.line).toBe(0);
+    expect(namespaceLocation?.range.start.character).toBe("import * as ".length);
     expect(schemaLocation?.uri).toBe(pathToFileURL(mainPath).toString());
     expect(schemaLocation?.range.start.line).toBe(schemaLine);
     expect(schemaHover?.contents).toEqual({
@@ -1229,6 +1325,14 @@ describe("cross-file navigation", () => {
       kind: "markdown",
       value: "```typescript\nvariable defaultSchema: ZObject<{\n  title: ZString;\n}>\n```"
     });
+    expect(issueTypeLocation?.uri).toBe(pathToFileURL(join(libDir, "errors.d.ts")).toString());
+    expect(issueTypeLocation?.range.start.line).toBe(9);
+    expect(issueTypeHover?.contents).toEqual({
+      kind: "markdown",
+      value: "```typescript\ntype z.core.Issue\n```"
+    });
+    expect(issueMessageLocation?.uri).toBe(pathToFileURL(join(libDir, "errors.d.ts")).toString());
+    expect(issueMessageLocation?.range.start.line).toBe(1);
   });
 
   it("navigates default imports used inside node_modules type queries", async () => {

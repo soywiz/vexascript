@@ -32,16 +32,21 @@ async function resolveTextModuleSourcePath(
   importMappings: Readonly<Record<string, string>>,
   baseUrl?: string
 ): Promise<string | null> {
-  const mapped = importMappings[sourceSpecifier];
   let candidate = "";
-  if (mapped) {
-    candidate = resolve(mapped);
-  } else if (sourceSpecifier.startsWith("/")) {
-    candidate = resolve(sourceSpecifier);
-  } else if (sourceSpecifier.startsWith(".")) {
-    candidate = resolve(dirname(importerFilePath), sourceSpecifier);
-  } else if (baseUrl) {
-    candidate = resolve(baseUrl, sourceSpecifier);
+  if (sourceSpecifier in importMappings) {
+    const mapped = importMappings[sourceSpecifier];
+    if (mapped) {
+      candidate = resolve(mapped);
+    }
+  }
+  if (candidate === "") {
+    if (sourceSpecifier.startsWith("/")) {
+      candidate = resolve(sourceSpecifier);
+    } else if (sourceSpecifier.startsWith(".")) {
+      candidate = resolve(dirname(importerFilePath), sourceSpecifier);
+    } else if (baseUrl) {
+      candidate = resolve(baseUrl, sourceSpecifier);
+    }
   }
   if (candidate === "") {
     return null;

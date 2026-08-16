@@ -1,4 +1,4 @@
-import { ArrayType, NamedType, BuiltinType, UnionType, IntersectionType } from "../analysis/types";
+import { ArrayType, NamedType } from "../analysis/types";
 import { ClassStatement, ImportStatement, InterfaceStatement, NodeKind, TypeAliasStatement } from "compiler/ast/ast";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString, type AnalysisType } from "compiler/analysis/types";
@@ -23,85 +23,13 @@ import {
   fallbackInterfaceMemberRangeInFile,
   fallbackTypeAliasMemberRangeInFile,
   parseObjectTypeMemberInfo,
+  receiverTypeNamesForMember,
   resolveAmbientTypeDefinitionOfKind,
   resolveTypeAliasDefinitionAcrossFiles,
   resolveTypeDefinitionAcrossFiles
 } from "./crossFileTypeResolution";
 import { pathToUri, uriToFilePath } from "./importFixes";
-import { findNodeModuleMemberLocation } from "./nodeModulesTypings";
-
-function pushReceiverTypeName(names: string[], seen: Set<string>, name: string) {
-  if (seen.has(name)) {
-    return;
-  }
-  seen.add(name);
-  names.push(name);
-}
-
-function receiverTypeNamesForObjectType(objectType: AnalysisType): string[] {
-  const names: string[] = [];
-  const seen = new Set<string>();
-  const visit = (type: AnalysisType) => {
-    if (type instanceof ArrayType) {
-      pushReceiverTypeName(names, seen, "Array");
-      return;
-    }
-    if ((type instanceof NamedType || type instanceof BuiltinType) && type.name === "int") {
-      pushReceiverTypeName(names, seen, "int");
-      pushReceiverTypeName(names, seen, "number");
-      return;
-    }
-    if (type instanceof NamedType || type instanceof BuiltinType) {
-      pushReceiverTypeName(names, seen, type.name);
-      return;
-    }
-    if (type instanceof UnionType || type instanceof IntersectionType) {
-      for (const memberType of type.types) {
-        visit(memberType);
-      }
-    }
-  };
-
-  visit(objectType);
-  return names;
-}
-
-async function resolveImportedNodeModuleMemberDefinition(
-  context: ResolveContext,
-  typeName: string,
-  memberName: string
-): Promise<Location | null> {
-  const currentFilePath = uriToFilePath(context.uri);
-  if (!currentFilePath || !context.session.ast) {
-    return null;
-  }
-
-  for (const statement of context.session.ast.body) {
-    if (!(statement instanceof ImportStatement)) {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    const from = importStatement.from.value;
-    if (from.startsWith(".") || from.startsWith("/")) {
-      continue;
-    }
-    const location = await findNodeModuleMemberLocation(
-      currentFilePath,
-      from,
-      typeName,
-      memberName,
-      context.vfs ? { vfs: context.vfs } : {}
-    );
-    if (location) {
-      return {
-        uri: pathToUri(location.typingsPath),
-        range: location.range
-      };
-    }
-  }
-
-  return null;
-}
+import { resolveNodeModulesMemberDefinition } from "./crossFileMemberDefinitionSources";
 
 async function resolveDeclaredMemberDefinitionForReceiverType(
   context: ResolveContext,
@@ -120,7 +48,7 @@ async function resolveDeclaredMemberDefinitionForReceiverType(
   );
   if (primaryResolution) {
     if (primaryResolution.filePath.includes("/node_modules/")) {
-      const nodeModuleLocation = await resolveImportedNodeModuleMemberDefinition(
+      const nodeModuleLocation = await resolveNodeModulesMemberDefinition(
         context,
         receiverTypeName,
         memberName
@@ -281,7 +209,7 @@ export async function resolveDeclaredMemberDefinitionAcrossFiles(
   _preferredAmbientReceiverFilePath?: string | null
 ): Promise<Location | null> {
   const structuralMember = parseObjectTypeMemberInfo(typeToString(objectType), memberName);
-  const receiverTypeNames = receiverTypeNamesForObjectType(objectType);
+  const receiverTypeNames = receiverTypeNamesForMember(objectType, memberName);
   const objectTypeName = objectType instanceof ArrayType
     ? `Array<${typeToString(objectType.elementType)}>`
     : typeToString(objectType);

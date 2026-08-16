@@ -86,9 +86,60 @@ first implementation used source order and the queryable work metrics exposed
 an unnecessary traversal of Zod's declaration graph before reaching its
 explicit `z` export.
 
+The first namespace implementation also treated the start of the imported
+module as the final definition. That made `z` open `external.d.cts:1`, even
+though that file contains exports but no declaration named `z`. A namespace
+binding is declared by the identifier in `import * as z`, and a namespace
+re-export is declared by the identifier in `export * as name`. Navigation now
+returns those exact identifier ranges. Module-start locations are suitable for
+module-path navigation, not symbol navigation; conflating the two produces a
+plausible-looking file with a semantically false range.
+
 The node_modules path also exposed a declaration-format bug. A `.d.cts` file
 importing `./external.cjs` was resolved to `external.d.ts` even when
 `external.d.cts` existed. The shared declaration graph now preserves CommonJS
 and ESM declaration formats (`.cjs` to `.d.cts`, `.mjs` to `.d.mts`) before
 falling back to ordinary `.d.ts` files. Regression coverage includes the real
 Zod package chain, not only a synthetic local barrel.
+
+Member navigation had a related provenance gap. `PublicUserSchema.parse` had a
+correct inherited Zod signature in hover, but definition lookup searched only
+packages imported directly by `main.vx`. Because Zod entered through the local
+`schemas.vx` barrel, that search found nothing and local fallback returned an
+unrelated range in `main.vx`.
+
+The durable source of truth is the resolved receiver type plus the external
+declarations already loaded for that session. Member lookup now follows the
+receiver's nominal alias/inheritance chain through those declarations and uses
+their recorded file origins. For structural mapped types it also retains the
+per-property declaration owner rather than searching packages by member name.
+The exact Zod regression asserts that `parse` navigates to the member declared
+by `ZodType` in `v4/classic/schemas.d.cts`, including its line and column.
+
+## Namespace re-export provenance
+
+Nested imported types exposed one more distinction between correct semantic
+shape and correct source provenance. `z.core.$ZodIssue` crosses a named import,
+a namespace binding, an `export * as core` boundary, and another export-star
+barrel. Qualified-type navigation previously split at the last dot and looked
+for an imported receiver named `z.core`; only `z` is an import binding, so the
+lookup never started. Qualified package types now resolve from the imported
+root and pass the remaining member path through the same node_modules type
+path used by import types.
+
+The first successful member lookup still returned coordinates from
+`errors.d.cts` paired with the path of `core/index.d.cts`. Namespace re-exports
+are represented by a synthetic namespace AST so the type checker can consume
+them, but the synthetic wrapper had collapsed every nested declaration onto
+the wrapper's file. This produced especially misleading definition results:
+the correct line number in a file that did not contain that line or symbol.
+
+Node-module declaration entries now retain the original entry tree underneath
+synthetic namespaces. Both direct package navigation and the external
+declarations installed into an analysis session consume that same provenance
+tree. Regression coverage verifies the type alias itself and an inherited
+member of a union alias: `$ZodIssue` and `message` both land in
+`v4/core/errors.d.cts`, while hover remains a syntax-highlighted TypeScript
+code block. A package-level unit test covers the namespace/barrel mechanics
+without the cost of loading Zod, and the real multi-file Zod test covers the
+complete editor session.

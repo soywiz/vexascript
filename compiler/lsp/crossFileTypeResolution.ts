@@ -1,4 +1,12 @@
-import { NamedType, ArrayType } from "../analysis/types";
+import {
+  ArrayType,
+  BuiltinType,
+  IntersectionType,
+  NamedType,
+  ObjectType,
+  UnionType,
+  type AnalysisType
+} from "../analysis/types";
 import { ClassFieldMember, ClassStatement, Identifier, ImportStatement, InterfacePropertyMember, InterfaceStatement, isNodeKind, MemberExpression, memberExpressionFromPropertyReference, nodeStartOffset, PropertyReferenceExpression, TypeAliasStatement } from "compiler/ast/ast";
 import type { FunctionParameter, NodeKind, Program, Statement } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
@@ -52,6 +60,49 @@ export interface ClassMemberInfo {
   };
   typeLabel: string;
   sourceKind: "primary-constructor" | "field" | "method";
+}
+
+/**
+ * Returns the declaration type names that can own a member on a resolved
+ * receiver. Structural mapped/utility types retain the exact owner per
+ * property, which lets navigation follow the member back to its declaration
+ * instead of guessing by member name across every loaded package.
+ */
+export function receiverTypeNamesForMember(
+  objectType: AnalysisType,
+  memberName: string
+): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const push = (name: string | undefined) => {
+    if (!name || seen.has(name)) return;
+    seen.add(name);
+    names.push(name);
+  };
+  const visit = (type: AnalysisType) => {
+    if (type instanceof ArrayType) {
+      push("Array");
+      return;
+    }
+    if ((type instanceof NamedType || type instanceof BuiltinType) && type.name === "int") {
+      push("int");
+      push("number");
+      return;
+    }
+    if (type instanceof NamedType || type instanceof BuiltinType) {
+      push(type.name);
+      return;
+    }
+    if (type instanceof ObjectType) {
+      push(type.propertyOwnerTypeNames?.get(memberName));
+      return;
+    }
+    if (type instanceof UnionType || type instanceof IntersectionType) {
+      for (const memberType of type.types) visit(memberType);
+    }
+  };
+  visit(objectType);
+  return names;
 }
 
 export type TypeLikeDeclaration = ClassStatement | InterfaceStatement;

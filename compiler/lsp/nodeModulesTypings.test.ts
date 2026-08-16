@@ -2515,6 +2515,49 @@ describe("node_modules typings resolution", () => {
     expect(memberLocation?.range.start.line).toBe(0);
   });
 
+  it("preserves declaration provenance through namespace reexports and inherited union members", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "issue-kit");
+    await mkdir(join(pkgDir, "core"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "issue-kit", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export * as core from "./core/index";\n', "utf8");
+    await writeFile(join(pkgDir, "core", "index.d.ts"), 'export * from "./errors";\n', "utf8");
+    await writeFile(
+      join(pkgDir, "core", "errors.d.ts"),
+      dedent`
+        export interface IssueBase {
+          readonly message: string;
+        }
+        export interface IssueA extends IssueBase {
+          readonly code: "a";
+        }
+        export interface IssueB extends IssueBase {
+          readonly code: "b";
+        }
+        export type Issue = IssueA | IssueB;
+      `,
+      "utf8"
+    );
+
+    const importerPath = join(root, "main.vx");
+    const issueLocation = await findNodeModuleMemberLocation(importerPath, "issue-kit", "core", "Issue");
+    const messageLocation = await findNodeModuleMemberLocation(
+      importerPath,
+      "issue-kit",
+      "core.Issue",
+      "message"
+    );
+
+    expect(issueLocation?.typingsPath).toContain("core/errors.d.ts");
+    expect(issueLocation?.range.start.line).toBe(9);
+    expect(messageLocation?.typingsPath).toContain("core/errors.d.ts");
+    expect(messageLocation?.range.start.line).toBe(1);
+  });
+
   it("collectAllImportedDeclarations exposes export-star namespace reexports as named imports", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "shape-kit");

@@ -3149,18 +3149,21 @@ export class TypeChecker {
         if (!propertyName || propertyName.includes(".")) {
           continue;
         }
-        const memberPropertyTypes = expandedType.types.map((member) => ({
-          member,
-          propertyType: this.objectLikePropertyEntries(member)?.get(propertyName)
-        }));
-        if (memberPropertyTypes.some(({ propertyType }) =>
-          !propertyType || !this.isLiteralDiscriminantType(propertyType)
-        )) {
+        const matchingMembers: AnalysisType[] = [];
+        let hasInvalidDiscriminant = false;
+        for (const member of expandedType.types) {
+          const propertyType = this.objectLikePropertyEntries(member)?.get(propertyName);
+          if (!propertyType || !this.isLiteralDiscriminantType(propertyType)) {
+            hasInvalidDiscriminant = true;
+            break;
+          }
+          if (this.isTypeAssignable(narrowedType, propertyType)) {
+            matchingMembers.push(member);
+          }
+        }
+        if (hasInvalidDiscriminant) {
           continue;
         }
-        const matchingMembers = memberPropertyTypes
-          .filter(({ propertyType }) => this.isTypeAssignable(narrowedType, propertyType!))
-          .map(({ member }) => member);
         if (matchingMembers.length > 0) {
           return matchingMembers.length === 1 ? matchingMembers[0]! : unionType(matchingMembers);
         }
@@ -10283,10 +10286,17 @@ export class TypeChecker {
       ? this.memberTypeFromObjectType(schemaDefinitionType, "items")
       : null;
     if (tupleItemsType instanceof TupleType) {
-      const itemOutputTypes = tupleItemsType.elements.map((itemType) =>
-        this.syntheticSchemaIndexedType(itemType, memberName, visited)
-      );
-      if (itemOutputTypes.every((itemType): itemType is AnalysisType => itemType !== null)) {
+      const itemOutputTypes: AnalysisType[] = [];
+      let hasUnresolvedItem = false;
+      for (const itemType of tupleItemsType.elements) {
+        const itemOutputType = this.syntheticSchemaIndexedType(itemType, memberName, visited);
+        if (!itemOutputType) {
+          hasUnresolvedItem = true;
+          break;
+        }
+        itemOutputTypes.push(itemOutputType);
+      }
+      if (!hasUnresolvedItem) {
         visited.delete(visitKey);
         return tupleType(itemOutputTypes, tupleItemsType.isReadonly === true);
       }
@@ -10299,10 +10309,17 @@ export class TypeChecker {
         ? [optionsType.elementType]
         : [];
     if (optionSchemaTypes.length > 0) {
-      const optionOutputTypes = optionSchemaTypes.map((optionType) =>
-        this.syntheticSchemaIndexedType(optionType, memberName, visited)
-      );
-      if (optionOutputTypes.every((optionType): optionType is AnalysisType => optionType !== null)) {
+      const optionOutputTypes: AnalysisType[] = [];
+      let hasUnresolvedOption = false;
+      for (const optionType of optionSchemaTypes) {
+        const optionOutputType = this.syntheticSchemaIndexedType(optionType, memberName, visited);
+        if (!optionOutputType) {
+          hasUnresolvedOption = true;
+          break;
+        }
+        optionOutputTypes.push(optionOutputType);
+      }
+      if (!hasUnresolvedOption) {
         visited.delete(visitKey);
         return unionType(optionOutputTypes);
       }
@@ -10831,10 +10848,20 @@ export class TypeChecker {
     const trimmedTarget = stripEnclosingTypeParens(typeAlias.targetType.name.trim());
     const intersectionParts = splitTopLevelTypeText(trimmedTarget, "&");
     if (intersectionParts.length > 1) {
-      const resolvedParts = intersectionParts.map((part) =>
-        this.resolveMappedUtilityTypeText(stripEnclosingTypeParens(part.trim()), substitutions)
-      );
-      if (resolvedParts.every((part): part is AnalysisType => part !== null)) {
+      const resolvedParts: AnalysisType[] = [];
+      let hasUnresolvedPart = false;
+      for (const part of intersectionParts) {
+        const resolvedPart = this.resolveMappedUtilityTypeText(
+          stripEnclosingTypeParens(part.trim()),
+          substitutions
+        );
+        if (!resolvedPart) {
+          hasUnresolvedPart = true;
+          break;
+        }
+        resolvedParts.push(resolvedPart);
+      }
+      if (!hasUnresolvedPart) {
         return this.intersectionWithNonNullishObjectIdentity(resolvedParts);
       }
     }

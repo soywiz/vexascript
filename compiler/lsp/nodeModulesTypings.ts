@@ -32,9 +32,50 @@ export interface NodeModuleTypings {
   defaultExportName: string | null;
 }
 
-interface NodeModuleDeclarationEntry {
+export interface NodeModuleDeclarationEntry {
   statement: Statement;
   typingsPath: string;
+  namespaceEntries?: readonly NodeModuleDeclarationEntry[];
+}
+
+export function nestedNodeModuleDeclarationEntries(
+  entry: NodeModuleDeclarationEntry,
+  namespace: NamespaceStatement
+): readonly NodeModuleDeclarationEntry[] {
+  return entry.namespaceEntries
+    ?? namespace.body.body.map((statement) => ({ statement, typingsPath: entry.typingsPath }));
+}
+
+export function findExternalDeclarationMemberLocation(
+  declarations: readonly Statement[],
+  declarationLocations: ReadonlyMap<Statement, { filePath: string }>,
+  typeName: string,
+  memberName: string
+): NodeModuleMemberLocation | null {
+  const entryForStatement = (statement: Statement): NodeModuleDeclarationEntry | null => {
+    const declaration = statement instanceof ExportStatement
+      ? statement.declaration ?? statement
+      : statement;
+    const location = declarationLocations.get(statement)
+      ?? declarationLocations.get(declaration);
+    if (!location) {
+      return null;
+    }
+    const namespaceEntries = declaration instanceof NamespaceStatement
+      ? declaration.body.body
+        .map(entryForStatement)
+        .filter((entry): entry is NodeModuleDeclarationEntry => entry !== null)
+      : undefined;
+    return {
+      statement,
+      typingsPath: location.filePath,
+      ...(namespaceEntries && namespaceEntries.length > 0 ? { namespaceEntries } : {})
+    };
+  };
+  const entries = declarations
+    .map(entryForStatement)
+    .filter((entry): entry is NodeModuleDeclarationEntry => entry !== null);
+  return findMemberLocationInDeclarationEntries(entries, typeName, memberName);
 }
 
 interface CacheEntry {
@@ -92,8 +133,8 @@ function asExportedTypingsEntry(entry: NodeModuleDeclarationEntry): NodeModuleDe
   return entry.statement instanceof ExportStatement
     ? entry
     : {
+        ...entry,
         statement: new ExportStatement(entry.statement),
-        typingsPath: entry.typingsPath
       };
 }
 
@@ -113,8 +154,8 @@ function asAliasedExportedTypingsEntry(
   }
   const specifier: ExportSpecifier = new ExportSpecifier(new Identifier(exportedName), new Identifier(localName));
   return {
+    ...entry,
     statement: new ExportStatement(reexportedDeclaration(entry), undefined, [specifier]),
-    typingsPath: entry.typingsPath
   };
 }
 
@@ -127,10 +168,18 @@ function asNamespaceReexportedTypingsEntry(
     return null;
   }
   const namespaceName: Identifier = new Identifier(namespaceExport.name);
-  const namespaceDeclaration: NamespaceStatement = new NamespaceStatement("namespace", new BlockStatement(entries.map((entry) => asExportedTypingsEntry(entry).statement)), undefined, undefined, [namespaceName]);
+  const namespaceEntries = entries.map(asExportedTypingsEntry);
+  const namespaceDeclaration: NamespaceStatement = new NamespaceStatement(
+    "namespace",
+    new BlockStatement(namespaceEntries.map((entry) => entry.statement)),
+    undefined,
+    undefined,
+    [namespaceName]
+  );
   return {
     statement: new ExportStatement(namespaceDeclaration),
-    typingsPath: firstEntry.typingsPath
+    typingsPath: firstEntry.typingsPath,
+    namespaceEntries
   };
 }
 
@@ -587,7 +636,7 @@ function findQualifiedMemberLocationInDeclarationEntries(
       if (candidate instanceof NamespaceStatement) {
         const namespace = candidate as NamespaceStatement;
         const name = namespace.names?.[0]?.name;
-        const childEntries = namespace.body.body.map((statement) => ({ statement, typingsPath: entry.typingsPath }));
+        const childEntries = nestedNodeModuleDeclarationEntries(entry, namespace);
 
         if (!name) {
           const nested = search(childEntries, index);
@@ -719,14 +768,17 @@ function findMemberLocationInDeclarationEntries(
         const namespace = candidate as NamespaceStatement;
         const name = namespace.names?.[0]?.name;
         if (name === candidateTypeName) {
-          const memberRange = findMemberInNamespaceBody(namespace.body.body, memberName);
-          if (memberRange) {
-            return { typingsPath: entry.typingsPath, range: memberRange };
+          const memberLocation = findDeclarationLocationInEntries(
+            nestedNodeModuleDeclarationEntries(entry, namespace),
+            memberName
+          );
+          if (memberLocation) {
+            return memberLocation;
           }
         }
         const nestedTypeName = name ? nestedTypeNameForNamespace(candidateTypeName, name) : candidateTypeName;
         const nested = findMemberLocationInDeclarationEntries(
-          namespace.body.body.map((statement) => ({ statement, typingsPath: entry.typingsPath })),
+          nestedNodeModuleDeclarationEntries(entry, namespace),
           nestedTypeName,
           memberName,
           visitedTypeNames
@@ -856,10 +908,7 @@ function findStructuralMemberLocationInDeclarationEntries(
       const nextVisitedNamespaces = new Set(visitedNamespaces);
       nextVisitedNamespaces.add(candidate);
       const nested = findStructuralMemberLocationInDeclarationEntries(
-        (candidate as NamespaceStatement).body.body.map((statement) => ({
-          statement,
-          typingsPath: entry.typingsPath
-        })),
+        nestedNodeModuleDeclarationEntries(entry, candidate as NamespaceStatement),
         memberName,
         declarationKinds,
         nextVisitedNamespaces
@@ -912,7 +961,7 @@ async function findStructuralTypeAliasMemberLocation(
       const nestedVisited = new Set(visitedNamespaces);
       nestedVisited.add(candidate);
       const nested = await findStructuralTypeAliasMemberLocation(
-        candidate.body.body.map((statement) => ({ statement, typingsPath: entry.typingsPath })),
+        nestedNodeModuleDeclarationEntries(entry, candidate),
         memberName,
         activeVfs,
         sourceCache,
@@ -1285,28 +1334,30 @@ function findMemberInNamespaceBody(
         ? (child as { declaration?: Statement }).declaration ?? child
         : child;
 
-    if (decl instanceof FunctionStatement) {
-      const fn = decl as FunctionStatement;
-      if (fn.name?.name === memberName) {
-        const range = nodeRange(fn.name);
-        if (range) return range;
-      }
-    } else if (decl instanceof InterfaceStatement) {
-      const iface = decl as InterfaceStatement;
-      if (iface.name.name === memberName) {
-        const range = nodeRange(iface.name);
-        if (range) return range;
-      }
-    } else if (decl instanceof NamespaceStatement) {
-      const ns = decl as NamespaceStatement;
-      const name = ns.names?.[0]?.name;
-      if (name === memberName) {
-        const nameNode = ns.names?.[0];
-        if (nameNode) {
-          const range = nodeRange(nameNode as Parameters<typeof nodeRange>[0]);
-          if (range) return range;
-        }
-      }
+    const nameNode = declarationNameNode(decl);
+    if (nameNode?.name === memberName) {
+      const range = nodeRange(nameNode);
+      if (range) return range;
+    }
+  }
+  return null;
+}
+
+function findDeclarationLocationInEntries(
+  entries: readonly NodeModuleDeclarationEntry[],
+  declarationName: string
+): NodeModuleMemberLocation | null {
+  for (const entry of entries) {
+    const declaration = entry.statement instanceof ExportStatement
+      ? entry.statement.declaration ?? entry.statement
+      : entry.statement;
+    const nameNode = declarationNameNode(declaration);
+    if (nameNode?.name !== declarationName) {
+      continue;
+    }
+    const range = nodeRange(nameNode);
+    if (range) {
+      return { typingsPath: entry.typingsPath, range };
     }
   }
   return null;

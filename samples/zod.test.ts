@@ -101,9 +101,11 @@ describe("zod sample editor features", () => {
     if (!zDefinition || Array.isArray(zDefinition)) {
       throw new Error("Expected a single z definition");
     }
-    if (!zDefinition.uri.endsWith("/zod/v4/classic/external.d.cts")) {
-      throw new Error(`Expected z to resolve to its base declaration module, got ${zDefinition.uri}`);
+    if (!zDefinition.uri.endsWith("/zod/index.d.cts")) {
+      throw new Error(`Expected z to resolve to its namespace declaration, got ${zDefinition.uri}`);
     }
+    expect(zDefinition.range.start.line).toBe(0);
+    expect(zDefinition.range.start.character).toBe("import * as ".length);
     const aliasHoverTexts = aliasExpectations.map((_, index) =>
       JSON.stringify(result.hovers[index + 2]?.contents ?? "")
     );
@@ -147,7 +149,9 @@ describe("zod sample editor features", () => {
         positionAfter(parsingSource, "EventSchema.parse", -2),
         positionAfter(parsingSource, '== "created"', -3),
         positionAfter(parsingSource, "event.kind", -2),
-        positionAfter(parsingSource, "event.name", -2)
+        positionAfter(parsingSource, "event.name", -2),
+        positionAfter(parsingSource, "z.core.$ZodIssue", -2),
+        positionAfter(parsingSource, "issue.message", -2)
       ],
       [],
       parsingSource,
@@ -181,5 +185,61 @@ describe("zod sample editor features", () => {
       kind: "markdown",
       value: "```typescript\nname: string\n```"
     });
+    const issueTypeHover = importedAliasResult.hovers[6]?.contents as { kind?: string; value?: string } | undefined;
+    expect(issueTypeHover?.kind).toBe("markdown");
+    expect(issueTypeHover?.value).toContain("```typescript\ntype z.core.$ZodIssue");
+    const issueMessageHover = importedAliasResult.hovers[7]?.contents as { kind?: string; value?: string } | undefined;
+    expect(issueMessageHover).toEqual({
+      kind: "markdown",
+      value: "```typescript\nmessage: string\n```"
+    });
+
+    const issueTypeDefinition = importedAliasResult.definitions[6];
+    if (!issueTypeDefinition || Array.isArray(issueTypeDefinition)) {
+      throw new Error("Expected a single z.core.$ZodIssue definition");
+    }
+    const issueMessageDefinition = importedAliasResult.definitions[7];
+    if (!issueMessageDefinition || Array.isArray(issueMessageDefinition)) {
+      throw new Error("Expected a single issue.message definition");
+    }
+    const zodErrorsPath = resolve(process.cwd(), "samples/zod/node_modules/zod/v4/core/errors.d.cts");
+    const zodErrorsLines = (await vfs().readFile(zodErrorsPath)).split("\n");
+    const issueTypeDeclarationLine = zodErrorsLines.findIndex((line) => line.startsWith("export type $ZodIssue ="));
+    const issueMessageDeclarationLine = zodErrorsLines.findIndex((line) => line.includes("readonly message: string"));
+    expect(issueTypeDefinition.uri.endsWith("/zod/v4/core/errors.d.cts")).toBe(true);
+    expect(issueTypeDefinition.range.start.line).toBe(issueTypeDeclarationLine);
+    expect(issueTypeDefinition.range.start.character).toBe(zodErrorsLines[issueTypeDeclarationLine]!.indexOf("$ZodIssue"));
+    expect(issueMessageDefinition.uri.endsWith("/zod/v4/core/errors.d.cts")).toBe(true);
+    expect(issueMessageDefinition.range.start.line).toBe(issueMessageDeclarationLine);
+    expect(issueMessageDefinition.range.start.character).toBe(zodErrorsLines[issueMessageDeclarationLine]!.indexOf("message"));
+
+    const mainSourcePath = resolve(process.cwd(), "samples/zod/main.vx");
+    const mainSource = await vfs().readFile(mainSourcePath);
+    const parseDefinitionResult = await openEntrypointInLspSession(
+      mainSourcePath,
+      process.cwd(),
+      [positionAfter(mainSource, "PublicUserSchema.parse", -2)],
+      [],
+      mainSource,
+      true
+    );
+    const parseDefinition = parseDefinitionResult.definitions[0];
+    if (!parseDefinition || Array.isArray(parseDefinition)) {
+      throw new Error("Expected a single PublicUserSchema.parse definition");
+    }
+    if (!parseDefinition.uri.endsWith("/zod/v4/classic/schemas.d.cts")) {
+      throw new Error(
+        `Expected the ZodType.parse declaration, got ${parseDefinition.uri}:${parseDefinition.range.start.line + 1}`
+      );
+    }
+    const zodSchemasPath = resolve(process.cwd(), "samples/zod/node_modules/zod/v4/classic/schemas.d.cts");
+    const zodSchemasSource = await vfs().readFile(zodSchemasPath);
+    const parseDeclarationLine = zodSchemasSource
+      .split("\n")
+      .findIndex((line) => line.includes("parse(data: unknown"));
+    expect(parseDefinition.range.start.line).toBe(parseDeclarationLine);
+    expect(parseDefinition.range.start.character).toBe(
+      zodSchemasSource.split("\n")[parseDeclarationLine]!.indexOf("parse")
+    );
   });
 });

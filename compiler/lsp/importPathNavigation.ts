@@ -18,11 +18,9 @@ import {
 import { topLevelDeclarationNames } from "./declarationResolver";
 import { parseDtsProgram, resolveRelativeDtsPath } from "./dtsModuleGraph";
 
-function moduleStartLocation(filePath: string): Location {
-  return {
-    uri: pathToUri(filePath),
-    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
-  };
+function identifierLocation(filePath: string, identifier: Identifier): Location | null {
+  const range = nodeRange(identifier);
+  return range ? { uri: pathToUri(filePath), range } : null;
 }
 
 async function resolveImportedFilePath(
@@ -121,8 +119,8 @@ async function resolveExportedSymbolDefinitionImpl(
     }
 
     if (statement.namespaceExport?.name === exportName && statement.from?.value) {
-      const targetFilePath = await resolveImportedFilePath(filePath, statement.from.value, context);
-      if (targetFilePath) return moduleStartLocation(targetFilePath);
+      const location = identifierLocation(filePath, statement.namespaceExport);
+      if (location) return location;
     }
 
     const matchingSpecifier = statement.specifiers?.find(
@@ -193,12 +191,12 @@ async function resolveImportBindingDefinitionImpl(
   binding: ImportBinding,
   visited: Set<string>
 ): Promise<Location | null> {
+  if (binding.kind === "namespace") {
+    return identifierLocation(importerFilePath, binding.localNode);
+  }
   const targetFilePath = await resolveImportedFilePath(importerFilePath, binding.from, context);
   if (!targetFilePath) {
     return null;
-  }
-  if (binding.kind === "namespace") {
-    return moduleStartLocation(targetFilePath);
   }
   return resolveExportedSymbolDefinitionImpl(
     context,

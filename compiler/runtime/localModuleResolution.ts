@@ -34,10 +34,11 @@ async function resolveLocalModulePath(
   const baseUrlTarget: string | undefined = baseUrl !== undefined && !importPath.startsWith(".")
     ? resolve(baseUrl, importPath)
     : undefined;
-  if (!importPath.startsWith(".") && !importMappings[importPath] && baseUrlTarget === undefined) {
+  const hasImportMapping = importPath in importMappings;
+  if (!importPath.startsWith(".") && !hasImportMapping && baseUrlTarget === undefined) {
     return null;
   }
-  const effectiveImportMappings = baseUrlTarget !== undefined && !importMappings[importPath]
+  const effectiveImportMappings = baseUrlTarget !== undefined && !hasImportMapping
     ? { ...importMappings, [importPath]: baseUrlTarget }
     : importMappings;
   const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, {

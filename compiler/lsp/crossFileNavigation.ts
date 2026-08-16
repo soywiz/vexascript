@@ -1,4 +1,4 @@
-import { ArrayType, NamedType, BuiltinType, ObjectType, UnionType, IntersectionType } from "../analysis/types";
+import { ObjectType, UnionType, IntersectionType } from "../analysis/types";
 import { ClassStatement, Identifier, MemberExpression, NodeKind } from "compiler/ast/ast";
 import type { TypeAliasStatement } from "compiler/ast/ast";
 export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
@@ -28,6 +28,7 @@ import {
 import {
   findMemberExpressionAtPosition,
   findTypeIdentifierAtPosition,
+  receiverTypeNamesForMember,
   resolveTypeDefinitionAcrossFiles
 } from "./crossFileTypeResolution";
 import { resolveDeclaredMemberDefinitionAcrossFiles } from "./crossFileDeclaredMemberDefinition";
@@ -178,17 +179,6 @@ async function resolveImportedBindingDefinitionFromSession(
   return resolveImportedSymbolDefinitionLocation(context, importBinding.localName);
 }
 
-function splitQualifiedTypeName(typeName: string): { receiverName: string; memberName: string } | null {
-  const dotIndex = typeName.lastIndexOf(".");
-  if (dotIndex <= 0 || dotIndex === typeName.length - 1) {
-    return null;
-  }
-  return {
-    receiverName: typeName.slice(0, dotIndex),
-    memberName: typeName.slice(dotIndex + 1)
-  };
-}
-
 function splitImportTypeMemberName(typeName: string): { packageName: string; memberPath: string[] } | null {
   const match = /^import\("([^"]+)"\)\.([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)$/.exec(typeName);
   const packageName = match?.[1];
@@ -328,17 +318,25 @@ async function resolveImportTypeMemberDefinition(
   if (!importType) {
     return null;
   }
-  const memberName = importType.memberPath.at(-1);
+  return resolveNodeModuleTypePath(context, importType.packageName, importType.memberPath);
+}
+
+async function resolveNodeModuleTypePath(
+  context: ResolveContext,
+  packageName: string,
+  memberPath: readonly string[]
+): Promise<Location | null> {
+  const memberName = memberPath.at(-1);
   if (!memberName) {
     return null;
   }
-  if (importType.memberPath.length === 1) {
-    return resolveNodeModuleExportDefinition(context, importType.packageName, memberName);
+  if (memberPath.length === 1) {
+    return resolveNodeModuleExportDefinition(context, packageName, memberName);
   }
   return resolveNodeModuleMemberDefinition(
     context,
-    importType.packageName,
-    importType.memberPath.slice(0, -1).join("."),
+    packageName,
+    memberPath.slice(0, -1).join("."),
     memberName
   );
 }
@@ -350,15 +348,16 @@ async function resolveQualifiedTypeMemberDefinition(
   if (!context.session.ast) {
     return null;
   }
-  const qualified = splitQualifiedTypeName(identifier.name);
-  if (!qualified) {
+  const memberPath = identifier.name.split(".").filter(Boolean);
+  const receiverName = memberPath.shift();
+  if (!receiverName || memberPath.length === 0) {
     return null;
   }
-  const receiverImport = findModuleReceiverImport(context.session.ast, qualified.receiverName);
+  const receiverImport = findModuleReceiverImport(context.session.ast, receiverName);
   if (!receiverImport || receiverImport.from.startsWith(".") || receiverImport.from.startsWith("/")) {
     return null;
   }
-  return resolveNodeModuleExportDefinition(context, receiverImport.from, qualified.memberName);
+  return resolveNodeModuleTypePath(context, receiverImport.from, memberPath);
 }
 
 async function resolveTypeIdentifierDefinition(context: ResolveContext): Promise<Location | null> {
@@ -435,41 +434,6 @@ async function resolveTypeIdentifierHover(context: ResolveContext): Promise<Hove
     }
   }
   return null;
-}
-
-function collectNodeModulesReceiverTypeNames(objectType: AnalysisType): string[] {
-  const names: string[] = [];
-  const seen = new Set<string>();
-  const push = (name: string) => {
-    if (seen.has(name)) {
-      return;
-    }
-    seen.add(name);
-    names.push(name);
-  };
-  const visit = (type: AnalysisType) => {
-    if (type instanceof ArrayType) {
-      push("Array");
-      return;
-    }
-    if ((type instanceof NamedType || type instanceof BuiltinType) && type.name === "int") {
-      push("int");
-      push("number");
-      return;
-    }
-    if (type instanceof NamedType || type instanceof BuiltinType) {
-      push(type.name);
-      return;
-    }
-    if (type instanceof UnionType || type instanceof IntersectionType) {
-      for (const memberType of type.types) {
-        visit(memberType);
-      }
-    }
-  };
-
-  visit(objectType);
-  return names;
 }
 
 interface JsonMemberAccess {
@@ -730,7 +694,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
   // Fallback: look for the member in node_modules .d.ts declarations. This
   // handles types whose namespace/interface is declared in a package's type
   // definitions rather than a local .vx file.
-  for (const receiverTypeName of collectNodeModulesReceiverTypeNames(objectType)) {
+  for (const receiverTypeName of receiverTypeNamesForMember(objectType, memberName)) {
     const nodeModulesDefinition = await resolveNodeModulesMemberDefinition(
       context,
       receiverTypeName,

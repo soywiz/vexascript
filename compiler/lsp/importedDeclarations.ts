@@ -60,6 +60,7 @@ import { combineTypes, removeNullishFromType, unwrapPromiseType } from "compiler
 import {
   getNodeModuleTypings,
   getNodeModuleTypingsForImportNames,
+  type NodeModuleDeclarationEntry,
   nodeModuleExportedNamesForStatement
 } from "./nodeModulesTypings";
 import {
@@ -3427,12 +3428,18 @@ export async function collectAllImportedDeclarations(
         const nodeModuleIndex = getNodeModuleDeclarationIndex(nodeModuleTypings.declarations);
         const nodeModulePathByStatement = new Map<Statement, string>();
         const declarationOriginByExportedName = new Map<string, ImportedSymbolDeclarationOrigin>();
-        for (const entry of nodeModuleTypings.declarationEntries) {
+        const recordNodeModuleDeclarationPath = (entry: NodeModuleDeclarationEntry): void => {
           nodeModulePathByStatement.set(entry.statement, entry.typingsPath);
           const unwrappedEntry = unwrapExportedDeclaration(entry.statement);
           if (unwrappedEntry) {
             nodeModulePathByStatement.set(unwrappedEntry, entry.typingsPath);
           }
+          for (const nestedEntry of entry.namespaceEntries ?? []) {
+            recordNodeModuleDeclarationPath(nestedEntry);
+          }
+        };
+        for (const entry of nodeModuleTypings.declarationEntries) {
+          recordNodeModuleDeclarationPath(entry);
           for (const exportedName of nodeModuleExportedNamesForStatement(entry.statement)) {
             if (declarationOriginByExportedName.has(exportedName)) {
               continue;
@@ -3517,6 +3524,25 @@ export async function collectAllImportedDeclarations(
         }
         for (const declaration of importedNodeModuleDeclarations) {
           addExternalDeclaration(declaration, importedNodeModuleDeclarationPaths.get(declaration));
+          const recordNestedDeclarationLocations = (statement: Statement): void => {
+            const rawStatement = unwrapExportedDeclaration(statement) ?? statement;
+            const filePath = nodeModulePathByStatement.get(statement) ?? nodeModulePathByStatement.get(rawStatement);
+            if (filePath) {
+              const location = {
+                filePath,
+                line: rawStatement.firstToken?.range.start.line ?? 0,
+                character: rawStatement.firstToken?.range.start.column ?? 0
+              };
+              externalDeclarationLocations.set(statement, location);
+              externalDeclarationLocations.set(rawStatement, location);
+            }
+            if (rawStatement instanceof NamespaceStatement) {
+              for (const child of rawStatement.body.body) {
+                recordNestedDeclarationLocations(child);
+              }
+            }
+          };
+          recordNestedDeclarationLocations(declaration);
         }
         if (nodeModuleTypings.defaultExportName) {
           const needsDefaultLikeImportType = importStatement.defaultImport || importStatement.namespaceImport;

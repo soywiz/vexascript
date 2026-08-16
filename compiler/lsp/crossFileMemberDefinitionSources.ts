@@ -12,6 +12,7 @@ import { effectiveSourceRoots, findModuleReceiverImport } from "./crossFileConte
 import { findTopLevelDeclarationInProgram, resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { pathToUri, uriToFilePath } from "./importFixes";
 import {
+  findExternalDeclarationMemberLocation,
   findNodeModuleExportLocation,
   findNodeModuleMemberLocation,
   findNodeModuleStructuralMemberLocation
@@ -26,6 +27,22 @@ export async function resolveNodeModulesMemberDefinition(
 ): Promise<Location | null> {
   const currentFilePath = uriToFilePath(context.uri);
   if (!currentFilePath || !context.session.ast) return null;
+
+  const loadedDeclaration = context.session.externalDeclarations
+    && context.session.externalDeclarationLocations
+    ? findExternalDeclarationMemberLocation(
+      context.session.externalDeclarations,
+      context.session.externalDeclarationLocations,
+      typeName,
+      memberName
+    )
+    : null;
+  if (loadedDeclaration) {
+    return {
+      uri: pathToUri(loadedDeclaration.typingsPath),
+      range: loadedDeclaration.range
+    };
+  }
 
   for (const stmt of context.session.ast.body) {
     if (!(stmt instanceof ImportStatement)) continue;
