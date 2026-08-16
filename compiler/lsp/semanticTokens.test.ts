@@ -323,6 +323,18 @@ describe("semantic tokens", () => {
     expect(byPosition.get("8:2")).toBe("keywordControl");
   });
 
+  it("highlights type in exported type aliases as a type keyword", () => {
+    const source = "export type Role = string";
+    const session = createAnalysisSession(source);
+    const decoded = decodeTokens(source, createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    }).data);
+
+    expect(decoded.some((token) => token.lexeme === "type" && token.tokenType === "keywordType")).toBe(true);
+  });
+
   it("highlights class modifiers as keywords so semantic tokens do not gray them out", () => {
     const source = dedent`
       class Demo {

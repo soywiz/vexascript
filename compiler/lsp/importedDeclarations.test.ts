@@ -743,9 +743,9 @@ test("supports trailing closures") {
         'export declare function array<T extends core.SomeType>(element: T): ZodArray<T>;',
         'export declare function object<T extends Record<string, core.SomeType>>(shape: T): ZodObject<T>;',
         'export declare function union<T extends readonly core.SomeType[]>(options: T): ZodUnion<T>;',
-        'export declare function enum<T extends readonly string[]>(values: T): ZodEnum<T>;',
-        'export declare function literal<T extends readonly string[]>(value: T): ZodLiteral<T[number]>;',
-        'export declare function literal<T>(value: T): ZodLiteral<T>;'
+        'export declare function enum<const T extends readonly string[]>(values: T): ZodEnum<T>;',
+        'export declare function literal<const T extends readonly string[]>(value: T): ZodLiteral<T[number]>;',
+        'export declare function literal<const T>(value: T): ZodLiteral<T>;'
       ].join("\n"),
       "utf8"
     );
@@ -761,6 +761,8 @@ test("supports trailing closures") {
       'const UserSchema = z.object({ name: z.string().min(1) })',
       'const TagsSchema = z.array(z.string())',
       'const RoleSchema = z.enum(["admin", "user"])',
+      'type Role = z.infer<typeof RoleSchema>',
+      'const role: Role = "admin"',
       'const UnionSchema = z.union([z.literal("admin"), z.literal("user")])',
       'type User = z.infer<typeof UserSchema>',
       'const user: User = UserSchema.parse({ name: "Ada" })',
@@ -783,5 +785,10 @@ test("supports trailing closures") {
     const memberLineIndex = source.split("\n").findIndex((line) => line.includes("user.name"));
     const memberLine = source.split("\n")[memberLineIndex]!;
     expect(session.analysis?.getHoverAt(memberLineIndex, memberLine.indexOf("name") + 1)?.contents).toContain("string");
+    const roleLineIndex = source.split("\n").findIndex((line) => line.includes("role: Role"));
+    const roleLine = source.split("\n")[roleLineIndex]!;
+    const roleHover = session.analysis?.getHoverAt(roleLineIndex, roleLine.indexOf("Role") + 1)?.contents ?? "";
+    expect(roleHover).toContain('"admin"');
+    expect(roleHover).toContain('"user"');
   });
 });

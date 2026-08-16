@@ -124,7 +124,8 @@ export class FunctionType extends AnalysisType {
     public typeParameters?: string[],
     public typeParameterConstraints?: ReadonlyMap<string, AnalysisType>,
     public typeParameterDefaults?: ReadonlyMap<string, AnalysisType>,
-    public assertion?: { target: string; type?: AnalysisType }
+    public assertion?: { target: string; type?: AnalysisType },
+    public constTypeParameters?: ReadonlySet<string>
   ) {
     super(AnalysisTypeKind.Function);
   }
@@ -229,7 +230,8 @@ export function functionType(
   typeParameters?: string[],
   typeParameterConstraints?: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
   typeParameterDefaults?: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
-  assertion?: { target: string; type?: AnalysisType }
+  assertion?: { target: string; type?: AnalysisType },
+  constTypeParameters?: ReadonlySet<string>
 ): FunctionType {
   return new FunctionType(
     parameters,
@@ -237,7 +239,8 @@ export function functionType(
     typeParameters && typeParameters.length > 0 ? typeParameters : undefined,
     optionalAnalysisTypeMap(typeParameterConstraints),
     optionalAnalysisTypeMap(typeParameterDefaults),
-    assertion
+    assertion,
+    constTypeParameters && constTypeParameters.size > 0 ? constTypeParameters : undefined
   );
 }
 
@@ -549,6 +552,9 @@ function isSameTypeInternal(
   }
 
   if (a instanceof FunctionType && b instanceof FunctionType) {
+    if (!sameStringSet(a.constTypeParameters, b.constTypeParameters)) {
+      return false;
+    }
     if (a.parameters.length !== b.parameters.length) {
       return false;
     }
@@ -578,4 +584,10 @@ function isSameTypeInternal(
   }
 
   return typeToString(a) === typeToString(b);
+}
+
+function sameStringSet(a: ReadonlySet<string> | undefined, b: ReadonlySet<string> | undefined): boolean {
+  if ((a?.size ?? 0) !== (b?.size ?? 0)) return false;
+  if (!a) return true;
+  return [...a].every((value) => b?.has(value));
 }

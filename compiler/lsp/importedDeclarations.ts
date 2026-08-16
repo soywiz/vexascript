@@ -1,5 +1,5 @@
 import { ClassMethodMember, ClassStatement, EnumStatement, ExportStatement, FunctionStatement, Identifier, ImportStatement, InterfaceMethodMember, InterfaceStatement, NamespaceStatement, NodeKind, TypeAliasStatement, VarStatement } from "compiler/ast/ast";
-import type { FunctionParameter, InterfaceMember, Program, Statement } from "compiler/ast/ast";
+import type { FunctionParameter, InterfaceMember, Program, Statement, TypeParameter } from "compiler/ast/ast";
 
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnalysis";
@@ -82,6 +82,15 @@ const TYPE_DECLARATION_KINDS = new Set<Statement["kind"]>([
   NodeKind.EnumStatement,
   NodeKind.TypeAliasStatement
 ]);
+
+function importedConstTypeParameterNames(
+  typeParameters: readonly TypeParameter[] | undefined
+): ReadonlySet<string> | undefined {
+  const names = (typeParameters ?? [])
+    .filter((typeParameter) => typeParameter.isConst === true)
+    .map((typeParameter) => typeParameter.name.name);
+  return names.length > 0 ? new Set(names) : undefined;
+}
 
 type NamedTypeDeclaration =
   | ClassStatement
@@ -609,7 +618,8 @@ function externalFunctionOverloads(
         fn.typeParameters?.map((parameter) => parameter.name.name),
         importedTypeParameterConstraintMap(fn.typeParameters),
         importedTypeParameterDefaultMap(fn.typeParameters),
-        importedAssertionTypeFromText(fn.returnType?.name, declarations, resolvingImportTypes)
+        importedAssertionTypeFromText(fn.returnType?.name, declarations, resolvingImportTypes),
+        importedConstTypeParameterNames(fn.typeParameters)
       ));
     }
   }
@@ -788,7 +798,8 @@ export function buildFunctionTypeFromStatement(
     fn.typeParameters?.map((tp) => tp.name.name),
     importedTypeParameterConstraintMap(fn.typeParameters, declarations, resolvingImportTypes),
     importedTypeParameterDefaultMap(fn.typeParameters, declarations, resolvingImportTypes),
-    importedAssertionTypeFromText(fn.returnType?.name, declarations, resolvingImportTypes)
+    importedAssertionTypeFromText(fn.returnType?.name, declarations, resolvingImportTypes),
+    importedConstTypeParameterNames(fn.typeParameters)
   );
 }
 
@@ -1487,7 +1498,8 @@ function ambientOmitThisParameterUtility(sourceType: AnalysisType): AnalysisType
     sourceType.typeParameters,
     undefined,
     undefined,
-    sourceType.assertion
+    sourceType.assertion,
+    sourceType.constTypeParameters
   );
 }
 
@@ -2333,7 +2345,8 @@ function buildAmbientFunctionTypeFromStatement(
       new Set(),
       ambientModuleDeclarations,
       ambientGlobalDeclarations
-    )
+    ),
+    importedConstTypeParameterNames(fn.typeParameters)
   );
 }
 
@@ -2356,7 +2369,7 @@ function buildAmbientFunctionTypeFromInterfaceMember(
       ambientGlobalDeclarations,
       visited
     ),
-    undefined,
+    member.typeParameters?.map((typeParameter) => typeParameter.name.name),
     undefined,
     undefined,
     importedAssertionTypeFromText(
@@ -2366,7 +2379,8 @@ function buildAmbientFunctionTypeFromInterfaceMember(
       ambientModuleDeclarations,
       ambientGlobalDeclarations,
       visited
-    )
+    ),
+    importedConstTypeParameterNames(member.typeParameters)
   );
 }
 

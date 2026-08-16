@@ -2323,4 +2323,58 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("defers mapped utility return types until generic method arguments are inferred", () => {
+    const source = dedent`
+      namespace util {
+        export type Mask<Keys extends PropertyKey> = { [K in Keys]?: true }
+        export type Flatten<T> = { [K in keyof T]: T[K] }
+        export type Writeable<T> = { -readonly [P in keyof T]: T[P] }
+      }
+      type Optional<T> = { value: T }
+      type RequiredValue<T> = { required: T }
+      interface Box<Shape extends object> {
+        shape: Shape
+        pick<M extends util.Mask<keyof Shape>>(mask: M & Record<Exclude<keyof M, keyof Shape>, never>): Box<util.Flatten<Pick<Shape, Extract<keyof Shape, keyof M>>>>
+        partial(): Box<{ -readonly [K in keyof Shape]: Optional<Shape[K]> }>
+        required<M extends util.Mask<keyof Shape>>(mask: M): Box<{ -readonly [K in keyof Shape]: K extends keyof M ? RequiredValue<Shape[K]> : Shape[K] }>
+      }
+      declare const source: Box<util.Writeable<{ id: string, name: string }>>
+      const picked = source.pick({ id: true })
+      const partial = source.partial()
+      const patch = partial.required({ id: true })
+      const pickedId: string = picked.shape.id
+      const partialId: Optional<string> = partial.shape.id
+      const patchId: RequiredValue<Optional<string>> = patch.shape.id
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(14, 6).map((symbol) => [symbol.name, symbol]));
+
+    expect(symbols.get("picked")?.valueType).toContain("id: string");
+    expect(symbols.get("picked")?.valueType).not.toContain("never");
+    expect(symbols.get("partial")?.valueType).toContain("value: string");
+    expect(symbols.get("patch")?.valueType).toContain("required: { value: string }");
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows generic result unions through boolean discriminants", () => {
+    const source = dedent`
+      interface Failure<T> { issues: T[] }
+      type Result<T> =
+        | { success: true, data: T, error?: never }
+        | { success: false, data?: never, error: Failure<T> }
+      declare fun parse<T>(): Result<T>
+      fun firstIssue(): string {
+        const result = parse<string>()
+        if (result.success) {
+          return result.data
+        }
+        return result.error.issues[0]
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
 });

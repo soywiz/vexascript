@@ -3,12 +3,12 @@ import { ensureRuntimeDependencies, resolveProjectForSource } from "../cli/cliSh
 import { vfs } from "../compiler/vfs";
 import { openEntrypointInLspSession, type LspPositionProbe } from "./lspOpenSession";
 
-function positionAfter(source: string, text: string): LspPositionProbe {
+function positionAfter(source: string, text: string, offsetAdjustment = 0): LspPositionProbe {
   const offset = source.lastIndexOf(text);
   if (offset < 0) {
     throw new Error(`Missing probe text: ${text}`);
   }
-  const before = source.slice(0, offset + text.length);
+  const before = source.slice(0, offset + text.length + offsetAdjustment);
   const lines = before.split("\n");
   return {
     line: lines.length - 1,
@@ -23,15 +23,34 @@ describe("zod sample editor features", () => {
     await ensureRuntimeDependencies(sourcePath, project);
 
     const source = `${await vfs().readFile(sourcePath)}\nval role: Role = "admin"\nrole.`;
+    const aliasExpectations = [
+      ["User", "name", "User"],
+      ["PublicUser", "role", "PublicUser"],
+      ["UserPatch", "id", "UserPatch"],
+      ["Coordinates", "number", "Coordinates"],
+      ["Setting", "boolean", "Setting"],
+      ["UserEvent", "created", "Event"],
+      ["Permissions", "boolean", "Permissions"],
+      ["StringNumberMap", "Map", "StringNumberMap"],
+      ["StringSet", "Set", "StringSet"],
+      ["Audited", "updatedAt", "Audited"]
+    ] as const;
     const schemaProbe = positionAfter(source, "RoleSchema,");
     const roleProbe = positionAfter(source, "role: Role");
+    const aliasProbes = aliasExpectations.map(([name]) =>
+      positionAfter(source, `export type ${name} =`, -2)
+    );
+    const schemaProbes = aliasExpectations.map(([, , schemaName]) =>
+      positionAfter(source, `typeof ${schemaName}Schema`)
+    );
     const completionProbe = positionAfter(source, "role.");
     const result = await openEntrypointInLspSession(
       sourcePath,
       process.cwd(),
-      [schemaProbe, roleProbe],
+      [schemaProbe, roleProbe, ...aliasProbes, ...schemaProbes],
       [completionProbe],
       source,
+      true,
       true
     );
 
@@ -39,12 +58,26 @@ describe("zod sample editor features", () => {
     const hoverText = JSON.stringify(result.hovers[1]?.contents ?? "");
     const completionLabels = result.completions[0]?.map((item) => item.label) ?? [];
     expect(schemaHoverText).toContain("ZodEnum");
-    expect(hoverText).toContain("string");
+    expect(hoverText).toContain("admin");
+    expect(hoverText).toContain("editor");
+    expect(hoverText).toContain("user");
     expect(schemaHoverText).not.toContain("unknown");
     expect(completionLabels).toContain("toUpperCase");
     expect(completionLabels).not.toContain("console");
     expect(hoverText).not.toContain("unknown");
     expect(hoverText).not.toContain("object & unknown");
-    expect(result.completionDurationsMs[0] ?? Number.POSITIVE_INFINITY).toBeLessThan(1_000);
+    const aliasHoverTexts = aliasExpectations.map((_, index) =>
+      JSON.stringify(result.hovers[index + 2]?.contents ?? "")
+    );
+    aliasExpectations.forEach(([, expectedText], index) => {
+      const aliasHoverText = aliasHoverTexts[index]!;
+      expect(aliasHoverText).toContain(expectedText);
+      expect(aliasHoverText).not.toContain("unknown");
+      expect(aliasHoverText).not.toContain("object & unknown");
+    });
+    expect(Math.max(...result.hoverDurationsMs)).toBeLessThan(4_000);
+    expect(result.completionDurationsMs[0] ?? Number.POSITIVE_INFINITY).toBeLessThan(4_000);
+    expect(Math.max(...result.warmHoverDurationsMs)).toBeLessThan(500);
+    expect(result.warmCompletionDurationsMs[0] ?? Number.POSITIVE_INFINITY).toBeLessThan(500);
   });
 });

@@ -75,6 +75,13 @@ function typeParameterNames(parameters: readonly TypeParameter[] | undefined): s
   return names;
 }
 
+function constTypeParameterNames(parameters: readonly TypeParameter[] | undefined): ReadonlySet<string> | undefined {
+  const names = (parameters ?? [])
+    .filter((parameter) => parameter.isConst === true)
+    .map((parameter) => parameter.name.name);
+  return names.length > 0 ? new Set(names) : undefined;
+}
+
 function isReadonlyVariable(kind: VariableDeclarationKind): boolean {
   return kind === "const" || kind === "val";
 }
@@ -302,7 +309,11 @@ export class Binder {
             parameter.rest === true
           )),
           this.effectiveReturnType(this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE, fnIsAsyncLike, fnIsGenerator),
-          typeParameterNames(functionStatement.typeParameters)
+          typeParameterNames(functionStatement.typeParameters),
+          undefined,
+          undefined,
+          undefined,
+          constTypeParameterNames(functionStatement.typeParameters)
         );
         this.declare(scope, new AnalysisSymbol(functionStatement.name.name, "function", functionStatement.name, -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType)), declaredOffsetOverride);
         continue;
@@ -416,7 +427,11 @@ export class Binder {
             parameter.rest === true
           )),
           this.effectiveReturnType(this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE, fnIsAsyncLike, fnIsGenerator),
-          typeParameterNames(functionStatement.typeParameters)
+          typeParameterNames(functionStatement.typeParameters),
+          undefined,
+          undefined,
+          undefined,
+          constTypeParameterNames(functionStatement.typeParameters)
         );
         continue;
       }
@@ -617,7 +632,11 @@ export class Binder {
           parameter.rest === true
         )),
         this.effectiveReturnType(this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE, stmtIsAsyncLike, stmtIsGenerator),
-        typeParameterNames(statement.typeParameters)
+        typeParameterNames(statement.typeParameters),
+        undefined,
+        undefined,
+        undefined,
+        constTypeParameterNames(statement.typeParameters)
       );
       this.declare(scope, new AnalysisSymbol(statement.name.name, "function", statement.name, -1, undefined, undefined, undefined, undefined, symbolType, typeToString(symbolType)));
     }
@@ -666,7 +685,11 @@ export class Binder {
               parameter.rest === true
             )),
             this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE,
-            typeParameterNames(method.typeParameters)
+            typeParameterNames(method.typeParameters),
+            undefined,
+            undefined,
+            undefined,
+            constTypeParameterNames(method.typeParameters)
           );
           this.declare(classScope, new AnalysisSymbol(method.name.name, "method", method.name, -1, undefined, undefined, undefined, undefined, methodType, typeToString(methodType)));
         }
@@ -874,7 +897,11 @@ export class Binder {
             p.rest === true
           )),
           this.typeFromAnnotationLoose(fn.returnType) ?? UNKNOWN_TYPE,
-          typeParameterNames(fn.typeParameters)
+          typeParameterNames(fn.typeParameters),
+          undefined,
+          undefined,
+          undefined,
+          constTypeParameterNames(fn.typeParameters)
         );
         const existingMethod = scope.symbols.get(fn.name.name);
         if (existingMethod?.kind === "method" && existingMethod.type) {
@@ -943,7 +970,11 @@ export class Binder {
           parameter.rest === true
         )),
         this.typeFromAnnotationLooseWithContext(method.returnType, statement.name.name) ?? UNKNOWN_TYPE,
-        typeParameterNames(method.typeParameters)
+        typeParameterNames(method.typeParameters),
+        undefined,
+        undefined,
+        undefined,
+        constTypeParameterNames(method.typeParameters)
       );
       if (method.computed) {
         continue;
@@ -1064,7 +1095,11 @@ export class Binder {
           parameter.rest === true
         )),
         this.typeFromAnnotationLooseWithContext(method.returnType, className) ?? UNKNOWN_TYPE,
-        typeParameterNames(method.typeParameters)
+        typeParameterNames(method.typeParameters),
+        undefined,
+        undefined,
+        undefined,
+        constTypeParameterNames(method.typeParameters)
       );
       if (method.computed) {
         continue;

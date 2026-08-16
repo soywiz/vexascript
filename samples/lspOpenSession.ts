@@ -38,9 +38,12 @@ export interface LspOpenSessionResult {
   workspaceDiagnostics: Diagnostic[];
   definitions: Array<Location | Location[] | null>;
   hovers: Array<Hover | null>;
+  hoverDurationsMs: number[];
+  warmHoverDurationsMs: number[];
   documentHighlights: DocumentHighlight[][];
   completions: CompletionItem[][];
   completionDurationsMs: number[];
+  warmCompletionDurationsMs: number[];
   semanticTokens: SemanticTokens;
   semanticTokensRange: SemanticTokens;
 }
@@ -296,7 +299,8 @@ export async function openEntrypointInLspSession(
   probes: readonly LspPositionProbe[] = [],
   completionProbes: readonly LspPositionProbe[] = [],
   sourceOverride?: string,
-  primeBeforeChange = false
+  primeBeforeChange = false,
+  measureWarmFeatureDurations = false
 ): Promise<LspOpenSessionResult> {
   const source = sourceOverride ?? await vfs().readFile(entrypoint);
   const server = await startWorkspaceServer(workspaceRoot);
@@ -365,13 +369,21 @@ export async function openEntrypointInLspSession(
   const definitionsPromise = Promise.all(probes.map((position) => Promise.resolve(
     server.fakeConnection.handlers.get("definition")!({ textDocument: { uri }, position })
   ) as Promise<Location | Location[] | null>));
-  const hoversPromise = Promise.all(probes.map((position) => Promise.resolve(
-    server.fakeConnection.handlers.get("hover")!({ textDocument: { uri }, position })
-  ) as Promise<Hover | null>));
+  const requestHovers = (): Promise<Array<{ hover: Hover | null; durationMs: number }>> => Promise.all(probes.map(async (position) => {
+    const startedAt = performance.now();
+    const hover = await Promise.resolve(
+      server.fakeConnection.handlers.get("hover")!({ textDocument: { uri }, position })
+    ) as Hover | null;
+    return {
+      hover,
+      durationMs: performance.now() - startedAt
+    };
+  }));
+  const hoversPromise = requestHovers();
   const documentHighlightsPromise = Promise.all(probes.map((position) => Promise.resolve(
     server.fakeConnection.handlers.get("documentHighlight")!({ textDocument: { uri }, position })
   ) as Promise<DocumentHighlight[]>));
-  const completionsPromise = Promise.all(completionProbes.map(async (position) => {
+  const requestCompletions = (): Promise<Array<{ items: CompletionItem[]; durationMs: number }>> => Promise.all(completionProbes.map(async (position) => {
     const startedAt = performance.now();
     const items = await Promise.resolve(
       server.fakeConnection.handlers.get("completion")!({ textDocument: { uri }, position })
@@ -381,6 +393,7 @@ export async function openEntrypointInLspSession(
       durationMs: performance.now() - startedAt
     };
   }));
+  const completionsPromise = requestCompletions();
   // Keep the full VS Code-like open burst, but let independent requests overlap
   // so shared analysis/cache work can dedupe through the real server paths.
   const codeActionsPromise = documentDiagnosticsPromise.then((documentDiagnosticReport) =>
@@ -405,7 +418,7 @@ export async function openEntrypointInLspSession(
     workspaceDiagnosticReport,
     documentDiagnosticReport,
     definitions,
-    hovers,
+    hoverResults,
     documentHighlights,
     completionResults
   ] = await Promise.all([
@@ -423,15 +436,21 @@ export async function openEntrypointInLspSession(
     documentHighlightsPromise,
     completionsPromise
   ]);
+  const [warmHoverResults, warmCompletionResults] = measureWarmFeatureDurations
+    ? await Promise.all([requestHovers(), requestCompletions()])
+    : [[], []];
 
   return {
     documentDiagnostics: documentDiagnosticReport.items,
     workspaceDiagnostics: workspaceDiagnosticReport.items.find((item) => item.uri === uri)?.items ?? [],
     definitions,
-    hovers,
+    hovers: hoverResults.map((result) => result.hover),
+    hoverDurationsMs: hoverResults.map((result) => result.durationMs),
+    warmHoverDurationsMs: warmHoverResults.map((result) => result.durationMs),
     documentHighlights,
     completions: completionResults.map((result) => result.items),
     completionDurationsMs: completionResults.map((result) => result.durationMs),
+    warmCompletionDurationsMs: warmCompletionResults.map((result) => result.durationMs),
     semanticTokens,
     semanticTokensRange
   };

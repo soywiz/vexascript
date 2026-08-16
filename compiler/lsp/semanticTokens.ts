@@ -139,6 +139,7 @@ const TYPE_KEYWORDS = new Set([
   "class",
   "interface",
   "annotation",
+  "type",
   "infer",
   "extends",
   "implements",

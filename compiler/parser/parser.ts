@@ -798,11 +798,13 @@ export class Parser {
             }
             const firstToken = this.tokens.read();
             let token = firstToken;
+            let isConst = false;
             if (this.language === "typescript") {
                 while (
                     token?.type === TokenType.IDENTIFIER
                     && ["const", "in", "out"].includes(token.value)
                 ) {
+                    isConst = isConst || token.value === "const";
                     token = this.tokens.read();
                 }
             }
@@ -810,6 +812,9 @@ export class Parser {
                 this.fail("Expected type parameter name", this.tokenAt(token));
             }
             const parameter: TypeParameter = new TypeParameter(this.buildIdentifierFromToken(token));
+            if (isConst) {
+                parameter.isConst = true;
+            }
             if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "extends") {
                 this.tokens.skip();
                 parameter.constraint = this.parseTypeAnnotationNode();

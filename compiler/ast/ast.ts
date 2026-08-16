@@ -326,6 +326,7 @@ export class ArrayTypeAnnotation extends Node {
 export type TypeAnnotation = Identifier | TypeReference | ArrayTypeAnnotation;
 export class TypeParameter extends Node {
     declare kind: NodeKind.TypeParameter
+    declare isConst?: boolean
 
     constructor(public name: Identifier, public constraint?: Identifier, public defaultType?: Identifier) {
         super(NodeKind.TypeParameter)

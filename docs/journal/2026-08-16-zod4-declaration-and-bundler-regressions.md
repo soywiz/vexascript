@@ -87,6 +87,57 @@ under the full parallel test load; subsequent feature requests take only a few
 milliseconds. The regression test uses a one-second ceiling so suite contention
 does not make it flaky while the original multi-second failure is still caught.
 
+## Derived-schema type follow-up
+
+The first compatibility pass made the base object and enum schemas usable, but
+editor hovers still widened `Role` to `string` and reduced derived schemas such as
+`pick`, `partial`, `required`, tuples, unions, records, sets, and intersections to
+`unknown`. Two declaration-model gaps combined to produce that result:
+
+- the parser accepted `const` type parameters but discarded the modifier before
+  binding function types, so literal arguments widened before generic inference;
+- interface method constraints and return types were evaluated with only the
+  method's type parameters active, not the enclosing interface parameters. This
+  prematurely reduced expressions such as `keyof Shape`, mapped types, and
+  `Pick<Shape, ...>` before a concrete schema shape was substituted.
+
+Function types now retain their const-generic parameter names through imported
+declarations, cloning, alias expansion, and substitution. Literal-sensitive call
+inference consequently preserves string, number, boolean, object, and tuple
+literals when the declaration requests const inference. Generic mapped utilities
+remain symbolic while they still reference active type parameters and are
+materialized after the receiver and method arguments are known.
+
+Schema output recovery remains declaration-driven. It follows structural members
+published by the package (`shape`, `element`, `options`, and `_zod.def` tuple or
+intersection fields) instead of recognizing Zod class names. This keeps editor
+semantics applicable to other libraries exposing the same generic relationships
+and avoids a package-specific value catalog.
+
+Several investigation details are worth preserving. Looking only at the final
+`z.infer` alias hid the earlier loss of const-generic metadata. Expanding a nested
+object argument without reconciling the mapped result restored the entire source
+shape for `pick`, which was also wrong. The first word-boundary test used an
+accidental backspace escape instead of `\\b`, so it silently failed to recognize
+local type parameters. Finally, completion timing alone missed the visible hover
+stall; the real multi-file session regression now measures both operations and
+separates the cold shared-analysis wait from an immediate warm repeat. Cold hover
+and completion requests must stay below four seconds even under the full suite's
+parallel load, while every warm probe must finish below 500 milliseconds. This
+keeps the test sensitive to the original 5.7-second editor stall without making
+its limit depend on unrelated CPU-heavy test files.
+
+The final full-suite run also exposed a narrowing distinction that isolated
+object-union tests had missed. `safeParse` returns a union whose branches are
+generic named aliases, not inline object types. Discriminant narrowing inspected
+only inline `ObjectType` branches, so `if (result.success)` left `result.error`
+optional. The narrowing path now expands the union and reads each branch through
+the same object-like property resolver used by ordinary member lookup; a focused
+generic boolean-discriminant test preserves this behavior independently of Zod.
+Only literal-valued properties qualify as discriminants: treating broad status
+properties such as React Query's `isLoading: boolean` as exact branch tags caused
+valid result data to collapse to `never`.
+
 ## Regression strategy
 
 Keep both layers of coverage:
