@@ -74,6 +74,64 @@ async function resolvePositionMember(mainSource: string, cursorNeedle: string) {
 }
 
 describe("imported extension member precedence (class vs extension)", () => {
+  it("keeps imported and local extension methods with the same name available by receiver type", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-ext-local-overload-"));
+    const typesPath = join(root, "types.vx");
+    const extPath = join(root, "ext.vx");
+    const mainPath = join(root, "main.vx");
+    const typesSource = dedent`
+      export class ImportedTarget {
+        val importedOnly: string = "imported"
+      }
+      export class LocalTarget {
+        val localOnly: number = 1
+      }
+    `;
+    const extSource = dedent`
+      import { ImportedTarget } from "./types.vx"
+      fun ImportedTarget.addTo(other: ImportedTarget): void {}
+    `;
+    const mainSource = dedent`
+      import { ImportedTarget, LocalTarget } from "./types.vx"
+      import { addTo } from "./ext.vx"
+
+      fun LocalTarget.addTo(other: LocalTarget): void {}
+
+      ImportedTarget(). {
+        addTo(ImportedTarget())
+      }
+      LocalTarget(). {
+        addTo(LocalTarget())
+      }
+    `;
+    await writeFile(typesPath, typesSource, "utf8");
+    await writeFile(extPath, extSource, "utf8");
+    await writeFile(mainPath, mainSource, "utf8");
+
+    const uri = pathToFileURL(mainPath).toString();
+    const typesSession = createAnalysisSession(typesSource);
+    const extSession = createAnalysisSession(extSource);
+    const baseSession = createAnalysisSession(mainSource);
+    const getSessionForFilePath = (filePath: string) => {
+      if (filePath === typesPath) return typesSession;
+      if (filePath === extPath) return extSession;
+      if (filePath === mainPath) return baseSession;
+      return null;
+    };
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri,
+      sourceRoots: [root],
+      getSessionForFilePath
+    });
+    const session = createAnalysisSession(mainSource, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+
+    expect(session.semanticIssues).toEqual([]);
+  });
+
   it("definition, hover, and inferred type agree on the imported extension member", async () => {
     const mainSource = dedent`
       import { Box } from "shapes-pkg"

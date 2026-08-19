@@ -1,73 +1,89 @@
-import { WebGLRenderer, Scene, PerspectiveCamera, AmbientLight, Color, Vector3, DirectionalLight, MeshStandardMaterial, BoxGeometry, Mesh } from "three"
+import { WebGLRenderer, Scene, PerspectiveCamera, AmbientLight, Color, Vector3, DirectionalLight, MeshStandardMaterial, BoxGeometry, Mesh, Object3D } from "three"
 import { buildSceneMetrics, formatSceneMetrics } from "./scene-data.vx"
 import { addTo } from "./extensions.vx"
 
 val metrics = buildSceneMetrics()
+
+fun Object3D.addTo(other: Object3D) {
+  other.add(this)
+}
 
 document.body.setAttribute(
   "style",
   "margin:0;min-height:100vh;display:grid;place-items:center;background:linear-gradient(180deg,#f7fbff 0%,#d9e7f2 100%);font-family:Arial,sans-serif;color:#17324d;"
 )
 
-val shell = document.createElement("div")
-  ..setAttribute("style", "display:grid;gap:12px;justify-items:center;padding:24px;")
-  ..addTo(document.body)
+val shell = document.createElement("div"). {
+  setAttribute("style", "display:grid;gap:12px;justify-items:center;padding:24px;")
+  addTo(document.body)
+}
 
-val title = document.createElement("h1")
-  ..textContent = "THREE.js + VexaScript"
-  ..setAttribute("style", "margin:0;font-size:28px;")
-  ..addTo(shell)
+val title = document.createElement("h1"). {
+  textContent = "THREE.js + VexaScript"
+  setAttribute("style", "margin:0;font-size:28px;")
+  addTo(shell)
+}
 
-val subtitle = document.createElement("p")
-  ..textContent = formatSceneMetrics(metrics)
-  ..setAttribute("style", "margin:0;max-width:720px;text-align:center;font-size:14px;")
-  ..addTo(shell)
+val subtitle = document.createElement("p"). {
+  textContent = formatSceneMetrics(metrics)
+  setAttribute("style", "margin:0;max-width:720px;text-align:center;font-size:14px;")
+  addTo(shell)
+}
 
-val renderer = WebGLRenderer({ antialias: true, alpha: true })
-  ..setSize(320, 320)
-  ..setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  //..setClearColor(Color("#f7fbff"))
+val renderer = WebGLRenderer({ antialias: true, alpha: true }). {
+  setSize(320, 320)
+  setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  // setClearColor(Color("#f7fbff"))
+}
 
-val canvas = renderer.domElement
-  ..setAttribute("style", "border-radius:24px;box-shadow:0 24px 80px rgba(23,50,77,0.18);")
-  ..addTo(shell)
+val canvas = renderer.domElement. {
+  setAttribute("style", "border-radius:24px;box-shadow:0 24px 80px rgba(23,50,77,0.18);")
+  addTo(shell)
+}
 
-val scene = Scene()
-  ..background = Color("#f7fbff")
+val scene = Scene(). {
+  background = Color("#f7fbff")
+}
 
-val camera = PerspectiveCamera(45, 320 / 320, 0.1, 100)
-  ..position.set(4, 3, 7)
-  ..lookAt(Vector3(metrics.centerX, metrics.centerY, metrics.centerZ))
+val camera = PerspectiveCamera(45, 320 / 320, 0.1, 100). {
+  position.set(4, 3, 7)
+  lookAt(Vector3(metrics.centerX, metrics.centerY, metrics.centerZ))
+}
 
-val ambient = AmbientLight(0xffffff, 0.7)
-scene.add(ambient)
+AmbientLight(0xffffff, 0.7). {
+  addTo(scene)
+}
 
-val keyLight = DirectionalLight(0xffffff, 1.1)
-  ..position.set(5, 8, 6)
-scene.add(keyLight)
+DirectionalLight(0xffffff, 1.1). {
+  position.set(5, 8, 6)
+  addTo(scene)
+}
 
-val fillLight = DirectionalLight(0x8cb3d9, 0.55)
-  ..position.set(-4, 3, -3)
-scene.add(fillLight)
+DirectionalLight(0x8cb3d9, 0.55). {
+  position.set(-4, 3, -3)
+  addTo(scene)
+}
 
 val cubeMaterial = MeshStandardMaterial({
   color: metrics.tintHex,
   roughness: 0.28,
   metalness: 0.12
 })
-val cube = Mesh(BoxGeometry(2.2, 2.2, 2.2), cubeMaterial)
-  ..position.set(metrics.centerX, metrics.centerY, metrics.centerZ)
-scene.add(cube)
+val cube = Mesh(BoxGeometry(2.2, 2.2, 2.2), cubeMaterial). {
+  position.set(metrics.centerX, metrics.centerY, metrics.centerZ)
+  addTo(scene)
+}
 
 val accentMaterial = MeshStandardMaterial({
   color: Color("#17324d"),
   roughness: 0.4,
   metalness: 0.05
 })
-val accent = Mesh(BoxGeometry(0.7, 0.7, 3.2), accentMaterial)
-  ..position.set(metrics.centerX, metrics.centerY, metrics.centerZ - 2.4)
-  ..rotation.set(0, Math.PI / 4, 0)
-scene.add(accent)
+val accent = Mesh(BoxGeometry(0.7, 0.7, 3.2), accentMaterial). {
+  position.set(metrics.centerX, metrics.centerY, metrics.centerZ - 2.4)
+  rotation.set(0, Math.PI / 4, 0)
+  addTo(scene)
+}
 
 var cubeRotationX: number = 0
 var cubeRotationY: number = 0

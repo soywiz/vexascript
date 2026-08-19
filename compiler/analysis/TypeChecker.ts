@@ -351,7 +351,7 @@ export class TypeChecker {
     this.collectExtensionOperators(ambientDeclarations);
     this.collectExtensionOperators(externalDeclarations);
     this.collectExtensionProperties(externalDeclarations, bound.rootScope);
-    this.collectExtensionMethods(externalDeclarations);
+    this.collectExtensionMethods(externalDeclarations, true);
     this.collectFunctionStatements(program.body);
     this.collectClassStatements(program.body, this.nonExternalNamedTypeNames);
     this.collectExtensionOperators(program);
@@ -12068,13 +12068,7 @@ export class TypeChecker {
         for (const [name, type] of extensionMethods) {
           if (declaredExtensionNames.has(name)) continue;
           declaredExtensionNames.add(name);
-          const importedType = scope.parent
-            ? this.resolve(name, scope.parent, undefined)?.type
-            : undefined;
-          const resolvedType = importedType instanceof FunctionType
-            ? importedType
-            : type;
-          scope.symbols.set(name, new AnalysisSymbol(name, "method", node, -1, undefined, true, undefined, extensionReceiverName, resolvedType, typeToString(resolvedType)));
+          scope.symbols.set(name, new AnalysisSymbol(name, "method", node, -1, undefined, true, undefined, extensionReceiverName, type, typeToString(type)));
         }
       }
       const extensionProperties = this.extensionPropertiesByReceiver.get(extensionReceiverName);
@@ -12948,27 +12942,45 @@ export class TypeChecker {
       : null;
   }
 
-  private collectExtensionMethods(statements: readonly Statement[] | Program): void {
+  private collectExtensionMethods(
+    statements: readonly Statement[] | Program,
+    useImportedSymbolTypes = false
+  ): void {
     const body = "body" in statements ? statements.body : statements;
-    for (const extension of declarationIndexForStatements(body).functions) {
-      if (!extension.receiverType || extension.operator) continue;
-      const methods = this.extensionMethodsByReceiver.get(extension.receiverType.name) ?? new Map<string, AnalysisType>();
-      const methodType = functionType(
-        extension.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
-          bindingNameText(parameter.name),
-          this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-          undefined,
-          parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-          parameter.rest === true
-        )),
-        this.typeFromAnnotationLoose(extension.returnType, extension.receiverType.name) ?? UNKNOWN_TYPE,
-        extension.typeParameters ? typeParameterNameList(extension.typeParameters) : undefined
+    const extensions = declarationIndexForStatements(body).functions.filter(
+      (extension) => !!extension.receiverType && !extension.operator
+    );
+    const extensionCountsByName = new Map<string, number>();
+    for (const extension of extensions) {
+      extensionCountsByName.set(
+        extension.name.name,
+        (extensionCountsByName.get(extension.name.name) ?? 0) + 1
       );
+    }
+    for (const extension of extensions) {
+      const receiverType = extension.receiverType!;
+      const methods = this.extensionMethodsByReceiver.get(receiverType.name) ?? new Map<string, AnalysisType>();
+      const importedType = useImportedSymbolTypes && extensionCountsByName.get(extension.name.name) === 1
+        ? this.bound.rootScope.symbols.get(extension.name.name)?.type
+        : undefined;
+      const methodType = importedType instanceof FunctionType
+        ? importedType
+        : functionType(
+            extension.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => new FunctionTypeParameter(
+              bindingNameText(parameter.name),
+              this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+              undefined,
+              parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+              parameter.rest === true
+            )),
+            this.typeFromAnnotationLoose(extension.returnType, receiverType.name) ?? UNKNOWN_TYPE,
+            extension.typeParameters ? typeParameterNameList(extension.typeParameters) : undefined
+          );
       methods.set(extension.name.name, methodType);
-      this.extensionMethodsByReceiver.set(extension.receiverType.name, methods);
-      if ((extension.typeParameters ?? []).some((parameter) => parameter.name.name === extension.receiverType!.name)) {
+      this.extensionMethodsByReceiver.set(receiverType.name, methods);
+      if ((extension.typeParameters ?? []).some((parameter) => parameter.name.name === receiverType.name)) {
         const genericMethods = this.genericReceiverExtensionMethods.get(extension.name.name) ?? [];
-        genericMethods.push({ receiverTypeParameter: extension.receiverType.name, type: methodType, declaration: extension });
+        genericMethods.push({ receiverTypeParameter: receiverType.name, type: methodType, declaration: extension });
         this.genericReceiverExtensionMethods.set(extension.name.name, genericMethods);
       }
     }

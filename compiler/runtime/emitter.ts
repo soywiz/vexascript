@@ -3392,11 +3392,6 @@ function collectEmitProgramRuntimeContext(
         appendMapArrayValue(extensionMethods, key, value);
       }
     }
-    for (const [key, values] of statementSeed.importedExtensionRuntimeNames) {
-      for (const value of values) {
-        appendUniqueMapArrayValue(importedExtensionRuntimeNames, key, value);
-      }
-    }
     for (const [key, value] of statementSeed.extensionProperties) {
       extensionProperties.set(key, value);
     }

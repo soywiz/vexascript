@@ -7,6 +7,16 @@ type Checklist = { title: string; checks: string[] }
 val queryClient = new QueryClient()
 val queryKey: ReadonlyArray<string> = ["react-query-sample", "checklist"]
 
+fun QueryStateCard({ label: string, message: string }) {
+  return (
+    <article className="card">
+      <span className="eyebrow">{label}</span>
+      <h2>React Query + VexaScript</h2>
+      <p>{message}</p>
+    </article>
+  )
+}
+
 fun QueryCard() {
   val result = useQuery({
     queryKey: queryKey,
@@ -22,34 +32,16 @@ fun QueryCard() {
   }, queryClient)
 
   if (result.isLoading) {
-    return (
-      <article className="card">
-        <span className="eyebrow">Loading</span>
-        <h2>React Query + VexaScript</h2>
-        <p>Waiting for the async sample data…</p>
-      </article>
-    )
+    return <QueryStateCard label="Loading" message="Waiting for the async sample data…" />
   }
 
   if (result.error) {
-    return (
-      <article className="card">
-        <span className="eyebrow">Error</span>
-        <h2>React Query + VexaScript</h2>
-        <p>Could not resolve the sample query.</p>
-      </article>
-    )
+    return <QueryStateCard label="Error" message="Could not resolve the sample query." />
   }
 
   val data = result.data
   if (!data) {
-    return (
-      <article className="card">
-        <span className="eyebrow">Empty</span>
-        <h2>React Query + VexaScript</h2>
-        <p>The sample query returned no data.</p>
-      </article>
-    )
+    return <QueryStateCard label="Empty" message="The sample query returned no data." />
   }
 
   return (

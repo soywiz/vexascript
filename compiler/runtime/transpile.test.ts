@@ -795,6 +795,33 @@ console.log(...kept)
     );
   });
 
+  it("keeps local same-name extension runtime bindings out of imports", () => {
+    const declarationSource = [
+      "export class Element(val tagName: string)",
+      "export fun Element.addTo(other: Element): void {}"
+    ].join("\n");
+    const externalDeclarations = compileSource(declarationSource).ast!.body;
+
+    const source = [
+      'import { Element, addTo } from "./extensions"',
+      "class Object3D(val visible: boolean)",
+      "fun Object3D.addTo(other: Object3D): void {}",
+      'Element("main").addTo(Element("body"))',
+      "Object3D(true).addTo(Object3D(false))"
+    ].join("\n");
+
+    const result = transpile(source, { target: "conservative", externalDeclarations });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('import { Element, Element$$addTo$$Element } from "./extensions";');
+    expect(result.code).not.toContain(
+      'import { Element, Element$$addTo$$Element, Object3D$$addTo$$Object3D } from "./extensions";'
+    );
+    expect(result.code).toContain("function Object3D$$addTo$$Object3D($this, other) {");
+    expect(result.code).toContain("Element$$addTo$$Element(new Element(\"main\"), new Element(\"body\"));");
+    expect(result.code).toContain("Object3D$$addTo$$Object3D(new Object3D(true), new Object3D(false));");
+  });
+
   it("rewrites imported overloaded function calls to their runtime-mangled bindings", () => {
     const declarationSource = [
       "export function describe(value: int): string { return `int:${value}` }",

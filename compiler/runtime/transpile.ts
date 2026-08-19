@@ -523,22 +523,17 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     }
   }
   // Emission collects classes, constructor-only runtime globals, operator
-  // overloads and extension properties from a context program. Including the
-  // built-in, ambient, and imported declarations lets the emitter lower calls
-  // (`Point(...)` / `Uint8Array(...)` -> `new ...(...)`), operators and
-  // extension properties that resolve outside the source file.
+  // overloads and extension properties from the local program plus a seed of
+  // ambient and imported declarations. Keeping external declarations in the
+  // seed preserves their import provenance instead of treating local
+  // same-name extensions as additional bindings from the imported module.
   const runtimeProgram = getEcmaScriptRuntimeProgram();
   cachedEcmaScriptRuntimeEmitSeed ??= createEmitProgramRuntimeSeed(runtimeProgram);
-  const contextProgram = new Program(
-    options.emitRuntimeSeed
-      ? programForEmission.body
-      : [
-          ...ambientDeclarations,
-          ...externalDeclarations,
-          ...programForEmission.body
-        ],
-    programForEmission.__vexaRecoveryMarkers
+  const runtimeSeed = options.emitRuntimeSeed ?? createEmitProgramRuntimeSeed(
+    new Program([...ambientDeclarations, ...externalDeclarations]),
+    cachedEcmaScriptRuntimeEmitSeed
   );
+  const contextProgram = programForEmission;
   const implicitReceiverIdentifiers = artifacts.analysis.getImplicitReceiverIdentifiers();
   const staticImplicitReceiverIdentifiers = artifacts.analysis.getStaticImplicitReceiverIdentifiers();
   const implicitReceiverExtensionIdentifiers = artifacts.analysis.getImplicitReceiverExtensionIdentifiers();
@@ -558,7 +553,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
       ...(options.rewriteImportExtensions ? { rewriteImportExtensions: true } : {})
     },
     staticImplicitReceiverIdentifiers,
-    options.emitRuntimeSeed ?? cachedEcmaScriptRuntimeEmitSeed,
+    runtimeSeed,
     implicitReceiverExtensionIdentifiers,
     asyncForStatements,
     artifacts.analysis.getReceiverLambdas()
