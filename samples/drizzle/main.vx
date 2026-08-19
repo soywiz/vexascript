@@ -1,0 +1,13 @@
+import { and, eq, getTableName, isNotNull } from "drizzle-orm"
+import { integer, pgTable, text } from "drizzle-orm/pg-core"
+
+const users = pgTable("users", {
+  id: integer(),
+  name: text(),
+  age: integer()
+})
+
+const adultAda = and(eq(users.name, "Ada"), isNotNull(users.age))
+const chunkCount = adultAda?.getSQL().queryChunks.length ?? 0
+
+console.log(`${getTableName(users)}|${users.id.name},${users.name.name},${users.age.name}|${chunkCount}`)

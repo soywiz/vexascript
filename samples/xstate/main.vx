@@ -1,0 +1,38 @@
+import { assign, createActor, createMachine } from "xstate"
+
+const counterMachine = createMachine({
+  context: {
+    count: 0
+  },
+  initial: "idle",
+  states: {
+    idle: {
+      on: {
+        increment: {
+          actions: assign({
+            count: ({ context }) => context.count + 1
+          })
+        },
+        activate: "active"
+      }
+    },
+    active: {
+      on: {
+        increment: {
+          actions: assign({
+            count: ({ context }) => context.count + 1
+          })
+        }
+      }
+    }
+  }
+})
+
+const actor = createActor(counterMachine)
+actor.start()
+actor.send({ type: "increment" })
+actor.send({ type: "activate" })
+actor.send({ type: "increment" })
+
+const snapshot = actor.getSnapshot()
+console.log(`${snapshot.value}|${snapshot.context.count}`)

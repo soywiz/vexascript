@@ -298,20 +298,38 @@ export function tupleType(elements: AnalysisType[], isReadonly: boolean = false)
 }
 
 export function typeToString(type: AnalysisType): string {
-  return typeToStringInternal(type, new Set<object>());
+  return typeToStringInternal(type, { seen: new Set<object>(), work: 0 });
 }
 
-function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
+const MAX_TYPE_RENDER_DEPTH = 64;
+const MAX_TYPE_RENDER_WORK = 4_096;
+
+interface TypeRenderState {
+  seen: Set<object>;
+  work: number;
+}
+
+function typeRenderFallback(type: AnalysisType): string {
+  return type instanceof NamedType
+    ? type.name
+    : ANALYSIS_TYPE_KIND_NAMES[type.kind] ?? "unknown";
+}
+
+function typeToStringInternal(type: AnalysisType, state: TypeRenderState): string {
+  if (state.work >= MAX_TYPE_RENDER_WORK) {
+    return typeRenderFallback(type);
+  }
+  state.work += 1;
   let trackedObject: object | undefined;
   if (typeof type === "object" && type !== null) {
-    if (seen.has(type as object)) {
-      if (type instanceof NamedType) {
-        return type.name;
-      }
-      return ANALYSIS_TYPE_KIND_NAMES[type.kind] ?? "unknown";
+    if (state.seen.size >= MAX_TYPE_RENDER_DEPTH) {
+      return typeRenderFallback(type);
+    }
+    if (state.seen.has(type as object)) {
+      return typeRenderFallback(type);
     }
     trackedObject = type as object;
-    seen.add(trackedObject);
+    state.seen.add(trackedObject);
   }
   let result: string;
   if (type instanceof UnknownType) {
@@ -321,32 +339,32 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
   } else if (type instanceof NamedType) {
     result = !type.typeArguments || type.typeArguments.length === 0
       ? type.name
-      : `${type.name}<${type.typeArguments.map((argument) => typeToStringInternal(argument, seen)).join(", ")}>`;
+      : `${type.name}<${type.typeArguments.map((argument) => typeToStringInternal(argument, state)).join(", ")}>`;
   } else if (type instanceof FunctionType) {
     const renderedTypeParameters: string[] = [];
     for (const parameter of type.typeParameters ?? []) {
       const constraint = type.typeParameterConstraints?.get(parameter);
       renderedTypeParameters.push(
-        constraint ? `${parameter} extends ${typeToStringInternal(constraint, seen)}` : parameter
+        constraint ? `${parameter} extends ${typeToStringInternal(constraint, state)}` : parameter
       );
     }
     const typeParameterPrefix = renderedTypeParameters.length > 0
       ? `<${renderedTypeParameters.join(", ")}>`
       : "";
     const renderedReturnType = type.assertion
-      ? `asserts ${type.assertion.target}${type.assertion.type ? ` is ${typeToStringInternal(type.assertion.type, seen)}` : ""}`
-      : typeToStringInternal(type.returnType, seen);
+      ? `asserts ${type.assertion.target}${type.assertion.type ? ` is ${typeToStringInternal(type.assertion.type, state)}` : ""}`
+      : typeToStringInternal(type.returnType, state);
     const renderedParameters: string[] = [];
     for (const functionParameter of type.parameters) {
       if (functionParameter.receiver) continue;
       renderedParameters.push(
-        `${functionParameter.rest ? "..." : ""}${functionParameter.name}: ${typeToStringInternal(functionParameter.type, seen)}`
+        `${functionParameter.rest ? "..." : ""}${functionParameter.name}: ${typeToStringInternal(functionParameter.type, state)}`
       );
     }
     const receiver = type.parameters.find((parameter) => parameter.receiver);
-    result = `${typeParameterPrefix}${receiver ? `${typeToStringInternal(receiver.type, seen)}.` : ""}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
+    result = `${typeParameterPrefix}${receiver ? `${typeToStringInternal(receiver.type, state)}.` : ""}(${renderedParameters.join(", ")}) => ${renderedReturnType}`;
   } else if (type instanceof ArrayType) {
-    const elementType = typeToStringInternal(type.elementType, seen);
+    const elementType = typeToStringInternal(type.elementType, state);
     result = `${type.isReadonly === true ? "readonly " : ""}${needsParensForArrayElement(type.elementType) ? `(${elementType})` : elementType}[]`;
   } else if (type instanceof ObjectType) {
     if (type.properties.size === 0) {
@@ -354,31 +372,31 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
     } else {
       const renderedProperties: string[] = [];
       for (const name of type.properties.keys()) {
-        renderedProperties.push(`${name}: ${typeToStringInternal(type.properties.get(name)!, seen)}`);
+        renderedProperties.push(`${name}: ${typeToStringInternal(type.properties.get(name)!, state)}`);
       }
       result = `{ ${renderedProperties.join(", ")} }`;
     }
   } else if (type instanceof RangeType) {
-    result = `range<${typeToStringInternal(type.elementType, seen)}>`;
+    result = `range<${typeToStringInternal(type.elementType, state)}>`;
   } else if (type instanceof UnionType) {
     const members = dedupeUnionDisplayMembers(flattenUnionDisplayMembers(type));
     const optionalMember = optionalTypeMember(members);
     if (optionalMember) {
-      const rendered = typeToStringInternal(optionalMember, seen);
+      const rendered = typeToStringInternal(optionalMember, state);
       result = needsParensForOptionalType(optionalMember) ? `(${rendered})?` : `${rendered}?`;
     } else {
-      result = members.map((member) => typeToStringInternal(member, seen)).join(" | ");
+      result = members.map((member) => typeToStringInternal(member, state)).join(" | ");
     }
   } else if (type instanceof IntersectionType) {
-    result = type.types.map((member) => typeToStringInternal(member, seen)).join(" & ");
+    result = type.types.map((member) => typeToStringInternal(member, state)).join(" & ");
   } else if (type instanceof LiteralType) {
     result = type.base === "string" ? JSON.stringify(type.value) : String(type.value);
   } else if (type instanceof TupleType) {
-    result = `${type.isReadonly === true ? "readonly " : ""}[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
+    result = `${type.isReadonly === true ? "readonly " : ""}[${type.elements.map((element) => typeToStringInternal(element, state)).join(", ")}]`;
   } else {
     result = "unknown";
   }
-  if (trackedObject) seen.delete(trackedObject);
+  if (trackedObject) state.seen.delete(trackedObject);
   return result;
 }
 

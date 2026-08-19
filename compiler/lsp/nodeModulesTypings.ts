@@ -19,6 +19,8 @@ import type { Range } from "vscode-languageserver";
 import { splitTopLevelTypeText } from "compiler/analysis/typeNames";
 
 export interface NodeModuleTypings {
+  /** Root declaration file selected for the imported package or subpath. */
+  typingsPath: string;
   /** All top-level declarations from the .d.ts (for externalDeclarations). */
   declarations: Statement[];
   /** Source file for each collected declaration, preserving reexport origins. */
@@ -36,6 +38,7 @@ export interface NodeModuleDeclarationEntry {
   statement: Statement;
   typingsPath: string;
   namespaceEntries?: readonly NodeModuleDeclarationEntry[];
+  reexportedFrom?: readonly string[];
 }
 
 export function nestedNodeModuleDeclarationEntries(
@@ -129,13 +132,20 @@ function extractImportedTypingsSpecifiers(ast: Program): string[] {
   return [...specifiers];
 }
 
-function asExportedTypingsEntry(entry: NodeModuleDeclarationEntry): NodeModuleDeclarationEntry {
-  return entry.statement instanceof ExportStatement
-    ? entry
-    : {
-        ...entry,
-        statement: new ExportStatement(entry.statement),
-      };
+function asExportedTypingsEntry(
+  entry: NodeModuleDeclarationEntry,
+  exportingTypingsPath?: string
+): NodeModuleDeclarationEntry {
+  const reexportedFrom = exportingTypingsPath
+    ? [...new Set([...(entry.reexportedFrom ?? []), exportingTypingsPath])]
+    : entry.reexportedFrom;
+  return {
+    ...entry,
+    statement: entry.statement instanceof ExportStatement
+      ? entry.statement
+      : new ExportStatement(entry.statement),
+    ...(reexportedFrom ? { reexportedFrom } : {})
+  };
 }
 
 function reexportedDeclaration(entry: NodeModuleDeclarationEntry): Statement {
@@ -147,28 +157,38 @@ function reexportedDeclaration(entry: NodeModuleDeclarationEntry): Statement {
 function asAliasedExportedTypingsEntry(
   entry: NodeModuleDeclarationEntry,
   exportedName: string,
-  localName: string
+  localName: string,
+  exportingTypingsPath?: string
 ): NodeModuleDeclarationEntry {
   if (exportedName === localName) {
-    return asExportedTypingsEntry(entry);
+    return asExportedTypingsEntry(entry, exportingTypingsPath);
   }
   const specifier: ExportSpecifier = new ExportSpecifier(new Identifier(exportedName), new Identifier(localName));
   return {
     ...entry,
     statement: new ExportStatement(reexportedDeclaration(entry), undefined, [specifier]),
+    ...(exportingTypingsPath
+      ? { reexportedFrom: [...new Set([...(entry.reexportedFrom ?? []), exportingTypingsPath])] }
+      : {})
   };
 }
 
 function asNamespaceReexportedTypingsEntry(
   namespaceExport: Identifier,
-  entries: readonly NodeModuleDeclarationEntry[]
+  targetTypingsPath: string,
+  entries: readonly NodeModuleDeclarationEntry[],
+  exportingTypingsPath: string
 ): NodeModuleDeclarationEntry | null {
-  const firstEntry = entries[0];
+  const exportedEntries = entries.filter((entry) =>
+    (entry.typingsPath === targetTypingsPath && entry.statement instanceof ExportStatement)
+    || entry.reexportedFrom?.includes(targetTypingsPath)
+  );
+  const firstEntry = exportedEntries[0];
   if (!firstEntry) {
     return null;
   }
   const namespaceName: Identifier = new Identifier(namespaceExport.name);
-  const namespaceEntries = entries.map(asExportedTypingsEntry);
+  const namespaceEntries = exportedEntries.map((entry) => asExportedTypingsEntry(entry));
   const namespaceDeclaration: NamespaceStatement = new NamespaceStatement(
     "namespace",
     new BlockStatement(namespaceEntries.map((entry) => entry.statement)),
@@ -179,7 +199,8 @@ function asNamespaceReexportedTypingsEntry(
   return {
     statement: new ExportStatement(namespaceDeclaration),
     typingsPath: firstEntry.typingsPath,
-    namespaceEntries
+    namespaceEntries,
+    reexportedFrom: [exportingTypingsPath]
   };
 }
 
@@ -216,6 +237,14 @@ export function nodeModuleExportedNamesForStatement(statement: Statement): strin
 
 function nodeModuleExportedNames(entry: NodeModuleDeclarationEntry): string[] {
   return nodeModuleExportedNamesForStatement(entry.statement);
+}
+
+function canBeReexportedFrom(
+  entry: NodeModuleDeclarationEntry,
+  targetTypingsPath: string
+): boolean {
+  return entry.typingsPath === targetTypingsPath
+    || entry.reexportedFrom?.includes(targetTypingsPath) === true;
 }
 
 async function collectTypingsDeclarations(
@@ -261,15 +290,27 @@ async function collectTypingsDeclarations(
     if (!targetTypingsPath) {
       continue;
     }
-    const reexportedDeclarations = await collectTypingsDeclarations(targetTypingsPath, options, visited);
+    const newlyCollectedReexports = await collectTypingsDeclarations(targetTypingsPath, options, visited);
+    const reexportedDeclarations = newlyCollectedReexports.length > 0
+      ? newlyCollectedReexports
+      : declarations.filter((entry) => canBeReexportedFrom(entry, targetTypingsPath));
     if (exportStatement.exportAll) {
       if (exportStatement.namespaceExport) {
-        const namespaceEntry = asNamespaceReexportedTypingsEntry(exportStatement.namespaceExport, reexportedDeclarations);
+        const namespaceEntry = asNamespaceReexportedTypingsEntry(
+          exportStatement.namespaceExport,
+          targetTypingsPath,
+          reexportedDeclarations,
+          typingsPath
+        );
         if (namespaceEntry) {
           declarations.push(namespaceEntry);
         }
       } else {
-        declarations.push(...reexportedDeclarations.map(asExportedTypingsEntry));
+        declarations.push(...reexportedDeclarations.map((entry) =>
+          canBeReexportedFrom(entry, targetTypingsPath)
+            ? asExportedTypingsEntry(entry, typingsPath)
+            : entry
+        ));
       }
       continue;
     }
@@ -281,9 +322,11 @@ async function collectTypingsDeclarations(
     }
     for (const entry of reexportedDeclarations) {
       const declarationName = nodeModuleDeclarationName(entry);
-      const exportedName = declarationName ? exportedNameByLocalName.get(declarationName) : undefined;
+      const exportedName = declarationName && canBeReexportedFrom(entry, targetTypingsPath)
+        ? exportedNameByLocalName.get(declarationName)
+        : undefined;
       if (declarationName && exportedName) {
-        declarations.push(asAliasedExportedTypingsEntry(entry, exportedName, declarationName));
+        declarations.push(asAliasedExportedTypingsEntry(entry, exportedName, declarationName, typingsPath));
         continue;
       }
       declarations.push(entry);
@@ -339,20 +382,52 @@ async function collectSelectiveTypingsDeclarations(
     ...(source ? extractTripleSlashReferencePaths(source) : []),
     ...extractImportedTypingsSpecifiers(ast)
   ]);
+  const forwardedExportNameByLocalName = new Map<string, string>();
+  for (const statement of ast.body) {
+    if (!(statement instanceof ExportStatement) || statement.from?.value) {
+      continue;
+    }
+    for (const specifier of statement.specifiers ?? []) {
+      forwardedExportNameByLocalName.set(
+        specifier.local?.name ?? specifier.exported.name,
+        specifier.exported.name
+      );
+    }
+  }
   for (const specifier of supportSpecifiers) {
     const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, specifier, options);
     if (!targetTypingsPath) {
       continue;
     }
-    declarations.push(
-      ...await collectSelectiveTypingsDeclarations(
-        targetTypingsPath,
-        exportedNamesWanted,
-        options,
-        visited,
-        true
-      )
+    const forwardedExportNameByImportedName = new Map<string, string>();
+    for (const statement of ast.body) {
+      if (!(statement instanceof ImportStatement) || statement.from?.value !== specifier) {
+        continue;
+      }
+      for (const importedSpecifier of statement.specifiers) {
+        const localName = (importedSpecifier.local ?? importedSpecifier.imported).name;
+        const forwardedName = forwardedExportNameByLocalName.get(localName);
+        if (forwardedName) {
+          forwardedExportNameByImportedName.set(importedSpecifier.imported.name, forwardedName);
+        }
+      }
+    }
+    const supportDeclarations = await collectSelectiveTypingsDeclarations(
+      targetTypingsPath,
+      exportedNamesWanted,
+      options,
+      visited,
+      true
     );
+    declarations.push(...supportDeclarations.map((entry) => {
+      const declarationName = nodeModuleDeclarationName(entry);
+      const forwardedName = declarationName && canBeReexportedFrom(entry, targetTypingsPath)
+        ? forwardedExportNameByImportedName.get(declarationName)
+        : undefined;
+      return declarationName && forwardedName
+        ? asAliasedExportedTypingsEntry(entry, forwardedName, declarationName, typingsPath)
+        : entry;
+    }));
   }
 
   for (const statement of ast.body) {
@@ -372,20 +447,32 @@ async function collectSelectiveTypingsDeclarations(
       if (exportStatement.namespaceExport && !includeAllTopLevel && !exportedNamesWanted.has(exportStatement.namespaceExport.name)) {
         continue;
       }
-      const reexportedDeclarations = await collectSelectiveTypingsDeclarations(
+      const newlyCollectedReexports = await collectSelectiveTypingsDeclarations(
         targetTypingsPath,
         exportedNamesWanted,
         options,
         visited,
         includeAllTopLevel || Boolean(exportStatement.namespaceExport)
       );
+      const reexportedDeclarations = newlyCollectedReexports.length > 0
+        ? newlyCollectedReexports
+        : declarations.filter((entry) => canBeReexportedFrom(entry, targetTypingsPath));
       if (exportStatement.namespaceExport) {
-        const namespaceEntry = asNamespaceReexportedTypingsEntry(exportStatement.namespaceExport, reexportedDeclarations);
+        const namespaceEntry = asNamespaceReexportedTypingsEntry(
+          exportStatement.namespaceExport,
+          targetTypingsPath,
+          reexportedDeclarations,
+          typingsPath
+        );
         if (namespaceEntry) {
           declarations.push(namespaceEntry);
         }
       } else {
-        declarations.push(...reexportedDeclarations.map(asExportedTypingsEntry));
+        declarations.push(...reexportedDeclarations.map((entry) =>
+          canBeReexportedFrom(entry, targetTypingsPath)
+            ? asExportedTypingsEntry(entry, typingsPath)
+            : entry
+        ));
       }
       continue;
     }
@@ -403,17 +490,22 @@ async function collectSelectiveTypingsDeclarations(
       continue;
     }
 
-    const reexportedDeclarations = await collectSelectiveTypingsDeclarations(
+    const newlyCollectedReexports = await collectSelectiveTypingsDeclarations(
       targetTypingsPath,
       new Set(exportedNameByLocalName.keys()),
       options,
       visited
     );
+    const reexportedDeclarations = newlyCollectedReexports.length > 0
+      ? newlyCollectedReexports
+      : declarations.filter((entry) => canBeReexportedFrom(entry, targetTypingsPath));
     for (const entry of reexportedDeclarations) {
       const declarationName = nodeModuleDeclarationName(entry);
-      const exportedName = declarationName ? exportedNameByLocalName.get(declarationName) : undefined;
+      const exportedName = declarationName && canBeReexportedFrom(entry, targetTypingsPath)
+        ? exportedNameByLocalName.get(declarationName)
+        : undefined;
       if (declarationName && exportedName) {
-        declarations.push(asAliasedExportedTypingsEntry(entry, exportedName, declarationName));
+        declarations.push(asAliasedExportedTypingsEntry(entry, exportedName, declarationName, typingsPath));
         continue;
       }
       declarations.push(entry);
@@ -509,6 +601,7 @@ export async function getNodeModuleTypings(
     packageName;
 
   const result: NodeModuleTypings = {
+    typingsPath,
     declarations,
     declarationEntries,
     defaultExportName,
@@ -557,6 +650,7 @@ export async function getNodeModuleTypingsForImportNames(
     detectNamespaceName(ast) ??
     packageName;
   const result: NodeModuleTypings = {
+    typingsPath,
     declarations,
     declarationEntries,
     defaultExportName

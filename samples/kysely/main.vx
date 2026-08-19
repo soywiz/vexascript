@@ -1,0 +1,36 @@
+import {
+  DummyDriver,
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler
+} from "kysely"
+
+type PersonTable = {
+  id: number;
+  name: string;
+  age: number;
+}
+
+type Database = {
+  person: PersonTable;
+}
+
+const database = new Kysely<Database>({
+  dialect: {
+    createAdapter: () => new PostgresAdapter(),
+    createDriver: () => new DummyDriver(),
+    createIntrospector: (database) => new PostgresIntrospector(database),
+    createQueryCompiler: () => new PostgresQueryCompiler()
+  }
+})
+
+const query = database
+  .selectFrom("person")
+  .select(["id", "name"])
+  .where("age", ">=", 18)
+  .orderBy("name")
+  .compile()
+
+console.log(`${query.sql}|${query.parameters.join(",")}`)
+await database.destroy()

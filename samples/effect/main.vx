@@ -1,0 +1,10 @@
+import { Effect, pipe } from "effect"
+
+const program = pipe(
+  Effect.succeed(21),
+  Effect.map((value) => value * 2),
+  Effect.flatMap((value) => Effect.succeed(`result:${value}`))
+)
+
+const result = await Effect.runPromise(program)
+console.log(result)

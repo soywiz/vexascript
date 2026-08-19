@@ -249,6 +249,30 @@ describe("Analysis", () => {
     ]);
   });
 
+  it("allows omitting a function parameter whose type includes void", () => {
+    const source = dedent`
+      declare function invoke(input: void | unknown): void
+      invoke()
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("does not treat an undefined-valued parameter as optional", () => {
+    const source = dedent`
+      declare function invoke(input: undefined): void
+      invoke()
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "Expected at least 1 argument(s), but got 0"
+    );
+  });
+
   it("validates annotations applied to class members", () => {
     const source = dedent`
       annotation Range(val min: number, val max: number)
@@ -1813,6 +1837,7 @@ let bad = "Ada" satisfies number
     const source = dedent`
       declare function promisedInt(): Promise<int>
       declare function plainInt(): int
+      declare function maybePromisedInt(): int | Promise<int>
       
       async function consumePromise() {
         let value: int = await promisedInt()
@@ -1820,6 +1845,10 @@ let bad = "Ada" satisfies number
       
       async function consumePlain() {
         let value: int = await plainInt()
+      }
+
+      async function consumeMaybePromise() {
+        let value: int = await maybePromisedInt()
       }
       
       async function wrongAwaitedType() {

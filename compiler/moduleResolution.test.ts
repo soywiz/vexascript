@@ -236,6 +236,51 @@ describe("resolveNodeModulesTypingsPath", () => {
     expect(await resolveNodeModulesTypingsPath(join(root, "main.vx"), "preact/hooks")).toBe(dtsPath);
   });
 
+  it("resolves wildcard package exports subpaths such as zustand/vanilla", async () => {
+    const packageDir = join(root, "node_modules", "zustand");
+    await mkdir(join(packageDir, "esm"), { recursive: true });
+    const rootDtsPath = join(packageDir, "index.d.ts");
+    const subpathDtsPath = join(packageDir, "esm", "vanilla.d.mts");
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({
+      name: "zustand",
+      types: "./index.d.ts",
+      exports: {
+        ".": { types: "./index.d.ts", default: "./index.js" },
+        "./*": {
+          import: { types: "./esm/*.d.mts", default: "./esm/*.mjs" },
+          default: { types: "./*.d.ts", default: "./*.js" }
+        }
+      }
+    }), "utf8");
+    await writeFile(rootDtsPath, "export * from './vanilla';", "utf8");
+    await writeFile(subpathDtsPath, "export declare const createStore: unknown;", "utf8");
+
+    expect(await resolveNodeModulesTypingsPath(join(root, "main.vx"), "zustand/vanilla"))
+      .toBe(subpathDtsPath);
+  });
+
+  it("resolves declaration siblings for JavaScript targets in a types condition", async () => {
+    const packageDir = join(root, "node_modules", "xstate-like");
+    await mkdir(join(packageDir, "dist"), { recursive: true });
+    const dtsPath = join(packageDir, "dist", "library.cjs.d.mts");
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({
+      name: "xstate-like",
+      exports: {
+        ".": {
+          types: {
+            import: "./dist/library.cjs.mjs",
+            default: "./dist/library.cjs.js"
+          },
+          import: "./dist/library.cjs.mjs",
+          default: "./dist/library.cjs.js"
+        }
+      }
+    }), "utf8");
+    await writeFile(dtsPath, "export declare const createMachine: unknown;", "utf8");
+
+    expect(await resolveNodeModulesTypingsPath(join(root, "main.vx"), "xstate-like")).toBe(dtsPath);
+  });
+
   it("prefers root package exports typings when the types field points at a missing file", async () => {
     const packageDir = join(root, "node_modules", "rxjs-like");
     await mkdir(join(packageDir, "dist", "types"), { recursive: true });

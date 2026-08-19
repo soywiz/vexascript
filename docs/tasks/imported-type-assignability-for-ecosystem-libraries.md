@@ -42,7 +42,7 @@ Make assignability against imported package typings behave much closer to TypeSc
 * [ ] Reduce cases where imported parameter or result types surface as `unknown` after successful symbol resolution.
 * [ ] Keep this task focused on assignability once the imported structural type exists; move namespace, declaration-graph, and higher-order inference gaps into dedicated linked tasks.
 * [ ] Use ecosystem samples as regression drivers rather than one-off fixes.
-* [ ] Update `docs/tasks/ecosystem-stress-samples.md` if new sample-specific follow-ups are discovered.
+* [ ] Add a follow-up task if new sample-specific gaps are discovered beyond `docs/tasks/completed/ecosystem-stress-samples.md`.
 
 ## Acceptance Criteria
 
@@ -71,7 +71,7 @@ Make assignability against imported package typings behave much closer to TypeSc
 * `compiler/lsp/importedDeclarations.ts`
 * `compiler/lsp/nodeModulesTypings.ts`
 * `compiler/lsp/nodeModulesTypings.test.ts`
-* `docs/tasks/ecosystem-stress-samples.md`
+* `docs/tasks/completed/ecosystem-stress-samples.md`
 * `docs/tasks/imported-namespace-and-qualified-type-interop.md`
 * `docs/tasks/higher-order-generic-and-variadic-inference.md`
 * `docs/tasks/declaration-graph-edge-cases.md`

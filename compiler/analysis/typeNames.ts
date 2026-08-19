@@ -133,7 +133,7 @@ function scanTypeText(
     }
 
     if (character === "<") depths.angle += 1;
-    else if (character === ">") depths.angle = Math.max(0, depths.angle - 1);
+    else if (character === ">" && previous !== "=") depths.angle = Math.max(0, depths.angle - 1);
     else if (character === "(") depths.paren += 1;
     else if (character === ")") depths.paren = Math.max(0, depths.paren - 1);
     else if (character === "[") depths.bracket += 1;
@@ -511,7 +511,29 @@ export function parseConditionalTypeText(typeName: string): ConditionalTypeText 
     cacheMissingConditionalTypeText(typeName);
     return null;
   }
-  const falseBranchSeparator = findTopLevelTypeCharacter(trimmed.slice(questionIndex + 1), ":");
+  const branchText = trimmed.slice(questionIndex + 1);
+  let branchCursor = 0;
+  let nestedConditionalDepth = 0;
+  let falseBranchSeparator = -1;
+  while (branchCursor < branchText.length) {
+    const remaining = branchText.slice(branchCursor);
+    const nextQuestion = findTopLevelTypeCharacter(remaining, "?");
+    const nextColon = findTopLevelTypeCharacter(remaining, ":");
+    if (nextColon < 0) {
+      break;
+    }
+    if (nextQuestion >= 0 && nextQuestion < nextColon) {
+      nestedConditionalDepth += 1;
+      branchCursor += nextQuestion + 1;
+      continue;
+    }
+    if (nestedConditionalDepth === 0) {
+      falseBranchSeparator = branchCursor + nextColon;
+      break;
+    }
+    nestedConditionalDepth -= 1;
+    branchCursor += nextColon + 1;
+  }
   if (falseBranchSeparator < 0) {
     cacheMissingConditionalTypeText(typeName);
     return null;
@@ -720,6 +742,7 @@ export interface ObjectTypeAnnotationMember {
   typeName: string;
   optional?: boolean;
   readonly?: boolean;
+  callSignature?: boolean;
 }
 
 /**
@@ -883,6 +906,14 @@ function parseObjectTypeAnnotationMember(part: string): ObjectTypeAnnotationMemb
       }
     }
 
+    const callSignatureTypeName = functionTypeFromCallSignatureText(trimmedPart);
+    if (callSignatureTypeName) {
+      return {
+        name: "",
+        typeName: callSignatureTypeName,
+        callSignature: true
+      };
+    }
     const signatureParenIndex = trimmedPart.indexOf("(");
     if (signatureParenIndex > 0 && (colonIndex < 0 || signatureParenIndex < colonIndex)) {
       const closeParenIndex = findMatchingTypeDelimiter(trimmedPart, signatureParenIndex, "(", ")");
@@ -935,9 +966,31 @@ function parseObjectTypeAnnotationMember(part: string): ObjectTypeAnnotationMemb
     };
 }
 
-/** Returns true if the type text contains `=>`, suggesting a function type annotation. */
+function functionTypeFromCallSignatureText(typeName: string): string | null {
+  const signatureParenIndex = typeName.indexOf("(");
+  const isCallSignature = signatureParenIndex === 0 || typeName.startsWith("<");
+  if (signatureParenIndex < 0 || !isCallSignature) {
+    return null;
+  }
+  const closeParenIndex = findMatchingTypeDelimiter(typeName, signatureParenIndex, "(", ")");
+  if (closeParenIndex < 0) {
+    return null;
+  }
+  const returnTypeSeparator = typeName.slice(closeParenIndex + 1).trimStart();
+  if (!returnTypeSeparator.startsWith(":")) {
+    return null;
+  }
+  const typeParameterText = typeName.slice(0, signatureParenIndex).trim();
+  const parameterText = typeName.slice(signatureParenIndex, closeParenIndex + 1);
+  const returnTypeName = returnTypeSeparator.slice(1).trim();
+  const nestedReturnTypeName = functionTypeFromCallSignatureText(returnTypeName) ?? returnTypeName;
+  return `${typeParameterText}${parameterText} => ${nestedReturnTypeName}`;
+}
+
+/** Returns true if the type text has a top-level `=>` function arrow. */
 export function looksLikeFunctionTypeAnnotation(typeName: string): boolean {
-  return typeName.includes("=>");
+  const arrowStart = findTopLevelTypeCharacter(typeName, "=");
+  return arrowStart >= 0 && typeName[arrowStart + 1] === ">";
 }
 
 /**

@@ -1,0 +1,31 @@
+import { constructTable, createColumnHelper, tableFeatures } from "@tanstack/table-core"
+import { storeReactivityBindings } from "@tanstack/table-core/store-reactivity-bindings"
+
+type Person = {
+  name: string;
+  score: number;
+}
+
+const data: Person[] = [
+  { name: "Ada", score: 9 },
+  { name: "Grace", score: 10 }
+]
+
+const features = tableFeatures({
+  coreReactivityFeature: storeReactivityBindings()
+})
+const helper = createColumnHelper<typeof features, Person>()
+const columns = [
+  helper.accessor((row) => row.name, { id: "name" }),
+  helper.accessor((row) => row.score, { id: "score" })
+]
+
+const table = constructTable({
+  features,
+  data,
+  columns,
+  getRowId: (row) => row.name
+})
+
+const rows = table.getRowModel().rows
+console.log(rows.map((row) => `${row.original.name}:${row.original.score}`).join(","))

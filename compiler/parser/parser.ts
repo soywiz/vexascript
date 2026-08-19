@@ -72,6 +72,23 @@ export function normalizeJsxText(raw: string): string {
     return pieces.join(" ");
 }
 
+function appendCompactTypeToken(text: string, token: Token): string {
+    const tokenText = typeTokenText(token);
+    const previous = text.at(-1) ?? "";
+    const needsSpace = /[A-Za-z0-9_$>\])]/.test(previous) && /^[A-Za-z_$]/.test(tokenText);
+    return `${text}${needsSpace ? " " : ""}${tokenText}`;
+}
+
+function typeAngleDepthAfterSymbol(depth: number, symbol: string): number {
+    if (symbol === "<") {
+        return depth + 1;
+    }
+    if ([">", ">>", ">>>"].includes(symbol)) {
+        return Math.max(0, depth - symbol.length);
+    }
+    return depth;
+}
+
 export type ParseLanguage = TokenizeLanguage;
 
 export interface ParserOptions {
@@ -1602,7 +1619,7 @@ export class Parser {
                     break;
                 }
             }
-            text += typeTokenText(token);
+            text = appendCompactTypeToken(text, token);
         }
         if (depth !== 0) {
             this.fail("Expected ')' to close function type annotation", this.tokenAt(openParen));
@@ -1624,7 +1641,7 @@ export class Parser {
             }
             if (token.type === TokenType.SYMBOL && token.value === "<") {
                 depth += 1;
-                text += typeTokenText(token);
+                text = appendCompactTypeToken(text, token);
                 continue;
             }
             if (token.type === TokenType.SYMBOL && [">", ">>", ">>>"].includes(token.value)) {
@@ -1641,7 +1658,7 @@ export class Parser {
                 }
                 continue;
             }
-            text += typeTokenText(token);
+            text = appendCompactTypeToken(text, token);
         }
         if (depth !== 0) {
             this.fail("Expected '>' to close generic type text", this.tokenAt(open));
@@ -1655,7 +1672,10 @@ export class Parser {
         if (!token) {
             return false;
         }
-        if (token.type === TokenType.SYMBOL && (token.value === "[" || token.value === "<")) {
+        if (
+            token.type === TokenType.SYMBOL &&
+            (token.value === "[" || token.value === "<" || token.value === "(")
+        ) {
             return true;
         }
         if (token.type === TokenType.IDENTIFIER && token.value === "readonly" && next?.type === TokenType.SYMBOL && next.value === "[") {
@@ -1728,8 +1748,14 @@ export class Parser {
                         break;
                     }
                     braceDepth -= 1;
-                } else if (token.value === "<") angleDepth += 1;
-                else if (token.value === ">") angleDepth = Math.max(0, angleDepth - 1);
+                } else if (
+                    token.value === "<" ||
+                    token.value === ">" ||
+                    token.value === ">>" ||
+                    token.value === ">>>"
+                ) {
+                    angleDepth = typeAngleDepthAfterSymbol(angleDepth, token.value);
+                }
                 else if ((token.value === ";" || token.value === ",") && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0) {
                     break;
                 }
@@ -7266,8 +7292,14 @@ export class Parser {
                         return;
                     }
                     braceDepth -= 1;
-                } else if (token.value === "<") angleDepth += 1;
-                else if (token.value === ">") angleDepth = Math.max(0, angleDepth - 1);
+                } else if (
+                    token.value === "<" ||
+                    token.value === ">" ||
+                    token.value === ">>" ||
+                    token.value === ">>>"
+                ) {
+                    angleDepth = typeAngleDepthAfterSymbol(angleDepth, token.value);
+                }
                 else if ((token.value === ";" || token.value === ",") && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0) {
                     return;
                 }

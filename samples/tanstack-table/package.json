@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tanstack/table-core": "9.1.2"
+  }
+}

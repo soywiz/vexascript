@@ -116,7 +116,7 @@ The items below are grouped by problem family. They are intentionally broad, but
 * `docs/tasks/advanced-typescript-type-system-coverage.md`
 * `docs/tasks/typescript-utility-type-coverage.md`
 * `docs/tasks/imported-type-assignability-for-ecosystem-libraries.md`
-* `docs/tasks/ecosystem-stress-samples.md`
+* `docs/tasks/completed/ecosystem-stress-samples.md`
 * `docs/tasks/imported-namespace-and-qualified-type-interop.md`
 * `docs/tasks/higher-order-generic-and-variadic-inference.md`
 * `docs/tasks/declaration-graph-edge-cases.md`

@@ -1,0 +1,10 @@
+import { filter, lastValueFrom, map, of, scan } from "rxjs"
+
+const totals = of(1, 2, 3, 4).pipe(
+  filter((value) => value % 2 === 0),
+  map((value) => ({ value, squared: value * value })),
+  scan((total, entry) => total + entry.squared, 0),
+  map((total) => `sum:${total}`)
+)
+
+console.log(await lastValueFrom(totals))

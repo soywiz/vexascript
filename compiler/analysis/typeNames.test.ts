@@ -35,6 +35,11 @@ describe("type-name text structure", () => {
     ]);
   });
 
+  it("does not treat function arrows as generic closing delimiters", () => {
+    const typeText = 'Outer<{ first: () => string, second: () => string }, "left" | "right">';
+    expect(splitTopLevelTypeText(typeText, "|")).toEqual([typeText]);
+  });
+
   it("does not expose mutable cached type-text results", () => {
     const parts = splitTopLevelTypeText("string | int", "|");
     parts.push("boolean");
@@ -51,6 +56,12 @@ describe("type-name text structure", () => {
     const conditional = parseConditionalTypeText("T extends string ? number : boolean")!;
     expect(parseConditionalTypeText("T extends string ? number : boolean")).toBe(conditional);
     expect(conditional.trueTypeText).toBe("number");
+
+    const nestedConditional = parseConditionalTypeText(
+      "T extends infer R ? R extends string ? number : boolean : never"
+    )!;
+    expect(nestedConditional.trueTypeText).toBe("R extends string ? number : boolean");
+    expect(nestedConditional.falseTypeText).toBe("never");
   });
 
   it("finds top-level characters and matching delimiters while ignoring quoted text", () => {
@@ -223,14 +234,29 @@ describe("parseObjectTypeAnnotation", () => {
     const result = parseObjectTypeAnnotation("{ new(x: string): MyClass }");
     expect(result?.[0]?.name).toBe("constructor");
   });
+
+  it("distinguishes generic and non-generic call signatures from properties", () => {
+    expect(parseObjectTypeAnnotation("{ <T>(value: T): Box<T>; (value: string): string; <T>(): <U = []>(value: T): Box<U>; label: string }"))
+      .toEqual([
+        { name: "", typeName: "<T>(value: T) => Box<T>", callSignature: true },
+        { name: "", typeName: "(value: string) => string", callSignature: true },
+        { name: "", typeName: "<T>() => <U = []>(value: T) => Box<U>", callSignature: true },
+        { name: "label", typeName: "string" }
+      ]);
+  });
 });
 
 describe("looksLikeFunctionTypeAnnotation", () => {
-  it("returns true when the text contains =>", () => {
+  it("returns true when the text has a top-level function arrow", () => {
     expect(looksLikeFunctionTypeAnnotation("(x: string) => void")).toBe(true);
   });
 
-  it("returns false when the text has no =>", () => {
+  it("ignores function arrows nested inside generic arguments", () => {
+    expect(looksLikeFunctionTypeAnnotation("Decorate<Record<{ handler: (value: string) => number }>>"))
+      .toBe(false);
+  });
+
+  it("returns false when the text has no function arrow", () => {
     expect(looksLikeFunctionTypeAnnotation("string")).toBe(false);
     expect(looksLikeFunctionTypeAnnotation("{ x: number }")).toBe(false);
   });

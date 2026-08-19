@@ -40,7 +40,7 @@ Preserve useful generic specifics across higher-order imported APIs so more real
 
 * [ ] Add targeted semantic regressions for curried generic factories.
 * [ ] Add targeted imported-typing regressions for variadic and overloaded higher-order APIs.
-* [ ] Update `docs/tasks/ecosystem-stress-samples.md` when `rxjs` or `zustand` sample status changes.
+* [ ] Add a follow-up task if `rxjs` or `zustand` regress beyond the completed coverage in `docs/tasks/completed/ecosystem-stress-samples.md`.
 * [ ] Run `pnpm test`.
 * [ ] Run `pnpm cli vexa testFixtures/sample.vx`.
 
@@ -50,4 +50,4 @@ Preserve useful generic specifics across higher-order imported APIs so more real
 * `compiler/analysis/Analysis.generics.test.ts`
 * `compiler/lsp/importedDeclarations.ts`
 * `compiler/lsp/nodeModulesTypings.test.ts`
-* `docs/tasks/ecosystem-stress-samples.md`
+* `docs/tasks/completed/ecosystem-stress-samples.md`

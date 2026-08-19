@@ -61,6 +61,7 @@ import {
   getNodeModuleTypings,
   getNodeModuleTypingsForImportNames,
   type NodeModuleDeclarationEntry,
+  type NodeModuleTypings,
   nodeModuleExportedNamesForStatement
 } from "./nodeModulesTypings";
 import {
@@ -761,6 +762,36 @@ function resolveNodeModuleNamedImportType(
 
   resolutionCache.namedImportTypes.set(importedName, null);
   return null;
+}
+
+function declarationsForNodeModuleExport(
+  typings: NodeModuleTypings,
+  exportedName: string
+): readonly Statement[] {
+  const exportedEntries = typings.declarationEntries.filter((entry) =>
+    nodeModuleExportedNamesForStatement(entry.statement).includes(exportedName)
+    && (
+      entry.typingsPath === typings.typingsPath
+      || entry.reexportedFrom?.includes(typings.typingsPath)
+    )
+  );
+  if (exportedEntries.length === 0) {
+    return typings.declarations;
+  }
+  const exportedStatements = new Set(exportedEntries.map((entry) => entry.statement));
+  for (const entry of typings.declarationEntries) {
+    if (
+      nodeModuleExportedNamesForStatement(entry.statement).includes(exportedName)
+      && entry.reexportedFrom?.length
+      && unwrapExportedDeclaration(entry.statement)
+    ) {
+      exportedStatements.add(entry.statement);
+    }
+  }
+  return typings.declarations.filter((statement) =>
+    !nodeModuleExportedNamesForStatement(statement).includes(exportedName)
+    || exportedStatements.has(statement)
+  );
 }
 
 /**
@@ -2658,12 +2689,7 @@ function resolveAmbientDefaultImportType(
       ambientGlobalDeclarations
     );
     const directExportKeys = Object.keys(directExports);
-    const isExportEqualsNamespaceFacade =
-      exportEqualsName !== null
-      && directExportKeys.length === 1
-      && directExportKeys[0] === exportEqualsName
-      && findAmbientNamespaceBody(decls, exportEqualsName) !== null;
-    if (directExportKeys.length > 0 && !isExportEqualsNamespaceFacade) {
+    if (directExportKeys.length > 0 && exportEqualsName === null) {
       const resolved = objectTypeWithProperties(directExports);
       resolutionCache.defaultImportTypes.set(importName, resolved);
       return resolved;
@@ -2715,6 +2741,11 @@ function resolveAmbientDefaultImportType(
     if (callableExport) {
       resolutionCache.defaultImportTypes.set(importName, callableExport);
       return callableExport;
+    }
+    if (directExportKeys.length > 0) {
+      const resolved = objectTypeWithProperties(directExports);
+      resolutionCache.defaultImportTypes.set(importName, resolved);
+      return resolved;
     }
     fallbackNamedExport ??= namedType(exportEqualsName);
   }
@@ -3217,6 +3248,9 @@ function shouldIncludeNodeModuleExternalDeclaration(
   if (rawDeclaration instanceof NamespaceStatement) {
     return true;
   }
+  if (statement instanceof ExportStatement && ((statement as ExportStatement).specifiers?.length ?? 0) > 0) {
+    return true;
+  }
   const declaration = unwrapDeclaration(statement);
   if (!declaration) {
     return false;
@@ -3423,11 +3457,14 @@ export async function collectAllImportedDeclarations(
           importStatement.from.value,
           wantedNames,
           { vfs: context.vfs }
-        );
+      );
       if (nodeModuleTypings) {
+        const declarationsForExport = (exportedName: string): readonly Statement[] =>
+          declarationsForNodeModuleExport(nodeModuleTypings, exportedName);
         const nodeModuleIndex = getNodeModuleDeclarationIndex(nodeModuleTypings.declarations);
         const nodeModulePathByStatement = new Map<Statement, string>();
         const declarationOriginByExportedName = new Map<string, ImportedSymbolDeclarationOrigin>();
+        const declarationOriginRankByExportedName = new Map<string, number>();
         const recordNodeModuleDeclarationPath = (entry: NodeModuleDeclarationEntry): void => {
           nodeModulePathByStatement.set(entry.statement, entry.typingsPath);
           const unwrappedEntry = unwrapExportedDeclaration(entry.statement);
@@ -3441,9 +3478,14 @@ export async function collectAllImportedDeclarations(
         for (const entry of nodeModuleTypings.declarationEntries) {
           recordNodeModuleDeclarationPath(entry);
           for (const exportedName of nodeModuleExportedNamesForStatement(entry.statement)) {
-            if (declarationOriginByExportedName.has(exportedName)) {
+            const rank = entry.typingsPath === nodeModuleTypings.typingsPath
+              || entry.reexportedFrom?.includes(nodeModuleTypings.typingsPath)
+              ? 1
+              : 0;
+            if ((declarationOriginRankByExportedName.get(exportedName) ?? -1) >= rank) {
               continue;
             }
+            declarationOriginRankByExportedName.set(exportedName, rank);
             declarationOriginByExportedName.set(exportedName, {
               statement: entry.statement,
               filePath: entry.typingsPath,
@@ -3494,10 +3536,13 @@ export async function collectAllImportedDeclarations(
           }
           seen.add(declaration);
           seenNodeModuleStatements.add(targetStatement);
-          importedNodeModuleDeclarations.push(declaration);
+          const importedDeclaration = targetStatement instanceof ExportStatement
+            ? targetStatement
+            : declaration;
+          importedNodeModuleDeclarations.push(importedDeclaration);
           const declarationPath = nodeModulePathByStatement.get(targetStatement) ?? nodeModulePathByStatement.get(declaration);
           if (declarationPath) {
-            importedNodeModuleDeclarationPaths.set(declaration, declarationPath);
+            importedNodeModuleDeclarationPaths.set(importedDeclaration, declarationPath);
           }
           queueSupportingDependencyNames(targetStatement);
         };
@@ -3566,7 +3611,10 @@ export async function collectAllImportedDeclarations(
           if (importStatement.defaultImport) {
             if (defaultImportType) {
               setImportedSymbolType(importedSymbols, importStatement.defaultImport.name, defaultImportType);
-              const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName);
+              const displayType = displayTypeForExternalFunction(
+                nodeModuleTypings.declarations,
+                nodeModuleTypings.defaultExportName
+              );
               if (displayType) {
                 setImportedSymbolDisplayType(importedSymbols, importStatement.defaultImport.name, displayType);
               }
@@ -3601,10 +3649,11 @@ export async function collectAllImportedDeclarations(
           }
           for (const specifier of importStatement.specifiers) {
             const localName = (specifier.local ?? specifier.imported).name;
-            const importedType = resolveNodeModuleNamedImportType(nodeModuleTypings.declarations, specifier.imported.name);
+            const exportDeclarations = declarationsForExport(specifier.imported.name);
+            const importedType = resolveNodeModuleNamedImportType(exportDeclarations, specifier.imported.name);
             if (importedType) {
               setImportedSymbolType(importedSymbols, localName, importedType);
-              const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, specifier.imported.name);
+              const displayType = displayTypeForExternalFunction(exportDeclarations, specifier.imported.name);
               if (displayType) {
                 setImportedSymbolDisplayType(importedSymbols, localName, displayType);
               }
@@ -3628,10 +3677,11 @@ export async function collectAllImportedDeclarations(
           if (importedSymbols.get(localName)?.type) {
             continue;
           }
-          const importedType = resolveNodeModuleNamedImportType(nodeModuleTypings.declarations, specifier.imported.name);
+          const exportDeclarations = declarationsForExport(specifier.imported.name);
+          const importedType = resolveNodeModuleNamedImportType(exportDeclarations, specifier.imported.name);
           if (importedType) {
             setImportedSymbolType(importedSymbols, localName, importedType);
-            const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, specifier.imported.name);
+            const displayType = displayTypeForExternalFunction(exportDeclarations, specifier.imported.name);
             if (displayType) {
               setImportedSymbolDisplayType(importedSymbols, localName, displayType);
             }

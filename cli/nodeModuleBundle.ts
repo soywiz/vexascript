@@ -681,7 +681,12 @@ function collectStaticCallOccurrences(
   }
 }
 
+const MODULE_SYNTAX_SYMBOLS = new Set(["(", ")", "*", ",", ".", ";", "[", "]", "{", "}"]);
+
 function tokenIs(token: Token | undefined, value: string): boolean {
+  if (MODULE_SYNTAX_SYMBOLS.has(value)) {
+    return token?.type === TokenType.SYMBOL && token.value === value;
+  }
   return token?.value === value;
 }
 
@@ -714,6 +719,15 @@ function findTokenValue(tokens: readonly Token[], value: string, startIndex: num
     }
   }
   return foundIndex;
+}
+
+function findImportFromClause(tokens: readonly Token[], startIndex: number, endIndex: number): number {
+  for (let index = endIndex - 1; index > startIndex; index -= 1) {
+    if (tokenIs(tokens[index], "from") && tokens[index + 1]?.type === TokenType.STRING) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function moduleSpecifierBindings(
@@ -768,7 +782,7 @@ function transformStaticImport(
     );
   }
 
-  const fromIndex = findTokenValue(tokens, "from", startIndex + 1, endIndex);
+  const fromIndex = findImportFromClause(tokens, startIndex, endIndex);
   const sourceToken = tokens[fromIndex + 1];
   if (fromIndex < 0 || sourceToken?.type !== TokenType.STRING) {
     return null;
@@ -827,9 +841,15 @@ function transformStaticImport(
 }
 
 function declarationExportNames(tokens: readonly Token[], declarationIndex: number): string[] {
-  const declarationKind = tokens[declarationIndex]?.value;
+  const declarationKindIndex = tokenIs(tokens[declarationIndex], "async")
+    ? declarationIndex + 1
+    : declarationIndex;
+  const declarationKind = tokens[declarationKindIndex]?.value;
   if (declarationKind === "function" || declarationKind === "class") {
-    const nameToken = tokens[declarationIndex + 1];
+    const generatorOffset = declarationKind === "function" && tokenIs(tokens[declarationKindIndex + 1], "*")
+      ? 1
+      : 0;
+    const nameToken = tokens[declarationKindIndex + 1 + generatorOffset];
     return nameToken?.type === TokenType.IDENTIFIER ? [nameToken.value] : [];
   }
   if (declarationKind !== "const" && declarationKind !== "let" && declarationKind !== "var") {
@@ -858,6 +878,21 @@ function declarationExportNames(tokens: readonly Token[], declarationIndex: numb
     }
   }
   return names;
+}
+
+function exportedFunctionDeclarationName(
+  tokens: readonly Token[],
+  declarationIndex: number
+): string | null {
+  const functionIndex = tokenIs(tokens[declarationIndex], "async")
+    ? declarationIndex + 1
+    : declarationIndex;
+  if (!tokenIs(tokens[functionIndex], "function")) {
+    return null;
+  }
+  const generatorOffset = tokenIs(tokens[functionIndex + 1], "*") ? 1 : 0;
+  const nameToken = tokens[functionIndex + 1 + generatorOffset];
+  return nameToken?.type === TokenType.IDENTIFIER ? nameToken.value : null;
 }
 
 function transformNamedExport(
@@ -911,6 +946,7 @@ function transformJavaScriptModuleSource(source: string): TranspiledModuleSource
   const tokens = tokenize(source, { language: "typescript" });
   const replacements: SourceReplacement[] = [];
   const trailingExports: ModuleSpecifierBinding[] = [];
+  const hoistedExports: ModuleSpecifierBinding[] = [];
   const exportNames = new Set<string>();
   let temporaryIndex = 0;
 
@@ -978,6 +1014,10 @@ function transformJavaScriptModuleSource(source: string): TranspiledModuleSource
           ""
         ));
         trailingExports.push(new ModuleSpecifierBinding(name, "default"));
+        const functionName = exportedFunctionDeclarationName(tokens, index + 2);
+        if (functionName) {
+          hoistedExports.push(new ModuleSpecifierBinding(functionName, "default"));
+        }
       } else {
         replacements.push(new SourceReplacement(
           token.range.start.offset,
@@ -1000,6 +1040,10 @@ function transformJavaScriptModuleSource(source: string): TranspiledModuleSource
         trailingExports.push(new ModuleSpecifierBinding(name, name));
         exportNames.add(name);
       }
+      const functionName = exportedFunctionDeclarationName(tokens, index + 1);
+      if (functionName) {
+        hoistedExports.push(new ModuleSpecifierBinding(functionName, functionName));
+      }
     }
   }
 
@@ -1015,8 +1059,15 @@ function transformJavaScriptModuleSource(source: string): TranspiledModuleSource
     cursor = replacement.endOffset;
   }
   code += source.slice(cursor);
+  const hoistedExportStatements: string[] = [];
   if (exportNames.size > 0) {
-    code += "\nexports.__esModule = true;";
+    hoistedExportStatements.push("exports.__esModule = true;");
+  }
+  for (const binding of hoistedExports) {
+    hoistedExportStatements.push(`exports.${binding.local} = ${binding.imported};`);
+  }
+  if (hoistedExportStatements.length > 0) {
+    code = `${hoistedExportStatements.join("\n")}\n${code}`;
   }
   for (const binding of trailingExports) {
     code += `\nexports.${binding.local} = ${binding.imported};`;

@@ -1,0 +1,15 @@
+import { counterStore } from "./store.vx"
+
+const transitions: string[] = []
+const unsubscribe = counterStore.subscribe((state, previous) => {
+  transitions.push(`${previous.count}->${state.count}:${state.status}`)
+})
+
+counterStore.getState().increment(2)
+counterStore.setState({ status: "active" })
+counterStore.getState().increment(3)
+unsubscribe()
+
+const finalState = counterStore.getState()
+console.log(`${finalState.count}|${finalState.status}`)
+console.log(transitions.join(","))

@@ -91,6 +91,7 @@ This section is the fast onboarding map for agents and contributors.
   - JSX block-control sample: `samples/jsx-blocks/` validates eager component dispatch in a minimal custom classic factory plus nested `{#for}` and `{#if}` / `{:else if}` / `{:else}` children at runtime.
   - Focused React Query browser sample: `samples/react-query/` isolates `@tanstack/react-query` hook options, async result typing, and JSX result rendering behind a minimal React + ReactDOM browser shell.
   - Focused React Router browser sample: `samples/react-router/` isolates `react-router-dom` MemoryRouter, Link navigation, and location-driven JSX output behind a minimal React + ReactDOM browser shell.
+  - Ecosystem TypeScript stress samples use unmodified published packages with deterministic runtime output: `samples/zustand/` covers curried store factories and state callbacks; `samples/hono/` covers web-server routing and typed contexts; `samples/rxjs/` covers overloaded operator composition; `samples/xstate/` covers state-machine configuration inference; `samples/tanstack-table/` covers recursive column and row generics; `samples/effect/` covers namespace barrels and higher-kinded conditional types; `samples/drizzle/` and `samples/kysely/` cover fluent SQL builders and mapped row shapes; `samples/trpc/` covers recursive routers and procedure inference; `samples/viem/` covers const tuples, conditional validators, and ABI-derived types; and `samples/react-hook-form/` covers recursive form-state types, utility aliases, and overloaded call-signature objects.
   - Multi-file Zod 4 compatibility sample: `samples/zod/` uses the unmodified published package across schema, model, parsing, transformation, and entry modules; it covers namespace and type-only imports, `z.infer`/`z.input`/`z.output`, object composition, collections, unions, errors, coercion, transforms, refinements, JSON values, and async parsing with deterministic runtime output.
   - Focused date-fns sample: `samples/date-fns/` validates named-export barrels and date utility typing/runtime against the real `date-fns` package.
   - THREE.js browser sample: `samples/threejs/` uses `samples/threejs/html.vx` together with `samples/threejs/vexascript.json` and supporting modules such as `scene-data.vx`/`extensions.vx`, validating normal module imports from the Three npm package directly inside VexaScript browser code.
@@ -235,6 +236,7 @@ This section is the fast onboarding map for agents and contributors.
   - Website validation and production deployment workflow, including real-browser playground checks and the guarded `HEAD:web` push: `.codex/skills/deploy-vexascript-website/SKILL.md`
   - Unified workflow for breaking and validating VexaScript against TypeScript libraries through focused regressions or comprehensive multi-file package samples, covering compiler, bundler, and LSP behavior: `.codex/skills/break-and-validate-vexascript-typescript-library-samples/SKILL.md`
   - Sample-creation workflow skill for browser and Node samples: `.codex/skills/create-vexascript-samples/SKILL.md`
+  - Deterministic compiler/LSP optimization workflow based on queryable work counters, cache hits/misses, in-flight reuse, and cold/warm deltas rather than wall-clock test thresholds: `.codex/skills/optimize-vexascript-compiler-lsp/SKILL.md`
   - Destructive subtractive-refactor workflow skill for negative-net cleanup, dead-code deletion, and removal of internal compatibility layers when compiler/CLI behavior remains stable: `.codex/skills/destructive-negative-net-refactor/SKILL.md`
   - Journal-ingestion workflow skill for turning engineering notes into actionable follow-up tasks and moving processed notes aside: `.codex/skills/ingest-vexascript-journal/SKILL.md`
   - Task-management workflow skill for creating, updating, and completing repository task docs: `.codex/skills/manage-vexascript-tasks/SKILL.md`
@@ -244,7 +246,7 @@ This section is the fast onboarding map for agents and contributors.
 - LSP post-unification cleanup tasks: `docs/tasks/completed/lsp-post-unification-cleanup.md`
 - Completed compiler hotspot helper-decomposition pass: `docs/tasks/completed/compiler-hotspots-decomposition.md`
 - React interop ergonomics follow-up task: `docs/tasks/react-interop-ergonomics.md`
-- Ecosystem stress-sample planning task: `docs/tasks/ecosystem-stress-samples.md`
+- Completed ecosystem stress-sample task: `docs/tasks/completed/ecosystem-stress-samples.md`
 - LSP current resolution-path baseline for unification work: `docs/lsp.resolution-paths.md`
 - LSP canonical cursor-target model design for unifying navigation, hover, references, rename, and signature help: `docs/lsp.cursor-target-model.md`
 - Semantic analysis spec: `docs/semantic.spec.md`

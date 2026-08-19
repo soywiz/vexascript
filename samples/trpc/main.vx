@@ -1,0 +1,18 @@
+import { initTRPC } from "@trpc/server"
+
+type RequestContext = {
+  requestId: string;
+}
+
+const t = initTRPC.context<RequestContext>().create()
+const appRouter = t.router({
+  greeting: t.procedure.query(({ ctx }) => `hello:${ctx.requestId}`),
+  math: t.router({
+    double: t.procedure.query(() => 21 * 2)
+  })
+})
+
+const caller = appRouter.createCaller({ requestId: "req-7" })
+const greeting = await caller.greeting()
+const doubled = await caller.math.double()
+console.log(`${greeting}|${doubled}`)

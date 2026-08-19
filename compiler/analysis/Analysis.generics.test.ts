@@ -252,6 +252,24 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("Unknown type 'T'"))).toBe(false);
   });
 
+  it("terminates generic inference for recursive object types", () => {
+    const source = dedent`
+      interface Left<T> {
+        right: Right<T>
+      }
+      interface Right<T> {
+        left: Left<T>
+      }
+      declare function infer<T>(value: Left<T>): T
+      declare const recursive: Left<string>
+      const result: string = infer(recursive)
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("infers generic function type arguments from contextual return types", () => {
     const source = dedent`
       fun make<T>(): T {
@@ -2193,6 +2211,31 @@ describe("Analysis", () => {
     expect(messages).toEqual([]);
   });
 
+  it("resolves conditional output aliases used with polymorphic this in inherited methods", () => {
+    const source = dedent`
+      namespace core {
+        export type output<T> = T extends { _zod: { output: any } }
+          ? T["_zod"]["output"]
+          : unknown
+      }
+      interface Schema<Output = unknown> {
+        _zod: { output: Output }
+        transform<Next>(fn: (value: core.output<this>) => Next): Schema<Next>
+        parseAsync(value: unknown): Promise<core.output<this>>
+      }
+      interface StringSchema extends Schema<string> {}
+      declare const schema: StringSchema
+      const transformed = schema.transform((value) => value.toUpperCase())
+      async fun parse(): Promise<string> {
+        return await schema.parseAsync("ready")
+      }
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
   it("maps conditional schema outputs across object shapes", () => {
     const source = dedent`
       namespace core {
@@ -2398,6 +2441,33 @@ describe("Analysis", () => {
         }
         return result.error.issues[0]
       }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("infers an identity type parameter from a conditional parameter branch", () => {
+    const source = dedent`
+      type Signature<S extends string, K> = S
+      type Signatures<S extends readonly string[]> = {
+        [K in keyof S]: Signature<S[K], K>
+      }
+      declare function parse<S extends readonly string[]>(
+        value: S["length"] extends 0 ? never : Signatures<S> extends S ? S : Signatures<S>
+      ): S
+      const parsed = parse(["function demo()"])
+      const first: string = parsed[0]
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves tuple length indexed access to a numeric literal", () => {
+    const source = dedent`
+      declare function tupleLength<T extends readonly unknown[]>(value: T): T["length"]
+      const length: 1 = tupleLength(["value"])
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 

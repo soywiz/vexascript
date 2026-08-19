@@ -151,6 +151,13 @@ describe("transpileModuleSource", () => {
     expect(result.exportNames).toContain("b");
   });
 
+  it("converts imports whose named binding is called from", () => {
+    const esm = "import { popScheduler } from '../util/args';\nimport { from } from './from';\nexport const value = from(popScheduler([]));";
+    const result = transpileModuleSource(esm, "/lib/of.js");
+    expect(result.code).toContain('const { from } = require("./from")');
+    expect(result.code).not.toContain("import { from }");
+  });
+
   it("uses the module specifier rather than strings in import attributes", () => {
     const esm = [
       'import data from "./data.json" with { type: "json" };',
@@ -169,6 +176,38 @@ describe("transpileModuleSource", () => {
     const result = transpileModuleSource(esm, "/lib/iterate.mjs");
     expect(result.code).toContain("for (key in obj)");
     expect(result.code).not.toContain("for (const key of obj)");
+  });
+
+  it("converts exported generator function declarations to CommonJS", () => {
+    const esm = "export function* mapHelper(values, project) {\n  for (const value of values) yield project(value);\n}\n";
+    const result = transpileModuleSource(esm, "/lib/helpers.mjs");
+
+    expect(result.code).toContain("function* mapHelper");
+    expect(result.code).not.toContain("export function*");
+    expect(result.code).toContain("exports.mapHelper = mapHelper");
+    expect(result.exportNames).toContain("mapHelper");
+  });
+
+  it("converts exported async function declarations to CommonJS", () => {
+    const esm = "export async function loadValue() {\n  return 42;\n}\n";
+    const result = transpileModuleSource(esm, "/lib/helpers.mjs");
+
+    expect(result.code).toContain("async function loadValue");
+    expect(result.code).not.toContain("export async function");
+    expect(result.code).toContain("exports.loadValue = loadValue");
+    expect(result.exportNames).toContain("loadValue");
+  });
+
+  it("does not treat template literal text as module syntax", () => {
+    const esm = [
+      "export const render = values => `Values(" + "${values.join(\", \")}" + ")`;",
+      "export const after = isEnabled(self, RuntimeMetrics);"
+    ].join("\n");
+    const result = transpileModuleSource(esm, "/lib/helpers.mjs");
+
+    expect(result.exportNames).toEqual(["render", "after"]);
+    expect(result.code).toContain("exports.render = render");
+    expect(result.code).toContain("exports.after = after");
   });
 
   it("handles export { name as default } through token rewriting", () => {
@@ -328,6 +367,40 @@ describe("bundleNodeModuleGraph", () => {
 
         expect(result.code).not.toContain('import { value as sharedValue } from "./shared.mjs";');
         expect(result.code).toContain('const { value: sharedValue } = require("./shared.mjs");');
+      }
+    );
+  });
+
+  it("keeps exported function declarations available through cyclic ESM imports", async () => {
+    await withTempProject(
+      {
+        "entry.mjs": 'import { valueThroughCycle } from "pkg"; export const value = valueThroughCycle();\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          type: "module",
+          exports: "./index.js"
+        }),
+        "node_modules/pkg/index.js": [
+          'import { readValue } from "./reader.js";',
+          "export function value() { return 42; }",
+          "export function valueThroughCycle() { return readValue(); }"
+        ].join("\n"),
+        "node_modules/pkg/reader.js": [
+          'import { value } from "./index.js";',
+          "export function readValue() { return value(); }"
+        ].join("\n")
+      },
+      async (dir) => {
+        const entryPath = join(dir, "entry.mjs");
+        const bundlePath = join(dir, "bundle.mjs");
+        const result = await bundleNodeModuleGraph(
+          'import { valueThroughCycle } from "pkg"; export const value = valueThroughCycle();\n',
+          entryPath
+        );
+        await writeFile(bundlePath, result.code, "utf8");
+
+        const bundled = await import(bundlePath) as { value: number };
+        expect(bundled.value).toBe(42);
       }
     );
   });

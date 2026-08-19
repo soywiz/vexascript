@@ -155,34 +155,40 @@ async function declarationPathInPackage(pkgDir: string, vfs: Vfs): Promise<strin
   return null;
 }
 
-function declarationExportTarget(value: unknown): string | null {
+function declarationExportTargets(value: unknown, wildcardReplacement?: string): string[] {
   if (typeof value === "string") {
-    return /\.(d\.(ts|mts|cts))$/i.test(value) ? value : null;
+    const resolvedValue = wildcardReplacement === undefined
+      ? value
+      : value.split("*").join(wildcardReplacement);
+    if (/\.(d\.(ts|mts|cts))$/i.test(resolvedValue)) {
+      return [resolvedValue];
+    }
+    if (/\.mjs$/i.test(resolvedValue)) {
+      return [resolvedValue.replace(/\.mjs$/i, ".d.mts")];
+    }
+    if (/\.cjs$/i.test(resolvedValue)) {
+      return [
+        resolvedValue.replace(/\.cjs$/i, ".d.cts"),
+        resolvedValue.replace(/\.cjs$/i, ".d.ts")
+      ];
+    }
+    if (/\.js$/i.test(resolvedValue)) {
+      return [resolvedValue.replace(/\.js$/i, ".d.ts")];
+    }
+    return [];
   }
   if (Array.isArray(value)) {
-    for (const entry of value) {
-      const target = declarationExportTarget(entry);
-      if (target) {
-        return target;
-      }
-    }
-    return null;
+    return value.flatMap((entry) => declarationExportTargets(entry, wildcardReplacement));
   }
   if (!value || typeof value !== "object") {
-    return null;
+    return [];
   }
   const record = value as Record<string, unknown>;
-  const directTypesTarget = declarationExportTarget(record["types"]);
-  if (directTypesTarget) {
-    return directTypesTarget;
+  const targets = declarationExportTargets(record["types"], wildcardReplacement);
+  for (const key of ["import", "default", "require", "browser", "node"]) {
+    targets.push(...declarationExportTargets(record[key], wildcardReplacement));
   }
-  for (const key of ["default", "import", "require", "browser", "node"]) {
-    const target = declarationExportTarget(record[key]);
-    if (target) {
-      return target;
-    }
-  }
-  return null;
+  return [...new Set(targets)];
 }
 
 async function declarationPathFromExports(
@@ -197,12 +203,40 @@ async function declarationPathFromExports(
   }
   const exportsRecord = exportsField as Record<string, unknown>;
   const exportKey = exportSubpath ? `./${exportSubpath}` : ".";
-  const exportTarget = declarationExportTarget(exportsRecord[exportKey]);
-  if (!exportTarget) {
-    return null;
+  let exportValue = exportsRecord[exportKey];
+  let wildcardReplacement: string | undefined;
+  if (exportValue === undefined && exportSubpath) {
+    let bestMatchScore = -1;
+    for (const [candidateKey, candidateValue] of Object.entries(exportsRecord)) {
+      const wildcardIndex = candidateKey.indexOf("*");
+      if (wildcardIndex < 0) {
+        continue;
+      }
+      const prefix = candidateKey.slice(0, wildcardIndex);
+      const suffix = candidateKey.slice(wildcardIndex + 1);
+      if (
+        !exportKey.startsWith(prefix)
+        || !exportKey.endsWith(suffix)
+        || exportKey.length < prefix.length + suffix.length
+      ) {
+        continue;
+      }
+      const matchScore = prefix.length + suffix.length;
+      if (matchScore <= bestMatchScore) {
+        continue;
+      }
+      bestMatchScore = matchScore;
+      exportValue = candidateValue;
+      wildcardReplacement = exportKey.slice(prefix.length, exportKey.length - suffix.length);
+    }
   }
-  const typingsPath = resolve(pkgDir, exportTarget);
-  return await vfs.fileExists(typingsPath) ? typingsPath : null;
+  for (const exportTarget of declarationExportTargets(exportValue, wildcardReplacement)) {
+    const typingsPath = resolve(pkgDir, exportTarget);
+    if (await vfs.fileExists(typingsPath)) {
+      return typingsPath;
+    }
+  }
+  return null;
 }
 
 async function declarationPathInPnpmVirtualStore(nodeModulesDir: string, packageName: string, vfs: Vfs): Promise<string | null> {

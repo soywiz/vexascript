@@ -1,0 +1,26 @@
+import { createFormControl } from "react-hook-form"
+
+type Profile = {
+  name: string;
+  age: number;
+}
+
+const form = createFormControl<Profile>({
+  defaultValues: {
+    name: "Ada",
+    age: 1
+  }
+})
+
+let latest: Profile = { name: "", age: 0 }
+const unsubscribe = form.subscribe({
+  formState: { values: true },
+  callback: (state) => {
+    latest = state.values
+  }
+})
+
+form.setValue("name", "Grace")
+form.setValue("age", 37)
+console.log(`${latest.name}|${latest.age}`)
+unsubscribe()

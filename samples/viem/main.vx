@@ -1,0 +1,13 @@
+import { encodeFunctionData, formatEther, getAddress, parseAbi, parseEther } from "viem"
+
+const tokenAbi = parseAbi([
+  "function balanceOf(address owner) view returns (uint256)"
+])
+const owner = getAddress("0x000000000000000000000000000000000000dead")
+const callData = encodeFunctionData({
+  abi: tokenAbi,
+  functionName: "balanceOf",
+  args: [owner]
+})
+
+console.log(`${formatEther(parseEther("1.5"))}|${callData.slice(0, 10)}`)

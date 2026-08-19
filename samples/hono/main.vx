@@ -1,0 +1,24 @@
+import { Hono } from "hono"
+
+type AppEnvironment = {
+  Variables: {
+    requestId: string;
+  };
+}
+
+const app = new Hono<AppEnvironment>()
+
+app.use("*", async (context, next) => {
+  context.set("requestId", "req-42")
+  await next()
+})
+
+app.get("/users/:id", (context) => {
+  return context.json({
+    id: context.req.param("id"),
+    requestId: context.get("requestId")
+  })
+})
+
+const response = await app.request("/users/7")
+console.log(`${response.status}|${await response.text()}`)

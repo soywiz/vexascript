@@ -14,6 +14,8 @@ import { AnalysisTypeKind, typeToString } from "compiler/analysis/types";
 import type { Identifier, Statement, VarStatement } from "compiler/ast/ast";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
+import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
+import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 
 const MINI_DTS = dedent`
   declare function pkg(x: string): pkg.Result;
@@ -119,6 +121,49 @@ describe("node_modules typings resolution", () => {
       statement.kind === NodeKind.ExportStatement
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "Unused"
     )).toBe(false);
+  });
+
+  it("prefers the re-exported declaration over same-name support declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "dialect-builders");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(join(pkgDir, "package.json"), JSON.stringify({
+      name: "dialect-builders",
+      typings: "./index.d.ts"
+    }), "utf8");
+    await writeFile(join(pkgDir, "index.d.ts"), 'export * from "./pg.js";\n', "utf8");
+    await writeFile(join(pkgDir, "pg.d.ts"), dedent`
+      import type { Shared } from "./support.js";
+      export * from "./correct.js";
+      export type UsesShared = Shared;
+    `, "utf8");
+    await writeFile(join(pkgDir, "correct.d.ts"), dedent`
+      export interface PgSerial { dialect: "pg"; }
+      export declare function serial(): PgSerial;
+    `, "utf8");
+    await writeFile(join(pkgDir, "support.d.ts"), dedent`
+      export interface Shared { value: string; }
+      export interface WrongSerial { dialect: "wrong"; }
+      export declare function serial(): WrongSerial;
+    `, "utf8");
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { serial } from "dialect-builders"
+      const dialect = serial().dia^^^lect
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const context = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, context);
+    const richSession = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain('"pg"');
   });
 
   it("collectImportedTypeDeclarations loads node_modules declarations for default import", async () => {
@@ -403,7 +448,7 @@ describe("node_modules typings resolution", () => {
       dedent`
         export { Observable } from "./Observable";
         export { of } from "./of";
-        export { map } from "./operators";
+        export { filter, map } from "./operators";
         export type { OperatorFunction } from "./types";
       `,
       "utf8"
@@ -417,6 +462,7 @@ describe("node_modules typings resolution", () => {
           pipe(): Observable<T>;
           pipe<A>(op1: OperatorFunction<T, A>): Observable<A>;
           pipe<A, B>(op1: OperatorFunction<T, A>, op2: OperatorFunction<A, B>): Observable<B>;
+          pipe<A, B, C>(op1: OperatorFunction<T, A>, op2: OperatorFunction<A, B>, op3: OperatorFunction<B, C>): Observable<C>;
           subscribe(next: (value: T) => void): void;
         }
       `,
@@ -428,6 +474,7 @@ describe("node_modules typings resolution", () => {
         import { Observable } from "./Observable";
 
         export type OperatorFunction<T, R> = (source: Observable<T>) => Observable<R>;
+        export type MonoTypeOperatorFunction<T> = OperatorFunction<T, T>;
         export type ValueFromArray<A extends readonly unknown[]> =
           A extends readonly (infer T)[] ? T : never;
       `,
@@ -446,8 +493,9 @@ describe("node_modules typings resolution", () => {
     await writeFile(
       join(pkgDir, "operators.d.ts"),
       dedent`
-        import { OperatorFunction } from "./types";
+        import { MonoTypeOperatorFunction, OperatorFunction } from "./types";
 
+        export declare function filter<T>(predicate: (value: T) => boolean): MonoTypeOperatorFunction<T>;
         export declare function map<T, R>(project: (value: T) => R): OperatorFunction<T, R>;
       `,
       "utf8"
@@ -455,9 +503,10 @@ describe("node_modules typings resolution", () => {
 
     const mainPath = join(root, "main.vx");
     const marked = sourceWithCursor(dedent`
-      import { map, of } from "streamy"
+      import { filter, map, of } from "streamy"
 
       val result = of(1, 2, 3).pipe(
+        filter((value) => value > 0),
         map({ value ->
           return { label: String(value) }
         }),
@@ -479,6 +528,80 @@ describe("node_modules typings resolution", () => {
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("expression: string");
+  });
+
+  it("preserves state types through imported curried generic store factories", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "statey", dedent`
+      type SetStateInternal<T> = {
+        _(partial: T | Partial<T> | { _(state: T): T | Partial<T> }['_'], replace?: false): void;
+        _(state: T | { _(state: T): T }['_'], replace: true): void;
+      }['_'];
+      export interface StoreApi<T> {
+        setState: SetStateInternal<T>;
+        getState: () => T;
+        getInitialState: () => T;
+        subscribe: (listener: (state: T, previousState: T) => void) => () => void;
+      }
+      type Get<T, K, F> = K extends keyof T ? T[K] : F;
+      export type Mutate<S, Ms> = number extends Ms['length' & keyof Ms]
+        ? S
+        : Ms extends []
+          ? S
+          : Ms extends [[infer Mi, infer Ma], ...infer Mrs]
+            ? Mutate<StoreMutators<S, Ma>[Mi & StoreMutatorIdentifier], Mrs>
+            : never;
+      export type StateCreator<
+        T,
+        Mis extends [StoreMutatorIdentifier, unknown][] = [],
+        Mos extends [StoreMutatorIdentifier, unknown][] = [],
+        U = T
+      > = ((
+        setState: Get<Mutate<StoreApi<T>, Mis>, 'setState', never>,
+        getState: Get<Mutate<StoreApi<T>, Mis>, 'getState', never>,
+        store: Mutate<StoreApi<T>, Mis>
+      ) => U) & { $$storeMutators?: Mos };
+      export interface StoreMutators<S, A> {}
+      export type StoreMutatorIdentifier = keyof StoreMutators<unknown, unknown>;
+      type CreateStore = {
+        <T, Mos extends [StoreMutatorIdentifier, unknown][] = []>(
+          initializer: StateCreator<T, [], Mos>
+        ): Mutate<StoreApi<T>, Mos>;
+        <T>(): <Mos extends [StoreMutatorIdentifier, unknown][] = []>(
+          initializer: StateCreator<T, [], Mos>
+        ) => Mutate<StoreApi<T>, Mos>;
+      };
+      export declare const createStore: CreateStore;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { createStore } from "statey"
+
+      type CounterState = {
+        count: number;
+        increment: (amount: number) => void;
+      }
+
+      val store = createStore<CounterState>()((set) => ({
+        count: 0,
+        increment: (amount) => set((state) => ({ count: state.count + amount }))
+      }))
+      store.setState({ count: 1 })
+      val count: number = store.getState().co^^^unt
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("expression: number");
   });
 
   it("supports imported class members whose signatures depend on sibling helper type aliases", async () => {
@@ -545,6 +668,559 @@ describe("node_modules typings resolution", () => {
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain(
       "Operator '*' is not defined for types 'T' and 'int'"
     );
+  });
+
+  it("resolves imported class members through an optional call chain", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "optional-box", dedent`
+      export class Box {
+        value(): { length: number };
+      }
+      export namespace Box {
+        export class Nested {}
+      }
+      export function maybeBox(): Box | undefined;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { maybeBox } from "optional-box"
+      const length = maybeBox()?.value().len^^^gth ?? 0
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("number");
+  });
+
+  it("keeps public classes distinct from aliased support classes with the same local name", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "routery");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "routery", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export { Router } from "./router";\n', "utf8");
+    await writeFile(
+      join(pkgDir, "router.d.ts"),
+      dedent`
+        import { RouterBase } from "./router-base";
+        export declare class Router<Path extends string = "/"> extends RouterBase<Path> {}
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "router-base.d.ts"),
+      dedent`
+        declare class Router<
+          Path extends string = "/",
+          CurrentPath extends string = Path
+        > {
+          currentPath: CurrentPath;
+        }
+        export { Router as RouterBase };
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Router } from "routery"
+      val router = Router()
+      val path: string = router.currentPath
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const context = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, context);
+    const richSession = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: `file://${mainPath}`,
+      session: richSession,
+      sourceRoots: [root]
+    });
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
+    const memberDiagnostics = await collectCrossFileMemberDiagnostics({
+      uri: `file://${mainPath}`,
+      session: richSession,
+      sourceRoots: [root]
+    });
+    expect(memberDiagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
+  });
+
+  it("uses dependent generic defaults while contextually typing imported callbacks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "routery", dedent`
+      export type Env = {
+        Variables?: object;
+      };
+      export type IsAny<T> = boolean extends (T extends never ? true : false) ? true : false;
+      export interface ContextVariableMap {}
+      export interface Set<E extends Env> {
+        <Key extends keyof E["Variables"]>(key: Key, value: E["Variables"][Key]): void;
+      }
+      export declare class Context<E extends Env> {
+        set: Set<IsAny<E> extends true ? { Variables: ContextVariableMap & Record<string, any> } : E>;
+      }
+      export type SyncHandler<E extends Env> = (context: Context<E>) => void;
+      export type ValueHandler<E extends Env> = (context: Context<E>) => string;
+      export type Handler<E extends Env> = SyncHandler<E> | ValueHandler<E>;
+      export interface Use<E extends Env> {
+        <Path extends string, MergedPath extends Path, E2 extends Env = E>(path: Path, handler: Handler<E2>): void;
+      }
+      export declare class Router<E extends Env> {
+        use: Use<E>;
+      }
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Router } from "routery"
+
+      type AppEnvironment = {
+        Variables: {
+          requestId: string;
+        };
+      }
+
+      val router = Router<AppEnvironment>()
+      router.use("*", (context) => context.set("requestId", "req-42"))
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const context = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, context);
+    const richSession = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(9, 37)?.contents).toContain("requestId: string");
+  });
+
+  it("infers imported type parameters through intersection-shaped config arguments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "machiney", dedent`
+      export type MachineConfig<TContext> = {
+        context: TContext;
+      };
+      export type Machine<TContext> = {
+        context: TContext;
+      };
+      export function createMachine<TContext>(
+        config: { types?: unknown } & MachineConfig<TContext>
+      ): Machine<TContext>;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { createMachine } from "machiney"
+      const machine = createMachine({ context: { count: 1 } })
+      const count = machine.context.co^^^unt
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: `file://${mainPath}`,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const richSession = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("int");
+  });
+
+  it("infers context through conditional low-priority config wrappers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "machine-config", dedent`
+      export type MachineContext = Record<string, any>;
+      export type LowInfer<T> = T & NonNullable<unknown>;
+      export type InitialContext<T> = T | (() => T);
+      export type MachineConfig<TContext extends MachineContext> =
+        { initial: string }
+        & (MachineContext extends TContext
+          ? { context?: InitialContext<LowInfer<TContext>> }
+          : { context: InitialContext<LowInfer<TContext>> });
+      export type Machine<TContext> = { context: TContext };
+      export function createMachine<TContext extends MachineContext>(
+        config: { types?: unknown } & MachineConfig<TContext>
+      ): Machine<TContext>;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { createMachine } from "machine-config"
+      const machine = createMachine({ initial: "idle", context: { count: 1 } })
+      const count = machine.context.co^^^unt
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("int");
+  });
+
+  it("infers several conditional arguments through an implemented generic interface", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "actor-logic", dedent`
+      export interface ActorLogic<TSnapshot, TEvent, TInput, TSystem, TEmitted> {
+        transition: (snapshot: TSnapshot, event: TEvent) => TSnapshot;
+      }
+      export declare class Machine<TContext, TEvent, TInput, TEmitted>
+        implements ActorLogic<{ context: TContext }, TEvent, TInput, object, TEmitted> {
+        transition(snapshot: { context: TContext }, event: TEvent): { context: TContext };
+      }
+      export type EventFromLogic<TLogic> =
+        TLogic extends ActorLogic<infer _Snapshot, infer TEvent, infer _Input, infer _System, infer _Emitted>
+          ? TEvent
+          : never;
+      export type ReturnTypeOrValue<T> = T extends (...args: any[]) => infer Result ? Result : T;
+      export type SnapshotFromLogic<TLogic> = ReturnTypeOrValue<TLogic> extends infer Resolved
+        ? Resolved extends ActorLogic<infer _Snapshot, infer _Event, infer _Input, infer _System, infer _Emitted>
+          ? ReturnType<Resolved["transition"]>
+          : never
+        : never;
+      export declare function createMachine<TContext, TEvent>(): Machine<TContext, TEvent, void, object>;
+      export declare function getEvent<TLogic>(logic: TLogic): EventFromLogic<TLogic>;
+      export declare function getSnapshot<TLogic>(logic: TLogic): SnapshotFromLogic<TLogic>;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { createMachine, getEvent, getSnapshot } from "actor-logic"
+      type Context = { count: number }
+      type Event = { type: string }
+      const machine = createMachine<Context, Event>()
+      const eventType = getEvent(machine).type
+      const count = getSnapshot(machine).context.co^^^unt
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("number");
+  });
+
+  it("keeps generic function properties callable when their return type is conditional", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "tabley", dedent`
+      export type AccessorFn<TData, TValue = unknown> = (row: TData, index: number) => TValue;
+      export interface Helper<TData> {
+        accessor: <
+          TAccessor extends AccessorFn<TData> | keyof TData,
+          TValue extends (TAccessor extends AccessorFn<TData, infer TReturn> ? TReturn : never)
+        >(accessor: TAccessor) => TAccessor extends AccessorFn<TData> ? { value: TValue } : never;
+      }
+      export function createHelper<TData>(): Helper<TData>;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { createHelper } from "tabley"
+      type Person = { name: string }
+      const helper = createHelper<Person>()
+      const value = helper.accessor((row) => row.name).va^^^lue
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: `file://${mainPath}`,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const richSession = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
+  it("reduces empty feature-map intersections to an object identity", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "feature-table", dedent`
+      export type IsAny<T> = 0 extends 1 & T ? true : false;
+      export type UnionToIntersection<T> =
+        (T extends any ? (value: T) => any : never) extends ((value: infer Result) => any)
+          ? Result
+          : never;
+      export type UnionToIntersectionOrEmpty<T> =
+        [T] extends [never] ? {} : UnionToIntersection<T> & {};
+      export type ExtractFeatureMapTypes<TFeatures extends TableFeatures, TFeatureMap extends object> =
+        IsAny<TFeatures> extends true
+          ? UnionToIntersection<TFeatureMap[keyof TFeatureMap]>
+          : UnionToIntersectionOrEmpty<TFeatureMap[Extract<keyof TFeatures, keyof TFeatureMap>]>;
+      export interface TableFeatures {
+        sortingFeature?: object;
+      }
+      export interface ColumnDefCore {
+        cell?: string;
+      }
+      export interface ColumnFeatureMap {
+        sortingFeature: { sortable?: boolean };
+      }
+      export type ColumnDefBase<TFeatures extends TableFeatures> =
+        ColumnDefCore & ExtractFeatureMapTypes<TFeatures, ColumnFeatureMap>;
+      export interface IdIdentifier<TFeatures, TData, TValue = unknown> { id: string; header?: string; }
+      export interface StringHeaderIdentifier { header: string; id?: string; }
+      export type ColumnIdentifiers<TFeatures, TData, TValue = unknown> = IdIdentifier<TFeatures, TData, TValue> | StringHeaderIdentifier;
+      export declare function defineColumn<TFeatures extends TableFeatures>(column: ColumnDefBase<TFeatures> & ColumnIdentifiers<TFeatures, object>): void;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { defineColumn } from "feature-table"
+
+      defineColumn<{ coreReactivityFeature: string }>({ id: "name" })
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("rechecks contextually typed callbacks after inferring object option generics", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "option-table", dedent`
+      export interface FeaturePrerequisites {
+        sortedModel: "sortingFeature";
+      }
+      export type ValidateFeatures<TFeatures> = {
+        [K in keyof TFeatures as K extends keyof FeaturePrerequisites ? K : never]:
+          K extends keyof FeaturePrerequisites
+            ? [Extract<FeaturePrerequisites[K], keyof TFeatures>] extends [never]
+              ? "Error: missing feature"
+              : TFeatures[K]
+            : never;
+      };
+      export interface TableOptionsCore<TFeatures, TData> {
+        features: TFeatures & ValidateFeatures<TFeatures>;
+        data: ReadonlyArray<TData>;
+        getRowId?: (row: TData, index: number) => string;
+      }
+      export type TableOptions<TFeatures, TData> = TableOptionsCore<TFeatures, TData> & {
+        debug?: boolean;
+      };
+      export declare function constructTable<TFeatures, TData>(options: TableOptions<TFeatures, TData>): TData;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { constructTable } from "option-table"
+      const row = constructTable({
+        features: { core: true },
+        data: [{ name: "Ada" }],
+        getRowId: (row) => row.name
+      })
+      const name = row.na^^^me
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
+  it("keeps remapped optional debug properties optional", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "debug-options", dedent`
+      export interface CoreFeatures {
+        coreFeature: object;
+      }
+      export type NonFeatureKeys = "metadata";
+      export type DebugKeysFor<TFeatures> = {
+        [K in Exclude<keyof TFeatures & string, NonFeatureKeys> as \`debug\${Capitalize<K>}\`]?: boolean;
+      };
+      export type DebugOptions<TFeatures> = {
+        enabled: boolean;
+      } & DebugKeysFor<CoreFeatures & TFeatures>;
+      export declare function configure<TFeatures>(options: DebugOptions<TFeatures>): void;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { configure } from "debug-options"
+      configure<{ coreReactivityFeature: object }>({ enabled: true })
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("preserves object maps inferred through callable interface overloads", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "table-builders", dedent`
+      export interface ColumnBuilder<TKind extends string = string> {
+        kind: TKind;
+      }
+      export type BuiltColumn<TName extends string, TBuilder> = {
+        tableName: TName;
+        kind: TBuilder extends ColumnBuilder<infer TKind> ? TKind : never;
+      };
+      export type BuildColumns<TName extends string, TColumns extends Record<string, ColumnBuilder>> = {
+        [K in keyof TColumns]: BuiltColumn<TName, TColumns[K]>;
+      };
+      export type TableWithColumns<TName extends string, TColumns extends Record<string, ColumnBuilder>> = {
+        name: TName;
+      } & BuildColumns<TName, TColumns>;
+      export interface TableFactory {
+        <TName extends string, TColumns extends Record<string, ColumnBuilder>>(
+          name: TName,
+          columns: TColumns
+        ): TableWithColumns<TName, TColumns>;
+        <TName extends string, TColumns extends Record<string, ColumnBuilder>>(
+          name: TName,
+          columns: () => TColumns
+        ): TableWithColumns<TName, TColumns>;
+      }
+      export declare const table: TableFactory;
+      export declare function serial(): ColumnBuilder<"serial">;
+      export declare function text(): ColumnBuilder<"text">;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { serial, table, text } from "table-builders"
+      const users = table("users", { id: serial(), name: text() })
+      const kind = users.id.ki^^^nd
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain('"serial"');
+  });
+
+  it("keeps inferred object maps constrained by generic builder class hierarchies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "class-builders", dedent`
+      export abstract class Builder<TConfig extends object = object> {
+        config: TConfig;
+      }
+      export abstract class DialectBuilder<TConfig extends object = object> extends Builder<TConfig> {
+        dialect: "pg";
+      }
+      export class SerialBuilder<TName extends string> extends DialectBuilder<{ name: TName }> {
+        primaryKey(): this & { primary: true };
+      }
+      export type SerialBuilderInitial<TName extends string> = SerialBuilder<TName>;
+      export type BuildColumn<TBuilder> = TBuilder extends Builder
+        ? { builder: TBuilder; config: TBuilder["config"] }
+        : never;
+      export type BuildColumns<TColumns extends Record<string, DialectBuilder>> = {
+        [K in keyof TColumns]: BuildColumn<TColumns[K]>;
+      };
+      export type TableWithColumns<T extends { columns: object }> = {
+        columns: T["columns"];
+      } & {
+        [K in keyof T["columns"]]: T["columns"][K];
+      };
+      export interface TableFactory {
+        <TName extends string, TColumns extends Record<string, DialectBuilder>>(
+          name: TName,
+          columns: TColumns
+        ): TableWithColumns<{ columns: BuildColumns<TColumns> }>;
+        <TName extends string, TColumns extends Record<string, DialectBuilder>>(
+          name: TName,
+          columns: () => TColumns
+        ): TableWithColumns<{ columns: BuildColumns<TColumns> }>;
+      }
+      export declare const table: TableFactory;
+      export declare function serial<TName extends string = "">(): SerialBuilderInitial<TName>;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { serial, table } from "class-builders"
+      const users = table("users", { id: serial().primaryKey() })
+      const primary = users.id.builder.primary
+      const configName = users.id.config.na^^^me
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain('""');
+  });
+
+  it("maps keys from an indexed object property", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "indexed-map", dedent`
+      export type ColumnsOf<T extends { columns: object }> = {
+        [K in keyof T["columns"]]: T["columns"][K];
+      };
+      export type Table<T extends { columns: object }> = {
+        name: string;
+      } & ColumnsOf<T>;
+      export declare function makeTable<TColumns extends object>(columns: TColumns): Table<{ columns: TColumns }>;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { makeTable } from "indexed-map"
+      const table = makeTable({ id: { name: "id" } })
+      const name = table.id.na^^^me
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
   });
 
   it("contextually types imported callable interfaces through pipe operator helpers", async () => {
@@ -826,6 +1502,277 @@ describe("node_modules typings resolution", () => {
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves imported consts forwarded through a separate local export", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      'import { builder } from "./internal.js";\nexport { builder };\n',
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "internal.d.ts"),
+      dedent`
+        export declare class Builder<T> {
+          use<U>(): Builder<U>;
+          create(): { value: T };
+        }
+        export declare const builder: Builder<number>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { builder } from "pkg"
+      const value = builder.use<string>().create().va^^^lue
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(typeToString(collected.importedSymbols.get("builder")!.type!)).toBe("Builder<number>");
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
+  it("expands conditional mapped aliases used by contextual callback parameters", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        type WithoutIndexSignature<T> = {
+          [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K]
+        };
+        type Overwrite<T, W> = W extends any
+          ? T extends object
+            ? { [K in keyof WithoutIndexSignature<T> | keyof WithoutIndexSignature<W>]: K extends keyof W ? W[K] : K extends keyof T ? T[K] : never }
+              & (string extends keyof W ? { [key: string]: W[string] } : number extends keyof W ? { [key: number]: W[number] } : {})
+            : W
+          : never;
+        type Simplify<T> = T extends any[] | Date ? T : { [K in keyof T]: T[K] };
+        type UnsetMarker = "unset" & { __brand: "unset" };
+        type DefaultValue<V, F> = V extends UnsetMarker ? F : V;
+        type MaybePromise<T> = Promise<T> | T;
+        type Resolver<TContext, TMeta, TOverrides, TInputOut, TOutputParserIn, $Output> = (
+          opts: { ctx: Simplify<Overwrite<TContext, TOverrides>> }
+        ) => MaybePromise<DefaultValue<TOutputParserIn, $Output>>;
+        export interface Builder<T> {
+          query<$Output>(resolver: Resolver<T, object, object, UnsetMarker, UnsetMarker, $Output>): $Output;
+        }
+        export declare const builder: Builder<{ requestId: string }>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { builder } from "pkg"
+      const requestId = builder.query(({ ctx }) => ctx.requ^^^estId)
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
+  it("resolves nested mapped conditionals that infer each property value", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        import { createRouter, queryDouble, queryGreeting } from "./support";
+        export { createRouter, queryDouble, queryGreeting };
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "support.d.ts"),
+      dedent`
+        export interface Procedure<O> { output: O; }
+        export interface QueryProcedure<O> extends Procedure<O> { kind: "query"; }
+        export interface MutationProcedure<O> extends Procedure<O> { kind: "mutation"; }
+        export type AnyProcedure = QueryProcedure<any> | MutationProcedure<any>;
+        export interface Root { ctx: { requestId: string }; }
+        export type Decorate<T> = {
+          [K in keyof T]: T[K] extends infer $Value
+            ? $Value extends AnyProcedure
+              ? $Value extends Procedure<infer O>
+              ? () => O
+                : never
+              : $Value extends object
+                ? Decorate<$Value>
+                : never
+            : never
+        };
+        export interface Router<R> {
+          record: R;
+          createCaller: Caller<Root, R>;
+        }
+        export type BuiltRouter<R> = Router<R> & R;
+        export type InputRecord<T> = {
+          [K in keyof T]: T[K] extends infer $Value
+            ? $Value extends AnyProcedure
+              ? $Value
+              : $Value extends Router<infer R>
+                ? R
+                : never
+            : never
+        };
+        export type Caller<TRoot extends Root, R> = (
+          ctx: TRoot["ctx"] | (() => Promise<TRoot["ctx"]>),
+          options?: { signal?: AbortSignal }
+        ) => Decorate<R>;
+        export declare const queryGreeting: QueryProcedure<string>;
+        export declare const queryDouble: QueryProcedure<number>;
+        export declare function createRouter<T>(record: T): BuiltRouter<InputRecord<T>>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { createRouter, queryDouble, queryGreeting } from "pkg"
+      const greeting = queryGreeting
+      const double = queryDouble
+      const math = createRouter({ double: double })
+      const app = createRouter({
+        greeting,
+        math
+      })
+      const caller = app.createCaller({ requestId: "req-42" })
+      const doubled = caller.math.dou^^^ble()
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("number");
+  });
+
+  it("infers const generic arrays through conditional validator parameters", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        type Signature<S extends string, K> = S;
+        type Signatures<S extends readonly string[]> = { [K in keyof S]: Signature<S[K], K> };
+        export declare function parse<const S extends readonly string[]>(
+          value: S["length"] extends 0 ? never : Signatures<S> extends S ? S : Signatures<S>
+        ): S;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { parse } from "pkg"
+      const parsed = parse(["function demo()"])
+      const first = par^^^sed[0]
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain('"function demo()"');
+  });
+
+  it("keeps external return types visible while expanding runtime utility aliases", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        interface HiddenReturn<T> {
+          value: T;
+          formState: boolean;
+        }
+        export declare function create<T>(value: T): Omit<HiddenReturn<T>, "formState">;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { create } from "pkg"
+      const result = create("Grace")
+      const value = result.val^^^ue
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
   it("resolves node_modules named imports reexported from local namespace bindings", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "pkg");
@@ -917,6 +1864,98 @@ describe("node_modules typings resolution", () => {
 
       const thing = pkg.makeThing("Ada")
       const value: string = thing.val^^^ue
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
+  it("excludes private support declarations from export-star namespaces", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export * as Ops from "./ops";\n', "utf8");
+    await writeFile(
+      join(pkgDir, "ops.d.ts"),
+      dedent`
+        import { helper } from "./support";
+        export declare const map: (value: string) => string;
+        export declare const identity: typeof helper;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "support.d.ts"),
+      dedent`
+        export declare const map: (value: number) => number;
+        export declare function helper<T>(value: T): T;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { Ops } from "pkg"
+
+      const result = Ops.map("ok")
+      const checked: string = res^^^ult
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
+  it("infers curried generic operators from free-function pipe context", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "effect-like");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "effect-like", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export interface Effect<A, E = never, R = never> {
+          readonly value: A;
+        }
+        export declare function pipe<A, B, C>(a: A, ab: (a: A) => B, bc: (b: B) => C): C;
+        export declare const succeed: <A>(value: A) => Effect<A>;
+        export declare const map: <A, B>(f: (a: A) => B) => <E, R>(self: Effect<A, E, R>) => Effect<B, E, R>;
+        export declare const flatMap: <B, A, E1, R1>(f: (a: A) => Effect<B, E1, R1>) => <E, R>(self: Effect<A, E, R>) => Effect<B, E1 | E, R1 | R>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { Effect, flatMap, map, pipe, succeed } from "effect-like"
+
+      const mapped: (self: Effect<int>) => Effect<int> = map((value) => value * 2)
+      const result = pipe(
+        succeed(21),
+        map((value) => value * 2),
+        flatMap((value) => succeed("result:" + String(value)))
+      )
+      const output: string = result.val^^^ue
     `);
     await writeFile(mainPath, marked.source, "utf8");
 
@@ -1177,7 +2216,7 @@ describe("node_modules typings resolution", () => {
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string[]");
     expect(typeToString(richSession.analysis?.getTopLevelSymbolType("role")!)).toBe("string");
-    expect(typeToString(richSession.analysis?.getTopLevelSymbolType("unionRole")!)).toBe("string");
+    expect(typeToString(richSession.analysis?.getTopLevelSymbolType("unionRole")!)).toBe('"admin" | "user"');
   });
 
   it("keeps zod inferred object properties specialized through a named type alias", async () => {
@@ -2602,6 +3641,51 @@ describe("node_modules typings resolution", () => {
     expect(typeToString(richSession.analysis?.getTopLevelSymbolType("userName")!)).toBe("string");
   });
 
+  it("keeps namespace reexports complete when their target was already loaded as support", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "issue-kit");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { api } from "issue-kit"
+      const issue: api.Issue = { message: "invalid", path: ["name"] }
+      const message: string = issue.message
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "issue-kit", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      'import type { Issue } from "./api";\nexport * as api from "./api";\n',
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "api.d.ts"),
+      dedent`
+        export interface Issue {
+          message: string;
+          path: string[];
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(typeToString(richSession.analysis?.getTopLevelSymbolType("message")!)).toBe("string");
+  });
+
   it("findNodeModuleExportLocation follows export-star reexports to the original declaration file", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "preact");
@@ -3122,6 +4206,38 @@ describe("node_modules typings resolution", () => {
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves tuple-wrapped conditionals used by fluent table selectors", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "query-selector", dedent`
+      export type ExtractTableAlias<DB, TE> = TE extends \`${"${string}"} as ${"${infer Alias}"}\`
+        ? Alias extends keyof DB ? Alias : never
+        : TE extends keyof DB ? TE : never;
+      export type SelectFrom<DB, TE> = [TE] extends [keyof DB]
+        ? { table: ExtractTableAlias<DB, TE> }
+        : never;
+      export class QueryCreator<DB> {
+        selectFrom<TE extends keyof DB>(from: TE): SelectFrom<DB, TE>;
+      }
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { QueryCreator } from "query-selector"
+      type Database = { person: { id: number } }
+      const db = new QueryCreator<Database>()
+      const table = db.selectFrom("person").ta^^^ble
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain('"person"');
   });
 
   it("resolves readonly array and tuple shorthand from imported declaration files", async () => {

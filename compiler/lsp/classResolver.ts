@@ -490,21 +490,37 @@ async function resolveNodeModuleImportedClassStatement(
       continue;
     }
 
+    const localClasses = new Map<string, ClassStatement>();
     for (const entry of typings.declarationEntries) {
       const declaration = entry.statement instanceof ExportStatement
         ? (entry.statement as ExportStatement).declaration
         : entry.statement;
-      if (!declaration || !(declaration instanceof ClassStatement)) {
+      if (declaration instanceof ClassStatement) {
+        localClasses.set(`${entry.typingsPath}\0${declaration.name.name}`, declaration);
+        if (declaration.name.name === className) {
+          return {
+            classStatement: declaration,
+            filePath: entry.typingsPath
+          };
+        }
+      }
+
+      if (!(entry.statement instanceof ExportStatement)) {
         continue;
       }
-      const classStatement = declaration as ClassStatement;
-      if (classStatement.name.name !== className) {
-        continue;
+      for (const specifier of entry.statement.specifiers ?? []) {
+        if (specifier.exported.name !== className) {
+          continue;
+        }
+        const localName = specifier.local?.name ?? specifier.exported.name;
+        const aliasedClass = localClasses.get(`${entry.typingsPath}\0${localName}`);
+        if (aliasedClass) {
+          return {
+            classStatement: aliasedClass,
+            filePath: entry.typingsPath
+          };
+        }
       }
-      return {
-        classStatement,
-        filePath: entry.typingsPath
-      };
     }
   }
 

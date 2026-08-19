@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { AnalysisType, arrayType, builtinType, isSameType, namedType, typeToString, UNKNOWN_TYPE, unionType } from "./types";
+import { AnalysisType, arrayType, builtinType, intersectionType, isSameType, namedType, typeToString, UNKNOWN_TYPE, unionType } from "./types";
 
 describe("analysis type factories", () => {
   it("uses AnalysisType as the runtime base class", () => {
@@ -13,6 +13,28 @@ describe("analysis type factories", () => {
 
     assert.equal(typeToString(recursive), "Node<Node>");
     assert.equal(typeToString(recursive), "Node<Node>");
+  });
+
+  it("bounds rendering work for deeply nested structural types", () => {
+    let nested: AnalysisType = namedType("Leaf");
+    for (let depth = 0; depth < 2_000; depth += 1) {
+      nested = intersectionType([namedType(`Layer${depth}`), nested]);
+    }
+
+    const rendered = typeToString(nested);
+    assert.equal(rendered.startsWith("Layer1999 & Layer1998"), true);
+    assert.equal(rendered.length < 10_000, true);
+  });
+
+  it("bounds rendering work for repeatedly shared structural types", () => {
+    let shared: AnalysisType = namedType("Leaf");
+    for (let depth = 0; depth < 16; depth += 1) {
+      shared = intersectionType([shared, shared]);
+    }
+
+    const rendered = typeToString(shared);
+    assert.equal(rendered.startsWith("Leaf & Leaf"), true);
+    assert.equal(rendered.length < 100_000, true);
   });
 
   it("keeps missing runtime values out of union members", () => {

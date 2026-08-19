@@ -265,11 +265,13 @@ export class TypeChecker {
   private readonly annotationStatementsByName: Map<string, AnnotationStatement> = new Map();
   private readonly activeTypeParameterScopes: Array<Set<string>> = [];
   private readonly activeTypeParameterConstraintScopes: Array<Map<string, AnalysisType>> = [];
+  private readonly activeContextualThisTypes: AnalysisType[] = [];
   private readonly namedTypeMembersCache: Map<string, Map<string, AnalysisType> | null> = new Map();
   private readonly resolvingNamedTypeMembers: Set<string> = new Set();
   private readonly setterOnlyMembersCache: Map<string, Set<string>> = new Map();
   private readonly pureWriteTargetNodes = new WeakSet<Node>();
   private readonly activeTypeAliasNames: Set<string> = new Set();
+  private readonly visibleExternalTypeArgumentNames: Map<string, number> = new Map();
   private readonly looseTypeNameCache: Map<string, AnalysisType> = new Map();
   private readonly resolvingLooseTypeQueries: Set<string> = new Set();
   private readonly generatorFunctionStack: boolean[] = [];
@@ -284,8 +286,14 @@ export class TypeChecker {
   private readonly analysisTypeIds: WeakMap<object, number> = new WeakMap<object, number>();
   private readonly explicitlyUnknownIdentifiers: WeakSet<object> = new WeakSet<object>();
   private readonly unresolvedImportedIdentifiers: WeakSet<object> = new WeakSet<object>();
+  private readonly expandedTypeAliasCache = new Map<string, AnalysisType>();
+  private readonly expandedTypesBySource = new WeakMap<object, AnalysisType>();
+  private readonly typeExpansionsInProgress = new WeakSet<object>();
+  private readonly substitutedTypesBySource = new WeakMap<object, Map<string, AnalysisType>>();
+  private readonly typeSubstitutionsInProgress = new WeakMap<object, Set<string>>();
+  private readonly typeInferencePairsInProgress = new WeakMap<object, WeakSet<object>>();
+  private readonly interfaceMemberOwnerTypeParameters = new WeakMap<object, readonly TypeParameter[]>();
   private nextAnalysisTypeId = 1;
-
   constructor(
     private readonly program: Program,
     private readonly bound: BoundAnalysis,
@@ -497,21 +505,73 @@ export class TypeChecker {
     }
 
     if (currentType instanceof NamedType && resolvedTypeArguments.length > 0) {
-      this.validateNamedTypeArgumentConstraints(currentType.name, resolvedTypeArguments, node, scope);
-      const typeAlias = this.typeAliasForResolution(currentType.name, node);
+      const qualifiedAliasName = currentType.name.includes(".")
+        ? currentType.name
+        : this.uniqueQualifiedTypeAliasName(currentType.name) ?? currentType.name;
+      this.validateNamedTypeArgumentConstraints(qualifiedAliasName, resolvedTypeArguments, node, scope);
+      const typeAlias = this.typeAliasForResolution(qualifiedAliasName, node);
       return typeAlias
         ? this.resolveTypeAliasTarget(typeAlias, resolvedTypeArguments, scope)
-        : namedType(currentType.name, resolvedTypeArguments);
+        : namedType(qualifiedAliasName, resolvedTypeArguments);
     }
 
     return currentType;
+  }
+
+  private uniqueQualifiedTypeAliasName(unqualifiedName: string): string | null {
+    const candidates = [...this.typeAliasStatementsByName.keys()].filter((name) =>
+      name.endsWith(`.${unqualifiedName}`)
+    );
+    return candidates.length === 1 ? candidates[0]! : null;
   }
 
   private isNameVisibleFromExternalDeclarations(name: string, node: Node): boolean {
     return this.importedBindingNames.has(name)
       || this.nonExternalNamedTypeNames.has(name)
       || !this.externalNamedTypeNames.has(name)
+      || this.visibleExternalTypeArgumentNames.has(name)
       || this.externalDeclarationNodes.has(node);
+  }
+
+  private withVisibleExternalTypeArguments<T>(
+    typeArguments: readonly AnalysisType[],
+    operation: () => T
+  ): T {
+    const names = new Set<string>();
+    const visited = new WeakSet<object>();
+    const collectNames = (type: AnalysisType): void => {
+      if (visited.has(type)) return;
+      visited.add(type);
+      if (type instanceof NamedType) {
+        names.add(type.name);
+        for (const typeArgument of type.typeArguments ?? []) collectNames(typeArgument);
+      } else if (type instanceof ArrayType || type instanceof RangeType) {
+        collectNames(type.elementType);
+      } else if (type instanceof TupleType || type instanceof UnionType || type instanceof IntersectionType) {
+        for (const member of type instanceof TupleType ? type.elements : type.types) collectNames(member);
+      } else if (type instanceof FunctionType) {
+        for (const parameter of type.parameters) collectNames(parameter.type);
+        collectNames(type.returnType);
+      } else if (type instanceof ObjectType) {
+        for (const propertyType of type.properties.values()) collectNames(propertyType);
+      }
+    };
+    for (const typeArgument of typeArguments) collectNames(typeArgument);
+    for (const name of names) {
+      this.visibleExternalTypeArgumentNames.set(
+        name,
+        (this.visibleExternalTypeArgumentNames.get(name) ?? 0) + 1
+      );
+    }
+    try {
+      return operation();
+    } finally {
+      for (const name of names) {
+        const count = this.visibleExternalTypeArgumentNames.get(name)! - 1;
+        if (count === 0) this.visibleExternalTypeArgumentNames.delete(name);
+        else this.visibleExternalTypeArgumentNames.set(name, count);
+      }
+    }
   }
 
   private typeAliasForResolution(name: string, node?: Node): TypeAliasStatement | undefined {
@@ -1865,7 +1925,13 @@ export class TypeChecker {
 
   private visitInterfaceStatement(statement: InterfaceStatement, scope: Scope): void {
     const interfaceScope = this.scopeFor(statement, scope);
-    this.withTypeParameters(typeParameterNameList(statement.typeParameters ?? []), () => {
+    const typeParameterNames = typeParameterNameList(statement.typeParameters ?? []);
+    this.activeContextualThisTypes.push(namedType(
+      statement.name.name,
+      typeParameterNames.map((name) => namedType(name))
+    ));
+    try {
+      this.withTypeParameters(typeParameterNames, () => {
       for (const parentType of statement.extendsTypes ?? []) {
         this.resolveTypeAnnotation(parentType, interfaceScope);
       }
@@ -1888,7 +1954,10 @@ export class TypeChecker {
           }
         }, this.typeParameterConstraintMap(method.typeParameters ?? [], interfaceScope));
       }
-    }, this.typeParameterConstraintMap(statement.typeParameters ?? [], scope));
+      }, this.typeParameterConstraintMap(statement.typeParameters ?? [], scope));
+    } finally {
+      this.activeContextualThisTypes.pop();
+    }
   }
 
   private visitTypeAliasStatement(statement: TypeAliasStatement, scope: Scope): void {
@@ -3827,12 +3896,7 @@ export class TypeChecker {
           // Named arguments are written in any order; reorder their types into
           // the callee's positional parameter order so generic inference and
           // argument validation operate as if the call were positional.
-          const preferredInferenceArguments =
-            literalCallableTypeMatched && literalCallableType && literalCallableType !== callableType
-              ? overloadArgumentTypes
-              : (!callableTypeMatched && literalCallableTypeMatched
-              ? overloadArgumentTypes
-              : argumentTypes);
+          const preferredInferenceArguments = argumentTypes;
           const callableCandidates = this.validateTypes ? this.callableCandidatesFrom(calleeType) : [];
           let candidatePool: FunctionType[] = callableCandidates;
           if (candidatePool.length === 0) candidatePool = [selectedCallableType];
@@ -3855,12 +3919,16 @@ export class TypeChecker {
                 call.args,
                 preferredInferenceArguments
               );
+          const firstPassInferenceArgumentTypes = hasNamedArguments
+            ? inferenceArgumentTypes
+            : this.deferContextualCallArgumentInference(call, bestCallableType, inferenceArgumentTypes);
           const firstPassCalleeType = this.instantiateFunctionType(
             bestCallableType,
             explicitTypeArguments,
-            inferenceArgumentTypes,
+            firstPassInferenceArgumentTypes,
             expectedType,
             false,
+            true,
             false
           );
           const contextualArgumentTypes = hasNamedArguments
@@ -3869,7 +3937,25 @@ export class TypeChecker {
                 call,
                 scope,
                 firstPassCalleeType,
-                argumentTypes
+                argumentTypes,
+                (refinedArgumentTypes, nextArgumentIndex) => this.instantiateFunctionType(
+                  bestCallableType,
+                  explicitTypeArguments,
+                  this.deferContextualCallArgumentInference(
+                    call,
+                    bestCallableType,
+                    this.literalSensitiveInferenceArgumentTypes(
+                      bestCallableType,
+                      call.args,
+                      refinedArgumentTypes
+                    ),
+                    nextArgumentIndex
+                  ),
+                  expectedType,
+                  false,
+                  true,
+                  false
+                )
               );
           if (this.validateTypes && !hasNamedArguments) {
             const contextualizedIndices: number[] = [];
@@ -3916,7 +4002,10 @@ export class TypeChecker {
             if (hasNamedArguments) {
               this.validateNamedCallArguments(call, instantiatedCalleeType, argumentTypes);
             } else {
-              this.validateCallArguments(call, instantiatedCalleeType, contextualArgumentTypes);
+              const validationArgumentTypes = contextualArgumentTypes === argumentTypes
+                ? inferenceArgumentTypes
+                : contextualArgumentTypes;
+              this.validateCallArguments(call, instantiatedCalleeType, validationArgumentTypes);
             }
           }
           this.evolveArrayElementTypeFromMutation(call, scope, contextualArgumentTypes);
@@ -4239,7 +4328,7 @@ export class TypeChecker {
             result = UNKNOWN_TYPE;
             break;
           }
-          result = unwrapPromiseType(argumentType) ?? argumentType;
+          result = this.awaitedUtilityType(argumentType);
           break;
         }
         if (unary.operator === "go") {
@@ -4623,6 +4712,21 @@ export class TypeChecker {
       default:
         result = UNKNOWN_TYPE;
         break;
+    }
+
+    if (
+      expression instanceof CallExpression &&
+      result instanceof FunctionType &&
+      (result.typeParameters?.length ?? 0) > 0 &&
+      expectedType instanceof FunctionType
+    ) {
+      const instantiatedResult = this.instantiateFunctionType(
+        result,
+        [],
+        expectedType.parameters.map((parameter) => parameter.type),
+        expectedType.returnType
+      );
+      result = functionType(instantiatedResult.parameters, instantiatedResult.returnType);
     }
 
     // Pervasive auto-await: inside a `sync` function body (Kotlin-suspend-like), any expression
@@ -5329,8 +5433,21 @@ export class TypeChecker {
   }
 
   private computeTypeAssignable(sourceType: AnalysisType, targetType: AnalysisType): boolean {
+    if (typeToString(sourceType) === typeToString(targetType)) {
+      return true;
+    }
     const expandedSourceType = this.expandTypeAliases(sourceType);
     const expandedTargetType = this.expandTypeAliases(targetType);
+    if (
+      sourceType instanceof ObjectType
+      && targetType instanceof NamedType
+      && this.typeContainsNever(expandedTargetType)
+    ) {
+      const structuralHead = this.structuralAliasHeadType(targetType);
+      if (structuralHead) {
+        return this.isTypeAssignable(sourceType, structuralHead);
+      }
+    }
     if (!isSameType(expandedSourceType, sourceType) || !isSameType(expandedTargetType, targetType)) {
       return this.isTypeAssignable(expandedSourceType, expandedTargetType);
     }
@@ -5344,7 +5461,6 @@ export class TypeChecker {
     if (isSameType(sourceType, targetType)) {
       return true;
     }
-
     if (isUnknownType(targetType)) {
       return true;
     }
@@ -5479,15 +5595,28 @@ export class TypeChecker {
     if (sourceType instanceof FunctionType && targetType instanceof FunctionType) {
       const sourceFunction = sourceType as FunctionType;
       const targetFunction = targetType as FunctionType;
+      if ((sourceFunction.typeParameters?.length ?? 0) > 0) {
+        const instantiatedSource = this.instantiateFunctionType(
+          sourceFunction,
+          [],
+          targetFunction.parameters.map((parameter) => parameter.type),
+          targetFunction.returnType
+        );
+        return this.isTypeAssignable(
+          functionType(instantiatedSource.parameters, instantiatedSource.returnType),
+          targetFunction
+        );
+      }
       if (targetFunction.parameters.length === 0 && this.returnValueIsOptional(targetFunction.returnType)) {
         return true;
       }
-      const targetRequiredCount = targetFunction.parameters.filter((parameter) => !parameter.optional).length;
-      if (sourceFunction.parameters.length < targetRequiredCount) {
+      const sourceRequiredCount = sourceFunction.parameters.filter((parameter) => !parameter.optional).length;
+      if (sourceRequiredCount > targetFunction.parameters.length) {
         return false;
       }
 
-      for (let index = 0; index < targetFunction.parameters.length; index += 1) {
+      const comparableParameterCount = Math.min(sourceFunction.parameters.length, targetFunction.parameters.length);
+      for (let index = 0; index < comparableParameterCount; index += 1) {
         const targetParameter = targetFunction.parameters[index];
         const sourceParameter = sourceFunction.parameters[index];
         if (!targetParameter || !sourceParameter) {
@@ -5499,7 +5628,7 @@ export class TypeChecker {
         if (!parameterAssignable) {
           return false;
         }
-        if ((targetParameter.optional ?? false) === false && (sourceParameter.optional ?? false) === true) {
+        if ((targetParameter.optional ?? false) === true && (sourceParameter.optional ?? false) === false) {
           return false;
         }
       }
@@ -5620,8 +5749,8 @@ export class TypeChecker {
         );
       }
       if (sourceType.name === targetType.name) {
-        const sourceTypeArguments = sourceType.typeArguments ?? [];
-        const targetTypeArguments = targetType.typeArguments ?? [];
+        const sourceTypeArguments = this.namedTypeArgumentsWithDefaults(sourceType);
+        const targetTypeArguments = this.namedTypeArgumentsWithDefaults(targetType);
         return this.areNamedTypeArgumentsAssignable(sourceTypeArguments, targetTypeArguments);
       }
       if (this.isNamedTypeAssignableByDeclaration(sourceType, targetType)) {
@@ -5846,6 +5975,17 @@ export class TypeChecker {
     }
     return sourceArguments.length === 0 && targetArguments.every((targetArgument) =>
       targetArgument instanceof BuiltinType && targetArgument.name === "any"
+    );
+  }
+
+  private namedTypeArgumentsWithDefaults(type: NamedType): AnalysisType[] {
+    const typeParameters = this.typeParametersForNamedType(type.name);
+    if (!typeParameters || typeParameters.length === 0) {
+      return type.typeArguments ?? [];
+    }
+    const substitutions = this.typeParameterSubstitutions(typeParameters, type);
+    return typeParameters.map((parameter) =>
+      substitutions.get(parameter.name.name) ?? namedType(parameter.name.name)
     );
   }
 
@@ -6170,12 +6310,6 @@ export class TypeChecker {
     const referencesLocalTypeParameter = [...localTypeParameterNames].some((name) =>
       new RegExp(`\\b${this.escapeRegexText(name)}\\b`).test(normalizedTypeName)
     );
-    if (referencesLocalTypeParameter && parseConditionalTypeText(normalizedTypeName)) {
-      return namedType(normalizedTypeName);
-    }
-    if (normalizedTypeName === "this" && contextualThisTypeName) {
-      return this.typeFromTypeNameLoose(contextualThisTypeName);
-    }
     const functionType = this.functionTypeFromAnnotationText(
       typeName,
       localTypeParameterNames,
@@ -6183,6 +6317,12 @@ export class TypeChecker {
     );
     if (functionType) {
       return functionType;
+    }
+    if (referencesLocalTypeParameter && parseConditionalTypeText(normalizedTypeName)) {
+      return namedType(normalizedTypeName);
+    }
+    if (normalizedTypeName === "this" && contextualThisTypeName) {
+      return this.typeFromTypeNameLoose(contextualThisTypeName);
     }
     const mappedBody = normalizedTypeName.startsWith("{") && normalizedTypeName.endsWith("}")
       ? normalizedTypeName.slice(1, -1).trim().replace(/;$/, "").trim()
@@ -6205,6 +6345,20 @@ export class TypeChecker {
     const typeQueryType = this.typeFromTypeQueryNameLoose(typeName);
     if (typeQueryType) {
       return typeQueryType;
+    }
+    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
+    if (unionParts.length > 1) {
+      return unionType(unionParts.map((part): AnalysisType =>
+        this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
+      ));
+    }
+    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
+    if (intersectionParts.length > 1) {
+      return this.intersectionWithNonNullishObjectIdentity(
+        intersectionParts.map((part): AnalysisType =>
+          this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
+        )
+      );
     }
     const readonlyContainer: ReadonlyContainerTypeText | null = parseReadonlyContainerTypeText(normalizedTypeName);
     if (readonlyContainer?.kind === "tuple") {
@@ -6292,20 +6446,6 @@ export class TypeChecker {
     if (computedType) {
       return computedType;
     }
-    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
-    if (unionParts.length > 1) {
-      return unionType(unionParts.map((part): AnalysisType =>
-        this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
-      ));
-    }
-    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
-    if (intersectionParts.length > 1) {
-      return this.intersectionWithNonNullishObjectIdentity(
-        intersectionParts.map((part): AnalysisType =>
-          this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
-        )
-      );
-    }
     if (looksLikeFunctionTypeAnnotation(typeName)) {
       return UNKNOWN_TYPE;
     }
@@ -6367,8 +6507,9 @@ export class TypeChecker {
 
 
   private typeParameterConstraintMapLoose(
-    typeParameters: TypeParameter[],
-    localTypeParameterNames: readonly string[]
+    typeParameters: readonly TypeParameter[],
+    localTypeParameterNames: readonly string[],
+    contextualThisTypeName?: string
   ): ReadonlyMap<string, AnalysisType> | undefined {
     const constraints = new Map<string, AnalysisType>();
     for (const typeParameter of typeParameters) {
@@ -6377,15 +6518,17 @@ export class TypeChecker {
       }
       constraints.set(typeParameter.name.name, this.typeFromAnnotationLooseWithTypeParameters(
         typeParameter.constraint,
-        localTypeParameterNames
+        localTypeParameterNames,
+        contextualThisTypeName
       ) ?? UNKNOWN_TYPE);
     }
     return constraints.size > 0 ? constraints : undefined;
   }
 
   private typeParameterDefaultMapLoose(
-    typeParameters: TypeParameter[],
-    localTypeParameterNames: readonly string[]
+    typeParameters: readonly TypeParameter[],
+    localTypeParameterNames: readonly string[],
+    contextualThisTypeName?: string
   ): ReadonlyMap<string, AnalysisType> | undefined {
     const defaults = new Map<string, AnalysisType>();
     for (const typeParameter of typeParameters) {
@@ -6394,7 +6537,8 @@ export class TypeChecker {
       }
       defaults.set(typeParameter.name.name, this.typeFromAnnotationLooseWithTypeParameters(
         typeParameter.defaultType,
-        localTypeParameterNames
+        localTypeParameterNames,
+        contextualThisTypeName
       ) ?? UNKNOWN_TYPE);
     }
     return defaults.size > 0 ? defaults : undefined;
@@ -6404,16 +6548,18 @@ export class TypeChecker {
     call: CallExpression,
     scope: Scope,
     calleeType: FunctionType,
-    argumentTypes: AnalysisType[]
+    argumentTypes: AnalysisType[],
+    refineCalleeType?: (argumentTypes: AnalysisType[], nextArgumentIndex: number) => FunctionType
   ): AnalysisType[] {
     let contextualArgumentTypes: AnalysisType[] | undefined;
+    let activeCalleeType = calleeType;
 
     for (let index = 0; index < call.args.length; index += 1) {
       const argument = call.args[index]!;
       const contextualExpectedType = this.contextualExpectedTypeForCallArgument(
         argument,
-        this.expectedTypeForCallArgument(calleeType, index),
-        calleeType.typeParameters ?? []
+        this.expectedTypeForCallArgument(activeCalleeType, index),
+        activeCalleeType.typeParameters ?? []
       );
       if (!contextualExpectedType) {
         continue;
@@ -6439,9 +6585,53 @@ export class TypeChecker {
         contextualArgumentTypes = [...argumentTypes];
       }
       contextualArgumentTypes[index] = contextualArgumentType;
+      if (refineCalleeType) {
+        activeCalleeType = refineCalleeType(contextualArgumentTypes, index + 1);
+      }
     }
 
     return contextualArgumentTypes ?? argumentTypes;
+  }
+
+  private deferContextualCallArgumentInference(
+    call: CallExpression,
+    calleeType: FunctionType,
+    argumentTypes: AnalysisType[],
+    fromIndex: number = 0
+  ): AnalysisType[] {
+    let deferred: AnalysisType[] | null = null;
+    for (let index = 0; index < call.args.length; index += 1) {
+      const argument = call.args[index]!;
+      if (index < fromIndex) {
+        continue;
+      }
+      const expectedType = this.expectedTypeForCallArgument(calleeType, index);
+      const constrainedExpectedType = expectedType instanceof NamedType
+        ? calleeType.typeParameterConstraints?.get(expectedType.name)
+        : undefined;
+      const contextualFunctionType = expectedType instanceof FunctionType
+        ? expectedType
+        : constrainedExpectedType
+          ? this.contextualFunctionExpectedType(constrainedExpectedType)
+          : expectedType
+            ? this.contextualFunctionExpectedType(expectedType)
+            : null;
+      const shouldDefer = argument instanceof CallExpression || argument instanceof NewExpression
+        ? contextualFunctionType !== null
+        : this.isFunctionLikeExpression(argument) && contextualFunctionType !== null && (
+            constrainedExpectedType !== undefined ||
+            argument.parameters.every((parameter) => parameter.typeAnnotation === undefined)
+          );
+      if (
+        !expectedType ||
+        !shouldDefer
+      ) {
+        continue;
+      }
+      deferred ??= [...argumentTypes];
+      deferred[index] = UNKNOWN_TYPE;
+    }
+    return deferred ?? argumentTypes;
   }
 
   private expectedTypeForCallArgument(calleeType: FunctionType, index: number): AnalysisType | undefined {
@@ -6494,17 +6684,21 @@ export class TypeChecker {
     expectedParameterType: AnalysisType | undefined,
     typeParameters: string[]
   ): AnalysisType | null {
-    return expectedParameterType
-      ? this.contextualTypeForExpressionArgument(
-          argument,
-          this.contextualTypeWithoutUnresolvedReturnType(expectedParameterType, typeParameters)
-        )
+    if (!expectedParameterType) {
+      return null;
+    }
+    const contextualType = this.contextualTypeForExpressionArgument(argument, expectedParameterType);
+    return contextualType
+      ? this.contextualTypeWithoutUnresolvedReturnType(contextualType, typeParameters)
       : null;
   }
 
   private preserveCallLiteralArgumentTypes(args: readonly Expr[], argumentTypes: AnalysisType[]): AnalysisType[] {
     let preserved: AnalysisType[] | null = null;
     for (let index = 0; index < args.length; index += 1) {
+      if (args[index] instanceof IntLiteral || args[index] instanceof FloatLiteral) {
+        continue;
+      }
       const narrowed = this.literalArgumentType(args[index]!, argumentTypes[index] ?? UNKNOWN_TYPE);
       if (narrowed === argumentTypes[index]) {
         continue;
@@ -6558,13 +6752,27 @@ export class TypeChecker {
       const referencedTypeParameters = (calleeType.typeParameters ?? []).filter((name) =>
         this.typeContainsTypeParameterReference(parameterType, new Set([name]))
       );
+      if (
+        argument instanceof StringLiteral
+        && referencedTypeParameters.some((name) => constraints.has(name))
+      ) {
+        const narrowed = this.literalArgumentType(argument, argumentTypes[index] ?? UNKNOWN_TYPE);
+        if (narrowed !== argumentTypes[index]) {
+          preserved ??= [...argumentTypes];
+          preserved[index] = narrowed;
+        }
+      }
       const parameterName = parameterType instanceof NamedType && constraints.has(parameterType.name)
         ? parameterType.name
         : referencedTypeParameters.length === 1
           ? referencedTypeParameters[0]
           : undefined;
       const constraint = parameterName ? constraints.get(parameterName) : undefined;
-      if (!constraint || !this.expectedTypeDependsOnLiteral(constraint)) {
+      const directPrimitiveConstraint = parameterType instanceof NamedType
+        && parameterName === parameterType.name
+        && constraint instanceof BuiltinType
+        && ["string", "number", "boolean"].includes(constraint.name);
+      if (!constraint || (!directPrimitiveConstraint && !this.expectedTypeDependsOnLiteral(constraint))) {
         continue;
       }
       const narrowed = this.literalArgumentType(argument, argumentTypes[index] ?? UNKNOWN_TYPE);
@@ -6629,22 +6837,45 @@ export class TypeChecker {
     expectedType: AnalysisType,
     typeParameters: string[]
   ): AnalysisType {
-    if (
-      !(expectedType instanceof FunctionType) ||
-      !this.shouldEraseContextualFunctionReturnType(expectedType.returnType, typeParameters)
-    ) {
-      return expectedType;
+    if (expectedType instanceof FunctionType) {
+      return functionType(
+        expectedType.parameters.map((parameter) => new FunctionTypeParameter(
+          parameter.name,
+          this.contextualTypeWithoutUnresolvedReturnType(parameter.type, typeParameters),
+          parameter.receiver || undefined,
+          parameter.optional,
+          parameter.rest || undefined
+        )),
+        this.shouldEraseContextualFunctionReturnType(expectedType.returnType, typeParameters)
+          ? UNKNOWN_TYPE
+          : expectedType.returnType,
+        expectedType.typeParameters,
+        expectedType.typeParameterConstraints,
+        expectedType.typeParameterDefaults,
+        expectedType.assertion,
+        expectedType.constTypeParameters
+      );
     }
-
-    return functionType(
-      expectedType.parameters,
-      UNKNOWN_TYPE,
-      expectedType.typeParameters,
-      expectedType.typeParameterConstraints,
-      expectedType.typeParameterDefaults,
-      expectedType.assertion,
-      expectedType.constTypeParameters
-    );
+    if (expectedType instanceof ObjectType) {
+      return objectTypeWithProperties(
+        new Map([...expectedType.properties].map(([name, propertyType]) => [
+          name,
+          this.contextualTypeWithoutUnresolvedReturnType(propertyType, typeParameters)
+        ])),
+        expectedType.propertyOwnerTypeNames
+      );
+    }
+    if (expectedType instanceof UnionType) {
+      return unionType(expectedType.types.map((member) =>
+        this.contextualTypeWithoutUnresolvedReturnType(member, typeParameters)
+      ));
+    }
+    if (expectedType instanceof IntersectionType) {
+      return intersectionType(expectedType.types.map((member) =>
+        this.contextualTypeWithoutUnresolvedReturnType(member, typeParameters)
+      ));
+    }
+    return expectedType;
   }
 
   private shouldEraseContextualFunctionReturnType(
@@ -6656,11 +6887,61 @@ export class TypeChecker {
       this.isTypePredicateType(returnType);
   }
 
+  private typeParametersInContextualReturns(
+    parameters: readonly FunctionTypeParameter[],
+    typeParameters: readonly string[]
+  ): ReadonlySet<string> {
+    const candidates = new Set(typeParameters);
+    const found = new Set<string>();
+    const visitedInput = new Set<AnalysisType>();
+    const visitedReturn = new Set<AnalysisType>();
+    const visit = (type: AnalysisType, inFunctionReturn: boolean): void => {
+      const visited = inFunctionReturn ? visitedReturn : visitedInput;
+      if (visited.has(type)) return;
+      visited.add(type);
+      if (type instanceof NamedType) {
+        if (inFunctionReturn && candidates.has(type.name)) found.add(type.name);
+        for (const argument of type.typeArguments ?? []) visit(argument, inFunctionReturn);
+        return;
+      }
+      if (type instanceof FunctionType) {
+        for (const parameter of type.parameters) visit(parameter.type, false);
+        visit(type.returnType, true);
+        return;
+      }
+      if (type instanceof ObjectType) {
+        for (const propertyType of type.properties.values()) visit(propertyType, inFunctionReturn);
+        return;
+      }
+      if (type instanceof UnionType || type instanceof IntersectionType) {
+        for (const member of type.types) visit(member, inFunctionReturn);
+        return;
+      }
+      if (type instanceof TupleType) {
+        for (const element of type.elements) visit(element, inFunctionReturn);
+        return;
+      }
+      if (type instanceof ArrayType || type instanceof RangeType) {
+        visit(type.elementType, inFunctionReturn);
+      }
+    };
+    for (const parameter of parameters) {
+      const normalized = this.expandTypeAliases(this.normalizeLooseNamedType(parameter.type));
+      const namedMembers = normalized instanceof NamedType
+        ? this.resolveNamedTypeMembers(normalized)
+        : null;
+      visit(namedMembers ? objectTypeWithProperties(namedMembers) : normalized, false);
+    }
+    return found;
+  }
+
   private isTypePredicateType(type: AnalysisType): boolean {
     return type instanceof NamedType && /\bis\b/.test(type.name);
   }
 
-  private isFunctionLikeExpression(expression: Expr): boolean {
+  private isFunctionLikeExpression(
+    expression: Expr
+  ): expression is ArrowFunctionExpression | FunctionExpression {
     return expression instanceof ArrowFunctionExpression || expression instanceof FunctionExpression;
   }
 
@@ -6726,6 +7007,15 @@ export class TypeChecker {
       }
     }
     const expandedExpectedType: AnalysisType = this.expandTypeAliases(this.normalizeLooseNamedType(expectedType));
+    if (expectedType instanceof NamedType && this.typeContainsNever(expandedExpectedType)) {
+      const structuralHead = this.structuralAliasHeadType(expectedType);
+      if (structuralHead) {
+        return objectTypeWithProperties(new Map([
+          ...structuralHead.properties,
+          ["[string]", UNKNOWN_TYPE]
+        ]));
+      }
+    }
     if (expandedExpectedType instanceof ObjectType || expandedExpectedType instanceof NamedType) {
       return expandedExpectedType;
     }
@@ -6750,39 +7040,100 @@ export class TypeChecker {
     return null;
   }
 
+  private typeContainsNever(type: AnalysisType): boolean {
+    if (type instanceof BuiltinType) {
+      return type.name === "never";
+    }
+    if (type instanceof UnionType || type instanceof IntersectionType) {
+      return type.types.some((member) => this.typeContainsNever(member));
+    }
+    if (type instanceof ObjectType) {
+      return [...type.properties.values()].some((propertyType) => this.typeContainsNever(propertyType));
+    }
+    return false;
+  }
+
+  private structuralAliasHeadType(type: NamedType): ObjectType | null {
+    const typeAlias = this.typeAliasForResolution(type.name);
+    if (!typeAlias) {
+      return null;
+    }
+    const structuralHeadText = splitTopLevelTypeText(typeAlias.targetType.name, "&")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("{") && part.endsWith("}"));
+    const structuralHead = structuralHeadText
+      ? this.objectTypeFromAnnotationText(structuralHeadText)
+      : null;
+    if (!(structuralHead instanceof ObjectType)) {
+      return null;
+    }
+    const instantiated = this.substituteTypeParameters(
+      structuralHead,
+      this.typeParameterSubstitutions(typeAlias.typeParameters, type)
+    );
+    return instantiated instanceof ObjectType ? instantiated : null;
+  }
+
   private contextualFunctionExpectedType(
     expectedType: AnalysisType | undefined
   ): FunctionType | undefined {
     if (!expectedType || isUnknownType(expectedType)) {
       return undefined;
     }
-    const expandedExpectedType = this.expandTypeAliases(this.normalizeLooseNamedType(expectedType));
-    if (!(expandedExpectedType instanceof UnionType)) {
-      return expandedExpectedType instanceof FunctionType
-        ? expandedExpectedType
-        : undefined;
-    }
-
-    const nonNullishMembers: AnalysisType[] = [];
-    const collectNonNullishMembers = (type: AnalysisType): void => {
-      if (type instanceof UnionType) {
-        for (const member of type.types) {
-          collectNonNullishMembers(member);
-        }
+    const callableMembers: FunctionType[] = [];
+    const visited = new Set<AnalysisType>();
+    const collectCallableMembers = (type: AnalysisType): void => {
+      if (isNullishType(type)) return;
+      if (visited.has(type)) return;
+      visited.add(type);
+      const expanded = this.expandTypeAliases(this.normalizeLooseNamedType(type));
+      if (!isSameType(expanded, type)) {
+        collectCallableMembers(expanded);
         return;
       }
-      if (!isNullishType(type)) {
-        nonNullishMembers.push(type);
+      if (expanded instanceof UnionType || expanded instanceof IntersectionType) {
+        for (const member of expanded.types) collectCallableMembers(member);
+        return;
       }
+      if (expanded instanceof FunctionType) callableMembers.push(expanded);
     };
-    collectNonNullishMembers(expandedExpectedType);
-    const callableMembers = nonNullishMembers
-      .map((member) => this.expandTypeAliases(this.normalizeLooseNamedType(member)))
-      .filter((member): member is FunctionType => member instanceof FunctionType);
+    collectCallableMembers(expectedType);
+    return this.mergeContextuallyCompatibleFunctions(callableMembers);
+  }
+
+  private mergeContextuallyCompatibleFunctions(
+    callableMembers: readonly FunctionType[]
+  ): FunctionType | undefined {
     const firstCallable = callableMembers[0];
-    return firstCallable && callableMembers.every((member) => isSameType(member, firstCallable))
-      ? firstCallable
-      : undefined;
+    if (!firstCallable) {
+      return undefined;
+    }
+    const firstTypeParameters = firstCallable.typeParameters ?? [];
+    const compatible = callableMembers.every((member) => {
+      const memberTypeParameters = member.typeParameters ?? [];
+      return member.parameters.length === firstCallable.parameters.length
+        && memberTypeParameters.length === firstTypeParameters.length
+        && memberTypeParameters.every((name, index) => name === firstTypeParameters[index])
+        && member.parameters.every((parameter, index) => {
+          const firstParameter = firstCallable.parameters[index]!;
+          return parameter.optional === firstParameter.optional
+            && parameter.rest === firstParameter.rest
+            && parameter.receiver === firstParameter.receiver
+            && isSameType(parameter.type, firstParameter.type);
+        });
+    });
+    if (!compatible) {
+      return undefined;
+    }
+    return functionType(
+      firstCallable.parameters,
+      combineTypes(callableMembers.map((member) => member.returnType)),
+      firstCallable.typeParameters,
+      firstCallable.typeParameterConstraints,
+      firstCallable.typeParameterDefaults,
+      firstCallable.assertion,
+      firstCallable.constTypeParameters
+    );
   }
 
   private preservesInferredContextualReturnType(
@@ -6821,7 +7172,8 @@ export class TypeChecker {
     argumentTypes: AnalysisType[],
     expectedReturnType?: AnalysisType,
     resolveDependentSubstitutions: boolean = true,
-    applyTypeParameterDefaults: boolean = true
+    applyTypeParameterDefaults: boolean = true,
+    substituteReturnType: boolean = true
   ): FunctionType {
     const typeParameters = calleeType.typeParameters ?? [];
     if (typeParameters.length === 0) {
@@ -6874,11 +7226,20 @@ export class TypeChecker {
       );
     }
 
+    const deferredDefaults = !substituteReturnType && applyTypeParameterDefaults
+      ? this.typeParametersInContextualReturns(calleeType.parameters, typeParameters)
+      : new Set<string>();
     for (const typeParameter of typeParameters) {
       if (!substitutions.has(typeParameter)) {
         const defaultType = calleeType.typeParameterDefaults?.get(typeParameter);
+        const constraintType = calleeType.typeParameterConstraints?.get(typeParameter);
         let resolvedType: AnalysisType = namedType(typeParameter);
-        if (applyTypeParameterDefaults && defaultType !== undefined) resolvedType = defaultType;
+        if (
+          applyTypeParameterDefaults &&
+          defaultType !== undefined &&
+          !deferredDefaults.has(typeParameter)
+        ) resolvedType = defaultType;
+        else if (constraintType !== undefined) resolvedType = constraintType;
         substitutions.set(typeParameter, resolvedType);
       }
     }
@@ -6886,21 +7247,43 @@ export class TypeChecker {
       this.resolveSubstitutionDependencies(substitutions);
     }
 
-    const substituted = this.substituteTypeParameters(calleeType, substitutions) as FunctionType;
+    const substitutedConstraints = calleeType.typeParameterConstraints
+      ? new Map([...calleeType.typeParameterConstraints].map(([name, constraint]) => [
+          name,
+          this.substituteTypeParameters(constraint, substitutions)
+        ]))
+      : undefined;
+    const substitutedDefaults = calleeType.typeParameterDefaults
+      ? new Map([...calleeType.typeParameterDefaults].map(([name, defaultType]) => [
+          name,
+          this.substituteTypeParameters(defaultType, substitutions)
+        ]))
+      : undefined;
     return functionType(
-      substituted.parameters.map((parameter) => new FunctionTypeParameter(
+      calleeType.parameters.map((parameter) => new FunctionTypeParameter(
         parameter.name,
-        parameter.type,
+        substituteReturnType
+          ? this.substituteTypeParameters(parameter.type, substitutions)
+          : this.substituteTypeParametersDeferred(parameter.type, substitutions),
         parameter.receiver || undefined,
         parameter.optional,
         parameter.rest || undefined
       )),
-      substituted.returnType,
-      substituted.typeParameters,
-      substituted.typeParameterConstraints,
-      substituted.typeParameterDefaults,
-      substituted.assertion,
-      substituted.constTypeParameters
+      substituteReturnType
+        ? this.substituteTypeParameters(calleeType.returnType, substitutions)
+        : calleeType.returnType,
+      calleeType.typeParameters,
+      substitutedConstraints,
+      substitutedDefaults,
+      calleeType.assertion
+        ? {
+            target: calleeType.assertion.target,
+            ...(calleeType.assertion.type
+              ? { type: this.substituteTypeParameters(calleeType.assertion.type, substitutions) }
+              : {})
+          }
+        : undefined,
+      calleeType.constTypeParameters
     );
   }
 
@@ -6908,7 +7291,9 @@ export class TypeChecker {
     for (let pass = 0; pass < substitutions.size; pass += 1) {
       let changed = false;
       for (const [name, type] of substitutions) {
-        const resolved = this.substituteTypeParameters(type, substitutions);
+        const dependencies = new Map(substitutions);
+        dependencies.delete(name);
+        const resolved = this.substituteTypeParameters(type, dependencies);
         if (typeToString(resolved) === typeToString(type)) {
           continue;
         }
@@ -6943,7 +7328,55 @@ export class TypeChecker {
     });
   }
 
+  private identityTypeParameterInConditionalTypeText(
+    typeText: string,
+    typeParameters: ReadonlySet<string>,
+    depth: number = 0
+  ): string | undefined {
+    const trimmedTypeText = stripEnclosingTypeParens(typeText.trim());
+    if (typeParameters.has(trimmedTypeText)) {
+      return trimmedTypeText;
+    }
+    if (depth >= 8) {
+      return undefined;
+    }
+    const conditional = parseConditionalTypeText(trimmedTypeText);
+    return conditional
+      ? this.identityTypeParameterInConditionalTypeText(conditional.trueTypeText, typeParameters, depth + 1)
+        ?? this.identityTypeParameterInConditionalTypeText(conditional.falseTypeText, typeParameters, depth + 1)
+      : undefined;
+  }
+
   private inferTypeParameterSubstitutions(
+    parameterType: AnalysisType,
+    argumentType: AnalysisType,
+    typeParameters: Set<string>,
+    explicitlyProvidedTypeParameters: Set<string>,
+    substitutions: Map<string, AnalysisType>
+  ): void {
+    let argumentsInProgress = this.typeInferencePairsInProgress.get(parameterType);
+    if (!argumentsInProgress) {
+      argumentsInProgress = new WeakSet<object>();
+      this.typeInferencePairsInProgress.set(parameterType, argumentsInProgress);
+    }
+    if (argumentsInProgress.has(argumentType)) {
+      return;
+    }
+    argumentsInProgress.add(argumentType);
+    try {
+      this.inferTypeParameterSubstitutionsUncached(
+        parameterType,
+        argumentType,
+        typeParameters,
+        explicitlyProvidedTypeParameters,
+        substitutions
+      );
+    } finally {
+      argumentsInProgress.delete(argumentType);
+    }
+  }
+
+  private inferTypeParameterSubstitutionsUncached(
     parameterType: AnalysisType,
     argumentType: AnalysisType,
     typeParameters: Set<string>,
@@ -6952,6 +7385,75 @@ export class TypeChecker {
   ): void {
     if (isUnknownType(parameterType) || isUnknownType(argumentType)) {
       return;
+    }
+
+    if (parameterType instanceof NamedType && typeParameters.has(parameterType.name)) {
+      if (!explicitlyProvidedTypeParameters.has(parameterType.name)) {
+        this.mergeInferredTypeParameterSubstitution(parameterType.name, argumentType, substitutions);
+      }
+      return;
+    }
+
+    const conditionalParameter = parameterType instanceof NamedType
+      ? parseConditionalTypeText(stripEnclosingTypeParens(typeToString(parameterType)))
+      : null;
+    if (conditionalParameter) {
+      const branchTexts = [conditionalParameter.trueTypeText, conditionalParameter.falseTypeText];
+      const identityTypeParameter = branchTexts
+        .map((branchText) => this.identityTypeParameterInConditionalTypeText(branchText, typeParameters))
+        .find((name): name is string => name !== undefined);
+      if (identityTypeParameter && !explicitlyProvidedTypeParameters.has(identityTypeParameter)) {
+        if (this.typeContainsTypeParameterReference(argumentType, typeParameters)) {
+          return;
+        }
+        this.mergeInferredTypeParameterSubstitution(identityTypeParameter, argumentType, substitutions);
+        return;
+      }
+      for (const branchText of branchTexts) {
+        const branchType = this.typeFromTypeNameLoose(branchText);
+        if (!this.typeContainsTypeParameterReference(branchType, typeParameters)) {
+          continue;
+        }
+        this.inferTypeParameterSubstitutions(
+          branchType,
+          argumentType,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+      return;
+    }
+
+    if (parameterType instanceof NamedType && argumentType instanceof ObjectType) {
+      const parameterAlias = this.typeAliasForResolution(parameterType.name);
+      const structuralAliasHeadText = parameterAlias
+        ? splitTopLevelTypeText(parameterAlias.targetType.name, "&")
+          .map((part) => part.trim())
+          .find((part) => part.startsWith("{") && part.endsWith("}"))
+        : undefined;
+      const structuralAliasHead = structuralAliasHeadText
+        ? this.objectTypeFromAnnotationText(structuralAliasHeadText)
+        : null;
+      if (parameterAlias && structuralAliasHead instanceof ObjectType) {
+        const instantiatedAliasHead = this.substituteTypeParameters(
+          structuralAliasHead,
+          this.typeParameterSubstitutions(parameterAlias.typeParameters, parameterType)
+        );
+        if (instantiatedAliasHead instanceof ObjectType) {
+          const hasSharedProperty = [...instantiatedAliasHead.properties.keys()]
+            .some((propertyName) => argumentType.properties.has(propertyName));
+          if (hasSharedProperty) {
+            this.inferTypeParameterSubstitutions(
+              instantiatedAliasHead,
+              argumentType,
+              typeParameters,
+              explicitlyProvidedTypeParameters,
+              substitutions
+            );
+          }
+        }
+      }
     }
 
     const expandedParameterType = parameterType instanceof NamedType
@@ -7053,12 +7555,20 @@ export class TypeChecker {
       return;
     }
 
-    if (parameterType instanceof NamedType && typeParameters.has(parameterType.name)) {
-      if (explicitlyProvidedTypeParameters.has(parameterType.name)) {
+    if (argumentType instanceof IntersectionType) {
+      for (const branch of argumentType.types) {
+        if (!this.inferenceBranchCanMatchArgument(parameterType, branch, typeParameters)) {
+          continue;
+        }
+        this.inferTypeParameterSubstitutions(
+          parameterType,
+          branch,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
         return;
       }
-      this.mergeInferredTypeParameterSubstitution(parameterType.name, argumentType, substitutions);
-      return;
     }
 
     if (parameterType instanceof ArrayType && argumentType instanceof ArrayType) {
@@ -7248,8 +7758,8 @@ export class TypeChecker {
     if (parameterType instanceof NamedType && argumentType instanceof NamedType) {
       const parameterNamed = parameterType as NamedType;
       const argumentNamed = argumentType as NamedType;
-      const parameterTypeArguments: AnalysisType[] = parameterNamed.typeArguments ?? [];
-      const argumentTypeArguments: AnalysisType[] = argumentNamed.typeArguments ?? [];
+      const parameterTypeArguments = this.namedTypeArgumentsWithDefaults(parameterNamed);
+      const argumentTypeArguments = this.namedTypeArgumentsWithDefaults(argumentNamed);
       const promiseLikeArgument = parameterNamed.name === "PromiseLike" && argumentNamed.name === "Promise";
       if (parameterNamed.name !== argumentNamed.name && !promiseLikeArgument) {
         const matchingParameterSuperType = this.namedSuperTypeWithName(parameterNamed, argumentNamed.name);
@@ -7277,12 +7787,12 @@ export class TypeChecker {
         }
       }
       if (
-        (parameterNamed.name !== argumentNamed.name && !promiseLikeArgument) ||
-        parameterTypeArguments.length !== argumentTypeArguments.length
+        parameterNamed.name !== argumentNamed.name && !promiseLikeArgument
       ) {
         return;
       }
-      for (let index = 0; index < parameterTypeArguments.length; index += 1) {
+      const sharedTypeArgumentCount = Math.min(parameterTypeArguments.length, argumentTypeArguments.length);
+      for (let index = 0; index < sharedTypeArgumentCount; index += 1) {
         this.inferTypeParameterSubstitutions(
           parameterTypeArguments[index]!,
           argumentTypeArguments[index]!,
@@ -7500,7 +8010,10 @@ export class TypeChecker {
   ): boolean {
     if (type instanceof NamedType) {
       for (const typeParameter of typeParameters) {
-        if (new RegExp(`\\b${this.escapeRegexText(typeParameter)}\\b`).test(type.name)) {
+        if (
+          type.name === typeParameter
+          || new RegExp(`(?:^|[^A-Za-z0-9_$])${this.escapeRegexText(typeParameter)}(?![A-Za-z0-9_$])`).test(type.name)
+        ) {
           return true;
         }
       }
@@ -7848,12 +8361,16 @@ export class TypeChecker {
             call.args,
             baseInferenceArgumentTypes
           );
+      const firstPassInferenceArgumentTypes = hasNamedArguments
+        ? inferenceArgumentTypes
+        : this.deferContextualCallArgumentInference(call, candidate, inferenceArgumentTypes);
       const firstPass = this.instantiateFunctionType(
         candidate,
         explicitTypeArguments,
-        inferenceArgumentTypes,
+        firstPassInferenceArgumentTypes,
         expectedType,
         false,
+        true,
         false
       );
       const contextualArgumentTypes = hasNamedArguments
@@ -7866,11 +8383,23 @@ export class TypeChecker {
             candidate,
             explicitTypeArguments,
             inferenceArgumentTypes,
-            expectedType
+            expectedType,
+            true,
+            true,
+            true
           )
-        : this.instantiateFunctionType(candidate, explicitTypeArguments, contextualArgumentTypes, expectedType);
+        : this.instantiateFunctionType(
+            candidate,
+            explicitTypeArguments,
+            contextualArgumentTypes,
+            expectedType,
+            true,
+            true,
+            true
+          );
       const score =
         contextualIssueCount +
+        this.nonContextualCallArgumentMismatchCount(call, firstPass, preferredArgumentTypes) +
         this.functionTypeConstraintMismatchCount(call.callee, candidate, instantiated) +
         this.callArgumentMismatchCount(
           call,
@@ -7904,6 +8433,33 @@ export class TypeChecker {
       return false;
     }
     return true;
+  }
+
+  private nonContextualCallArgumentMismatchCount(
+    call: CallExpression,
+    calleeType: FunctionType,
+    argumentTypes: AnalysisType[]
+  ): number {
+    let count = 0;
+    for (let index = 0; index < call.args.length; index += 1) {
+      const argument = call.args[index]!;
+      const expectedType = this.expectedTypeForCallArgument(calleeType, index);
+      const argumentType = argumentTypes[index];
+      if (
+        !expectedType ||
+        !argumentType ||
+        this.contextualTypeForExpressionArgument(argument, expectedType) !== null ||
+        isUnknownType(expectedType) ||
+        isUnknownType(argumentType)
+      ) {
+        continue;
+      }
+      const comparableType = this.effectiveArgumentTypeForValidation(argument, argumentType, expectedType);
+      if (!this.isCallArgumentAssignable(comparableType, expectedType)) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   private functionTypeConstraintMismatchCount(
@@ -7953,7 +8509,6 @@ export class TypeChecker {
       return [];
     }
 
-    const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters, type);
     const overloads: FunctionType[] = [];
 
     for (const interfaceMember of interfaceStatement.members) {
@@ -7961,6 +8516,10 @@ export class TypeChecker {
         continue;
       }
       const methodMember = interfaceMember as InterfaceMethodMember;
+      const ownerTypeParameters = this.interfaceMemberOwnerTypeParameters.get(methodMember)
+        ?? interfaceStatement.typeParameters
+        ?? [];
+      const substitutions = this.typeParameterSubstitutions(ownerTypeParameters, type);
 
       const methodTypeParameterNames = typeParameterNameList(methodMember.typeParameters ?? []);
       const availableTypeParameterNames: string[] = [...substitutions.keys(), ...methodTypeParameterNames];
@@ -7973,7 +8532,7 @@ export class TypeChecker {
             this.typeFromAnnotationLooseWithTypeParameters(
               parameter.typeAnnotation,
               availableTypeParameterNames,
-              interfaceStatement.name.name
+              typeToString(type)
             ) ?? UNKNOWN_TYPE,
             undefined,
             parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
@@ -7985,18 +8544,44 @@ export class TypeChecker {
           this.typeFromAnnotationLooseWithTypeParameters(
             methodMember.returnType,
             availableTypeParameterNames,
-            interfaceStatement.name.name
+            typeToString(type)
           ) ?? builtinType("void"),
           methodTypeParameterNames,
-          this.typeParameterConstraintMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames),
-          this.typeParameterDefaultMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames),
+          this.typeParameterConstraintMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames, typeToString(type)),
+          this.typeParameterDefaultMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames, typeToString(type)),
           undefined,
           constTypeParameterNameSet(methodMember.typeParameters ?? [])
         );
       });
-      overloads.push(this.substituteTypeParameters(methodType, substitutions) as FunctionType);
+      const resolvedOverload = functionType(
+        methodType.parameters.map((parameter) => new FunctionTypeParameter(
+          parameter.name,
+          this.substituteTypeParameters(parameter.type, substitutions),
+          parameter.receiver || undefined,
+          parameter.optional,
+          parameter.rest || undefined
+        )),
+        this.substituteTypeParametersDeferred(methodType.returnType, substitutions),
+        methodType.typeParameters,
+        methodType.typeParameterConstraints
+          ? new Map([...methodType.typeParameterConstraints].map(([name, constraint]) => [
+              name,
+              this.substituteTypeParameters(constraint, substitutions)
+            ]))
+          : undefined,
+        methodType.typeParameterDefaults
+          ? new Map([...methodType.typeParameterDefaults].map(([name, defaultType]) => [
+              name,
+              this.substituteTypeParameters(defaultType, substitutions)
+            ]))
+          : undefined,
+        methodType.assertion,
+        methodType.constTypeParameters
+      );
+      overloads.push(resolvedOverload);
     }
 
+    const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters, type);
     for (const parentType of interfaceStatement.extendsTypes ?? []) {
       const resolvedParentType = this.substituteTypeParameters(
         this.typeFromTypeNameLoose(parentType.name),
@@ -8011,11 +8596,24 @@ export class TypeChecker {
     return overloads;
   }
 
+  private isOmittableFunctionParameter(parameter: FunctionTypeParameter): boolean {
+    if (parameter.optional) {
+      return true;
+    }
+    const type = this.expandTypeAliases(parameter.type);
+    if (this.isBuiltinTypeNamed(type, "void")) {
+      return true;
+    }
+    return type instanceof UnionType && type.types.some((member) =>
+      this.isBuiltinTypeNamed(member, "void")
+    );
+  }
+
   private isCallableMatch(calleeType: FunctionType, argumentTypes: AnalysisType[]): boolean {
     const lastParameter = calleeType.parameters.at(-1);
     const restParameter = lastParameter?.rest ? lastParameter : undefined;
     const fixedParameters = restParameter ? calleeType.parameters.slice(0, -1) : calleeType.parameters;
-    const requiredCount = fixedParameters.filter((parameter) => !parameter.optional).length;
+    const requiredCount = fixedParameters.filter((parameter) => !this.isOmittableFunctionParameter(parameter)).length;
     if (argumentTypes.length < requiredCount || (!restParameter && argumentTypes.length > fixedParameters.length)) {
       return false;
     }
@@ -8096,6 +8694,19 @@ export class TypeChecker {
   ): AnalysisType {
     if (!argumentExpression) {
       return argumentType;
+    }
+    if (
+      this.isFunctionLikeExpression(argumentExpression) &&
+      argumentType instanceof FunctionType &&
+      argumentExpression.parameters.every((parameter) => parameter.typeAnnotation === undefined)
+    ) {
+      const contextualFunction = this.contextualFunctionExpectedType(expectedType);
+      if (contextualFunction && contextualFunction.parameters.length >= argumentType.parameters.length) {
+        return functionType(
+          contextualFunction.parameters.slice(0, argumentType.parameters.length),
+          argumentType.returnType
+        );
+      }
     }
     if (!this.expectedTypeDependsOnLiteral(expectedType)) {
       return argumentType;
@@ -8593,7 +9204,7 @@ export class TypeChecker {
     const lastParameter = calleeType.parameters[calleeType.parameters.length - 1];
     const restParameter = lastParameter?.rest ? lastParameter : undefined;
     const fixedParameters = restParameter ? calleeType.parameters.slice(0, -1) : calleeType.parameters;
-    const requiredCount = fixedParameters.filter((parameter) => !parameter.optional).length;
+    const requiredCount = fixedParameters.filter((parameter) => !this.isOmittableFunctionParameter(parameter)).length;
     const providedCount = argumentTypes.length;
     const totalCount = fixedParameters.length;
 
@@ -9934,6 +10545,10 @@ export class TypeChecker {
   }
 
   private resolveContextualThisType(scope: Scope): AnalysisType | null {
+    const activeContextualThisType = this.activeContextualThisTypes.at(-1);
+    if (activeContextualThisType) {
+      return activeContextualThisType;
+    }
     const thisSymbol = this.resolve("this", scope, undefined);
     if (thisSymbol?.type) {
       return thisSymbol.type;
@@ -9944,10 +10559,13 @@ export class TypeChecker {
         return namedType((current.node as ClassStatement).name.name);
       }
       if (current.node instanceof InterfaceStatement) {
-        return namedType((current.node as InterfaceStatement).name.name);
+        const statement = current.node as InterfaceStatement;
+        return namedType(
+          statement.name.name,
+          typeParameterNameList(statement.typeParameters ?? []).map((name) => namedType(name))
+        );
       }
     }
-
     return null;
   }
 
@@ -10050,6 +10668,10 @@ export class TypeChecker {
       return elementType;
     }
 
+    if (normalizedTypeName.startsWith("keyof ")) {
+      return this.keyofType(this.typeFromTypeNameLoose(normalizedTypeName.slice("keyof ".length).trim()));
+    }
+
     const indexedAccess = splitIndexedAccessTypeName(normalizedTypeName);
     if (indexedAccess) {
       return this.indexedAccessType(
@@ -10074,10 +10696,6 @@ export class TypeChecker {
     const templateLiteralType = this.templateLiteralTypeFromText(normalizedTypeName);
     if (templateLiteralType) {
       return templateLiteralType;
-    }
-
-    if (normalizedTypeName.startsWith("keyof ")) {
-      return this.keyofType(this.typeFromTypeNameLoose(normalizedTypeName.slice("keyof ".length).trim()));
     }
 
     if (normalizedTypeName.startsWith("typeof ")) {
@@ -10125,6 +10743,10 @@ export class TypeChecker {
   private indexedAccessType(objectType: AnalysisType, indexType: AnalysisType, node?: Node): AnalysisType {
     if (isUnknownType(objectType) || isUnknownType(indexType)) {
       return UNKNOWN_TYPE;
+    }
+
+    if (indexType instanceof BuiltinType && indexType.name === "never") {
+      return builtinType("never");
     }
 
     if (objectType instanceof NamedType && this.isActiveTypeParameter(objectType.name)) {
@@ -10218,7 +10840,8 @@ export class TypeChecker {
       return null;
     }
     visited.add(visitKey);
-    const shapeType = this.memberTypeFromObjectType(type, "shape");
+    const shapeType = this.declaredInterfacePropertyType(type, "shape")
+      ?? this.memberTypeFromObjectType(type, "shape");
     let shapeProperties = shapeType ? this.objectLikePropertyEntries(shapeType) : null;
     if (shapeProperties && type instanceof NamedType) {
       for (const typeArgument of type.typeArguments ?? []) {
@@ -10278,7 +10901,8 @@ export class TypeChecker {
       }
     }
 
-    const elementSchemaType = this.memberTypeFromObjectType(type, "element");
+    const elementSchemaType = this.declaredInterfacePropertyType(type, "element")
+      ?? this.memberTypeFromObjectType(type, "element");
     if (elementSchemaType) {
       const elementOutputType = this.syntheticSchemaIndexedType(elementSchemaType, memberName, visited);
       if (elementOutputType) {
@@ -10349,6 +10973,12 @@ export class TypeChecker {
       }
     }
 
+    const declaredIndexedType = this.declaredSchemaIndexedType(type, memberName, visited);
+    if (declaredIndexedType) {
+      visited.delete(visitKey);
+      return declaredIndexedType;
+    }
+
     const internalsOutputType = internalsType
       ? this.memberTypeFromObjectType(internalsType, memberName)
       : null;
@@ -10357,6 +10987,80 @@ export class TypeChecker {
       return this.expandTypeAliases(internalsOutputType);
     }
     visited.delete(visitKey);
+    return null;
+  }
+
+  private declaredSchemaIndexedType(
+    type: AnalysisType,
+    memberName: "input" | "output",
+    visited: Set<string>
+  ): AnalysisType | null {
+    if (!(type instanceof NamedType)) {
+      return null;
+    }
+    const interfaceStatement = this.interfaceStatementsByName.get(type.name);
+    if (!interfaceStatement) {
+      return null;
+    }
+    const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters, type);
+    for (const member of interfaceStatement.members) {
+      if (!(member instanceof InterfacePropertyMember) || member.name.name !== "_zod") {
+        continue;
+      }
+      const ownerTypeParameters = this.interfaceMemberOwnerTypeParameters.get(member)
+        ?? interfaceStatement.typeParameters
+        ?? [];
+      const ownerSubstitutions = this.typeParameterSubstitutions(ownerTypeParameters, type);
+      const internalsType = this.typeFromAnnotationLooseWithTypeParameters(
+        member.typeAnnotation,
+        [...ownerSubstitutions.keys()],
+        typeToString(type)
+      );
+      if (!internalsType) {
+        continue;
+      }
+      const resolvedInternalsType = this.substituteTypeParameters(internalsType, ownerSubstitutions);
+      const indexedType = this.memberTypeFromObjectType(resolvedInternalsType, memberName);
+      if (indexedType && !isUnknownType(indexedType)) {
+        return this.expandTypeAliases(indexedType);
+      }
+    }
+    for (const parentType of interfaceStatement.extendsTypes ?? []) {
+      const resolvedParentType = this.typeFromTypeNameLooseWithSubstitutions(parentType.name, substitutions);
+      const indexedType = this.syntheticSchemaIndexedType(resolvedParentType, memberName, visited);
+      if (indexedType) {
+        return indexedType;
+      }
+    }
+    return null;
+  }
+
+  private declaredInterfacePropertyType(
+    type: AnalysisType,
+    propertyName: string
+  ): AnalysisType | null {
+    if (!(type instanceof NamedType)) {
+      return null;
+    }
+    const interfaceStatement = this.interfaceStatementsByName.get(type.name);
+    if (!interfaceStatement) {
+      return null;
+    }
+    for (const member of interfaceStatement.members) {
+      if (!(member instanceof InterfacePropertyMember) || member.name.name !== propertyName) {
+        continue;
+      }
+      const ownerTypeParameters = this.interfaceMemberOwnerTypeParameters.get(member)
+        ?? interfaceStatement.typeParameters
+        ?? [];
+      const substitutions = this.typeParameterSubstitutions(ownerTypeParameters, type);
+      const propertyType = this.typeFromAnnotationLooseWithTypeParameters(
+        member.typeAnnotation,
+        [...substitutions.keys()],
+        typeToString(type)
+      );
+      return propertyType ? this.substituteTypeParameters(propertyType, substitutions) : null;
+    }
     return null;
   }
 
@@ -10399,7 +11103,8 @@ export class TypeChecker {
     const sourceType = typeArgument instanceof NamedType && typeArgument.name.startsWith("typeof ")
       ? this.resolveTypeNameText(typeToString(typeArgument), typeAlias.targetType, scope, false)
       : typeArgument;
-    return this.syntheticSchemaIndexedType(sourceType, indexedMember);
+    const resolved = this.syntheticSchemaIndexedType(sourceType, indexedMember);
+    return resolved;
   }
 
   private indexedAccessTypeText(indexType: AnalysisType): string {
@@ -10418,8 +11123,12 @@ export class TypeChecker {
     }
     if (type instanceof NamedType) {
       const expanded = this.expandTypeAliases(type);
-      if (expanded !== type) {
+      if (!isSameType(expanded, type)) {
         return this.propertyNamesForType(expanded);
+      }
+      const structuralObject = this.objectTypeFromAnnotationText(type.name);
+      if (structuralObject instanceof ObjectType) {
+        return [...structuralObject.properties.keys()].map((key) => normalizePropertyName(key)).sort();
       }
       const members = this.resolveNamedTypeMembers(type);
       if (!members) return [];
@@ -10429,6 +11138,9 @@ export class TypeChecker {
     }
     if (type instanceof TupleType) {
       return type.elements.map((_, index) => String(index));
+    }
+    if (type instanceof IntersectionType) {
+      return [...new Set(type.types.flatMap((member) => this.propertyNamesForType(member)))].sort();
     }
     return [];
   }
@@ -10470,6 +11182,10 @@ export class TypeChecker {
       }
       if (!isSameType(expanded, type)) {
         return this.memberTypeFromObjectType(expanded, propertyName);
+      }
+      const structuralObject = this.objectTypeFromAnnotationText(expanded.name);
+      if (structuralObject instanceof ObjectType) {
+        return this.memberTypeFromProperties(structuralObject.properties, propertyName);
       }
       const namedMembers = this.resolveNamedTypeMembers(expanded) ?? new Map();
       if (propertyName === "parse") {
@@ -10697,6 +11413,16 @@ export class TypeChecker {
     typeArguments: AnalysisType[],
     scope: Scope
   ): AnalysisType {
+    return this.withVisibleExternalTypeArguments(typeArguments, () =>
+      this.resolveTypeAliasTargetWithVisibleTypeArguments(typeAlias, typeArguments, scope)
+    );
+  }
+
+  private resolveTypeAliasTargetWithVisibleTypeArguments(
+    typeAlias: TypeAliasStatement,
+    typeArguments: AnalysisType[],
+    scope: Scope
+  ): AnalysisType {
     if (this.activeTypeAliasNames.has(typeAlias.name.name)) {
       return namedType(typeAlias.name.name, typeArguments);
     }
@@ -10715,7 +11441,6 @@ export class TypeChecker {
       }
       substitutions.set(parameterName, typeArguments[index] ?? namedType(parameterName));
     }
-
     const mappedUtilityTarget = this.resolveMappedUtilityAliasTarget(typeAlias, substitutions);
     if (mappedUtilityTarget) {
       return mappedUtilityTarget;
@@ -10742,21 +11467,31 @@ export class TypeChecker {
     );
     this.activeTypeAliasNames.delete(typeAlias.name.name);
 
-    return this.expandTypeAliases(this.substituteTypeParameters(targetType, substitutions));
+    const substitutedTarget = this.substituteTypeParameters(targetType, substitutions);
+    const expandedTarget = this.expandTypeAliases(substitutedTarget);
+    return expandedTarget;
   }
 
   private substitutedComputedTypeAliasTargetText(
     typeAlias: TypeAliasStatement,
     substitutions: Map<string, AnalysisType>
   ): string | null {
+    const targetText = typeAlias.targetType.name.trim();
+    const hasStructuralIntersectionMember = splitTopLevelTypeText(targetText, "&").some((part) => {
+      const normalizedPart = part.trim();
+      return normalizedPart.startsWith("{") && normalizedPart.replace(/\s/g, "") !== "{}";
+    });
+    if (hasStructuralIntersectionMember) {
+      return null;
+    }
     const hasComputedTypeParameterTarget = (typeAlias.typeParameters ?? []).some((parameter) => {
       const escapedName = this.escapeRegexText(parameter.name.name);
       return new RegExp(`(?:\\bkeyof\\s+${escapedName}\\b|\\b${escapedName}\\s*\\[)`).test(
-        typeAlias.targetType.name
+        targetText
       );
     });
     return hasComputedTypeParameterTarget
-      ? this.substituteTypeParametersInComputedName(typeAlias.targetType.name, substitutions)
+      ? this.substituteTypeParametersInComputedName(targetText, substitutions)
       : null;
   }
 
@@ -10809,13 +11544,30 @@ export class TypeChecker {
       conditional.extendsTypeText,
       substitutions
     );
+    const templatePattern = parseTemplateLiteralTypeText(conditional.extendsTypeText.trim());
+    const templateSubstitutions = templatePattern && checkType instanceof LiteralType && checkType.base === "string"
+      ? this.templateLiteralConditionalSubstitutions(String(checkType.value), templatePattern)
+      : undefined;
+    const keyofSubstitutionName = /^keyof\s+([A-Za-z_$][\w$]*)$/.exec(
+      conditional.extendsTypeText.trim()
+    )?.[1];
+    const structuredKeyofSource = keyofSubstitutionName
+      ? substitutions.get(keyofSubstitutionName)
+      : undefined;
+    const substitutedExtendsTypeText = this.substituteTypeParametersInComputedName(
+      conditional.extendsTypeText,
+      substitutions
+    );
+    const extendsType = structuredKeyofSource
+      ? this.keyofType(this.expandTypeAliases(structuredKeyofSource))
+      : this.resolveConditionalTypeText(substitutedExtendsTypeText, substitutions, scope)
+        ?? this.typeFromTypeNameLoose(substitutedExtendsTypeText);
     const branchSubstitutions = inferSubstitutions
-      ?? (this.isTypeAssignable(
-        checkType,
-        this.typeFromTypeNameLoose(
-          this.substituteTypeParametersInComputedName(conditional.extendsTypeText, substitutions)
-        )
-      ) ? new Map<string, AnalysisType>() : null);
+      ?? (templateSubstitutions !== undefined
+        ? templateSubstitutions
+        : this.isTypeAssignable(checkType, extendsType)
+          ? new Map<string, AnalysisType>()
+          : null);
 
     const selectedBranch = branchSubstitutions !== null
       ? conditional.trueTypeText
@@ -10835,9 +11587,38 @@ export class TypeChecker {
         finalSubstitutions.set(name, type);
       }
     }
+    const directBranchSubstitution = finalSubstitutions.get(selectedBranch.trim());
+    if (directBranchSubstitution) {
+      return directBranchSubstitution;
+    }
+    const indexedBranch = splitIndexedAccessTypeName(selectedBranch.trim());
+    if (indexedBranch) {
+      const structuredObjectType = finalSubstitutions.get(indexedBranch.objectTypeName.trim());
+      const structuredIndexType = finalSubstitutions.get(indexedBranch.indexTypeName.trim());
+      if (structuredObjectType || structuredIndexType) {
+        const objectType = structuredObjectType ?? this.typeFromTypeNameLoose(
+          this.substituteTypeParametersInComputedName(indexedBranch.objectTypeName, finalSubstitutions)
+        );
+        const indexType = structuredIndexType ?? this.typeFromTypeNameLoose(
+          this.substituteTypeParametersInComputedName(indexedBranch.indexTypeName, finalSubstitutions)
+        );
+        return this.indexedAccessType(objectType, indexType);
+      }
+    }
+    const mappedBranch = this.resolveMappedUtilityIntersectionTypeText(
+      selectedBranch.trim(),
+      finalSubstitutions,
+      scope
+    ) ?? this.resolveMappedUtilityTypeText(selectedBranch.trim(), finalSubstitutions);
+    if (mappedBranch) {
+      return mappedBranch;
+    }
+    const nestedConditionalBranch = this.resolveConditionalTypeText(selectedBranch, finalSubstitutions, scope);
+    if (nestedConditionalBranch) {
+      return nestedConditionalBranch;
+    }
     const substitutedBranchText = this.substituteTypeParametersInComputedName(selectedBranch, finalSubstitutions);
-    return this.resolveConditionalTypeText(substitutedBranchText, finalSubstitutions, scope)
-      ?? this.typeFromTypeNameLoose(substitutedBranchText);
+    return this.typeFromTypeNameLoose(substitutedBranchText);
   }
 
   private distributiveConditionalSourceType(
@@ -10855,24 +11636,13 @@ export class TypeChecker {
     substitutions: Map<string, AnalysisType>
   ): AnalysisType | null {
     const trimmedTarget = stripEnclosingTypeParens(typeAlias.targetType.name.trim());
-    const intersectionParts = splitTopLevelTypeText(trimmedTarget, "&");
-    if (intersectionParts.length > 1) {
-      const resolvedParts: AnalysisType[] = [];
-      let hasUnresolvedPart = false;
-      for (const part of intersectionParts) {
-        const resolvedPart = this.resolveMappedUtilityTypeText(
-          stripEnclosingTypeParens(part.trim()),
-          substitutions
-        );
-        if (!resolvedPart) {
-          hasUnresolvedPart = true;
-          break;
-        }
-        resolvedParts.push(resolvedPart);
-      }
-      if (!hasUnresolvedPart) {
-        return this.intersectionWithNonNullishObjectIdentity(resolvedParts);
-      }
+    const mappedIntersectionTarget = this.resolveMappedUtilityIntersectionTypeText(
+      trimmedTarget,
+      substitutions,
+      this.typeAliasResolutionScope(typeAlias)
+    );
+    if (mappedIntersectionTarget) {
+      return mappedIntersectionTarget;
     }
     const indexedMappedTarget = this.resolveMappedUtilityIndexedAccessAliasTarget(trimmedTarget, substitutions);
     if (indexedMappedTarget) {
@@ -10897,6 +11667,33 @@ export class TypeChecker {
           );
         }
         return this.resolveSpecialNamedType(wrapperName, [mappedArgument]);
+      }
+    }
+    return null;
+  }
+
+  private resolveMappedUtilityIntersectionTypeText(
+    trimmedTarget: string,
+    substitutions: Map<string, AnalysisType>,
+    scope: Scope
+  ): AnalysisType | null {
+    const intersectionParts = splitTopLevelTypeText(trimmedTarget, "&");
+    if (intersectionParts.length > 1) {
+      const resolvedParts: AnalysisType[] = [];
+      let hasMappedPart = false;
+      for (const part of intersectionParts) {
+        const normalizedPart = stripEnclosingTypeParens(part.trim());
+        const mappedPart = this.resolveMappedUtilityTypeText(normalizedPart, substitutions);
+        const structuralPart = mappedPart ? null : this.objectTypeFromAnnotationText(normalizedPart);
+        const resolvedPart = mappedPart
+          ?? (structuralPart ? this.substituteTypeParameters(structuralPart, substitutions) : null)
+          ?? this.resolveConditionalTypeText(normalizedPart, substitutions, scope)
+          ?? this.typeFromTypeNameLooseWithSubstitutions(normalizedPart, substitutions);
+        hasMappedPart ||= mappedPart !== null;
+        resolvedParts.push(resolvedPart);
+      }
+      if (hasMappedPart) {
+        return this.intersectionWithNonNullishObjectIdentity(resolvedParts);
       }
     }
     return null;
@@ -10978,13 +11775,70 @@ export class TypeChecker {
       return objectTypeWithProperties(properties);
     }
 
+    const keyofUnionParts = splitTopLevelTypeText(keySourceText.trim(), "|")
+      .map((part) => part.trim());
+    const keyofUnionSourceTypeTexts = keyofUnionParts.map((part) =>
+      /^keyof\s+(.+)$/.exec(part)?.[1]?.trim() ?? null
+    );
+    if (
+      keyofUnionParts.length > 1
+      && keyofUnionSourceTypeTexts.every((sourceTypeText): sourceTypeText is string => sourceTypeText !== null)
+    ) {
+      const propertyNames = new Set<string>();
+      for (const sourceTypeText of keyofUnionSourceTypeTexts) {
+        const sourceType = this.expandTypeAliases(
+          this.typeFromTypeNameLooseWithSubstitutions(sourceTypeText, substitutions)
+        );
+        const sourceEntries = this.objectLikePropertyEntries(sourceType) ?? [];
+        for (const [propertyName] of sourceEntries) {
+          propertyNames.add(normalizePropertyName(propertyName));
+        }
+      }
+
+      const properties = new Map<string, AnalysisType>();
+      for (const propertyName of propertyNames) {
+        const propertySubstitutions = new Map(substitutions);
+        propertySubstitutions.set(keyParameterName, literalType("string", propertyName));
+        const mappedPropertyType = this.resolveConditionalTypeText(
+          valueTypeText.trim(),
+          propertySubstitutions,
+          this.bound.rootScope
+        ) ?? this.typeFromTypeNameLooseWithSubstitutions(valueTypeText.trim(), propertySubstitutions);
+        const remappedKeys = this.resolveMappedUtilityRemappedKeys(
+          keyRemapText,
+          keyParameterName,
+          propertyName,
+          propertySubstitutions
+        );
+        if (!remappedKeys) {
+          return null;
+        }
+        const finalPropertyType = this.applyMappedUtilityOptionalModifier(mappedPropertyType, optionalModifier);
+        for (const remappedKey of remappedKeys) {
+          properties.set(
+            this.applyMappedUtilityReadonlyModifier(remappedKey, propertyName, readonlyModifier),
+            finalPropertyType
+          );
+        }
+      }
+      return objectTypeWithProperties(properties);
+    }
+
+    const nestedFilteredKeyofParameterName = /^(?:Exclude|Extract)\s*</.test(keySourceText.trim())
+      ? /\bkeyof\s+([A-Za-z_$][\w$]*)\b/.exec(keySourceText.trim())?.[1]
+      : undefined;
+    const valueSourceParameterName = /^keyof\s+.+\[/.test(keySourceText.trim())
+      ? undefined
+      : /^([A-Za-z_$][\w$]*)\s*\[/.exec(valueTypeText.trim())?.[1];
     const sourceTypeParameterName = /^keyof\s+([A-Za-z_$][\w$]*)$/.exec(keySourceText.trim())?.[1]
-      ?? /^([A-Za-z_$][\w$]*)\s*\[/.exec(valueTypeText.trim())?.[1];
+      ?? nestedFilteredKeyofParameterName
+      ?? valueSourceParameterName;
     if (sourceTypeParameterName) {
-      const sourceType = substitutions.get(sourceTypeParameterName);
-      if (!sourceType) {
+      const substitutedSourceType = substitutions.get(sourceTypeParameterName);
+      if (!substitutedSourceType) {
         return null;
       }
+      const sourceType = this.expandTypeAliases(substitutedSourceType);
 
       const sourceEntries = this.objectLikePropertyEntries(sourceType);
       if (!sourceEntries) {
@@ -11031,6 +11885,17 @@ export class TypeChecker {
           );
         }
       }
+      if (
+        sourceType instanceof TupleType
+        && !keyRemapText
+        && !readonlyModifier
+        && !optionalModifier
+      ) {
+        return tupleType(
+          sourceType.elements.map((_, index) => properties.get(String(index)) ?? UNKNOWN_TYPE),
+          sourceType.isReadonly === true
+        );
+      }
       return this.objectTypeWithPropertyOrigins(properties, sourceType);
     }
 
@@ -11041,9 +11906,15 @@ export class TypeChecker {
         || keyofSeparator === "\t"
         || keyofSeparator === "\n"
         || keyofSeparator === "\r");
-    const sourceObjectText = hasKeyofPrefix
+    const rawSourceObjectText = hasKeyofPrefix
       ? trimmedKeySourceText.slice("keyof".length + 1).trim()
       : "";
+    const keyofIntersectionParts = splitTopLevelTypeText(rawSourceObjectText, "&")
+      .map((part) => part.trim());
+    const sourceObjectText = keyofIntersectionParts.length > 1
+      && keyofIntersectionParts.slice(1).every((part) => ["string", "number", "symbol"].includes(part))
+      ? keyofIntersectionParts[0]!
+      : rawSourceObjectText;
     if (!sourceObjectText) {
       return null;
     }
@@ -11131,7 +12002,11 @@ export class TypeChecker {
 
     const remapSubstitutions = new Map<string, AnalysisType>(substitutions);
     remapSubstitutions.set(keyParameterName, literalType("string", normalizePropertyName(propertyName)));
-    const remappedKeyType = this.typeFromTypeNameLoose(
+    const remappedKeyType = this.resolveConditionalTypeText(
+      keyRemapText,
+      remapSubstitutions,
+      this.bound.rootScope
+    ) ?? this.typeFromTypeNameLoose(
       this.substituteTypeParametersInComputedName(keyRemapText, remapSubstitutions)
     );
     if (remappedKeyType instanceof BuiltinType && remappedKeyType.name === "never") {
@@ -11187,6 +12062,19 @@ export class TypeChecker {
 
     const conditional = parseConditionalTypeText(valueTypeText);
     if (conditional) {
+      const conditionalSubstitutions = new Map(substitutions);
+      conditionalSubstitutions.set(
+        keyParameterName,
+        literalType("string", normalizePropertyName(propertyName))
+      );
+      const resolvedConditional = this.resolveConditionalTypeText(
+        valueTypeText,
+        conditionalSubstitutions,
+        this.bound.rootScope
+      );
+      if (resolvedConditional) {
+        return resolvedConditional;
+      }
       const checkType = this.typeFromTypeNameLoose(this.mappedUtilitySubstitutedPropertyText(
         conditional.checkTypeText,
         sourceTypeParameterName,
@@ -11329,10 +12217,17 @@ export class TypeChecker {
       }
       return properties;
     }
+    if (type instanceof TupleType) {
+      return new Map(type.elements.map((elementType, index) => [String(index), elementType]));
+    }
     if (type instanceof NamedType) {
       const expanded = this.expandTypeAliases(type);
       if (!isSameType(expanded, type)) {
         return this.objectLikePropertyEntries(expanded);
+      }
+      const structuralObject = this.objectTypeFromAnnotationText(type.name);
+      if (structuralObject instanceof ObjectType) {
+        return structuralObject.properties;
       }
       const members = this.resolveNamedTypeMembers(type);
       return members ?? new Map();
@@ -11347,6 +12242,23 @@ export class TypeChecker {
   ): string[] | null {
     if (keySourceText.startsWith("keyof ")) {
       return this.propertyNamesForType(sourceType);
+    }
+
+    const keyFilter = parseTypeNameShape(keySourceText);
+    if (
+      keyFilter.arrayDepth === 0
+      && (keyFilter.baseName === "Exclude" || keyFilter.baseName === "Extract")
+      && keyFilter.typeArguments.length === 2
+      && keyFilter.typeArguments[0]!.trim().startsWith("keyof ")
+    ) {
+      const filterType = this.expandTypeAliases(this.typeFromTypeNameLoose(
+        this.substituteTypeParametersInComputedName(keyFilter.typeArguments[1]!, substitutions)
+      ));
+      const filteredNames = new Set(this.stringLiteralKeysFromType(filterType));
+      const keepsFilteredNames = keyFilter.baseName === "Extract";
+      return this.propertyNamesForType(sourceType).filter((propertyName) =>
+        filteredNames.has(normalizePropertyName(propertyName)) === keepsFilteredNames
+      );
     }
 
     const keyType = substitutions.get(keySourceText);
@@ -11409,6 +12321,104 @@ export class TypeChecker {
         : null;
     }
 
+    if (sourceType instanceof FunctionType) {
+      const parsedPattern = parseTypeNameShape(substitutedPattern);
+      const patternAlias = this.typeAliasForResolution(parsedPattern.baseName);
+      const aliasTypeParameters = patternAlias?.typeParameters ?? [];
+      if (
+        patternAlias &&
+        parsedPattern.arrayDepth === 0 &&
+        parsedPattern.typeArguments.length === aliasTypeParameters.length &&
+        parsedPattern.typeArguments.some((argument) => /^infer\s+/.test(argument.trim()))
+      ) {
+        const aliasSubstitutions = new Map<string, AnalysisType>();
+        for (let index = 0; index < aliasTypeParameters.length; index += 1) {
+          const parameterName = aliasTypeParameters[index]!.name.name;
+          const argumentText = parsedPattern.typeArguments[index]!.trim();
+          aliasSubstitutions.set(
+            parameterName,
+            /^infer\s+/.test(argumentText)
+              ? namedType(argumentText)
+              : this.typeFromTypeNameLoose(argumentText)
+          );
+        }
+        const expandedPatternText = this.substituteTypeParametersInComputedName(
+          patternAlias.targetType.name,
+          aliasSubstitutions
+        );
+        const expandedFunctionPattern = parseFunctionTypeAnnotation(expandedPatternText);
+        if (expandedFunctionPattern) {
+          const inferred = this.inferFunctionConditionalPatternSubstitutions(
+            sourceType,
+            expandedFunctionPattern
+          );
+          if (inferred) {
+            return inferred;
+          }
+        }
+      }
+    }
+
+    const genericPattern = parseTypeNameShape(substitutedPattern);
+    if (
+      genericPattern.arrayDepth === 0
+      && genericPattern.typeArguments.some((argument) => /^infer\s+/.test(argument.trim()))
+    ) {
+      const expandedSourceType = sourceType instanceof NamedType
+        ? this.expandTypeAliases(sourceType)
+        : sourceType;
+      const sourceCandidates: NamedType[] = [];
+      if (sourceType instanceof NamedType) {
+        sourceCandidates.push(sourceType);
+      }
+      if (expandedSourceType instanceof NamedType) {
+        sourceCandidates.push(expandedSourceType);
+      } else if (expandedSourceType instanceof IntersectionType) {
+        sourceCandidates.push(...expandedSourceType.types.filter(
+          (member): member is NamedType => member instanceof NamedType
+        ));
+      }
+      let sourceGeneric: NamedType | null = null;
+      for (const candidate of sourceCandidates) {
+        sourceGeneric = candidate.name === genericPattern.baseName
+          ? candidate
+          : this.namedSuperTypeWithName(candidate, genericPattern.baseName);
+        if (sourceGeneric) {
+          break;
+        }
+      }
+      if (sourceGeneric) {
+        const sourceArguments = this.namedTypeArgumentsWithDefaults(sourceGeneric);
+        if (sourceArguments.length >= genericPattern.typeArguments.length) {
+          const inferred = new Map<string, AnalysisType>();
+          for (let index = 0; index < genericPattern.typeArguments.length; index += 1) {
+            const patternArgument = genericPattern.typeArguments[index]!.trim();
+            const sourceArgument = sourceArguments[index]!;
+            const inferMatch = /^infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+))?$/.exec(patternArgument);
+            if (inferMatch?.[1]) {
+              const constrained = this.constrainedInferSubstitution(
+                inferMatch[1],
+                sourceArgument,
+                inferMatch[2]?.trim()
+              );
+              if (!constrained) {
+                return null;
+              }
+              for (const [name, type] of constrained) {
+                inferred.set(name, type);
+              }
+              continue;
+            }
+            const expectedArgument = this.typeFromTypeNameLoose(patternArgument);
+            if (!this.isTypeAssignable(sourceArgument, expectedArgument)) {
+              return null;
+            }
+          }
+          return inferred.size > 0 ? inferred : null;
+        }
+      }
+    }
+
     const genericInferMatch = /^([A-Za-z_$][\w$.]*)<\s*infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+?))?\s*>$/.exec(substitutedPattern);
     if (genericInferMatch?.[1] && genericInferMatch[2]) {
       const inferred = this.genericInferTypeArgument(sourceType, genericInferMatch[1]);
@@ -11455,6 +12465,46 @@ export class TypeChecker {
     }
 
     return null;
+  }
+
+  private templateLiteralConditionalSubstitutions(
+    source: string,
+    segments: readonly { kind: "text" | "type"; value: string }[]
+  ): Map<string, AnalysisType> | null {
+    const inferredNames: string[] = [];
+    let pattern = "^";
+    for (const segment of segments) {
+      if (segment.kind === "text") {
+        pattern += segment.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        continue;
+      }
+      const inferMatch = /^infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+.+)?$/.exec(segment.value.trim());
+      if (inferMatch?.[1]) {
+        inferredNames.push(inferMatch[1]);
+        pattern += "(.+?)";
+        continue;
+      }
+      if (["string", "number", "bigint", "boolean"].includes(segment.value.trim())) {
+        pattern += ".*?";
+        continue;
+      }
+      const literalValues = this.stringifiableTemplateLiteralValues(
+        this.typeFromTypeNameLoose(segment.value.trim())
+      );
+      if (!literalValues) {
+        return null;
+      }
+      pattern += `(?:${literalValues.map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`;
+    }
+    const match = new RegExp(`${pattern}$`).exec(source);
+    if (!match) {
+      return null;
+    }
+    const result = new Map<string, AnalysisType>();
+    for (let index = 0; index < inferredNames.length; index += 1) {
+      result.set(inferredNames[index]!, literalType("string", match[index + 1]!));
+    }
+    return result;
   }
 
   private constrainedInferSubstitution(
@@ -12670,11 +13720,29 @@ export class TypeChecker {
     nameSet?: Set<string>,
     namespacePrefix = ""
   ): void {
+    const localClassesByName = new Map<string, ClassStatement>();
+    const directlyExportedNames = new Set<string>();
+    const qualifiedNameFor = (name: string): string => namespacePrefix
+      ? `${namespacePrefix}.${name}`
+      : name;
     for (const statement of statements) {
       const candidate = statement instanceof ExportStatement
         ? (statement as ExportStatement).declaration
         : statement;
       if (!candidate) {
+        if (statement instanceof ExportStatement) {
+          for (const specifier of (statement as ExportStatement).specifiers ?? []) {
+            const localName = specifier.local?.name ?? specifier.exported.name;
+            const aliasedClass = localClassesByName.get(localName);
+            if (!aliasedClass) {
+              continue;
+            }
+            const qualifiedAlias = qualifiedNameFor(specifier.exported.name);
+            nameSet?.add(qualifiedAlias);
+            this.classStatementsByName.set(qualifiedAlias, aliasedClass);
+            directlyExportedNames.add(qualifiedAlias);
+          }
+        }
         continue;
       }
       if (candidate instanceof NamespaceStatement) {
@@ -12695,11 +13763,29 @@ export class TypeChecker {
         continue;
       }
       const classStatement = candidate as ClassStatement;
-      const qualifiedName = namespacePrefix
-        ? `${namespacePrefix}.${classStatement.name.name}`
-        : classStatement.name.name;
+      const qualifiedName = qualifiedNameFor(classStatement.name.name);
+      const exportSpecifiers = statement instanceof ExportStatement
+        ? (statement as ExportStatement).specifiers ?? []
+        : [];
+      const directlyExportsOwnName = statement instanceof ExportStatement && exportSpecifiers.length === 0;
+      localClassesByName.set(classStatement.name.name, classStatement);
       nameSet?.add(qualifiedName);
-      this.classStatementsByName.set(qualifiedName, classStatement);
+      if (directlyExportsOwnName || !directlyExportedNames.has(qualifiedName)) {
+        this.classStatementsByName.set(qualifiedName, classStatement);
+      }
+      if (directlyExportsOwnName) {
+        directlyExportedNames.add(qualifiedName);
+      }
+      for (const specifier of exportSpecifiers) {
+        const localName = specifier.local?.name ?? specifier.exported.name;
+        if (localName !== classStatement.name.name) {
+          continue;
+        }
+        const qualifiedAlias = qualifiedNameFor(specifier.exported.name);
+        nameSet?.add(qualifiedAlias);
+        this.classStatementsByName.set(qualifiedAlias, classStatement);
+        directlyExportedNames.add(qualifiedAlias);
+      }
     }
   }
 
@@ -13041,6 +14127,9 @@ export class TypeChecker {
         continue;
       }
       const interfaceStatement = candidate as InterfaceStatement;
+      for (const member of interfaceStatement.members) {
+        this.interfaceMemberOwnerTypeParameters.set(member, interfaceStatement.typeParameters ?? []);
+      }
       const qualifiedName = namespacePrefix
         ? `${namespacePrefix}.${interfaceStatement.name.name}`
         : interfaceStatement.name.name;
@@ -14448,7 +15537,11 @@ export class TypeChecker {
         continue;
       }
       if (interfaceMember instanceof InterfacePropertyMember) {
-        const rawMemberType = this.typeFromAnnotationLoose(interfaceMember.typeAnnotation) ?? UNKNOWN_TYPE;
+        const rawMemberType = this.typeFromAnnotationLooseWithTypeParameters(
+          interfaceMember.typeAnnotation,
+          [...substitutions.keys()],
+          contextualThisTypeName
+        ) ?? UNKNOWN_TYPE;
         const memberType = interfaceMember.optional === true
           ? unionType([rawMemberType, builtinType("undefined")])
           : rawMemberType;
@@ -14494,7 +15587,7 @@ export class TypeChecker {
             this.typeFromAnnotationLooseWithTypeParameters(
               parameter.typeAnnotation,
               availableTypeParameterNames,
-              interfaceStatement.name.name
+              contextualThisTypeName
             ) ?? UNKNOWN_TYPE,
             undefined,
             parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
@@ -14509,8 +15602,8 @@ export class TypeChecker {
               contextualThisTypeName
           ) ?? builtinType("void"),
           methodTypeParameterNames,
-          this.typeParameterConstraintMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames),
-          this.typeParameterDefaultMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames),
+          this.typeParameterConstraintMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames, contextualThisTypeName),
+          this.typeParameterDefaultMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames, contextualThisTypeName),
           undefined,
           constTypeParameterNameSet(methodMember.typeParameters ?? [])
         );
@@ -14551,7 +15644,7 @@ export class TypeChecker {
     visited.add(visitKey);
 
     const namespaceStatement = this.namespaceStatementsByName.get(type.name);
-    if (namespaceStatement) {
+    if (namespaceStatement && !this.classStatementsByName.has(type.name)) {
       const scope = this.bound.scopeByNode.get(namespaceStatement);
       const members = new Map<string, AnalysisType>();
       for (const child of namespaceStatement.body.body) {
@@ -14629,7 +15722,11 @@ export class TypeChecker {
         }
         if (classMember instanceof ClassFieldMember) {
           readableNames.add(classMember.name.name);
-          let fieldType = this.typeFromAnnotationLoose(classMember.typeAnnotation);
+          let fieldType = this.typeFromAnnotationLooseWithTypeParameters(
+            classMember.typeAnnotation,
+            [...substitutions.keys()],
+            typeToString(type)
+          );
           if (!fieldType) {
             const classScope = this.bound.scopeByNode.get(classStatement);
             fieldType = (classScope ? classScope.symbols.get(classMember.name.name)?.type : undefined)
@@ -14660,7 +15757,7 @@ export class TypeChecker {
           this.typeFromAnnotationLooseWithTypeParameters(
             methodMember.returnType,
             availableTypeParameterNames,
-            classStatement.name.name
+            typeToString(type)
           ) ?? UNKNOWN_TYPE
         );
         if (!methodMember.returnType && symbolType) {
@@ -14683,7 +15780,7 @@ export class TypeChecker {
             this.typeFromAnnotationLooseWithTypeParameters(
               methodMember.parameters[0]?.typeAnnotation,
               availableTypeParameterNames,
-              classStatement.name.name
+              typeToString(type)
             ) ?? UNKNOWN_TYPE
           );
           members.set(methodMember.name.name, this.substituteTypeParameters(parameterType, substitutions));
@@ -14698,7 +15795,7 @@ export class TypeChecker {
               this.typeFromAnnotationLooseWithTypeParameters(
                 parameter.typeAnnotation,
                 availableTypeParameterNames,
-                classStatement.name.name
+                typeToString(type)
               ) ?? UNKNOWN_TYPE,
               undefined,
               parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
@@ -14709,8 +15806,8 @@ export class TypeChecker {
             parameters,
             returnType,
             methodTypeParameterNames,
-            this.typeParameterConstraintMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames),
-            this.typeParameterDefaultMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames),
+            this.typeParameterConstraintMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames, typeToString(type)),
+            this.typeParameterDefaultMapLoose(methodMember.typeParameters ?? [], availableTypeParameterNames, typeToString(type)),
             undefined,
             constTypeParameterNameSet(methodMember.typeParameters ?? [])
           );
@@ -14771,6 +15868,27 @@ export class TypeChecker {
         }
       }
       this.setterOnlyMembersCache.set(classStatement.name.name, setterOnlyNames);
+
+      if (namespaceStatement) {
+        for (const child of namespaceStatement.body.body) {
+          const declaration = child instanceof ExportStatement
+            ? (child as ExportStatement).declaration ?? child
+            : child;
+          const name = this.declarationMemberName(declaration);
+          if (!name || members.has(name)) {
+            continue;
+          }
+          const qualifiedName = `${type.name}.${name}`;
+          const namespaceMemberType = this.classStatementsByName.has(qualifiedName)
+            || this.interfaceStatementsByName.has(qualifiedName)
+            || this.enumStatementsByName.has(qualifiedName)
+            ? namedType(qualifiedName)
+            : this.memberTypeFromExternalDeclaration(declaration, type.name);
+          if (!(namespaceMemberType instanceof UnknownType)) {
+            this.addResolvedMemberType(members, name, namespaceMemberType);
+          }
+        }
+      }
 
       return members;
     }
@@ -14881,7 +15999,16 @@ export class TypeChecker {
           continue;
         }
 
-        if (this.isTypeAssignable(classMemberType, expectedType)) {
+        const hasParameterOptionalityMismatch =
+          classMemberType instanceof FunctionType
+          && expectedType instanceof FunctionType
+          && (
+            classMemberType.parameters.length !== expectedType.parameters.length
+            || classMemberType.parameters.some((parameter, index) =>
+              (parameter.optional ?? false) !== (expectedType.parameters[index]?.optional ?? false)
+            )
+          );
+        if (!hasParameterOptionalityMismatch && this.isTypeAssignable(classMemberType, expectedType)) {
           continue;
         }
 
@@ -15351,6 +16478,16 @@ export class TypeChecker {
     if (typeQueryType) {
       return typeQueryType;
     }
+    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
+    if (unionParts.length > 1) {
+      return unionType(unionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part)));
+    }
+    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
+    if (intersectionParts.length > 1) {
+      return this.intersectionWithNonNullishObjectIdentity(
+        intersectionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part))
+      );
+    }
     const computedType = this.typeFromComputedTypeNameLoose(typeAnnotation.name);
     if (computedType) {
       return computedType;
@@ -15378,16 +16515,6 @@ export class TypeChecker {
       ]);
     }
 
-    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
-    if (unionParts.length > 1) {
-      return unionType(unionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part)));
-    }
-    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
-    if (intersectionParts.length > 1) {
-      return this.intersectionWithNonNullishObjectIdentity(
-        intersectionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part))
-      );
-    }
     const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
     if (arraySuffix) {
       let elementType = this.typeFromTypeNameLoose(arraySuffix.elementTypeName);
@@ -15464,6 +16591,14 @@ export class TypeChecker {
     if (typeQueryType) {
       return typeQueryType;
     }
+    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
+    if (unionParts.length > 1) {
+      return unionType(unionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part)));
+    }
+    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
+    if (intersectionParts.length > 1) {
+      return intersectionType(intersectionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part)));
+    }
     const computedType = this.typeFromComputedTypeNameLoose(typeName);
     if (computedType) {
       return computedType;
@@ -15491,14 +16626,6 @@ export class TypeChecker {
       ]);
     }
 
-    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
-    if (unionParts.length > 1) {
-      return unionType(unionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part)));
-    }
-    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
-    if (intersectionParts.length > 1) {
-      return intersectionType(intersectionParts.map((part): AnalysisType => this.typeFromTypeNameLoose(part)));
-    }
     const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
     if (arraySuffix) {
       let elementType = this.typeFromTypeNameLoose(arraySuffix.elementTypeName);
@@ -16159,6 +17286,24 @@ export class TypeChecker {
     if (!type) {
       return UNKNOWN_TYPE;
     }
+    const cached = this.expandedTypesBySource.get(type);
+    if (cached) {
+      return cached;
+    }
+    if (this.typeExpansionsInProgress.has(type)) {
+      return type;
+    }
+    this.typeExpansionsInProgress.add(type);
+    try {
+      const expanded = this.expandTypeAliasesUncached(type);
+      this.expandedTypesBySource.set(type, expanded);
+      return expanded;
+    } finally {
+      this.typeExpansionsInProgress.delete(type);
+    }
+  }
+
+  private expandTypeAliasesUncached(type: AnalysisType): AnalysisType {
     if (type instanceof NamedType) {
       const namedSource = type as NamedType;
       const normalizedName = this.normalizeLooseNamedTypeReference(namedSource.name);
@@ -16219,6 +17364,20 @@ export class TypeChecker {
           (typeArgument, index) => typeArgument === expandedArguments[index]
         ) ? namedSource : namedType(namedSource.name, expandedArguments);
       }
+      const aliasCacheKey = typeToString(namedSource);
+      const cacheAliasExpansion = !this.typeContainsActiveTypeParameterReference(namedSource);
+      const cachedAliasExpansion = cacheAliasExpansion
+        ? this.expandedTypeAliasCache.get(aliasCacheKey)
+        : undefined;
+      if (cachedAliasExpansion) {
+        return cachedAliasExpansion;
+      }
+      const rememberAliasExpansion = (expanded: AnalysisType): AnalysisType => {
+        if (cacheAliasExpansion) {
+          this.expandedTypeAliasCache.set(aliasCacheKey, expanded);
+        }
+        return expanded;
+      };
       this.activeTypeAliasNames.add(namedSource.name);
       try {
         const substitutions = this.typeParameterSubstitutions(typeAlias.typeParameters, namedSource);
@@ -16228,11 +17387,11 @@ export class TypeChecker {
           this.typeAliasResolutionScope(typeAlias)
         );
         if (structuralOutputTarget) {
-          return this.expandTypeAliases(structuralOutputTarget);
+          return rememberAliasExpansion(this.expandTypeAliases(structuralOutputTarget));
         }
         const mappedUtilityTarget = this.resolveMappedUtilityAliasTarget(typeAlias, substitutions);
         if (mappedUtilityTarget) {
-          return this.expandTypeAliases(mappedUtilityTarget);
+          return rememberAliasExpansion(this.expandTypeAliases(mappedUtilityTarget));
         }
         const conditionalTarget = this.resolveConditionalTypeAliasTarget(
           typeAlias,
@@ -16247,11 +17406,11 @@ export class TypeChecker {
             new Set()
           )
         ) {
-          return this.expandTypeAliases(conditionalTarget);
+          return rememberAliasExpansion(this.expandTypeAliases(conditionalTarget));
         }
         const substitutedComputedTarget = this.substitutedComputedTypeAliasTargetText(typeAlias, substitutions);
         if (substitutedComputedTarget) {
-          return this.expandTypeAliases(this.typeFromTypeNameLoose(substitutedComputedTarget));
+          return rememberAliasExpansion(this.expandTypeAliases(this.typeFromTypeNameLoose(substitutedComputedTarget)));
         }
         const typeParameterNames = typeParameterNameList(typeAlias.typeParameters ?? []);
         const targetType = this.withTypeParametersResult<AnalysisType>(typeParameterNames, (): AnalysisType =>
@@ -16260,7 +17419,9 @@ export class TypeChecker {
             new Set(typeParameterNames)
           ) ?? UNKNOWN_TYPE
         );
-        return this.expandTypeAliases(this.substituteTypeParameters(targetType, substitutions));
+        const substitutedTarget = this.substituteTypeParameters(targetType, substitutions);
+        const expandedTarget = this.expandTypeAliases(substitutedTarget);
+        return rememberAliasExpansion(expandedTarget);
       } finally {
         this.activeTypeAliasNames.delete(namedSource.name);
       }
@@ -16278,21 +17439,39 @@ export class TypeChecker {
 
     if (type instanceof FunctionType) {
       const functionSource = type as FunctionType;
+      const localTypeParameters = new Set(functionSource.typeParameters ?? []);
+      const expandNestedType = (nestedType: AnalysisType): AnalysisType =>
+        this.typeContainsTypeParameterReference(nestedType, localTypeParameters)
+          ? nestedType
+          : this.expandTypeAliases(nestedType);
       const parameters: FunctionTypeParameter[] = [];
       for (const parameter of functionSource.parameters) {
         parameters.push(new FunctionTypeParameter(
           parameter.name,
-          this.expandTypeAliases(parameter.type),
+          expandNestedType(parameter.type),
           parameter.receiver || undefined,
-          parameter.optional
+          parameter.optional,
+          parameter.rest || undefined
         ));
       }
+      const expandedConstraints = functionSource.typeParameterConstraints
+        ? new Map([...functionSource.typeParameterConstraints].map(([name, constraint]) => [
+            name,
+            expandNestedType(constraint)
+          ]))
+        : undefined;
+      const expandedDefaults = functionSource.typeParameterDefaults
+        ? new Map([...functionSource.typeParameterDefaults].map(([name, defaultType]) => [
+            name,
+            expandNestedType(defaultType)
+          ]))
+        : undefined;
       return functionType(
         parameters,
-        this.expandTypeAliases(functionSource.returnType),
+        expandNestedType(functionSource.returnType),
         functionSource.typeParameters,
-        functionSource.typeParameterConstraints,
-        undefined,
+        expandedConstraints,
+        expandedDefaults,
         functionSource.assertion
           ? {
               target: functionSource.assertion.target,
@@ -16316,7 +17495,7 @@ export class TypeChecker {
   }
 
   private typeParameterSubstitutions(
-    typeParameters: TypeParameter[] | undefined,
+    typeParameters: readonly TypeParameter[] | undefined,
     type: NamedType
   ): Map<string, AnalysisType> {
     const substitutions = new Map<string, AnalysisType>();
@@ -16334,6 +17513,7 @@ export class TypeChecker {
           ?? (typeParameter?.defaultType ? this.typeFromTypeNameLoose(typeParameter.defaultType.name) : namedType(parameterName))
       );
     }
+    this.resolveSubstitutionDependencies(substitutions);
     return substitutions;
   }
 
@@ -16347,12 +17527,98 @@ export class TypeChecker {
     sourceType: AnalysisType,
     substitutions: Map<string, AnalysisType>
   ): AnalysisType {
+    const cacheable =
+      sourceType instanceof ObjectType ||
+      sourceType instanceof UnionType ||
+      sourceType instanceof IntersectionType ||
+      sourceType instanceof TupleType ||
+      sourceType instanceof ArrayType ||
+      sourceType instanceof RangeType ||
+      (sourceType instanceof NamedType && (sourceType.typeArguments?.length ?? 0) > 0);
+    if (!cacheable || substitutions.size === 0) {
+      return this.substituteTypeParametersUncached(sourceType, substitutions);
+    }
+    const cacheKey = [...substitutions]
+      .map(([name, type]) => `${name}=${typeToString(type)}`)
+      .sort()
+      .join(";");
+    const cached = this.substitutedTypesBySource.get(sourceType)?.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const inProgress = this.typeSubstitutionsInProgress.get(sourceType) ?? new Set<string>();
+    if (inProgress.has(cacheKey)) {
+      return sourceType;
+    }
+    inProgress.add(cacheKey);
+    this.typeSubstitutionsInProgress.set(sourceType, inProgress);
+    try {
+      const substituted = this.substituteTypeParametersUncached(sourceType, substitutions);
+      const sourceCache = this.substitutedTypesBySource.get(sourceType) ?? new Map<string, AnalysisType>();
+      sourceCache.set(cacheKey, substituted);
+      this.substitutedTypesBySource.set(sourceType, sourceCache);
+      return substituted;
+    } finally {
+      inProgress.delete(cacheKey);
+    }
+  }
+
+  private substituteTypeParametersUncached(
+    sourceType: AnalysisType,
+    substitutions: Map<string, AnalysisType>
+  ): AnalysisType {
     if (sourceType instanceof NamedType) {
       const namedSource = sourceType as NamedType;
+      const namedSourceText = typeToString(namedSource);
+      if (parseConditionalTypeText(namedSourceText)) {
+        const substitutionNames = new Set(substitutions.keys());
+        const identityTypeParameter = this.identityTypeParameterInConditionalTypeText(
+          namedSourceText,
+          substitutionNames
+        );
+        const identitySubstitution = identityTypeParameter
+          ? substitutions.get(identityTypeParameter)
+          : undefined;
+        if (
+          identityTypeParameter
+          && identitySubstitution
+          && !this.typeContainsTypeParameterReference(
+            identitySubstitution,
+            new Set([identityTypeParameter])
+          )
+        ) {
+          return identitySubstitution;
+        }
+        const substitutedConditionalText = this.substituteTypeParametersInComputedName(
+          namedSourceText,
+          substitutions
+        );
+        if (substitutedConditionalText !== namedSourceText) {
+          return this.resolveConditionalTypeText(
+            substitutedConditionalText,
+            new Map(),
+            this.bound.rootScope
+          ) ?? namedType(substitutedConditionalText);
+        }
+      }
       if (!namedSource.typeArguments || namedSource.typeArguments.length === 0) {
         const directSubstitution = substitutions.get(namedSource.name);
         if (directSubstitution) {
           return directSubstitution;
+        }
+        const keyofTargetText = namedSource.name.startsWith("keyof ")
+          ? namedSource.name.slice("keyof ".length).trim()
+          : null;
+        const keyofIndexedAccess = keyofTargetText
+          ? splitIndexedAccessTypeName(keyofTargetText)
+          : null;
+        if (keyofIndexedAccess) {
+          const objectType = substitutions.get(keyofIndexedAccess.objectTypeName.trim())
+            ?? this.typeFromTypeNameLooseWithSubstitutions(keyofIndexedAccess.objectTypeName, substitutions);
+          const indexType = substitutions.get(keyofIndexedAccess.indexTypeName.trim())
+            ?? this.typeFromTypeNameLooseWithSubstitutions(keyofIndexedAccess.indexTypeName, substitutions);
+          const indexedType = this.expandTypeAliases(this.indexedAccessType(objectType, indexType));
+          return this.keyofType(indexedType);
         }
         const directKeyofParameter = /^keyof\s+([A-Za-z_$][\w$]*)$/.exec(namedSource.name)?.[1];
         const directKeyofSubstitution = directKeyofParameter
@@ -16409,7 +17675,6 @@ export class TypeChecker {
         objectSource.propertyOwnerTypeNames
       );
     }
-
     if (sourceType instanceof FunctionType) {
       const functionSource = sourceType as FunctionType;
       const nestedTypeParameters = functionSource.typeParameters ?? [];
@@ -16475,7 +17740,7 @@ export class TypeChecker {
 
     if (sourceType instanceof IntersectionType) {
       const intersectionSource = sourceType as IntersectionType;
-      return intersectionType(intersectionSource.types.map(
+      return this.intersectionWithNonNullishObjectIdentity(intersectionSource.types.map(
         (type: AnalysisType): AnalysisType => this.substituteTypeParameters(type, substitutions)
       ));
     }
@@ -16490,6 +17755,80 @@ export class TypeChecker {
       );
     }
 
+    return sourceType;
+  }
+
+  private substituteTypeParametersDeferred(
+    sourceType: AnalysisType,
+    substitutions: Map<string, AnalysisType>
+  ): AnalysisType {
+    if (sourceType instanceof NamedType) {
+      if (!sourceType.typeArguments || sourceType.typeArguments.length === 0) {
+        const directSubstitution = substitutions.get(sourceType.name);
+        if (directSubstitution) {
+          return directSubstitution;
+        }
+        const substitutedName = this.substituteTypeParametersInComputedName(sourceType.name, substitutions);
+        return substitutedName === sourceType.name ? sourceType : namedType(substitutedName);
+      }
+      return namedType(
+        sourceType.name,
+        sourceType.typeArguments.map((argument) => this.substituteTypeParametersDeferred(argument, substitutions))
+      );
+    }
+    if (sourceType instanceof ArrayType) {
+      return arrayType(
+        this.substituteTypeParametersDeferred(sourceType.elementType, substitutions),
+        sourceType.isReadonly === true
+      );
+    }
+    if (sourceType instanceof RangeType) {
+      return rangeType(this.substituteTypeParametersDeferred(sourceType.elementType, substitutions));
+    }
+    if (sourceType instanceof ObjectType) {
+      return objectTypeWithProperties(
+        new Map([...sourceType.properties].map(([name, propertyType]) => [
+          name,
+          this.substituteTypeParametersDeferred(propertyType, substitutions)
+        ])),
+        sourceType.propertyOwnerTypeNames
+      );
+    }
+    if (sourceType instanceof FunctionType) {
+      const nestedTypeParameters = new Set(sourceType.typeParameters ?? []);
+      const outerSubstitutions = new Map(
+        [...substitutions].filter(([name]) => !nestedTypeParameters.has(name))
+      );
+      return functionType(
+        sourceType.parameters.map((parameter) => new FunctionTypeParameter(
+          parameter.name,
+          this.substituteTypeParametersDeferred(parameter.type, outerSubstitutions),
+          parameter.receiver || undefined,
+          parameter.optional,
+          parameter.rest || undefined
+        )),
+        sourceType.returnType,
+        sourceType.typeParameters,
+        sourceType.typeParameterConstraints,
+        sourceType.typeParameterDefaults,
+        sourceType.assertion,
+        sourceType.constTypeParameters
+      );
+    }
+    if (sourceType instanceof UnionType) {
+      return unionType(sourceType.types.map((member) => this.substituteTypeParametersDeferred(member, substitutions)));
+    }
+    if (sourceType instanceof IntersectionType) {
+      return this.intersectionWithNonNullishObjectIdentity(
+        sourceType.types.map((member) => this.substituteTypeParametersDeferred(member, substitutions))
+      );
+    }
+    if (sourceType instanceof TupleType) {
+      return tupleType(
+        sourceType.elements.map((element) => this.substituteTypeParametersDeferred(element, substitutions)),
+        sourceType.isReadonly === true
+      );
+    }
     return sourceType;
   }
 
@@ -16514,8 +17853,17 @@ export class TypeChecker {
     let result = typeName;
     for (const name of substitutions.keys()) {
       const substitution = substitutions.get(name)!;
-      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      result = result.replace(new RegExp(`\\b${escapedName}\\b`, "g"), typeToString(substitution));
+      const escapedName = this.escapeRegexText(name);
+      const substitutionText = typeToString(substitution);
+      const safeSubstitutionText = substitution instanceof UnionType
+        || substitution instanceof IntersectionType
+        || substitution instanceof FunctionType
+        ? `(${substitutionText})`
+        : substitutionText;
+      result = result.replace(
+        new RegExp(`(^|[^A-Za-z0-9_$])${escapedName}(?![A-Za-z0-9_$])`, "g"),
+        (_match, prefix: string): string => `${prefix}${safeSubstitutionText}`
+      );
     }
     return result;
   }
@@ -16525,28 +17873,40 @@ export class TypeChecker {
     if (!parsed) {
       return null;
     }
-    const parameters: FunctionTypeParameter[] = parsed.receiverTypeName
-      ? [new FunctionTypeParameter(
-          "this",
-          this.resolveTypeNameText(parsed.receiverTypeName, node, scope, false),
-          true
-        )]
-      : [];
-    parameters.push(...parsed.parameters.map((parameter) => new FunctionTypeParameter(
-      parameter.name,
-      this.resolveTypeNameText(parameter.typeName, node, scope, false),
-      undefined,
-      parameter.optional || undefined,
-      parameter.rest || undefined
-    )));
-    return functionType(
-      parameters,
-      this.resolveTypeNameText(parsed.returnTypeName, node, scope, false),
-      undefined,
-      undefined,
-      undefined,
-      this.assertionTypeFromText(parsed.returnTypeName, scope)
-    );
+    return this.withTypeParametersResult(parsed.typeParameters ?? [], () => {
+      const parameters: FunctionTypeParameter[] = parsed.receiverTypeName
+        ? [new FunctionTypeParameter(
+            "this",
+            this.resolveTypeNameText(parsed.receiverTypeName, node, scope, false),
+            true
+          )]
+        : [];
+      parameters.push(...parsed.parameters.map((parameter) => new FunctionTypeParameter(
+        parameter.name,
+        this.resolveTypeNameText(parameter.typeName, node, scope, false),
+        undefined,
+        parameter.optional || undefined,
+        parameter.rest || undefined
+      )));
+      return functionType(
+        parameters,
+        this.resolveTypeNameText(parsed.returnTypeName, node, scope, false),
+        parsed.typeParameters,
+        parsed.typeParameterConstraints
+          ? Object.fromEntries(Object.entries(parsed.typeParameterConstraints).map(([name, constraintTypeName]) => [
+              name,
+              this.resolveTypeNameText(constraintTypeName, node, scope, false)
+            ]))
+          : undefined,
+        parsed.typeParameterDefaults
+          ? Object.fromEntries(Object.entries(parsed.typeParameterDefaults).map(([name, defaultTypeName]) => [
+              name,
+              this.resolveTypeNameText(defaultTypeName, node, scope, false)
+            ]))
+          : undefined,
+        this.assertionTypeFromText(parsed.returnTypeName, scope)
+      );
+    });
   }
 
   private resolveObjectTypeAnnotation(typeName: string, node: Node, scope: Scope): AnalysisType | null {
@@ -16555,14 +17915,35 @@ export class TypeChecker {
       return null;
     }
     const properties = new Map<string, AnalysisType>();
+    const callSignatures: FunctionType[] = [];
     for (const member of members) {
+      if (member.callSignature) {
+        const callSignature = this.resolveFunctionTypeAnnotation(member.typeName, node, scope);
+        if (callSignature instanceof FunctionType) {
+          callSignatures.push(callSignature);
+        }
+        continue;
+      }
       const propertyType = this.resolveTypeNameText(member.typeName, node, scope, false);
       const propertyName = member.readonly ? toReadonlyPropertyName(member.name) : member.name;
-      properties.set(propertyName, member.optional
+      const resolvedPropertyType = member.optional
         ? unionType([propertyType, builtinType("undefined")])
-        : propertyType);
+        : propertyType;
+      const existingPropertyType = properties.get(propertyName);
+      properties.set(propertyName, existingPropertyType
+        ? unionType([existingPropertyType, resolvedPropertyType])
+        : resolvedPropertyType);
     }
-    return objectTypeWithProperties(properties);
+    const objectType = objectTypeWithProperties(properties);
+    if (callSignatures.length === 0) {
+      return objectType;
+    }
+    const callableType: AnalysisType = callSignatures.length === 1
+      ? callSignatures[0]!
+      : unionType(callSignatures);
+    return properties.size === 0
+      ? callableType
+      : intersectionType([callableType, objectType]);
   }
 
   private functionTypeFromAnnotationText(
@@ -16574,11 +17955,15 @@ export class TypeChecker {
     if (!parsed) {
       return null;
     }
+    const nestedTypeParameterNames = new Set([
+      ...(localTypeParameterNames ?? []),
+      ...(parsed.typeParameters ?? [])
+    ]);
     const resolveNestedType = (nestedTypeName: string): AnalysisType =>
-      localTypeParameterNames
+      nestedTypeParameterNames.size > 0
         ? this.typeFromTypeNameLooseWithTypeParameters(
             nestedTypeName,
-            localTypeParameterNames,
+            nestedTypeParameterNames,
             contextualThisTypeName
           ) ?? UNKNOWN_TYPE
         : this.typeFromTypeNameLoose(nestedTypeName);
@@ -16600,12 +17985,23 @@ export class TypeChecker {
         parameter.rest === true
       ));
     }
+    const resolvedReturnType = resolveNestedType(parsed.returnTypeName);
     return functionType(
       parameters,
-      resolveNestedType(parsed.returnTypeName),
-      undefined,
-      undefined,
-      undefined,
+      resolvedReturnType,
+      parsed.typeParameters,
+      parsed.typeParameterConstraints
+        ? Object.fromEntries(Object.entries(parsed.typeParameterConstraints).map(([name, constraintTypeName]) => [
+            name,
+            resolveNestedType(constraintTypeName)
+          ]))
+        : undefined,
+      parsed.typeParameterDefaults
+        ? Object.fromEntries(Object.entries(parsed.typeParameterDefaults).map(([name, defaultTypeName]) => [
+            name,
+            resolveNestedType(defaultTypeName)
+          ]))
+        : undefined,
       parsedAssertion
         ? {
             target: parsedAssertion.targetText,
@@ -16623,14 +18019,40 @@ export class TypeChecker {
       return null;
     }
     const properties = new Map<string, AnalysisType>();
+    const callSignatures: FunctionType[] = [];
+    const activeTypeParameterNames = new Set(
+      this.activeTypeParameterScopes.flatMap((scope) => [...scope])
+    );
     for (const member of members) {
-      const propertyType = this.typeFromTypeNameLoose(member.typeName);
+      if (member.callSignature) {
+        const callSignature = this.functionTypeFromAnnotationText(member.typeName);
+        if (callSignature instanceof FunctionType) {
+          callSignatures.push(callSignature);
+        }
+        continue;
+      }
+      const propertyType = activeTypeParameterNames.size > 0
+        ? this.typeFromTypeNameLooseWithTypeParameters(member.typeName, activeTypeParameterNames) ?? UNKNOWN_TYPE
+        : this.typeFromTypeNameLoose(member.typeName);
       const propertyName = member.readonly ? toReadonlyPropertyName(member.name) : member.name;
-      properties.set(propertyName, member.optional
+      const resolvedPropertyType = member.optional
         ? unionType([propertyType, builtinType("undefined")])
-        : propertyType);
+        : propertyType;
+      const existingPropertyType = properties.get(propertyName);
+      properties.set(propertyName, existingPropertyType
+        ? unionType([existingPropertyType, resolvedPropertyType])
+        : resolvedPropertyType);
     }
-    return objectTypeWithProperties(properties);
+    const objectType = objectTypeWithProperties(properties);
+    if (callSignatures.length === 0) {
+      return objectType;
+    }
+    const callableType: AnalysisType = callSignatures.length === 1
+      ? callSignatures[0]!
+      : unionType(callSignatures);
+    return properties.size === 0
+      ? callableType
+      : intersectionType([callableType, objectType]);
   }
 
 }

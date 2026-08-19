@@ -29,6 +29,12 @@ field access and direct calls where the analyzer has proved them safe.
   overloads, optional values, and calls are not re-derived by the emitter.
 * [ ] Introduce fast paths one category at a time, always falling back to the
   canonical dynamic operation when proof is incomplete.
+* [ ] Lower membership tests over immutable string-literal arrays, such as
+  `[">", ">>", ">>>"].includes(token.value)`, to direct comparisons or an
+  equivalent allocation-free decision structure when the receiver and lookup
+  semantics are statically proven unchanged. Preserve the original expression
+  for mutable arrays, non-literal elements, side effects, and unsupported value
+  types.
 * [ ] Compare optimized and forced-dynamic executions of the same smoke program.
 * [ ] Track compile-time and generated-code-size costs as well as runtime speed.
 * [ ] Continue the object specialization work in
@@ -40,6 +46,9 @@ field access and direct calls where the analyzer has proved them safe.
 
 * [ ] Forced-dynamic and optimized native builds produce identical smoke output.
 * [ ] Every specialization has a documented analyzer-owned proof condition.
+* [ ] Literal-array membership specialization has focused tests for matches,
+  misses, duplicate literals, evaluation order, and cases that must retain the
+  generic `includes` call.
 * [ ] Removing a fast path leaves a correct dynamic program rather than an
   unsupported-language diagnostic.
 * [ ] Benchmarks justify each retained specialization.

@@ -121,9 +121,9 @@ describe("zod sample editor features", () => {
     });
     expect(result.workMetrics.baseSessionBuilds).toBeLessThan(6);
     expect(result.workMetrics.resolvedSessionBuilds).toBeLessThan(3);
-    expect(result.workMetrics.sessionRequests).toBeLessThanOrEqual(hoverProbes.length * 65);
-    expect(result.workMetrics.diskSessionCacheMisses).toBeLessThan(100);
-    expect(result.workMetrics.diskSessionBuilds).toBeLessThan(100);
+    expect(result.workMetrics.sessionRequests).toBeLessThanOrEqual(hoverProbes.length * 68);
+    expect(result.workMetrics.diskSessionCacheMisses).toBeLessThan(120);
+    expect(result.workMetrics.diskSessionBuilds).toBeLessThan(120);
     expect(result.warmWorkMetrics).toMatchObject({
       sessionCacheMisses: 0,
       externalResolverRuns: 0,

@@ -340,6 +340,39 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses constrained generic call signatures in object type declarations", () => {
+        const parsed = parseSource(dedent`
+            export declare const filterMap: {
+                <Eff extends Effect<any, any, any>, B>(pf: (a: Effect.Success<Eff>) => Option.Option<B>): (elements: Iterable<Eff>) => Effect<Array<B>, Effect.Error<Eff>, Effect.Context<Eff>>;
+                <Eff extends Effect<any, any, any>, B>(elements: Iterable<Eff>, pf: (a: Effect.Success<Eff>) => Option.Option<B>): Effect<Array<B>, Effect.Error<Eff>, Effect.Context<Eff>>;
+            };
+            export declare const after: string;
+        `, { language: "typescript" });
+
+        expect(parsed.parserIssues).toEqual([]);
+        expect(parsed.ast?.body.length).toBe(2);
+    });
+
+    it("parses non-generic call signatures in object type aliases", () => {
+        const parsed = parseSource(dedent`
+            export type Callable<T> = {
+                (): T;
+                <K extends keyof T>(name: K): T[K];
+            };
+            export declare const after: string;
+        `, { language: "typescript" });
+
+        expect(parsed.parserIssues).toEqual([]);
+        expect(parsed.ast?.body.length).toBe(2);
+        expect(parsed.ast?.body[0]).toMatchObject({
+            kind: NodeKind.ExportStatement,
+            declaration: {
+                kind: NodeKind.TypeAliasStatement,
+                name: { name: "Callable" }
+            }
+        });
+    });
+
     it("builds an AST for numeric separators and non-decimal literals", () => {
         expect(parseExpression(tokenizeReader("1_000"))).toEqual(
             { kind: NodeKind.IntLiteral, value: 1000 }

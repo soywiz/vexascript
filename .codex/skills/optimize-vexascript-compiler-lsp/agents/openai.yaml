@@ -1,0 +1,4 @@
+interface:
+  display_name: "Optimize VexaScript Compiler and LSP"
+  short_description: "Optimize compiler and LSP work deterministically"
+  default_prompt: "Profile and optimize VexaScript compiler or LSP work using deterministic counters and cache metrics."
