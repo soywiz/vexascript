@@ -1,4 +1,4 @@
-import { CallExpression, ExportStatement, Identifier, ImportStatement, MemberExpression, NewExpression } from "compiler/ast/ast";
+import { ArrowFunctionExpression, CallExpression, ExportStatement, FunctionExpression, Identifier, ImportStatement, MemberExpression, NewExpression } from "compiler/ast/ast";
 import type { AnnotationApplication, AnnotationStatement, Expr, FunctionStatement, Node, Program, Statement } from "compiler/ast/ast";
 import { TokenType } from "compiler/parser/tokenizer";
 import type { Analysis } from "compiler/analysis/Analysis";
@@ -103,6 +103,16 @@ function invocationContextForNode(
     }
   }
 
+  for (const argument of argumentsList) {
+    if (!(argument instanceof ArrowFunctionExpression) && !(argument instanceof FunctionExpression)) {
+      continue;
+    }
+    const bodyRange = nodeRange(argument.body);
+    if (bodyRange && containsPosition(bodyRange, position)) {
+      return null;
+    }
+  }
+
   const closeToken = node.lastToken as {
     type?: TokenType;
     value?: string;
@@ -166,6 +176,11 @@ function findAnnotationInvocationContext(program: Program, line: number, charact
     }
   }
   return best;
+}
+
+export function hasSignatureHelpContext(program: Program, line: number, character: number): boolean {
+  return findAnnotationInvocationContext(program, line, character) !== null
+    || findInvocationContext(program, line, character) !== null;
 }
 
 

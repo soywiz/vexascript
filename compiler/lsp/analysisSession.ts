@@ -238,10 +238,14 @@ function buildSessionFromResolved(
 }
 
 export class AnalysisSessionCache {
-  private readonly cache = new Map<string, { version: number; session: AnalysisSession }>();
-  // Pending stores version alongside the promise so getForDocumentAsync can
-  // safely reuse an in-flight resolution only when it is for the same version.
-  private readonly pending = new Map<string, { version: number; promise: Promise<AnalysisSession> }>();
+  private readonly cache = new Map<string, { version: number; source: string; session: AnalysisSession }>();
+  // Pending stores both version and source so no-op version changes can reuse
+  // the exact same in-flight semantic work.
+  private readonly pending = new Map<string, {
+    version: number;
+    source: string;
+    promise: Promise<AnalysisSession>;
+  }>();
   private readonly resolvedExternals = new Map<string, { key: string; resolved: ResolvedExternals }>();
   private readonly pendingExternals = new Map<string, { key: string; promise: Promise<ResolvedExternals> }>();
   private metrics = emptyAnalysisSessionCacheMetrics();
@@ -262,6 +266,20 @@ export class AnalysisSessionCache {
 
   setProfileObserver(observer: ((event: AnalysisSessionCacheProfileEvent) => void) | undefined): void {
     this.profileObserver = observer;
+  }
+
+  peekForDocument(document: TextDocument): AnalysisSession | undefined {
+    return this.cachedSessionForDocument(document);
+  }
+
+  peekPendingForDocument(document: TextDocument): Promise<AnalysisSession> | undefined {
+    const pending = this.pending.get(document.uri);
+    if (!pending) {
+      return undefined;
+    }
+    return pending.version === document.version || pending.source === document.getText()
+      ? pending.promise
+      : undefined;
   }
 
   private createTrackedSession(
@@ -303,10 +321,24 @@ export class AnalysisSessionCache {
     return cached.resolved;
   }
 
-  private cacheResolvedSession(document: TextDocument, session: AnalysisSession): void {
+  private cachedSessionForDocument(document: TextDocument): AnalysisSession | undefined {
+    const cached = this.cache.get(document.uri);
+    if (!cached) {
+      return undefined;
+    }
+    if (cached.version !== document.version && cached.source !== document.getText()) {
+      return undefined;
+    }
+    if (cached.version !== document.version) {
+      this.cache.set(document.uri, { ...cached, version: document.version });
+    }
+    return cached.session;
+  }
+
+  private cacheResolvedSession(document: TextDocument, source: string, session: AnalysisSession): void {
     const current = this.cache.get(document.uri);
     if (!current || current.version <= document.version) {
-      this.cache.set(document.uri, { version: document.version, session });
+      this.cache.set(document.uri, { version: document.version, source, session });
       this.onSessionUpdated?.();
     }
   }
@@ -358,7 +390,7 @@ export class AnalysisSessionCache {
     const docUri = document.uri;
     const resolveExternalDeclarations = this.resolveExternalDeclarations;
     if (!resolveExternalDeclarations) {
-      this.cache.set(docUri, { version: docVersion, session: baseSession });
+      this.cache.set(docUri, { version: docVersion, source: docText, session: baseSession });
       return Promise.resolve(baseSession);
     }
     let pendingPromise: Promise<AnalysisSession> | undefined;
@@ -385,7 +417,7 @@ export class AnalysisSessionCache {
           elapsedMs: monotonicNow() - buildStartedAt
         });
         this.metrics.resolvedSessionBuilds += 1;
-        this.cacheResolvedSession(document, session);
+        this.cacheResolvedSession(document, docText, session);
         return session;
       } catch {
         return baseSession;
@@ -396,16 +428,17 @@ export class AnalysisSessionCache {
         }
       }
     })();
-    this.pending.set(docUri, { version: docVersion, promise: pendingPromise });
+    this.pending.set(docUri, { version: docVersion, source: docText, promise: pendingPromise });
     return pendingPromise;
   }
 
   getForDocument(document: TextDocument): AnalysisSession {
     this.metrics.synchronousRequests += 1;
     const cached = this.cache.get(document.uri);
-    if (cached && cached.version === document.version) {
+    const cachedSession = this.cachedSessionForDocument(document);
+    if (cachedSession) {
       this.metrics.sessionCacheHits += 1;
-      return cached.session;
+      return cachedSession;
     }
 
     this.metrics.sessionCacheMisses += 1;
@@ -419,14 +452,14 @@ export class AnalysisSessionCache {
     if (cachedExternals) {
       const session = this.createTrackedSession(document, docText, "resolved", cachedExternals);
       this.metrics.resolvedSessionBuilds += 1;
-      this.cacheResolvedSession(document, session);
+      this.cacheResolvedSession(document, docText, session);
       return session;
     }
     const baseSession = this.createTrackedSession(document, docText, "base");
     this.metrics.baseSessionBuilds += 1;
 
     if (!this.resolveExternalDeclarations) {
-      this.cache.set(docUri, { version: docVersion, session: baseSession });
+      this.cache.set(docUri, { version: docVersion, source: docText, session: baseSession });
       return baseSession;
     }
 
@@ -442,15 +475,19 @@ export class AnalysisSessionCache {
 
   async getForDocumentAsync(document: TextDocument): Promise<AnalysisSession> {
     this.metrics.asynchronousRequests += 1;
-    const cached = this.cache.get(document.uri);
-    if (cached && cached.version === document.version) {
+    const cachedSession = this.cachedSessionForDocument(document);
+    if (cachedSession) {
       this.metrics.sessionCacheHits += 1;
-      return cached.session;
+      return cachedSession;
     }
 
-    // Reuse an in-flight resolution only when it is for the same document version
+    // A no-op version bump represents the same semantic input and can share
+    // the exact in-flight resolution.
     const pending = this.pending.get(document.uri);
-    if (pending && pending.version === document.version) {
+    if (
+      pending
+      && (pending.version === document.version || pending.source === document.getText())
+    ) {
       this.metrics.pendingSessionReuses += 1;
       return pending.promise;
     }
@@ -464,7 +501,7 @@ export class AnalysisSessionCache {
     if (cachedExternals) {
       const session = this.createTrackedSession(document, docText, "resolved", cachedExternals);
       this.metrics.resolvedSessionBuilds += 1;
-      this.cacheResolvedSession(document, session);
+      this.cacheResolvedSession(document, docText, session);
       return session;
     }
     const baseSession = this.createTrackedSession(document, docText, "base");

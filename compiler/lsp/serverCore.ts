@@ -26,6 +26,7 @@ import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { ProjectSessionLike } from "compiler/analysis/projectIndex";
 import type { CanonicalSyntax } from "compiler/canonicalSyntax";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
+import { parseSource } from "compiler/pipeline/parse";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import type { AnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
@@ -54,7 +55,7 @@ import {
   candidateCharacters,
   createRenameWorkspaceEdit
 } from "./navigation";
-import { createSignatureHelp } from "./signatureHelp";
+import { createSignatureHelp, hasSignatureHelpContext } from "./signatureHelp";
 import { createInlayHints } from "./inlayHints";
 import { clearAmbientTypesCache } from "./ambientTypesLoader";
 import { createAutoAwaitDecorations } from "./autoAwaitDecorations";
@@ -133,10 +134,16 @@ export interface LspServerOptions {
   documents: TextDocuments<TextDocument>;
   analysisSessions: AnalysisSessionCache;
   environment: LspServerEnvironment;
+  waitForDocumentDiagnosticIdle?: () => Promise<void>;
 }
 
 const SLOW_LSP_OPERATION_MS = 250;
 const SUPER_SLOW_LSP_OPERATION_MS = 750;
+const DOCUMENT_DIAGNOSTIC_IDLE_MS = 500;
+
+function waitForDefaultDocumentDiagnosticIdle(): Promise<void> {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, DOCUMENT_DIAGNOSTIC_IDLE_MS));
+}
 
 export function slowLspTimingWarning(operationName: string, durationMs: number): string | null {
   const label = durationMs >= SUPER_SLOW_LSP_OPERATION_MS
@@ -151,6 +158,8 @@ export function slowLspTimingWarning(operationName: string, durationMs: number):
 
 export function startLspServer(options: LspServerOptions): void {
   const { connection, documents, analysisSessions, environment } = options;
+  const waitForDocumentDiagnosticIdle =
+    options.waitForDocumentDiagnosticIdle ?? waitForDefaultDocumentDiagnosticIdle;
   const workspace = environment.workspace;
   let inlayHintsParameters = false;
   let inlayHintsTypes = false;
@@ -164,6 +173,8 @@ export function startLspServer(options: LspServerOptions): void {
   const workspaceMemberDiagnosticsCache = new Map<string, { version: number; promise: Promise<Diagnostic[]> }>();
   const semanticTokensCache = new Map<string, { version: number; promise: Promise<SemanticTokens> }>();
   const codeActionCache = new Map<string, { version: number; promise: Promise<ReturnType<typeof deferCodeActions>> }>();
+  const documentSources = new Map<string, string>();
+  const documentsNeedingDiagnosticIdle = new Set<string>();
   let workspaceSymbolExportsPromise: ReturnType<typeof buildSymbolExports> | null = null;
 
   function nowMs(): number {
@@ -237,6 +248,29 @@ export function startLspServer(options: LspServerOptions): void {
     await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
     const current = documents.get(document.uri);
     return current?.version === document.version ? current : null;
+  }
+
+  async function currentDocumentAfterDiagnosticIdle(document: TextDocument): Promise<TextDocument | null> {
+    let observed = document;
+    let coalescedVersions = 0;
+    while (true) {
+      await waitForDocumentDiagnosticIdle();
+      const current = documents.get(document.uri);
+      if (!current) {
+        return null;
+      }
+      if (current.version === observed.version || current.getText() === observed.getText()) {
+        if (coalescedVersions > 0) {
+          logTimingMessage(
+            `textDocument/diagnostic work requestedVersion=${document.version} `
+            + `analyzedVersion=${current.version} coalescedVersions=${coalescedVersions}`
+          );
+        }
+        return current;
+      }
+      observed = current;
+      coalescedVersions += 1;
+    }
   }
 
   function logStaleDocumentRequest(operationName: string, document: TextDocument): void {
@@ -583,6 +617,8 @@ export function startLspServer(options: LspServerOptions): void {
 
   documents.onDidOpen((event) => {
     logTimedOperationSync("textDocument/didOpen", () => {
+      documentSources.set(event.document.uri, event.document.getText());
+      documentsNeedingDiagnosticIdle.delete(event.document.uri);
       invalidateDocumentCaches(event.document.uri);
       environment.onDocumentOpenedOrChanged?.(event.document);
       refreshDiagnostics();
@@ -590,6 +626,13 @@ export function startLspServer(options: LspServerOptions): void {
   });
   documents.onDidChangeContent((event) => {
     logTimedOperationSync("textDocument/didChange", () => {
+      const source = event.document.getText();
+      if (documentSources.get(event.document.uri) === source) {
+        documentsNeedingDiagnosticIdle.delete(event.document.uri);
+      } else {
+        documentsNeedingDiagnosticIdle.add(event.document.uri);
+      }
+      documentSources.set(event.document.uri, source);
       invalidateDocumentCaches(event.document.uri);
       environment.onDocumentOpenedOrChanged?.(event.document);
       refreshDiagnostics();
@@ -597,6 +640,8 @@ export function startLspServer(options: LspServerOptions): void {
   });
   documents.onDidClose((event) => {
     logTimedOperationSync("textDocument/didClose", () => {
+      documentSources.delete(event.document.uri);
+      documentsNeedingDiagnosticIdle.delete(event.document.uri);
       invalidateDocumentCaches(event.document.uri);
       analysisSessions.delete(event.document.uri);
       environment.onDocumentClosed?.(event.document);
@@ -622,6 +667,28 @@ export function startLspServer(options: LspServerOptions): void {
     if (!currentDoc) {
       logStaleDocumentRequest("textDocument/completion", doc);
       return [];
+    }
+    const completionPrefix = completionPrefixAt(text, currentDoc.offsetAt(params.position));
+    if (!triggerCharacter && completionPrefix.length >= 1) {
+      const localSession = createAnalysisSession(text);
+      const localItems = await createCompletionItemsForPosition(
+        localSession.ast,
+        params.position.line,
+        params.position.character,
+        localSession.analysis,
+        [],
+        { text }
+      );
+      const hasTypedInScopeMatch = localItems.some((item) =>
+        item.label.toLocaleLowerCase().startsWith(completionPrefix.toLocaleLowerCase())
+        && /^In-scope (?:function|method|variable|parameter|class):/u.test(item.detail ?? "")
+      );
+      if (hasTypedInScopeMatch) {
+        logTimingMessage(
+          `textDocument/completion work localIdentifierFastPaths=1 analysisSessionRequests=0 prefixLength=${completionPrefix.length}`
+        );
+        return localItems;
+      }
     }
     const session = await getAnalysisSessionForRequest("textDocument/completion", currentDoc);
     const triggerOptions = triggerCharacter ? { triggerCharacter } : {};
@@ -667,6 +734,11 @@ export function startLspServer(options: LspServerOptions): void {
     if (!doc) {
       return [];
     }
+    const currentSession = analysisSessions.peekForDocument(doc);
+    if (!currentSession) {
+      logTimingMessage("textDocument/codeAction work cachedSessionMisses=1 analysisSessionRequests=0");
+      return [];
+    }
     const key = [
       doc.uri,
       params.range.start.line,
@@ -689,9 +761,7 @@ export function startLspServer(options: LspServerOptions): void {
     }
     logCacheState("textDocument/codeAction", "miss", doc.version);
     const promise = logTimedOperation("textDocument/codeAction", async () => {
-      const session = await logTimedPhase("textDocument/codeAction", "analysisSession", () =>
-        getAnalysisSessionForRequest("textDocument/codeAction", doc)
-      );
+      const session = currentSession;
       if (!session.ast) {
         return [];
       }
@@ -776,7 +846,19 @@ export function startLspServer(options: LspServerOptions): void {
   connection.onDocumentHighlight((params) => logTimedOperation("textDocument/documentHighlight", async () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
-    const session = await getAnalysisSessionForRequest("textDocument/documentHighlight", doc);
+    const cachedSession = analysisSessions.peekForDocument(doc);
+    const pendingSession = cachedSession
+      ? undefined
+      : analysisSessions.peekPendingForDocument(doc);
+    const session = cachedSession ?? await pendingSession ?? createAnalysisSession(doc.getText());
+    if (!session) {
+      return [];
+    }
+    if (!cachedSession) {
+      logTimingMessage(
+        "textDocument/documentHighlight work localAnalysisFastPaths=1 analysisSessionRequests=0"
+      );
+    }
     return session.analysis
       ? createDocumentHighlights(session.analysis, params.position.line, params.position.character, session.ast ?? undefined)
       : [];
@@ -856,7 +938,20 @@ export function startLspServer(options: LspServerOptions): void {
         items: [] as Diagnostic[]
       };
     }
-    const { items, resultId } = await getDocumentDiagnosticArtifacts(doc);
+    const cached = documentDiagnosticCache.get(doc.uri);
+    const currentDoc = cached?.version === doc.version
+      ? doc
+      : documentsNeedingDiagnosticIdle.has(doc.uri)
+        ? await currentDocumentAfterDiagnosticIdle(doc)
+        : doc;
+    if (!currentDoc) {
+      return {
+        kind: DocumentDiagnosticReportKind.Full,
+        items: [] as Diagnostic[]
+      };
+    }
+    documentsNeedingDiagnosticIdle.delete(currentDoc.uri);
+    const { items, resultId } = await getDocumentDiagnosticArtifacts(currentDoc);
     return {
       kind: DocumentDiagnosticReportKind.Full,
       items,
@@ -894,7 +989,7 @@ export function startLspServer(options: LspServerOptions): void {
       return [];
     }
 
-    const session = analysisSessions.getForDocument(doc);
+    const session = await getAnalysisSessionForRequest("textDocument/references", doc);
     if (!session.analysis || !session.ast) {
       return [];
     }
@@ -918,6 +1013,10 @@ export function startLspServer(options: LspServerOptions): void {
     const currentDoc = await currentDocumentAfterPendingChanges(doc);
     if (!currentDoc) {
       logStaleDocumentRequest("textDocument/signatureHelp", doc);
+      return null;
+    }
+    const syntax = parseSource(currentDoc.getText()).ast;
+    if (!syntax || !hasSignatureHelpContext(syntax, params.position.line, params.position.character)) {
       return null;
     }
     const session = await getAnalysisSessionForRequest("textDocument/signatureHelp", currentDoc);
@@ -945,12 +1044,12 @@ export function startLspServer(options: LspServerOptions): void {
       return [];
     }
 
-    const session = analysisSessions.getForDocument(doc);
-    if (!session.ast) {
+    const ast = parseSource(doc.getText()).ast;
+    if (!ast) {
       return [];
     }
 
-    return createDocumentSymbols(session.ast);
+    return createDocumentSymbols(ast);
   }));
 
   if (workspace) {
@@ -970,8 +1069,8 @@ export function startLspServer(options: LspServerOptions): void {
       return [];
     }
 
-    const session = analysisSessions.getForDocument(doc);
-    if (!session.ast || !session.analysis) {
+    const session = analysisSessions.peekForDocument(doc);
+    if (!session?.ast || !session.analysis) {
       return [];
     }
 
@@ -988,7 +1087,8 @@ export function startLspServer(options: LspServerOptions): void {
     if (!referenceCodeLensEnabled) return [];
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
-    const session = analysisSessions.getForDocument(doc);
+    const session = analysisSessions.peekForDocument(doc);
+    if (!session) return [];
     return session.ast && session.analysis ? createReferenceCodeLenses(session.ast, session.analysis, doc.uri) : [];
   }));
 
@@ -998,7 +1098,8 @@ export function startLspServer(options: LspServerOptions): void {
     logTimedOperationSync("vexa/autoAwaitDecorations", () => {
       const doc = documents.get(params.textDocument.uri);
       if (!doc) return [];
-      const session = analysisSessions.getForDocument(doc);
+      const session = analysisSessions.peekForDocument(doc);
+      if (!session) return [];
       if (!session.ast || !session.analysis) return [];
       return createAutoAwaitDecorations(session.ast, session.analysis, params.range);
     })
@@ -1007,23 +1108,22 @@ export function startLspServer(options: LspServerOptions): void {
   connection.onFoldingRanges((params) => logTimedOperationSync("textDocument/foldingRange", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
-    const ast = analysisSessions.getForDocument(doc).ast;
+    const ast = parseSource(doc.getText()).ast;
     return ast ? createFoldingRanges(ast) : [];
   }));
 
   connection.onSelectionRanges((params) => logTimedOperationSync("textDocument/selectionRange", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
-    const ast = analysisSessions.getForDocument(doc).ast;
+    const ast = parseSource(doc.getText()).ast;
     return ast ? createSelectionRanges(ast, params.positions) : [];
   }));
 
   connection.languages.onLinkedEditingRange((params) => logTimedOperationSync("textDocument/linkedEditingRange", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return null;
-    const analysis = analysisSessions.getForDocument(doc).analysis;
-    if (!analysis) return null;
-    const session = analysisSessions.getForDocument(doc);
+    const session = analysisSessions.peekForDocument(doc);
+    if (!session?.analysis) return null;
     const edit = session.analysis && session.ast
       ? createRenameWorkspaceEdit(session.analysis, doc.uri, params.position.line, params.position.character, "__linked__", session.ast)
       : null;
@@ -1085,21 +1185,21 @@ export function startLspServer(options: LspServerOptions): void {
   connection.languages.callHierarchy.onPrepare((params) => logTimedOperationSync("textDocument/prepareCallHierarchy", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return null;
-    const ast = analysisSessions.getForDocument(doc).ast;
+    const ast = parseSource(doc.getText()).ast;
     return ast ? prepareCallHierarchy(ast, doc.uri, params.position) : null;
   }));
 
   connection.languages.callHierarchy.onIncomingCalls((params) => logTimedOperationSync("callHierarchy/incomingCalls", () => {
     const doc = documents.get(params.item.uri);
     if (!doc) return [];
-    const ast = analysisSessions.getForDocument(doc).ast;
+    const ast = parseSource(doc.getText()).ast;
     return ast ? createIncomingCalls(ast, doc.uri, params.item) : [];
   }));
 
   connection.languages.callHierarchy.onOutgoingCalls((params) => logTimedOperationSync("callHierarchy/outgoingCalls", () => {
     const doc = documents.get(params.item.uri);
     if (!doc) return [];
-    const ast = analysisSessions.getForDocument(doc).ast;
+    const ast = parseSource(doc.getText()).ast;
     return ast ? createOutgoingCalls(ast, doc.uri, params.item) : [];
   }));
 
@@ -1112,6 +1212,16 @@ export function startLspServer(options: LspServerOptions): void {
     if (!currentDoc) {
       logStaleDocumentRequest("textDocument/semanticTokens/full", doc);
       return { data: [] };
+    }
+    const resolvedSession = analysisSessions.peekForDocument(currentDoc);
+    if (!resolvedSession) {
+      logTimingMessage(
+        "textDocument/semanticTokens/full work localSyntaxFastPaths=1 analysisSessionRequests=0"
+      );
+      return createSemanticTokens({
+        text: currentDoc.getText(),
+        ast: parseSource(currentDoc.getText()).ast
+      });
     }
     const cacheKey = `${currentDoc.uri}|full`;
     const cached = semanticTokensCache.get(cacheKey);
@@ -1149,6 +1259,17 @@ export function startLspServer(options: LspServerOptions): void {
     if (!currentDoc) {
       logStaleDocumentRequest("textDocument/semanticTokens/range", doc);
       return { data: [] };
+    }
+    const resolvedSession = analysisSessions.peekForDocument(currentDoc);
+    if (!resolvedSession) {
+      logTimingMessage(
+        "textDocument/semanticTokens/range work localSyntaxFastPaths=1 analysisSessionRequests=0"
+      );
+      return createSemanticTokens({
+        text: currentDoc.getText(),
+        ast: parseSource(currentDoc.getText()).ast,
+        range: params.range
+      });
     }
     const cacheKey = `${currentDoc.uri}|range:${params.range.start.line}:${params.range.start.character}:${params.range.end.line}:${params.range.end.character}`;
     const cached = semanticTokensCache.get(cacheKey);

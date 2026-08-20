@@ -111,6 +111,25 @@ describe("lsp analysis session", () => {
     });
   });
 
+  it("reuses a cached session when only the document version changes", async () => {
+    const cache = new AnalysisSessionCache();
+    const uri = "file:///same-source.vx";
+    const source = "let answer = 42\n";
+    const docV1 = TextDocument.create(uri, "vexa", 1, source);
+    const docV2 = TextDocument.create(uri, "vexa", 2, source);
+
+    const sessionV1 = await cache.getForDocumentAsync(docV1);
+    const sessionV2 = await cache.getForDocumentAsync(docV2);
+
+    expect(sessionV2).toBe(sessionV1);
+    expect(cache.getMetrics()).toMatchObject({
+      asynchronousRequests: 2,
+      sessionCacheHits: 1,
+      sessionCacheMisses: 1,
+      baseSessionBuilds: 1
+    });
+  });
+
   it("keeps shorthand class methods with explicit return types compatible with implemented interfaces", () => {
     const source = dedent`
       interface Shape {
@@ -358,6 +377,38 @@ describe("lsp analysis session", () => {
       pendingSessionReuses: 1,
       externalCacheMisses: 1,
       externalResolverRuns: 1,
+      baseSessionBuilds: 1,
+      resolvedSessionBuilds: 1
+    });
+  });
+
+  it("reuses in-flight semantic work across no-op document version changes", async () => {
+    const source = "let answer = 42\n";
+    const uri = "file:///same-pending-source.vx";
+    const docV1 = TextDocument.create(uri, "vexa", 1, source);
+    const docV2 = TextDocument.create(uri, "vexa", 2, source);
+    let releaseResolution: (() => void) | undefined;
+    const resolutionGate = new Promise<void>((resolve) => {
+      releaseResolution = resolve;
+    });
+    let resolveCount = 0;
+    const cache = new AnalysisSessionCache(async () => {
+      resolveCount += 1;
+      await resolutionGate;
+      return { externalDeclarations: [], importedSymbols: new Map() };
+    });
+
+    const sessionV1Promise = cache.getForDocumentAsync(docV1);
+    const sessionV2Promise = cache.getForDocumentAsync(docV2);
+    releaseResolution!();
+    const [sessionV1, sessionV2] = await Promise.all([sessionV1Promise, sessionV2Promise]);
+
+    expect(sessionV2).toBe(sessionV1);
+    expect(resolveCount).toBe(1);
+    expect(cache.getMetrics()).toMatchObject({
+      asynchronousRequests: 2,
+      sessionCacheMisses: 1,
+      pendingSessionReuses: 1,
       baseSessionBuilds: 1,
       resolvedSessionBuilds: 1
     });

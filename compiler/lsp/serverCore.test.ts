@@ -219,7 +219,10 @@ interface StartedServer {
   environmentEvents: string[];
 }
 
-function startServer(withWorkspace: boolean): StartedServer {
+function startServer(
+  withWorkspace: boolean,
+  waitForDocumentDiagnosticIdle: () => Promise<void> = async () => undefined
+): StartedServer {
   const fakeConnection = createFakeConnection();
   const fakeDocuments = createFakeDocuments();
   const environmentEvents: string[] = [];
@@ -249,6 +252,7 @@ function startServer(withWorkspace: boolean): StartedServer {
     connection: fakeConnection.connection,
     documents: fakeDocuments.documents,
     analysisSessions,
+    waitForDocumentDiagnosticIdle,
     environment
   });
 
@@ -363,6 +367,7 @@ async function startWorkspaceBackedServer(workspaceRoot: string): Promise<Starte
     connection: fakeConnection.connection,
     documents: fakeDocuments.documents,
     analysisSessions,
+    waitForDocumentDiagnosticIdle: async () => undefined,
     environment
   });
 
@@ -584,6 +589,7 @@ describe("LSP server core", () => {
       connection: fakeConnection.connection,
       documents: fakeDocuments.documents,
       analysisSessions,
+      waitForDocumentDiagnosticIdle: async () => undefined,
       environment: {
         getSourceRoots: () => [],
         getSessionForFilePath: () => null
@@ -688,6 +694,140 @@ describe("LSP server core", () => {
 
     assert.equal(report.kind, "full");
     assert.equal(report.items.length > 0, true);
+  });
+
+  it("coalesces intermediate document versions into one diagnostic analysis", async () => {
+    const waiters: Array<() => void> = [];
+    const server = startServer(false, () => new Promise<void>((resolve) => waiters.push(resolve)));
+    const uri = "file:///workspace/coalesced.vx";
+    const documentV1 = openedDocument(server, "let value = 1\n", uri);
+    const documentV2 = TextDocument.create(uri, "vexa", 2, "let value = 12\n");
+    server.fakeDocuments.change(documentV2);
+
+    const reportPromise = server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri }
+    }) as Promise<{ kind: string; items: unknown[]; resultId: string }>;
+    await Promise.resolve();
+    assert.equal(waiters.length, 1);
+    assert.equal(server.analysisSessions.getMetrics().asynchronousRequests, 0);
+
+    const documentV3 = TextDocument.create(uri, "vexa", 3, "let value = 123\n");
+    server.fakeDocuments.change(documentV3);
+    waiters.shift()!();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(waiters.length, 1);
+    assert.equal(server.analysisSessions.getMetrics().asynchronousRequests, 0);
+
+    const documentV4 = TextDocument.create(uri, "vexa", 4, "let value = 1234\n");
+    server.fakeDocuments.change(documentV4);
+    waiters.shift()!();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(waiters.length, 1);
+    assert.equal(server.analysisSessions.getMetrics().asynchronousRequests, 0);
+
+    waiters.shift()!();
+    const report = await reportPromise;
+
+    assert.equal(documentV1.version, 1);
+    assert.equal(report.resultId, "4");
+    assert.deepEqual(report.items, []);
+    assert.deepEqual(server.analysisSessions.getMetrics(), {
+      synchronousRequests: 0,
+      asynchronousRequests: 1,
+      sessionCacheHits: 0,
+      sessionCacheMisses: 1,
+      pendingSessionReuses: 0,
+      externalCacheHits: 0,
+      externalCacheMisses: 0,
+      pendingExternalReuses: 0,
+      externalResolverRuns: 0,
+      baseSessionBuilds: 1,
+      resolvedSessionBuilds: 0
+    });
+
+    const cachedReport = await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri }
+    }) as { resultId: string };
+    assert.equal(cachedReport.resultId, "4");
+    assert.equal(waiters.length, 0);
+    assert.equal(server.analysisSessions.getMetrics().asynchronousRequests, 1);
+  });
+
+  it("does not idle-wait for a document version whose source is unchanged", async () => {
+    const waiters: Array<() => void> = [];
+    const server = startServer(false, () => new Promise<void>((resolve) => waiters.push(resolve)));
+    const uri = "file:///workspace/unchanged.vx";
+    const source = "let value = 1\n";
+    openedDocument(server, source, uri);
+    server.fakeDocuments.change(TextDocument.create(uri, "vexa", 2, source));
+
+    const report = await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri }
+    }) as { resultId: string };
+
+    assert.equal(report.resultId, "2");
+    assert.equal(waiters.length, 0);
+    assert.equal(server.analysisSessions.getMetrics().asynchronousRequests, 1);
+  });
+
+  it("serves syntax-only editor refreshes without starting semantic analysis", async () => {
+    const server = startServer(false);
+    const document = openedDocument(server, [
+      "func greet(name: string) {",
+      "  return name",
+      "}",
+      "greet(\"Vexa\")",
+      ""
+    ].join("\n"));
+    server.analysisSessions.resetMetrics();
+
+    const symbols = await server.fakeConnection.handlers.get("documentSymbol")!({
+      textDocument: { uri: document.uri }
+    }) as unknown[];
+    const folds = await server.fakeConnection.handlers.get("foldingRanges")!({
+      textDocument: { uri: document.uri }
+    }) as unknown[];
+    const selections = await server.fakeConnection.handlers.get("selectionRanges")!({
+      textDocument: { uri: document.uri },
+      positions: [{ line: 1, character: 2 }]
+    }) as unknown[];
+    const semantic = await server.fakeConnection.handlers.get("semanticTokens")!({
+      textDocument: { uri: document.uri }
+    }) as { data: number[] };
+    const highlights = await server.fakeConnection.handlers.get("documentHighlight")!({
+      textDocument: { uri: document.uri },
+      position: { line: 1, character: 9 }
+    }) as unknown[];
+    const codeActions = await server.fakeConnection.handlers.get("codeAction")!({
+      textDocument: { uri: document.uri },
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 13 }
+      },
+      context: { diagnostics: [] }
+    }) as unknown[];
+
+    assert.equal(symbols.length > 0, true);
+    assert.equal(folds.length > 0, true);
+    assert.equal(selections.length, 1);
+    assert.equal(semantic.data.length > 0, true);
+    assert.equal(highlights.length > 0, true);
+    assert.deepEqual(codeActions, []);
+    assert.deepEqual(server.analysisSessions.getMetrics(), {
+      synchronousRequests: 0,
+      asynchronousRequests: 0,
+      sessionCacheHits: 0,
+      sessionCacheMisses: 0,
+      pendingSessionReuses: 0,
+      externalCacheHits: 0,
+      externalCacheMisses: 0,
+      pendingExternalReuses: 0,
+      externalResolverRuns: 0,
+      baseSessionBuilds: 0,
+      resolvedSessionBuilds: 0
+    });
   });
 
   it("logs the compiler version when the LSP client finishes initialization", () => {
@@ -807,6 +947,37 @@ describe("LSP server core", () => {
     ), true);
   });
 
+  it("serves matching in-scope identifier completions without a resolved session build", async () => {
+    const server = startServer(false);
+    const marked = sourceWithCursor([
+      "func delay(ms: number) {}",
+      "d^^^"
+    ].join("\n"));
+    const document = openedDocument(server, marked.source);
+    server.analysisSessions.resetMetrics();
+
+    const items = await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: document.uri },
+      position: { line: marked.line, character: marked.character },
+      context: { triggerKind: 1 }
+    }) as Array<{ label: string; detail?: string }>;
+
+    assert.equal(items.some((item) => item.label === "delay" && item.detail?.startsWith("In-scope function")), true);
+    assert.deepEqual(server.analysisSessions.getMetrics(), {
+      synchronousRequests: 0,
+      asynchronousRequests: 0,
+      sessionCacheHits: 0,
+      sessionCacheMisses: 0,
+      pendingSessionReuses: 0,
+      externalCacheHits: 0,
+      externalCacheMisses: 0,
+      pendingExternalReuses: 0,
+      externalResolverRuns: 0,
+      baseSessionBuilds: 0,
+      resolvedSessionBuilds: 0
+    });
+  });
+
   it("skips signature-help analysis for a document version superseded by the next keystroke", async () => {
     const server = startServer(false);
     server.fakeConnection.handlers.get("initialize")!({
@@ -844,6 +1015,40 @@ describe("LSP server core", () => {
     assert.equal(server.fakeConnection.infoMessages.some((message) =>
       message === "[Timing] textDocument/signatureHelp work requestedVersion=2 currentVersion=3 staleVersionSkips=1 analysisSessionRequests=0"
     ), true);
+  });
+
+  it("skips semantic analysis inside a trailing callback body", async () => {
+    const server = startServer(false);
+    const marked = sourceWithCursor([
+      "declare function route(path: string, handler: () => void): void",
+      "func delay(ms: number) {}",
+      "route(\"/users\") async {",
+      "  await delay(1000)",
+      "  del^^^",
+      "}"
+    ].join("\n"));
+    const document = openedDocument(server, marked.source);
+    server.analysisSessions.resetMetrics();
+
+    const signatureHelp = await server.fakeConnection.handlers.get("signatureHelp")!({
+      textDocument: { uri: document.uri },
+      position: { line: marked.line, character: marked.character }
+    });
+
+    assert.equal(signatureHelp, null);
+    assert.deepEqual(server.analysisSessions.getMetrics(), {
+      synchronousRequests: 0,
+      asynchronousRequests: 0,
+      sessionCacheHits: 0,
+      sessionCacheMisses: 0,
+      pendingSessionReuses: 0,
+      externalCacheHits: 0,
+      externalCacheMisses: 0,
+      pendingExternalReuses: 0,
+      externalResolverRuns: 0,
+      baseSessionBuilds: 0,
+      resolvedSessionBuilds: 0
+    });
   });
 
   it("serves signature help for the current document through the asynchronous session path", async () => {
@@ -966,6 +1171,10 @@ describe("LSP server core", () => {
       ""
     ].join("\n"));
 
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+
     const semantic = await server.fakeConnection.handlers.get("semanticTokens")!({
       textDocument: { uri: document.uri }
     }) as { data: number[] };
@@ -989,6 +1198,9 @@ describe("LSP server core", () => {
     ].join("\n");
     const document = openedDocument(server, source);
 
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
     resetDeprecatedSemanticTokenWorkMetrics();
     await server.fakeConnection.handlers.get("semanticTokens")!({
       textDocument: { uri: document.uri }
@@ -997,6 +1209,9 @@ describe("LSP server core", () => {
     resetDeprecatedSemanticTokenWorkMetrics();
     const editedDocument = TextDocument.create(document.uri, "vexa", 2, source.replace("img", "figure"));
     server.fakeDocuments.change(editedDocument);
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
     await server.fakeConnection.handlers.get("semanticTokens")!({
       textDocument: { uri: document.uri }
     });
@@ -1022,6 +1237,10 @@ describe("LSP server core", () => {
       "val total = answer + 1",
       ""
     ].join("\n"));
+
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
 
     const full = await server.fakeConnection.handlers.get("semanticTokens")!({
       textDocument: { uri: document.uri }
@@ -1126,6 +1345,7 @@ describe("LSP server core", () => {
       connection: fakeConnection.connection,
       documents: fakeDocuments.documents,
       analysisSessions,
+      waitForDocumentDiagnosticIdle: async () => undefined,
       environment
     });
 
@@ -1207,6 +1427,7 @@ describe("LSP server core", () => {
       connection: fakeConnection.connection,
       documents: fakeDocuments.documents,
       analysisSessions,
+      waitForDocumentDiagnosticIdle: async () => undefined,
       environment: {
         getSourceRoots: () => [],
         getSessionForFilePath: () => null,

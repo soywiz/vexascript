@@ -93,3 +93,75 @@ type-checking cost. A scoped loose-type-name cache was explored after the first
 generic fix, but it did not change Hono's counters or elapsed time and was
 reverted. CPU samples instead showed that overload selection remained the next
 owner, leading to the tuple-rest arity fix.
+
+## Follow-up: keep ordinary typing off the resolved path
+
+A second editor capture after the first fix showed that typing `del` on a new
+line still triggered resolved sessions for `signatureHelp` on consecutive
+document versions. Each build took roughly 430 ms even though the cursor was not
+inside a call, so signature help could only return `null`. The handler now parses
+the current source and rejects positions without a syntactic invocation before
+requesting any semantic session. The server regression asserts exact zero
+analysis-session requests and builds for this case.
+
+Ordinary identifier completion now has a similarly bounded local path. For a
+prefix of at least one character, a browser-compatible local analysis is used
+first. When it finds a typed in-scope match, such as the sample's `delay`
+function for `del`, those type-driven completions are returned immediately and
+the resolved-session cache is not touched. Member, contextual, imported, and
+otherwise unresolved completion contexts continue through the canonical
+resolved path. The foreground `del` completion and out-of-call signature-help
+regressions each require zero resolved-session builds, so those requests no
+longer wait for the background build.
+
+## Follow-up: coalesce a typing burst into one semantic build
+
+The local completion fast path initially required two prefix characters. That
+still made the first `d` request take the resolved path even though the local
+`delay` declaration was already sufficient. The path now accepts a one-character
+prefix when it finds a typed in-scope declaration. Regressions require `d`,
+out-of-call signature help, and the editor's syntax-only refresh requests to
+leave every analysis-session counter at zero.
+
+Document diagnostics are the owner of the remaining semantic build. They now
+wait for 500 ms of document stability and follow newer versions before starting
+work. A `d` -> `de` -> `del` burst therefore produces one analysis for the final
+version rather than one analysis per intermediate version. Exact source text is
+also part of completed and in-flight session reuse, so a no-op version bump
+shares the already completed or pending semantic result.
+
+Several automatic editor refreshes had been accidental semantic-build entry
+points. Document symbols, folding ranges, selection ranges, call hierarchy, and
+provisional semantic tokens now use the current parse directly. Inlay hints,
+code lenses, linked editing, decorations, highlights, and code actions consume
+an already-current semantic session but do not create one. The diagnostic path
+remains the single owner that publishes the resolved state after the idle
+window.
+
+A real VS Code run exposed a less obvious false positive: the parser represents
+VexaScript trailing callback blocks as callable arguments of the outer Hono
+route invocation. Signature help therefore considered a cursor anywhere in the
+callback body to be inside `app.get(...)`, even on a standalone `del` line.
+Syntactic invocation detection now excludes positions inside callable argument
+bodies while retaining nested-call signature help. This finding would not have
+been visible from the isolated non-call regression alone; the final regression
+uses the actual trailing-callback shape.
+
+The final extension-host validation typed a newline plus `del` as four document
+changes in the real Hono callback. Every change notification completed in
+3.62-10.9 ms. Completion completed in 0.10 ms, reported
+`localIdentifierFastPaths=1 analysisSessionRequests=0`, and displayed `delay`.
+Signature help returned in 0.02-0.06 ms without requesting a session. The burst
+produced one resolved diagnostic build (501.5 ms) after the idle boundary;
+subsequent document diagnostics reused it in 0.01 ms rather than starting their
+own builds. Code actions and provisional semantic tokens also stayed off the
+resolved path while the final build was pending.
+
+Two additional background type-check optimizations were explored: identifier
+scanning instead of regular-expression substitution and identity caching of
+rendered type graphs. They reduced the isolated resolved build, but the native
+self-host compiler then failed while reading its first import. Replacing the
+`WeakMap` with an object-local generation cache did not change that failure, so
+both speculative optimizations and their tests were removed. Keeping them would
+have mixed an editor-latency fix with a separate native compatibility problem;
+the durable editor win comes from eliminating and coalescing foreground builds.
