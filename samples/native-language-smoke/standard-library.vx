@@ -44,7 +44,11 @@ export async fun runNativeStandardLibrarySmoke(): Promise<void> {
   standardApiNear(Math.cosh(0), 1, "Math.cosh")
   standardApiNear(Math.exp(0), 1, "Math.exp")
   standardApiNear(Math.expm1(0), 0, "Math.expm1")
-  standardApiCheck(Math.f16round(1.337) === 1.3369140625, "Math.f16round")
+  // Node 22 does not expose this ES2025 API yet. The native runtime does, so
+  // keep its declaration-locked execution in the native portability smoke.
+  if (vexaRuntime() === "native") {
+    standardApiCheck(Math.f16round(1.337) === 1.3369140625, "Math.f16round")
+  }
   standardApiCheck(Math.floor(1.8) === 1, "Math.floor")
   standardApiNear(Math.fround(1.337), 1.337, "Math.fround")
   standardApiNear(Math.hypot(3, 4, 12), 13, "Math.hypot")

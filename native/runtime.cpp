@@ -3,6 +3,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <chrono>
 #include <cctype>
@@ -4685,6 +4686,52 @@ class RejectedValue final {
   Value reason_;
 };
 
+// Keep task state ownership independent of standard-library control-block
+// vtables, which are not reliably emitted for the single-translation-unit build.
+template <typename State>
+class TaskStateHandle final {
+ public:
+  TaskStateHandle() : control_(new Control()) {}
+
+  TaskStateHandle(const TaskStateHandle& other) noexcept
+      : control_(other.control_) {
+    retain();
+  }
+
+  TaskStateHandle(TaskStateHandle&& other) noexcept
+      : control_(std::exchange(other.control_, nullptr)) {}
+
+  TaskStateHandle& operator=(TaskStateHandle other) noexcept {
+    std::swap(control_, other.control_);
+    return *this;
+  }
+
+  ~TaskStateHandle() { release(); }
+
+  State* operator->() const {
+    return &control_->state;
+  }
+
+ private:
+  struct Control final {
+    std::atomic<std::size_t> references{1};
+    State state;
+  };
+
+  void retain() noexcept {
+    if (control_) control_->references.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  void release() noexcept {
+    if (control_ &&
+        control_->references.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      delete control_;
+    }
+  }
+
+  Control* control_;
+};
+
 template <typename T>
 class Task final {
  public:
@@ -4710,14 +4757,14 @@ class Task final {
     void return_value(T value) { resolve(state, std::move(value)); }
     void unhandled_exception() { reject(state, std::current_exception()); }
 
-    std::shared_ptr<State> state;
+    TaskStateHandle<State> state;
   };
 
-  Task() : state_(std::make_shared<State>()) {}
+  Task() = default;
 
   class Awaiter final {
    public:
-    explicit Awaiter(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    explicit Awaiter(TaskStateHandle<State> state) : state_(std::move(state)) {}
     bool await_ready() const noexcept { return state_->settled; }
     void await_suspend(std::coroutine_handle<> continuation) {
       onSettled(state_, [continuation]() mutable { continuation.resume(); });
@@ -4728,7 +4775,7 @@ class Task final {
     }
 
    private:
-    std::shared_ptr<State> state_;
+    TaskStateHandle<State> state_;
   };
 
   template <typename Executor>
@@ -4778,7 +4825,7 @@ class Task final {
  private:
   class Resolver final {
    public:
-    explicit Resolver(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    explicit Resolver(TaskStateHandle<State> state) : state_(std::move(state)) {}
 
     void operator()() const {
       if constexpr (std::is_same_v<T, Value>) {
@@ -4791,12 +4838,12 @@ class Task final {
     void operator()(T value) const { resolve(state_, std::move(value)); }
 
    private:
-    std::shared_ptr<State> state_;
+    TaskStateHandle<State> state_;
   };
 
   class Rejecter final {
    public:
-    explicit Rejecter(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    explicit Rejecter(TaskStateHandle<State> state) : state_(std::move(state)) {}
 
     void operator()() const {
       reject(state_, std::make_exception_ptr(runtimeError(u"Promise rejected")));
@@ -4814,42 +4861,42 @@ class Task final {
     }
 
    private:
-    std::shared_ptr<State> state_;
+    TaskStateHandle<State> state_;
   };
 
-  static std::shared_ptr<State> makeState() {
-    return std::make_shared<State>();
+  static TaskStateHandle<State> makeState() {
+    return TaskStateHandle<State>();
   }
 
-  static void resolve(const std::shared_ptr<State>& state, T value) {
+  static void resolve(const TaskStateHandle<State>& state, T value) {
     if (state->settled) return;
     state->value.emplace(TaskStorage<T>::store(std::move(value)));
     state->settled = true;
     notify(state);
   }
 
-  static void reject(const std::shared_ptr<State>& state, std::exception_ptr error) {
+  static void reject(const TaskStateHandle<State>& state, std::exception_ptr error) {
     if (state->settled) return;
     state->error = std::move(error);
     state->settled = true;
     notify(state);
   }
 
-  static void onSettled(const std::shared_ptr<State>& state, std::function<void()> continuation) {
+  static void onSettled(const TaskStateHandle<State>& state, std::function<void()> continuation) {
     if (state->settled) Runtime::enqueueMicrotask(std::move(continuation));
     else state->continuations.push_back(std::move(continuation));
   }
 
-  static void notify(const std::shared_ptr<State>& state) {
+  static void notify(const TaskStateHandle<State>& state) {
     for (auto& continuation : state->continuations) {
       Runtime::enqueueMicrotask(std::move(continuation));
     }
     state->continuations.clear();
   }
 
-  explicit Task(std::shared_ptr<State> state) : state_(std::move(state)) {}
+  explicit Task(TaskStateHandle<State> state) : state_(std::move(state)) {}
 
-  std::shared_ptr<State> state_;
+  TaskStateHandle<State> state_;
 };
 
 template <>
@@ -4876,14 +4923,14 @@ class Task<void> final {
     void return_void() { resolve(state); }
     void unhandled_exception() { reject(state, std::current_exception()); }
 
-    std::shared_ptr<State> state;
+    TaskStateHandle<State> state;
   };
 
-  Task() : state_(std::make_shared<State>()) {}
+  Task() = default;
 
   class Awaiter final {
    public:
-    explicit Awaiter(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    explicit Awaiter(TaskStateHandle<State> state) : state_(std::move(state)) {}
     bool await_ready() const noexcept { return state_->settled; }
     void await_suspend(std::coroutine_handle<> continuation) {
       onSettled(state_, [continuation]() mutable { continuation.resume(); });
@@ -4893,7 +4940,7 @@ class Task<void> final {
     }
 
    private:
-    std::shared_ptr<State> state_;
+    TaskStateHandle<State> state_;
   };
 
   template <typename Executor>
@@ -4942,16 +4989,16 @@ class Task<void> final {
  private:
   class Resolver final {
    public:
-    explicit Resolver(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    explicit Resolver(TaskStateHandle<State> state) : state_(std::move(state)) {}
     void operator()() const { resolve(state_); }
 
    private:
-    std::shared_ptr<State> state_;
+    TaskStateHandle<State> state_;
   };
 
   class Rejecter final {
    public:
-    explicit Rejecter(std::shared_ptr<State> state) : state_(std::move(state)) {}
+    explicit Rejecter(TaskStateHandle<State> state) : state_(std::move(state)) {}
 
     void operator()() const {
       reject(state_, std::make_exception_ptr(runtimeError(u"Promise rejected")));
@@ -4969,41 +5016,41 @@ class Task<void> final {
     }
 
    private:
-    std::shared_ptr<State> state_;
+    TaskStateHandle<State> state_;
   };
 
-  static std::shared_ptr<State> makeState() {
-    return std::make_shared<State>();
+  static TaskStateHandle<State> makeState() {
+    return TaskStateHandle<State>();
   }
 
-  static void resolve(const std::shared_ptr<State>& state) {
+  static void resolve(const TaskStateHandle<State>& state) {
     if (state->settled) return;
     state->settled = true;
     notify(state);
   }
 
-  static void reject(const std::shared_ptr<State>& state, std::exception_ptr error) {
+  static void reject(const TaskStateHandle<State>& state, std::exception_ptr error) {
     if (state->settled) return;
     state->error = std::move(error);
     state->settled = true;
     notify(state);
   }
 
-  static void onSettled(const std::shared_ptr<State>& state, std::function<void()> continuation) {
+  static void onSettled(const TaskStateHandle<State>& state, std::function<void()> continuation) {
     if (state->settled) Runtime::enqueueMicrotask(std::move(continuation));
     else state->continuations.push_back(std::move(continuation));
   }
 
-  static void notify(const std::shared_ptr<State>& state) {
+  static void notify(const TaskStateHandle<State>& state) {
     for (auto& continuation : state->continuations) {
       Runtime::enqueueMicrotask(std::move(continuation));
     }
     state->continuations.clear();
   }
 
-  explicit Task(std::shared_ptr<State> state) : state_(std::move(state)) {}
+  explicit Task(TaskStateHandle<State> state) : state_(std::move(state)) {}
 
-  std::shared_ptr<State> state_;
+  TaskStateHandle<State> state_;
 };
 
 template <typename Work, typename Map>

@@ -6006,9 +6006,8 @@ export class TypeChecker {
 
   private analysisTypeId(type: AnalysisType): number {
     const objectType = type as object;
-    const existingId = this.analysisTypeIds.get(objectType);
-    if (existingId !== undefined) {
-      return existingId;
+    if (this.analysisTypeIds.has(objectType)) {
+      return this.analysisTypeIds.get(objectType)!;
     }
     const newId = this.nextAnalysisTypeId;
     this.nextAnalysisTypeId += 1;
