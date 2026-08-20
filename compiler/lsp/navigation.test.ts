@@ -54,6 +54,24 @@ describe("lsp navigation", () => {
     });
   });
 
+  it("resolves base-constructor arguments to primary-constructor parameters", () => {
+    const marked = sourceWithCursor(dedent`
+      class Base(val value: string)
+      class Child(value: string) : Base(^^^value)
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(createDefinitionLocation(analysis, URI, marked.line, marked.character, ast)).toEqual({
+      uri: URI,
+      range: {
+        start: { line: 1, character: 12 },
+        end: { line: 1, character: 17 }
+      }
+    });
+  });
+
   it("provides hover and definition for parameter references inside documentation comments", () => {
     const marked = sourceWithCursor(dedent`
       /// Returns the distance between two points.

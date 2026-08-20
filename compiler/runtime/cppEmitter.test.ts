@@ -587,6 +587,17 @@ function read(value: Base): number {
     expect(result.code).not.toContain("vexa::isInstance<Child>(value)");
   });
 
+  it("forwards primary-constructor arguments to the native base initializer", () => {
+    const result = transpile(`
+class Base(val value: int)
+class Child(value: int, val label: string) : Base(value)
+console.log(Child(7, "ready").value)
+`, { emit: "cpp" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("Base(value)");
+  });
+
   it("emits referenced C++ headers and raw function bodies", () => {
     const result = transpile(`
 @CppHeader("#include <native_api.h>")

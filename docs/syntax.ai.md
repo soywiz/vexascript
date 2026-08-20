@@ -133,6 +133,20 @@ class Point(const x: number, const y: number) // primary constructor; declaratio
 const p = Point(1, 2)                        // no `new` needed (new still works)
 ```
 
+Forward base-constructor arguments in the class heritage clause. Arguments are
+resolved in the primary-constructor parameter scope, checked against the base
+constructor, and evaluated before derived property and `init` initialization:
+
+```vexa
+abstract class Entity(val id: int)
+class User(id: int, val name: string) : Entity(id)
+// Canonical formatter output uses: extends Entity(id)
+```
+
+Never instantiate an abstract class directly. Both `Entity(...)` and
+`new Entity(...)` are errors; construction is valid only through a concrete
+subclass.
+
 Inside methods, `this.` is implicit — write `x` instead of `this.x`.
 
 Class `const`/`val` fields require in-situ initialization. Class `var` fields must be

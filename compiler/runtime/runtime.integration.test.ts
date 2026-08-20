@@ -268,6 +268,18 @@ console.log(result.value)
     expect(output).toEqual([[7]]);
   });
 
+  it("executes primary-constructor arguments forwarded to the base class", () => {
+    const output = executeTranspiled(`
+class Base(val value: int)
+class Child(value: int, val label: string) : Base(value)
+
+val child = Child(7, "ready")
+console.log(child.value, child.label)
+`);
+
+    expect(output).toEqual([[7, "ready"]]);
+  });
+
   it("passes the first visible receiver-function argument to implicit it", () => {
     const output = executeTranspiled(`
 class Counter(var value: int)

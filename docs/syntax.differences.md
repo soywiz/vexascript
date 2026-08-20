@@ -310,6 +310,19 @@ class Point(val x: number, val y: number)
 class User(val name: string, var age: int = 0)
 ```
 
+Primary-constructor parameters can be forwarded directly to a base constructor.
+The colon form and the canonical `extends` form are equivalent:
+
+```vexa
+abstract class Entity(val id: int)
+class User(id: int, val name: string) : Entity(id)
+// formatted as: class User(const id: int, val name: string) extends Entity(id)
+```
+
+The arguments are type-checked against the base constructor and execute before
+derived property initialization. An abstract class itself cannot be constructed
+with either `Entity(...)` or `new Entity(...)`; instantiate a concrete subclass.
+
 ```typescript
 // TypeScript equivalent
 class Point {

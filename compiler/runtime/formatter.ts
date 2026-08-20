@@ -1983,7 +1983,10 @@ class AstFormatter {
         this.write("()");
       }
     }
-    if (stmt.extendsType) { this.sp(); this.write("extends"); this.sp(); this.emitTypeAnno(stmt.extendsType as Node); }
+    if (stmt.extendsType) {
+      this.sp(); this.write("extends"); this.sp(); this.emitTypeAnno(stmt.extendsType as Node);
+      this.emitBaseConstructorArguments(stmt.extendsArguments);
+    }
     if (stmt.implementsTypes?.length) {
       this.sp(); this.write("implements"); this.sp();
       stmt.implementsTypes.forEach((t, i) => {
@@ -2016,7 +2019,10 @@ class AstFormatter {
       this.write(expr.name.name);
     }
     if (expr.typeParameters?.length) this.emitTypeParams(expr.typeParameters);
-    if (expr.extendsType) { this.sp(); this.write("extends"); this.sp(); this.emitTypeAnno(expr.extendsType as Node); }
+    if (expr.extendsType) {
+      this.sp(); this.write("extends"); this.sp(); this.emitTypeAnno(expr.extendsType as Node);
+      this.emitBaseConstructorArguments(expr.extendsArguments);
+    }
     if (expr.implementsTypes?.length) {
       this.sp(); this.write("implements"); this.sp();
       expr.implementsTypes.forEach((t, i) => {
@@ -2036,6 +2042,16 @@ class AstFormatter {
     this.indentLvl--;
     if (!this.atLineStart) this.nl();
     this.tok("}");
+  }
+
+  private emitBaseConstructorArguments(args: Expr[] | undefined): void {
+    if (args === undefined) return;
+    this.write("(");
+    args.forEach((argument, index) => {
+      if (index > 0) { this.write(","); this.sp(); }
+      this.emitExpr(argument);
+    });
+    this.write(")");
   }
 
   private hasBraceInSource(stmt: ClassStatement | InterfaceStatement): boolean {

@@ -116,6 +116,22 @@ describe("emitProgram", () => {
     );
   });
 
+  it("forwards primary-constructor base arguments before property initialization", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      class Base(val value: int)
+      class Child(value: int, val label: string) : Base(value)
+    `));
+    const output = emitProgram(program);
+
+    const childOffset = output.indexOf("class Child");
+    const superOffset = output.indexOf("super(value);", childOffset);
+    const valueOffset = output.indexOf("this.value = value;", childOffset);
+    const labelOffset = output.indexOf("this.label = label;", childOffset);
+    expect(superOffset).toBeGreaterThan(-1);
+    expect(valueOffset).toBeGreaterThan(superOffset);
+    expect(labelOffset).toBeGreaterThan(valueOffset);
+  });
+
   it("emits constructor-only globals as constructor invocations across merged ambient interfaces", () => {
     const program = parseFile(tokenizeReader(dedent`
       declare interface MapConstructor {
@@ -482,6 +498,7 @@ let promise = go fetchValue()
 
     expect(emitted).toContain("class MyDemo {");
     expect(emitted).not.toContain("extends Shape");
+    expect(emitted).not.toContain("super(");
     expect(emitted).toContain("get area() { return this.shape.area; }");
     expect(emitted).toContain("fill(color) { return this.shape.fill(color); }");
   });

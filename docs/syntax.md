@@ -1178,6 +1178,20 @@ This form also allows omitting braces in VexaScript mode:
 class Point(val x: number, val y: number)
 ```
 
+A derived class can invoke its base constructor in the heritage clause. The
+arguments are expressions in the primary-constructor parameter scope, are
+checked against the base constructor signature, and run before derived
+properties and `init` blocks are initialized:
+
+```vexa
+abstract class Entity(val id: int)
+class User(id: int, val name: string) : Entity(id)
+```
+
+The canonical formatted spelling is `extends Entity(id)`; the VexaScript
+colon spelling above is equivalent. Supplying an incompatible argument or the
+wrong number of arguments is a type error.
+
 ### Class fields
 
 Class fields support:
@@ -1287,6 +1301,11 @@ class 'B'`; a missing interface member is reported as `Class 'C' incorrectly
 implements interface 'I'. Property 'm' is missing`. An abstract subclass is
 exempt — it may leave inherited abstract members unimplemented for a further
 subclass to provide.
+
+Abstract classes cannot be instantiated directly, with either `ClassName(...)`
+or `new ClassName(...)`. Both forms report
+`Cannot instantiate abstract class 'ClassName'`; concrete subclasses remain
+constructible.
 
 ```vexa
 abstract class Shape {

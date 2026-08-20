@@ -262,6 +262,7 @@ export function appendChildNodes(node: Node, children: Node[], keys?: string[]):
       appendNode(children, current.name, "name", keys);
       appendNodes(children, current.typeParameters, "typeParameters", keys);
       appendNode(children, current.extendsType, "extendsType", keys);
+      appendNodes(children, current.extendsArguments, "extendsArguments", keys);
       appendNodes(children, current.implementsTypes, "implementsTypes", keys);
       appendNodes(children, current.extraExtendsTypes, "extraExtendsTypes", keys);
       appendNodes(children, current.extraImplementsTypes, "extraImplementsTypes", keys);
@@ -457,6 +458,7 @@ export function appendChildNodes(node: Node, children: Node[], keys?: string[]):
       appendNodes(children, current.members, "members", keys);
       appendNodes(children, current.typeParameters, "typeParameters", keys);
       appendNode(children, current.extendsType, "extendsType", keys);
+      appendNodes(children, current.extendsArguments, "extendsArguments", keys);
       appendNodes(children, current.implementsTypes, "implementsTypes", keys);
       appendNodes(children, current.extraExtendsTypes, "extraExtendsTypes", keys);
       appendNodes(children, current.extraImplementsTypes, "extraImplementsTypes", keys);

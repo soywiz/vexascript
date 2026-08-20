@@ -2033,6 +2033,7 @@ export class TypeChecker {
           }
         }
       }
+      this.validatePrimaryBaseConstructorCall(statement, classScope);
       for (const candidate of statement.classDelegates ?? []) {
         const classDelegate = candidate as ClassDelegate;
         const expectedDelegateType = this.resolveTypeAnnotation(classDelegate.typeAnnotation, classScope);
@@ -3874,6 +3875,7 @@ export class TypeChecker {
             ? this.classStatementsByName.get((call.callee as Identifier).name)
             : undefined;
         if (calledClass) {
+          this.validateAbstractClassConstruction(calledClass, call.callee);
           const explicitTypeArguments = this.resolveTypeArguments(call.typeArguments ?? [], scope);
           if (this.validateTypes) {
             let typeParameterCount = 0.0;
@@ -4193,6 +4195,7 @@ export class TypeChecker {
 
         const classStatement = this.classStatementForNewExpression(newExpression, calleeType);
         if (classStatement) {
+          this.validateAbstractClassConstruction(classStatement, newExpression.callee);
           if (this.validateTypes) {
             this.validateExplicitTypeArgumentArity(
               classStatement.typeParameters?.length ?? 0,
@@ -9788,6 +9791,58 @@ export class TypeChecker {
         typeParameterNames,
         this.typeParameterConstraintMap(classStatement.typeParameters ?? [], scope)
       );
+    });
+  }
+
+  private validatePrimaryBaseConstructorCall(statement: ClassStatement, scope: Scope): void {
+    if (!statement.extendsType || statement.extendsArguments === undefined) {
+      return;
+    }
+    const resolvedBaseType = this.typeFromTypeNameLoose(statement.extendsType.name);
+    if (!(resolvedBaseType instanceof NamedType)) {
+      return;
+    }
+    const baseClass = this.classStatementsByName.get(resolvedBaseType.name);
+    if (!baseClass) {
+      return;
+    }
+    const parameterSymbols = new Map<string, AnalysisSymbol>();
+    for (const parameter of statement.primaryConstructorParameters ?? []) {
+      const parameterType = this.resolveTypeAnnotation(parameter.typeAnnotation, scope)
+        ?? (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, scope) : UNKNOWN_TYPE);
+      parameterSymbols.set(parameter.name.name, new AnalysisSymbol(
+        parameter.name.name,
+        "parameter",
+        parameter.name,
+        -1,
+        parameter.declarationKind === "const" || parameter.declarationKind === "val",
+        false,
+        undefined,
+        undefined,
+        parameterType,
+        typeToString(parameterType)
+      ));
+    }
+    const constructorScope = new Scope(statement, parameterSymbols, [], scope.parent ?? scope);
+    const substitutions = this.typeParameterSubstitutions(baseClass.typeParameters, resolvedBaseType);
+    const constructorType = this.substituteTypeParameters(
+      this.constructorFunctionType(baseClass, constructorScope),
+      substitutions
+    ) as FunctionType;
+    const call = new NewExpression(statement.extendsType, statement.extendsArguments);
+    const argumentTypes = this.visitConstructorArgumentsWithContext(call, constructorScope, constructorType);
+    if (this.validateTypes) {
+      this.validateCallArguments(call, constructorType, argumentTypes);
+    }
+  }
+
+  private validateAbstractClassConstruction(classStatement: ClassStatement, node: Expr): void {
+    if (!this.validateTypes || classStatement.abstract !== true) {
+      return;
+    }
+    this.issues.push({
+      message: `Cannot instantiate abstract class '${classStatement.name.name}'`,
+      node
     });
   }
 

@@ -262,6 +262,11 @@ describe("formatSource", () => {
       .toBe("class Point(val x: number, val y: number) {\n}");
   });
 
+  it("formats primary-constructor base arguments", () => {
+    expect(formatSource("class Test(a:int,val b:string):Demo(a){}"))
+      .toBe("class Test(const a: int, val b: string) extends Demo(a) {\n}");
+  });
+
   it("formats unchecked vars and class init blocks", () => {
     expect(formatSource("class Demo{var! value:int\ninit{value=1\nconsole.log(value)}}"))
       .toBe("class Demo {\n  var! value: int\n  init {\n    value = 1\n    console.log(value)\n  }\n}");

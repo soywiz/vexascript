@@ -1815,6 +1815,24 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses base constructor arguments after a primary constructor", () => {
+        expect(parseStatement(tokenizeReader(
+            "class Test(a: int, val b: string) : Demo(a, b.length) {}"
+        ))).toMatchObject({
+            kind: NodeKind.ClassStatement,
+            name: { name: "Test" },
+            extendsType: { kind: NodeKind.Identifier, name: "Demo" },
+            extendsArguments: [
+                { kind: NodeKind.Identifier, name: "a" },
+                {
+                    kind: NodeKind.MemberExpression,
+                    object: { kind: NodeKind.Identifier, name: "b" },
+                    property: { kind: NodeKind.Identifier, name: "length" }
+                }
+            ]
+        });
+    });
+
     it("parses constrained type parameters", () => {
         const ast = new Parser(
             tokenizeReader("class Repository<T extends Entity, K extends string> {}")

@@ -2151,9 +2151,11 @@ function emitClassDelegateMembers(statement: ClassStatement, members: Array<Clas
 function emitClassPrimaryConstructor(
   parameters: ClassPrimaryConstructorParameter[] | undefined,
   members: Array<ClassFieldMember | ClassMethodMember>,
-  initBlocks: readonly ClassInitBlock[] = []
+  initBlocks: readonly ClassInitBlock[] = [],
+  baseArguments: readonly Expr[] | undefined = undefined,
+  hasBaseClass = false
 ): string | null {
-  if (!parameters || parameters.length === 0) {
+  if ((!parameters || parameters.length === 0) && baseArguments === undefined) {
     return null;
   }
 
@@ -2164,7 +2166,8 @@ function emitClassPrimaryConstructor(
     return null;
   }
 
-  const params = parameters
+  const primaryParameters = parameters ?? [];
+  const params = primaryParameters
     .map((parameter) => {
       const name = parameter.name.name;
       return parameter.defaultValue ? `${name} = ${emitListElement(parameter.defaultValue)}` : name;
@@ -2172,7 +2175,11 @@ function emitClassPrimaryConstructor(
     .join(", ");
   const assignments: string[] = [];
 
-  for (const parameter of parameters) {
+  if (hasBaseClass) {
+    assignments.push(`super(${(baseArguments ?? []).map((argument) => emitListElement(argument)).join(", ")});`);
+  }
+
+  for (const parameter of primaryParameters) {
     assignments.push(`this.${(parameter.name as Identifier).name} = ${(parameter.name as Identifier).name};`);
   }
   for (const initBlock of initBlocks) {
@@ -2366,10 +2373,22 @@ function emitClassLike(classLike: ClassStatement | ClassExpression, resolvedName
     !(member instanceof ClassFieldMember) || member.declared !== true
   );
   const initBlocks = classLike.initBlocks ?? [];
+  const runtimeBaseName = classLike.extendsType &&
+    (activeState.sourceLanguage === "typescript" ||
+      !activeState.interfaceNames.has(classLike.extendsType.name) ||
+      activeState.classNames.has(classLike.extendsType.name))
+    ? eraseTypeArguments(classLike.extendsType.name)
+    : null;
   const explicitConstructor = members.some(
     (member) => member instanceof ClassMethodMember && member.name.name === "constructor"
   );
-  const syntheticConstructor = emitClassPrimaryConstructor(classLike.primaryConstructorParameters, members, initBlocks);
+  const syntheticConstructor = emitClassPrimaryConstructor(
+    classLike.primaryConstructorParameters,
+    members,
+    initBlocks,
+    classLike.extendsArguments,
+    runtimeBaseName !== null
+  );
   const initStatements = (): string => initBlocks.flatMap((block) =>
     block.body.body.map((statement) => emitStatement(statement))
   ).join("\n");
@@ -2388,12 +2407,7 @@ function emitClassLike(classLike: ClassStatement | ClassExpression, resolvedName
     )),
     ...emitClassDelegateMembers(classLike as ClassStatement, members)
   );
-  const extendsClause = classLike.extendsType &&
-    (activeState.sourceLanguage === "typescript" ||
-      !activeState.interfaceNames.has(classLike.extendsType.name) ||
-      activeState.classNames.has(classLike.extendsType.name))
-    ? ` extends ${eraseTypeArguments(classLike.extendsType.name)}`
-    : "";
+  const extendsClause = runtimeBaseName ? ` extends ${runtimeBaseName}` : "";
   const name = resolvedName ?? classLike.name?.name ?? "";
   return `class${name.length > 0 ? ` ${name}` : ""}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
 }

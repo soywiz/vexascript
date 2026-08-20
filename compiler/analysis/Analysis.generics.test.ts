@@ -1637,6 +1637,36 @@ describe("Analysis", () => {
     expect(messages).not.toContain("Class method 'run' must have a body");
   });
 
+  it("validates primary-constructor arguments forwarded to a base class", () => {
+    const source = dedent`
+      class Base(val value: int)
+      class Valid(value: int) : Base(value)
+      class Invalid(value: string) : Base(value)
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([
+      "Argument 1 of type 'string' is not assignable to parameter 'value' of type 'int'"
+    ]);
+  });
+
+  it("rejects direct construction of abstract classes", () => {
+    const source = dedent`
+      abstract class Demo(val value: int)
+      Demo(1)
+      new Demo(2)
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([
+      "Cannot instantiate abstract class 'Demo'",
+      "Cannot instantiate abstract class 'Demo'"
+    ]);
+  });
+
   describe("abstract member implementation", () => {
     function issuesFor(source: string) {
       const ast = parseFile(tokenizeReader(source));

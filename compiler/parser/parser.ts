@@ -2580,6 +2580,7 @@ export class Parser {
         }
 
         let extendsType: Identifier | undefined;
+        let extendsArguments: Expr[] | undefined;
         let implementsTypes: Identifier[] | undefined;
         const classDelegates: ClassDelegate[] = [];
 
@@ -2588,6 +2589,13 @@ export class Parser {
             const colonTypes: Identifier[] = [];
             while (this.tokens.hasMore) {
                 const typeAnnotation = this.parseTypeAnnotationNode();
+                if (
+                    colonTypes.length === 0 &&
+                    this.tokens.peek()?.type === TokenType.SYMBOL &&
+                    this.tokens.peek()?.value === "("
+                ) {
+                    extendsArguments = this.parseCallArgumentList().args;
+                }
                 if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "by") {
                     const byToken = this.tokens.read()!;
                     const delegateExpression = this.parseClassDelegateExpression();
@@ -2624,6 +2632,13 @@ export class Parser {
                 const typeAnnotation = this.parseHeritageTypeNode();
                 if (extendsType === undefined) {
                     extendsType = typeAnnotation;
+                    if (
+                        this.language === "vexa" &&
+                        this.tokens.peek()?.type === TokenType.SYMBOL &&
+                        this.tokens.peek()?.value === "("
+                    ) {
+                        extendsArguments = this.parseCallArgumentList().args;
+                    }
                 } else {
                     extraExtendsTypes.push(typeAnnotation);
                 }
@@ -2672,6 +2687,9 @@ export class Parser {
             }
             if (extendsType) {
                 classLike.extendsType = extendsType;
+            }
+            if (extendsArguments !== undefined) {
+                classLike.extendsArguments = extendsArguments;
             }
             if (implementsTypes && implementsTypes.length > 0) {
                 classLike.implementsTypes = implementsTypes;

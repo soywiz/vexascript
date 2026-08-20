@@ -9944,6 +9944,12 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   const usesRuntime = classUsesRuntimeConstructor(statement);
   const constructorParameters = nativeConstructorParameters(sourceConstructorParameters);
   const initializers: string[] = [];
+  if (baseClass && mappedBaseClassType && statement.extendsArguments !== undefined) {
+    const baseArguments = emitArguments(statement.extendsArguments, classConstructorParameters(baseClass));
+    initializers.push(
+      `${mappedBaseClassType}(${classUsesRuntimeConstructor(baseClass) ? withRuntimeArgument(baseArguments) : baseArguments})`
+    );
+  }
   for (const rawParameter of typedParameters) {
     const parameter = rawParameter as TypedPrimaryConstructorParameter;
     initializers.push(`${parameter.name}(${parameter.name})`);
@@ -10041,7 +10047,11 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
         return `${className}(${nativeParameters})${nativeInitializers.length > 0 ? ` : ${nativeInitializers.join(", ")}` : ""} ${emitBlock(body, "  ")}`;
       }
     );
-  } else if (baseClass && (classRequiresConstructorArguments(baseClass) || classUsesRuntimeConstructor(baseClass))) {
+  } else if (
+    baseClass &&
+    statement.extendsArguments === undefined &&
+    (classRequiresConstructorArguments(baseClass) || classUsesRuntimeConstructor(baseClass))
+  ) {
     throw new CppEmitError(
       `C++ derived class '${statement.name.name}' requires an explicit constructor with super(...) for base class '${baseClass.name.name}'`,
       statement

@@ -926,7 +926,7 @@ function lowerControlStatement(
       return [copyNodeBounds(new ClassStatement(
         klass.name, members, klass.declared, klass.abstract, klass.typeParameters, klass.extendsType,
         klass.implementsTypes, klass.extraExtendsTypes, klass.extraImplementsTypes, klass.classDelegates,
-        klass.primaryConstructorParameters, klass.annotations, klass.jsName, initBlocks
+        klass.primaryConstructorParameters, klass.annotations, klass.jsName, initBlocks, klass.extendsArguments
       ), klass)];
     }
     default:
@@ -1131,7 +1131,8 @@ function lowerStatement(statement: Statement, options: LoweringOptions): Stateme
         s.initBlocks?.map((initBlock) => copyNodeBounds(
           new ClassInitBlock(lowerBlockStatement(initBlock.body, options)),
           initBlock
-        ))
+        )),
+        s.extendsArguments
       ), statement);
     }
     case NodeKind.IfStatement: {
