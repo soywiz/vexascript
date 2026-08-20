@@ -41,7 +41,7 @@ function tokenClassName(token) {
   if (token === "regexp") {
     return "token-regexp";
   }
-  if (token === "number.float") {
+  if (token === "number" || token === "number.float") {
     return "token-number";
   }
   if (token === "keyword.declaration") {

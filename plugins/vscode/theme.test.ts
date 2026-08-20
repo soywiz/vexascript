@@ -33,6 +33,7 @@ describe("VS Code color theme", () => {
     expect(findRule("variable.parameter.documentation.vexa")?.settings.foreground).toBe("#D7BA7D");
     expect(findRule("string.quoted.template.vexa")?.settings.foreground).toBe("#CE9178");
     expect(findRule("constant.numeric.integer.vexa")?.settings.foreground).toBe("#B5CEA8");
+    expect(findRule("constant.numeric.character.vexa")?.settings.foreground).toBe("#B5CEA8");
     expect(findRule("comment.line.double-slash.vexa")?.settings.foreground).toBe("#6A9955");
   });
 
@@ -52,7 +53,7 @@ describe("VS Code color theme", () => {
     expect(theme.semanticHighlighting).toBe(true);
     expect(theme.semanticTokenColors?.["keywordModifier"]).toBe("#569CD6");
     expect(theme.semanticTokenColors?.["keywordFunction"]).toBe("#DCDCAA");
-    expect(theme.semanticTokenColors?.["keywordType"]).toBe("#4EC9B0");
+    expect(theme.semanticTokenColors?.["keywordType"]).toBe("#569CD6");
     expect(theme.semanticTokenColors?.["keywordControl"]).toBe("#C586C0");
     expect(theme.semanticTokenColors?.["variable"]).toBe("#D4D4D4");
     expect(theme.semanticTokenColors?.["parameter"]).toBe("#9CDCFE");

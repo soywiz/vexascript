@@ -39,4 +39,10 @@ describe("website syntax highlighting", () => {
     expect(escapedHtml).toContain('<span class="token-regexp-escape">\\d</span>');
     expect(escapedHtml).toContain('<span class="token-regexp-escape">\\.</span>');
   });
+
+  it("highlights character literals as numbers", async () => {
+    const html = await highlightVexaScriptHtml("val letter = #'a'");
+
+    expect(html).toContain('<span class="token-number">#\'a\'</span>');
+  });
 });

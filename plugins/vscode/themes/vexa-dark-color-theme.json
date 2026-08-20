@@ -5,7 +5,7 @@
   "semanticTokenColors": {
     "keywordModifier": "#569CD6",
     "keywordFunction": "#DCDCAA",
-    "keywordType": "#4EC9B0",
+    "keywordType": "#569CD6",
     "keywordControl": "#C586C0",
     "keyword": "#569CD6",
     "variable": "#D4D4D4",
@@ -150,7 +150,10 @@
       }
     },
     {
-      "scope": "constant.numeric.integer.vexa",
+      "scope": [
+        "constant.numeric.integer.vexa",
+        "constant.numeric.character.vexa"
+      ],
       "settings": {
         "foreground": "#B5CEA8"
       }
