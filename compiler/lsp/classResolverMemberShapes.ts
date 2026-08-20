@@ -32,25 +32,35 @@ export function resolveClassOwnMember(
   classPropertyParameters: (classStatement: ClassStatement) => ClassPropertyParameter[],
   context?: ResolveClassMemberContext
 ): ResolvedClassMember | null {
-  for (const parameter of classPropertyParameters(classStatement)) {
-    if (bindingNameText(parameter.name) !== memberName) {
-      continue;
+  if (context?.accessKind !== "static") {
+    for (const parameter of classPropertyParameters(classStatement)) {
+      if (bindingNameText(parameter.name) !== memberName) {
+        continue;
+      }
+      const typeName = substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions);
+      const documentation = readDocumentationInfoFromParameterLike(parameter);
+      const result: ResolvedClassMember = {
+        className: classStatement.name.name,
+        memberName,
+        kind: "field",
+        typeName,
+        ...documentationFields(documentation)
+      };
+      return result;
     }
-    const typeName = substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions);
-    const documentation = readDocumentationInfoFromParameterLike(parameter);
-    const result: ResolvedClassMember = {
-      className: classStatement.name.name,
-      memberName,
-      kind: "field",
-      typeName,
-      ...documentationFields(documentation)
-    };
-    return result;
   }
 
   for (const member of classStatement.members) {
     if (member.name.name !== memberName) {
       continue;
+    }
+    if (context?.accessKind) {
+      if (member.name.name === "constructor") {
+        continue;
+      }
+      if ((member.isStatic === true) !== (context.accessKind === "static")) {
+        continue;
+      }
     }
     if (member instanceof ClassFieldMember) {
       const inferredTypeName = !member.typeAnnotation && member.initializer && context?.analysis

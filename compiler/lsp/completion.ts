@@ -393,7 +393,7 @@ export async function createCompletionItemsForPosition(
     character,
     options
   );
-  if (memberCompletions && memberCompletions.length > 0) {
+  if (memberCompletions !== null && memberCompletions.length > 0) {
     return memberCompletions.map(withCallSnippet);
   }
   const memberTarget = parseMemberAccessTarget(options.text, line, character);
@@ -409,6 +409,9 @@ export async function createCompletionItemsForPosition(
     if (literalExtensionCompletions.length > 0) {
       return literalExtensionCompletions.map(withCallSnippet);
     }
+  }
+  if (memberCompletions !== null) {
+    return [];
   }
   const objectLiteralCompletions = await buildContextualObjectLiteralCompletionItems(
     ast,

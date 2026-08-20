@@ -57,6 +57,7 @@ const BUILTIN_TYPE_NAMES = new Set([
 
 
 export type ClassResolverSessionLike = ProjectSessionLike;
+export type ClassMemberAccessKind = "instance" | "static";
 
 export interface ClassResolverOptions extends ProjectContext {
   uri?: string;
@@ -139,6 +140,7 @@ export interface ResolveClassMemberContext {
   options: ClassResolverOptions;
   analysis?: Analysis;
   cache?: ClassResolverCache;
+  accessKind?: ClassMemberAccessKind;
 }
 
 interface ResolutionContext {
@@ -146,6 +148,7 @@ interface ResolutionContext {
   options: ClassResolverOptions;
   analysis?: Analysis;
   cache: ClassResolverCache;
+  accessKind?: ClassMemberAccessKind;
 }
 
 function createResolutionContext(context: ResolveClassMemberContext): ResolutionContext {
@@ -153,7 +156,8 @@ function createResolutionContext(context: ResolveClassMemberContext): Resolution
     ast: context.ast,
     options: context.options,
     cache: context.cache ?? createClassResolverCache(),
-    ...(context.analysis ? { analysis: context.analysis } : {})
+    ...(context.analysis ? { analysis: context.analysis } : {}),
+    ...(context.accessKind ? { accessKind: context.accessKind } : {})
   };
 }
 
@@ -344,9 +348,10 @@ async function specializeInheritedParentTypeFromChild(
 function classMemberCacheKey(
   className: string,
   memberName: string,
-  objectTypeName: string | undefined
+  objectTypeName: string | undefined,
+  accessKind?: ClassMemberAccessKind
 ): string {
-  return `${className}|${memberName}|${objectTypeName ?? "<none>"}`;
+  return `${className}|${memberName}|${objectTypeName ?? "<none>"}|${accessKind ?? "<all>"}`;
 }
 
 function interfaceMemberCacheKey(
@@ -925,7 +930,7 @@ async function resolveClassMemberRecursive(
   visitedClasses: Set<string>,
   visitedInterfaces: Set<string>
 ): Promise<ResolvedClassMember | null> {
-  const cacheKey = classMemberCacheKey(classStatement.name.name, memberName, objectTypeName);
+  const cacheKey = classMemberCacheKey(classStatement.name.name, memberName, objectTypeName, context.accessKind);
   const cached = context.cache.classMemberByRequest.get(cacheKey);
   if (cached !== undefined) {
     return cached;
@@ -950,13 +955,15 @@ async function resolveClassMemberRecursive(
     return local;
   }
 
-  const mergedInterfaceMember = await resolveMergedClassInterfaceMember(
-    classStatement,
-    memberName,
-    objectTypeName,
-    context,
-    visitedInterfaces
-  );
+  const mergedInterfaceMember = context.accessKind === "static"
+    ? null
+    : await resolveMergedClassInterfaceMember(
+      classStatement,
+      memberName,
+      objectTypeName,
+      context,
+      visitedInterfaces
+    );
   if (mergedInterfaceMember) {
     context.cache.classMemberByRequest.set(cacheKey, mergedInterfaceMember);
     return mergedInterfaceMember;
@@ -992,7 +999,7 @@ async function resolveClassMemberRecursive(
     }
   }
 
-  for (const implementedType of classStatement.implementsTypes ?? []) {
+  for (const implementedType of context.accessKind === "static" ? [] : classStatement.implementsTypes ?? []) {
     const specializedInterfaceType = substituteTypeNameText(implementedType.name, substitutions);
     const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
       context.ast,
@@ -1248,19 +1255,31 @@ async function collectClassMemberNamesRecursive(
   }
   visitedClasses.add(visitKey);
 
-  for (const parameter of classPropertyParameters(classStatement)) {
-    addUniqueMemberName(names, seenNames, bindingNameText(parameter.name));
+  if (context.accessKind !== "static") {
+    for (const parameter of classPropertyParameters(classStatement)) {
+      addUniqueMemberName(names, seenNames, bindingNameText(parameter.name));
+    }
   }
   for (const member of classStatement.members) {
+    if (context.accessKind) {
+      if (member.name.name === "constructor") {
+        continue;
+      }
+      if ((member.isStatic === true) !== (context.accessKind === "static")) {
+        continue;
+      }
+    }
     addUniqueMemberName(names, seenNames, member.name.name);
   }
 
-  const mergedInterfaceResolution = await resolveInterfaceStatementAcrossFiles(
-    context.ast,
-    classStatement.name.name,
-    context.options,
-    context.cache
-  );
+  const mergedInterfaceResolution = context.accessKind === "static"
+    ? null
+    : await resolveInterfaceStatementAcrossFiles(
+      context.ast,
+      classStatement.name.name,
+      context.options,
+      context.cache
+    );
   if (mergedInterfaceResolution) {
     await collectInterfaceMemberNamesRecursive(
       mergedInterfaceResolution.interfaceStatement,
@@ -1295,7 +1314,7 @@ async function collectClassMemberNamesRecursive(
     }
   }
 
-  for (const implementedType of classStatement.implementsTypes ?? []) {
+  for (const implementedType of context.accessKind === "static" ? [] : classStatement.implementsTypes ?? []) {
     const specializedInterfaceType = substituteTypeNameText(implementedType.name, substitutions);
     const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
       context.ast,

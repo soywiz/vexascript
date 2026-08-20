@@ -1,7 +1,7 @@
 import { ClassFieldMember, Identifier } from "compiler/ast/ast";
 import type { ClassMember, ClassStatement, EnumStatement, Program } from "compiler/ast/ast";
 import { classPropertyParameters, resolveClassMember, resolveClassMemberNames } from "./classResolver";
-import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
+import type { ClassMemberAccessKind, ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import { Analysis } from "compiler/analysis/Analysis";
 
 import type { CompletionItem } from "vscode-languageserver/node.js";
@@ -39,7 +39,8 @@ export async function buildClassMemberCompletionItems(
     ast: Program;
     options: ClassResolverOptions;
     cache: ClassResolverCache;
-  }
+  },
+  accessKind: ClassMemberAccessKind = "instance"
 ): Promise<CompletionItem[]> {
   const items: CompletionItem[] = [];
   const seen = new Set<string>();
@@ -60,14 +61,16 @@ export async function buildClassMemberCompletionItems(
   const memberNames = await resolveClassMemberNames(classStatement, objectTypeName, {
     ast: resolverContext.ast,
     options: resolverContext.options,
-    cache: resolverContext.cache
+    cache: resolverContext.cache,
+    accessKind
   });
   for (const memberName of memberNames) {
     const resolved = await resolveClassMember(classStatement, memberName, objectTypeName, {
       ast: resolverContext.ast,
       options: resolverContext.options,
       analysis,
-      cache: resolverContext.cache
+      cache: resolverContext.cache,
+      accessKind
     });
     if (!resolved) {
       continue;

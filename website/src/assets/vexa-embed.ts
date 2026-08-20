@@ -1315,6 +1315,7 @@ function createEditor(
     lineDecorationsWidth: 12,
     scrollBeyondLastLine: false,
     wordWrap: "off",
+    wordBasedSuggestions: "off",
     tabSize: 4,
     insertSpaces: true,
     renderWhitespace: "selection",

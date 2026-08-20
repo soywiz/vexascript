@@ -1985,6 +1985,64 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("keeps go-to-definition for a non-static member accessed through an imported class", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-non-static-member-"));
+    const boxFile = join(root, "Box3.vx");
+    const mainFile = join(root, "main.vx");
+    const declared = sourceWithCursor(dedent`
+      export class Box3 {
+        static create(): Box3 { return new Box3() }
+        clo^^^ne(): Box3 { return this }
+      }
+    `);
+    const used = sourceWithCursor(dedent`
+      import { Box3 } from "./Box3.vx"
+
+      Box3.clo^^^ne()
+    `);
+    await writeFile(boxFile, declared.source, "utf8");
+    await writeFile(mainFile, used.source, "utf8");
+
+    const boxSession = createAnalysisSession(declared.source);
+    const baseSession = createAnalysisSession(used.source);
+    const getSessionForFilePath = (filePath: string) => {
+      if (filePath === boxFile) return boxSession;
+      return null;
+    };
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainFile).href,
+      sourceRoots: [root],
+      getSessionForFilePath
+    });
+    const session = createAnalysisSession(used.source, {
+      externalDeclarations: collected.externalDeclarations,
+      externalDeclarationLocations: collected.externalDeclarationLocations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toContain(
+      "Member 'clone' is not static and cannot be accessed on class 'Box3'"
+    );
+
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainFile).href,
+      line: used.line,
+      character: used.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(boxFile).href,
+      range: {
+        start: { line: declared.line, character: declared.character - "clo".length },
+        end: { line: declared.line, character: declared.character + "ne".length }
+      }
+    });
+  });
+
   it("resolves go-to-definition from operator usage to the operator declaration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
     const file = join(root, "point.vx");

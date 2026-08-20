@@ -6,7 +6,7 @@
  * completion.ts.
  */
 import { createClassResolverCache, resolveClassStatementAcrossFiles } from "./classResolver";
-import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
+import type { ClassMemberAccessKind, ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import { classResolverOptionsFromCompletionOptions } from "./completionModel";
 import type { CompletionRequestOptions } from "./completionModel";
 import { Analysis } from "compiler/analysis/Analysis";
@@ -56,7 +56,8 @@ export async function buildMemberCompletionItemsForType(
   prefixEndCharacter: number,
   options: CompletionRequestOptions,
   resolverOptions: ClassResolverOptions,
-  resolverCache: ClassResolverCache
+  resolverCache: ClassResolverCache,
+  accessKind: ClassMemberAccessKind = "instance"
 ): Promise<CompletionItem[]> {
   // Array types (`T[]`) resolve their members from the declared `class Array<T>`.
   const narrowedClassName = boxedCompletionTypeName(className);
@@ -69,7 +70,9 @@ export async function buildMemberCompletionItemsForType(
         resolverCache
       ))?.classStatement
     : undefined;
-  const extensionItems = await buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis);
+  const extensionItems = accessKind === "static"
+    ? []
+    : await buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis);
   const classItems = classStatement
     ? await buildClassMemberCompletionItems(
         classStatement,
@@ -85,7 +88,8 @@ export async function buildMemberCompletionItemsForType(
           ast,
           options: resolverOptions,
           cache: resolverCache
-        }
+        },
+        accessKind
       )
     : await buildNonClassMemberCompletionItems(
         ast,
@@ -135,7 +139,7 @@ export async function buildMemberAccessCompletions(
       if (targetResult.items.length > 0 || !allowRecovery || !targetResult.shouldRecoverOnEmpty) {
         return targetResult.items;
       }
-      return buildRecoveredMemberAccessCompletions(
+      return (await buildRecoveredMemberAccessCompletions(
         line,
         character,
         options,
@@ -163,7 +167,7 @@ export async function buildMemberAccessCompletions(
           resolverCache
         ),
         buildMemberAccessCompletions
-      );
+      )) ?? [];
     } 
   }
 
@@ -188,35 +192,42 @@ export async function buildMemberAccessCompletions(
   if (!target && !analyzedReceiverResult.foundDot) {
     return null;
   }
-  return allowRecovery
-    ? buildRecoveredMemberAccessCompletions(
+  if (!allowRecovery) {
+    return null;
+  }
+  const recoveredItems = await buildRecoveredMemberAccessCompletions(
+    line,
+    character,
+    options,
+    async ({
+      ast,
+      analysis,
+      className,
+      prefix,
       line,
+      dotCharacter,
       character,
       options,
-      async ({
-        ast,
-        analysis,
-        className,
-        prefix,
-        line,
-        dotCharacter,
-        character,
-        options,
-        resolverOptions,
-        resolverCache
-      }) => buildMemberCompletionItemsForType(
-        ast,
-        analysis,
-        className,
-        prefix,
-        line,
-        dotCharacter,
-        character,
-        options,
-        resolverOptions,
-        resolverCache
-      ),
-      buildMemberAccessCompletions
-    )
-    : null;
+      resolverOptions,
+      resolverCache
+    }) => buildMemberCompletionItemsForType(
+      ast,
+      analysis,
+      className,
+      prefix,
+      line,
+      dotCharacter,
+      character,
+      options,
+      resolverOptions,
+      resolverCache
+    ),
+    buildMemberAccessCompletions
+  );
+  const isComplexValueReceiver = !target && analyzedReceiverResult.foundDot;
+  return recoveredItems ?? (
+    analyzedReceiverResult.hasKnownReceiverType || isComplexValueReceiver
+      ? []
+      : null
+  );
 }

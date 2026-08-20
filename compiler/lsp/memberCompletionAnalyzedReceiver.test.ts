@@ -22,6 +22,7 @@ describe("memberCompletionAnalyzedReceiver", () => {
       buildMemberCompletionItemsForType
     )).toEqual({
       foundDot: false,
+      hasKnownReceiverType: false,
       items: []
     });
   });
@@ -50,6 +51,7 @@ describe("memberCompletionAnalyzedReceiver", () => {
     );
 
     expect(result.foundDot).toBe(true);
+    expect(result.hasKnownReceiverType).toBe(true);
     expect(result.items.some((item) => item.label === "value")).toBe(true);
   });
 });

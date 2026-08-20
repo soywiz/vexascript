@@ -14715,6 +14715,10 @@ export class TypeChecker {
       return;
     }
 
+    if (this.reportNonStaticClassMemberAccess(member, propertyName, scope)) {
+      return;
+    }
+
     if (
       this.resolveExtensionMemberType(resolvedObjectType, propertyName) ||
       this.resolveGenericReceiverExtensionMemberType(resolvedObjectType, propertyName) ||
@@ -14770,6 +14774,41 @@ export class TypeChecker {
       message: `Property '${propertyName}' does not exist on type '${displayType}'`,
       node: member.property
     });
+  }
+
+  private reportNonStaticClassMemberAccess(
+    member: MemberExpression,
+    propertyName: string,
+    scope: Scope
+  ): boolean {
+    if (!(member.object instanceof Identifier)) {
+      return false;
+    }
+    const object = member.object as Identifier;
+    const symbol = this.resolve(object.name, scope, nodeStartOffset(object));
+    if (symbol?.kind !== "class") {
+      return false;
+    }
+    const className = symbol.type instanceof NamedType && this.classStatementsByName.has(symbol.type.name)
+      ? symbol.type.name
+      : this.classStatementsByName.has(object.name)
+        ? object.name
+        : null;
+    if (!className) {
+      return false;
+    }
+    const classMember = this.findClassMember(className, propertyName)?.member;
+    if (!classMember || (
+      (classMember instanceof ClassFieldMember || classMember instanceof ClassMethodMember) &&
+      classMember.isStatic === true
+    )) {
+      return false;
+    }
+    this.issues.push({
+      message: `Member '${propertyName}' is not static and cannot be accessed on class '${className}'`,
+      node: member.property
+    });
+    return true;
   }
 
   private resolveConstrainedNamedExpressionType(
@@ -14846,12 +14885,18 @@ export class TypeChecker {
     }
 
     const classMember = this.findClassMember(objectType.name, propertyName);
-    if (!classMember?.member.accessModifier || classMember.member.accessModifier === "public") {
+    if (!classMember) {
+      return;
+    }
+    const accessModifier = "accessModifier" in classMember.member
+      ? classMember.member.accessModifier
+      : undefined;
+    if (!accessModifier || accessModifier === "public") {
       return;
     }
 
     const currentClassName = this.enclosingClassName(scope);
-    if (classMember.member.accessModifier === "private") {
+    if (accessModifier === "private") {
       if (currentClassName === classMember.declaringClassName) {
         return;
       }
@@ -14875,10 +14920,15 @@ export class TypeChecker {
     });
   }
 
-  private findClassMember(className: string, memberName: string): { member: ClassFieldMember | ClassMethodMember | FunctionParameter; declaringClassName: string } | null {
+  private findClassMember(className: string, memberName: string): { member: ClassFieldMember | ClassMethodMember | ClassPrimaryConstructorParameter | FunctionParameter; declaringClassName: string } | null {
     const classStatement = this.classStatementsByName.get(className);
     if (!classStatement) {
       return null;
+    }
+    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+      if (bindingNameText(parameter.name) === memberName) {
+        return { member: parameter, declaringClassName: className };
+      }
     }
     for (const member of classStatement.members) {
       if (member.name.name === memberName) {

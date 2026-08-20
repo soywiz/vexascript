@@ -3,7 +3,7 @@ import type { Program } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 
 import { fileURLToPath } from "compiler/utils/path";
-import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
+import type { ClassMemberAccessKind, ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import type { CompletionRequestOptions, MemberAccessTarget } from "./completionModel";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import {
@@ -45,7 +45,8 @@ export async function buildTargetPathMemberAccessCompletions(
     prefixEndCharacter: number,
     options: CompletionRequestOptions,
     resolverOptions: ClassResolverOptions,
-    resolverCache: ClassResolverCache
+    resolverCache: ClassResolverCache,
+    accessKind?: ClassMemberAccessKind
   ) => Promise<CompletionItem[]>
 ): Promise<TargetPathCompletionResult | null> {
   const pathSegments = target.objectPath.split(".");
@@ -98,6 +99,13 @@ export async function buildTargetPathMemberAccessCompletions(
     return null;
   }
 
+  const rootSymbol = pathSegments.length === 1
+    ? analysis.getSymbolAt(line, target.objectStartCharacter)?.symbol
+      ?? analysis.getVisibleSymbolsAt(line, target.objectStartCharacter)
+        .find((symbol) => symbol.name === pathSegments[0])
+    : null;
+  const accessKind: ClassMemberAccessKind = rootSymbol?.kind === "class" ? "static" : "instance";
+
   return {
     items: await buildMemberCompletionItemsForType(
       ast,
@@ -109,8 +117,9 @@ export async function buildTargetPathMemberAccessCompletions(
       character,
       options,
       resolverOptions,
-      resolverCache
+      resolverCache,
+      accessKind
     ),
-    shouldRecoverOnEmpty: true
+    shouldRecoverOnEmpty: accessKind !== "static"
   };
 }

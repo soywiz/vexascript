@@ -1414,6 +1414,29 @@ describe("Analysis", () => {
     expect(messages).toEqual([]);
   });
 
+  it("reports instance members accessed through a class while accepting static members", () => {
+    const source = dedent`
+      declare class Box3 {
+        min: number
+        clone(): Box3
+        static create(): Box3
+      }
+      Box3.create()
+      Box3.min
+      Box3.clone()
+      const box = new Box3()
+      box.clone()
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([
+      "Member 'min' is not static and cannot be accessed on class 'Box3'",
+      "Member 'clone' is not static and cannot be accessed on class 'Box3'"
+    ]);
+  });
+
   it("does not let a later interface merge clobber a declare var value type", () => {
     const source = dedent`
       interface Widget { paint(): void }

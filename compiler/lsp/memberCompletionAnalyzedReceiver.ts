@@ -12,6 +12,7 @@ import type { CompletionItem } from "vscode-languageserver/node.js";
 
 export interface AnalyzedReceiverCompletionResult {
   foundDot: boolean;
+  hasKnownReceiverType: boolean;
   items: CompletionItem[];
 }
 
@@ -40,6 +41,7 @@ export async function buildAnalyzedReceiverMemberAccessCompletions(
   if (!dot) {
     return {
       foundDot: false,
+      hasKnownReceiverType: false,
       items: []
     };
   }
@@ -52,12 +54,14 @@ export async function buildAnalyzedReceiverMemberAccessCompletions(
   if (!receiverTypeName || receiverTypeName === "unknown") {
     return {
       foundDot: true,
+      hasKnownReceiverType: false,
       items: []
     };
   }
 
   return {
     foundDot: true,
+    hasKnownReceiverType: true,
     items: await buildMemberCompletionItemsForType(
       ast,
       analysis,

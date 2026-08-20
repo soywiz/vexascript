@@ -19,7 +19,7 @@ import {
 import { parseFunctionTypeAnnotation, parseTypeNameShape, splitArraySuffixTypeName, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, tupleElementTypeText } from "./typeNames";
 import type { AnalysisType, BuiltinTypeName } from "./types";
 import { AnalysisSymbol, Scope } from "./model";
-import type { BoundAnalysis } from "./model";
+import type { AnalysisSymbolKind, BoundAnalysis } from "./model";
 import type { AnalysisIssue } from "./model";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
@@ -115,6 +115,15 @@ export class Binder {
 
   private importedSymbolValueType(localName: string, resolvedType: AnalysisType): string {
     return this.importedSymbols.get(localName)?.displayType ?? typeToString(resolvedType);
+  }
+
+  private importedSymbolKind(localName: string, resolvedType: AnalysisType): AnalysisSymbolKind {
+    const origin = this.importedSymbols.get(localName)?.declarationOrigin?.statement;
+    const declaration = origin instanceof ExportStatement ? origin.declaration : origin;
+    if (declaration instanceof ClassStatement) {
+      return "class";
+    }
+    return resolvedType instanceof FunctionType ? "function" : "variable";
   }
 
   bind(): BoundAnalysis {
@@ -246,11 +255,11 @@ export class Binder {
           const importStatement = statement as ImportStatement;
           if (importStatement.defaultImport) {
           const resolvedType = this.importedSymbolType(importStatement.defaultImport.name);
-          this.declare(scope, new AnalysisSymbol(importStatement.defaultImport.name, resolvedType instanceof FunctionType ? "function" : "variable", importStatement.defaultImport, -1, undefined, undefined, undefined, undefined, resolvedType, this.importedSymbolValueType(importStatement.defaultImport.name, resolvedType)), declaredOffsetOverride);
+          this.declare(scope, new AnalysisSymbol(importStatement.defaultImport.name, this.importedSymbolKind(importStatement.defaultImport.name, resolvedType), importStatement.defaultImport, -1, undefined, undefined, undefined, undefined, resolvedType, this.importedSymbolValueType(importStatement.defaultImport.name, resolvedType)), declaredOffsetOverride);
         }
         if (importStatement.namespaceImport) {
           const resolvedType = this.importedSymbolType(importStatement.namespaceImport.name);
-          this.declare(scope, new AnalysisSymbol(importStatement.namespaceImport.name, resolvedType instanceof FunctionType ? "function" : "variable", importStatement.namespaceImport, -1, undefined, undefined, undefined, undefined, resolvedType, this.importedSymbolValueType(importStatement.namespaceImport.name, resolvedType)), declaredOffsetOverride);
+          this.declare(scope, new AnalysisSymbol(importStatement.namespaceImport.name, this.importedSymbolKind(importStatement.namespaceImport.name, resolvedType), importStatement.namespaceImport, -1, undefined, undefined, undefined, undefined, resolvedType, this.importedSymbolValueType(importStatement.namespaceImport.name, resolvedType)), declaredOffsetOverride);
         }
         for (const specifier of importStatement.specifiers) {
           const local = specifier.local ?? specifier.imported;
@@ -258,7 +267,7 @@ export class Binder {
           // imported values (e.g. functions returning a Promise) keep their type
           // instead of degrading to `unknown`.
           const resolvedType = this.importedSymbolType(local.name);
-          this.declare(scope, new AnalysisSymbol(local.name, resolvedType instanceof FunctionType ? "function" : "variable", local, -1, undefined, undefined, undefined, undefined, resolvedType, this.importedSymbolValueType(local.name, resolvedType)), declaredOffsetOverride);
+          this.declare(scope, new AnalysisSymbol(local.name, this.importedSymbolKind(local.name, resolvedType), local, -1, undefined, undefined, undefined, undefined, resolvedType, this.importedSymbolValueType(local.name, resolvedType)), declaredOffsetOverride);
         }
         continue;
       }

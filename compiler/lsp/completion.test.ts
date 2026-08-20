@@ -2703,6 +2703,72 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("age")?.detail).toBe("Class property: int");
   });
 
+  it("does not offer static members through a class instance", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Counter {
+        static zero: int = 0
+        value: int = 1
+      }
+      const counter = new Counter()
+      counter.^^^
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("value");
+    expect(labels).not.toContain("zero");
+    expect(labels).not.toContain("constructor");
+  });
+
+  it("returns no global completions when a class has no static members", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Vector3 {
+        x: number
+        normalize(): Vector3 { return this }
+      }
+      Vector3.^^^
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+
+    expect(items).toEqual([]);
+  });
+
+  it("returns no global completions when a constructed instance has no instance members", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Demo {
+        static a: int = 10
+      }
+      Demo().^^^
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+
+    expect(items).toEqual([]);
+  });
+
   it("prioritizes primary constructor properties ahead of methods in member completion", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Point(val x: number, val y: number) {
@@ -3165,6 +3231,76 @@ describe("createCompletionItemsForPosition", () => {
 
     expect(labels).toContain("operator");
     expect(labels).toContain("operand");
+  });
+
+  it("offers only static members for an imported class value", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-imported-static-members-"));
+    const boxPath = join(root, "Box3.vx");
+    const mainPath = join(root, "main.vx");
+    await writeFile(boxPath, dedent`
+      export class BoundsBase {
+        baseValue: number
+        static empty(): BoundsBase { return new BoundsBase() }
+      }
+      export class Box3 extends BoundsBase {
+        readonly isBox3: true
+        min: number
+        clone(): Box3 { return this }
+        static create(): Box3 { return new Box3() }
+      }
+    `, "utf8");
+    const marked = sourceWithCursor(dedent`
+      import { Box3 } from "./Box3.vx"
+
+      Box3.^^^
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const projectIndex = getProjectIndex([root]);
+    const getSessionForFilePath = (filePath: string) => projectIndex.getSessionForFilePath(filePath);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).href,
+      sourceRoots: [root],
+      getSessionForFilePath
+    });
+    const session = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      externalDeclarationLocations: collected.externalDeclarationLocations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+    expect(session.analysis!.getVisibleSymbolsAt(marked.line, 0).find((symbol) => symbol.name === "Box3")?.kind).toBe("class");
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      marked.line,
+      marked.character,
+      session.analysis!,
+      [],
+      {
+        text: marked.source,
+        uri: pathToFileURL(mainPath).href,
+        sourceRoots: [root],
+        externalDeclarations: collected.externalDeclarations,
+        externalDeclarationLocations: collected.externalDeclarationLocations,
+        getSessionForFilePath,
+        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, {
+          externalDeclarations: collected.externalDeclarations,
+          externalDeclarationLocations: collected.externalDeclarationLocations,
+          importedSymbols: collected.importedSymbols,
+          invalidImportedBindings: collected.invalidImportedBindings
+        })
+      }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("create");
+    expect(labels).toContain("empty");
+    expect(labels).not.toContain("constructor");
+    expect(labels).not.toContain("baseValue");
+    expect(labels).not.toContain("isBox3");
+    expect(labels).not.toContain("min");
+    expect(labels).not.toContain("clone");
   });
 
   it("offers members from an 'instanceof' smart-cast against an imported class", async () => {
