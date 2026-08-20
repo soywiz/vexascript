@@ -7,35 +7,40 @@ type ServerEnvironment = {
   };
 }
 
+func delay(ms: number) {
+  return Promise { resolve, reject -> setTimeout(resolve, ms) }
+}
+
 const app = new Hono<ServerEnvironment>()
 const port = 3000
 
-app.use("*", async (context, next) => {
+app.use("*") sync { context, next ->
   context.set("requestId", `request-${Date.now()}`)
-  await next()
+  next()
   context.header("X-Request-Id", context.get("requestId"))
-})
+}
 
-app.get("/", (context) => {
-  return context.html(`<!doctype html>
+app.get("/") sync {
+  return it.html(`<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8"><title>VexaScript + Hono</title></head>
-  <body><h1>VexaScript + Hono</h1><p>Try <code>/api/users/7</code>.</p></body>
+  <body><h1>VexaScript + Hono</h1><p>Try <a href="/api/users/7"><code>/api/users/7</code></a>.</p></body>
 </html>`)
-})
+}
 
-app.get("/api/users/:id", (context) => {
-  return context.json({
-    id: context.req.param("id"),
-    requestId: context.get("requestId")
+app.get("/api/users/:id") async {
+  await delay(1000)
+  return it.json({
+    id: it.req.param("id"),
+    requestId: it.get("requestId")
   })
-})
+}
 
-app.post("/api/sum", async (context) => {
-  const body = await context.req.json<{ values: number[] }>()
+app.post("/api/sum") sync { context ->
+  const body = context.req.json<{ values: number[] }>()
   return context.json({ total: body.values.reduce((total, value) => total + value, 0) })
-})
+}
 
-serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`Hono listening on http://localhost:${info.port}`)
-})
+serve({ fetch: app.fetch, port }) {
+  console.log(`Hono listening on http://localhost:${it.port}`)
+}
