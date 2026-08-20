@@ -297,7 +297,20 @@ export function tupleType(elements: AnalysisType[], isReadonly: boolean = false)
   return new TupleType(elements, isReadonly ? true : undefined);
 }
 
+let typeRenderCalls = 0;
+let typeRenderWork = 0;
+
+export function getTypeRenderMetrics(): { calls: number; work: number } {
+  return { calls: typeRenderCalls, work: typeRenderWork };
+}
+
+export function resetTypeRenderMetrics(): void {
+  typeRenderCalls = 0;
+  typeRenderWork = 0;
+}
+
 export function typeToString(type: AnalysisType): string {
+  typeRenderCalls += 1;
   return typeToStringInternal(type, { seen: new Set<object>(), work: 0 });
 }
 
@@ -346,6 +359,7 @@ function typeRenderFallback(type: AnalysisType): string {
 }
 
 function typeToStringInternal(type: AnalysisType, state: TypeRenderState): string {
+  typeRenderWork += 1;
   if (state.work >= MAX_TYPE_RENDER_WORK) {
     return typeRenderFallback(type);
   }

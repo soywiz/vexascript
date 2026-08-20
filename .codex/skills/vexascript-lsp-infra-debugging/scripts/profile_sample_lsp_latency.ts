@@ -30,7 +30,12 @@ import {
 } from "compiler/lsp/deprecatedSemanticTokens";
 import { createSemanticTokens } from "compiler/lsp/semanticTokens";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
-import { getTypeComparisonCalls, resetTypeComparisonCalls } from "compiler/analysis/types";
+import {
+  getTypeComparisonCalls,
+  getTypeRenderMetrics,
+  resetTypeComparisonCalls,
+  resetTypeRenderMetrics
+} from "compiler/analysis/types";
 
 interface TimedResult<T> {
   durationMs: number;
@@ -140,9 +145,10 @@ async function main(): Promise<void> {
   const workspaceRoot = process.cwd();
   const sampleName = process.argv[2] ?? "pixi";
   const editScenario = process.argv[3] ?? "newline";
+  const entryFileName = process.argv[4] ?? "html.vx";
   const sampleRoot = resolveNodePath(workspaceRoot, `samples/${sampleName}`);
   const sourceRoots = [sampleRoot];
-  const filePath = resolveNodePath(sampleRoot, "html.vx");
+  const filePath = resolveNodePath(sampleRoot, entryFileName);
   const uri = toFileUri(filePath);
   const source = await readFile(filePath, "utf8");
   const document = TextDocument.create(uri, "vexa", 1, source);
@@ -162,8 +168,10 @@ async function main(): Promise<void> {
   };
 
   resetTypeComparisonCalls();
+  resetTypeRenderMetrics();
   const coldSession = await time(async () => analysisSessions.getForDocumentAsync(document));
   const coldTypeComparisonCalls = getTypeComparisonCalls();
+  const coldTypeRenderMetrics = getTypeRenderMetrics();
   const coldSessionProfile = [...sessionProfileEvents];
   sessionProfileEvents.length = 0;
   const session = coldSession.value;
@@ -273,7 +281,9 @@ async function main(): Promise<void> {
         "const trend = line<Reading>()\n  .x((reading)",
         "const trend = line<Reading>()\n  .x\n  .x((reading)"
       )
-    : `${source}\n`;
+    : editScenario === "extra-argument"
+      ? source.replace("delay(1000)", "delay(1000, x)")
+      : `${source}\n`;
   if (editedSource === source) {
     throw new Error(`Edit scenario '${editScenario}' did not change ${filePath}`);
   }
@@ -281,8 +291,10 @@ async function main(): Promise<void> {
   await projectIndex.upsertOpenDocument(filePath, editedSource);
   analysisSessions.resetMetrics();
   resetTypeComparisonCalls();
+  resetTypeRenderMetrics();
   const editedSession = await time(async () => analysisSessions.getForDocumentAsync(editedDocument));
   const editedTypeComparisonCalls = getTypeComparisonCalls();
+  const editedTypeRenderMetrics = getTypeRenderMetrics();
   const editedSessionProfile = [...sessionProfileEvents];
   projectIndex.resetMetrics();
   resetDeprecatedSemanticTokenWorkMetrics();
@@ -311,6 +323,7 @@ async function main(): Promise<void> {
     `cold session: ${formatMs(coldSession.durationMs)}ms`,
     `cold session self profile: ${JSON.stringify(coldSessionProfile)}`,
     `cold session type comparisons: ${coldTypeComparisonCalls}`,
+    `cold session type rendering: ${JSON.stringify(coldTypeRenderMetrics)}`,
     `document diagnostics sync-only: ${formatMs(syncDiagnostics.durationMs)}ms (${syncDiagnostics.value.length} items)`,
     `module-not-found diagnostics: ${formatMs(moduleNotFoundDiagnostics.durationMs)}ms (${moduleNotFoundDiagnostics.value.length} items)`,
     `cross-file type diagnostics: ${formatMs(crossFileTypeDiagnostics.durationMs)}ms (${crossFileTypeDiagnostics.value.length} items)`,
@@ -327,6 +340,7 @@ async function main(): Promise<void> {
     `edited session: ${formatMs(editedSession.durationMs)}ms`,
     `edited session self profile: ${JSON.stringify(editedSessionProfile)}`,
     `edited session type comparisons: ${editedTypeComparisonCalls}`,
+    `edited session type rendering: ${JSON.stringify(editedTypeRenderMetrics)}`,
     `edited session work: ${JSON.stringify(editedAnalysisSessionWork)}`,
     `edited deprecated semantic modifiers: ${formatMs(editedDeprecatedSemanticTokenModifiers.durationMs)}ms (${editedDeprecatedSemanticTokenModifiers.value.size} entries)`,
     `edited deprecated semantic modifier project work: ${JSON.stringify(editedDeprecatedSemanticTokenWork)}`,

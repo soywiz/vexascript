@@ -331,8 +331,9 @@ async function startWorkspaceServer(workspaceRoot: string): Promise<StartedWorks
 }
 
 async function main(): Promise<void> {
-  const workspaceRoot = process.cwd();
   const entrypointArg = process.argv[2];
+  const workspaceRootArg = process.argv[3];
+  const workspaceRoot = resolvePath(workspaceRootArg ?? process.cwd());
   const entrypoint = resolvePath(entrypointArg ?? "samples/node/main.vx");
   const uri = toFileUri(entrypoint);
   const source = await vfs().readFile(entrypoint);

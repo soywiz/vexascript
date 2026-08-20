@@ -4,8 +4,9 @@ import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "./Analysis";
 import type { AnalysisSymbol } from "./Analysis";
-import { namedType } from "./types";
+import { getTypeRenderMetrics, namedType, resetTypeRenderMetrics } from "./types";
 import dedent from "compiler/utils/dedent";
+import { parseSource } from "compiler/pipeline/parse";
 
 function symbolsOfVisibleSymbolsAt(source: string, line: number, character: number): Map<string, AnalysisSymbol> {
   const ast = parseFile(tokenizeReader(source));
@@ -14,6 +15,50 @@ function symbolsOfVisibleSymbolsAt(source: string, line: number, character: numb
 }
 
 describe("Analysis", () => {
+  it("bounds type rendering for an invalid call through overloaded generic declarations", () => {
+    const properties = Array.from({ length: 100 }, (_, index) => `p${index}: string`).join(";\n");
+    const overloads = Array.from({ length: 12 }, (_, overloadIndex) => {
+      const handlers = Array.from(
+        { length: overloadIndex + 1 },
+        () => "Handler<T, U>"
+      ).join(", ");
+      return `
+        <T extends Huge, U extends Huge = T>(path: string, ...handlers: [${handlers}]): U;
+      `;
+    }).join("");
+    const externalSource = `
+      export interface Huge {
+        ${properties}
+      }
+      export type Handler<T, U> = (value: T) => U;
+      export interface HandlerInterface {
+        ${overloads}
+      }
+      export interface Router {
+        route: HandlerInterface;
+      }
+    `;
+    const source = dedent`
+      import { router } from "router"
+      fun delay(ms: number) {}
+      router.route("/path", value => {
+        delay(1000, missing)
+        return value
+      })
+    `;
+    const externalDeclarations = parseSource(externalSource, { language: "typescript" }).ast!.body;
+
+    resetTypeRenderMetrics();
+    const analysis = new Analysis(parseFile(tokenizeReader(source)), {
+      externalDeclarations,
+      importedSymbols: new Map([["router", { type: namedType("Router") }]])
+    });
+    const renderMetrics = getTypeRenderMetrics();
+
+    expect(analysis.getIssues().some((issue) => issue.message.includes("missing"))).toBe(true);
+    expect(renderMetrics.work).toBeLessThan(5_000);
+  });
+
   it("reports calling non-callable values instead of silently resolving to unknown", () => {
     const source = dedent`
       fun demo(): bigint {
@@ -2629,6 +2674,22 @@ describe("Analysis", () => {
         const body = await context.req.json<RequestBody>()
         const total: number = body.values.reduce((sum, value) => sum + value, 0)
       })
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("filters fixed tuple-rest overloads by their argument counts", () => {
+    const source = dedent`
+      interface Router {
+        (path: string, ...handlers: [number]): "one";
+        (path: string, ...handlers: [number, string]): "two";
+        (path: string, ...handlers: [number, ...string[]]): "many";
+      }
+      declare const route: Router
+      const one: "one" = route("/one", 1)
+      const two: "two" = route("/two", 1, "second")
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 

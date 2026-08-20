@@ -807,6 +807,64 @@ describe("LSP server core", () => {
     ), true);
   });
 
+  it("skips signature-help analysis for a document version superseded by the next keystroke", async () => {
+    const server = startServer(false);
+    server.fakeConnection.handlers.get("initialize")!({
+      initializationOptions: { enableLspTimings: true }
+    });
+    const uri = "file:///workspace/main.vx";
+    const prefix = "func greet(name: string) => name\n";
+    const intermediate = TextDocument.create(uri, "vexa", 2, `${prefix}greet(`);
+    server.fakeDocuments.open(TextDocument.create(uri, "vexa", 1, prefix));
+    server.fakeDocuments.change(intermediate);
+    server.analysisSessions.resetMetrics();
+
+    const supersededSignatureHelp = server.fakeConnection.handlers.get("signatureHelp")!({
+      textDocument: { uri },
+      position: intermediate.positionAt(intermediate.getText().length)
+    }) as Promise<unknown>;
+
+    const current = TextDocument.create(uri, "vexa", 3, `${prefix}greet("Vexa")`);
+    server.fakeDocuments.change(current);
+
+    assert.equal(await supersededSignatureHelp, null);
+    assert.deepEqual(server.analysisSessions.getMetrics(), {
+      synchronousRequests: 0,
+      asynchronousRequests: 0,
+      sessionCacheHits: 0,
+      sessionCacheMisses: 0,
+      pendingSessionReuses: 0,
+      externalCacheHits: 0,
+      externalCacheMisses: 0,
+      pendingExternalReuses: 0,
+      externalResolverRuns: 0,
+      baseSessionBuilds: 0,
+      resolvedSessionBuilds: 0
+    });
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      message === "[Timing] textDocument/signatureHelp work requestedVersion=2 currentVersion=3 staleVersionSkips=1 analysisSessionRequests=0"
+    ), true);
+  });
+
+  it("serves signature help for the current document through the asynchronous session path", async () => {
+    const server = startServer(false);
+    const marked = sourceWithCursor([
+      "func greet(name: string) => name",
+      "greet(^^^)"
+    ].join("\n"));
+    const document = openedDocument(server, marked.source);
+    server.analysisSessions.resetMetrics();
+
+    const signatureHelp = await server.fakeConnection.handlers.get("signatureHelp")!({
+      textDocument: { uri: document.uri },
+      position: { line: marked.line, character: marked.character }
+    }) as { signatures: Array<{ label: string }> } | null;
+
+    assert.equal(signatureHelp?.signatures[0]?.label, "greet(name: string): string");
+    assert.equal(server.analysisSessions.getMetrics().synchronousRequests, 0);
+    assert.equal(server.analysisSessions.getMetrics().asynchronousRequests, 1);
+  });
+
   it("logs timing phases and cache states for expensive requests when enabled", async () => {
     const server = startServer(false);
     server.fakeConnection.handlers.get("initialize")!({

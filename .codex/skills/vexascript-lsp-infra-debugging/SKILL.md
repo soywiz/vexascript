@@ -92,12 +92,14 @@ test suite:
 
 ```bash
 node --import tsx --import ./scripts/registerTextModuleLoader.cjs \
-  .codex/skills/vexascript-lsp-infra-debugging/scripts/profile_sample_lsp_latency.ts <sample-name> [edit-scenario]
+  .codex/skills/vexascript-lsp-infra-debugging/scripts/profile_sample_lsp_latency.ts <sample-name> [edit-scenario] [entry-file]
 ```
 
-Omit `<sample-name>` to profile Pixi. The script builds the current
-`AnalysisSessionCache` contract used by `compiler/lsp/server.ts`, opens
-`samples/<sample-name>/html.vx`, mirrors it into the project index, and measures
+Omit `<sample-name>` to profile Pixi. The entry file defaults to `html.vx` and
+can be overridden for samples with another editor entrypoint, such as
+`hono newline server.vx`. The script builds the current `AnalysisSessionCache`
+contract used by `compiler/lsp/server.ts`, opens the selected entry file,
+mirrors it into the project index, and measures
 the same cold-path ingredients that feed:
 
 - `textDocument/diagnostic`
@@ -108,7 +110,10 @@ the same cold-path ingredients that feed:
 Use the `incomplete-member` edit scenario to insert a standalone `.x` before
 the D3 line generator's accessor call. This reproduces the workspace-diagnostic
 burst caused by a temporarily invalid member chain instead of profiling only an
-appended blank line.
+appended blank line. Use `extra-argument` with `hono extra-argument server.vx` to
+replace `delay(1000)` with `delay(1000, x)`. That scenario captures the
+overloaded generic-call work caused by a common transient edit inside a Hono
+handler.
 
 Treat the script as the terminal-side reproduction for editor latency. It removes
 VS Code transport noise but keeps imported declarations, declaration provenance,

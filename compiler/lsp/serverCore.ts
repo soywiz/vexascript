@@ -915,7 +915,12 @@ export function startLspServer(options: LspServerOptions): void {
       return null;
     }
 
-    const session = analysisSessions.getForDocument(doc);
+    const currentDoc = await currentDocumentAfterPendingChanges(doc);
+    if (!currentDoc) {
+      logStaleDocumentRequest("textDocument/signatureHelp", doc);
+      return null;
+    }
+    const session = await getAnalysisSessionForRequest("textDocument/signatureHelp", currentDoc);
     if (!session.analysis || !session.ast) {
       return null;
     }
@@ -926,7 +931,7 @@ export function startLspServer(options: LspServerOptions): void {
       params.position.line,
       params.position.character,
       {
-        ...featureContext(params.textDocument.uri),
+        ...featureContext(currentDoc.uri),
         ambientDeclarations: session.ambientDeclarations,
         ambientModuleDeclarations: session.ambientModuleDeclarations,
         externalDeclarations: session.externalDeclarations

@@ -8667,6 +8667,27 @@ export class TypeChecker {
     if (providedCount < requiredCount) {
       return false;
     }
+    if (restParameter?.type instanceof TupleType) {
+      const restElements = restParameter.type.elements;
+      const lastRestElement = restElements[restElements.length - 1];
+      const hasVariadicTail = lastRestElement instanceof ArrayType;
+      let minimumRestCount = restElements.length - (hasVariadicTail ? 1 : 0);
+      while (minimumRestCount > 0) {
+        const element = restElements[minimumRestCount - 1]!;
+        const isOptional = element instanceof UnionType && element.types.some(
+          (member) => member instanceof BuiltinType && member.name === "undefined"
+        );
+        if (!isOptional) break;
+        minimumRestCount -= 1;
+      }
+      const providedRestCount = providedCount - fixedParameters.length;
+      if (providedRestCount < minimumRestCount) {
+        return false;
+      }
+      if (!hasVariadicTail && providedRestCount > restElements.length) {
+        return false;
+      }
+    }
     if (!restParameter && providedCount > fixedParameters.length) {
       return false;
     }
@@ -17867,7 +17888,7 @@ export class TypeChecker {
     }
     const cacheKeyParts: string[] = [];
     for (const name of substitutions.keys()) {
-      cacheKeyParts.push(`${name}=${typeToString(substitutions.get(name)!)}`);
+      cacheKeyParts.push(`${name}=${this.analysisTypeId(substitutions.get(name)!)}`);
     }
     const cacheKey = cacheKeyParts.sort().join(";");
     const cached = this.substitutedTypesBySource.get(sourceType)?.get(cacheKey);
