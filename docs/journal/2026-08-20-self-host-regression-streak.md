@@ -149,3 +149,86 @@ was red, allowing later failures to hide behind the first one.
 The durable rule is that self-hosting is a compiler acceptance test, not an
 optional CI benchmark. A red self-host job must block additional compiler work
 because its first error can mask failures in every later generation.
+
+## Follow-up: one canonical smoke and a declaration-wide contract
+
+The original Math regression test repaired the immediate `Math.imul` failure,
+but it still encoded the same architectural weakness at a smaller scale: Math
+had a private inline native program while the repository already had a broad
+native language smoke. Other standard-library families could continue to drift
+without affecting that isolated test.
+
+The coverage now lives in the existing `samples/native-language-smoke/`
+fixture. `standard-library.vx` is imported by `main.vx`, runs silently near the
+start of the executable, and contains the actual API calls. The previous
+standalone Math native test and the duplicate ES2025 block at the end of the
+sample were removed. A TypeScript-AST test extracts merged interface members
+from `es2025.d.ts`; regex extraction was rejected because generic interfaces,
+merged declarations, overload formatting, and namespace declarations made it
+too easy to miss members.
+
+The declaration bundle is the complete ECMAScript runtime surface, not only
+the APIs introduced in ES2025. The durable contract therefore records every
+named runtime family. Implemented members must have an execution label in the
+canonical smoke. Deliberately unavailable families or members must be present
+in `nativeStandardLibraryCoverage.ts`, and the emitter rejects their use with
+the API name before invalid C++ can be generated. DOM and Worker APIs are not
+in the bundled declaration file and are explicitly outside this pass.
+
+The expanded smoke found three additional classes of drift immediately:
+
+- global `encodeURI`, `decodeURI`, `escape`, and `unescape` existed in the
+  runtime but were not routed through the emitter;
+- `NaN` and `Infinity` were emitted as undeclared C++ identifiers;
+- the newly pulled `sync { ... }`/`async { ... }` brace-lambda syntax produced
+  `Task<T>` callbacks where an ordinary native callback expected `T`.
+
+The last failure is especially important: parser, formatter, JavaScript
+emitter, and LSP tests were all green, yet the syntax was unusable in a linked
+native program. A single callback adapter now owns the native conversion, and
+both modified brace-lambda forms execute in the canonical smoke.
+
+## Follow-up investigation notes
+
+- Moving `Object.groupBy` and `Atomics.waitAsync` checks from top level into the
+  shared smoke function changed structural inference enough to generate direct
+  C++ field access on `RecordObject*`. Adding more inferred structural access
+  would have hidden the fixture move behind another special case. The checks
+  instead validate the returned object through already-supported stable
+  operations.
+- Calling `Intl.DurationFormat.supportedLocalesOf` looked like a small runtime
+  addition, but the declaration is a nested anonymous constructor property and
+  currently resolves as `unknown`. It remains an explicit unsupported member;
+  pretending to execute it in the smoke would only move the failure earlier in
+  type checking without testing native behavior.
+- An identity-only assignability recursion guard did not bound `Atomics`
+  overload selection. Expanded typed-array interfaces repeatedly acquired new
+  identities. Distinct built-in typed-array names are now rejected nominally,
+  and deterministic work counters lock the overload check to bounded semantic
+  work rather than a wall-clock threshold.
+- The final fixed-point run exposed several failures that the focused native
+  smoke could not reach because they were in the compiler implementation
+  itself. A `String.concat` constant folder used a spread argument that the
+  native emitter cannot lower, and the native runtime required a `start`
+  argument for `String.slice()` even though the compiler calls `slice()` with
+  the ECMAScript default. The folder now concatenates iteratively, and the
+  runtime plus canonical smoke cover `slice()` with no arguments.
+- The first unsupported-API lookup used plain record indexing. JavaScript
+  inherited `constructor` from `Object.prototype`, so a local variable named
+  `constructor` was misclassified as a standard-library owner. Filtering
+  prototype keys fixed the bootstrap diagnostic, but iterating a record of
+  interface-valued policies with `Object.entries` later exposed a native-host
+  reboxing bug: the policy value arrived as `boolean`. The durable policy is
+  now an array of explicitly typed entries, avoiding both prototype lookup and
+  dynamic record access in the compiler fixed point.
+- The literal-array `indexOf` optimization initially created heterogeneous
+  `[comparison, index]` pairs before reversing them. JavaScript preserved the
+  tuple types, while the native host homogenized the pair as `double[]` and
+  generated an invalid string-to-number conversion. Generating the ordered
+  checks with integer loops removes the intermediate representation entirely.
+- Parenthesizing numeric literal member receivers fixed invalid JavaScript
+  such as `12.toString()`, but the first version also changed extension calls
+  from `extension(10)` to `extension((10))` and broke four output-shape tests.
+  Parentheses now apply only to direct JavaScript member access. This was a
+  focused-suite failure rather than a native failure, but it reinforces the
+  need to run both gates after cross-emitter optimizations.

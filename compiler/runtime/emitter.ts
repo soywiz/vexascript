@@ -1634,12 +1634,15 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case NodeKind.MemberExpression: {
         const member = expression as MemberExpression;
-        const objectText = emitExpression(member.object, PREC_MEMBER, "left");
+        const emittedObject = emitExpression(member.object, PREC_MEMBER, "left");
+        const objectText = member.object instanceof IntLiteral || member.object instanceof FloatLiteral || member.object instanceof CharacterLiteral
+          ? `(${emittedObject})`
+          : emittedObject;
         if (!member.computed && member.property instanceof Identifier) {
           const propertyName = (member.property as Identifier).name;
           const receiverType = activeState.extensionProperties.get(propertyName);
           if (receiverType && receiverTypeMatches(receiverType, activeState.expressionTypes?.get(member.object as unknown as Node), { allowUntyped: true })) {
-            return `${extensionPropertyRuntimeName(receiverType, propertyName)}(${objectText})`;
+            return `${extensionPropertyRuntimeName(receiverType, propertyName)}(${emittedObject})`;
           }
           // Member property names are not affected by `@JsName`; emit them as-is
           // rather than routing through identifier renaming.

@@ -1,4 +1,5 @@
 import { ImportedStructuralBox, importedDouble, importedLabel } from "./support.vx"
+import { runNativeStandardLibrarySmoke } from "./standard-library.vx"
 
 enum Permission {
   None,
@@ -981,3 +982,5 @@ val plainCallback: (ReceiverPoint, ReceiverDelta) -> void = (point: ReceiverPoin
 invokePlain(receiverSecond, ReceiverDelta(1), receiverCallback)
 invokeReceiver(receiverSecond, ReceiverDelta(2), plainCallback)
 console.log("receiver functions", receiverFirst.x, receiverFirst.y, receiverSecond.x, receiverSecond.y, receiverShortcut.x, receiverShortcut.applyCalls, inheritedReceiver.receiverValue)
+
+await runNativeStandardLibrarySmoke()

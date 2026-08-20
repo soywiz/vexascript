@@ -31,6 +31,10 @@ const TYPED_ARRAY_ELEMENT_TYPES = new Map<string, "number" | "bigint">([
   ["Float64Array", "number"], ["BigInt64Array", "bigint"], ["BigUint64Array", "bigint"]
 ]);
 
+export function isTypedArrayTypeName(name: string): boolean {
+  return TYPED_ARRAY_ELEMENT_TYPES.has(name);
+}
+
 /** Builds a deduplicated union from a list of types, collapsing singletons. */
 export function combineTypes(types: AnalysisType[]): AnalysisType {
   const uniqueTypes: AnalysisType[] = [];

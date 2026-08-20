@@ -31,6 +31,7 @@ import { foreignDenoType, foreignLibraryForClass, foreignReturnDefinition, forei
 import { foreignStructForClass, isForeignStructClass } from "./foreignStruct";
 import { operatorMethodRuntimeName } from "./operatorNames";
 import { primitiveMatcherKind } from "compiler/analysis/matcherPatterns";
+import { isNativeStandardLibraryFamily, nativeStandardLibraryUnsupportedReason } from "./nativeStandardLibraryCoverage";
 
 export class CppEmitError extends Error {
   constructor(message: string, readonly statement?: Node) {
@@ -682,10 +683,14 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
   if (type instanceof NamedType && type.name === "RegExp") return "vexa::RegExp";
   if (type instanceof NamedType && type.name === "Date") return "vexa::DateObject*";
   if (type instanceof NamedType && type.name === "ArrayBuffer") return "vexa::ArrayBufferObject*";
+  if (type instanceof NamedType && type.name === "SharedArrayBuffer") return "vexa::ArrayBufferObject*";
   if (type instanceof NamedType && type.name === "FFIPointer") return "vexa::FFIPointerObject*";
   if (type instanceof NamedType && type.name === "Uint8Array") return "vexa::Uint8ArrayObject*";
   if (type instanceof NamedType && type.name === "Uint32Array") return "vexa::Uint32ArrayObject*";
+  if (type instanceof NamedType && type.name === "Int32Array") return "vexa::Int32ArrayObject*";
+  if (type instanceof NamedType && type.name === "Float16Array") return "vexa::ArrayObject<double>*";
   if (type instanceof NamedType && type.name === "DataView") return "vexa::DataViewObject*";
+  if (type instanceof NamedType && type.name === "DurationFormat") return "vexa::DurationFormatObject*";
   if (type instanceof NamedType && activeEnumNames.has(type.name)) return enumCppType(type.name);
   if (type instanceof NamedType && isNativeObjectTypeName(type.name)) {
     const statement = activeClassStatements.get(type.name) ?? activeInterfaceStatements.get(type.name);
@@ -867,6 +872,10 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
     const resultType = cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "unknown", "vexa::Value", visitedAliases);
     return `vexa::Task<${resultType}>`;
   }
+  if (shape.baseName === "PromiseWithResolvers") {
+    const resultType = cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "unknown", "vexa::Value", visitedAliases);
+    return `vexa::PromiseResolvers<${resultType}>*`;
+  }
   if (shape.baseName === "Record") return "vexa::RecordObject*";
   if (shape.baseName === "Set" || shape.baseName === "ReadonlySet") {
     const valueType = cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "any", "vexa::Value", visitedAliases);
@@ -885,10 +894,14 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
   if (shape.baseName === "URL") return "vexa::URLObject*";
   if (isNativeErrorTypeName(shape.baseName)) return "vexa::Error";
   if (shape.baseName === "ArrayBuffer") return "vexa::ArrayBufferObject*";
+  if (shape.baseName === "SharedArrayBuffer") return "vexa::ArrayBufferObject*";
   if (shape.baseName === "FFIPointer") return "vexa::FFIPointerObject*";
   if (shape.baseName === "Uint8Array") return "vexa::Uint8ArrayObject*";
   if (shape.baseName === "Uint32Array") return "vexa::Uint32ArrayObject*";
+  if (shape.baseName === "Int32Array") return "vexa::Int32ArrayObject*";
+  if (shape.baseName === "Float16Array") return "vexa::ArrayObject<double>*";
   if (shape.baseName === "DataView") return "vexa::DataViewObject*";
+  if (shape.baseName === "DurationFormat" || shape.baseName === "Intl.DurationFormat") return "vexa::DurationFormatObject*";
   if (activeClassNames.has(shape.baseName) || activeInterfaceNames.has(shape.baseName)) {
     const statement = activeClassStatements.get(shape.baseName) ?? activeInterfaceStatements.get(shape.baseName);
     const parameters = statement?.typeParameters ?? [];
@@ -1093,14 +1106,21 @@ function computeCppTypeForExpression(expression: Expr): string {
   if (expression instanceof NewExpression) {
     const construction = expression as NewExpression;
     const name = identifierName(construction.callee);
+    const constructorMember = memberParts(construction.callee);
+    if (constructorMember?.objectName === "Intl" && constructorMember.propertyName === "DurationFormat") {
+      return "vexa::DurationFormatObject*";
+    }
     const classStatement = name ? activeClassStatements.get(name) : undefined;
     if (classStatement) {
       const constructedType = classConstructionCppType(classStatement, construction.args ?? [], construction);
       if (constructedType) return constructedType;
     }
     if (name === "ArrayBuffer") return "vexa::ArrayBufferObject*";
+    if (name === "SharedArrayBuffer") return "vexa::ArrayBufferObject*";
     if (name === "Uint8Array") return "vexa::Uint8ArrayObject*";
     if (name === "Uint32Array") return "vexa::Uint32ArrayObject*";
+    if (name === "Int32Array") return "vexa::Int32ArrayObject*";
+    if (name === "Float16Array") return "vexa::ArrayObject<double>*";
     if (name === "DataView") return "vexa::DataViewObject*";
   }
   const analysisType = activeExpressionTypes.get(expression as Node);
@@ -1309,7 +1329,7 @@ function isStringExpression(expression: Expr): boolean {
     interfaceProperty?.typeAnnotation.name === "string";
 }
 
-function nativeBinaryObjectKind(expression: Expr): "buffer" | "uint8" | "uint32" | "dataView" | null {
+function nativeBinaryObjectKind(expression: Expr): "buffer" | "uint8" | "uint32" | "int32" | "dataView" | null {
   const type = activeExpressionTypes.get(expression as Node);
   const declaredName = declaredTypeNameForExpression(expression);
   const mappedType = expression instanceof Identifier
@@ -1325,12 +1345,15 @@ function nativeBinaryObjectKind(expression: Expr): "buffer" | "uint8" | "uint32"
           ? "Uint8Array"
           : mappedType === "vexa::Uint32ArrayObject*"
             ? "Uint32Array"
+            : mappedType === "vexa::Int32ArrayObject*"
+              ? "Int32Array"
             : mappedType === "vexa::DataViewObject*"
               ? "DataView"
               : null;
-  if (name === "ArrayBuffer") return "buffer";
+  if (name === "ArrayBuffer" || name === "SharedArrayBuffer") return "buffer";
   if (name === "Uint8Array") return "uint8";
   if (name === "Uint32Array") return "uint32";
+  if (name === "Int32Array") return "int32";
   if (name === "DataView") return "dataView";
   return null;
 }
@@ -1569,7 +1592,7 @@ function directlyEmittedMemberCppType(member: MemberExpression): string | null {
   const binaryKind = nativeBinaryObjectKind(member.object);
   if (binaryKind &&
       (propertyName === "byteLength" || propertyName === "byteOffset" ||
-        (binaryKind === "uint8" && propertyName === "length"))) {
+        ((binaryKind === "uint8" || binaryKind === "uint32" || binaryKind === "int32") && propertyName === "length"))) {
     return "double";
   }
   return resolvedNativePropertyMember(member)?.valueType ?? null;
@@ -2526,6 +2549,20 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
       if (member?.objectName === "Promise" && member.propertyName === "reject") {
         return "vexa::Task<vexa::Value>";
       }
+      if (member?.objectName === "Promise" && member.propertyName === "withResolvers") {
+        const resultType = callExpression.typeArguments?.[0]
+          ? cppTypeForDeclaredNameOr(callExpression.typeArguments[0]!.name, "vexa::Value")
+          : "vexa::Value";
+        return `vexa::PromiseResolvers<${resultType}>*`;
+      }
+      if (member?.objectName === "Promise" && member.propertyName === "try") {
+        const callback = callExpression.args[0];
+        const callbackType = callback ? callbackResultCppType(callback) : null;
+        if (callbackType) {
+          const nested = cppTemplateArguments(callbackType, "vexa::Task<")?.[0];
+          return nested ? `vexa::Task<${nested}>` : `vexa::Task<${callbackType}>`;
+        }
+      }
       if (member?.objectName === "Promise" && new Set(["all", "race", "any"]).has(member.propertyName)) {
         const taskArray = callExpression.args[0];
         let resultType: string | null = null;
@@ -2581,6 +2618,17 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
       if (member?.objectName === "Promise" && member.propertyName === "allSettled") {
         return "vexa::Task<vexa::ArrayObject<vexa::RecordObject*>*>";
       }
+      if (member?.objectName === "Float16Array" && (member.propertyName === "of" || member.propertyName === "from")) {
+        return "vexa::ArrayObject<double>*";
+      }
+      if (member?.objectName === "Iterator" && member.propertyName === "from") {
+        const source = callExpression.args[0];
+        const sourceType = source ? emittedCppTypeForExpression(source) ?? cppTypeForExpression(source) : "";
+        const elementType = cppTemplateArguments(sourceType, "vexa::Generator<")?.[0]
+          ?? managedArrayElementType(sourceType)
+          ?? "vexa::Value";
+        return `vexa::ArrayObject<${elementType}>*`;
+      }
       if (member && new Set(["then", "catch", "finally"]).has(member.propertyName)) {
         const receiverType = emittedCppTypeForExpression(member.object) ?? cppTypeForExpression(member.object);
         if (receiverType.startsWith("vexa::Task<")) {
@@ -2615,9 +2663,10 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         const receiverType = managedArrayCppTypeForExpression(member.object) ??
           emittedCppTypeForExpression(member.object) ?? cppTypeForExpression(member.object);
         const elementType = managedArrayElementType(receiverType);
-        if (new Set(["slice", "concat", "filter", "splice", "reverse", "fill", "copyWithin", "sort"]).has(member.propertyName)) {
+        if (new Set(["slice", "concat", "filter", "splice", "reverse", "fill", "copyWithin", "sort", "toReversed", "toSorted", "toSpliced", "with", "take", "drop", "toArray", "values"]).has(member.propertyName)) {
           return receiverType;
         }
+        if (member.propertyName === "keys") return "vexa::ArrayObject<double>*";
         if (new Set(["includes", "some", "every"]).has(member.propertyName)) return "bool";
         if (member.propertyName === "join") return "std::u16string";
         if (member.propertyName === "map" || member.propertyName === "flatMap") {
@@ -2644,7 +2693,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
           }
           return `vexa::ArrayObject<${elementType ?? "vexa::Value"}>*`;
         }
-        if (member.propertyName === "reduce") {
+        if (member.propertyName === "reduce" || member.propertyName === "reduceRight") {
           const initial = callExpression.args[1];
           if (initial) return emittedCppTypeForExpression(initial) ?? cppTypeForExpression(initial);
         }
@@ -2888,7 +2937,12 @@ function emitExpressionWithExpectedCallableType(expression: Expr, expectedCppTyp
   } finally {
     activeExpectedLambdaResultCppType = previous;
   }
-  return result;
+  const asyncLike = expression instanceof ArrowFunctionExpression
+    ? Boolean(expression.async || expression.sync)
+    : Boolean((expression as FunctionExpression).async || (expression as FunctionExpression).sync);
+  return asyncLike && !match[1]!.startsWith("vexa::Task<")
+    ? `vexa::blockingCallback(${result})`
+    : result;
 }
 
 function withRuntimeArgument(argumentsText: string): string {
@@ -4785,7 +4839,9 @@ function isArrayRuntimeMethod(name: string): boolean {
     case "map": case "filter": case "reduce": case "forEach": case "some":
     case "every": case "findIndex": case "find": case "at": case "lastIndexOf":
     case "splice": case "fill": case "copyWithin": case "flat": case "flatMap":
-    case "sort":
+    case "sort": case "findLast": case "findLastIndex": case "toReversed":
+    case "toSorted": case "toSpliced": case "with": case "take": case "drop": case "toArray":
+    case "entries": case "keys": case "values": case "reduceRight": case "toLocaleString":
       return true;
     default:
       return false;
@@ -4795,7 +4851,8 @@ function isArrayRuntimeMethod(name: string): boolean {
 function isArrayCallbackMethod(name: string): boolean {
   switch (name) {
     case "map": case "flatMap": case "filter": case "reduce": case "forEach":
-    case "some": case "every": case "findIndex": case "find": case "sort":
+    case "some": case "every": case "findIndex": case "find": case "findLast":
+    case "findLastIndex": case "sort": case "toSorted": case "reduceRight":
       return true;
     default:
       return false;
@@ -4804,21 +4861,66 @@ function isArrayCallbackMethod(name: string): boolean {
 
 function primitiveRuntimeMethodName(name: string): string | null {
   switch (name) {
-    case "toString": case "valueOf": case "toFixed": case "toUpperCase":
+    case "toString": case "valueOf": case "toFixed": case "toLocaleString": case "toUpperCase":
     case "toLowerCase": case "trim": case "trimStart": case "trimEnd":
     case "startsWith": case "endsWith": case "charAt": case "charCodeAt": case "codePointAt":
-    case "substring": case "split":
+    case "substring": case "split": case "concat":
       return name;
     case "includes": return "stringIncludes";
     case "indexOf": return "stringIndexOf";
     case "lastIndexOf": return "stringLastIndexOf";
     case "replace": return "stringReplace";
+    case "replaceAll": return "stringReplaceAll";
+    case "isWellFormed": return "stringIsWellFormed";
+    case "toWellFormed": return "stringToWellFormed";
     case "repeat": return "stringRepeat";
     case "at": return "stringAt";
     case "slice": return "stringSlice";
+    case "toLocaleLowerCase": return "toLowerCase";
+    case "toLocaleUpperCase": return "toUpperCase";
+    case "trimLeft": return "trimStart";
+    case "trimRight": return "trimEnd";
     case "test": return "regexTest";
     case "exec": return "regexExec";
     default: return null;
+  }
+}
+
+function nativeStandardLibraryOwner(expression: Expr): string | null {
+  const directName = identifierName(expression);
+  if (directName && isNativeStandardLibraryFamily(directName)) return directName;
+  const type = activeExpressionTypes.get(expression as Node);
+  if (type instanceof NamedType) {
+    let owner = type.name;
+    if (owner === "ReadonlyArray") owner = "Array";
+    else if (owner === "ReadonlyMap") owner = "Map";
+    else if (owner === "ReadonlySet") owner = "Set";
+    else if (owner === "IteratorObject") owner = "Iterator";
+    else if (owner === "DurationFormat") owner = "Intl.DurationFormat";
+    return isNativeStandardLibraryFamily(owner) ? owner : null;
+  }
+  if (type instanceof FunctionType) return "Function";
+  const primitive = type instanceof LiteralType ? type.base : type instanceof BuiltinType ? type.name : null;
+  if (primitive === "string") return "String";
+  if (primitive === "boolean") return "Boolean";
+  if (primitive === "bigint") return "BigInt";
+  if (primitive === "symbol") return "Symbol";
+  if (primitive === "number" || primitive === "numeric" || primitive === "int" || primitive === "long") return "Number";
+  return null;
+}
+
+function rejectUnsupportedNativeStandardLibraryMember(member: MemberParts, statement: Node): void {
+  if (member.objectName) {
+    const directReason = nativeStandardLibraryUnsupportedReason(member.objectName, member.propertyName);
+    if (directReason) {
+      throw new CppEmitError(`C++ standard library API '${member.objectName}.${member.propertyName}' is unsupported: ${directReason}`, statement);
+    }
+  }
+  const owner = nativeStandardLibraryOwner(member.object);
+  if (!owner) return;
+  const reason = nativeStandardLibraryUnsupportedReason(owner, member.propertyName);
+  if (reason) {
+    throw new CppEmitError(`C++ standard library API '${owner}.${member.propertyName}' is unsupported: ${reason}`, statement);
   }
 }
 
@@ -4863,6 +4965,11 @@ function emitNativeBufferConstruction(name: string, args: readonly Expr[], expre
     if (args.length !== 1) throw new CppEmitError("C++ ArrayBuffer construction expects a byte length", expression);
     return `vexa::makeManaged<vexa::ArrayBufferObject>(static_cast<std::size_t>(${emitExpression(args[0]!)}))`;
   }
+  if (name === "SharedArrayBuffer") {
+    if (args.length < 1 || args.length > 2) throw new CppEmitError("C++ SharedArrayBuffer construction expects a byte length and optional maxByteLength", expression);
+    const maximum = args[1] ? objectLiteralPropertyValue(args[1]!, "maxByteLength") : null;
+    return `vexa::makeSharedArrayBuffer(${emitExpression(args[0]!)}${maximum ? `, ${emitExpression(maximum)}` : ""})`;
+  }
   if (name === "Uint8Array") {
     if (args.length !== 1) throw new CppEmitError("C++ Uint8Array construction expects a length, ArrayBuffer, or array", expression);
     const argument = args[0]!;
@@ -4873,6 +4980,16 @@ function emitNativeBufferConstruction(name: string, args: readonly Expr[], expre
     if (args.length !== 1) throw new CppEmitError("C++ Uint32Array construction expects a length", expression);
     return `vexa::makeUint32Array(${emitExpression(args[0]!)})`;
   }
+  if (name === "Int32Array") {
+    if (args.length !== 1) throw new CppEmitError("C++ Int32Array construction expects a length or ArrayBuffer", expression);
+    return `vexa::makeInt32Array(${emitExpression(args[0]!)})`;
+  }
+  if (name === "Float16Array") {
+    if (args.length !== 1) throw new CppEmitError("C++ Float16Array construction expects a length or iterable", expression);
+    const argument = args[0]!;
+    const emitted = isManagedArrayExpression(argument) ? emitManagedArrayPointer(argument) : emitExpression(argument);
+    return `vexa::makeFloat16Array(${emitted})`;
+  }
   if (name === "DataView") {
     if (args.length < 1 || args.length > 3) throw new CppEmitError("C++ DataView construction expects a buffer and optional offset/length", expression);
     return `vexa::makeDataView(${args.map((argument) => emitExpression(argument)).join(", ")})`;
@@ -4880,7 +4997,150 @@ function emitNativeBufferConstruction(name: string, args: readonly Expr[], expre
   return null;
 }
 
+function literalNumericArgument(expression: Expr | undefined): number | null {
+  return expression instanceof IntLiteral || expression instanceof FloatLiteral
+    ? expression.value
+    : null;
+}
+
+function literalStringExpressionValue(expression: Expr): string | null {
+  if (expression instanceof StringLiteral) return expression.value;
+  if (!(expression instanceof CallExpression)) return null;
+  const member = memberParts(expression.callee);
+  if (!member) return null;
+  const value = literalStringExpressionValue(member.object);
+  if (value === null) return null;
+  if (expression.args.length === 0) {
+    if (member.propertyName === "toUpperCase") return value.toUpperCase();
+    if (member.propertyName === "toLowerCase") return value.toLowerCase();
+    if (member.propertyName === "trim") return value.trim();
+    if (member.propertyName === "trimStart") return value.trimStart();
+    if (member.propertyName === "trimEnd") return value.trimEnd();
+  }
+  const numeric = literalNumericArgument(expression.args[0]);
+  if (expression.args.length <= 1 && (expression.args.length === 0 || numeric !== null)) {
+    if (member.propertyName === "charAt") return value.charAt(Math.trunc(numeric ?? 0));
+  }
+  return null;
+}
+
+function emitLiteralStandardCall(call: CallExpression): string | null {
+  const member = memberParts(call.callee);
+  if (!member) return null;
+  const literalString = literalStringExpressionValue(member.object);
+  if (literalString !== null) {
+    const value = literalString;
+    const numeric = literalNumericArgument(call.args[0]);
+    if (member.propertyName === "codePointAt" && call.args.length === 1 && numeric !== null) {
+      const result = value.codePointAt(Math.trunc(numeric));
+      return result === undefined ? "vexa::Value::undefined()" : `vexa::Value(${result})`;
+    }
+    if (member.propertyName === "charCodeAt" && call.args.length <= 1 && (call.args.length === 0 || numeric !== null)) {
+      return String(value.charCodeAt(Math.trunc(numeric ?? 0)));
+    }
+    if (member.propertyName === "charAt" && call.args.length <= 1 && (call.args.length === 0 || numeric !== null)) {
+      return `std::u16string(${cppUtf16String(value.charAt(Math.trunc(numeric ?? 0)))})`;
+    }
+    if (member.propertyName === "at" && call.args.length === 1 && numeric !== null) {
+      const result = value.at(Math.trunc(numeric));
+      return result === undefined ? "vexa::Value::undefined()" : `vexa::Runtime::string(${cppUtf16String(result)})`;
+    }
+    if (call.args.length === 0) {
+      if (member.propertyName === "toUpperCase") return `std::u16string(${cppUtf16String(value.toUpperCase())})`;
+      if (member.propertyName === "toLowerCase") return `std::u16string(${cppUtf16String(value.toLowerCase())})`;
+      if (member.propertyName === "trim") return `std::u16string(${cppUtf16String(value.trim())})`;
+      if (member.propertyName === "trimStart") return `std::u16string(${cppUtf16String(value.trimStart())})`;
+      if (member.propertyName === "trimEnd") return `std::u16string(${cppUtf16String(value.trimEnd())})`;
+      if (member.propertyName === "isWellFormed") {
+        for (let index = 0; index < value.length; index += 1) {
+          const unit = value.charCodeAt(index);
+          if (unit >= 0xd800 && unit <= 0xdbff) {
+            const next = value.charCodeAt(index + 1);
+            if (!(next >= 0xdc00 && next <= 0xdfff)) return "false";
+            index += 1;
+          } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+            return "false";
+          }
+        }
+        return "true";
+      }
+    }
+    const literalTextArguments = call.args.every((argument) => argument instanceof StringLiteral);
+    if (literalTextArguments) {
+      const strings = call.args.map((argument) => (argument as StringLiteral).value);
+      if (member.propertyName === "concat") {
+        let concatenated = value;
+        for (const string of strings) concatenated += string;
+        return `std::u16string(${cppUtf16String(concatenated)})`;
+      }
+      if (member.propertyName === "includes" && strings.length === 1) return value.includes(strings[0]!) ? "true" : "false";
+      if (member.propertyName === "startsWith" && strings.length === 1) return value.startsWith(strings[0]!) ? "true" : "false";
+      if (member.propertyName === "endsWith" && strings.length === 1) return value.endsWith(strings[0]!) ? "true" : "false";
+      if (member.propertyName === "indexOf" && strings.length === 1) return String(value.indexOf(strings[0]!));
+      if (member.propertyName === "lastIndexOf" && strings.length === 1) return String(value.lastIndexOf(strings[0]!));
+      if (member.propertyName === "replace" && strings.length === 2) {
+        return `std::u16string(${cppUtf16String(value.replace(strings[0]!, strings[1]!))})`;
+      }
+      if (member.propertyName === "replaceAll" && strings.length === 2) {
+        return `std::u16string(${cppUtf16String(value.split(strings[0]!).join(strings[1]!))})`;
+      }
+    }
+    const numericArguments = call.args.map(literalNumericArgument);
+    if (numericArguments.every((argument) => argument !== null)) {
+      const numbers = numericArguments as number[];
+      if (member.propertyName === "slice" && numbers.length <= 2) {
+        const result = numbers.length === 0 ? value.slice() : value.slice(numbers[0], numbers[1]);
+        return `std::u16string(${cppUtf16String(result)})`;
+      }
+      if (member.propertyName === "substring" && numbers.length <= 2) {
+        const result = value.substring(numbers[0] ?? 0, numbers[1]);
+        return `std::u16string(${cppUtf16String(result)})`;
+      }
+      const repeatCount = numbers[0];
+      if (member.propertyName === "repeat" && numbers.length === 1 && repeatCount !== undefined && Number.isInteger(repeatCount) && repeatCount >= 0 && repeatCount <= 10_000) {
+        return `std::u16string(${cppUtf16String(value.repeat(repeatCount))})`;
+      }
+    }
+  }
+  if (
+    member.object instanceof ArrayLiteral &&
+    new Set(["includes", "indexOf", "lastIndexOf"]).has(member.propertyName) &&
+    call.args.length === 1 &&
+    member.object.elements.length > 0 &&
+    member.object.elements.every((element) => !(element instanceof SpreadExpression) && !(element instanceof ArrayHole))
+  ) {
+    const search = emitExpression(call.args[0]!);
+    const comparisons = member.object.elements.map((element) => member.propertyName === "includes"
+      ? `vexa::sameValueZero(__vexa_literal_search, ${emitExpression(element)})`
+      : `vexa::strictEquals(vexa::toValue(__vexa_literal_search), vexa::toValue(${emitExpression(element)}))`);
+    if (member.propertyName === "includes") {
+      return `([&]() { auto __vexa_literal_search = ${search}; return ${comparisons.join(" || ")}; }())`;
+    }
+    const checks: string[] = [];
+    if (member.propertyName === "lastIndexOf") {
+      for (let index = comparisons.length - 1; index >= 0; index -= 1) {
+        checks.push(`if (${comparisons[index]}) return ${index};`);
+      }
+    } else {
+      for (let index = 0; index < comparisons.length; index += 1) {
+        checks.push(`if (${comparisons[index]}) return ${index};`);
+      }
+    }
+    return `([&]() { auto __vexa_literal_search = ${search}; ${checks.join(" ")} return -1; }())`;
+  }
+  return null;
+}
+
 function emitCall(call: CallExpression, resultUsed = true): string {
+  const member = memberParts(call.callee);
+  if (member) rejectUnsupportedNativeStandardLibraryMember(member, call);
+  const calleeName = identifierName(call.callee);
+  if (calleeName) {
+    const reason = nativeStandardLibraryUnsupportedReason(calleeName);
+    if (reason) throw new CppEmitError(`C++ standard library API '${calleeName}' is unsupported: ${reason}`, call);
+  }
+  const literalStandardCall = emitLiteralStandardCall(call);
+  if (literalStandardCall) return literalStandardCall;
   const mappedArrayJoin = emitMappedArrayJoin(call);
   if (mappedArrayJoin) return mappedArrayJoin;
   if (
@@ -4906,7 +5166,6 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     }
     return `([&](auto __vexa_receiver_block) { (${blockText})(__vexa_receiver_block); return __vexa_receiver_block; })(${receiverText})`;
   }
-  const calleeName = identifierName(call.callee);
   if (calleeName === "vexaRuntime" && call.args.length === 0) return "vexa::vexaRuntimeName()";
   if (calleeName === "vexaPlatform" && call.args.length === 0) return "vexa::vexaPlatformName()";
   if (calleeName === "Promise") return emitPromiseCall(call);
@@ -4930,7 +5189,6 @@ function emitCall(call: CallExpression, resultUsed = true): string {
   }
   let cachedArgumentsText: string | null = null;
   const argumentsText = (): string => cachedArgumentsText ??= emitAnalyzedCallArguments(call);
-  const member = memberParts(call.callee);
   const textEncoderObject = member?.object instanceof CallExpression
     ? member.object as CallExpression
     : null;
@@ -4958,6 +5216,42 @@ function emitCall(call: CallExpression, resultUsed = true): string {
   if (member?.objectName === "Math") {
     return `vexa::Math::${cppName(member.propertyName)}(${argumentsText()})`;
   }
+  if (member?.objectName === "Atomics") {
+    const helper = new Map([
+      ["load", "atomicsLoad"], ["store", "atomicsStore"], ["add", "atomicsAdd"],
+      ["sub", "atomicsSub"], ["and", "atomicsAnd"], ["or", "atomicsOr"],
+      ["xor", "atomicsXor"], ["exchange", "atomicsExchange"],
+      ["compareExchange", "atomicsCompareExchange"], ["isLockFree", "atomicsIsLockFree"],
+      ["notify", "atomicsNotify"], ["wait", "atomicsWait"], ["waitAsync", "atomicsWaitAsync"],
+    ]).get(member.propertyName);
+    if (!helper) throw new CppEmitError(`C++ Atomics.${member.propertyName} is not supported`, call);
+    return `vexa::${helper}(${argumentsText()})`;
+  }
+  if (member?.objectName === "Float16Array" && member.propertyName === "of") {
+    return `vexa::float16ArrayOf(${call.args.map((argument) => emitExpression(argument)).join(", ")})`;
+  }
+  if (member?.objectName === "Float16Array" && member.propertyName === "from") {
+    if (call.args.length < 1 || call.args.length > 2) throw new CppEmitError("C++ Float16Array.from expects an iterable and optional mapper", call);
+    const source = `vexa::arrayPointer(${emitExpressionWithExpectedCppType(call.args[0]!, "vexa::ArrayObject<double>*")})`;
+    if (!call.args[1]) return `vexa::float16ArrayFrom(${source})`;
+    const previousParameters = activeExpectedLambdaParameterCppTypes;
+    const previousResult = activeExpectedLambdaResultCppType;
+    activeExpectedLambdaParameterCppTypes = ["double", "double"];
+    activeExpectedLambdaResultCppType = "double";
+    try {
+      return `vexa::float16ArrayFrom(${source}, ${emitExpression(call.args[1]!)})`;
+    } finally {
+      activeExpectedLambdaParameterCppTypes = previousParameters;
+      activeExpectedLambdaResultCppType = previousResult;
+    }
+  }
+  if (member?.objectName === "Iterator" && member.propertyName === "from") {
+    if (call.args.length !== 1) throw new CppEmitError("C++ Iterator.from expects one iterator or iterable", call);
+    const source = isManagedArrayExpression(call.args[0]!)
+      ? emitManagedArrayPointer(call.args[0]!)
+      : emitExpression(call.args[0]!);
+    return `vexa::iteratorFrom(${source})`;
+  }
   if (member?.objectName === "Number" && member.propertyName === "isInteger") {
     if (call.args.length !== 1) throw new CppEmitError("C++ Number.isInteger expects one argument", call);
     return `vexa::numberIsInteger(${emitExpression(call.args[0]!)})`;
@@ -4970,9 +5264,40 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     if (call.args.length !== 1) throw new CppEmitError("C++ Array.isArray expects one argument", call);
     return `vexa::arrayIsArray(${emitExpression(call.args[0]!)})`;
   }
+  if (member?.objectName === "Array" && member.propertyName === "of") {
+    if (call.args.length === 0) throw new CppEmitError("C++ Array.of currently expects at least one value", call);
+    return `vexa::arrayOf(${argumentsText()})`;
+  }
+  if (member?.objectName === "Array" && member.propertyName === "from") {
+    if (call.args.length < 1 || call.args.length > 2) throw new CppEmitError("C++ Array.from expects an iterable and optional mapper", call);
+    const source = isManagedArrayExpression(call.args[0]!)
+      ? emitManagedArrayPointer(call.args[0]!)
+      : emitExpression(call.args[0]!);
+    return `vexa::arrayFrom(${source}${call.args[1] ? `, ${emitExpression(call.args[1])}` : ""})`;
+  }
+  if (member?.objectName === "ArrayBuffer" && member.propertyName === "isView") {
+    if (call.args.length !== 1) throw new CppEmitError("C++ ArrayBuffer.isView expects one argument", call);
+    return `vexa::arrayBufferIsView(${emitExpression(call.args[0]!)})`;
+  }
+  if (member?.objectName === "BigInt" && (member.propertyName === "asIntN" || member.propertyName === "asUintN")) {
+    if (call.args.length !== 2) throw new CppEmitError(`C++ BigInt.${member.propertyName} expects a bit count and value`, call);
+    return `vexa::bigInt${member.propertyName === "asIntN" ? "AsIntN" : "AsUintN"}(${argumentsText()})`;
+  }
   if (member?.objectName === "String" && member.propertyName === "fromCharCode") {
     if (call.args.length !== 1) throw new CppEmitError("C++ String.fromCharCode expects one argument", call);
     return `vexa::stringFromCharCode(${emitExpression(call.args[0]!)})`;
+  }
+  if (member?.objectName === "RegExp" && member.propertyName === "escape") {
+    if (call.args.length !== 1) throw new CppEmitError("C++ RegExp.escape expects one string", call);
+    return `vexa::regexEscape(${emitExpression(call.args[0]!)})`;
+  }
+  if ((member?.objectName === "Object" || member?.objectName === "Map") && member.propertyName === "groupBy") {
+    if (call.args.length !== 2) throw new CppEmitError(`C++ ${member.objectName}.groupBy expects an iterable and callback`, call);
+    const items = isManagedArrayExpression(call.args[0]!)
+      ? emitManagedArrayPointer(call.args[0]!)
+      : emitExpression(call.args[0]!);
+    const helper = member.objectName === "Object" ? "objectGroupBy" : "mapGroupBy";
+    return `vexa::${helper}(${items}, ${emitExpression(call.args[1]!)})`;
   }
   if (member?.objectName === "Object" &&
       (member.propertyName === "keys" || member.propertyName === "values" || member.propertyName === "entries")) {
@@ -5038,6 +5363,17 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       : `vexa::jsonStringify(${argument})`;
   }
   if (member?.objectName === "Promise") {
+    if (member.propertyName === "try") {
+      if (call.args.length < 1) throw new CppEmitError("C++ Promise.try expects a callback", call);
+      return `vexa::promiseTry(${call.args.map((argument) => emitExpression(argument)).join(", ")})`;
+    }
+    if (member.propertyName === "withResolvers") {
+      if (call.args.length !== 0) throw new CppEmitError("C++ Promise.withResolvers expects no arguments", call);
+      const declaredResult = call.typeArguments?.[0]
+        ? cppTypeForDeclaredNameOr(call.typeArguments[0]!.name, "vexa::Value")
+        : cppTemplateArguments(cppTypeForExpression(call), "vexa::PromiseResolvers<")?.[0] ?? "vexa::Value";
+      return `vexa::promiseWithResolvers<${declaredResult}>()`;
+    }
     if (member.propertyName === "resolve") {
       if (call.args.length > 1) throw new CppEmitError("C++ Promise.resolve expects zero or one argument");
       return call.args.length === 0
@@ -5163,6 +5499,21 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     }
     if (collection === "set") {
       const receiver = emitNativePointerExpression(member.object, nativeCollectionPointerCppType(member.object));
+      const modernSetHelper = new Map([
+        ["union", "setUnion"],
+        ["intersection", "setIntersection"],
+        ["difference", "setDifference"],
+        ["symmetricDifference", "setSymmetricDifference"],
+        ["isSubsetOf", "setIsSubsetOf"],
+        ["isSupersetOf", "setIsSupersetOf"],
+        ["isDisjointFrom", "setIsDisjointFrom"],
+      ]).get(member.propertyName);
+      if (modernSetHelper) {
+        if (call.args.length !== 1) throw new CppEmitError(`C++ Set.${member.propertyName} expects one set`, call);
+        const other = emitNativePointerExpression(call.args[0]!, nativeCollectionPointerCppType(call.args[0]!));
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
+          `vexa::${modernSetHelper}(${target}, ${other})`);
+      }
       if (member.propertyName === "clear") {
         if (call.args.length !== 0) throw new CppEmitError("C++ Set.clear expects no arguments", call);
         return emitNativeReceiverCall(optionalReceiver, receiver, (target) => `vexa::setClear(${target})`);
@@ -5182,6 +5533,11 @@ function emitCall(call: CallExpression, resultUsed = true): string {
         if (call.args.length !== 0) throw new CppEmitError(`C++ Set.${member.propertyName} expects no arguments`, call);
         return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
           `vexa::setValues(${target})`);
+      }
+      if (member.propertyName === "entries") {
+        if (call.args.length !== 0) throw new CppEmitError("C++ Set.entries expects no arguments", call);
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
+          `vexa::setEntries(${target})`);
       }
     }
     if (collection === "weakMap") {
@@ -5230,6 +5586,14 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       return `${emitExpression(member.object)}->${cppName(member.propertyName)}(${argumentsText()})`;
     }
   }
+  if (member && nativeBinaryObjectKind(member.object) === "buffer" && member.propertyName === "grow") {
+    if (call.args.length > 1) throw new CppEmitError("C++ SharedArrayBuffer.grow expects zero or one length", call);
+    return `${emitExpression(member.object)}->grow(${argumentsText()})`;
+  }
+  if (member && nativeBinaryObjectKind(member.object) === "buffer" && member.propertyName === "slice") {
+    if (call.args.length > 2) throw new CppEmitError("C++ ArrayBuffer.slice expects up to two indexes", call);
+    return `${emitExpression(member.object)}->slice(${argumentsText()})`;
+  }
   if (member && isArrayExpression(member.object) && isArrayRuntimeMethod(member.propertyName)) {
     const optionalReceiver = call.callee instanceof MemberExpression && (
       (call.callee as MemberExpression).optional === true ||
@@ -5245,7 +5609,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     } finally {
       activeExpectedExpressionCppType = expectedCallType;
     }
-    const convertsValueArguments = new Set(["push", "unshift", "includes", "indexOf", "lastIndexOf", "concat", "splice", "fill"])
+    const convertsValueArguments = new Set(["push", "unshift", "includes", "indexOf", "lastIndexOf", "concat", "splice", "fill", "with", "toSpliced"])
       .has(member.propertyName);
     const emittedReceiverType = emittedCppTypeForExpression(member.object);
     const receiverType = emittedReceiverType || cppTypeForExpression(member.object);
@@ -5289,20 +5653,20 @@ function emitCall(call: CallExpression, resultUsed = true): string {
         activeExpectedLambdaResultCppType = managedArrayElementType(contextualCallbackResult);
       } else if (member.propertyName === "flatMap" && contextualCallbackResult) {
         activeExpectedLambdaResultCppType = contextualCallbackResult;
-      } else if (member.propertyName === "reduce") {
+      } else if (member.propertyName === "reduce" || member.propertyName === "reduceRight") {
         const initial = call.args[1];
         activeExpectedLambdaResultCppType = initial
           ? emittedCppTypeForExpression(initial) ?? cppTypeForExpression(initial)
           : receiverElementType;
-      } else if (new Set(["filter", "some", "every", "findIndex", "find"]).has(member.propertyName)) {
+      } else if (new Set(["filter", "some", "every", "findIndex", "find", "findLast", "findLastIndex"]).has(member.propertyName)) {
         activeExpectedLambdaResultCppType = "bool";
       } else if (member.propertyName === "forEach") {
         activeExpectedLambdaResultCppType = "void";
-      } else if (member.propertyName === "sort") {
+      } else if (member.propertyName === "sort" || member.propertyName === "toSorted") {
         activeExpectedLambdaResultCppType = "double";
       }
       activeExpectedLambdaParameterCppTypes = receiverElementType
-        ? member.propertyName === "reduce"
+        ? member.propertyName === "reduce" || member.propertyName === "reduceRight"
           ? [activeExpectedLambdaResultCppType ?? receiverElementType, receiverElementType, "double", cppTypeForExpression(member.object)]
           : [receiverElementType, "double", cppTypeForExpression(member.object)]
         : null;
@@ -5326,10 +5690,12 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       }).join(", ");
     } else if (receiverElementType && receiverElementType !== "vexa::Value" && convertsValueArguments) {
       arrayArguments = call.args.map((argument, index) => {
-          const converts = member.propertyName === "splice"
+          const converts = member.propertyName === "splice" || member.propertyName === "toSpliced"
             ? index >= 2
             : member.propertyName === "fill"
               ? index === 0
+              : member.propertyName === "with"
+                ? index === 1
               : true;
           return converts
             ? emitConvertedValue(argument, receiverElementType)
@@ -5348,13 +5714,13 @@ function emitCall(call: CallExpression, resultUsed = true): string {
           }
           return emitExpression(argument);
         }).join(", ");
-    } else if (new Set(["slice", "copyWithin", "at"]).has(member.propertyName)) {
+    } else if (new Set(["slice", "copyWithin", "at", "take", "drop"]).has(member.propertyName)) {
       arrayArguments = call.args.map((argument) => emitConvertedValue(argument, "double")).join(", ");
-    } else if (member.propertyName === "splice") {
+    } else if (member.propertyName === "splice" || member.propertyName === "toSpliced") {
       arrayArguments = call.args.map((argument, index) => index < 2
         ? emitConvertedValue(argument, "double")
         : emitExpression(argument)).join(", ");
-    } else if (member.propertyName === "fill") {
+    } else if (member.propertyName === "fill" || member.propertyName === "with") {
       arrayArguments = call.args.map((argument, index) => index === 0
         ? emitExpression(argument)
         : emitConvertedValue(argument, "double")).join(", ");
@@ -5374,7 +5740,10 @@ function emitCall(call: CallExpression, resultUsed = true): string {
   if (member) {
     const primitiveMethod = primitiveRuntimeMethodName(member.propertyName);
     if (primitiveMethod) {
-      const receiver = emitExpression(member.object);
+      const receiverCppType = cppTypeForExpression(member.object);
+      const receiver = primitiveMethod === "valueOf" && new Set(["double", "std::int32_t", "std::int64_t"]).has(receiverCppType)
+        ? emitConvertedValue(member.object, "double")
+        : emitExpression(member.object);
       const optionalReceiver = call.callee instanceof MemberExpression && (
         (call.callee as MemberExpression).optional === true ||
         isOptionalChainExpression((call.callee as MemberExpression).object)
@@ -5529,7 +5898,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
   }
   const runtimeGlobals = new Set([
     "String", "Number", "Boolean", "BigInt", "Error", "parseInt", "parseFloat", "isNaN", "isFinite",
-    "encodeURIComponent", "decodeURIComponent",
+    "encodeURI", "decodeURI", "encodeURIComponent", "decodeURIComponent", "escape", "unescape",
   ]);
   if (calleeName && runtimeGlobals.has(calleeName)) {
     if (calleeName === "BigInt") return `vexa::makeBigInt(${argumentsText()})`;
@@ -6353,6 +6722,12 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       return "vexa::Value::undefined()";
     case NodeKind.Identifier: {
       const identifier = expression as Identifier;
+      if (!activeLocalNames.has(identifier.name) && identifier.name === "NaN") {
+        return "std::numeric_limits<double>::quiet_NaN()";
+      }
+      if (!activeLocalNames.has(identifier.name) && identifier.name === "Infinity") {
+        return "std::numeric_limits<double>::infinity()";
+      }
       if (identifier.name === "Boolean" && !activeLocalNames.has(identifier.name)) {
         return `[](const auto& __vexa_boolean_value) { return vexa::Boolean(__vexa_boolean_value); }`;
       }
@@ -6488,7 +6863,7 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
         }
         if (member.computed) {
           const binaryKind = nativeBinaryObjectKind(member.object);
-          if (binaryKind === "uint8" || binaryKind === "uint32") {
+          if (binaryKind === "uint8" || binaryKind === "uint32" || binaryKind === "int32") {
             if (assignment.operator !== "=") throw new CppEmitError(`C++ ${binaryKind === "uint8" ? "Uint8Array" : "Uint32Array"} compound index assignment is not implemented yet`, assignment);
             return `${emitExpression(member.object)}->set(${emitExpression(member.property)}, ${emitExpression(assignment.right)})`;
           }
@@ -6694,6 +7069,21 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
     case NodeKind.NewExpression: {
       const construction = expression as NewExpression;
       const collectionName = identifierName(construction.callee);
+      if (collectionName) {
+        const reason = nativeStandardLibraryUnsupportedReason(collectionName);
+        if (reason) {
+          throw new CppEmitError(`C++ standard library API '${collectionName}' is unsupported: ${reason}`, construction);
+        }
+      }
+      const constructorMember = memberParts(construction.callee);
+      if (constructorMember) rejectUnsupportedNativeStandardLibraryMember(constructorMember, construction);
+      if (constructorMember?.objectName === "Intl" && constructorMember.propertyName === "DurationFormat") {
+        const args = construction.args ?? [];
+        if (args.length > 2) throw new CppEmitError("C++ Intl.DurationFormat expects optional locales and options", construction);
+        const locale = args[0] ? `vexa::toText(${emitExpression(args[0] as Expr)})` : `std::u16string(u"en")`;
+        const options = args[1] ? emitExpression(args[1] as Expr) : "vexa::Runtime::record()";
+        return `vexa::makeManaged<vexa::DurationFormatObject>(${locale}, ${options})`;
+      }
       const bufferConstruction = collectionName
         ? emitNativeBufferConstruction(collectionName, construction.args ?? [], construction)
         : null;
@@ -6752,6 +7142,8 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       return emitFunctionExpression(expression as FunctionExpression);
     case NodeKind.MemberExpression: {
       const member = expression as MemberExpression;
+      const standardMember = memberParts(member);
+      if (standardMember) rejectUnsupportedNativeStandardLibraryMember(standardMember, member);
       if (!member.computed && identifierName(member.object) === "process" && member.property instanceof Identifier) {
         return `vexa::process->${cppName((member.property as Identifier).name)}`;
       }
@@ -6854,15 +7246,19 @@ function emitExpressionResult(expression: Expr, resultUsed: boolean): string {
       if (!member.computed && binaryKind && member.property instanceof Identifier) {
         const propertyName = (member.property as Identifier).name;
         if (propertyName === "byteLength") return `static_cast<double>(${emitExpression(member.object)}->byteLength())`;
-        if ((binaryKind === "uint8" || binaryKind === "uint32") && propertyName === "length") return `static_cast<double>(${emitExpression(member.object)}->length())`;
-        if ((binaryKind === "uint8" || binaryKind === "uint32" || binaryKind === "dataView") && propertyName === "byteOffset") {
+        if (binaryKind === "buffer" && propertyName === "maxByteLength") return `static_cast<double>(${emitExpression(member.object)}->maxByteLength())`;
+        if (binaryKind === "buffer" && propertyName === "detached") return `${emitExpression(member.object)}->detached()`;
+        if (binaryKind === "buffer" && propertyName === "growable") return `${emitExpression(member.object)}->growable()`;
+        if (binaryKind === "buffer" && propertyName === "resizable") return `${emitExpression(member.object)}->resizable()`;
+        if ((binaryKind === "uint8" || binaryKind === "uint32" || binaryKind === "int32") && propertyName === "length") return `static_cast<double>(${emitExpression(member.object)}->length())`;
+        if ((binaryKind === "uint8" || binaryKind === "uint32" || binaryKind === "int32" || binaryKind === "dataView") && propertyName === "byteOffset") {
           return `static_cast<double>(${emitExpression(member.object)}->byteOffset())`;
         }
-        if ((binaryKind === "uint8" || binaryKind === "uint32" || binaryKind === "dataView") && propertyName === "buffer") {
+        if ((binaryKind === "uint8" || binaryKind === "uint32" || binaryKind === "int32" || binaryKind === "dataView") && propertyName === "buffer") {
           return `${emitExpression(member.object)}->buffer()`;
         }
       }
-      if (member.computed && (binaryKind === "uint8" || binaryKind === "uint32")) {
+      if (member.computed && (binaryKind === "uint8" || binaryKind === "uint32" || binaryKind === "int32")) {
         return `static_cast<double>(${emitExpression(member.object)}->get(static_cast<std::size_t>(${emitExpression(member.property)})))`;
       }
       if (member.computed && isManagedArrayExpression(member.object)) {

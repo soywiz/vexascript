@@ -76,6 +76,12 @@ can still specialize proven internal workloads.
   smoke or produce an intentional compiler diagnostic that names the
   unsupported API; reaching invalid generated C++ is never an accepted third
   state.
+* [x] Keep the named ECMAScript runtime coverage policy in one browser-safe
+  module and compare it with the TypeScript declaration AST. Global functions,
+  namespace constructors/functions, merged interfaces, errors, typed arrays,
+  and the ordinary runtime families now have one of two explicit outcomes:
+  execution in the canonical native smoke or a compiler diagnostic naming the
+  unsupported API. Worker and DOM declarations are deliberately out of scope.
 
 ## Completed In The Current Slice
 
@@ -110,6 +116,14 @@ can still specialize proven internal workloads.
   compiles, links, and runs every member. The audit added the previously
   missing constants and methods, including `Math.imul`, `Math.f16round`, the
   hyperbolic/logarithmic additions, and variadic `min`, `max`, and `hypot`.
+* The canonical `samples/native-language-smoke/standard-library.vx` now owns
+  the standard-library calls that were previously split between an inline test
+  source, a separate Math executable, and the end of `main.vx`. The early
+  native language smoke executes this file before the self-host roundtrip.
+* Modified `sync { ... }` and `async { ... }` brace lambdas are included in the
+  native smoke. The C++ backend adapts their `Task<T>` representation when an
+  ordinary callback contract expects `T`, preventing the parser/JavaScript
+  surface from getting ahead of native execution.
 
 ## Map-specific Follow-up Tasks
 
@@ -178,8 +192,10 @@ ambient forwarding contract:
   heterogeneous array/map arguments.
 * [x] Add declaration-locked native compile/link/run coverage for the complete
   ordinary numeric `Math` surface.
-* [ ] Extend the declaration-locked coverage to every exposed ES2025 ambient
-  family and keep overload-specific runtime cases where behavior differs.
+* [x] Extend declaration-locked coverage to every named runtime family exposed
+  by `es2025.d.ts`, with explicit negative policies for APIs not implemented by
+  the native backend. Keep overload-specific runtime cases where behavior
+  differs.
 * [ ] Add native compile-and-run coverage for heterogeneous arrays,
   `Map`/`Set`/weak collections, iterator methods, and callback lifetime under
   GC stress.

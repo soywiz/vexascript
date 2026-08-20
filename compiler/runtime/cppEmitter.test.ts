@@ -1,4 +1,5 @@
 import { describe, expect, it } from "../test/expect";
+import { getTypeCheckerWorkMetrics, resetTypeCheckerWorkMetrics } from "../analysis/TypeChecker";
 import { transpile } from "./transpile";
 
 describe("C++ emitter", () => {
@@ -187,6 +188,103 @@ function inspect(value: string): number {
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("vexa::appendAll(__vexa_array, value)");
     expect(result.code).toContain("vexa::codePointAt(value");
+  });
+
+  it("folds pure standard-library calls on string literals", () => {
+    const result = transpile(`
+const point = "a".codePointAt(0);
+const upper = "vexa".toUpperCase();
+const wellFormed = "A😀".isWellFormed();
+const contained = "vexascript".includes("script");
+const replaced = "aba".replaceAll("a", "x");
+`, { emit: "cpp", sourceFilePath: "/tmp/literal-standard-calls.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::Value(97)");
+    expect(result.code).toContain('std::u16string(u"VEXA")');
+    expect(result.code).not.toContain("vexa::codePointAt(");
+    expect(result.code).not.toContain("vexa::toUpperCase(");
+    expect(result.code).not.toContain("vexa::stringIsWellFormed(");
+    expect(result.code).toContain("contained = true");
+    expect(result.code).toContain('std::u16string(u"xbx")');
+  });
+
+  it("lowers index searches on simple array literals without allocating the array", () => {
+    const result = transpile(`
+function positions(value: string): number {
+  return ["a", "b", "a"].indexOf(value) + ["a", "b", "a"].lastIndexOf(value);
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/literal-array-indexes.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("__vexa_literal_search");
+    expect(result.code).toContain("vexa::strictEquals");
+    expect(result.code).not.toContain("vexa::makeArray");
+  });
+
+  it("lowers includes on a simple array literal without allocating the array", () => {
+    const result = transpile(`
+function isKnown(value: string): boolean {
+  return ["a", "b", "c"].includes(value);
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/literal-array-includes.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("__vexa_literal_search");
+    expect(result.code).toContain("vexa::sameValueZero");
+    expect(result.code).not.toContain("vexa::makeArray");
+    expect(result.code).not.toContain("vexa::includes(");
+  });
+
+  it("rejects explicitly unsupported standard-library APIs before generating invalid C++", () => {
+    const typedArray = transpile(`
+const values = new Int8Array(4);
+`, { emit: "cpp", sourceFilePath: "/tmp/unsupported-int8-array.ts" });
+    expect(typedArray.errors[0]).toContain("C++ standard library API 'Int8Array' is unsupported");
+    const buffer = transpile(`
+const buffer = new ArrayBuffer(8);
+buffer.resize(4);
+`, { emit: "cpp", sourceFilePath: "/tmp/unsupported-array-buffer-resize.ts" });
+    expect(buffer.errors[0]).toContain("C++ standard library API 'ArrayBuffer.resize' is unsupported");
+    const intl = transpile(`
+const collator = new Intl.Collator("en");
+`, { emit: "cpp", sourceFilePath: "/tmp/unsupported-intl-collator.ts" });
+    expect(intl.errors[0]).toContain("C++ standard library API 'Intl.Collator' is unsupported");
+  });
+
+  it("does not treat inherited coverage-policy keys as standard-library owners", () => {
+    const result = transpile(`
+class MethodName { name: string = "run" }
+function inspect(constructor: MethodName): string {
+  return constructor.name;
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/policy-constructor-key.ts" });
+
+    expect(result.errors).toEqual([]);
+  });
+
+  it("adapts modified brace lambdas to ordinary native callback contracts", () => {
+    const result = transpile(`
+function invoke(callback: (value: int) => int): int { return callback(2) }
+const value = invoke(sync { it + 1 });
+`, { emit: "cpp", sourceFilePath: "/tmp/modified-brace-lambda.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::blockingCallback(");
+    expect(result.code).toContain("vexa::Task<std::int32_t>");
+  });
+
+  it("bounds typed-array overload comparison for Atomics calls", () => {
+    resetTypeCheckerWorkMetrics();
+    const result = transpile(`
+const values = new Int32Array(4);
+const value = Atomics.load(values, 0);
+`, { emit: "cpp", sourceFilePath: "/tmp/atomics-overload-work.ts" });
+    const metrics = getTypeCheckerWorkMetrics();
+
+    expect(result.errors).toEqual([]);
+    expect(metrics.distinctTypedArrayRejections > 0).toBe(true);
+    expect(metrics.assignabilityComputations < 5_000).toBe(true);
   });
 
   it("emits negative string at indexes through the native runtime helper", () => {

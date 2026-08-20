@@ -99,7 +99,26 @@ import {
 } from "./propertyNames";
 import { isBigIntType, isIntType, isLongType, isNullishType, isNumberType, isNumericFamilyType, isNumericType, isPrimitiveLikeOperatorType, isStringLikeType } from "./typeClassifiers";
 import { expressionPreventsFallthrough, isAsyncLike, statementAllowsLabeledContinue, statementAlwaysExits, statementListAlwaysExits, statementListPreventsSwitchFallthrough } from "./controlFlow";
-import { combineTypes, elementTypeFromIterable, hasNullishUnionMember, isAsyncIteratorType, removeNullishFromType, resolveLiteralTypeName, spreadArgumentElementType, unwrapPromiseType } from "./typeOperations";
+import { combineTypes, elementTypeFromIterable, hasNullishUnionMember, isAsyncIteratorType, isTypedArrayTypeName, removeNullishFromType, resolveLiteralTypeName, spreadArgumentElementType, unwrapPromiseType } from "./typeOperations";
+
+export interface TypeCheckerWorkMetrics {
+  assignabilityComputations: number;
+  distinctTypedArrayRejections: number;
+}
+
+function emptyTypeCheckerWorkMetrics(): TypeCheckerWorkMetrics {
+  return { assignabilityComputations: 0, distinctTypedArrayRejections: 0 };
+}
+
+let typeCheckerWorkMetrics = emptyTypeCheckerWorkMetrics();
+
+export function getTypeCheckerWorkMetrics(): Readonly<TypeCheckerWorkMetrics> {
+  return { ...typeCheckerWorkMetrics };
+}
+
+export function resetTypeCheckerWorkMetrics(): void {
+  typeCheckerWorkMetrics = emptyTypeCheckerWorkMetrics();
+}
 
 function typeParameterNameList(typeParameters: readonly TypeParameter[]): string[] {
   const names: string[] = [];
@@ -5460,8 +5479,19 @@ export class TypeChecker {
   }
 
   private computeTypeAssignable(sourceType: AnalysisType, targetType: AnalysisType): boolean {
-    if (typeToString(sourceType) === typeToString(targetType)) {
+    typeCheckerWorkMetrics.assignabilityComputations += 1;
+    if (isSameType(sourceType, targetType)) {
       return true;
+    }
+    if (
+      sourceType instanceof NamedType &&
+      targetType instanceof NamedType &&
+      sourceType.name !== targetType.name &&
+      isTypedArrayTypeName(sourceType.name) &&
+      isTypedArrayTypeName(targetType.name)
+    ) {
+      typeCheckerWorkMetrics.distinctTypedArrayRejections += 1;
+      return false;
     }
     const expandedSourceType = this.expandTypeAliases(sourceType);
     const expandedTargetType = this.expandTypeAliases(targetType);

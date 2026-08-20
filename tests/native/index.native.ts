@@ -2,7 +2,6 @@ import "./nativeBenchmark.native";
 import "./nativeBigInt.native";
 import "./nativeBuild.native";
 import "./nativeCliSyntax.native";
-import "./nativeEs2025Math.native";
 import "./nativeForeignLibrary.native";
 import "./nativeGcStress.native";
 import "./nativeInstalledPackage.native";
