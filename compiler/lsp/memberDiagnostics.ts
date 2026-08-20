@@ -1,6 +1,16 @@
-import { EnumStatement, Identifier } from "compiler/ast/ast";
+import { CallExpression, EnumStatement, Identifier, MemberExpression } from "compiler/ast/ast";
+import type { Expr } from "compiler/ast/ast";
 import { baseTypeName } from "compiler/analysis/typeNames";
-import { arrayType, builtinType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
+import {
+  ArrayType,
+  BuiltinType,
+  NamedType,
+  arrayType,
+  builtinType,
+  isUnknownType,
+  namedType,
+  UNKNOWN_TYPE
+} from "compiler/analysis/types";
 
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "./diagnosticSeverity";
@@ -19,6 +29,71 @@ import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 import { findTopLevelDeclarationInProgram } from "./declarationResolver";
 import { uriToFilePath } from "./importFixes";
 import { parseTypeNameShape } from "compiler/analysis/typeNames";
+
+export interface CrossFileMemberDiagnosticWorkMetrics {
+  collections: number;
+  memberExpressionsVisited: number;
+  analyzedMemberSkips: number;
+  unsupportedReceiverSkips: number;
+  unknownReceiverSkips: number;
+  unsupportedReceiverChainSkips: number;
+  objectTypeResolutions: number;
+  unresolvedObjectTypeSkips: number;
+  classResolutions: number;
+  memberResolutions: number;
+  extensionResolutions: number;
+  diagnostics: number;
+}
+
+function emptyCrossFileMemberDiagnosticWorkMetrics(): CrossFileMemberDiagnosticWorkMetrics {
+  return {
+    collections: 0,
+    memberExpressionsVisited: 0,
+    analyzedMemberSkips: 0,
+    unsupportedReceiverSkips: 0,
+    unknownReceiverSkips: 0,
+    unsupportedReceiverChainSkips: 0,
+    objectTypeResolutions: 0,
+    unresolvedObjectTypeSkips: 0,
+    classResolutions: 0,
+    memberResolutions: 0,
+    extensionResolutions: 0,
+    diagnostics: 0
+  };
+}
+
+let workMetrics = emptyCrossFileMemberDiagnosticWorkMetrics();
+
+export function getCrossFileMemberDiagnosticWorkMetrics(): Readonly<CrossFileMemberDiagnosticWorkMetrics> {
+  return { ...workMetrics };
+}
+
+export function resetCrossFileMemberDiagnosticWorkMetrics(): void {
+  workMetrics = emptyCrossFileMemberDiagnosticWorkMetrics();
+}
+
+function isCrossFileClassReceiverType(type: ReturnType<NonNullable<AnalysisSession["analysis"]>["getExpressionType"]>): boolean {
+  return type instanceof NamedType || type instanceof ArrayType || type instanceof BuiltinType;
+}
+
+function receiverChainHasUnsupportedAnalyzedType(
+  expression: Expr,
+  analysis: NonNullable<AnalysisSession["analysis"]>
+): boolean {
+  let current: Expr | null = expression;
+  while (current) {
+    const type = analysis.getExpressionTypes().get(current);
+    if (type && !isUnknownType(type) && !isCrossFileClassReceiverType(type)) {
+      return true;
+    }
+    current = current instanceof MemberExpression
+      ? current.object
+      : current instanceof CallExpression
+        ? current.callee
+        : null;
+  }
+  return false;
+}
 
 function analysisTypeFromTypeName(typeName: string) {
   const normalized = arrayTypeNameToArrayAlias(boxedCompletionTypeName(typeName)) ?? typeName;
@@ -47,6 +122,7 @@ export async function collectCrossFileMemberDiagnostics(
   if (!session.ast || !session.analysis) {
     return [];
   }
+  workMetrics.collections += 1;
 
   const diagnostics: Diagnostic[] = [];
   const seen = new Set<string>();
@@ -61,16 +137,44 @@ export async function collectCrossFileMemberDiagnostics(
   const currentFilePath = uriToFilePath(uri);
 
   for (const member of collectMemberExpressions(session.ast)) {
+    workMetrics.memberExpressionsVisited += 1;
     if (member.computed || !(member.property instanceof Identifier)) {
       continue;
     }
+    const analyzedMemberType = session.analysis.getExpressionTypes().get(member);
+    if (analyzedMemberType && !isUnknownType(analyzedMemberType)) {
+      workMetrics.analyzedMemberSkips += 1;
+      continue;
+    }
+    const analyzedReceiverType = session.analysis.getExpressionType(member.object);
+    if (member.object instanceof Identifier && isUnknownType(analyzedReceiverType)) {
+      workMetrics.unknownReceiverSkips += 1;
+      continue;
+    }
+    if (
+      analyzedReceiverType
+      && !isUnknownType(analyzedReceiverType)
+      && !isCrossFileClassReceiverType(analyzedReceiverType)
+    ) {
+      workMetrics.unsupportedReceiverSkips += 1;
+      continue;
+    }
+    if (
+      isUnknownType(analyzedReceiverType)
+      && receiverChainHasUnsupportedAnalyzedType(member.object, session.analysis)
+    ) {
+      workMetrics.unsupportedReceiverChainSkips += 1;
+      continue;
+    }
+    workMetrics.objectTypeResolutions += 1;
     const objectTypeName = await resolveCrossFileExpressionTypeName(
       member.object,
       session.analysis,
       session.ast,
       options
     );
-    if (!objectTypeName) {
+    if (!objectTypeName || objectTypeName === "unknown") {
+      workMetrics.unresolvedObjectTypeSkips += 1;
       continue;
     }
 
@@ -83,6 +187,7 @@ export async function collectCrossFileMemberDiagnostics(
     if (localEnum) {
       continue;
     }
+    workMetrics.classResolutions += 1;
     const classResolution = await resolveClassStatementAcrossFiles(
       session.ast,
       baseTypeName(resolvedObjectTypeName),
@@ -100,6 +205,7 @@ export async function collectCrossFileMemberDiagnostics(
     }
 
     const memberName = (member.property as Identifier).name;
+    workMetrics.memberResolutions += 1;
     const resolvedMember = await resolveClassMember(
       classResolution.classStatement,
       memberName,
@@ -113,6 +219,7 @@ export async function collectCrossFileMemberDiagnostics(
     if (resolvedMember) {
       continue;
     }
+    workMetrics.extensionResolutions += 1;
     const resolvedExtensionMember = await resolveExtensionMemberDeclarationAcrossFiles(
       {
         uri,
@@ -159,6 +266,7 @@ export async function collectCrossFileMemberDiagnostics(
       message: `Property '${memberName}' does not exist on type '${objectTypeName}'`,
       source: "vexa-sema"
     });
+    workMetrics.diagnostics += 1;
   }
 
   return diagnostics;

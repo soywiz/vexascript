@@ -1,3 +1,4 @@
+/** Profiles the real compiler/LSP workload for a package-backed sample. */
 import { readFile } from "node:fs/promises";
 import { resolve as resolveNodePath } from "node:path";
 import "cli/localVfs";
@@ -13,9 +14,16 @@ import {
   collectCrossFileTypeDiagnostics,
   collectModuleNotFoundDiagnostics
 } from "compiler/lsp/crossFileTypeDiagnostics";
-import { collectCrossFileMemberDiagnostics } from "compiler/lsp/memberDiagnostics";
-import { collectDeprecatedDiagnostics } from "compiler/lsp/deprecatedDiagnostics";
-import { collectDeprecatedSemanticTokenModifiers } from "compiler/lsp/deprecatedSemanticTokens";
+import {
+  collectCrossFileMemberDiagnostics,
+  getCrossFileMemberDiagnosticWorkMetrics,
+  resetCrossFileMemberDiagnosticWorkMetrics
+} from "compiler/lsp/memberDiagnostics";
+import {
+  collectDeprecatedSemanticTokenModifiers,
+  getDeprecatedSemanticTokenWorkMetrics,
+  resetDeprecatedSemanticTokenWorkMetrics
+} from "compiler/lsp/deprecatedSemanticTokens";
 import { createSemanticTokens } from "compiler/lsp/semanticTokens";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
 
@@ -45,7 +53,7 @@ function toFileUri(filePath: string): string {
   return `file://${filePath}`;
 }
 
-async function createPixiAnalysisSessionCache(sourceRoots: string[]): Promise<{
+async function createSampleAnalysisSessionCache(sourceRoots: string[]): Promise<{
   analysisSessions: AnalysisSessionCache;
   getSessionForFilePath: (filePath: string) => Promise<ReturnType<ProjectIndex["getSessionForFilePath"]> extends Promise<infer T> ? T : never>;
   projectIndex: ProjectIndex;
@@ -60,8 +68,7 @@ async function createPixiAnalysisSessionCache(sourceRoots: string[]): Promise<{
     if (!baseSession.ast) {
       return {
         externalDeclarations: [],
-        importedSymbolTypes: new Map(),
-        importedSymbolDisplayTypes: new Map(),
+        importedSymbols: new Map(),
         ambientDeclarations: [],
         ambientModuleDeclarations: new Map()
       };
@@ -93,15 +100,15 @@ async function createPixiAnalysisSessionCache(sourceRoots: string[]): Promise<{
     };
     const {
       externalDeclarations,
-      importedSymbolTypes,
-      importedSymbolDisplayTypes,
+      externalDeclarationLocations,
+      importedSymbols,
       invalidImportedBindings
     } = await collectAllImportedDeclarations(baseSession.ast, context);
 
     return {
       externalDeclarations,
-      importedSymbolTypes,
-      importedSymbolDisplayTypes,
+      externalDeclarationLocations,
+      importedSymbols,
       invalidImportedBindings,
       ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
       ambientDeclarationLocations: new Map([
@@ -122,14 +129,16 @@ async function createPixiAnalysisSessionCache(sourceRoots: string[]): Promise<{
 
 async function main(): Promise<void> {
   const workspaceRoot = process.cwd();
-  const sampleRoot = resolveNodePath(workspaceRoot, "samples/pixi");
+  const sampleName = process.argv[2] ?? "pixi";
+  const editScenario = process.argv[3] ?? "newline";
+  const sampleRoot = resolveNodePath(workspaceRoot, `samples/${sampleName}`);
   const sourceRoots = [sampleRoot];
   const filePath = resolveNodePath(sampleRoot, "html.vx");
   const uri = toFileUri(filePath);
   const source = await readFile(filePath, "utf8");
   const document = TextDocument.create(uri, "vexa", 1, source);
 
-  const { analysisSessions, getSessionForFilePath, projectIndex } = await createPixiAnalysisSessionCache(sourceRoots);
+  const { analysisSessions, getSessionForFilePath, projectIndex } = await createSampleAnalysisSessionCache(sourceRoots);
   await projectIndex.upsertOpenDocument(filePath, source);
 
   const featureContext = {
@@ -157,24 +166,32 @@ async function main(): Promise<void> {
       session
     })
   );
-  const deprecatedDiagnostics = await time(async () =>
-    collectDeprecatedDiagnostics({
-      ...featureContext,
-      session
-    })
-  );
   const crossFileMemberDiagnostics = await time(async () =>
     collectCrossFileMemberDiagnostics({
       ...featureContext,
       session
     })
   );
+  projectIndex.resetMetrics();
+  resetDeprecatedSemanticTokenWorkMetrics();
   const deprecatedSemanticTokenModifiers = await time(async () =>
     collectDeprecatedSemanticTokenModifiers({
       ...featureContext,
       session
     })
   );
+  const deprecatedSemanticTokenWork = projectIndex.getMetrics();
+  const deprecatedSemanticTokenCounters = getDeprecatedSemanticTokenWorkMetrics();
+  projectIndex.resetMetrics();
+  resetDeprecatedSemanticTokenWorkMetrics();
+  const warmDeprecatedSemanticTokenModifiers = await time(async () =>
+    collectDeprecatedSemanticTokenModifiers({
+      ...featureContext,
+      session
+    })
+  );
+  const warmDeprecatedSemanticTokenWork = projectIndex.getMetrics();
+  const warmDeprecatedSemanticTokenCounters = getDeprecatedSemanticTokenWorkMetrics();
   const semanticTokensFull = await time(async () =>
     createSemanticTokens({
       text: source,
@@ -202,13 +219,11 @@ async function main(): Promise<void> {
       Promise.all([
         collectDiagnosticsFromSession(sharedSession, source, (offset) => document.positionAt(offset)),
         collectModuleNotFoundDiagnostics({ uri, session: sharedSession, getSessionForFilePath }),
-        collectCrossFileTypeDiagnostics({ ...featureContext, session: sharedSession }),
-        collectDeprecatedDiagnostics({ ...featureContext, session: sharedSession })
+        collectCrossFileTypeDiagnostics({ ...featureContext, session: sharedSession })
       ]),
       Promise.all([
         collectCrossFileMemberDiagnostics({ ...featureContext, session: sharedSession }),
-        collectCrossFileTypeDiagnostics({ ...featureContext, session: sharedSession }),
-        collectDeprecatedDiagnostics({ ...featureContext, session: sharedSession })
+        collectCrossFileTypeDiagnostics({ ...featureContext, session: sharedSession })
       ]),
       (async () => {
         const modifiers = await collectDeprecatedSemanticTokenModifiers({ ...featureContext, session: sharedSession });
@@ -235,18 +250,65 @@ async function main(): Promise<void> {
     ]);
   });
 
+  const editedSource = editScenario === "incomplete-member"
+    ? source.replace(
+        "const trend = line<Reading>()\n  .x((reading)",
+        "const trend = line<Reading>()\n  .x\n  .x((reading)"
+      )
+    : `${source}\n`;
+  if (editedSource === source) {
+    throw new Error(`Edit scenario '${editScenario}' did not change ${filePath}`);
+  }
+  const editedDocument = TextDocument.create(uri, "vexa", 2, editedSource);
+  await projectIndex.upsertOpenDocument(filePath, editedSource);
+  analysisSessions.resetMetrics();
+  const editedSession = await time(async () => analysisSessions.getForDocumentAsync(editedDocument));
+  projectIndex.resetMetrics();
+  resetDeprecatedSemanticTokenWorkMetrics();
+  const editedDeprecatedSemanticTokenModifiers = await time(async () =>
+    collectDeprecatedSemanticTokenModifiers({
+      ...featureContext,
+      session: editedSession.value
+    })
+  );
+  const editedDeprecatedSemanticTokenWork = projectIndex.getMetrics();
+  const editedDeprecatedSemanticTokenCounters = getDeprecatedSemanticTokenWorkMetrics();
+  projectIndex.resetMetrics();
+  resetCrossFileMemberDiagnosticWorkMetrics();
+  const editedWorkspaceMemberDiagnostics = await time(async () =>
+    collectCrossFileMemberDiagnostics({
+      ...featureContext,
+      session: editedSession.value
+    })
+  );
+  const editedWorkspaceMemberDiagnosticWork = projectIndex.getMetrics();
+  const editedWorkspaceMemberDiagnosticCounters = getCrossFileMemberDiagnosticWorkMetrics();
+  const editedAnalysisSessionWork = analysisSessions.getMetrics();
+
   const lines = [
     `sample: ${filePath}`,
     `cold session: ${formatMs(coldSession.durationMs)}ms`,
     `document diagnostics sync-only: ${formatMs(syncDiagnostics.durationMs)}ms (${syncDiagnostics.value.length} items)`,
     `module-not-found diagnostics: ${formatMs(moduleNotFoundDiagnostics.durationMs)}ms (${moduleNotFoundDiagnostics.value.length} items)`,
     `cross-file type diagnostics: ${formatMs(crossFileTypeDiagnostics.durationMs)}ms (${crossFileTypeDiagnostics.value.length} items)`,
-    `deprecated diagnostics: ${formatMs(deprecatedDiagnostics.durationMs)}ms (${deprecatedDiagnostics.value.length} items)`,
     `workspace-only member diagnostics: ${formatMs(crossFileMemberDiagnostics.durationMs)}ms (${crossFileMemberDiagnostics.value.length} items)`,
     `deprecated semantic modifiers: ${formatMs(deprecatedSemanticTokenModifiers.durationMs)}ms (${deprecatedSemanticTokenModifiers.value.size} entries)`,
+    `deprecated semantic modifier project work: ${JSON.stringify(deprecatedSemanticTokenWork)}`,
+    `deprecated semantic modifier counters: ${JSON.stringify(deprecatedSemanticTokenCounters)}`,
+    `warm deprecated semantic modifiers: ${formatMs(warmDeprecatedSemanticTokenModifiers.durationMs)}ms (${warmDeprecatedSemanticTokenModifiers.value.size} entries)`,
+    `warm deprecated semantic modifier project work: ${JSON.stringify(warmDeprecatedSemanticTokenWork)}`,
+    `warm deprecated semantic modifier counters: ${JSON.stringify(warmDeprecatedSemanticTokenCounters)}`,
     `semantic tokens full: ${formatMs(semanticTokensFull.durationMs)}ms (${semanticTokensFull.value.data.length} ints)`,
     `semantic tokens range: ${formatMs(semanticTokensRange.durationMs)}ms (${semanticTokensRange.value.data.length} ints)`,
-    `approx concurrent diagnostic+workspace+semantic burst: ${formatMs(concurrent.durationMs)}ms`
+    `approx concurrent diagnostic+workspace+semantic burst: ${formatMs(concurrent.durationMs)}ms`,
+    `edited session: ${formatMs(editedSession.durationMs)}ms`,
+    `edited session work: ${JSON.stringify(editedAnalysisSessionWork)}`,
+    `edited deprecated semantic modifiers: ${formatMs(editedDeprecatedSemanticTokenModifiers.durationMs)}ms (${editedDeprecatedSemanticTokenModifiers.value.size} entries)`,
+    `edited deprecated semantic modifier project work: ${JSON.stringify(editedDeprecatedSemanticTokenWork)}`,
+    `edited deprecated semantic modifier counters: ${JSON.stringify(editedDeprecatedSemanticTokenCounters)}`,
+    `edited workspace-only member diagnostics: ${formatMs(editedWorkspaceMemberDiagnostics.durationMs)}ms (${editedWorkspaceMemberDiagnostics.value.length} items)`,
+    `edited workspace-only member diagnostic project work: ${JSON.stringify(editedWorkspaceMemberDiagnosticWork)}`,
+    `edited workspace-only member diagnostic counters: ${JSON.stringify(editedWorkspaceMemberDiagnosticCounters)}`
   ];
   process.stdout.write(`${lines.join("\n")}\n`);
 }

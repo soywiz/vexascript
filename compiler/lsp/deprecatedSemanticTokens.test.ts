@@ -1,7 +1,11 @@
 import dedent from "compiler/utils/dedent";
 import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "compiler/test/expect";
 import { createAnalysisSession } from "./analysisSession";
-import { collectDeprecatedSemanticTokenModifiers } from "./deprecatedSemanticTokens";
+import {
+  collectDeprecatedSemanticTokenModifiers,
+  getDeprecatedSemanticTokenWorkMetrics,
+  resetDeprecatedSemanticTokenWorkMetrics
+} from "./deprecatedSemanticTokens";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { DEPRECATED_TOKEN_MODIFIER, semanticTokenRangeKey } from "./semanticTokens";
 
@@ -111,6 +115,30 @@ describe("deprecated semantic token modifiers", () => {
     expect(modifiers.size).toBe(1);
   });
 
+  it("keeps deprecated members inherited from a base interface", async () => {
+    const source = dedent`
+      declare interface LegacyChart {
+        /** @deprecated Use attr instead */
+        oldAttr(name: string): void
+      }
+      declare interface Chart extends LegacyChart {
+        attr(name: string): void
+      }
+      declare function chart(): Chart
+
+      chart().oldAttr("role")
+    `;
+    const session = createAnalysisSession(source);
+    const modifiers = await collectDeprecatedSemanticTokenModifiers({
+      uri: "file:///sample.vx",
+      sourceRoots: [],
+      session
+    });
+
+    expect([...modifiers.values()]).toContain(DEPRECATED_TOKEN_MODIFIER);
+    expect(modifiers.size).toBe(1);
+  });
+
   it("marks every repeated deprecated member occurrence even when resolution is reused", async () => {
     const source = dedent`
       declare class Graphics {
@@ -126,6 +154,7 @@ describe("deprecated semantic token modifiers", () => {
       second.beginFill(0xffb635)
       `;
     const session = createAnalysisSession(source);
+    resetDeprecatedSemanticTokenWorkMetrics();
     const modifiers = await collectDeprecatedSemanticTokenModifiers({
       uri: "file:///sample.vx",
       sourceRoots: [],
@@ -150,5 +179,62 @@ describe("deprecated semantic token modifiers", () => {
     expect(modifiers.get(firstUseKey)).toBe(DEPRECATED_TOKEN_MODIFIER);
     expect(modifiers.get(secondUseKey)).toBe(DEPRECATED_TOKEN_MODIFIER);
     expect(modifiers.size).toBe(2);
+    expect(getDeprecatedSemanticTokenWorkMetrics()).toMatchObject({
+      memberExpressionsVisited: 2,
+      candidateMemberExpressions: 2,
+      uniqueMemberResolutions: 1,
+      memberResolutionCacheHits: 1
+    });
+  });
+
+  it("skips member resolution when no accessible declaration deprecates the name", async () => {
+    const source = dedent`
+      declare class Chart {
+        attr(name: string, value: string): Chart
+      }
+
+      val chart = Chart()
+      chart.attr("role", "img")
+    `;
+    const session = createAnalysisSession(source);
+    let sessionRequests = 0;
+
+    resetDeprecatedSemanticTokenWorkMetrics();
+    const modifiers = await collectDeprecatedSemanticTokenModifiers({
+      uri: "file:///sample.vx",
+      sourceRoots: [],
+      session,
+      getSessionForFilePath: () => {
+        sessionRequests += 1;
+        return null;
+      }
+    });
+    const coldMetrics = getDeprecatedSemanticTokenWorkMetrics();
+
+    expect(modifiers.size).toBe(0);
+    expect(sessionRequests).toBe(0);
+    expect(coldMetrics).toMatchObject({
+      collections: 1,
+      memberExpressionsVisited: 1,
+      candidateMemberExpressions: 0,
+      uniqueMemberResolutions: 0
+    });
+
+    resetDeprecatedSemanticTokenWorkMetrics();
+    await collectDeprecatedSemanticTokenModifiers({
+      uri: "file:///sample.vx",
+      sourceRoots: [],
+      session,
+      getSessionForFilePath: () => {
+        sessionRequests += 1;
+        return null;
+      }
+    });
+    const warmMetrics = getDeprecatedSemanticTokenWorkMetrics();
+
+    expect(sessionRequests).toBe(0);
+    expect(warmMetrics.candidateIndexRootCacheHits).toBe(warmMetrics.candidateIndexRoots);
+    expect(warmMetrics.candidateDeclarationNodesVisited).toBe(0);
+    expect(warmMetrics.uniqueMemberResolutions).toBe(0);
   });
 });

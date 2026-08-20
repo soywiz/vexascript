@@ -32,7 +32,10 @@ import { collectCodeActions } from "./codeActionsAggregate";
 import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
-import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
+import {
+  collectCrossFileMemberDiagnostics,
+  getCrossFileMemberDiagnosticWorkMetrics
+} from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } from "./crossFileTypeDiagnostics";
 import { buildAmbientModuleSymbolExports, buildSymbolExports, uriToFilePath } from "./importFixes";
 import {
@@ -62,7 +65,10 @@ import {
   sliceSemanticTokensByRange,
   VEXA_SEMANTIC_TOKENS_LEGEND
 } from "./semanticTokens";
-import { collectDeprecatedSemanticTokenModifiers } from "./deprecatedSemanticTokens";
+import {
+  collectDeprecatedSemanticTokenModifiers,
+  getDeprecatedSemanticTokenWorkMetrics
+} from "./deprecatedSemanticTokens";
 import { clearNodeModuleTypingsCache } from "./nodeModulesTypings";
 import {
   createDocumentHighlights,
@@ -317,12 +323,29 @@ export function startLspServer(options: LspServerOptions): void {
       const resolvedSession = session ?? await logTimedPhase("workspaceMemberDiagnostics", "analysisSession", () =>
         analysisSessions.getForDocumentAsync(doc)
       );
-      return logTimedPhase("workspaceMemberDiagnostics", "collect", () =>
+      const before = getCrossFileMemberDiagnosticWorkMetrics();
+      const diagnostics = await logTimedPhase("workspaceMemberDiagnostics", "collect", () =>
         collectCrossFileMemberDiagnostics({
           ...featureContext(doc.uri),
           session: resolvedSession
         })
       );
+      const after = getCrossFileMemberDiagnosticWorkMetrics();
+      logTimingMessage([
+        "workspaceMemberDiagnostics work",
+        `members=${after.memberExpressionsVisited - before.memberExpressionsVisited}`,
+        `analysisSkips=${after.analyzedMemberSkips - before.analyzedMemberSkips}`,
+        `unsupportedReceiverSkips=${after.unsupportedReceiverSkips - before.unsupportedReceiverSkips}`,
+        `unknownReceiverSkips=${after.unknownReceiverSkips - before.unknownReceiverSkips}`,
+        `unsupportedReceiverChainSkips=${after.unsupportedReceiverChainSkips - before.unsupportedReceiverChainSkips}`,
+        `objectTypes=${after.objectTypeResolutions - before.objectTypeResolutions}`,
+        `unresolvedObjectTypeSkips=${after.unresolvedObjectTypeSkips - before.unresolvedObjectTypeSkips}`,
+        `classes=${after.classResolutions - before.classResolutions}`,
+        `membersResolved=${after.memberResolutions - before.memberResolutions}`,
+        `extensions=${after.extensionResolutions - before.extensionResolutions}`,
+        `diagnostics=${after.diagnostics - before.diagnostics}`
+      ].join(" "));
+      return diagnostics;
     })();
     workspaceMemberDiagnosticsCache.set(doc.uri, { version: doc.version, promise });
     return promise;
@@ -342,12 +365,24 @@ export function startLspServer(options: LspServerOptions): void {
       const resolvedSession = session ?? await logTimedPhase("deprecatedSemanticTokenModifiers", "analysisSession", () =>
         analysisSessions.getForDocumentAsync(doc)
       );
-      return logTimedPhase("deprecatedSemanticTokenModifiers", "collect", () =>
+      const before = getDeprecatedSemanticTokenWorkMetrics();
+      const modifiers = await logTimedPhase("deprecatedSemanticTokenModifiers", "collect", () =>
         collectDeprecatedSemanticTokenModifiers({
           ...featureContext(doc.uri),
           session: resolvedSession
         })
       );
+      const after = getDeprecatedSemanticTokenWorkMetrics();
+      logTimingMessage([
+        "deprecatedSemanticTokenModifiers work",
+        `members=${after.memberExpressionsVisited - before.memberExpressionsVisited}`,
+        `candidates=${after.candidateMemberExpressions - before.candidateMemberExpressions}`,
+        `resolutions=${after.uniqueMemberResolutions - before.uniqueMemberResolutions}`,
+        `resolutionCacheHits=${after.memberResolutionCacheHits - before.memberResolutionCacheHits}`,
+        `declarationNodes=${after.candidateDeclarationNodesVisited - before.candidateDeclarationNodesVisited}`,
+        `declarationRootCacheHits=${after.candidateIndexRootCacheHits - before.candidateIndexRootCacheHits}`
+      ].join(" "));
+      return modifiers;
     })();
     deprecatedSemanticTokenModifiersCache.set(doc.uri, { version: doc.version, promise });
     return promise;

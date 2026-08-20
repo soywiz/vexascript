@@ -51,10 +51,10 @@ plot.append("g")
   .selectAll("rect")
   .data(readings)
   .join("rect")
-  .attr("x", (reading) => x(reading.month) ?? 0)
-  .attr("y", (reading) => y(reading.value))
+  .attr("x") { x(it.month) ?? 0 }
+  .attr("y") { y(it.value) }
   .attr("width", x.bandwidth())
-  .attr("height", (reading) => innerHeight - y(reading.value))
+  .attr("height") { innerHeight - y(it.value) }
   .attr("rx", 5)
 
 const trend = line<Reading>()

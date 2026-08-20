@@ -33,13 +33,12 @@ const collected = await collectAllImportedDeclarations(baseSession.ast!, {
 });
 const session = createAnalysisSession(
   source,
-  collected.externalDeclarations,
-  collected.importedSymbolTypes,
-  [],
-  new Map(),
-  new Map(),
-  collected.importedSymbolDisplayTypes,
-  collected.invalidImportedBindings
+  {
+    externalDeclarations: collected.externalDeclarations,
+    externalDeclarationLocations: collected.externalDeclarationLocations,
+    importedSymbols: collected.importedSymbols,
+    invalidImportedBindings: collected.invalidImportedBindings
+  }
 );
 ```
 
@@ -88,34 +87,74 @@ If the browser still shows an old error after a compiler fix, rebuild/reinstall 
 
 For LSP performance regressions, reproduce with the same workspace/sample wiring before changing caches.
 
-Use:
+Use the sample-configurable profiler with the same `.vx` loader as the official
+test suite:
 
 ```bash
-pnpm tsx .codex/skills/vexascript-lsp-infra-debugging/scripts/profile_pixi_lsp_latency.ts
+node --import tsx --import ./scripts/registerTextModuleLoader.cjs \
+  .codex/skills/vexascript-lsp-infra-debugging/scripts/profile_sample_lsp_latency.ts <sample-name> [edit-scenario]
 ```
 
-That script builds the same `AnalysisSessionCache` shape as `compiler/lsp/server.ts`, opens `samples/pixi/html.vx`, mirrors it into the project index, and measures the same cold-path ingredients that feed:
+Omit `<sample-name>` to profile Pixi. The script builds the current
+`AnalysisSessionCache` contract used by `compiler/lsp/server.ts`, opens
+`samples/<sample-name>/html.vx`, mirrors it into the project index, and measures
+the same cold-path ingredients that feed:
 
 - `textDocument/diagnostic`
 - `workspace/diagnostic`
 - `textDocument/semanticTokens/full`
 - `textDocument/semanticTokens/range`
 
-Treat the script as the terminal-side reproduction for editor latency. It removes VS Code transport noise but keeps the same imported declarations, ambient types, DOM libs, and project-index lookups.
+Use the `incomplete-member` edit scenario to insert a standalone `.x` before
+the D3 line generator's accessor call. This reproduces the workspace-diagnostic
+burst caused by a temporarily invalid member chain instead of profiling only an
+appended blank line.
 
-Current findings from the Pixi sample:
+Treat the script as the terminal-side reproduction for editor latency. It removes
+VS Code transport noise but keeps imported declarations, declaration provenance,
+ambient types, DOM libs, and project-index lookups. Before trusting the timings,
+verify that document, module, and cross-file diagnostics match the editor and do
+not show errors caused by a broken profiler session.
+
+The output separates:
+
+- cold session construction;
+- immediate warm deprecated-modifier work;
+- concurrent editor-like feature work;
+- an edited document version that reuses the external declaration graph;
+- project-index session/build counters; and
+- deprecated-member visits, candidates, resolutions, and declaration-index cache
+  hits.
+
+Use the counters as the regression invariant. For example, a document with no
+deprecated member use should not perform project session requests merely to
+prove that ordinary members are not deprecated. Treat milliseconds only as
+observational evidence.
+
+Representative findings:
 
 - cold `AnalysisSessionCache.getForDocumentAsync(...)` is a major first-hit cost
 - deprecated-member analysis is expensive in both diagnostics and semantic tokens
 - `semanticTokens` token building itself is cheap once deprecated modifiers are already available
 - workspace diagnostics add some extra member-diagnostic work, but deprecated-member work dominates more often than token emission
+- D3 exposed an inverted-search failure: resolving every member access before
+  discovering that there were zero deprecated results. Indexing the small set of
+  accessible `@deprecated` declarations first reduced the deprecated semantic
+  pass to zero project-session requests while retaining overload and inheritance
+  checks for genuine candidates.
+- An incomplete D3 member chain exposed a second fallback failure:
+  `collectCrossFileMemberDiagnostics` searched the project for all member uses,
+  including members already resolved by semantic analysis, unknown callback
+  receivers, and a chain whose earlier receiver was a function. Rejecting those
+  impossible fallback candidates reduced the edited pass to zero project-session
+  requests and zero class resolutions.
 
 If VS Code timings are much worse than the script timings, compare:
 
 1. whether VS Code is triggering multiple surfaces concurrently on the same edit/open burst
 2. whether the expensive sub-results are cached across diagnostics and semantic tokens
 3. whether the editor is repeatedly forcing `workspace/didChangeConfiguration` or other refresh paths
-4. whether the sample has unsaved edits or extra imports that differ from the checked-in `samples/pixi/html.vx`
+4. whether the sample has unsaved edits or extra imports that differ from the checked-in `samples/<sample-name>/html.vx`
 
 When chasing latency, measure substeps separately before adding more caches. In this codebase the likely hotspots are:
 
@@ -123,6 +162,9 @@ When chasing latency, measure substeps separately before adding more caches. In 
 - deprecated-member discovery (`collectDeprecatedDiagnostics` / `collectDeprecatedSemanticTokenModifiers`)
 - cross-file diagnostics helpers
 - expensive code-action producers that only make sense when diagnostics exist
+
+Do not run this profiler through bare `pnpm tsx`: compiler modules import `.vx`
+runtime declarations and require `scripts/registerTextModuleLoader.cjs`.
 
 ## Validation Sequence
 

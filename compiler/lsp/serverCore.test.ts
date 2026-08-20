@@ -18,6 +18,14 @@ import { sourceWithCursor } from "compiler/test/sourceWithCursor";
 import { parseSource } from "compiler/pipeline/parse";
 import { VEXA_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
+import {
+  getDeprecatedSemanticTokenWorkMetrics,
+  resetDeprecatedSemanticTokenWorkMetrics
+} from "./deprecatedSemanticTokens";
+import {
+  getCrossFileMemberDiagnosticWorkMetrics,
+  resetCrossFileMemberDiagnosticWorkMetrics
+} from "./memberDiagnostics";
 import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
 import { resolve as resolvePath } from "compiler/utils/path";
 import {
@@ -774,6 +782,48 @@ describe("LSP server core", () => {
     assert.equal(server.fakeConnection.infoMessages.some((message) =>
       /^\[Timing\] textDocument\/semanticTokens\/full::deprecatedSemanticTokenModifiers took \d+(?:\.\d+)?ms$/.test(message)
     ), true);
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      /^\[Timing\] deprecatedSemanticTokenModifiers work members=\d+ candidates=\d+ resolutions=\d+ resolutionCacheHits=\d+ declarationNodes=\d+ declarationRootCacheHits=\d+$/.test(message)
+    ), true);
+  });
+
+  it("bounds workspace member diagnostics for an incomplete member chain after an edit", async () => {
+    const server = startServer(true);
+    server.fakeConnection.handlers.get("initialize")!({
+      initializationOptions: { enableLspTimings: true }
+    });
+    const source = [
+      "declare interface Line {",
+      "  x(accessor: (value: number) => number): Line",
+      "}",
+      "declare function line(): Line",
+      "const trend = line()",
+      "  .x((value) => value)",
+      ""
+    ].join("\n");
+    const document = openedDocument(server, source);
+
+    await server.fakeConnection.handlers.get("workspaceDiagnostics")!({});
+    resetCrossFileMemberDiagnosticWorkMetrics();
+    const editedDocument = TextDocument.create(
+      document.uri,
+      "vexa",
+      2,
+      source.replace("  .x((value)", "  .x\n  .x((value)")
+    );
+    server.fakeDocuments.change(editedDocument);
+    await server.fakeConnection.handlers.get("workspaceDiagnostics")!({});
+    const editWork = getCrossFileMemberDiagnosticWorkMetrics();
+
+    assert.equal(editWork.collections, 1);
+    assert.equal(editWork.memberExpressionsVisited, 2);
+    assert.equal(editWork.analyzedMemberSkips, 1);
+    assert.equal(editWork.unsupportedReceiverSkips, 1);
+    assert.equal(editWork.objectTypeResolutions, 0);
+    assert.equal(editWork.classResolutions, 0);
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      /^\[Timing\] workspaceMemberDiagnostics work members=2 analysisSkips=1 unsupportedReceiverSkips=1 unknownReceiverSkips=0 unsupportedReceiverChainSkips=0 objectTypes=0 unresolvedObjectTypeSkips=0 classes=0 membersResolved=0 extensions=0 diagnostics=0$/.test(message)
+    ), true);
   });
 
   it("marks deprecated members in semantic tokens through the LSP route", async () => {
@@ -798,6 +848,38 @@ describe("LSP server core", () => {
     );
 
     assert.equal((beginFillToken?.modifierBits ?? 0) & deprecatedBit, deprecatedBit);
+  });
+
+  it("bounds deprecated-member work after an ordinary document edit", async () => {
+    const server = startServer(false);
+    const source = [
+      "declare class Chart {",
+      "  attr(name: string, value: string): Chart",
+      "}",
+      "val chart = Chart()",
+      "chart.attr(\"role\", \"img\")",
+      ""
+    ].join("\n");
+    const document = openedDocument(server, source);
+
+    resetDeprecatedSemanticTokenWorkMetrics();
+    await server.fakeConnection.handlers.get("semanticTokens")!({
+      textDocument: { uri: document.uri }
+    });
+
+    resetDeprecatedSemanticTokenWorkMetrics();
+    const editedDocument = TextDocument.create(document.uri, "vexa", 2, source.replace("img", "figure"));
+    server.fakeDocuments.change(editedDocument);
+    await server.fakeConnection.handlers.get("semanticTokens")!({
+      textDocument: { uri: document.uri }
+    });
+    const editWork = getDeprecatedSemanticTokenWorkMetrics();
+
+    assert.equal(editWork.collections, 1);
+    assert.equal(editWork.memberExpressionsVisited, 1);
+    assert.equal(editWork.candidateMemberExpressions, 0);
+    assert.equal(editWork.uniqueMemberResolutions, 0);
+    assert.equal(editWork.candidateIndexRootCacheHits >= 1, true);
   });
 
   it("derives semantic token ranges from the cached full result for the same document version", async () => {

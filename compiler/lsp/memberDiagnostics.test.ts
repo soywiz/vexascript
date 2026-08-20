@@ -1,10 +1,114 @@
 import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
-import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
+import {
+  collectCrossFileMemberDiagnostics,
+  getCrossFileMemberDiagnosticWorkMetrics,
+  resetCrossFileMemberDiagnosticWorkMetrics
+} from "./memberDiagnostics";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 
 describe("cross-file member diagnostics", () => {
+  it("skips cross-file lookup for members already resolved by semantic analysis", async () => {
+    const source = dedent`
+      declare interface Selection {
+        attr(name: string, value: string): Selection
+      }
+      declare function select(): Selection
+
+      val plot = select()
+      plot.attr("class", "chart")
+    `;
+    const session = createAnalysisSession(source);
+    let sessionRequests = 0;
+
+    resetCrossFileMemberDiagnosticWorkMetrics();
+    const diagnostics = await collectCrossFileMemberDiagnostics({
+      uri: "file:///sample.vx",
+      session,
+      sourceRoots: ["/workspace"],
+      getSessionForFilePath: () => {
+        sessionRequests += 1;
+        return null;
+      }
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(sessionRequests).toBe(0);
+    expect(getCrossFileMemberDiagnosticWorkMetrics()).toMatchObject({
+      collections: 1,
+      memberExpressionsVisited: 1,
+      analyzedMemberSkips: 1,
+      objectTypeResolutions: 0,
+      classResolutions: 0
+    });
+  });
+
+  it("does not search the workspace for an invalid member chained from a function", async () => {
+    const source = dedent`
+      declare interface Line {
+        x(accessor: (value: number) => number): Line
+      }
+      declare function line(): Line
+
+      line()
+        .x
+        .x((value) => value)
+    `;
+    const session = createAnalysisSession(source);
+    let sessionRequests = 0;
+
+    resetCrossFileMemberDiagnosticWorkMetrics();
+    await collectCrossFileMemberDiagnostics({
+      uri: "file:///sample.vx",
+      session,
+      sourceRoots: ["/workspace"],
+      getSessionForFilePath: () => {
+        sessionRequests += 1;
+        return null;
+      }
+    });
+
+    expect(sessionRequests).toBe(0);
+    expect(getCrossFileMemberDiagnosticWorkMetrics()).toMatchObject({
+      collections: 1,
+      memberExpressionsVisited: 2,
+      analyzedMemberSkips: 1,
+      unsupportedReceiverSkips: 1,
+      classResolutions: 0
+    });
+  });
+
+  it("does not search the workspace for a member whose receiver stays unknown", async () => {
+    const source = dedent`
+      fun inspect(value: unknown) {
+        value.missing
+      }
+    `;
+    const session = createAnalysisSession(source);
+    let sessionRequests = 0;
+
+    resetCrossFileMemberDiagnosticWorkMetrics();
+    await collectCrossFileMemberDiagnostics({
+      uri: "file:///sample.vx",
+      session,
+      sourceRoots: ["/workspace"],
+      getSessionForFilePath: () => {
+        sessionRequests += 1;
+        return null;
+      }
+    });
+
+    expect(sessionRequests).toBe(0);
+    expect(getCrossFileMemberDiagnosticWorkMetrics()).toMatchObject({
+      collections: 1,
+      memberExpressionsVisited: 1,
+      objectTypeResolutions: 1,
+      unresolvedObjectTypeSkips: 1,
+      classResolutions: 0
+    });
+  });
+
   it("reports unknown class members for imported classes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
     const worldFile = join(root, "world.vx");
