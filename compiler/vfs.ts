@@ -11,6 +11,9 @@ function unconfiguredVfsError(): Error {
 }
 
 export class Vfs {
+  async realPath(path: string): Promise<string> {
+    return path
+  }
   async readFile(path: string): Promise<string> {
     throw new Error(`readFile: ${path}`)
   }

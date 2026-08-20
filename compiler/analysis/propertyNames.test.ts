@@ -1,6 +1,6 @@
 import { describe, expect, it } from "../test/expect";
 import type { AnalysisType, BuiltinTypeName } from "./types";
-import { builtinType, unionType } from "./types";
+import { builtinType, namedType, unionType } from "./types";
 import {
   isDynamicPropertyName,
   normalizeIndexSignaturePropertyName,
@@ -171,6 +171,10 @@ describe("propertyTypeAllowsUndefined", () => {
 
   it("returns true for union containing undefined", () => {
     expect(propertyTypeAllowsUndefined(union(builtin("string"), builtin("undefined")))).toBe(true);
+  });
+
+  it("recognizes unresolved named undefined members", () => {
+    expect(propertyTypeAllowsUndefined(union(builtin("string"), namedType("undefined")))).toBe(true);
   });
 
   it("returns false for string", () => {

@@ -4528,7 +4528,15 @@ export class TypeChecker {
               false
             );
             returnType = this.withActiveFlowContext(expressionFlow, () =>
-              this.visitExpression(arrow.body as Expr, arrowScope, expectedFunctionType?.returnType)
+              this.visitExpression(
+                arrow.body as Expr,
+                arrowScope,
+                expectedFunctionType
+                  && !isUnknownType(expectedFunctionType.returnType)
+                  && typeToString(expectedFunctionType.returnType) !== "unknown"
+                  ? expectedFunctionType.returnType
+                  : undefined
+              )
             );
             if (arrowIsAsyncLike && (!expectedFunctionType || isUnknownType(expectedFunctionType.returnType))) {
               returnType = namedType("Promise", [returnType]);
@@ -5368,11 +5376,11 @@ export class TypeChecker {
         operator === "|" ||
         operator === "^"
       ) {
-        if (isNumberType(leftType) && isNumberType(rightType)) {
+        if (this.isNumberOperatorType(leftType) && this.isNumberOperatorType(rightType)) {
           return builtinType("int");
         }
       }
-      if (isNumberType(leftType) && isNumberType(rightType)) {
+      if (this.isNumberOperatorType(leftType) && this.isNumberOperatorType(rightType)) {
         return builtinType("number");
       }
       if (isNumberLikeType(leftType) || isNumberLikeType(rightType)) {
@@ -5410,6 +5418,17 @@ export class TypeChecker {
     }
 
     return UNKNOWN_TYPE;
+  }
+
+  private isNumberOperatorType(type: AnalysisType): boolean {
+    const expanded = this.expandTypeAliases(type);
+    if (!(expanded instanceof UnionType)) {
+      return isNumberType(expanded);
+    }
+    const reachableMembers = expanded.types.filter((member) =>
+      !(member instanceof BuiltinType && member.name === "never")
+    );
+    return reachableMembers.length > 0 && reachableMembers.every((member) => this.isNumberOperatorType(member));
   }
 
   private isTypeAssignable(sourceType: AnalysisType, targetType: AnalysisType): boolean {
@@ -5471,6 +5490,12 @@ export class TypeChecker {
 
     if (sourceType instanceof NamedType && this.isActiveTypeParameter(sourceType.name)) {
       return true;
+    }
+
+    if (sourceType instanceof UnionType && targetType instanceof UnionType) {
+      return sourceType.types.every((sourceMember) =>
+        targetType.types.some((targetMember) => this.isTypeAssignable(sourceMember, targetMember))
+      );
     }
 
     if (targetType instanceof UnionType) {
@@ -5592,6 +5617,20 @@ export class TypeChecker {
       return true;
     }
 
+    if (sourceType instanceof NamedType && targetType instanceof FunctionType) {
+      const sourceCallable = this.callableTypeFrom(sourceType);
+      if (sourceCallable) {
+        return this.isTypeAssignable(sourceCallable, targetType);
+      }
+    }
+
+    if (sourceType instanceof FunctionType && targetType instanceof NamedType) {
+      const targetCallable = this.callableTypeFrom(targetType);
+      if (targetCallable) {
+        return this.isTypeAssignable(sourceType, targetCallable);
+      }
+    }
+
     if (sourceType instanceof FunctionType && targetType instanceof FunctionType) {
       const sourceFunction = sourceType as FunctionType;
       const targetFunction = targetType as FunctionType;
@@ -5658,6 +5697,23 @@ export class TypeChecker {
       return this.isTypeAssignable(sourceType.elementType, targetType.elementType);
     }
 
+    if (
+      (sourceType instanceof BuiltinType || sourceType instanceof LiteralType)
+      && targetType instanceof ObjectType
+    ) {
+      const sourceMembers = this.membersForType(sourceType);
+      if (sourceMembers) {
+        const targetProperties = targetType.properties;
+        if (
+          targetProperties.size > 0
+          && ![...targetProperties.keys()].some((name) => propertyTypeFrom(sourceMembers, name) !== undefined)
+        ) {
+          return false;
+        }
+        return this.objectPropertiesAreAssignable(sourceMembers, targetProperties);
+      }
+    }
+
     if (sourceType instanceof ObjectType && targetType instanceof ObjectType) {
       return this.objectPropertiesAreAssignable(
         (sourceType as ObjectType).properties,
@@ -5687,7 +5743,7 @@ export class TypeChecker {
 
     if (sourceType instanceof ArrayType && targetType instanceof NamedType) {
       if (
-        (targetType.name === "ReadonlyArray" || targetType.name === "ConcatArray")
+        (targetType.name === "ReadonlyArray" || targetType.name === "ConcatArray" || targetType.name === "ArrayLike")
         && (targetType.typeArguments?.length ?? 0) === 1
       ) {
         return this.isTypeAssignable(sourceType.elementType, targetType.typeArguments![0]!);
@@ -5926,15 +5982,26 @@ export class TypeChecker {
     sourceType: NamedType,
     targetType: NamedType
   ): boolean {
-    const targetMembers = this.resolveNamedTypeMembers(targetType);
-    if (!targetMembers) {
+    const resolvedTargetMembers = this.resolveNamedTypeMembers(targetType);
+    if (!resolvedTargetMembers) {
       return false;
     }
+    const targetMembers = this.withOptionalInterfaceMembers(targetType, resolvedTargetMembers);
     const sourceMembers = this.resolveNamedTypeMembers(sourceType);
     if (!sourceMembers) {
       return false;
     }
-    return this.objectPropertiesAreAssignable(sourceMembers, targetMembers);
+    if (!this.objectPropertiesAreAssignable(sourceMembers, targetMembers)) {
+      return false;
+    }
+    const targetCallables = this.collectInterfaceCallableOverloads(targetType);
+    if (targetCallables.length === 0) {
+      return true;
+    }
+    const sourceCallables = this.callableCandidatesFrom(sourceType);
+    return sourceCallables.length > 0 && targetCallables.every((targetCallable) =>
+      sourceCallables.some((sourceCallable) => this.isTypeAssignable(sourceCallable, targetCallable))
+    );
   }
 
   private isNamedTypeAssignableByDeclaration(
@@ -6065,16 +6132,10 @@ export class TypeChecker {
         }
         return false;
       }
-      if (this.isTypeAssignable(sourcePropertyType, targetPropertyType)) {
+      if (this.isPropertyAssignableToTargetType(sourcePropertyType, targetPropertyType)) {
         continue;
       }
-      const definedTargetPropertyType = propertyTypeWithoutUndefined(targetPropertyType);
-      if (definedTargetPropertyType && this.isTypeAssignable(sourcePropertyType, definedTargetPropertyType)) {
-        continue;
-      }
-      if (!this.isTypeAssignable(sourcePropertyType, targetPropertyType)) {
-        return false;
-      }
+      return false;
     }
 
     if (dynamicTargetPropertyTypes.length === 0) {
@@ -6138,6 +6199,14 @@ export class TypeChecker {
       || (targetType instanceof NamedType && targetType.name === "unknown")
     ) {
       return true;
+    }
+    if (
+      sourceType instanceof UnionType
+      && sourceType.types.length > 0
+      && sourceType.types.every((member) => member instanceof FunctionType)
+    ) {
+      const definedTargetType = propertyTypeWithoutUndefined(targetType) ?? targetType;
+      return sourceType.types.some((member) => this.isTypeAssignable(member, definedTargetType));
     }
     if (this.isTypeAssignable(sourceType, targetType)) {
       return true;
@@ -7086,6 +7155,13 @@ export class TypeChecker {
       if (isNullishType(type)) return;
       if (visited.has(type)) return;
       visited.add(type);
+      if (type instanceof NamedType && this.isActiveTypeParameter(type.name)) {
+        const constraint = this.activeTypeParameterConstraint(type.name);
+        if (constraint && !isSameType(constraint, type)) {
+          collectCallableMembers(constraint);
+        }
+        return;
+      }
       const expanded = this.expandTypeAliases(this.normalizeLooseNamedType(type));
       if (!isSameType(expanded, type)) {
         collectCallableMembers(expanded);
@@ -7392,6 +7468,53 @@ export class TypeChecker {
         this.mergeInferredTypeParameterSubstitution(parameterType.name, argumentType, substitutions);
       }
       return;
+    }
+
+    const mappedTupleText = typeToString(parameterType).trim();
+    const mappedTupleMember = mappedTupleText.startsWith("{") && mappedTupleText.endsWith("}")
+      ? parseMappedTypeMemberText(mappedTupleText.slice(1, -1).trim())
+      : null;
+    const mappedTupleSource = mappedTupleMember
+      ? /^keyof\s+([A-Za-z_$][\w$]*)$/.exec(mappedTupleMember.keySourceText.trim())
+      : null;
+    const mappedTupleParameter = mappedTupleSource?.[1];
+    if (
+      mappedTupleMember
+      && mappedTupleParameter
+      && typeParameters.has(mappedTupleParameter)
+      && !explicitlyProvidedTypeParameters.has(mappedTupleParameter)
+      && argumentType instanceof TupleType
+    ) {
+      const indexedElementPattern = new RegExp(
+        `${mappedTupleParameter}\\s*\\[\\s*${mappedTupleMember.keyParameterName}\\s*\\]`,
+        "g"
+      );
+      if (indexedElementPattern.test(mappedTupleMember.valueTypeText)) {
+        const tupleElements: AnalysisType[] = [];
+        for (let index = 0; index < argumentType.elements.length; index += 1) {
+          const syntheticParameter = `__mappedTupleElement${index}`;
+          const elementPatternText = mappedTupleMember.valueTypeText.replace(
+            indexedElementPattern,
+            syntheticParameter
+          );
+          const elementSubstitutions = new Map(substitutions);
+          this.inferTypeParameterSubstitutions(
+            this.typeFromTypeNameLoose(elementPatternText),
+            argumentType.elements[index]!,
+            new Set([...typeParameters, syntheticParameter]),
+            explicitlyProvidedTypeParameters,
+            elementSubstitutions
+          );
+          tupleElements.push(elementSubstitutions.get(syntheticParameter) ?? UNKNOWN_TYPE);
+          for (const [name, type] of elementSubstitutions) {
+            if (name !== syntheticParameter && typeParameters.has(name)) {
+              this.mergeInferredTypeParameterSubstitution(name, type, substitutions);
+            }
+          }
+        }
+        substitutions.set(mappedTupleParameter, tupleType(tupleElements, argumentType.isReadonly));
+        return;
+      }
     }
 
     const conditionalParameter = parameterType instanceof NamedType
@@ -7789,6 +7912,34 @@ export class TypeChecker {
       if (
         parameterNamed.name !== argumentNamed.name && !promiseLikeArgument
       ) {
+        const parameterCallable = this.callableTypeFrom(parameterNamed);
+        const argumentCallable = this.callableTypeFrom(argumentNamed);
+        if (parameterCallable && argumentCallable) {
+          this.inferTypeParameterSubstitutions(
+            parameterCallable,
+            argumentCallable,
+            typeParameters,
+            explicitlyProvidedTypeParameters,
+            substitutions
+          );
+        }
+        const parameterMembers = this.resolveNamedTypeMembers(parameterNamed);
+        const argumentMembers = this.resolveNamedTypeMembers(argumentNamed);
+        if (parameterMembers && argumentMembers) {
+          for (const [propertyName, nestedParameterType] of parameterMembers) {
+            const nestedArgumentType = propertyTypeFrom(argumentMembers, propertyName);
+            if (!nestedArgumentType) {
+              continue;
+            }
+            this.inferTypeParameterSubstitutions(
+              nestedParameterType,
+              nestedArgumentType,
+              typeParameters,
+              explicitlyProvidedTypeParameters,
+              substitutions
+            );
+          }
+        }
         return;
       }
       const sharedTypeArgumentCount = Math.min(parameterTypeArguments.length, argumentTypeArguments.length);
@@ -8347,7 +8498,7 @@ export class TypeChecker {
       candidates = arityCompatibleCandidates;
     }
 
-    let best: { candidate: FunctionType; score: number } | null = null;
+    let best: { candidate: FunctionType; score: number; suppliesFunctionContext: boolean } | null = null;
     for (const candidate of candidates) {
       const baseline = this.issues.length;
       const hasNamedArguments = call.args.some((argument) => argument instanceof NamedArgument);
@@ -8372,6 +8523,11 @@ export class TypeChecker {
         false,
         true,
         false
+      );
+      const suppliesFunctionContext = call.args.every((argument, index) =>
+        !this.isFunctionLikeExpression(argument)
+        || argument.parameters.some((parameter) => parameter.typeAnnotation !== undefined)
+        || this.contextualFunctionExpectedType(this.expectedTypeForCallArgument(firstPass, index)) !== undefined
       );
       const contextualArgumentTypes = hasNamedArguments
         ? inferenceArgumentTypes
@@ -8407,9 +8563,13 @@ export class TypeChecker {
           instantiated,
           hasNamedArguments ? argumentTypes : contextualArgumentTypes
         );
-      if (!best || score < best.score) {
-        best = { candidate, score };
-        if (score === 0) {
+      if (
+        !best
+        || (suppliesFunctionContext && !best.suppliesFunctionContext)
+        || (suppliesFunctionContext === best.suppliesFunctionContext && score < best.score)
+      ) {
+        best = { candidate, score, suppliesFunctionContext };
+        if (score === 0 && suppliesFunctionContext) {
           break;
         }
       }
@@ -8662,21 +8822,34 @@ export class TypeChecker {
     };
     const argumentParameters = expandTupleRestParameters(argumentType.parameters);
     const expectedParameters = expandTupleRestParameters(effectiveExpectedType.parameters);
+    const expectedRestParameter = expectedParameters.at(-1)?.rest === true
+      ? expectedParameters.at(-1)
+      : undefined;
+    const expectedFixedParameterCount = expectedRestParameter
+      ? expectedParameters.length - 1
+      : expectedParameters.length;
     const argumentRequiredCount = argumentParameters.filter((parameter) => !parameter.optional).length;
-    if (argumentRequiredCount > expectedParameters.length) {
+    if (!expectedRestParameter && argumentRequiredCount > expectedParameters.length) {
       return false;
     }
 
     for (let index = 0; index < argumentParameters.length; index += 1) {
       const argumentParameter = argumentParameters[index];
-      const expectedParameter = expectedParameters[index];
+      const expectedParameter = expectedParameters[index] ?? expectedRestParameter;
       if (!argumentParameter || !expectedParameter) {
         return false;
       }
-      if (!this.isTypeAssignable(expectedParameter.type, argumentParameter.type)) {
+      const expectedParameterType = expectedRestParameter && index >= expectedFixedParameterCount
+        ? this.restParameterExpectedTypeAt(expectedRestParameter.type, index - expectedFixedParameterCount)
+        : expectedParameter.type;
+      if (!this.isTypeAssignable(expectedParameterType, argumentParameter.type)) {
         return false;
       }
-      if ((expectedParameter.optional ?? false) === true && (argumentParameter.optional ?? false) === false) {
+      if (
+        expectedParameter !== expectedRestParameter
+        && (expectedParameter.optional ?? false) === true
+        && (argumentParameter.optional ?? false) === false
+      ) {
         return false;
       }
     }
@@ -8714,25 +8887,30 @@ export class TypeChecker {
     return this.literalArgumentType(argumentExpression, argumentType);
   }
 
-  private expectedTypeDependsOnLiteral(type: AnalysisType): boolean {
+  private expectedTypeDependsOnLiteral(type: AnalysisType, visited = new Set<string>()): boolean {
+    const visitKey = `${type.constructor.name}:${typeToString(type)}`;
+    if (visited.has(visitKey)) {
+      return false;
+    }
+    visited.add(visitKey);
     if (type instanceof NamedType) {
       const expanded = this.expandTypeAliases(this.normalizeLooseNamedType(type));
       if (!isSameType(expanded, type)) {
-        return this.expectedTypeDependsOnLiteral(expanded);
+        return this.expectedTypeDependsOnLiteral(expanded, visited);
       }
     }
     if (type instanceof LiteralType) {
       return true;
     }
     if (type instanceof UnionType) {
-      return type.types.some((member) => this.expectedTypeDependsOnLiteral(member));
+      return type.types.some((member) => this.expectedTypeDependsOnLiteral(member, visited));
     }
     if (type instanceof IntersectionType) {
-      return type.types.some((member) => this.expectedTypeDependsOnLiteral(member));
+      return type.types.some((member) => this.expectedTypeDependsOnLiteral(member, visited));
     }
     if (type instanceof ObjectType) {
       for (const member of (type as ObjectType).properties.values()) {
-        if (this.expectedTypeDependsOnLiteral(member)) {
+        if (this.expectedTypeDependsOnLiteral(member, visited)) {
           return true;
         }
       }
@@ -11958,6 +12136,17 @@ export class TypeChecker {
         );
       }
     }
+    if (
+      sourceType instanceof TupleType
+      && !keyRemapText
+      && !readonlyModifier
+      && !optionalModifier
+    ) {
+      return tupleType(
+        sourceType.elements.map((_, index) => properties.get(String(index)) ?? UNKNOWN_TYPE),
+        sourceType.isReadonly === true
+      );
+    }
     return this.objectTypeWithPropertyOrigins(properties, sourceType);
   }
 
@@ -12319,6 +12508,26 @@ export class TypeChecker {
       return elementType
         ? this.constrainedInferSubstitution(readonlyArrayMatch[1], elementType, readonlyArrayMatch[2]?.trim())
         : null;
+    }
+
+    const tupleHeadRestMatch = /^(?:readonly\s+)?\[\s*infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+?))?\s*,\s*\.\.\.\s*infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+?))?\s*\]$/.exec(
+      substitutedPattern
+    );
+    if (tupleHeadRestMatch?.[1] && tupleHeadRestMatch[3] && sourceType instanceof TupleType && sourceType.elements.length > 0) {
+      const head = this.constrainedInferSubstitution(
+        tupleHeadRestMatch[1],
+        sourceType.elements[0]!,
+        tupleHeadRestMatch[2]?.trim()
+      );
+      const rest = this.constrainedInferSubstitution(
+        tupleHeadRestMatch[3],
+        tupleType(sourceType.elements.slice(1), sourceType.isReadonly),
+        tupleHeadRestMatch[4]?.trim()
+      );
+      if (!head || !rest) {
+        return null;
+      }
+      return new Map([...head, ...rest]);
     }
 
     if (sourceType instanceof FunctionType) {
@@ -13223,17 +13432,26 @@ export class TypeChecker {
     return builtinType("any");
   }
 
-  private contextualLiteralType(literal: AnalysisType, expectedType?: AnalysisType): AnalysisType | null {
+  private contextualLiteralType(
+    literal: AnalysisType,
+    expectedType?: AnalysisType,
+    visited = new Set<AnalysisType>()
+  ): AnalysisType | null {
     if (!expectedType || !(literal instanceof LiteralType)) {
       return null;
     }
+    if (visited.has(expectedType)) {
+      return null;
+    }
+    visited.add(expectedType);
     const expandedExpectedType = this.expandTypeAliases(this.normalizeLooseNamedType(expectedType));
     if (expandedExpectedType instanceof LiteralType && this.isTypeAssignable(literal, expandedExpectedType)) {
       return expandedExpectedType;
     }
     if (expandedExpectedType instanceof UnionType) {
       for (const member of expandedExpectedType.types) {
-        if (member instanceof LiteralType && this.isTypeAssignable(literal, member)) return member;
+        const contextualMember = this.contextualLiteralType(literal, member, visited);
+        if (contextualMember) return contextualMember;
       }
       return null;
     }
@@ -15837,7 +16055,7 @@ export class TypeChecker {
 
       if (classStatement.extendsType) {
         const resolvedExtendsType = this.typeFromTypeNameLooseWithSubstitutions(classStatement.extendsType.name, substitutions);
-        if (resolvedExtendsType instanceof NamedType && this.classStatementsByName.has(resolvedExtendsType.name)) {
+        if (resolvedExtendsType instanceof NamedType) {
           const inheritedMembers = this.resolveNamedTypeMembersInternal(resolvedExtendsType, visited);
           if (inheritedMembers) {
             for (const [memberName, memberType] of inheritedMembers.entries()) {
@@ -17293,10 +17511,14 @@ export class TypeChecker {
     if (this.typeExpansionsInProgress.has(type)) {
       return type;
     }
+    const isActiveRecursiveAliasReference =
+      type instanceof NamedType && this.activeTypeAliasNames.has(type.name);
     this.typeExpansionsInProgress.add(type);
     try {
       const expanded = this.expandTypeAliasesUncached(type);
-      this.expandedTypesBySource.set(type, expanded);
+      if (!isActiveRecursiveAliasReference || !isSameType(expanded, type)) {
+        this.expandedTypesBySource.set(type, expanded);
+      }
       return expanded;
     } finally {
       this.typeExpansionsInProgress.delete(type);
@@ -17769,7 +17991,10 @@ export class TypeChecker {
           return directSubstitution;
         }
         const substitutedName = this.substituteTypeParametersInComputedName(sourceType.name, substitutions);
-        return substitutedName === sourceType.name ? sourceType : namedType(substitutedName);
+        if (substitutedName === sourceType.name) {
+          return sourceType;
+        }
+        return this.resolveMappedUtilityTypeText(substitutedName, new Map()) ?? namedType(substitutedName);
       }
       return namedType(
         sourceType.name,

@@ -2,9 +2,9 @@
 
 ## Context
 
-Eleven runnable samples were added against unmodified published packages:
+Fourteen runnable samples were added against unmodified published packages:
 Zustand, Hono, RxJS, XState, TanStack Table, Effect, Drizzle, Kysely, tRPC,
-Viem, and React Hook Form. Each sample has deterministic runtime output and
+Viem, React Hook Form, D3, Commander, and CodeMirror. Each sample has deterministic runtime output and
 keeps the package declarations as the source of truth. The work deliberately
 avoided local declaration shims, broad sample-owned casts, and replacing a hard
 API with an easier package-specific path.
@@ -88,6 +88,34 @@ of information in one of those layers.
 - Recursive contextual callback discovery must track type object identity, not
   printed type strings. Distinct aliases can print identically while exposing
   different callable paths.
+- D3 combines several features that are individually common but unusually dense
+  in one declaration graph: mapped rest tuples, head/rest conditional inference,
+  `ArrayLike`, inherited ambient collections, primitive boxed constraints,
+  callable interfaces, overloaded methods, optional structural members, and
+  `number | never` callable results. The focused regressions preserve each
+  general rule independently of D3.
+- Commander exposed the variance rule for a fixed callback passed where a
+  library accepts `(...args: any[]) => void | Promise<void>`. Rest parameters
+  must be compared positionally without requiring the source callback itself to
+  declare a rest parameter.
+- CodeMirror's `Extension` is a recursive union of extension providers and
+  readonly extension arrays. Recursive alias references observed during an
+  active expansion must not be cached permanently as unexpanded names, and
+  union-to-union assignability must compare every source member against some
+  compatible target member.
+- Overload selection should prefer a signature that supplies a contextual type
+  for an unannotated callback over a generic signature that accepts the callback
+  while leaving its parameters unknown. Hono's typed async POST handler exposed
+  the difference.
+- Contextual literal preservation must descend through nested optional unions
+  and aliases by type-object identity. A printed-type visited set incorrectly
+  treated a nested union with the same display text as already explored and
+  widened Pixi's `"700"` font weight to `string`.
+- Primitive boxing supports structural contracts such as D3's required
+  `valueOf()`, but a primitive must not satisfy an unrelated weak object merely
+  because all of that object's properties are optional. Requiring a shared
+  structural property preserves boxed constraints without making a string match
+  Node's object-shaped `readFile` options overload.
 
 ## Declaration provenance findings
 
@@ -104,6 +132,36 @@ of information in one of those layers.
 - Recursive schema aliases can often be broken safely at a declared interface
   property such as `_zod`, `shape`, `element`, or tuple `items`. These structural
   facts should be attempted before falling back to a recursive output alias.
+- The same physical declaration can arrive through two package graphs. Object
+  identity is insufficient for deduplication because each graph may parse its
+  own AST. Deduplicating by declaration file and source position prevents a
+  repeated alias export from attaching to a same-name declaration in another
+  module.
+- TypeScript declaration classes may contain computed accessors such as
+  `get [GET_MATCH_RESULT](): Result<...>`. Recovering past that accessor dropped
+  the entire `HonoRequest` class and made later request methods unknown; the
+  parser now preserves the class and the computed getter.
+
+## Runtime and browser findings
+
+- A successful static CodeMirror bundle was not enough to validate runtime
+  identity. The browser rejected the extension set because the bundler emitted
+  two paths to the same pnpm package as separate modules, so `instanceof`
+  crossed two copies of `@codemirror/state`. Bundle traversal now canonicalizes
+  filesystem-backed modules through the asynchronous VFS real path while
+  leaving virtual/browser VFS paths unchanged.
+- Physical identity is an additional lookup key, not the path that should be
+  emitted. Replacing a module's logical path with its real path leaked temporary
+  `/private/var/...` paths into bundles and changed watcher/debug identities.
+  The traversal now deduplicates aliases by real path while retaining the first
+  logical path in module records and generated code.
+- The D3 browser sample renders five bound SVG bars, numeric and categorical
+  axes, and a generated trend path. The CodeMirror browser sample mounts one
+  editor and applies a transaction to produce three lines. Both were checked in
+  a headed browser with a clean console.
+- The expanded Hono sample was executed as a real Node server. HTTP checks
+  covered middleware headers, a parameterized JSON GET route, a typed JSON POST
+  body, and an HTML response.
 
 ## Investigation branches that did not solve the problem
 
@@ -131,6 +189,29 @@ of information in one of those layers.
   over-specialized ordinary identity functions. Literal preservation is now
   limited to const parameters or constraints whose result depends on the
   literal; broad unconstrained generics retain widened values.
+- Treating the CodeMirror error as a package-version mismatch would have missed
+  that both imports resolved to the same installed version under different
+  symlink paths. Inspecting the real browser exception identified module
+  identity, not semantic typing, as the failing layer.
+- Hono initially appeared to require globally loading `@types/node`, but doing
+  so only introduced Web/Node global collisions and obscured the actual
+  declaration-provenance failure. The Node adapter's own imported declarations
+  are sufficient for this sample once the graph retains the correct Hono
+  classes.
+- Comparing recursive unions member-by-member fixed one CodeMirror edge but did
+  not address the provisional alias expansion stored in the cache. Both the
+  assignability rule and the cache lifetime needed focused fixes.
+- Running several `pnpm cli` commands concurrently is unsafe because each build
+  refreshes the shared `dist/` directory. Sequential sample validation avoids
+  intermittent missing emitted files until the build workflow gains isolated
+  outputs.
+- The first full-suite Zod counter failure appeared to show 1,993 cold session
+  requests against a 1,904 bound. The declaration-graph change was not the
+  cause: interval snapshots showed 1,877 cold requests and 116 warm requests.
+  The sample helper returned the post-warm cumulative snapshot as its cold
+  metrics while also publishing the warm delta separately. Returning the
+  pre-warm snapshot keeps both assertions deterministic and non-overlapping;
+  raising the bound would have hidden a measurement bug.
 
 ## Regression strategy
 

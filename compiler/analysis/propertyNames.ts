@@ -4,7 +4,7 @@
  * `[K: string]` are normalized to a canonical `[type]` form so they can be
  * compared regardless of spacing or the bound variable name.
  */
-import { type AnalysisType, BuiltinType, UnionType } from "./types";
+import { type AnalysisType, BuiltinType, NamedType, UnionType } from "./types";
 import { unionType } from "./types";
 
 export function isReadonlyPropertyName(name: string): boolean {
@@ -118,6 +118,9 @@ export function propertyTypeAllowsUndefined(type: AnalysisType): boolean {
   if (type instanceof BuiltinType) {
     return type.name === "undefined" || type.name === "any" || type.name === "unknown";
   }
+  if (type instanceof NamedType) {
+    return type.name === "undefined" || type.name === "any" || type.name === "unknown";
+  }
   if (type instanceof UnionType) {
     for (const rawMember of type.types) {
       const member = rawMember as AnalysisType;
@@ -135,7 +138,10 @@ export function propertyTypeWithoutUndefined(type: AnalysisType): AnalysisType |
   const definedMembers: AnalysisType[] = [];
   for (const rawMember of type.types) {
     const member = rawMember as AnalysisType;
-    if (!(member instanceof BuiltinType && member.name === "undefined")) definedMembers.push(member);
+    if (!(
+      (member instanceof BuiltinType || member instanceof NamedType)
+      && member.name === "undefined"
+    )) definedMembers.push(member);
   }
   if (definedMembers.length === 0 || definedMembers.length === type.types.length) {
     return null;

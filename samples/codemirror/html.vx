@@ -1,0 +1,16 @@
+import { basicSetup, EditorView } from "codemirror"
+import { javascript } from "@codemirror/lang-javascript"
+
+const parent = document.querySelector<HTMLDivElement>("#editor")
+
+if (parent) {
+  const editor = new EditorView({
+    doc: "const message = \"Hello from CodeMirror\"\n",
+    extensions: [basicSetup, javascript()],
+    parent
+  })
+  editor.dispatch({
+    changes: { from: editor.state.doc.length, insert: "console.log(message)\n" }
+  })
+  parent.dataset.lines = `${editor.state.doc.lines}`
+}

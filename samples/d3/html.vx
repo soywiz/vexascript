@@ -1,0 +1,69 @@
+import { axisBottom, axisLeft, line, max, scaleBand, scaleLinear, select } from "d3"
+
+type Reading = {
+  month: string;
+  value: number;
+}
+
+const readings: Reading[] = [
+  { month: "Jan", value: 18 },
+  { month: "Feb", value: 31 },
+  { month: "Mar", value: 25 },
+  { month: "Apr", value: 42 },
+  { month: "May", value: 36 }
+]
+
+const width = 720
+const height = 360
+const margin = { top: 24, right: 28, bottom: 48, left: 54 }
+const innerWidth = width - margin.left - margin.right
+const innerHeight = height - margin.top - margin.bottom
+
+const x = scaleBand<string>()
+  .domain(readings.map((reading) => reading.month))
+  .range([0, innerWidth])
+  .padding(0.22)
+
+const y = scaleLinear()
+  .domain([0, max(readings, (reading) => reading.value) ?? 0])
+  .nice()
+  .range([innerHeight, 0])
+
+const svg = select("#chart")
+  .attr("viewBox", `0 0 ${width} ${height}`)
+  .attr("role", "img")
+  .attr("aria-label", "Monthly readings bar chart")
+
+const plot = svg.append("g")
+  .attr("transform", `translate(${margin.left},${margin.top})`)
+
+plot.append("g")
+  .attr("class", "y-axis")
+  .call(axisLeft(y).ticks(5))
+
+plot.append("g")
+  .attr("class", "x-axis")
+  .attr("transform", `translate(0,${innerHeight})`)
+  .call(axisBottom(x))
+
+plot.append("g")
+  .attr("class", "bars")
+  .selectAll("rect")
+  .data(readings)
+  .join("rect")
+  .attr("x", (reading) => x(reading.month) ?? 0)
+  .attr("y", (reading) => y(reading.value))
+  .attr("width", x.bandwidth())
+  .attr("height", (reading) => innerHeight - y(reading.value))
+  .attr("rx", 5)
+
+const trend = line<Reading>()
+  .x((reading) => (x(reading.month) ?? 0) + x.bandwidth() / 2)
+  .y((reading) => y(reading.value))
+
+plot.append("path")
+  .datum(readings)
+  .attr("class", "trend")
+  .attr("d", trend)
+
+document.querySelector("#chart")?.setAttribute("data-bars", `${readings.length}`)

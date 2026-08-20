@@ -1,4 +1,5 @@
 import { describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } from "../test/expect";
+import { symlink } from "node:fs/promises";
 import {
   bundleNodeModuleGraph,
   collectCommonJsExports,
@@ -759,6 +760,28 @@ describe("bundleNodeModuleGraph", () => {
         expect(result.code).toContain("const value = 7;");
         expect(result.code).toContain("exports.value = value;");
         expect(result.code).not.toContain('Unbundled external dependency "@scope/dep"');
+      }
+    );
+  });
+
+  it("uses a dependency real path as its module identity", async () => {
+    await withTempProject(
+      {
+        "entry.js": 'import { value as first } from "alias-a"; import { value as second } from "alias-b"; export const total = first + second;\n',
+        "store/shared/package.json": JSON.stringify({ name: "shared", module: "./index.mjs" }),
+        "store/shared/index.mjs": 'export const value = "shared-module-marker";\n'
+      },
+      async (dir) => {
+        await mkdir(join(dir, "node_modules"), { recursive: true });
+        await symlink(join(dir, "store/shared"), join(dir, "node_modules/alias-a"), "dir");
+        await symlink(join(dir, "store/shared"), join(dir, "node_modules/alias-b"), "dir");
+
+        const result = await bundleNodeModuleGraph(
+          'import { value as first } from "alias-a"; import { value as second } from "alias-b"; export const total = first + second;\n',
+          join(dir, "entry.js")
+        );
+
+        expect(result.code.split("shared-module-marker").length - 1).toBe(1);
       }
     );
   });

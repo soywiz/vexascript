@@ -34,10 +34,10 @@ The first wave should prioritize libraries that cover distinct failure modes rat
 Possible follow-up wave:
 
 * [x] `xstate`
-* [ ] `d3`
+* [x] `d3`
 * [x] `zustand`, `valtio`, or `jotai`
-* [ ] `yargs` or `commander`
-* [ ] `prosemirror` or `codemirror`
+* [x] `commander`
+* [x] `codemirror`
 
 ## Scope
 
@@ -66,6 +66,10 @@ Possible follow-up wave:
 * [x] Added `samples/trpc/`, covering recursive router composition, procedure inference, and caller creation.
 * [x] Added `samples/viem/`, covering const ABI tuples, conditional validator parameters, tuple mapping, and encoded function data.
 * [x] Added `samples/react-hook-form/`, covering recursive form types, utility aliases, callable object aliases, subscriptions, and typed setters.
+* [x] Added `samples/d3/`, covering mapped rest-tuple inference, callable scales, structural axis contracts, overloaded selection APIs, deterministic data transforms, and a real SVG browser chart.
+* [x] Added `samples/commander/`, covering fluent command builders, callback rest contracts, typed option parsing, actions, and async parsing.
+* [x] Added `samples/codemirror/`, covering recursive extension aliases, generic state fields and effects, transactions, and a real browser editor.
+* [x] Expanded `samples/hono/` with a real `@hono/node-server` listener, middleware, HTML, route parameters, typed JSON request parsing, and JSON responses.
 
 ## Acceptance Criteria
 
@@ -79,9 +83,9 @@ Possible follow-up wave:
 ## Tests
 
 * [x] Add or update sample tests as needed for each new library.
-* [x] Run `pnpm test` (2,789 tests passed).
+* [x] Run `pnpm test` (2,814 tests passed).
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
-* [x] Verify the modified React Router, React Query, and Three.js samples in a real browser.
+* [x] Verify the modified React Router, React Query, Three.js, D3, and CodeMirror samples in a real browser, and exercise the Hono server over HTTP.
 
 ## Related Files
 

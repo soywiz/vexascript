@@ -1,6 +1,7 @@
 import {
   readFile as nodeReadFile,
   readdir as nodeReadDir,
+  realpath as nodeRealPath,
   stat as nodeStat,
   writeFile as nodeWriteFile,
   unlink as nodeUnlink,
@@ -8,6 +9,10 @@ import {
 import { setVfs, Vfs, VfsDirEntry, VfsStat } from "../compiler/vfs";
 
 export class LocalVfs extends Vfs {
+  override async realPath(path: string): Promise<string> {
+    return await nodeRealPath(path);
+  }
+
   override async readFile(path: string): Promise<string> {
     return await nodeReadFile(path, "utf8");
   }

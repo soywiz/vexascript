@@ -499,7 +499,7 @@ export async function openEntrypointInLspSession(
     hovers: hoverResults,
     documentHighlights,
     completions: completionResults,
-    workMetrics: workAfterWarmRequests,
+    workMetrics: workBeforeWarmRequests,
     warmWorkMetrics: workMetricsDelta(workAfterWarmRequests, workBeforeWarmRequests),
     semanticTokens,
     semanticTokensRange

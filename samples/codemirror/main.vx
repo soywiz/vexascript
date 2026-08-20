@@ -1,0 +1,23 @@
+import { EditorState, StateEffect, StateField } from "@codemirror/state"
+
+const markEffect = StateEffect.define<string>()
+const markCount = StateField.define<number>({
+  create: () => 0,
+  update: (count, transaction) => {
+    return count + transaction.effects.filter((effect) => effect.is(markEffect)).length
+  }
+})
+
+const initial = EditorState.create({
+  doc: "alpha\nbeta",
+  extensions: [markCount]
+})
+
+const updated = initial.update({
+  changes: { from: 6, to: 10, insert: "gamma" },
+  effects: [markEffect.of("edited")]
+}).state
+
+console.log(updated.doc.toString())
+console.log(`lines=${updated.doc.lines}|marks=${updated.field(markCount)}`)
+console.log(`changed=${updated.sliceDoc(6, 11)}`)

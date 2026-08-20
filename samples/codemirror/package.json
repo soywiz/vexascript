@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@codemirror/lang-javascript": "6.2.5",
+    "@codemirror/state": "6.7.1",
+    "codemirror": "6.0.2"
+  }
+}

@@ -4815,6 +4815,163 @@ describe("node_modules typings resolution", () => {
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
+  it("preserves mapped rest tuple inference through imported conditional aliases", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const packageDirectory = join(root, "node_modules", "grouping-lib");
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(
+      join(packageDirectory, "package.json"),
+      JSON.stringify({ name: "grouping-lib", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(packageDirectory, "index.d.ts"), 'export * from "./array";\n', "utf8");
+    await writeFile(join(packageDirectory, "array.d.ts"), dedent`
+      export class InternMap<Key = any, Value = any> extends Map<Key, Value> {}
+      export type NestedMap<Value, Keys extends unknown[]> =
+        Keys extends [infer First, ...infer Rest]
+          ? InternMap<First, NestedMap<Value, Rest>>
+          : Value;
+      export function group<Value, Keys extends unknown[]>(
+        values: Iterable<Value>,
+        ...keys: { [Index in keyof Keys]: (value: Value, index: number, values: Value[]) => Keys[Index] }
+      ): NestedMap<Value[], Keys>;
+    `, "utf8");
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { group } from "grouping-lib"
+      type Row = { region: string, value: number }
+      const rows: Row[] = [{ region: "north", value: 1 }]
+      const grouped = group(rows, (row) => row.region)
+      const north = grouped.ge^^^t("north") ?? []
+      const value: number = north[0].value
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("(key: string)");
+  });
+
+  it("assigns imported generic extension providers through recursive aliases", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "editor-state", dedent`
+      export type Extension = { extension: Extension } | readonly Extension[];
+      interface FieldSpec<Value> {
+        create(): Value;
+        update(value: Value): Value;
+      }
+      export class StateField<Value> {
+        private createF;
+        private constructor();
+        static define<Value>(config: FieldSpec<Value>): StateField<Value>;
+        get extension(): Extension;
+      }
+      export interface EditorStateConfig {
+        doc?: string;
+        extensions?: Extension;
+      }
+      export class EditorState {
+        static create(config?: EditorStateConfig): EditorState;
+      }
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { EditorState, Extension, StateField } from "editor-state"
+      const field = StateField.define<number>({
+        create: () => 0,
+        update: (value) => value + 1
+      })
+      const provider: { extension: Extension } = field
+      const extensions: Extension = [provider]
+      const state = EditorState.create({ doc: "hello", extensions: [field] })
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("deduplicates declarations reached through separate package graphs by file origin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const frameworkDirectory = join(root, "node_modules", "framework");
+    const adapterDirectory = join(root, "node_modules", "adapter");
+    await mkdir(frameworkDirectory, { recursive: true });
+    await mkdir(adapterDirectory, { recursive: true });
+    await writeFile(join(frameworkDirectory, "package.json"), JSON.stringify({
+      name: "framework",
+      types: "./index.d.ts",
+      exports: {
+        ".": { types: "./index.d.ts" },
+        "./ws": { types: "./ws.d.ts" }
+      }
+    }), "utf8");
+    await writeFile(join(frameworkDirectory, "index.d.ts"), 'export { App } from "./app";\n', "utf8");
+    await writeFile(join(frameworkDirectory, "app.d.ts"), dedent`
+      import { Base } from "./base";
+      export declare class App extends Base {
+        constructor();
+      }
+    `, "utf8");
+    await writeFile(join(frameworkDirectory, "base.d.ts"), dedent`
+      declare class App {
+        get(path: string): void;
+      }
+      export { App as Base };
+    `, "utf8");
+    await writeFile(join(frameworkDirectory, "ws.d.ts"), dedent`
+      import type { Base } from "./base";
+      export interface Upgrade { (app: Base): void }
+    `, "utf8");
+    await writeFile(join(adapterDirectory, "package.json"), JSON.stringify({
+      name: "adapter",
+      types: "./index.d.ts"
+    }), "utf8");
+    await writeFile(join(adapterDirectory, "index.d.ts"), dedent`
+      import type { Upgrade } from "framework/ws";
+      export declare const serve: Upgrade;
+    `, "utf8");
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { serve } from "adapter"
+      import { App } from "framework"
+      const app = new App()
+      app.get("/")
+      serve(app)
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    const origins = [...collected.externalDeclarationLocations.entries()].map(([statement, location]) =>
+      `${location.filePath}:${location.line}:${location.character}:${statement.kind}`
+    );
+    expect(new Set(origins).size).toBe(origins.length);
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
   it("collectAllImportedDeclarations returns empty results for unknown file URI", async () => {
     const session = createAnalysisSession(`import pkg from "pkg"\n`);
     const result = await collectAllImportedDeclarations(session.ast!, {

@@ -3336,6 +3336,7 @@ function collectTypeQueryDependencyNames(statement: Statement, collected: Set<st
   const visited = new WeakSet<object>();
   const typeBearingKeys = new Set([
     "typeAnnotation",
+    "targetType",
     "returnType",
     "extendsType",
     "extendsTypes",
@@ -3420,7 +3421,18 @@ export async function collectAllImportedDeclarations(
 
   const externalDeclarations: Statement[] = [];
   const externalDeclarationLocations = new Map<Statement, DeclarationLocation>();
+  const externalDeclarationOriginKeys = new Set<string>();
   const addExternalDeclaration = (declaration: Statement, filePath?: string): void => {
+    const origin = declaration.firstToken?.range.start;
+    const originKey = filePath && origin
+      ? `${filePath}:${origin.line}:${origin.column}:${declaration.kind}`
+      : null;
+    if (originKey && externalDeclarationOriginKeys.has(originKey)) {
+      return;
+    }
+    if (originKey) {
+      externalDeclarationOriginKeys.add(originKey);
+    }
     externalDeclarations.push(declaration);
     if (!filePath) {
       return;

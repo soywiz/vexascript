@@ -1,0 +1,4 @@
+alpha
+gamma
+lines=2|marks=1
+changed=gamma

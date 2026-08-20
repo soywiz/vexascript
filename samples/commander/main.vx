@@ -1,0 +1,29 @@
+import { Command, Option } from "commander"
+
+type GreetingOptions = {
+  uppercase?: boolean;
+  repeat: number;
+}
+
+const output: string[] = []
+const program = new Command()
+  .name("greet")
+  .description("Create a deterministic greeting")
+  .argument("<name>", "name to greet")
+  .option("-u, --uppercase", "use uppercase output")
+  .addOption(
+    new Option("-r, --repeat <count>", "number of greetings")
+      .argParser((value) => Number.parseInt(value, 10))
+      .default(1)
+  )
+  .action((name: string) => {
+    const options = program.opts<GreetingOptions>()
+    const greeting = options.uppercase ? `HELLO ${name.toUpperCase()}` : `Hello ${name}`
+    for (let index = 0; index < options.repeat; index++) {
+      output.push(greeting)
+    }
+  })
+
+await program.parseAsync(["node", "greet", "Vexa", "--uppercase", "--repeat", "2"])
+console.log(output.join("|"))
+console.log(`${program.name()}|${program.args.join(",")}`)

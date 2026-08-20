@@ -6415,7 +6415,13 @@ export class Parser {
         if (
             this.tokens.peek()?.type === TokenType.IDENTIFIER &&
             (this.tokens.peek()?.value === "get" || this.tokens.peek()?.value === "set") &&
-            this.tokens.items[this.tokens.offset + 1]?.type === TokenType.IDENTIFIER
+            (
+                this.tokens.items[this.tokens.offset + 1]?.type === TokenType.IDENTIFIER ||
+                (
+                    this.tokens.items[this.tokens.offset + 1]?.type === TokenType.SYMBOL &&
+                    this.tokens.items[this.tokens.offset + 1]?.value === "["
+                )
+            )
         ) {
             accessorKeywordToken = this.tokens.read()!;
             accessorKind = accessorKeywordToken.value as ClassMethodMember["accessorKind"];

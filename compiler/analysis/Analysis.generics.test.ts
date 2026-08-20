@@ -95,6 +95,19 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("does not exist on type"))).toBe(false);
   });
 
+  it("contextually preserves literals inside optional aliased unions", () => {
+    const source = dedent`
+      type Weight = "normal" | "700" | undefined
+      interface Style { fontWeight?: Weight }
+      declare function consume(style: Style): void
+      consume({ fontWeight: "700" })
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
   it("infers object method types and checks method bodies", () => {
     const source = dedent`
       fun demo() {
@@ -2468,6 +2481,143 @@ describe("Analysis", () => {
     const source = dedent`
       declare function tupleLength<T extends readonly unknown[]>(value: T): T["length"]
       const length: 1 = tupleLength(["value"])
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves head and rest inference from tuple conditional aliases", () => {
+    const source = dedent`
+      type NestedMap<Value, Keys extends unknown[]> =
+        Keys extends [infer First, ...infer Rest]
+          ? Map<First, NestedMap<Value, Rest>>
+          : Value
+      declare const grouped: NestedMap<int[], [string]>
+      const first: int = grouped.get("north")![0]
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("accepts arrays as ArrayLike values", () => {
+    const source = dedent`
+      declare function nearest(values: ArrayLike<number>, target: number): int
+      const result: int = nearest([1, 3, 5], 4)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("accepts fixed callbacks for any rest callback contracts", () => {
+    const source = dedent`
+      declare function action(callback: (...args: any[]) => void | Promise<void>): void
+      action((name: string) => { console.log(name) })
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("assigns extension providers through recursive readonly extension unions", () => {
+    const source = dedent`
+      type Extension = { extension: Extension } | readonly Extension[]
+      declare class StateField<T> { readonly extension: Extension }
+      interface Config { extensions?: Extension }
+      declare function create(config: Config): void
+      declare const field: StateField<number>
+      create({ extensions: [field] })
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("accepts primitive type arguments with boxed structural constraints", () => {
+    const source = dedent`
+      declare function band<Domain extends { toString(): string }>(): Domain
+      const value: string = band<string>()
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("structurally assigns callable interfaces", () => {
+    const source = dedent`
+      interface AxisScale<Domain> {
+        (value: Domain): number | undefined
+        domain(): Domain[]
+        range(): number[]
+        copy(): this
+      }
+      interface NumericScale {
+        (value: number): number | never
+        domain(): number[]
+        range(): number[]
+        copy(): this
+      }
+      declare function axis<Domain>(scale: AxisScale<Domain>): void
+      declare const scale: NumericScale
+      axis(scale)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("uses callable interfaces as contextual callback values", () => {
+    const source = dedent`
+      type ValueFn<Datum, Result> = (datum: Datum, index: int) => Result
+      interface Line<Datum> { (data: Iterable<Datum>): string | null }
+      declare function attr<Datum>(value: ValueFn<Datum[], string | null>): void
+      declare const line: Line<int>
+      attr(line)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("removes never from callable result unions before numeric operators", () => {
+    const source = dedent`
+      interface NumericScale { (value: number): number | never }
+      declare const scale: NumericScale
+      const height: number = 100 - scale(42)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("bounds literal-dependency checks for recursive aliases", () => {
+    const source = dedent`
+      type Recursive = { next?: Recursive }
+      declare const value: Recursive
+      declare function consume(input: Recursive): void
+      consume(value)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("prefers overloads that contextually type unannotated callbacks", () => {
+    const source = dedent`
+      interface RequestBody { values: number[] }
+      interface Request { json<T>(): Promise<T> }
+      interface Context { req: Request }
+      interface Router {
+        <HandlerType>(path: string, handler: HandlerType): void;
+        <Result>(path: string, handler: (context: Context) => Result): void;
+      }
+      declare const post: Router
+      post("/sum", async (context) => {
+        const body = await context.req.json<RequestBody>()
+        const total: number = body.values.reduce((sum, value) => sum + value, 0)
+      })
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 

@@ -954,6 +954,29 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses computed class accessors in TypeScript declarations", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("declare class Request {\nget [MATCH_RESULT](): Result<string>\n}", { jsx: false }),
+                { language: "typescript" }
+            )
+        ).toMatchObject({
+            kind: NodeKind.ClassStatement,
+            name: { kind: NodeKind.Identifier, name: "Request" },
+            members: [
+                {
+                    kind: NodeKind.ClassMethodMember,
+                    accessorKind: "get",
+                    computed: true,
+                    computedKey: { kind: NodeKind.Identifier, name: "MATCH_RESULT" },
+                    name: { kind: NodeKind.Identifier, name: "[MATCH_RESULT]" },
+                    parameters: [],
+                    returnType: { kind: NodeKind.Identifier, name: "Result<string>" }
+                }
+            ]
+        });
+    });
+
     it("parses optional type suffixes on class method return types before bodies", () => {
         expect(parseStatement(tokenizeReader("class ViewNode {\nfun findNodeByName(name: string): ViewNode? { return undefined }\n}"))).toMatchObject({
             kind: NodeKind.ClassStatement,

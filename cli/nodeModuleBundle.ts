@@ -1351,14 +1351,32 @@ async function visitResolvedFile(
   filePath: string,
   traversal: BundleTraversalContext
 ): Promise<string> {
-  const existing = traversal.moduleIdByPath.get(filePath);
+  let physicalIdentityKey: string | undefined;
+  if (!traversal.virtualSources.has(filePath)) {
+    const textModule = isTextModulePath(filePath);
+    const sourcePath = textModuleSourcePath(filePath);
+    try {
+      const canonicalSourcePath = await traversal.activeVfs.realPath(sourcePath);
+      const canonicalPath = textModule ? asTextModulePath(canonicalSourcePath) : canonicalSourcePath;
+      physicalIdentityKey = `\0real:${canonicalPath}`;
+    } catch {
+      // Virtual and non-filesystem VFS implementations may not expose a
+      // canonical path. Their stable logical path remains the module identity.
+    }
+  }
+  const existing = traversal.moduleIdByPath.get(filePath)
+    ?? (physicalIdentityKey ? traversal.moduleIdByPath.get(physicalIdentityKey) : undefined);
   if (existing) {
+    traversal.moduleIdByPath.set(filePath, existing);
     return existing;
   }
 
   const moduleId = `__vexa_module_${traversal.nextModuleIndex}`;
   traversal.nextModuleIndex += 1;
   traversal.moduleIdByPath.set(filePath, moduleId);
+  if (physicalIdentityKey) {
+    traversal.moduleIdByPath.set(physicalIdentityKey, moduleId);
+  }
   if (!traversal.virtualSources.has(filePath)) {
     traversal.watchedFiles.add(filePath);
   }

@@ -1,0 +1,25 @@
+import { bisectCenter, extent, group, line, scaleLinear, sum } from "d3"
+
+type Observation = {
+  region: string;
+  value: number;
+}
+
+const observations: Observation[] = [
+  { region: "north", value: 8 },
+  { region: "south", value: 13 },
+  { region: "north", value: 17 },
+  { region: "south", value: 21 }
+]
+
+const values = observations.map((observation) => observation.value)
+const valueExtent = extent(values)
+const byRegion = group(observations, (observation) => observation.region)
+const scale = scaleLinear([0, 30], [0, 100])
+const renderLine = line<[number, number]>()
+
+console.log(`extent=${valueExtent[0]}..${valueExtent[1]}`)
+console.log(`north=${sum(byRegion.get("north") ?? [], (observation) => observation.value)}`)
+console.log(`nearest=${bisectCenter(values, 15)}`)
+console.log(`scaled=${scale(15)}`)
+console.log(`path=${renderLine([[0, 2], [1, 5], [2, 3]])}`)
