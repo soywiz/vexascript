@@ -189,6 +189,18 @@ function inspect(value: string): number {
     expect(result.code).toContain("vexa::codePointAt(value");
   });
 
+  it("emits negative string at indexes through the native runtime helper", () => {
+    const result = transpile(`
+function lastCharacter(value: string): string | undefined {
+  return value.at(-1);
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/string-at.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::stringAt(value");
+    expect(result.code).not.toContain("value.at(");
+  });
+
   it("converts dynamically emitted arithmetic into declared primitive locals", () => {
     const result = transpile(`
 function offset(index: any, fixed: any): number {

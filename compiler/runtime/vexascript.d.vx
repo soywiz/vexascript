@@ -44,6 +44,7 @@ declare fun writeTextFile(path: string, contents: string): Promise<void>
 declare fun commandLineArguments(): string[]
 
 /// Native filesystem primitives used by platform adapters such as node:fs/promises.
+declare fun nativeRealPath(path: string): Promise<string>
 declare fun nativeStatPath(path: string): Promise<any>
 declare fun nativeReadDirectory(path: string): Promise<any[]>
 declare fun nativeCreateDirectory(path: string, recursive: boolean): Promise<void>

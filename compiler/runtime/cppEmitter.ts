@@ -56,7 +56,7 @@ const CPP_RESERVED_WORDS = new Set([
 ]);
 const NATIVE_RUNTIME_FUNCTION_NAMES = new Set([
   "readTextFile", "writeTextFile", "commandLineArguments",
-  "nativeStatPath", "nativeReadDirectory", "nativeCreateDirectory", "nativeRemovePath", "nativeCopyFile", "nativeRunCommandCapture", "nativeRunTask", "nativeEnvironmentVariable", "nativeRuntimeRoot",
+  "nativeRealPath", "nativeStatPath", "nativeReadDirectory", "nativeCreateDirectory", "nativeRemovePath", "nativeCopyFile", "nativeRunCommandCapture", "nativeRunTask", "nativeEnvironmentVariable", "nativeRuntimeRoot",
   "setTimeout", "setInterval", "clearTimeout", "clearInterval",
 ]);
 
@@ -3041,8 +3041,13 @@ function classStoredPropertyInfo(statement: ClassStatement, propertyName: string
     return activeClassStoredPropertyInfoCache.get(cacheKey)!;
   }
   for (const candidateClass of classHierarchy(statement)) {
-    const field = candidateClass.members.find((candidate): candidate is ClassFieldMember =>
-      candidate instanceof ClassFieldMember && !candidate.declared && candidate.name.name === propertyName);
+    let field: ClassFieldMember | undefined;
+    for (const candidate of candidateClass.members) {
+      if (candidate instanceof ClassFieldMember && !candidate.declared && candidate.name.name === propertyName) {
+        field = candidate;
+        break;
+      }
+    }
     const fieldType = field
       ? classFieldValueCppType(field) ?? (field.typeAnnotation ? "vexa::Value" : null)
       : null;
@@ -3825,10 +3830,15 @@ function classGetterForName(
 ): ClassMethodMember | null {
   const cacheKey = `${statement.name.name}\u0000${propertyName}`;
   if (activeClassGetterCache.has(cacheKey)) return activeClassGetterCache.get(cacheKey)!;
-  const result = statement.members.find((member): member is ClassMethodMember =>
-    member instanceof ClassMethodMember &&
-    member.name.name === propertyName &&
-    (member.getterShorthand === true || member.accessorKind === "get")) ?? null;
+  let result: ClassMethodMember | null = null;
+  for (const member of statement.members) {
+    if (member instanceof ClassMethodMember
+      && member.name.name === propertyName
+      && (member.getterShorthand === true || member.accessorKind === "get")) {
+      result = member;
+      break;
+    }
+  }
   activeClassGetterCache.set(cacheKey, result);
   return result;
 }
@@ -3839,10 +3849,15 @@ function classSetterForName(
 ): ClassMethodMember | null {
   const cacheKey = `${statement.name.name}\u0000${propertyName}`;
   if (activeClassSetterCache.has(cacheKey)) return activeClassSetterCache.get(cacheKey)!;
-  const result = statement.members.find((member): member is ClassMethodMember =>
-    member instanceof ClassMethodMember &&
-    member.name.name === propertyName &&
-    member.accessorKind === "set") ?? null;
+  let result: ClassMethodMember | null = null;
+  for (const member of statement.members) {
+    if (member instanceof ClassMethodMember
+      && member.name.name === propertyName
+      && member.accessorKind === "set") {
+      result = member;
+      break;
+    }
+  }
   activeClassSetterCache.set(cacheKey, result);
   return result;
 }
@@ -3865,8 +3880,10 @@ function classUsesRuntimeConstructor(statement: ClassStatement | undefined): boo
 
 function classConstructorMethod(statement: ClassStatement | undefined): ClassMethodMember | null {
   if (!statement) return null;
-  return statement.members.find((member): member is ClassMethodMember =>
-    member instanceof ClassMethodMember && member.name.name === "constructor") ?? null;
+  for (const member of statement.members) {
+    if (member instanceof ClassMethodMember && member.name.name === "constructor") return member;
+  }
+  return null;
 }
 
 function classConstructorParameters(statement: ClassStatement | undefined): readonly CallableParameter[] | undefined {
@@ -4797,6 +4814,7 @@ function primitiveRuntimeMethodName(name: string): string | null {
     case "lastIndexOf": return "stringLastIndexOf";
     case "replace": return "stringReplace";
     case "repeat": return "stringRepeat";
+    case "at": return "stringAt";
     case "slice": return "stringSlice";
     case "test": return "regexTest";
     case "exec": return "regexExec";
@@ -5357,7 +5375,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     const primitiveMethod = primitiveRuntimeMethodName(member.propertyName);
     if (primitiveMethod) {
       const receiver = emitExpression(member.object);
-      const numericArguments = new Set(["substring", "stringSlice", "charAt", "charCodeAt", "codePointAt", "stringRepeat"])
+      const numericArguments = new Set(["substring", "stringSlice", "charAt", "charCodeAt", "codePointAt", "stringRepeat", "stringAt"])
         .has(primitiveMethod);
       let emittedArguments: string;
       if (primitiveMethod === "toString" && call.args.length > 1) {
@@ -5459,7 +5477,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     }
     return `vexa::dynamicImportUnavailable(vexa::toString(${emitExpression(call.args[0]!)}))`;
   }
-  if (calleeName === "nativeStatPath" || calleeName === "nativeReadDirectory") {
+  if (calleeName === "nativeRealPath" || calleeName === "nativeStatPath" || calleeName === "nativeReadDirectory") {
     if (call.args.length !== 1) {
       throw new CppEmitError(`C++ ${calleeName} expects one path`);
     }

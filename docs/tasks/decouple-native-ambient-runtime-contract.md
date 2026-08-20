@@ -66,6 +66,16 @@ can still specialize proven internal workloads.
   reference permits collection without a stale callback.
 * [ ] Remove obsolete helper aliases and update tests to assert the ambient
   contract rather than the retired mapping layer.
+* [ ] Build a declaration-driven ES2025 native coverage matrix for every
+  exposed ambient family, not only `Math`. At minimum this includes
+  `Object`, `String`, `Number`, `Array`, `Date`, `RegExp`, `Promise`, JSON,
+  maps, sets, weak collections, iterators/generators, buffers, data views, and
+  every typed-array family present in `compiler/runtime/es2025.d.ts`.
+  Declaration extraction must account for merged interfaces and overloads.
+  Every ordinary member must either compile, link, and execute in the native
+  smoke or produce an intentional compiler diagnostic that names the
+  unsupported API; reaching invalid generated C++ is never an accepted third
+  state.
 
 ## Completed In The Current Slice
 
@@ -95,6 +105,11 @@ can still specialize proven internal workloads.
   type checker resolves uniquely qualified nested declaration names. Nested
   static ambient calls therefore remain type-safe instead of requiring an
   emitter fallback for an `unknown` receiver.
+* The `Math` slice now extracts every ordinary numeric member from the merged
+  declarations, locks that set to an explicit execution manifest, and
+  compiles, links, and runs every member. The audit added the previously
+  missing constants and methods, including `Math.imul`, `Math.f16round`, the
+  hyperbolic/logarithmic additions, and variadic `min`, `max`, and `hypot`.
 
 ## Map-specific Follow-up Tasks
 
@@ -131,6 +146,9 @@ runtime storage still has typed `MapObject<K, V>` specializations.
   constructors, syntax lowerings, dynamic dispatch, contextual async/object
   lowerings, or genuinely non-ambient platform operations rather than name
   mappings.
+* [ ] The ES2025 declaration coverage matrix fails when a newly exposed
+  ordinary member lacks a native execution case or an explicit unsupported
+  diagnostic, across all declared families rather than a hand-picked subset.
 
 ## Residual Branch Classification
 
@@ -158,6 +176,10 @@ ambient forwarding contract:
 
 * [x] Add focused C++ emitter tests for declaration-driven ordinary members and
   heterogeneous array/map arguments.
+* [x] Add declaration-locked native compile/link/run coverage for the complete
+  ordinary numeric `Math` surface.
+* [ ] Extend the declaration-locked coverage to every exposed ES2025 ambient
+  family and keep overload-specific runtime cases where behavior differs.
 * [ ] Add native compile-and-run coverage for heterogeneous arrays,
   `Map`/`Set`/weak collections, iterator methods, and callback lifetime under
   GC stress.
@@ -174,8 +196,9 @@ The focused ambient-contract slice is green, but the complete native suite is
 not yet green. The latest `pnpm test:native` run passes 54/58 tests and leaves
 these follow-up tasks:
 
-* [ ] Make the native compiler self-host compile without `Value` to internal
-  type-pointer casts or incompatible `ArrayObject<T>` specializations.
+* [x] Make the native compiler self-host compile without `Value` to internal
+  type-pointer casts or incompatible `ArrayObject<T>` specializations. The
+  complete two-generation native fixed point passed locally on 2026-08-20.
 * [ ] Fix the value-producing `match` smoke case so dynamic object properties
   use the declared dynamic contract instead of failing at runtime.
 * [ ] Fix the complete native language smoke's remaining generated-call and

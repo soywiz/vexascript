@@ -312,12 +312,12 @@ export function typeComparisonBucketKey(type: AnalysisType): string {
     let nameHashSum = 0;
     let nameHashXor = 0;
     for (const name of type.properties.keys()) {
-      let nameHash = 2166136261;
+      let nameHash = 0;
       for (let index = 0; index < name.length; index += 1) {
-        nameHash = Math.imul(nameHash ^ name.charCodeAt(index), 16777619);
+        nameHash = ((nameHash * 31) ^ name.charCodeAt(index)) | 0;
       }
-      nameHashSum = (nameHashSum + nameHash) >>> 0;
-      nameHashXor = (nameHashXor ^ nameHash) >>> 0;
+      nameHashSum = (nameHashSum + nameHash) | 0;
+      nameHashXor ^= nameHash;
     }
     return `object:${type.properties.size}:${nameHashSum}:${nameHashXor}`;
   }
@@ -638,10 +638,10 @@ function isSameTypeInternal(
         return false;
       }
     }
-    if ((a.assertion?.target ?? null) !== (b.assertion?.target ?? null)) {
+    if (!!a.assertion !== !!b.assertion) {
       return false;
     }
-    if (!!a.assertion !== !!b.assertion) {
+    if (a.assertion && b.assertion && a.assertion.target !== b.assertion.target) {
       return false;
     }
     if (a.assertion?.type || b.assertion?.type) {

@@ -31,6 +31,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 
 - Run tests once: `pnpm test`
 - Validate compiler CLI is working: `pnpm cli vexa testFixtures/sample.vx`
+- Validate the full TypeScript, bundled-JavaScript, and native C++ compiler bootstrap: `pnpm self-host:ci`
 - Keep the `test` script as `tsc --noEmit && node --import tsx --test --test-reporter spec`. Do not add explicit test-file globs or `rg`/`find` enumeration to it unless the current autodiscovery behavior actually breaks. In this repository, Node's test runner with `--import tsx` already discovers and runs the `.test.ts` suite correctly.
 - Run tests with coverage: `pnpm coverage`
 - Run vscode with the plugin+lsp: `pnpm code`
@@ -55,6 +56,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - When a bug is first observed through a larger sample, reproduce it in a small, isolated, fast automated test in the same change whenever possible. The sample regression may remain as broader coverage, but the minimal test is required so the bug stays covered even if the sample later changes or is removed.
 - Minimum acceptance criterion: a feature is not considered complete without automated tests validating its behavior.
 - Before closing any task, running the full test suite with `pnpm test` is mandatory.
+- Before closing any task that changes the compiler, CLI, native runtime or adapters, or the self-hosting scripts, running `pnpm self-host:ci` successfully in the final working-tree state is mandatory. `pnpm test` does not exercise the full bootstrap and is not a substitute for this check.
 - Focused or partial test runs are useful during development, but they never replace the final full-suite run.
 - Do not finish a task, report success, commit, or hand off work until `pnpm test` has been run successfully in the current state of the branch.
 - In LSP/editor tests, prefer the `^^^` cursor-marker style with the shared helper in `compiler/test/sourceWithCursor.ts` instead of hardcoded line/column coordinates whenever practical.

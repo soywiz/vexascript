@@ -2568,6 +2568,17 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("infers through mutable and readonly collection interfaces without constructor recursion", () => {
+    const source = dedent`
+      declare function first<T>(values: ReadonlySet<T>): T | undefined
+      const values = new Set<string>()
+      const result: string | undefined = first(values)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("uses callable interfaces as contextual callback values", () => {
     const source = dedent`
       type ValueFn<Datum, Result> = (datum: Datum, index: int) => Result

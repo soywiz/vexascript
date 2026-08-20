@@ -76,9 +76,10 @@ function typeParameterNames(parameters: readonly TypeParameter[] | undefined): s
 }
 
 function constTypeParameterNames(parameters: readonly TypeParameter[] | undefined): ReadonlySet<string> | undefined {
-  const names = (parameters ?? [])
-    .filter((parameter) => parameter.isConst === true)
-    .map((parameter) => parameter.name.name);
+  const names: string[] = [];
+  for (const parameter of parameters ?? []) {
+    if (parameter.isConst === true) names.push(parameter.name.name);
+  }
   return names.length > 0 ? new Set(names) : undefined;
 }
 

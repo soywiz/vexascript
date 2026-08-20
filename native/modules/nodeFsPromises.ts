@@ -2,6 +2,10 @@ export async function readFile(path: string, _options?: unknown): Promise<any> {
   return await readTextFile(path);
 }
 
+export async function realpath(path: string): Promise<string> {
+  return await nativeRealPath(path);
+}
+
 export async function writeFile(path: string, contents: any, _options?: unknown): Promise<void> {
   await writeTextFile(path, contents as string);
 }

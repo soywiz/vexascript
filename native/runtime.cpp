@@ -4508,6 +4508,18 @@ inline Task<Value> nativeStatPath(std::u16string path) {
   });
 }
 
+inline Task<Value> nativeRealPath(std::u16string path) {
+  return Task<Value>::create([path = std::move(path)](auto resolve, auto reject) mutable {
+    std::error_code error;
+    const auto resolvedPath = std::filesystem::canonical(std::filesystem::path(path), error);
+    if (error) {
+      reject(Error(u"Cannot resolve real path: " + path));
+      return;
+    }
+    resolve(Runtime::string(resolvedPath.u16string()));
+  });
+}
+
 inline Task<ArrayObject<Value>*> nativeReadDirectory(std::u16string path) {
   return Task<ArrayObject<Value>*>::create([path = std::move(path)](auto resolve, auto reject) mutable {
     try {
@@ -6500,6 +6512,19 @@ inline std::u16string stringIndex(const std::u16string& value, double index) {
   return charAt(value, index);
 }
 
+inline Value stringAt(const std::u16string& value, double index) {
+  const auto integer = static_cast<std::int64_t>(std::trunc(index));
+  const auto position = integer < 0
+    ? static_cast<std::int64_t>(value.size()) + integer
+    : integer;
+  return position >= 0 && static_cast<std::size_t>(position) < value.size()
+    ? Runtime::string(std::u16string(1, value[static_cast<std::size_t>(position)]))
+    : Value::undefined();
+}
+inline Value stringAt(const Value& value, double index) {
+  return stringAt(requireString(value), index);
+}
+
 inline double charCodeAt(const std::u16string& value, double index = 0) {
   const auto position = static_cast<std::int64_t>(std::trunc(index));
   if (position < 0 || static_cast<std::size_t>(position) >= value.size()) {
@@ -7257,33 +7282,119 @@ struct Math final {
   static constexpr double E = 2.71828182845904523536;
   static constexpr double LN2 = 0.69314718055994530942;
   static constexpr double LN10 = 2.30258509299404568402;
+  static constexpr double LOG2E = 1.44269504088896340736;
+  static constexpr double LOG10E = 0.43429448190325182765;
   static constexpr double PI = 3.14159265358979323846;
+  static constexpr double SQRT1_2 = 0.70710678118654752440;
   static constexpr double SQRT2 = 1.41421356237309504880;
 
   static double abs(double value) { return std::abs(value); }
   static double acos(double value) { return std::acos(value); }
+  static double acosh(double value) { return std::acosh(value); }
   static double asin(double value) { return std::asin(value); }
+  static double asinh(double value) { return std::asinh(value); }
   static double atan(double value) { return std::atan(value); }
   static double atan2(double y, double x) { return std::atan2(y, x); }
+  static double atanh(double value) { return std::atanh(value); }
+  static double cbrt(double value) { return std::cbrt(value); }
   static double ceil(double value) { return std::ceil(value); }
+  static double clz32(double value) {
+    return static_cast<double>(std::countl_zero(static_cast<std::uint32_t>(toInt32(value))));
+  }
   static double cos(double value) { return std::cos(value); }
+  static double cosh(double value) { return std::cosh(value); }
   static double exp(double value) { return std::exp(value); }
+  static double expm1(double value) { return std::expm1(value); }
   static double floor(double value) { return std::floor(value); }
+  static double fround(double value) { return static_cast<double>(static_cast<float>(value)); }
   static double log(double value) { return std::log(value); }
   static double log2(double value) { return std::log2(value); }
   static double log10(double value) { return std::log10(value); }
+  static double log1p(double value) { return std::log1p(value); }
   static double round(double value) { return std::round(value); }
   static double sign(double value) { return (0 < value) - (value < 0); }
   static double sin(double value) { return std::sin(value); }
+  static double sinh(double value) { return std::sinh(value); }
   static double sqrt(double value) { return std::sqrt(value); }
   static double tan(double value) { return std::tan(value); }
+  static double tanh(double value) { return std::tanh(value); }
   static double trunc(double value) { return std::trunc(value); }
   static double pow(double base, double exponent) { return std::pow(base, exponent); }
-  template <typename Left, typename Right>
-  static double min(const Left& left, const Right& right) { return std::min(Number(left), Number(right)); }
-  template <typename Left, typename Right>
-  static double max(const Left& left, const Right& right) { return std::max(Number(left), Number(right)); }
-  static double hypot(double left, double right) { return std::hypot(left, right); }
+  static double min() { return std::numeric_limits<double>::infinity(); }
+  template <typename First, typename... Rest>
+  static double min(const First& first, const Rest&... rest) {
+    double result = Number(first);
+    ((result = std::isnan(result) ? result : std::min(result, Number(rest))), ...);
+    return result;
+  }
+  static double max() { return -std::numeric_limits<double>::infinity(); }
+  template <typename First, typename... Rest>
+  static double max(const First& first, const Rest&... rest) {
+    double result = Number(first);
+    ((result = std::isnan(result) ? result : std::max(result, Number(rest))), ...);
+    return result;
+  }
+  static double hypot() { return 0; }
+  template <typename... Values>
+  static double hypot(const Values&... values) {
+    double result = 0;
+    ((result = std::hypot(result, Number(values))), ...);
+    return result;
+  }
+  static double imul(double left, double right) {
+    const auto product = static_cast<std::uint32_t>(toInt32(left))
+      * static_cast<std::uint32_t>(toInt32(right));
+    return static_cast<double>(std::bit_cast<std::int32_t>(product));
+  }
+  static double f16round(double value) {
+    const auto bits = std::bit_cast<std::uint32_t>(static_cast<float>(value));
+    const std::uint32_t sign = (bits >> 16U) & 0x8000U;
+    const std::uint32_t exponentBits = (bits >> 23U) & 0xffU;
+    std::uint32_t mantissa = bits & 0x7fffffU;
+    if (exponentBits == 0xffU) {
+      return mantissa == 0
+        ? (sign == 0 ? std::numeric_limits<double>::infinity() : -std::numeric_limits<double>::infinity())
+        : std::numeric_limits<double>::quiet_NaN();
+    }
+
+    std::int32_t exponent = static_cast<std::int32_t>(exponentBits) - 127 + 15;
+    std::uint32_t half;
+    if (exponent <= 0) {
+      if (exponent < -10) {
+        half = sign;
+      } else {
+        mantissa |= 0x800000U;
+        const auto shift = static_cast<std::uint32_t>(14 - exponent);
+        std::uint32_t rounded = mantissa >> shift;
+        const std::uint32_t remainder = mantissa & ((1U << shift) - 1U);
+        const std::uint32_t halfway = 1U << (shift - 1U);
+        if (remainder > halfway || (remainder == halfway && (rounded & 1U) != 0)) ++rounded;
+        half = sign | rounded;
+      }
+    } else if (exponent >= 31) {
+      half = sign | 0x7c00U;
+    } else {
+      std::uint32_t rounded = mantissa >> 13U;
+      const std::uint32_t remainder = mantissa & 0x1fffU;
+      if (remainder > 0x1000U || (remainder == 0x1000U && (rounded & 1U) != 0)) {
+        ++rounded;
+        if (rounded == 0x400U) {
+          rounded = 0;
+          ++exponent;
+        }
+      }
+      half = exponent >= 31
+        ? sign | 0x7c00U
+        : sign | (static_cast<std::uint32_t>(exponent) << 10U) | rounded;
+    }
+
+    const std::uint32_t halfExponent = (half >> 10U) & 0x1fU;
+    const std::uint32_t halfMantissa = half & 0x3ffU;
+    double result = halfExponent == 0
+      ? std::ldexp(static_cast<double>(halfMantissa), -24)
+      : std::ldexp(static_cast<double>(0x400U + halfMantissa), static_cast<int>(halfExponent) - 25);
+    return (half & 0x8000U) != 0 ? -result : result;
+  }
   static double random() {
     return static_cast<double>(std::rand()) / static_cast<double>(RAND_MAX);
   }
