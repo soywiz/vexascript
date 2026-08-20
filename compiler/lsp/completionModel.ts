@@ -10,6 +10,7 @@ import type { AnalysisSymbol } from "compiler/analysis/Analysis";
 import type { Program, Statement } from "compiler/ast/ast";
 import type { Vfs } from "compiler/vfs";
 import type { CompletionItem } from "vscode-languageserver/node.js";
+import type { DeclarationLocation } from "./analysisSession";
 
 export const CompletionItemKind = {
   Text: 1,
@@ -110,6 +111,8 @@ export interface CompletionRequestOptions {
   sourceRoots?: string[];
   ambientDeclarations?: Statement[];
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
+  externalDeclarations?: readonly Statement[];
+  externalDeclarationLocations?: ReadonlyMap<Statement, DeclarationLocation>;
   vfs?: Vfs;
   getSessionForFilePath?: (filePath: string) => CompletionSessionLike | null | Promise<CompletionSessionLike | null>;
   getExportedSymbols?: SymbolExportProvider;
@@ -175,6 +178,12 @@ export function classResolverOptionsFromCompletionOptions(options: CompletionReq
     ...(options.vfs ? { vfs: options.vfs } : {}),
     ...(options.ambientModuleDeclarations
       ? { ambientModuleDeclarations: options.ambientModuleDeclarations }
+      : {}),
+    ...(options.externalDeclarations
+      ? { externalDeclarations: options.externalDeclarations }
+      : {}),
+    ...(options.externalDeclarationLocations
+      ? { externalDeclarationLocations: options.externalDeclarationLocations }
       : {}),
     ...(options.getSessionForFilePath
       ? { getSessionForFilePath: options.getSessionForFilePath }

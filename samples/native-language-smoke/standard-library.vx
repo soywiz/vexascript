@@ -384,7 +384,6 @@ export async fun runNativeStandardLibrarySmoke(): Promise<void> {
   val mapGroups = Map.groupBy([1, 2, 3, 4], (value) => value % 2)
   standardApiCheck(mapGroups.get(1)?.join(",") === "1,3", "Map.groupBy")
 
-  standardApiCheck(await Promise.try(() => 5) === 5, "Promise.try")
   val resolvers = Promise.withResolvers<number>()
   resolvers.resolve(6)
   standardApiCheck(await resolvers.promise === 6, "Promise.withResolvers")
@@ -392,19 +391,25 @@ export async fun runNativeStandardLibrarySmoke(): Promise<void> {
   standardApiCheck("aba".replaceAll("a", "x") === "xbx", "String.replaceAll")
   standardApiCheck("A😀".isWellFormed(), "String.isWellFormed")
   standardApiCheck(String.fromCharCode(0xd800).toWellFormed() === "�", "String.toWellFormed")
-  standardApiCheck(RegExp.escape("a+b") === "\\x61\\+b", "RegExp.escape")
 
-  val halves = Float16Array.of(1.5, 2.25, 3.75)
-  standardApiCheck(halves.length === 3, "Float16Array.length")
-  standardApiCheck(halves[1] === 2.25, "Float16Array.of")
-  val mappedHalves = Float16Array.from([1, 2], (value) => value + 0.5)
-  standardApiCheck(mappedHalves.join(",") === "1.5,2.5", "Float16Array.join")
-  standardApiCheck(mappedHalves.length === 2, "Float16Array.from")
+  // Node 22 does not expose these ES2025 APIs yet. Keep their declaration-locked
+  // execution in the native portability smoke, where all are implemented.
+  if (vexaRuntime() === "native") {
+    standardApiCheck(await Promise.try(() => 5) === 5, "Promise.try")
+    standardApiCheck(RegExp.escape("a+b") === "\\x61\\+b", "RegExp.escape")
 
-  val duration = new Intl.DurationFormat("en", { style: "short" })
-  standardApiCheck((duration.format({ hours: 1, minutes: 2 }) as string).length > 0, "Intl.DurationFormat.format")
-  standardApiCheck((duration.formatToParts({ seconds: 3 }) as unknown[]).length > 0, "Intl.DurationFormat.formatToParts")
-  standardApiCheck((duration.resolvedOptions() as { style: string }).style === "short", "Intl.DurationFormat.resolvedOptions")
+    val halves = Float16Array.of(1.5, 2.25, 3.75)
+    standardApiCheck(halves.length === 3, "Float16Array.length")
+    standardApiCheck(halves[1] === 2.25, "Float16Array.of")
+    val mappedHalves = Float16Array.from([1, 2], (value) => value + 0.5)
+    standardApiCheck(mappedHalves.join(",") === "1.5,2.5", "Float16Array.join")
+    standardApiCheck(mappedHalves.length === 2, "Float16Array.from")
+
+    val duration = new Intl.DurationFormat("en", { style: "short" })
+    standardApiCheck((duration.format({ hours: 1, minutes: 2 }) as string).length > 0, "Intl.DurationFormat.format")
+    standardApiCheck((duration.formatToParts({ seconds: 3 }) as unknown[]).length > 0, "Intl.DurationFormat.formatToParts")
+    standardApiCheck((duration.resolvedOptions() as { style: string }).style === "short", "Intl.DurationFormat.resolvedOptions")
+  }
 
   val sharedBuffer = new SharedArrayBuffer(8, { maxByteLength: 16 })
   standardApiCheck(sharedBuffer.byteLength === 8, "SharedArrayBuffer.byteLength")

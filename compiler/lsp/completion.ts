@@ -11,7 +11,11 @@ import { JsxAttribute, type Program } from "compiler/ast/ast";
 import { Analysis } from "compiler/analysis/Analysis";
 import { typeToString } from "compiler/analysis/types";
 import type { AutoImportSuggestion } from "./importFixes";
-import { buildAutoImportCompletionItems, resolveAutoImportSuggestions } from "./importCompletion";
+import {
+  buildAutoImportCompletionItems,
+  identifierPrefixAtPosition,
+  resolveAutoImportSuggestions
+} from "./importCompletion";
 import { buildNamedArgumentCompletionItems, inferExpectedTypeForPosition } from "./argumentCompletion";
 import {
   CompletionItemKind,
@@ -474,6 +478,7 @@ export async function createCompletionItemsForPosition(
         analysis: resolvedAnalysis,
         line,
         character,
+        typedPrefix: identifierPrefixAtPosition(options.text, line, character),
         expectedTypeName,
         options,
         seenLabels

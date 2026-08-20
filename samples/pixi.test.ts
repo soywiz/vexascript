@@ -5,6 +5,7 @@ import {
   resolveProjectForSource
 } from "../cli/cliShared";
 import { openEntrypointInLspSession } from "./lspOpenSession";
+import { sourceWithCursor } from "../compiler/test/sourceWithCursor";
 
 describe("pixi sample", () => {
   it("bundles the browser entry without diagnostics", async () => {
@@ -61,5 +62,27 @@ describe("pixi sample", () => {
     expect(hoverText(0)).toContain("circle");
     expect(hoverText(1)).toContain("(other: Container)");
     expect(hoverText(1)).not.toContain("unknown");
+  });
+
+  it("ranks the lowercase DOM document global above fuzzy matches", async () => {
+    const sourcePath = resolve(process.cwd(), "samples/pixi/html.vx");
+    const sampleRoot = resolve(process.cwd(), "samples/pixi");
+    const originalSource = await readFile(sourcePath, "utf8");
+    const { source, line, character } = sourceWithCursor(`${originalSource}\ndocu^^^`);
+
+    const result = await openEntrypointInLspSession(
+      sourcePath,
+      sampleRoot,
+      [],
+      [{ line, character }],
+      source
+    );
+    const items = result.completions[0] ?? [];
+    const document = items.find((item) => item.label === "document");
+    const fuzzyRuntimeMatch = items.find((item) => item.label === "decodeURI");
+
+    expect(document).toBeDefined();
+    expect(fuzzyRuntimeMatch).toBeDefined();
+    expect(document!.sortText! < fuzzyRuntimeMatch!.sortText!).toBe(true);
   });
 });

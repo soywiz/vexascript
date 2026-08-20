@@ -2965,6 +2965,7 @@ describe("createCompletionItemsForPosition", () => {
       analysis: session.analysis!,
       line,
       character,
+      typedPrefix: "",
       expectedTypeName: "number",
       options: { text: source },
       seenLabels: new Set<string>()

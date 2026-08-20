@@ -41,6 +41,7 @@ import {
   type ProjectSessionLike
 } from "./projectAnalysis";
 import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
+import type { DeclarationLocation } from "./analysisSession";
 
 const BUILTIN_TYPE_NAMES = new Set([
   "int",
@@ -67,6 +68,7 @@ export interface ClassResolverOptions extends ProjectContext {
    * member, so it can prefer the extension's signature like the other surfaces.
    */
   externalDeclarations?: readonly Statement[];
+  externalDeclarationLocations?: ReadonlyMap<Statement, DeclarationLocation>;
   classResolverCache?: ClassResolverCache;
 }
 
@@ -420,6 +422,23 @@ function findMergedInterfaceStatementInStatements(
   return findMergedInterfaceStatementInProgram(syntheticProgram, interfaceName);
 }
 
+function externalInterfaceFilePath(
+  statements: readonly Statement[] | undefined,
+  locations: ReadonlyMap<Statement, DeclarationLocation> | undefined,
+  interfaceName: string
+): string {
+  for (const statement of statements ?? []) {
+    const declaration = statement instanceof ExportStatement
+      ? (statement as ExportStatement).declaration
+      : statement;
+    if (!(declaration instanceof InterfaceStatement) || declaration.name.name !== interfaceName) {
+      continue;
+    }
+    return locations?.get(declaration)?.filePath ?? locations?.get(statement)?.filePath ?? "";
+  }
+  return "";
+}
+
 function findMergedQualifiedInterfaceStatementInStatements(
   statements: readonly Statement[],
   path: string[]
@@ -626,6 +645,33 @@ export async function resolveInterfaceStatementAcrossFiles(
       : await resolveNodeModuleImportedInterfaceStatement(ast, interfaceName, options);
     cache.interfaceStatementByName.set(interfaceName, qualifiedResolution);
     return qualifiedResolution;
+  }
+
+  const localInterfaceStatement = findMergedInterfaceStatementInProgram(ast, interfaceName);
+  if (localInterfaceStatement) {
+    const localResolution = {
+      interfaceStatement: localInterfaceStatement,
+      filePath: options.uri ? (uriToFilePath(options.uri) ?? "") : ""
+    };
+    cache.interfaceStatementByName.set(interfaceName, localResolution);
+    return localResolution;
+  }
+
+  const externalInterfaceStatement = findMergedInterfaceStatementInStatements(
+    options.externalDeclarations,
+    interfaceName
+  );
+  if (externalInterfaceStatement) {
+    const externalResolution = {
+      interfaceStatement: externalInterfaceStatement,
+      filePath: externalInterfaceFilePath(
+        options.externalDeclarations,
+        options.externalDeclarationLocations,
+        interfaceName
+      )
+    };
+    cache.interfaceStatementByName.set(interfaceName, externalResolution);
+    return externalResolution;
   }
 
   const resolved = await resolveTopLevelDeclarationAcrossFiles({

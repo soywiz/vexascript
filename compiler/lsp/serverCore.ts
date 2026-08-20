@@ -121,18 +121,6 @@ export interface LspServerEnvironment {
   workspace?: LspWorkspaceFeatures;
 }
 
-export function completionPrefixAt(text: string, offset: number): string {
-  let i = Math.max(0, Math.min(offset, text.length));
-  while (i > 0) {
-    const ch = text[i - 1] ?? "";
-    if (!/[A-Za-z0-9_]/.test(ch)) {
-      break;
-    }
-    i -= 1;
-  }
-  return text.slice(i, offset);
-}
-
 export interface LspServerOptions {
   connection: Connection;
   documents: TextDocuments<TextDocument>;
@@ -681,28 +669,6 @@ export function startLspServer(options: LspServerOptions): void {
       logStaleDocumentRequest("textDocument/completion", doc);
       return [];
     }
-    const completionPrefix = completionPrefixAt(text, currentDoc.offsetAt(params.position));
-    if (!triggerCharacter && completionPrefix.length >= 1) {
-      const localSession = createAnalysisSession(text);
-      const localItems = await createCompletionItemsForPosition(
-        localSession.ast,
-        params.position.line,
-        params.position.character,
-        localSession.analysis,
-        [],
-        { text }
-      );
-      const hasTypedInScopeMatch = localItems.some((item) =>
-        item.label.toLocaleLowerCase().startsWith(completionPrefix.toLocaleLowerCase())
-        && /^In-scope (?:function|method|variable|parameter|class):/u.test(item.detail ?? "")
-      );
-      if (hasTypedInScopeMatch) {
-        logTimingMessage(
-          `textDocument/completion work localIdentifierFastPaths=1 analysisSessionRequests=0 prefixLength=${completionPrefix.length}`
-        );
-        return localItems;
-      }
-    }
     const session = await getAnalysisSessionForRequest("textDocument/completion", currentDoc);
     const triggerOptions = triggerCharacter ? { triggerCharacter } : {};
     const completionOptions = {
@@ -711,6 +677,8 @@ export function startLspServer(options: LspServerOptions): void {
       ...featureContext(currentDoc.uri),
       getExportedSymbols: () => getExportedSymbolsForSession(session),
       ambientModuleDeclarations: session.ambientModuleDeclarations,
+      externalDeclarations: session.externalDeclarations,
+      externalDeclarationLocations: session.externalDeclarationLocations,
       recoverAnalysisSession: (source: string) => createAnalysisSession(source, {
         externalDeclarations: session.externalDeclarations,
         externalDeclarationLocations: session.externalDeclarationLocations,

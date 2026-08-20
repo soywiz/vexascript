@@ -57,6 +57,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - Minimum acceptance criterion: a feature is not considered complete without automated tests validating its behavior.
 - Before closing any task, running the full test suite with `pnpm test` is mandatory.
 - Before closing any task that changes the compiler, CLI, native runtime or adapters, or the self-hosting scripts, running `pnpm self-host:ci` successfully in the final working-tree state is mandatory. `pnpm test` does not exercise the full bootstrap and is not a substitute for this check.
+- Do not rerun the native fixed point after every intermediate edit. Use focused tests while iterating and run `pnpm self-host:ci` once, after the final working-tree state is ready for handoff.
 - Focused or partial test runs are useful during development, but they never replace the final full-suite run.
 - Do not finish a task, report success, commit, or hand off work until `pnpm test` has been run successfully in the current state of the branch.
 - In LSP/editor tests, prefer the `^^^` cursor-marker style with the shared helper in `compiler/test/sourceWithCursor.ts` instead of hardcoded line/column coordinates whenever practical.

@@ -49,9 +49,13 @@ map representations.
 ## Node and Linux portability
 
 The declaration-locked standard-library program still executes
-`Math.f16round` in the native runtime, but skips that call on JavaScript hosts.
-This keeps Node 22 in the supported CI matrix without pretending that its V8
-version implements every ES2025 API exposed by the native runtime.
+`Math.f16round`, `Promise.try`, `RegExp.escape`, `Float16Array`, and
+`Intl.DurationFormat` in the native runtime, but skips those calls on JavaScript
+hosts. The current Node 22 runtime exposes none of those ES2025 APIs, even
+though it does expose the iterator helpers, modern Set methods,
+`Promise.withResolvers`, resizable shared buffers, and the grouping APIs tested
+beside them. This keeps Node 22 in the supported CI matrix without pretending
+that its V8 version implements every ES2025 API exposed by the native runtime.
 
 The Linux linker failure was specific to the standard-library control block
 instantiated for `Task<int>::State` in the single-translation-unit build. Clang

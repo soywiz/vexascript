@@ -83,21 +83,40 @@ function symbolReceiverPriority(symbol: AnalysisSymbol): number {
 type RankedVisibleSymbol = {
   symbol: AnalysisSymbol;
   scopeDistance: number;
+  prefixPriority: number;
   typeRelevance: number;
   receiverPriority: number;
   kindPriority: number;
 };
 
-function rankVisibleSymbols(visibleSymbols: AnalysisSymbol[], expectedTypeName: string | null): RankedVisibleSymbol[] {
+function symbolPrefixPriority(name: string, typedPrefix: string): number {
+  if (typedPrefix.length === 0 || name.startsWith(typedPrefix)) {
+    return 0;
+  }
+  if (name.toLocaleLowerCase().startsWith(typedPrefix.toLocaleLowerCase())) {
+    return 1;
+  }
+  return 2;
+}
+
+function rankVisibleSymbols(
+  visibleSymbols: AnalysisSymbol[],
+  expectedTypeName: string | null,
+  typedPrefix: string
+): RankedVisibleSymbol[] {
   return visibleSymbols
     .map((symbol, scopeDistance) => ({
       symbol,
       scopeDistance,
+      prefixPriority: symbolPrefixPriority(symbol.name, typedPrefix),
       typeRelevance: symbolTypeRelevance(symbol, expectedTypeName),
       receiverPriority: symbolReceiverPriority(symbol),
       kindPriority: symbolKindPriority(symbol)
     }))
     .sort((left, right) => {
+      if (left.prefixPriority !== right.prefixPriority) {
+        return left.prefixPriority - right.prefixPriority;
+      }
       if (left.typeRelevance !== right.typeRelevance) {
         return right.typeRelevance - left.typeRelevance;
       }
@@ -119,6 +138,7 @@ export interface VisibleSymbolCompletionRequest {
   analysis: Analysis;
   line: number;
   character: number;
+  typedPrefix: string;
   expectedTypeName: string | null;
   options: CompletionRequestOptions;
   seenLabels: Set<string>;
@@ -129,6 +149,7 @@ export function buildVisibleSymbolCompletionItems({
   analysis,
   line,
   character,
+  typedPrefix,
   expectedTypeName,
   options,
   seenLabels
@@ -139,7 +160,8 @@ export function buildVisibleSymbolCompletionItems({
   );
   const rankedSymbols = rankVisibleSymbols(
     visibleSymbols,
-    expectedTypeName
+    expectedTypeName,
+    typedPrefix
   );
   const items: CompletionItem[] = [];
 
@@ -158,7 +180,7 @@ export function buildVisibleSymbolCompletionItems({
       kind: symbolKindToCompletionKind(symbol),
       detail: symbolDetail(symbol),
       ...(documentation ? { documentation } : {}),
-      sortText: `1-${entry.typeRelevance}-${String(entry.scopeDistance).padStart(4, "0")}-${String(index).padStart(4, "0")}-${symbol.name}`
+      sortText: `1-${entry.prefixPriority}-${entry.typeRelevance}-${String(entry.scopeDistance).padStart(4, "0")}-${String(index).padStart(4, "0")}-${symbol.name}`
     });
   }
 

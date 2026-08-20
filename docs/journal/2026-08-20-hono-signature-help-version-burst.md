@@ -157,6 +157,21 @@ subsequent document diagnostics reused it in 0.01 ms rather than starting their
 own builds. Code actions and provisional semantic tokens also stayed off the
 resolved path while the final build was pending.
 
+## Follow-up: remove the local identifier completion path
+
+The local identifier shortcut was later removed after D3 and Pixi completion
+regressions exposed the architectural risk of answering completion from a
+second, source-only analysis. The reported failures did not execute the
+shortcut directly, but the shortcut could still hide imported and ambient
+symbols whenever an unrelated local declaration shared the typed prefix. That
+made completion correctness depend on which fast path happened to win.
+
+Completion now always uses the canonical cached analysis session. The
+diagnostic idle/coalescing work remains in place, as do syntax-only refreshes
+that do not claim semantic completion results. This deliberately trades the
+shortcut's isolated `0.10 ms` response for one unified result containing local,
+imported, and ambient declarations.
+
 Two additional background type-check optimizations were explored: identifier
 scanning instead of regular-expression substitution and identity caching of
 rendered type graphs. They reduced the isolated resolved build, but the native

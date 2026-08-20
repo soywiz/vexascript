@@ -30,7 +30,6 @@ import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
 import { resolve as resolvePath } from "compiler/utils/path";
 import {
   candidateCharacters,
-  completionPrefixAt,
   slowLspTimingWarning,
   startLspServer,
   type LspServerEnvironment
@@ -982,7 +981,7 @@ describe("LSP server core", () => {
     ), true);
   });
 
-  it("serves matching in-scope identifier completions without a resolved session build", async () => {
+  it("serves matching in-scope identifier completions through the canonical session", async () => {
     const server = startServer(false);
     const marked = sourceWithCursor([
       "func delay(ms: number) {}",
@@ -1000,15 +999,15 @@ describe("LSP server core", () => {
     assert.equal(items.some((item) => item.label === "delay" && item.detail?.startsWith("In-scope function")), true);
     assert.deepEqual(server.analysisSessions.getMetrics(), {
       synchronousRequests: 0,
-      asynchronousRequests: 0,
+      asynchronousRequests: 1,
       sessionCacheHits: 0,
-      sessionCacheMisses: 0,
+      sessionCacheMisses: 1,
       pendingSessionReuses: 0,
       externalCacheHits: 0,
       externalCacheMisses: 0,
       pendingExternalReuses: 0,
       externalResolverRuns: 0,
-      baseSessionBuilds: 0,
+      baseSessionBuilds: 1,
       resolvedSessionBuilds: 0
     });
   });
@@ -1663,10 +1662,7 @@ describe("LSP server core", () => {
     ), true);
   });
 
-  it("derives completion prefixes and candidate characters consistently", () => {
-    assert.equal(completionPrefixAt("val to = tot", 12), "tot");
-    assert.equal(completionPrefixAt("a.b", 2), "");
-    assert.equal(completionPrefixAt("abc", 0), "");
+  it("derives candidate characters consistently", () => {
     assert.deepEqual(candidateCharacters(0), [0, 1]);
     assert.deepEqual(candidateCharacters(3), [3, 2, 4]);
   });
