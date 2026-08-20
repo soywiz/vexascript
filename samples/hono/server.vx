@@ -11,7 +11,20 @@ func delay(ms: number) {
   return Promise { resolve, reject -> setTimeout(resolve, ms) }
 }
 
-const app = new Hono<ServerEnvironment>()
+func dedent(str: string): string {
+  const lines = str
+    .replace(/^\r?\n/, "")
+    .replace(/\r?\n[ \t]*$/, "")
+    .split(/\r?\n/)
+  const indentation = lines.reduce((minimum, line) => {
+    const current = line.search(/\S/)
+    return current < 0 ? minimum : Math.min(minimum, current)
+  }, Infinity)
+
+  return lines.map((line) => line.slice(indentation)).join("\n")
+}
+
+const app = Hono<ServerEnvironment>()
 const port = 3000
 
 app.use("*") sync { context, next ->
@@ -21,15 +34,17 @@ app.use("*") sync { context, next ->
 }
 
 app.get("/") sync {
-  return it.html(`<!doctype html>
-<html lang="en">
-  <head><meta charset="utf-8"><title>VexaScript + Hono</title></head>
-  <body><h1>VexaScript + Hono</h1><p>Try <a href="/api/users/7"><code>/api/users/7</code></a>.</p></body>
-</html>`)
+  return it.html(dedent`
+    <!doctype html>
+    <html lang="en">
+      <head><meta charset="utf-8"><title>VexaScript + Hono</title></head>
+      <body><h1>VexaScript + Hono</h1><p>Try <a href="/api/users/7"><code>/api/users/7</code></a>.</p></body>
+    </html>
+  `)
 }
 
-app.get("/api/users/:id") async {
-  await delay(1000)
+app.get("/api/users/:id") sync {
+  delay(1000)
   return it.json({
     id: it.req.param("id"),
     requestId: it.get("requestId")
