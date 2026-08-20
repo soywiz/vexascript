@@ -20,12 +20,12 @@ const innerWidth = width - margin.left - margin.right
 const innerHeight = height - margin.top - margin.bottom
 
 const x = scaleBand<string>()
-  .domain(readings.map((reading) => reading.month))
+  .domain(readings.map { it.month })
   .range([0, innerWidth])
   .padding(0.22)
 
 const y = scaleLinear()
-  .domain([0, max(readings, (reading) => reading.value) ?? 0])
+  .domain([0, max(readings) { it.value } ?? 0])
   .nice()
   .range([innerHeight, 0])
 
@@ -58,8 +58,8 @@ plot.append("g")
   .attr("rx", 5)
 
 const trend = line<Reading>()
-  .x((reading) => (x(reading.month) ?? 0) + x.bandwidth() / 2)
-  .y((reading) => y(reading.value))
+  .x { (x(it.month) ?? 0) + x.bandwidth() / 2 }
+  .y { y(it.value) }
 
 plot.append("path")
   .datum(readings)

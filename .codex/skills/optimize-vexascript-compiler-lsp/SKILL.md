@@ -71,17 +71,29 @@ Do not trust a profile until its document, module, and cross-file diagnostics
 are clean. A stale profiler can appear fast because it failed to load the real
 declaration graph.
 
-Interpret editor timing lines as queue-inclusive observations. A CPU-heavy
-request can block the single LSP event loop and make completion, signature help,
-and semantic-token requests all look slow even when only one owns the excessive
-work. Use phase counters to identify the owner; do not optimize every request
-whose elapsed time was inflated by the same burst.
+Do not report queue-inclusive request latency as a `[Timing]` duration. A
+CPU-heavy request can block the single LSP event loop and inflate every waiter,
+which falsely makes completion, signature help, and semantic tokens all look
+like owners of the same work. Report only synchronous `self` spans and explicit
+owned phases. Apply `⚠️ SLOW` at 250 ms and `🚨 SUPER SLOW` at 750 ms to those
+self spans. For analysis sessions, report owned binding, type-checking, and
+total-build self spans plus cache/build counters. Represent shared waiting with
+counters such as `pendingReuses`, never by adding the deferred wait to a
+request's timing.
+
+Rapid trigger sequences such as typing `.x` can enqueue a request for the
+intermediate `.` document version before the next `didChange` is delivered.
+Before starting synchronous semantic work, yield one browser-compatible event
+loop turn and re-check the document version. A superseded request should return
+an empty stale result with `staleVersionSkips=1` and
+`analysisSessionRequests=0`. Test the two-version burst directly; a test that
+awaits each edit separately cannot reproduce the blocking failure.
 
 ## Optimize the shared path
 
 1. Find the earliest shared layer responsible for repeated work.
 2. Reuse one canonical cache, index, session, resolver, or traversal rather than adding a parallel fast path.
-3. Share in-flight promises for concurrent cold requests and cache negative results when invalidation can make them safe.
+3. Share in-flight promises for concurrent cold requests and cache negative results when invalidation can make them safe. When imports are unchanged across document versions, reuse resolved externals and construct only the final resolved session; do not first build a throwaway semantic base session merely to rediscover the same import key.
 4. Keep invalidation explicit and test that watched-file or document changes clear only the affected state.
 5. Defer expensive work until a feature actually needs it. An exclusive contextual result must not fall through to unrelated global discovery.
 6. When most uses cannot match an expensive semantic condition, invert the
@@ -96,6 +108,12 @@ whose elapsed time was inflated by the same burst.
    or primitive can make a later unknown result impossible to resolve as a
    project class.
 8. Delete superseded branches after unifying the path.
+9. For union/type deduplication, bucket impossible equality candidates by cheap
+   necessary properties (kind, name/arities, literal value, or object property
+   key fingerprint) before invoking authoritative structural equality. Retain
+   structural comparison within a bucket. Track comparison calls: the D3
+   regression fell from roughly 4.1 million to about 93 thousand without
+   changing equality semantics.
 
 Shared compiler code must remain browser-compatible, asynchronous for I/O, free of top-level await, and free of Node APIs outside explicit adapters.
 

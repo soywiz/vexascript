@@ -3,7 +3,15 @@
  * on their parameters plus the shared AnalysisType algebra.
  */
 import { type AnalysisType, NamedType, UnionType, ArrayType, TupleType, RangeType, BuiltinType } from "./types";
-import { UNKNOWN_TYPE, builtinType, isSameType, literalType, tupleType, unionType } from "./types";
+import {
+  UNKNOWN_TYPE,
+  builtinType,
+  isSameType,
+  literalType,
+  tupleType,
+  typeComparisonBucketKey,
+  unionType
+} from "./types";
 import { isNullishType } from "./typeClassifiers";
 
 const ASYNC_ITERATOR_TYPE_NAMES = new Set([
@@ -26,8 +34,18 @@ const TYPED_ARRAY_ELEMENT_TYPES = new Map<string, "number" | "bigint">([
 /** Builds a deduplicated union from a list of types, collapsing singletons. */
 export function combineTypes(types: AnalysisType[]): AnalysisType {
   const uniqueTypes: AnalysisType[] = [];
+  const seenByIdentity = new Set<AnalysisType>();
+  const candidatesByKey = new Map<string, AnalysisType[]>();
   for (const type of types) {
-    if (!uniqueTypes.some((existing) => isSameType(existing, type))) {
+    if (seenByIdentity.has(type)) {
+      continue;
+    }
+    seenByIdentity.add(type);
+    const key = typeComparisonBucketKey(type);
+    const candidates = candidatesByKey.get(key) ?? [];
+    if (!candidates.some((existing) => isSameType(existing, type))) {
+      candidates.push(type);
+      candidatesByKey.set(key, candidates);
       uniqueTypes.push(type);
     }
   }

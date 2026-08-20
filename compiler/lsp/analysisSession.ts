@@ -1,14 +1,16 @@
-import type { Analysis, AnalysisIssue } from "compiler/analysis/Analysis";
+import type { Analysis, AnalysisIssue, AnalysisProfileEvent } from "compiler/analysis/Analysis";
 import { ExportStatement, ImportStatement, type Program, type Statement } from "compiler/ast/ast";
 import type { ParseIssue } from "compiler/parser/parser";
 import type { TokenizeError } from "compiler/parser/tokenizer";
 import { compileSource } from "compiler/pipeline/compile";
+import { parseSource } from "compiler/pipeline/parse";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { AmbientModuleLocation } from "./ambientTypesLoader";
 import {
   normalizeImportedSymbolSources,
   type ImportedSymbolResolution
 } from "compiler/importedSymbols";
+import { monotonicNow } from "compiler/utils/time";
 
 export interface DeclarationLocation {
   filePath: string;
@@ -43,6 +45,7 @@ export interface AnalysisSessionOptions {
   ambientDeclarationLocations?: ReadonlyMap<Statement, AmbientModuleLocation>;
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   projectOwnedExternalDeclarations?: boolean;
+  profile?: (event: AnalysisProfileEvent) => void;
 }
 
 export function createAnalysisSession(
@@ -67,7 +70,8 @@ export function createAnalysisSession(
     importedSymbols: normalizedImportedSymbols,
     ambientDeclarations,
     invalidImportedBindings: normalizedInvalidImportedBindings,
-    projectOwnedExternalDeclarations: options.projectOwnedExternalDeclarations === true
+    projectOwnedExternalDeclarations: options.projectOwnedExternalDeclarations === true,
+    ...(options.profile ? { profile: options.profile } : {})
   });
   return {
     ast: artifacts.ast,
@@ -127,6 +131,24 @@ export interface AnalysisSessionCacheMetrics {
   resolvedSessionBuilds: number;
 }
 
+export interface AnalysisSessionBuildProfileEvent extends AnalysisProfileEvent {
+  uri: string;
+  version: number;
+  build: "base" | "resolved";
+}
+
+export interface AnalysisSessionBuildTotalProfileEvent {
+  uri: string;
+  version: number;
+  build: "base" | "resolved";
+  phase: "total";
+  elapsedMs: number;
+}
+
+export type AnalysisSessionCacheProfileEvent =
+  | AnalysisSessionBuildProfileEvent
+  | AnalysisSessionBuildTotalProfileEvent;
+
 function emptyAnalysisSessionCacheMetrics(): AnalysisSessionCacheMetrics {
   return {
     synchronousRequests: 0,
@@ -143,11 +165,11 @@ function emptyAnalysisSessionCacheMetrics(): AnalysisSessionCacheMetrics {
   };
 }
 
-function externalResolutionKey(source: string, session: AnalysisSession): string | null {
-  if (!session.ast) {
+function externalResolutionKeyFromProgram(source: string, program: Program | null): string | null {
+  if (!program) {
     return null;
   }
-  return session.ast.body
+  return program.body
     .filter((statement) =>
       statement instanceof ImportStatement ||
       (statement instanceof ExportStatement && statement.from !== undefined)
@@ -162,10 +184,37 @@ function externalResolutionKey(source: string, session: AnalysisSession): string
     .join("\0");
 }
 
+function externalResolutionKey(source: string, session: AnalysisSession): string | null {
+  return externalResolutionKeyFromProgram(source, session.ast);
+}
+
+function externalResolutionKeyFromSource(source: string): string | null {
+  return externalResolutionKeyFromProgram(source, parseSource(source).ast);
+}
+
+function createSessionFromResolved(
+  docText: string,
+  resolved: ResolvedExternals,
+  profile?: (event: AnalysisProfileEvent) => void
+): AnalysisSession {
+  return createAnalysisSession(docText, {
+    externalDeclarations: resolved.externalDeclarations ?? [],
+    externalDeclarationLocations: resolved.externalDeclarationLocations ?? new Map(),
+    ambientDeclarations: resolved.ambientDeclarations ?? [],
+    ambientModuleDeclarations: resolved.ambientModuleDeclarations ?? new Map(),
+    ambientModuleLocations: resolved.ambientModuleLocations ?? new Map(),
+    invalidImportedBindings: resolved.invalidImportedBindings ?? new Set(),
+    ambientDeclarationLocations: resolved.ambientDeclarationLocations ?? new Map(),
+    importedSymbols: resolved.importedSymbols ?? new Map(),
+    ...(profile ? { profile } : {})
+  });
+}
+
 function buildSessionFromResolved(
   docText: string,
   baseSession: AnalysisSession,
-  resolved: ResolvedExternals
+  resolved: ResolvedExternals,
+  profile?: (event: AnalysisProfileEvent) => void
 ): AnalysisSession {
   const externalDeclarations = resolved.externalDeclarations ?? [];
   const externalDeclarationLocations = resolved.externalDeclarationLocations ?? new Map();
@@ -173,7 +222,6 @@ function buildSessionFromResolved(
   const ambientDeclarations = resolved.ambientDeclarations ?? [];
   const ambientDeclarationLocations = resolved.ambientDeclarationLocations ?? new Map();
   const ambientModuleDeclarations = resolved.ambientModuleDeclarations ?? new Map();
-  const ambientModuleLocations = resolved.ambientModuleLocations ?? new Map();
   const invalidImportedBindings = resolved.invalidImportedBindings ?? new Set();
   if (
     externalDeclarations.length === 0 &&
@@ -186,16 +234,7 @@ function buildSessionFromResolved(
   ) {
     return baseSession;
   }
-  return createAnalysisSession(docText, {
-    externalDeclarations,
-    externalDeclarationLocations,
-    ambientDeclarations,
-    ambientModuleDeclarations,
-    ambientModuleLocations,
-    invalidImportedBindings,
-    ambientDeclarationLocations,
-    importedSymbols
-  });
+  return createSessionFromResolved(docText, resolved, profile);
 }
 
 export class AnalysisSessionCache {
@@ -206,6 +245,7 @@ export class AnalysisSessionCache {
   private readonly resolvedExternals = new Map<string, { key: string; resolved: ResolvedExternals }>();
   private readonly pendingExternals = new Map<string, { key: string; promise: Promise<ResolvedExternals> }>();
   private metrics = emptyAnalysisSessionCacheMetrics();
+  private profileObserver: ((event: AnalysisSessionCacheProfileEvent) => void) | undefined;
 
   constructor(
     private readonly resolveExternalDeclarations?: ExternalDeclarationsResolver,
@@ -218,6 +258,57 @@ export class AnalysisSessionCache {
 
   resetMetrics(): void {
     this.metrics = emptyAnalysisSessionCacheMetrics();
+  }
+
+  setProfileObserver(observer: ((event: AnalysisSessionCacheProfileEvent) => void) | undefined): void {
+    this.profileObserver = observer;
+  }
+
+  private createTrackedSession(
+    document: TextDocument,
+    source: string,
+    build: "base" | "resolved",
+    resolved?: ResolvedExternals
+  ): AnalysisSession {
+    const observer = this.profileObserver;
+    const profile = observer
+      ? (event: AnalysisProfileEvent) => observer({
+          ...event,
+          uri: document.uri,
+          version: document.version,
+          build
+        })
+      : undefined;
+    const startedAt = monotonicNow();
+    const session = resolved
+      ? createSessionFromResolved(source, resolved, profile)
+      : createAnalysisSession(source, profile ? { profile } : {});
+    observer?.({
+      uri: document.uri,
+      version: document.version,
+      build,
+      phase: "total",
+      elapsedMs: monotonicNow() - startedAt
+    });
+    return session;
+  }
+
+  private cachedExternalsForSource(document: TextDocument, source: string): ResolvedExternals | undefined {
+    const key = externalResolutionKeyFromSource(source);
+    const cached = this.resolvedExternals.get(document.uri);
+    if (key === null || cached?.key !== key) {
+      return undefined;
+    }
+    this.metrics.externalCacheHits += 1;
+    return cached.resolved;
+  }
+
+  private cacheResolvedSession(document: TextDocument, session: AnalysisSession): void {
+    const current = this.cache.get(document.uri);
+    if (!current || current.version <= document.version) {
+      this.cache.set(document.uri, { version: document.version, session });
+      this.onSessionUpdated?.();
+    }
   }
 
   private resolveExternals(
@@ -274,13 +365,27 @@ export class AnalysisSessionCache {
     pendingPromise = (async () => {
       try {
         const resolved = await this.resolveExternals(document, baseSession, resolveExternalDeclarations);
-        const session = buildSessionFromResolved(docText, baseSession, resolved);
+        const buildStartedAt = monotonicNow();
+        const session = buildSessionFromResolved(
+          docText,
+          baseSession,
+          resolved,
+          (event) => this.profileObserver?.({
+            ...event,
+            uri: document.uri,
+            version: document.version,
+            build: "resolved"
+          })
+        );
+        this.profileObserver?.({
+          uri: document.uri,
+          version: document.version,
+          build: "resolved",
+          phase: "total",
+          elapsedMs: monotonicNow() - buildStartedAt
+        });
         this.metrics.resolvedSessionBuilds += 1;
-        const still = this.cache.get(docUri);
-        if (!still || still.version <= docVersion) {
-          this.cache.set(docUri, { version: docVersion, session });
-          this.onSessionUpdated?.();
-        }
+        this.cacheResolvedSession(document, session);
         return session;
       } catch {
         return baseSession;
@@ -308,7 +413,16 @@ export class AnalysisSessionCache {
     const docText = document.getText();
     const docVersion = document.version;
     const docUri = document.uri;
-    const baseSession = createAnalysisSession(docText);
+    const cachedExternals = this.resolveExternalDeclarations
+      ? this.cachedExternalsForSource(document, docText)
+      : undefined;
+    if (cachedExternals) {
+      const session = this.createTrackedSession(document, docText, "resolved", cachedExternals);
+      this.metrics.resolvedSessionBuilds += 1;
+      this.cacheResolvedSession(document, session);
+      return session;
+    }
+    const baseSession = this.createTrackedSession(document, docText, "base");
     this.metrics.baseSessionBuilds += 1;
 
     if (!this.resolveExternalDeclarations) {
@@ -344,7 +458,16 @@ export class AnalysisSessionCache {
     this.metrics.sessionCacheMisses += 1;
 
     const docText = document.getText();
-    const baseSession = createAnalysisSession(docText);
+    const cachedExternals = this.resolveExternalDeclarations
+      ? this.cachedExternalsForSource(document, docText)
+      : undefined;
+    if (cachedExternals) {
+      const session = this.createTrackedSession(document, docText, "resolved", cachedExternals);
+      this.metrics.resolvedSessionBuilds += 1;
+      this.cacheResolvedSession(document, session);
+      return session;
+    }
+    const baseSession = this.createTrackedSession(document, docText, "base");
     this.metrics.baseSessionBuilds += 1;
     return this.startAsyncResolution(document, baseSession);
   }

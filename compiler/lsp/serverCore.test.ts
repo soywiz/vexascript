@@ -31,6 +31,7 @@ import { resolve as resolvePath } from "compiler/utils/path";
 import {
   candidateCharacters,
   completionPrefixAt,
+  slowLspTimingWarning,
   startLspServer,
   type LspServerEnvironment
 } from "./serverCore";
@@ -214,6 +215,7 @@ const WORKSPACE_ONLY_HANDLERS = new Set([
 interface StartedServer {
   fakeConnection: FakeConnection;
   fakeDocuments: FakeDocuments;
+  analysisSessions: AnalysisSessionCache;
   environmentEvents: string[];
 }
 
@@ -221,6 +223,7 @@ function startServer(withWorkspace: boolean): StartedServer {
   const fakeConnection = createFakeConnection();
   const fakeDocuments = createFakeDocuments();
   const environmentEvents: string[] = [];
+  const analysisSessions = new AnalysisSessionCache();
   const environment: LspServerEnvironment = {
     getSourceRoots: () => [],
     getSessionForFilePath: () => null,
@@ -245,11 +248,11 @@ function startServer(withWorkspace: boolean): StartedServer {
   startLspServer({
     connection: fakeConnection.connection,
     documents: fakeDocuments.documents,
-    analysisSessions: new AnalysisSessionCache(),
+    analysisSessions,
     environment
   });
 
-  return { fakeConnection, fakeDocuments, environmentEvents };
+  return { fakeConnection, fakeDocuments, analysisSessions, environmentEvents };
 }
 
 function openedDocument(server: StartedServer, source: string, uri = "file:///workspace/main.vx"): TextDocument {
@@ -363,10 +366,21 @@ async function startWorkspaceBackedServer(workspaceRoot: string): Promise<Starte
     environment
   });
 
-  return { fakeConnection, fakeDocuments, environmentEvents };
+  return { fakeConnection, fakeDocuments, analysisSessions, environmentEvents };
 }
 
 describe("LSP server core", () => {
+  it("marks LSP timing observations above the slow and super-slow thresholds", () => {
+    assert.equal(slowLspTimingWarning("textDocument/completion", 249.9), null);
+    assert.equal(
+      slowLspTimingWarning("textDocument/completion", 250),
+      "⚠️ SLOW textDocument/completion took 250.0ms"
+    );
+    assert.equal(
+      slowLspTimingWarning("textDocument/completion", 750),
+      "🚨 SUPER SLOW textDocument/completion took 750.0ms"
+    );
+  });
   it("registers the same shared handler set for both server environments", () => {
     const node = startServer(true);
     const browser = startServer(false);
@@ -705,7 +719,7 @@ describe("LSP server core", () => {
 
     assert.equal(
       server.fakeConnection.infoMessages.some((message) =>
-        /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+        /^\[Timing\] textDocument\/completion self \d+(?:\.\d+)?ms$/.test(message)
       ),
       false
     );
@@ -732,10 +746,65 @@ describe("LSP server core", () => {
 
     assert.equal(
       server.fakeConnection.infoMessages.some((message) =>
-        /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+        /^\[Timing\] textDocument\/completion self \d+(?:\.\d+)?ms$/.test(message)
       ),
       true
     );
+    assert.equal(
+      server.fakeConnection.infoMessages.some((message) => message.includes(" elapsed ")),
+      false
+    );
+  });
+
+  it("skips completion analysis for a document version superseded by the next keystroke", async () => {
+    const server = startServer(false);
+    server.fakeConnection.handlers.get("initialize")!({
+      initializationOptions: { enableLspTimings: true }
+    });
+    const uri = "file:///workspace/main.vx";
+    const prefix = "declare function line(): unknown\nconst trend = line()\n  ";
+    const intermediate = TextDocument.create(uri, "vexa", 2, `${prefix}.`);
+    server.fakeDocuments.open(TextDocument.create(uri, "vexa", 1, prefix));
+    server.fakeDocuments.change(intermediate);
+    server.analysisSessions.resetMetrics();
+
+    const supersededCompletion = server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri },
+      position: intermediate.positionAt(intermediate.getText().length),
+      context: { triggerKind: 2, triggerCharacter: "." }
+    }) as Promise<Array<{ label: string }>>;
+
+    const current = TextDocument.create(uri, "vexa", 3, `${prefix}.x`);
+    server.fakeDocuments.change(current);
+    const currentCompletion = server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri },
+      position: current.positionAt(current.getText().length),
+      context: { triggerKind: 1 }
+    }) as Promise<Array<{ label: string }>>;
+
+    const [supersededItems, currentItems] = await Promise.all([
+      supersededCompletion,
+      currentCompletion
+    ]);
+
+    assert.deepEqual(supersededItems, []);
+    assert.equal(Array.isArray(currentItems), true);
+    assert.deepEqual(server.analysisSessions.getMetrics(), {
+      synchronousRequests: 0,
+      asynchronousRequests: 1,
+      sessionCacheHits: 0,
+      sessionCacheMisses: 1,
+      pendingSessionReuses: 0,
+      externalCacheHits: 0,
+      externalCacheMisses: 0,
+      pendingExternalReuses: 0,
+      externalResolverRuns: 0,
+      baseSessionBuilds: 1,
+      resolvedSessionBuilds: 0
+    });
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      message === "[Timing] textDocument/completion work requestedVersion=2 currentVersion=3 staleVersionSkips=1 analysisSessionRequests=0"
+    ), true);
   });
 
   it("logs timing phases and cache states for expensive requests when enabled", async () => {
@@ -774,13 +843,13 @@ describe("LSP server core", () => {
       message.startsWith("[Timing] textDocument/diagnostic cache hit v1")
     ), true);
     assert.equal(server.fakeConnection.infoMessages.some((message) =>
-      /^\[Timing\] textDocument\/diagnostic::analysisSession took \d+(?:\.\d+)?ms$/.test(message)
+      /^\[Timing\] textDocument\/diagnostic::analysisSession self \d+(?:\.\d+)?ms$/.test(message)
     ), true);
     assert.equal(server.fakeConnection.infoMessages.some((message) =>
-      /^\[Timing\] textDocument\/semanticTokens\/full::buildTokens took \d+(?:\.\d+)?ms$/.test(message)
+      /^\[Timing\] textDocument\/semanticTokens\/full::buildTokens self \d+(?:\.\d+)?ms$/.test(message)
     ), true);
     assert.equal(server.fakeConnection.infoMessages.some((message) =>
-      /^\[Timing\] textDocument\/semanticTokens\/full::deprecatedSemanticTokenModifiers took \d+(?:\.\d+)?ms$/.test(message)
+      /^\[Timing\] textDocument\/semanticTokens\/full::deprecatedSemanticTokenModifiers self \d+(?:\.\d+)?ms$/.test(message)
     ), true);
     assert.equal(server.fakeConnection.infoMessages.some((message) =>
       /^\[Timing\] deprecatedSemanticTokenModifiers work members=\d+ candidates=\d+ resolutions=\d+ resolutionCacheHits=\d+ declarationNodes=\d+ declarationRootCacheHits=\d+$/.test(message)
@@ -910,7 +979,7 @@ describe("LSP server core", () => {
 
     assert.equal(full.data.length > ranged.data.length, true);
     assert.equal(server.fakeConnection.infoMessages.some((message) =>
-      /^\[Timing\] textDocument\/semanticTokens\/range::analysisSession took \d+(?:\.\d+)?ms$/.test(message)
+      /^\[Timing\] textDocument\/semanticTokens\/range::analysisSession self \d+(?:\.\d+)?ms$/.test(message)
     ), false);
     assert.equal(server.fakeConnection.infoMessages.some((message) =>
       message.startsWith("[Timing] textDocument/semanticTokens/range cache hit v1")
@@ -938,7 +1007,7 @@ describe("LSP server core", () => {
       message.includes("cache hit")
     ), false);
     assert.equal(server.fakeConnection.infoMessages.some((message) =>
-      /^\[Timing\] textDocument\/diagnostic took \d+(?:\.\d+)?ms$/.test(message)
+      /^\[Timing\] textDocument\/diagnostic self \d+(?:\.\d+)?ms$/.test(message)
     ), true);
   });
 
@@ -951,12 +1020,12 @@ describe("LSP server core", () => {
 
     await server.fakeConnection.handlers.get("workspaceDiagnostics")!({});
     const afterFirstPull = server.fakeConnection.infoMessages.filter((message) =>
-      message.startsWith("[Timing] workspace/diagnostic took ")
+      message.startsWith("[Timing] workspace/diagnostic self ")
     ).length;
 
     await server.fakeConnection.handlers.get("workspaceDiagnostics")!({});
     const afterSecondPull = server.fakeConnection.infoMessages.filter((message) =>
-      message.startsWith("[Timing] workspace/diagnostic took ")
+      message.startsWith("[Timing] workspace/diagnostic self ")
     ).length;
 
     assert.equal(afterFirstPull, 1);
@@ -969,9 +1038,24 @@ describe("LSP server core", () => {
     const fakeDocuments = createFakeDocuments();
     const badSession = createAnalysisSession("val broken: number = \"text\"\n");
     const goodSession = createAnalysisSession("val fixed: number = 10\n");
+    const emptyMetrics = {
+      synchronousRequests: 0,
+      asynchronousRequests: 0,
+      sessionCacheHits: 0,
+      sessionCacheMisses: 0,
+      pendingSessionReuses: 0,
+      externalCacheHits: 0,
+      externalCacheMisses: 0,
+      pendingExternalReuses: 0,
+      externalResolverRuns: 0,
+      baseSessionBuilds: 0,
+      resolvedSessionBuilds: 0
+    };
     const analysisSessions = {
       getForDocument: () => badSession,
       getForDocumentAsync: async () => goodSession,
+      getMetrics: () => emptyMetrics,
+      setProfileObserver: () => undefined,
       delete: () => undefined,
       clear: () => undefined
     } as unknown as AnalysisSessionCache;
@@ -1043,6 +1127,20 @@ describe("LSP server core", () => {
         clears += 1;
       },
       delete: () => undefined,
+      getMetrics: () => ({
+        synchronousRequests: 0,
+        asynchronousRequests: 0,
+        sessionCacheHits: 0,
+        sessionCacheMisses: 0,
+        pendingSessionReuses: 0,
+        externalCacheHits: 0,
+        externalCacheMisses: 0,
+        pendingExternalReuses: 0,
+        externalResolverRuns: 0,
+        baseSessionBuilds: 0,
+        resolvedSessionBuilds: 0
+      }),
+      setProfileObserver: () => undefined,
       getForDocument: () => createAnalysisSession(""),
       getForDocumentAsync: async () => createAnalysisSession("")
     } as unknown as AnalysisSessionCache;
@@ -1141,10 +1239,10 @@ describe("LSP server core", () => {
 
     server.fakeConnection.setConfiguration({ lsp: { timings: { enabled: true } } });
     await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
-    assert.equal(server.fakeConnection.infoMessages.some((message) => message.startsWith("[Timing] workspace/didChangeConfiguration took ")), true);
+    assert.equal(server.fakeConnection.infoMessages.some((message) => message.startsWith("[Timing] workspace/didChangeConfiguration self ")), false);
 
     const enabledCount = server.fakeConnection.infoMessages.filter((message) =>
-      /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+      /^\[Timing\] textDocument\/completion self \d+(?:\.\d+)?ms$/.test(message)
     ).length;
     await server.fakeConnection.handlers.get("completion")!({
       textDocument: { uri: document.uri },
@@ -1152,7 +1250,7 @@ describe("LSP server core", () => {
     });
     assert.equal(
       server.fakeConnection.infoMessages.filter((message) =>
-        /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+        /^\[Timing\] textDocument\/completion self \d+(?:\.\d+)?ms$/.test(message)
       ).length > enabledCount,
       true
     );
@@ -1160,7 +1258,7 @@ describe("LSP server core", () => {
     server.fakeConnection.setConfiguration({ lsp: { timings: { enabled: false } } });
     await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
     const disabledCount = server.fakeConnection.infoMessages.filter((message) =>
-      /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+      /^\[Timing\] textDocument\/completion self \d+(?:\.\d+)?ms$/.test(message)
     ).length;
     await server.fakeConnection.handlers.get("completion")!({
       textDocument: { uri: document.uri },
@@ -1168,7 +1266,7 @@ describe("LSP server core", () => {
     });
     assert.equal(
       server.fakeConnection.infoMessages.filter((message) =>
-        /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+        /^\[Timing\] textDocument\/completion self \d+(?:\.\d+)?ms$/.test(message)
       ).length,
       disabledCount
     );

@@ -112,3 +112,50 @@ pass now performs zero project-session requests, zero class resolutions, and
 zero member/extension resolutions. Its observed duration fell to about 0.17 ms.
 The profiler keeps this edit scenario so future regressions exercise the
 temporary invalid state that occurs while typing, not only valid saved source.
+
+## Follow-up: intermediate document versions and type equality
+
+A later `.x` capture showed completion at 1,000.1 ms, deprecated semantic-token
+collection at 1,008.1 ms, and the full semantic-token response at 1,560.7 ms.
+The selected counters contradicted the apparent ownership: deprecated work was
+only 54 member visits, one candidate, one resolution, and 407 declaration
+nodes. Workspace diagnostics was already down to 0.20 ms. The 54-versus-55
+member difference showed that the semantic request belonged to the temporary
+`.` version while the workspace request saw the subsequent `x` version.
+
+The server now yields one event-loop turn before starting completion or
+semantic-token analysis and checks that the captured document version is still
+current. A stale request returns no result and logs
+`staleVersionSkips=1 analysisSessionRequests=0`. The regression test starts a
+completion for version 2, delivers version 3 before awaiting it, and asserts
+that only version 3 builds a session. This avoids compiling an intermediate
+keystroke that would otherwise prevent the next `didChange` from being
+delivered.
+
+LSP timing output now reports only owned synchronous `self` spans and explicit
+owned phases. Queue-inclusive elapsed durations were removed because they add
+deferred waiting and unrelated event-loop blocking to the apparent cost of a
+request. Self spans receive `⚠️ SLOW` at 250 ms and `🚨 SUPER SLOW` at 750 ms.
+Analysis sessions additionally report binding, type-checking, and total-build
+self spans by document version and build kind. Shared waiting is represented by
+counters such as `pendingReuses`, not attributed as time. This revealed that the
+legitimate edited D3 session still spent about 696 ms in type checking even
+after the stale request was removed.
+
+A CPU profile and a new semantic counter found approximately 4.116 million
+top-level `isSameType` calls per edited session. Union display and type
+combination deduplicated every member against every previous member, even when
+kind, named owner, arity, literal value, or object property names made equality
+impossible. Cheap necessary-equality buckets now reject those pairs before the
+authoritative structural comparison. Object buckets use an order-independent
+property-name fingerprint; collisions only cause an extra structural check and
+cannot change semantics.
+
+In the maintained profile, edited-session comparison calls fell to about
+93,100 and observed edited-session time fell from roughly 700 ms to roughly
+258 ms. The edit also reuses the unchanged external-resolution key and builds
+only the final resolved session (`baseSessionBuilds=0`,
+`resolvedSessionBuilds=1`, `externalResolverRuns=0`). These times are
+observational. The durable assertions are the stale-version zero-work rule,
+one final session build, and equality-bucket tests that perform zero structural
+comparisons for incompatible candidates.

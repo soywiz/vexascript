@@ -122,14 +122,24 @@ The output separates:
 - immediate warm deprecated-modifier work;
 - concurrent editor-like feature work;
 - an edited document version that reuses the external declaration graph;
-- project-index session/build counters; and
+- project-index session/build counters;
 - deprecated-member visits, candidates, resolutions, and declaration-index cache
-  hits.
+  hits;
+- analysis-session `binding`, `type-checking`, and `total` self spans, without
+  queue-inclusive request latency; and
+- structural type-comparison calls for cold and edited sessions.
 
 Use the counters as the regression invariant. For example, a document with no
 deprecated member use should not perform project session requests merely to
 prove that ordinary members are not deprecated. Treat milliseconds only as
 observational evidence.
+
+In the live LSP log, `[Timing]` durations must be `self` timings for owned
+synchronous work or explicit owned phases. Do not emit queue-inclusive elapsed
+durations beside them: single-thread event-loop blocking would attribute one
+owner's work to every waiter. Use `⚠️ SLOW` at 250 ms and `🚨 SUPER SLOW` at
+750 ms. A `pendingReuses=1` counter identifies a waiter without inventing an
+owned duration for it.
 
 Representative findings:
 
@@ -148,6 +158,15 @@ Representative findings:
   receivers, and a chain whose earlier receiver was a function. Rejecting those
   impossible fallback candidates reduced the edited pass to zero project-session
   requests and zero class resolutions.
+- Typing `.x` exposed a version-burst failure: completion for the intermediate
+  `.` version could synchronously build a session before the `x` change reached
+  the event loop. Yield once before expensive completion/semantic-token work,
+  reject superseded versions, and assert zero analysis-session requests for the
+  stale completion.
+- Once queue waiting was separated from self work, D3 still showed roughly 4.1
+  million structural type comparisons in one resolved session. Equality
+  buckets reduced that to about 93 thousand; structural equality remains the
+  final check for candidates inside the same bucket.
 
 If VS Code timings are much worse than the script timings, compare:
 

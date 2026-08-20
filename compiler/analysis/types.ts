@@ -301,6 +301,36 @@ export function typeToString(type: AnalysisType): string {
   return typeToStringInternal(type, { seen: new Set<object>(), work: 0 });
 }
 
+/** Cheap necessary-equality key used to avoid impossible structural comparisons. */
+export function typeComparisonBucketKey(type: AnalysisType): string {
+  if (type instanceof BuiltinType) return `builtin:${type.name}`;
+  if (type instanceof NamedType) return `named:${type.name}:${type.typeArguments?.length ?? 0}`;
+  if (type instanceof UnknownType) return "unknown";
+  if (type instanceof ArrayType) return `array:${type.isReadonly === true ? 1 : 0}`;
+  if (type instanceof RangeType) return "range";
+  if (type instanceof ObjectType) {
+    let nameHashSum = 0;
+    let nameHashXor = 0;
+    for (const name of type.properties.keys()) {
+      let nameHash = 2166136261;
+      for (let index = 0; index < name.length; index += 1) {
+        nameHash = Math.imul(nameHash ^ name.charCodeAt(index), 16777619);
+      }
+      nameHashSum = (nameHashSum + nameHash) >>> 0;
+      nameHashXor = (nameHashXor ^ nameHash) >>> 0;
+    }
+    return `object:${type.properties.size}:${nameHashSum}:${nameHashXor}`;
+  }
+  if (type instanceof UnionType) return `union:${type.types.length}`;
+  if (type instanceof IntersectionType) return `intersection:${type.types.length}`;
+  if (type instanceof LiteralType) return `literal:${type.base}:${String(type.value)}`;
+  if (type instanceof TupleType) return `tuple:${type.isReadonly === true ? 1 : 0}:${type.elements.length}`;
+  if (type instanceof FunctionType) {
+    return `function:${type.parameters.length}:${type.assertion?.target ?? ""}:${type.constTypeParameters?.size ?? 0}`;
+  }
+  return `kind:${type.kind}`;
+}
+
 const MAX_TYPE_RENDER_DEPTH = 64;
 const MAX_TYPE_RENDER_WORK = 4_096;
 
@@ -413,10 +443,20 @@ function flattenUnionDisplayMembers(type: AnalysisType): AnalysisType[] {
 
 function dedupeUnionDisplayMembers(members: AnalysisType[]): AnalysisType[] {
   const deduped: AnalysisType[] = [];
+  const seenByIdentity = new Set<AnalysisType>();
+  const candidatesByKey = new Map<string, AnalysisType[]>();
   for (const member of members) {
-    if (deduped.some((existing) => isSameType(existing, member))) {
+    if (seenByIdentity.has(member)) {
       continue;
     }
+    seenByIdentity.add(member);
+    const key = typeComparisonBucketKey(member);
+    const candidates = candidatesByKey.get(key) ?? [];
+    if (candidates.some((existing) => isSameType(existing, member))) {
+      continue;
+    }
+    candidates.push(member);
+    candidatesByKey.set(key, candidates);
     deduped.push(member);
   }
   const nonNeverMembers = deduped.filter(
@@ -455,10 +495,21 @@ export function isUnknownType(type: AnalysisType | null | undefined): boolean {
   return !type || type instanceof UnknownType;
 }
 
+let typeComparisonCalls = 0;
+
+export function getTypeComparisonCalls(): number {
+  return typeComparisonCalls;
+}
+
+export function resetTypeComparisonCalls(): void {
+  typeComparisonCalls = 0;
+}
+
 export function isSameType(
   a: AnalysisType | null | undefined,
   b: AnalysisType | null | undefined
 ): boolean {
+  typeComparisonCalls += 1;
   return isSameTypeInternal(a, b, new WeakMap<object, WeakSet<object>>());
 }
 

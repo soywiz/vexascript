@@ -399,9 +399,33 @@ describe("lsp analysis session", () => {
     // Establish a v1 session in the cache
     await cache.getForDocumentAsync(docV1);
 
+    cache.resetMetrics();
     const sessionV2 = await cache.getForDocumentAsync(docV2);
     expect(sessionV2.ast?.body.length).toBeGreaterThan(0);
     expect(callCount).toBe(1);
+    expect(cache.getMetrics()).toMatchObject({
+      sessionCacheMisses: 1,
+      externalCacheHits: 1,
+      externalResolverRuns: 0,
+      baseSessionBuilds: 0,
+      resolvedSessionBuilds: 1
+    });
+  });
+
+  it("reports self timings for the owned analysis-session build phases", async () => {
+    const document = TextDocument.create("file:///profile.vx", "vexa", 1, "let answer = 42\n");
+    const cache = new AnalysisSessionCache();
+    const events: Array<{ build: string; phase: string; version: number; elapsedMs: number }> = [];
+    cache.setProfileObserver((event) => events.push(event));
+
+    await cache.getForDocumentAsync(document);
+
+    expect(events.map((event) => `${event.build}:${event.phase}`)).toEqual([
+      "base:binding",
+      "base:type-checking",
+      "base:total"
+    ]);
+    expect(events.every((event) => event.version === 1 && event.elapsedMs >= 0)).toBe(true);
   });
 
   it("resolves externals again when imports change between document versions", async () => {

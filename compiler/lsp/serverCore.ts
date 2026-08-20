@@ -135,6 +135,20 @@ export interface LspServerOptions {
   environment: LspServerEnvironment;
 }
 
+const SLOW_LSP_OPERATION_MS = 250;
+const SUPER_SLOW_LSP_OPERATION_MS = 750;
+
+export function slowLspTimingWarning(operationName: string, durationMs: number): string | null {
+  const label = durationMs >= SUPER_SLOW_LSP_OPERATION_MS
+    ? "🚨 SUPER SLOW"
+    : durationMs >= SLOW_LSP_OPERATION_MS
+      ? "⚠️ SLOW"
+      : null;
+  return label
+    ? `${label} ${operationName} took ${durationMs >= 10 ? durationMs.toFixed(1) : durationMs.toFixed(2)}ms`
+    : null;
+}
+
 export function startLspServer(options: LspServerOptions): void {
   const { connection, documents, analysisSessions, environment } = options;
   const workspace = environment.workspace;
@@ -168,13 +182,24 @@ export function startLspServer(options: LspServerOptions): void {
     }
   }
 
+  function logSlowTimingWarning(operationName: string, durationMs: number): void {
+    const warning = slowLspTimingWarning(operationName, durationMs);
+    if (warning) {
+      logTimingMessage(warning);
+    }
+  }
+
   async function logTimedOperation<T>(name: string, run: () => Promise<T> | T): Promise<T> {
     const startedAt = nowMs();
+    let result: Promise<T> | T;
     try {
-      return await run();
+      result = run();
     } finally {
-      logTimingMessage(`${name} took ${formatDurationMs(nowMs() - startedAt)}ms`);
+      const selfDurationMs = nowMs() - startedAt;
+      logTimingMessage(`${name} self ${formatDurationMs(selfDurationMs)}ms`);
+      logSlowTimingWarning(`${name} self`, selfDurationMs);
     }
+    return await result;
   }
 
   function logTimedOperationSync<T>(name: string, run: () => T): T {
@@ -182,17 +207,24 @@ export function startLspServer(options: LspServerOptions): void {
     try {
       return run();
     } finally {
-      logTimingMessage(`${name} took ${formatDurationMs(nowMs() - startedAt)}ms`);
+      const durationMs = nowMs() - startedAt;
+      logTimingMessage(`${name} self ${formatDurationMs(durationMs)}ms`);
+      logSlowTimingWarning(`${name} self`, durationMs);
     }
   }
 
   async function logTimedPhase<T>(operationName: string, phaseName: string, run: () => Promise<T> | T): Promise<T> {
     const startedAt = nowMs();
+    const name = `${operationName}::${phaseName}`;
+    let result: Promise<T> | T;
     try {
-      return await run();
+      result = run();
     } finally {
-      logTimingMessage(`${operationName}::${phaseName} took ${formatDurationMs(nowMs() - startedAt)}ms`);
+      const selfDurationMs = nowMs() - startedAt;
+      logTimingMessage(`${name} self ${formatDurationMs(selfDurationMs)}ms`);
+      logSlowTimingWarning(`${name} self`, selfDurationMs);
     }
+    return await result;
   }
 
   function logCacheState(operationName: string, state: "hit" | "miss", version: number): void {
@@ -200,6 +232,46 @@ export function startLspServer(options: LspServerOptions): void {
       logTimingMessage(`${operationName} cache ${state} v${version}`);
     }
   }
+
+  async function currentDocumentAfterPendingChanges(document: TextDocument): Promise<TextDocument | null> {
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+    const current = documents.get(document.uri);
+    return current?.version === document.version ? current : null;
+  }
+
+  function logStaleDocumentRequest(operationName: string, document: TextDocument): void {
+    const currentVersion = documents.get(document.uri)?.version;
+    logTimingMessage(
+      `${operationName} work requestedVersion=${document.version} currentVersion=${currentVersion ?? "closed"} `
+      + "staleVersionSkips=1 analysisSessionRequests=0"
+    );
+  }
+
+  function getAnalysisSessionForRequest(operationName: string, document: TextDocument): Promise<AnalysisSession> {
+    const before = analysisSessions.getMetrics();
+    const startedAt = nowMs();
+    const promise = analysisSessions.getForDocumentAsync(document);
+    const selfDurationMs = nowMs() - startedAt;
+    const after = analysisSessions.getMetrics();
+    logTimingMessage([
+      `${operationName}::analysisSession self ${formatDurationMs(selfDurationMs)}ms work`,
+      `cacheHits=${after.sessionCacheHits - before.sessionCacheHits}`,
+      `cacheMisses=${after.sessionCacheMisses - before.sessionCacheMisses}`,
+      `pendingReuses=${after.pendingSessionReuses - before.pendingSessionReuses}`,
+      `externalCacheHits=${after.externalCacheHits - before.externalCacheHits}`,
+      `externalResolverRuns=${after.externalResolverRuns - before.externalResolverRuns}`,
+      `baseBuilds=${after.baseSessionBuilds - before.baseSessionBuilds}`,
+      `resolvedBuilds=${after.resolvedSessionBuilds - before.resolvedSessionBuilds}`
+    ].join(" "));
+    logSlowTimingWarning(`${operationName}::analysisSession self`, selfDurationMs);
+    return promise;
+  }
+
+  analysisSessions.setProfileObserver((event) => {
+    const name = `analysisSession v${event.version} ${event.build}::${event.phase} self`;
+    logTimingMessage(`${name} ${formatDurationMs(event.elapsedMs)}ms`);
+    logSlowTimingWarning(name, event.elapsedMs);
+  });
 
   function refreshDiagnostics(): void {
     connection.languages.diagnostics.refresh();
@@ -264,7 +336,7 @@ export function startLspServer(options: LspServerOptions): void {
   }
 
   async function collectWorkspaceDiagnosticsForDocument(doc: TextDocument): Promise<Diagnostic[]> {
-    const session = await analysisSessions.getForDocumentAsync(doc);
+    const session = await getAnalysisSessionForRequest("workspace/diagnostic", doc);
     const [crossFileDiagnostics, crossFileTypeDiagnostics] = await Promise.all([
       getWorkspaceMemberDiagnosticsForDocument(doc, session),
       getCrossFileTypeDiagnosticsForDocument(doc, session)
@@ -296,7 +368,7 @@ export function startLspServer(options: LspServerOptions): void {
     logCacheState("crossFileTypeDiagnostics", "miss", doc.version);
     const promise = (async () => {
       const resolvedSession = session ?? await logTimedPhase("crossFileTypeDiagnostics", "analysisSession", () =>
-        analysisSessions.getForDocumentAsync(doc)
+        getAnalysisSessionForRequest("crossFileTypeDiagnostics", doc)
       );
       return logTimedPhase("crossFileTypeDiagnostics", "collect", () =>
         collectCrossFileTypeDiagnostics({
@@ -321,7 +393,7 @@ export function startLspServer(options: LspServerOptions): void {
     logCacheState("workspaceMemberDiagnostics", "miss", doc.version);
     const promise = (async () => {
       const resolvedSession = session ?? await logTimedPhase("workspaceMemberDiagnostics", "analysisSession", () =>
-        analysisSessions.getForDocumentAsync(doc)
+        getAnalysisSessionForRequest("workspaceMemberDiagnostics", doc)
       );
       const before = getCrossFileMemberDiagnosticWorkMetrics();
       const diagnostics = await logTimedPhase("workspaceMemberDiagnostics", "collect", () =>
@@ -363,7 +435,7 @@ export function startLspServer(options: LspServerOptions): void {
     logCacheState("deprecatedSemanticTokenModifiers", "miss", doc.version);
     const promise = (async () => {
       const resolvedSession = session ?? await logTimedPhase("deprecatedSemanticTokenModifiers", "analysisSession", () =>
-        analysisSessions.getForDocumentAsync(doc)
+        getAnalysisSessionForRequest("deprecatedSemanticTokenModifiers", doc)
       );
       const before = getDeprecatedSemanticTokenWorkMetrics();
       const modifiers = await logTimedPhase("deprecatedSemanticTokenModifiers", "collect", () =>
@@ -397,7 +469,7 @@ export function startLspServer(options: LspServerOptions): void {
     logCacheState("textDocument/diagnostic", "miss", doc.version);
     const promise = logTimedOperation("textDocument/diagnostic", async () => {
       const session = await logTimedPhase("textDocument/diagnostic", "analysisSession", () =>
-        analysisSessions.getForDocumentAsync(doc)
+        getAnalysisSessionForRequest("textDocument/diagnostic", doc)
       );
       const [moduleNotFoundDiagnostics, crossFileTypeDiagnostics] = await Promise.all([
         logTimedPhase("textDocument/diagnostic", "moduleNotFoundDiagnostics", () =>
@@ -546,12 +618,17 @@ export function startLspServer(options: LspServerOptions): void {
     ) {
       return [];
     }
-    const session = await analysisSessions.getForDocumentAsync(doc);
+    const currentDoc = await currentDocumentAfterPendingChanges(doc);
+    if (!currentDoc) {
+      logStaleDocumentRequest("textDocument/completion", doc);
+      return [];
+    }
+    const session = await getAnalysisSessionForRequest("textDocument/completion", currentDoc);
     const triggerOptions = triggerCharacter ? { triggerCharacter } : {};
     const completionOptions = {
       text,
       ...triggerOptions,
-      ...featureContext(doc.uri),
+      ...featureContext(currentDoc.uri),
       getExportedSymbols: () => getExportedSymbolsForSession(session),
       ambientModuleDeclarations: session.ambientModuleDeclarations,
       recoverAnalysisSession: (source: string) => createAnalysisSession(source, {
@@ -613,7 +690,7 @@ export function startLspServer(options: LspServerOptions): void {
     logCacheState("textDocument/codeAction", "miss", doc.version);
     const promise = logTimedOperation("textDocument/codeAction", async () => {
       const session = await logTimedPhase("textDocument/codeAction", "analysisSession", () =>
-        analysisSessions.getForDocumentAsync(doc)
+        getAnalysisSessionForRequest("textDocument/codeAction", doc)
       );
       if (!session.ast) {
         return [];
@@ -673,7 +750,7 @@ export function startLspServer(options: LspServerOptions): void {
   async function resolveDefinition(uri: string, line: number, character: number) {
     const doc = documents.get(uri);
     if (!doc) return null;
-    const session = await analysisSessions.getForDocumentAsync(doc);
+    const session = await getAnalysisSessionForRequest("textDocument/navigation", doc);
     if (!session.analysis || !session.ast) return null;
     return await resolveDefinitionWithLocalFallback({
       ...featureContext(uri),
@@ -699,7 +776,7 @@ export function startLspServer(options: LspServerOptions): void {
   connection.onDocumentHighlight((params) => logTimedOperation("textDocument/documentHighlight", async () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
-    const session = await analysisSessions.getForDocumentAsync(doc);
+    const session = await getAnalysisSessionForRequest("textDocument/documentHighlight", doc);
     return session.analysis
       ? createDocumentHighlights(session.analysis, params.position.line, params.position.character, session.ast ?? undefined)
       : [];
@@ -711,7 +788,7 @@ export function startLspServer(options: LspServerOptions): void {
       return null;
     }
 
-    const session = await analysisSessions.getForDocumentAsync(doc);
+    const session = await getAnalysisSessionForRequest("textDocument/hover", doc);
     if (!session.analysis || !session.ast) {
       return null;
     }
@@ -730,7 +807,7 @@ export function startLspServer(options: LspServerOptions): void {
       return null;
     }
 
-    const session = await analysisSessions.getForDocumentAsync(doc);
+    const session = await getAnalysisSessionForRequest("textDocument/prepareRename", doc);
     if (!session.analysis) {
       return null;
     }
@@ -749,7 +826,7 @@ export function startLspServer(options: LspServerOptions): void {
       return null;
     }
 
-    const session = await analysisSessions.getForDocumentAsync(doc);
+    const session = await getAnalysisSessionForRequest("textDocument/rename", doc);
     if (!session.analysis || !session.ast) {
       return null;
     }
@@ -1026,30 +1103,35 @@ export function startLspServer(options: LspServerOptions): void {
     if (!doc) {
       return { data: [] };
     }
-    const cacheKey = `${doc.uri}|full`;
+    const currentDoc = await currentDocumentAfterPendingChanges(doc);
+    if (!currentDoc) {
+      logStaleDocumentRequest("textDocument/semanticTokens/full", doc);
+      return { data: [] };
+    }
+    const cacheKey = `${currentDoc.uri}|full`;
     const cached = semanticTokensCache.get(cacheKey);
-    if (cached && cached.version === doc.version) {
-      logCacheState("textDocument/semanticTokens/full", "hit", doc.version);
+    if (cached && cached.version === currentDoc.version) {
+      logCacheState("textDocument/semanticTokens/full", "hit", currentDoc.version);
       return cached.promise;
     }
-    logCacheState("textDocument/semanticTokens/full", "miss", doc.version);
+    logCacheState("textDocument/semanticTokens/full", "miss", currentDoc.version);
     const promise = logTimedOperation("textDocument/semanticTokens/full", async () => {
       const session = await logTimedPhase("textDocument/semanticTokens/full", "analysisSession", () =>
-        analysisSessions.getForDocumentAsync(doc)
+        getAnalysisSessionForRequest("textDocument/semanticTokens/full", currentDoc)
       );
       const tokenModifiersByRangeKey = await logTimedPhase("textDocument/semanticTokens/full", "deprecatedSemanticTokenModifiers", () =>
-        getDeprecatedSemanticTokenModifiers(doc, session)
+        getDeprecatedSemanticTokenModifiers(currentDoc, session)
       );
       return logTimedPhase("textDocument/semanticTokens/full", "buildTokens", () =>
         createSemanticTokens({
-          text: doc.getText(),
+          text: currentDoc.getText(),
           ast: session.ast,
           analysis: session.analysis,
           tokenModifiersByRangeKey
         })
       );
     });
-    semanticTokensCache.set(cacheKey, { version: doc.version, promise });
+    semanticTokensCache.set(cacheKey, { version: currentDoc.version, promise });
     return promise;
   });
 
@@ -1058,31 +1140,36 @@ export function startLspServer(options: LspServerOptions): void {
     if (!doc) {
       return { data: [] };
     }
-    const cacheKey = `${doc.uri}|range:${params.range.start.line}:${params.range.start.character}:${params.range.end.line}:${params.range.end.character}`;
+    const currentDoc = await currentDocumentAfterPendingChanges(doc);
+    if (!currentDoc) {
+      logStaleDocumentRequest("textDocument/semanticTokens/range", doc);
+      return { data: [] };
+    }
+    const cacheKey = `${currentDoc.uri}|range:${params.range.start.line}:${params.range.start.character}:${params.range.end.line}:${params.range.end.character}`;
     const cached = semanticTokensCache.get(cacheKey);
-    if (cached && cached.version === doc.version) {
-      logCacheState("textDocument/semanticTokens/range", "hit", doc.version);
+    if (cached && cached.version === currentDoc.version) {
+      logCacheState("textDocument/semanticTokens/range", "hit", currentDoc.version);
       return cached.promise;
     }
-    const fullCacheKey = `${doc.uri}|full`;
+    const fullCacheKey = `${currentDoc.uri}|full`;
     const cachedFull = semanticTokensCache.get(fullCacheKey);
-    if (cachedFull && cachedFull.version === doc.version) {
-      logCacheState("textDocument/semanticTokens/range", "hit", doc.version);
+    if (cachedFull && cachedFull.version === currentDoc.version) {
+      logCacheState("textDocument/semanticTokens/range", "hit", currentDoc.version);
       const promise = cachedFull.promise.then((tokens) => sliceSemanticTokensByRange(tokens, params.range));
-      semanticTokensCache.set(cacheKey, { version: doc.version, promise });
+      semanticTokensCache.set(cacheKey, { version: currentDoc.version, promise });
       return promise;
     }
-    logCacheState("textDocument/semanticTokens/range", "miss", doc.version);
+    logCacheState("textDocument/semanticTokens/range", "miss", currentDoc.version);
     const promise = logTimedOperation("textDocument/semanticTokens/range", async () => {
       const session = await logTimedPhase("textDocument/semanticTokens/range", "analysisSession", () =>
-        analysisSessions.getForDocumentAsync(doc)
+        getAnalysisSessionForRequest("textDocument/semanticTokens/range", currentDoc)
       );
       const tokenModifiersByRangeKey = await logTimedPhase("textDocument/semanticTokens/range", "deprecatedSemanticTokenModifiers", () =>
-        getDeprecatedSemanticTokenModifiers(doc, session)
+        getDeprecatedSemanticTokenModifiers(currentDoc, session)
       );
       return logTimedPhase("textDocument/semanticTokens/range", "buildTokens", () =>
         createSemanticTokens({
-          text: doc.getText(),
+          text: currentDoc.getText(),
           ast: session.ast,
           analysis: session.analysis,
           range: params.range,
@@ -1090,7 +1177,7 @@ export function startLspServer(options: LspServerOptions): void {
         })
       );
     });
-    semanticTokensCache.set(cacheKey, { version: doc.version, promise });
+    semanticTokensCache.set(cacheKey, { version: currentDoc.version, promise });
     return promise;
   });
 

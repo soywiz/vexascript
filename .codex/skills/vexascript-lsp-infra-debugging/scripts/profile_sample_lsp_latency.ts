@@ -3,7 +3,11 @@ import { readFile } from "node:fs/promises";
 import { resolve as resolveNodePath } from "node:path";
 import "cli/localVfs";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { AnalysisSessionCache, createAnalysisSession } from "compiler/lsp/analysisSession";
+import {
+  AnalysisSessionCache,
+  createAnalysisSession,
+  type AnalysisSessionCacheProfileEvent
+} from "compiler/lsp/analysisSession";
 import { collectAllImportedDeclarations } from "compiler/lsp/importedDeclarations";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import { loadProject } from "compiler/project";
@@ -26,6 +30,7 @@ import {
 } from "compiler/lsp/deprecatedSemanticTokens";
 import { createSemanticTokens } from "compiler/lsp/semanticTokens";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
+import { getTypeComparisonCalls, resetTypeComparisonCalls } from "compiler/analysis/types";
 
 interface TimedResult<T> {
   durationMs: number;
@@ -55,6 +60,7 @@ function toFileUri(filePath: string): string {
 
 async function createSampleAnalysisSessionCache(sourceRoots: string[]): Promise<{
   analysisSessions: AnalysisSessionCache;
+  sessionProfileEvents: AnalysisSessionCacheProfileEvent[];
   getSessionForFilePath: (filePath: string) => Promise<ReturnType<ProjectIndex["getSessionForFilePath"]> extends Promise<infer T> ? T : never>;
   projectIndex: ProjectIndex;
 }> {
@@ -119,9 +125,12 @@ async function createSampleAnalysisSessionCache(sourceRoots: string[]): Promise<
       ambientModuleLocations: ambientTypes.moduleDeclarationLocations
     };
   });
+  const sessionProfileEvents: AnalysisSessionCacheProfileEvent[] = [];
+  analysisSessions.setProfileObserver((event) => sessionProfileEvents.push(event));
 
   return {
     analysisSessions,
+    sessionProfileEvents,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments,
     projectIndex
   };
@@ -138,7 +147,12 @@ async function main(): Promise<void> {
   const source = await readFile(filePath, "utf8");
   const document = TextDocument.create(uri, "vexa", 1, source);
 
-  const { analysisSessions, getSessionForFilePath, projectIndex } = await createSampleAnalysisSessionCache(sourceRoots);
+  const {
+    analysisSessions,
+    sessionProfileEvents,
+    getSessionForFilePath,
+    projectIndex
+  } = await createSampleAnalysisSessionCache(sourceRoots);
   await projectIndex.upsertOpenDocument(filePath, source);
 
   const featureContext = {
@@ -147,7 +161,11 @@ async function main(): Promise<void> {
     getSessionForFilePath
   };
 
+  resetTypeComparisonCalls();
   const coldSession = await time(async () => analysisSessions.getForDocumentAsync(document));
+  const coldTypeComparisonCalls = getTypeComparisonCalls();
+  const coldSessionProfile = [...sessionProfileEvents];
+  sessionProfileEvents.length = 0;
   const session = coldSession.value;
 
   const syncDiagnostics = await time(async () =>
@@ -262,7 +280,10 @@ async function main(): Promise<void> {
   const editedDocument = TextDocument.create(uri, "vexa", 2, editedSource);
   await projectIndex.upsertOpenDocument(filePath, editedSource);
   analysisSessions.resetMetrics();
+  resetTypeComparisonCalls();
   const editedSession = await time(async () => analysisSessions.getForDocumentAsync(editedDocument));
+  const editedTypeComparisonCalls = getTypeComparisonCalls();
+  const editedSessionProfile = [...sessionProfileEvents];
   projectIndex.resetMetrics();
   resetDeprecatedSemanticTokenWorkMetrics();
   const editedDeprecatedSemanticTokenModifiers = await time(async () =>
@@ -288,6 +309,8 @@ async function main(): Promise<void> {
   const lines = [
     `sample: ${filePath}`,
     `cold session: ${formatMs(coldSession.durationMs)}ms`,
+    `cold session self profile: ${JSON.stringify(coldSessionProfile)}`,
+    `cold session type comparisons: ${coldTypeComparisonCalls}`,
     `document diagnostics sync-only: ${formatMs(syncDiagnostics.durationMs)}ms (${syncDiagnostics.value.length} items)`,
     `module-not-found diagnostics: ${formatMs(moduleNotFoundDiagnostics.durationMs)}ms (${moduleNotFoundDiagnostics.value.length} items)`,
     `cross-file type diagnostics: ${formatMs(crossFileTypeDiagnostics.durationMs)}ms (${crossFileTypeDiagnostics.value.length} items)`,
@@ -302,6 +325,8 @@ async function main(): Promise<void> {
     `semantic tokens range: ${formatMs(semanticTokensRange.durationMs)}ms (${semanticTokensRange.value.data.length} ints)`,
     `approx concurrent diagnostic+workspace+semantic burst: ${formatMs(concurrent.durationMs)}ms`,
     `edited session: ${formatMs(editedSession.durationMs)}ms`,
+    `edited session self profile: ${JSON.stringify(editedSessionProfile)}`,
+    `edited session type comparisons: ${editedTypeComparisonCalls}`,
     `edited session work: ${JSON.stringify(editedAnalysisSessionWork)}`,
     `edited deprecated semantic modifiers: ${formatMs(editedDeprecatedSemanticTokenModifiers.durationMs)}ms (${editedDeprecatedSemanticTokenModifiers.value.size} entries)`,
     `edited deprecated semantic modifier project work: ${JSON.stringify(editedDeprecatedSemanticTokenWork)}`,

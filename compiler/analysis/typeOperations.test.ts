@@ -5,10 +5,13 @@ import {
   AnalysisTypeKind,
   arrayType,
   builtinType,
+  getTypeComparisonCalls,
   namedType as createNamedType,
+  objectTypeWithProperties,
   rangeType,
   tupleType,
   unionType,
+  resetTypeComparisonCalls,
 } from "./types";
 import {
   combineTypes,
@@ -53,13 +56,40 @@ describe("combineTypes", () => {
 
   it("deduplicates identical types", () => {
     const t = builtin("string");
+    resetTypeComparisonCalls();
     const result = combineTypes([t, t]);
     assert.equal(result, t);
+    assert.equal(getTypeComparisonCalls(), 0);
   });
 
   it("builds a union for multiple distinct types", () => {
     const result = combineTypes([builtin("int"), builtin("string")]);
     assert.equal(result.kind, AnalysisTypeKind.Union);
+  });
+
+  it("does not structurally compare types from incompatible equality buckets", () => {
+    resetTypeComparisonCalls();
+
+    const result = combineTypes([
+      createNamedType("Alpha"),
+      createNamedType("Beta"),
+      builtin("string")
+    ]);
+
+    assert.equal(result.kind, AnalysisTypeKind.Union);
+    assert.equal(getTypeComparisonCalls(), 0);
+  });
+
+  it("separates object types with different property sets before structural comparison", () => {
+    resetTypeComparisonCalls();
+
+    const result = combineTypes([
+      objectTypeWithProperties({ alpha: builtin("string") }),
+      objectTypeWithProperties({ beta: builtin("string") })
+    ]);
+
+    assert.equal(result.kind, AnalysisTypeKind.Union);
+    assert.equal(getTypeComparisonCalls(), 0);
   });
 });
 
