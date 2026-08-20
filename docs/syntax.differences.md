@@ -174,7 +174,13 @@ A lambda can be written after the closing parenthesis of a call (or omitting the
 [1, 2, 3].map { it * 2 }
 [1, 2, 3].filter { it > 1 }
 [1, 2, 3].map { n: number -> n * 2 }
+tasks.map() async { await run(it) }
+tasks.map() sync { run(it) }
+tasks.map(async { await run(it) })
+tasks.map(sync { run(it) })
 ```
+
+For a modified brace lambda, `async` or `sync` is written immediately before `{`, whether the lambda is trailing or remains inside the argument list. The modifier belongs to the lambda. `async` keeps TypeScript-style explicit `await`; `sync` enables VexaScript auto-await inside the callback. The trailing-lambda quick fix preserves the modifier when moving an argument-list lambda outside. TypeScript requires an arrow callback such as `tasks.map(async it => await run(it))`.
 
 Brace lambdas are also valid anywhere an expression is accepted:
 

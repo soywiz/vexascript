@@ -85,6 +85,35 @@ describe("trailing lambda quick fixes", () => {
     expect(applyEdits(source, edits)).toBe("demo(1, 2) { a, b -> a + b }\n");
   });
 
+  it("preserves sync and async modifiers when moving lambdas outside", () => {
+    const cases = [
+      {
+        source: "demo(1, sync { it })\n",
+        character: 15,
+        expected: "demo(1) sync { it }\n"
+      },
+      {
+        source: "demo(async { await work() })\n",
+        character: 13,
+        expected: "demo async { await work() }\n"
+      }
+    ];
+
+    for (const testCase of cases) {
+      const session = createAnalysisSession(testCase.source);
+      const actions = createTrailingLambdaCodeActions({
+        uri: URI,
+        ast: session.ast,
+        text: testCase.source,
+        position: { line: 0, character: testCase.character }
+      });
+
+      expect(actions).toHaveLength(1);
+      const edits = actions[0]?.edit?.changes?.[URI] ?? [];
+      expect(applyEdits(testCase.source, edits)).toBe(testCase.expected);
+    }
+  });
+
   it("does not offer the fix when the lambda is already trailing", () => {
     const source = "demo(1, 2) { a, b -> a + b }\n";
     const session = createAnalysisSession(source);

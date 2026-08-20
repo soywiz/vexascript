@@ -344,6 +344,15 @@ let worker = async function* work(this: Loader) { yield await next() }
     expect(emitted).toContain("return doubled + 1;");
   });
 
+  it("emits sync and async tail lambdas as async JavaScript callbacks", () => {
+    const program = parseFile(tokenizeReader(`variable.test("sync") sync { run(it) }
+variable.test("async") async { await run(it) }`));
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain('variable.test("sync", async (it) => run(it));');
+    expect(emitted).toContain('variable.test("async", async (it) => await run(it));');
+  });
+
   it("emits sync functions and methods as async and strips the go operator", () => {
     const program = parseFile(tokenizeReader(`sync function load(id: string): int { return 1 }
 sync fun fetchValue(): int { return 2 }

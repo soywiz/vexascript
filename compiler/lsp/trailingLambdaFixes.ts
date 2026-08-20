@@ -91,6 +91,7 @@ export function createTrailingLambdaCodeActions(params: {
   }
 
   const edits: TextEdit[] = [];
+  const modifier = lambda.async ? "async " : lambda.sync ? "sync " : "";
 
   if (args.length > 1) {
     // Replace the `, ` (comma + whitespace) before the lambda with `) ` so the
@@ -105,7 +106,7 @@ export function createTrailingLambdaCodeActions(params: {
         start: tokenEndPosition(prevArgLastToken),
         end: tokenStartPosition(lambdaFirstToken)
       },
-      newText: ") "
+      newText: `) ${modifier}`
     });
   } else {
     // The lambda is the only argument: drop the opening parenthesis entirely so
@@ -123,7 +124,7 @@ export function createTrailingLambdaCodeActions(params: {
         start: offsetToPosition(text, openParenOffset),
         end: tokenStartPosition(lambdaFirstToken)
       },
-      newText: " "
+      newText: ` ${modifier}`
     });
   }
 

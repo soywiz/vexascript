@@ -2754,8 +2754,32 @@ export class Parser {
         return this.parseAssignment();
     }
 
-    private parseTailLambdaArgument(): ArrowFunctionExpression {
-        return this.parseBraceLambdaExpression();
+    private parseTailLambdaArgument(modifier?: "async" | "sync"): ArrowFunctionExpression {
+        if (modifier) {
+            this.tokens.skip();
+        }
+        const lambda = this.parseBraceLambdaExpression();
+        if (modifier === "async") {
+            lambda.async = true;
+        } else if (modifier === "sync") {
+            lambda.sync = true;
+        }
+        return lambda;
+    }
+
+    private tailLambdaModifier(): "async" | "sync" | undefined {
+        const modifier = this.tokens.peek();
+        const openBrace = this.peekToken(1);
+        if (
+            modifier?.type !== TokenType.IDENTIFIER ||
+            (modifier.value !== "async" && modifier.value !== "sync") ||
+            openBrace?.type !== TokenType.SYMBOL ||
+            openBrace.value !== "{" ||
+            hasLineBreakBetween(modifier, openBrace)
+        ) {
+            return undefined;
+        }
+        return modifier.value;
     }
 
     private parseBraceLambdaExpression(implicitParameterName: string | null = "it"): ArrowFunctionExpression {
@@ -3730,11 +3754,14 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === TokenType.SYMBOL && token.value === "{") {
-                if (hasLineBreakBetween(expr.lastToken, token)) {
-                    break;
-                }
-                const tailLambda = this.parseTailLambdaArgument();
+            const tailLambdaModifier = token && !hasLineBreakBetween(expr.lastToken, token)
+                ? this.tailLambdaModifier()
+                : undefined;
+            if (
+                (token?.type === TokenType.SYMBOL && token.value === "{" && !hasLineBreakBetween(expr.lastToken, token)) ||
+                tailLambdaModifier
+            ) {
+                const tailLambda = this.parseTailLambdaArgument(tailLambdaModifier);
                 if (expr instanceof NewExpression) {
                     const newExpression = expr as NewExpression;
                     expr = this.attachNodeBounds(
@@ -3900,8 +3927,8 @@ export class Parser {
 
 
 
-    private parseCallLambdaArgument(): ArrowFunctionExpression {
-        return this.attachContextualObjectLiteralToBraceLambda(this.parseTailLambdaArgument());
+    private parseCallLambdaArgument(modifier?: "async" | "sync"): ArrowFunctionExpression {
+        return this.attachContextualObjectLiteralToBraceLambda(this.parseTailLambdaArgument(modifier));
     }
 
     private looksLikeCallLambdaArgument(): boolean {
@@ -3990,7 +4017,16 @@ export class Parser {
 
             if (!(this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ")")) {
                 const namedArgument = this.tryParseNamedArgument();
-                args.push(namedArgument ?? (this.looksLikeCallLambdaArgument() ? this.parseCallLambdaArgument() : this.parseAssignment()));
+                if (namedArgument) {
+                    args.push(namedArgument);
+                } else {
+                    const modifier = this.tailLambdaModifier();
+                    args.push(
+                        modifier || this.looksLikeCallLambdaArgument()
+                            ? this.parseCallLambdaArgument(modifier)
+                            : this.parseAssignment()
+                    );
+                }
                 const separator = this.tokens.peek();
                 if (separator?.type === TokenType.SYMBOL && separator.value === ",") {
                     this.tokens.skip();

@@ -596,6 +596,22 @@ console.log(...kept)
     expect(result.code).not.toContain("await fetchValue()");
   });
 
+  it("applies sync and async semantics inside modified tail lambdas", () => {
+    const source = [
+      "declare function testSync(name: string, callback: (value: int) => int): void",
+      "declare function testAsync(name: string, callback: (value: int) => Promise<int>): void",
+      "sync fun fetchValue(): int { return 1 }",
+      'testSync("sync", sync { fetchValue() })',
+      'testAsync("async", async { fetchValue() })'
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('testSync("sync", async (it) => await fetchValue());');
+    expect(result.code).toContain('testAsync("async", async (it) => fetchValue());');
+  });
+
   it("does not detach overloaded native-style methods while checking sync auto-await", async () => {
     const source = `sync fun example() {
   val app = document.querySelector("#app")!

@@ -2900,7 +2900,7 @@ class AstFormatter {
         this.write("("); this.emitArgList(otherArgs); this.write(")");
       }
       this.sp();
-      this.emitBraceLambda(lambda);
+      this.emitModifiedBraceLambda(lambda);
     } else {
       this.emitExpr(expr.callee);
       if (expr.typeArguments?.length) this.emitCallTypeArgs(expr.typeArguments as unknown as Node[]);
@@ -2964,6 +2964,12 @@ class AstFormatter {
     }
   }
 
+  private emitModifiedBraceLambda(lambda: ArrowFunctionExpression): void {
+    if (lambda.async) { this.write("async"); this.sp(); }
+    if (lambda.sync) { this.write("sync"); this.sp(); }
+    this.emitBraceLambda(lambda);
+  }
+
   private emitMemberExpr(expr: MemberExpression): void {
     this.emitExpr(expr.object);
     if (expr.computed) {
@@ -3010,13 +3016,13 @@ class AstFormatter {
   }
 
   private emitArrowFnExpr(expr: ArrowFunctionExpression): void {
-    if (expr.async) { this.write("async"); this.sp(); }
-    if (expr.sync) { this.write("sync"); this.sp(); }
     const ft = ftok(expr as Node);
     if (ft?.value === "{") {
-      this.emitBraceLambda(expr);
+      this.emitModifiedBraceLambda(expr);
       return;
     }
+    if (expr.async) { this.write("async"); this.sp(); }
+    if (expr.sync) { this.write("sync"); this.sp(); }
     const params = expr.parameters;
     if (params.length === 1 && !params[0]!.typeAnnotation && !params[0]!.rest && !params[0]!.optional) {
       this.emitBindingName(params[0]!.name);

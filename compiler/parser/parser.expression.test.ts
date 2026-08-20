@@ -1868,6 +1868,34 @@ describe("parseExpression", () => {
         expect(effectLambda.body.body[1].expression.kind).toBe(NodeKind.ArrowFunctionExpression);
     });
 
+    it("parses sync and async modifiers on tail lambdas", () => {
+        const syncCall = parseExpression(tokenizeReader('variable.test("demo") sync { run(it) }')) as any;
+        const asyncCall = parseExpression(tokenizeReader('variable.test("demo") async { await run(it) }')) as any;
+        const syncArgument = parseExpression(tokenizeReader('variable.test("demo", sync { run(it) })')) as any;
+        const asyncArgument = parseExpression(tokenizeReader('variable.test("demo", async { await run(it) })')) as any;
+
+        expect(syncCall.args[1]).toMatchObject({
+            kind: NodeKind.ArrowFunctionExpression,
+            sync: true,
+            parameters: [{ name: { name: "it" } }]
+        });
+        expect(asyncCall.args[1]).toMatchObject({
+            kind: NodeKind.ArrowFunctionExpression,
+            async: true,
+            parameters: [{ name: { name: "it" } }]
+        });
+        expect(syncArgument.args[1]).toMatchObject({
+            kind: NodeKind.ArrowFunctionExpression,
+            sync: true,
+            parameters: [{ name: { name: "it" } }]
+        });
+        expect(asyncArgument.args[1]).toMatchObject({
+            kind: NodeKind.ArrowFunctionExpression,
+            async: true,
+            parameters: [{ name: { name: "it" } }]
+        });
+    });
+
     it("parses receiver-block shorthand and labeled this expressions", () => {
         const expression = parseExpression(tokenizeReader(
             "Point(10, 20). { demo { this@demo.x = 20; this@apply.y = 30 } }"

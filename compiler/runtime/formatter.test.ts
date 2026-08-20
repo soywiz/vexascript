@@ -588,6 +588,21 @@ describe("format brace lambdas", () => {
     );
   });
 
+  it("keeps sync and async modifiers before tail lambdas", () => {
+    expect(formatSource('variable.test("demo")sync{run(it)}')).toBe(
+      'variable.test("demo") sync {\n  run(it)\n}'
+    );
+    expect(formatSource('variable.test("demo")async{await run(it)}')).toBe(
+      'variable.test("demo") async {\n  await run(it)\n}'
+    );
+    expect(formatSource('variable.test("demo",sync{run(it)})')).toBe(
+      'variable.test("demo") sync {\n  run(it)\n}'
+    );
+    expect(formatSource('variable.test("demo",async{await run(it)})')).toBe(
+      'variable.test("demo") async {\n  await run(it)\n}'
+    );
+  });
+
   it("does not treat statement blocks as lambda headers", () => {
     expect(formatSource("function f(a) { return a }")).toBe(
       "function f(a) {\n  return a\n}"

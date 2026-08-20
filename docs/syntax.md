@@ -771,6 +771,23 @@ Examples:
 
 VexaScript supports Kotlin/Swift-style tail lambdas after call expressions, brace lambdas inside call argument lists, and brace lambdas anywhere an expression is accepted. Inside an argument list, `{ name }` is context-sensitive: it is a one-parameter lambda with the implicit `it` parameter when the corresponding parameter type is a function, and a shorthand object literal when the parameter is not a function. The same contextual shorthand is preserved in other expression positions when the surrounding type expects an object. The explicit `{ arg1, arg2 -> ... }` form is always a lambda.
 
+A brace lambda may place the `async` or `sync` modifier immediately before its opening brace, either as a trailing lambda or inside the argument list. The modifier applies to the lambda, not to the call. An `async` lambda uses normal explicit-`await` semantics; a `sync` lambda uses VexaScript's implicit auto-await semantics. Both forms emit an asynchronous JavaScript callback:
+
+```vexa
+variable.test("demo") async {
+  await run(it)
+}
+
+variable.test("demo") sync {
+  run(it) // auto-awaited when the Promise result is consumed
+}
+
+variable.test("demo", async { await run(it) })
+variable.test("demo", sync { run(it) })
+```
+
+The editor's trailing-lambda quick fix preserves either modifier when converting the argument-list form to the trailing form.
+
 The body after `->` may be a single expression or a sequence of statements. When it contains more than one statement, the lambda has a block body, and a final expression statement is emitted as an implicit `return`:
 
 ```vexa
