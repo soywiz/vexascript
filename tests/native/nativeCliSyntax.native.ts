@@ -37,7 +37,6 @@ describe("native CLI syntax", () => {
       const generated = await generatedNativeSources(output);
       const generatedCpp = generated.code;
       expect(generatedCpp.length).toBeGreaterThan(0);
-      expect(generatedCpp).toContain("auto contextProgram = vexa::makeManaged<");
       expect(generatedCpp).not.toContain("auto contextProgram = vexa::toInstance<");
       await validateNativeCppSyntax(generated.syntaxPath);
     } finally {

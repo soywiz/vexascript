@@ -125,6 +125,48 @@
     "strings": {
       "patterns": [
         {
+          "name": "constant.numeric.character.vexa",
+          "begin": "#\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.character.begin.vexa"
+            }
+          },
+          "end": "\"",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.character.end.vexa"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.vexa",
+              "match": "\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})"
+            }
+          ]
+        },
+        {
+          "name": "constant.numeric.character.vexa",
+          "begin": "#'",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.character.begin.vexa"
+            }
+          },
+          "end": "'",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.character.end.vexa"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.vexa",
+              "match": "\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})"
+            }
+          ]
+        },
+        {
           "name": "string.quoted.double.vexa",
           "begin": "\"",
           "beginCaptures": {

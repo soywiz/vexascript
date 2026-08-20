@@ -168,9 +168,7 @@ inline std::u16string formatIsoDateText(const std::tm& parts, int milliseconds) 
 class Utf16Regex final {
  public:
   Utf16Regex(std::u16string_view pattern, bool caseInsensitive)
-      : expression_(utf16ToUtf8(pattern), caseInsensitive
-          ? std::regex_constants::ECMAScript | std::regex_constants::icase
-          : std::regex_constants::ECMAScript) {}
+      : expression_(compile(pattern, caseInsensitive)) {}
 
   bool test(std::u16string_view value) const {
     return std::regex_search(utf16ToUtf8(value), expression_);
@@ -203,6 +201,20 @@ class Utf16Regex final {
   }
 
  private:
+  static std::regex compile(std::u16string_view pattern, bool caseInsensitive) {
+    try {
+      return std::regex(
+          utf16ToUtf8(pattern),
+          caseInsensitive
+              ? std::regex_constants::ECMAScript | std::regex_constants::icase
+              : std::regex_constants::ECMAScript);
+    } catch (const std::regex_error& error) {
+      throw runtimeError(
+          u"Invalid native regular expression /" + std::u16string(pattern) +
+          u"/: " + utf8ToUtf16(error.what()));
+    }
+  }
+
   std::regex expression_;
 };
 

@@ -66,6 +66,25 @@ describe("portable monarch syntax", () => {
     expect(codeMirror).toContain(String.raw`\/(?![\/*])`);
   });
 
+  it("classifies hash-prefixed single- and double-quoted characters as numbers", () => {
+    const language = createPortableMonarchLanguage();
+    const characterRule = language.tokenizer["root"]?.find(
+      (rule) => rule.match === String.raw`#(?:"([^"\\]|\\.)*"|'([^'\\]|\\.)*')`
+    );
+    const vscodeGrammar = createVscodeTmLanguageGrammar();
+    const repository = vscodeGrammar["repository"] as Record<string, unknown>;
+    const strings = repository["strings"] as { patterns: Array<{ name: string; begin?: string }> };
+    const characterPatterns = strings.patterns.filter(
+      (pattern) => pattern.name === "constant.numeric.character.vexa"
+    );
+    const codeMirror = createCodeMirrorLegacyModeSource();
+
+    expect(characterRule?.token).toBe("number");
+    expect(characterPatterns.map((pattern) => pattern.begin)).toEqual(['#"', "#'"]);
+    expect(codeMirror).toContain("token: \"number\"");
+    expect(codeMirror).toContain("/#(?:");
+  });
+
   it("does not classify an imported operator/ name and its closing brace as a regexp", () => {
     const sourceAtOperator = 'operator/ } from "./time.vx"';
     const firstMatch = createPortableMonarchLanguage().tokenizer["root"]

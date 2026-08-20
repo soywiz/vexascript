@@ -4,21 +4,27 @@ This document summarises the syntax additions and differences that VexaScript in
 
 ## Character and string literals
 
-In `.vx` files, single quotes denote an integer Unicode code point, while double
-quotes denote a string:
+As in TypeScript, single and double quotes both denote strings. VexaScript adds
+a `#` prefix that turns either quoted form into an integer Unicode code point:
 
 ```vexa
-val letter: int = 'a' // 97
-val emoji: int = '😀' // 128512
-val text: string = "aaa"
-val matches = "aaa".charCodeAt(0) == 'a'
+val text: string = 'aaa'
+val letter: int = #'a' // 97
+val emoji: int = #"😀" // 128512
+val newline: int = #'\n' // 10
+val matches = 'A'.charCodeAt(0) == #'A'
+
+match (str.codePointAt(0)) {
+  #'\n' -> handleNewline()
+  else -> handleOther()
+}
 ```
 
-A single-quoted literal must contain exactly one decoded Unicode code point.
-`'aaa'` and `''` are errors; the editor quick fix converts them to double-quoted
-strings. Character literals emit as direct integer constants in JavaScript and
-C++, avoiding one-character string allocation. TypeScript mode is unchanged, so
-single-quoted literals remain strings in `.ts`, `.tsx`, and `.d.ts` files.
+A `#`-prefixed literal must contain exactly one decoded Unicode code point.
+`#'aaa'` and `#""` are errors; the editor quick fix removes the prefix and
+converts the value to a string. Character literals emit as direct integer
+constants in JavaScript and C++, avoiding one-character string allocation. The
+prefix is VexaScript-only; TypeScript quote behavior remains unchanged.
 
 ### String-template shorthand
 

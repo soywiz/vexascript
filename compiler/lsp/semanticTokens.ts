@@ -944,8 +944,11 @@ function classifyToken(
   if (token.type === TokenType.NUMBER) {
     return "number";
   }
-  if (token.type === TokenType.STRING && token.stringQuote === "single" && [...token.value].length === 1) {
+  if (token.type === TokenType.CHARACTER && [...token.value].length === 1) {
     return "number";
+  }
+  if (token.type === TokenType.CHARACTER) {
+    return "string";
   }
   if (token.type === TokenType.STRING) {
     return "string";

@@ -147,14 +147,14 @@ class Demo {
 
   it("emits VexaScript character literals as code-point integers", () => {
     const result = transpile(`
-val code: int = '😀'
-val matches = "aaa".charCodeAt(0) == 'a'
+val code: int = #"😀"
+val matches = 'A'.charCodeAt(0) == #'A'
 `, { emit: "cpp", sourceFilePath: "/tmp/character-literal.vx" });
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("std::int32_t code");
     expect(result.code).toContain("code = 128512;");
-    expect(result.code).toContain("== 97");
+    expect(result.code).toContain("== 65");
   });
 
   it("lowers logical assignments without emitting invalid C++ operators", () => {
@@ -622,5 +622,34 @@ function positive(values: number[] | undefined): number[] | undefined {
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("vexa::optionalCall(");
     expect(result.code).toContain("vexa::filter(__vexa_optional_receiver");
+  });
+
+  it("keeps missing partial record entries optional before string conversion", () => {
+    const result = transpile(`
+function mappedTarget(
+  mappings: Readonly<Partial<Record<string, string>>>,
+  primary: string,
+  fallback: string
+): string | undefined {
+  return mappings[primary] ?? mappings[fallback];
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/partial-record-index.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::recordGet<vexa::Value>(mappings, vexa::propertyKey(primary))");
+    expect(result.code).toContain("vexa::recordGet<vexa::Value>(mappings, vexa::propertyKey(fallback))");
+    expect(result.code).not.toContain("vexa::recordGet<std::u16string>");
+  });
+
+  it("guards method calls after optional computed-member chains", () => {
+    const result = transpile(`
+function capture(text: string): string | undefined {
+  return /^keyof\\s+(.+)$/.exec(text)?.[1]?.trim();
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/optional-regexp-capture.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::optionalCall(");
+    expect(result.code).not.toContain("vexa::trim(([&]()");
   });
 });

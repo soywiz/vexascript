@@ -15,10 +15,12 @@ import { basename, dirname, extname, relative, resolve } from "../compiler/utils
 import { hasRecognizedModuleFileExtension } from "../compiler/language";
 import { vfs, type Vfs } from "../compiler/vfs";
 
+type ImportMappings = Readonly<Partial<Record<string, string>>>;
+
 export interface BundleNodeModulesOptions {
   vfs?: Vfs;
   virtualSources?: ReadonlyMap<string, string>;
-  importMappings?: Readonly<Record<string, string>>;
+  importMappings?: ImportMappings;
   externalDependencyStrategy?: "runtime-error" | "node-require";
   baseUrl?: string;
   incrementalCache?: NodeModuleBundleIncrementalCache;
@@ -533,7 +535,7 @@ async function resolveDependency(
   specifier: string,
   vfs: Vfs,
   virtualSources: ReadonlyMap<string, string>,
-  importMappings: Readonly<Record<string, string>>,
+  importMappings: ImportMappings,
   baseUrl: string | undefined,
   context: ResolutionContext
 ): Promise<ResolvedDependency> {
@@ -1260,7 +1262,7 @@ async function createCachedBundledModuleArtifact(
   filePath: string,
   vfs: Vfs,
   virtualSources: ReadonlyMap<string, string>,
-  importMappings: Readonly<Record<string, string>>,
+  importMappings: ImportMappings,
   baseUrl: string | undefined,
   context: ResolutionContext
 ): Promise<CachedBundledModuleArtifact> {
@@ -1316,7 +1318,7 @@ async function loadBundledModuleArtifact(
   filePath: string,
   vfs: Vfs,
   virtualSources: ReadonlyMap<string, string>,
-  importMappings: Readonly<Record<string, string>>,
+  importMappings: ImportMappings,
   baseUrl: string | undefined,
   context: ResolutionContext
 ): Promise<CachedBundledModuleArtifact> {
@@ -1338,7 +1340,7 @@ async function loadBundledModuleArtifact(
 interface BundleTraversalContext {
   activeVfs: Vfs;
   virtualSources: ReadonlyMap<string, string>;
-  importMappings: Readonly<Record<string, string>>;
+  importMappings: ImportMappings;
   baseUrl: string | undefined;
   resolutionContext: ResolutionContext;
   moduleById: Map<string, BundledModuleRecord>;

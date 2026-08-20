@@ -301,6 +301,46 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("marks hash-prefixed quoted literals as character literals", () => {
+        const tokens = tokenize("#'\\n' #\"A\" 'text' \"text\"")
+            .filter((token) => token.type !== TokenType.END_OF_FILE);
+
+        expect(tokens.map(({ type, value, stringQuote }) => ({
+            type: tokenTypeName(type),
+            value,
+            stringQuote
+        }))).toStrictEqual([
+            { type: "character", value: "\n", stringQuote: "single" },
+            { type: "character", value: "A", stringQuote: "double" },
+            { type: "string", value: "text", stringQuote: "single" },
+            { type: "string", value: "text", stringQuote: "double" }
+        ]);
+    })
+
+    it("marks character literals inside template interpolations", () => {
+        const character = tokenize("`${#'A'}`")
+            .find((token) => token.type === TokenType.CHARACTER);
+
+        expect(character).toMatchObject({
+            type: TokenType.CHARACTER,
+            value: "A",
+            stringQuote: "single"
+        });
+    })
+
+    it("keeps the character prefix separate in TypeScript mode", () => {
+        const tokens = tokenize("#'A'", { language: "typescript" })
+            .filter((token) => token.type !== TokenType.END_OF_FILE);
+
+        expect(tokens.map(({ type, value }) => ({
+            type: tokenTypeName(type),
+            value
+        }))).toStrictEqual([
+            { type: "symbol", value: "#" },
+            { type: "string", value: "A" }
+        ]);
+    })
+
     it("tokenizes template literals without interpolation", () => {
         expect(simplifyTokens("`hello world`")).toStrictEqual([
             { type: "string", value: "hello world" }

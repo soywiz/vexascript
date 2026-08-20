@@ -20,13 +20,14 @@ export const enum TokenType {
   IDENTIFIER,
   NUMBER,
   STRING,
+  CHARACTER,
   REGEXP,
   SYMBOL,
   JSX_TEXT,
   END_OF_FILE
 }
 
-const TOKEN_TYPE_NAMES = ["identifier", "number", "string", "regexp", "symbol", "jsxText", "eof"] as const;
+const TOKEN_TYPE_NAMES = ["identifier", "number", "string", "character", "regexp", "symbol", "jsxText", "eof"] as const;
 
 export function tokenTypeName(type: TokenType): string {
   return TOKEN_TYPE_NAMES[type];
@@ -633,6 +634,36 @@ class TokenFragment {
   ) {}
 }
 
+function readQuotedLiteral(
+  reader: StrReader,
+  start: SourcePosition,
+  characterLiteral: boolean
+): { value: string; stringQuote: StringLiteralQuote } {
+  if (characterLiteral) {
+    advanceCode(reader);
+  }
+  const quoteCode = reader.peekCode();
+  return {
+    value: readEscapedString(reader, quoteCode, start),
+    stringQuote: quoteCode === CODE_SINGLE_QUOTE ? "single" : "double"
+  };
+}
+
+function quotedLiteralTokenType(
+  reader: StrReader,
+  characterLiteralsEnabled: boolean
+): TokenType.STRING | TokenType.CHARACTER | undefined {
+  const code = reader.peekCode();
+  if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
+    return TokenType.STRING;
+  }
+  if (characterLiteralsEnabled && code === CODE_HASH &&
+    (peekNextCode(reader) === CODE_DOUBLE_QUOTE || peekNextCode(reader) === CODE_SINGLE_QUOTE)) {
+    return TokenType.CHARACTER;
+  }
+  return undefined;
+}
+
 function syntheticRangeAt(position: SourcePosition): SourceRange {
   return sourceRange(position, position);
 }
@@ -640,7 +671,7 @@ function syntheticRangeAt(position: SourcePosition): SourceRange {
 function readTemplateAsConcatenation(
   reader: StrReader,
   start: SourcePosition,
-  shorthandInterpolationEnabled: boolean
+  vexaExtensionsEnabled: boolean
 ): TokenFragment[] {
   const fragments: TokenFragment[] = [];
   const pushFragment = (fragment: TokenFragment): void => {
@@ -734,7 +765,7 @@ function readTemplateAsConcatenation(
 
     const isBracedInterpolation = code === CODE_DOLLAR && reader.hasMore && reader.peekCode() === CODE_LBRACE;
     const isShorthandInterpolation =
-      shorthandInterpolationEnabled &&
+      vexaExtensionsEnabled &&
       code === CODE_DOLLAR &&
       reader.hasMore &&
       isIdentifierStartCode(reader.peekCode());
@@ -821,6 +852,7 @@ function readTemplateAsConcatenation(
         let type: Token["type"];
         let value: string;
         let stringQuote: StringLiteralQuote | undefined;
+        const quotedLiteralType = quotedLiteralTokenType(reader, vexaExtensionsEnabled);
         if (
           interpolationCode === CODE_SLASH &&
           reader.offset + 1 < reader.str.length &&
@@ -831,12 +863,21 @@ function readTemplateAsConcatenation(
         ) {
           type = TokenType.REGEXP;
           value = readRegExpLiteral(reader, tokenStart);
-        } else if (interpolationCode === CODE_DOUBLE_QUOTE || interpolationCode === CODE_SINGLE_QUOTE) {
-          type = TokenType.STRING;
-          value = readEscapedString(reader, interpolationCode, tokenStart);
-          stringQuote = interpolationCode === CODE_SINGLE_QUOTE ? "single" : "double";
+        } else if (quotedLiteralType !== undefined) {
+          type = quotedLiteralType;
+          const quotedLiteral = readQuotedLiteral(
+            reader,
+            tokenStart,
+            quotedLiteralType === TokenType.CHARACTER
+          );
+          value = quotedLiteral.value;
+          stringQuote = quotedLiteral.stringQuote;
         } else if (interpolationCode === CODE_BACKTICK) {
-          const nestedFragments = readTemplateAsConcatenation(reader, tokenStart, shorthandInterpolationEnabled);
+          const nestedFragments = readTemplateAsConcatenation(
+            reader,
+            tokenStart,
+            vexaExtensionsEnabled
+          );
           for (const fragment of nestedFragments) {
             pushFragment(new TokenFragment(
               fragment.type,
@@ -880,7 +921,14 @@ function readTemplateAsConcatenation(
           interpolationPendingComments.length > 0 ? interpolationPendingComments : undefined,
           stringQuote
         ));
-        interpolationPreviousToken = new Token(type, value, -1, range, undefined, stringQuote);
+        interpolationPreviousToken = new Token(
+          type,
+          value,
+          -1,
+          range,
+          undefined,
+          stringQuote
+        );
         interpolationPendingComments = [];
       }
 
@@ -1084,13 +1132,15 @@ export type TokenizeLanguage = "vexa" | "typescript";
 function readNonTemplateCodeFragment(
   reader: StrReader,
   previousSignificantToken: Token | undefined,
-  regularExpressionMatchArm: boolean = false
+  regularExpressionMatchArm: boolean = false,
+  characterLiteralsEnabled: boolean = true
 ): TokenFragment {
   const code = reader.peekCode();
   const start = snapshot(reader);
   let type: Token["type"];
   let value: string;
   let stringQuote: StringLiteralQuote | undefined;
+  const quotedLiteralType = quotedLiteralTokenType(reader, characterLiteralsEnabled);
   if (
     code === CODE_SLASH &&
     peekNextCode(reader) !== CODE_SLASH &&
@@ -1099,10 +1149,15 @@ function readNonTemplateCodeFragment(
   ) {
     type = TokenType.REGEXP;
     value = readRegExpLiteral(reader, start);
-  } else if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
-    type = TokenType.STRING;
-    value = readEscapedString(reader, code, start);
-    stringQuote = code === CODE_SINGLE_QUOTE ? "single" : "double";
+  } else if (quotedLiteralType !== undefined) {
+    type = quotedLiteralType;
+    const quotedLiteral = readQuotedLiteral(
+      reader,
+      start,
+      quotedLiteralType === TokenType.CHARACTER
+    );
+    value = quotedLiteral.value;
+    stringQuote = quotedLiteral.stringQuote;
   } else if (isIdentifierStartCode(code)) {
     type = TokenType.IDENTIFIER;
     value = readIdentifier(reader);
@@ -1113,12 +1168,18 @@ function readNonTemplateCodeFragment(
     type = TokenType.SYMBOL;
     value = readSymbol(reader);
   }
-  return new TokenFragment(type, value, sourceRange(start, snapshot(reader)), undefined, stringQuote);
+  return new TokenFragment(
+    type,
+    value,
+    sourceRange(start, snapshot(reader)),
+    undefined,
+    stringQuote
+  );
 }
 
 export function tokenize(input: string, options: TokenizeOptions = {}): Token[] {
   const jsxEnabled = options.jsx ?? false;
-  const shorthandInterpolationEnabled = options.language !== "typescript";
+  const vexaExtensionsEnabled = options.language !== "typescript";
   const reader = new StrReader(input);
   const tokens: Token[] = [];
   let pendingComments: TokenComment[] = [];
@@ -1266,7 +1327,11 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         }
       }
       if (code === CODE_BACKTICK) {
-        for (const fragment of readTemplateAsConcatenation(reader, snapshot(reader), shorthandInterpolationEnabled)) {
+        for (const fragment of readTemplateAsConcatenation(
+          reader,
+          snapshot(reader),
+          vexaExtensionsEnabled
+        )) {
           pushFragment(fragment);
         }
         atContainerStart = false;
@@ -1275,7 +1340,8 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       pushFragment(readNonTemplateCodeFragment(
         reader,
         previousSignificantToken,
-        looksLikeRegularExpressionMatchArm(reader.str, reader.offset)
+        looksLikeRegularExpressionMatchArm(reader.str, reader.offset),
+        vexaExtensionsEnabled
       ));
       atContainerStart = false;
     }
@@ -1471,7 +1537,11 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
       }
     }
     if (code === CODE_BACKTICK) {
-      for (const fragment of readTemplateAsConcatenation(reader, snapshot(reader), shorthandInterpolationEnabled)) {
+      for (const fragment of readTemplateAsConcatenation(
+        reader,
+        snapshot(reader),
+        vexaExtensionsEnabled
+      )) {
         pushFragment(fragment);
       }
       continue;
@@ -1479,7 +1549,8 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
     pushFragment(readNonTemplateCodeFragment(
       reader,
       previousSignificantToken,
-      looksLikeRegularExpressionMatchArm(reader.str, reader.offset)
+      looksLikeRegularExpressionMatchArm(reader.str, reader.offset),
+      vexaExtensionsEnabled
     ));
   }
 

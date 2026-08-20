@@ -515,27 +515,59 @@ describe("parseExpression", () => {
         );
     });
 
-    it("parses VexaScript single-quoted literals as Unicode code-point integers", () => {
+    it("parses single- and double-quoted VexaScript literals as strings", () => {
         expect(parseExpression(tokenizeReader("'a'"))).toEqual(
-            { kind: NodeKind.CharacterLiteral, value: 97 }
+            { kind: NodeKind.StringLiteral, value: "a" }
         );
-        expect(parseExpression(tokenizeReader("'😀'"))).toEqual(
-            { kind: NodeKind.CharacterLiteral, value: 0x1f600 }
+        expect(parseExpression(tokenizeReader("'multiple code points'"))).toEqual(
+            { kind: NodeKind.StringLiteral, value: "multiple code points" }
         );
-        expect(parseExpression(tokenizeReader("'\\u0061'"))).toEqual(
-            { kind: NodeKind.CharacterLiteral, value: 97 }
+        expect(parseExpression(tokenizeReader("\"a\""))).toEqual(
+            { kind: NodeKind.StringLiteral, value: "a" }
         );
     });
 
-    it("rejects VexaScript single-quoted literals that do not contain exactly one code point", () => {
-        const multiCharacter = parseSource("val text = 'aaa'");
-        const empty = parseSource("val text = ''");
+    it("parses hash-prefixed quoted literals as Unicode code-point integers", () => {
+        expect(parseExpression(tokenizeReader("#'a'"))).toEqual(
+            { kind: NodeKind.CharacterLiteral, value: 97 }
+        );
+        expect(parseExpression(tokenizeReader("#\"😀\""))).toEqual(
+            { kind: NodeKind.CharacterLiteral, value: 0x1f600 }
+        );
+        expect(parseExpression(tokenizeReader("#'\\u0061'"))).toEqual(
+            { kind: NodeKind.CharacterLiteral, value: 97 }
+        );
+        expect(parseExpression(tokenizeReader("#'\\n'"))).toEqual(
+            { kind: NodeKind.CharacterLiteral, value: 10 }
+        );
+    });
+
+    it("rejects hash-prefixed literals that do not contain exactly one code point", () => {
+        const multiCharacter = parseSource("val text = #'aaa'");
+        const empty = parseSource("val text = #\"\"");
 
         expect(multiCharacter.parserIssues.map((issue) => issue.message)).toContain(
-            "Character literals must contain exactly one Unicode code point; use double quotes for strings"
+            "Character literals must contain exactly one Unicode code point; remove # for strings"
         );
         expect(empty.parserIssues.map((issue) => issue.message)).toContain(
-            "Character literals must contain exactly one Unicode code point; use double quotes for strings"
+            "Character literals must contain exactly one Unicode code point; remove # for strings"
+        );
+    });
+
+    it("accepts character literals as match patterns", () => {
+        const result = parseSource(`match (str.codePointAt(0)) {
+            #'\\n' -> "newline"
+            else -> "other"
+        }`);
+
+        expect(result.parserIssues).toEqual([]);
+    });
+
+    it("does not accept character literals where module strings are required", () => {
+        const result = parseSource("import value from #'package'");
+
+        expect(result.parserIssues.map((issue) => issue.message)).toContain(
+            "Expected string literal module path in import statement"
         );
     });
 

@@ -183,29 +183,33 @@ ambient forwarding contract:
 * [ ] Add native compile-and-run coverage for heterogeneous arrays,
   `Map`/`Set`/weak collections, iterator methods, and callback lifetime under
   GC stress.
-* [ ] Run `pnpm test:native`.
+* [x] Run `pnpm test:native`.
 * [x] Run `pnpm test`.
 * [x] Run `pnpm cli vexa testFixtures/sample.vx`.
 
-The current native run is intentionally left unchecked: it passes 54/58 tests
-and is blocked by the failures listed below.
+The complete post-fix native rerun passed 54/54 on one stable source snapshot,
+including native self-compilation, the complete CLI C++ syntax check, the
+sample bundle, and the Pixi browser bundle with JavaScript syntax validation.
 
 ## Current Blockers
 
-The focused ambient-contract slice is green, but the complete native suite is
-not yet green. The latest `pnpm test:native` run passes 54/58 tests and leaves
-these follow-up tasks:
+The focused ambient-contract and native CLI paths are green. The remaining
+validation work is:
 
 * [x] Make the native compiler self-host compile without `Value` to internal
   type-pointer casts or incompatible `ArrayObject<T>` specializations. The
   complete two-generation native fixed point passed locally on 2026-08-20.
-* [ ] Fix the value-producing `match` smoke case so dynamic object properties
+* [x] Fix the value-producing `match` smoke case so dynamic object properties
   use the declared dynamic contract instead of failing at runtime.
-* [ ] Fix the complete native language smoke's remaining generated-call and
+* [x] Fix the complete native language smoke's remaining generated-call and
   member-shape failures, including interface delegation, optional/default
   arguments, generator value/reference syntax, and dynamic record members.
-* [ ] Re-run the native CLI bundle smoke after the self-host compiler build is
-  clean.
+* [x] Re-run the native CLI bundle smoke after the self-host compiler build is
+  clean. The retained native CLI produced the fixture, CLI, and Pixi bundles;
+  the generated JavaScript passed syntax validation.
+* [x] Re-run the entire `pnpm test:native` command on one stable source snapshot.
+  The final run passed 54/54, and the working-tree diff hash was identical
+  before and after the command.
 
 The deterministic native matrix, including `Object.groupBy` and
 `Map.groupBy`, passes independently. These blockers are tracked here because

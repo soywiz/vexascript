@@ -394,7 +394,7 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
         "--out",
         bundlePath,
       ], { cwd: process.cwd() });
-      expect(bundle.code, bundle.stdout).toBe(0);
+      expect(bundle.code, `${bundle.stdout}\n${bundle.stderr}`).toBe(0);
       const executed = await runCommandCapture(process.execPath, [bundlePath], { cwd: outputRoot });
       expect(executed.code).toBe(0);
       expect(executed.stdout).toContain("Point { x: 4, y: 6 }");

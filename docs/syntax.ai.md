@@ -4,14 +4,19 @@ VexaScript (`.vx` files) is derived from TypeScript and keeps its ecosystem, wit
 
 ## Character and string literals
 
-- `"text"` is a `string`.
-- `'a'` is the `int` Unicode code point `97`; `'😀'` is `128512`.
-- Single quotes must contain exactly one decoded code point. `'aaa'` and `''` are errors; use `"aaa"` (the editor offers a quick fix).
+- `"text"` and `'text'` are both `string` values.
+- Prefix either quote style with `#` for an `int` Unicode code point: `#'a'` is `97`, `#"😀"` is `128512`, and `#'\n'` is `10`.
+- A `#`-prefixed quoted literal must contain exactly one decoded code point. `#'aaa'` and `#""` are errors; remove `#` for a string (the editor offers a quick fix).
 - Character literals emit as direct integer constants in JavaScript and C++.
-- TypeScript mode is unchanged: single quotes remain strings in `.ts`, `.tsx`, and `.d.ts`.
+- The `#` prefix is VexaScript-only. TypeScript mode keeps its normal single- and double-quoted strings.
 
 ```vexa
-const matches = "aaa".charCodeAt(0) == 'a'
+const matches = 'A'.charCodeAt(0) == #'A'
+
+match (str.codePointAt(0)) {
+  #'\n' -> handleNewline()
+  else -> handleOther()
+}
 ```
 
 Backtick templates accept both `${expression}` and `$identifier`; use `\$` for

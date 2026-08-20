@@ -47,9 +47,9 @@ describe("emitProgram", () => {
   });
 
   it("emits VexaScript character literals as code-point integers", () => {
-    const program = parseFile(tokenizeReader("val matches = \"aaa\".charCodeAt(0) == 'a'"));
+    const program = parseFile(tokenizeReader("val matches = 'A'.charCodeAt(0) == #'A'"));
 
-    expect(emitProgram(program)).toContain('const matches = "aaa".charCodeAt(0) == 97;');
+    expect(emitProgram(program)).toContain('const matches = "A".charCodeAt(0) == 65;');
   });
 
   it("lowers runtime namespaces to JavaScript objects and IIFEs", () => {

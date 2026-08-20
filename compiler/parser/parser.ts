@@ -14,7 +14,7 @@ type InfixOperator = BinaryOperator | "..." | "..<";
 const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "^=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="];
 const VARIABLE_DECLARATION_KEYWORDS: readonly VariableDeclarationKind[] = ["let", "var", "val", "const"];
 const FUNCTION_DECLARATION_KEYWORDS: readonly FunctionDeclarationKind[] = ["fun", "fn", "func", "function"];
-export const CHARACTER_LITERAL_LENGTH_ERROR = "Character literals must contain exactly one Unicode code point; use double quotes for strings";
+export const CHARACTER_LITERAL_LENGTH_ERROR = "Character literals must contain exactly one Unicode code point; remove # for strings";
 
 const BINARY_OPERATOR_INFO: Record<InfixOperator, { precedence: number; assoc: BinaryAssoc }> = {
     "||": { precedence: 1, assoc: "left" },
@@ -165,19 +165,16 @@ export class Parser {
     constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
         this.language = options.language ?? "vexa";
         this.jsx = this.language !== "typescript" ? true : (options.jsx ?? false);
-        if (this.language !== "typescript") {
-            for (const token of this.tokens.items) {
-                if (token.type === TokenType.STRING && token.stringQuote === "single" && [...token.value].length !== 1) {
-                    this.emitError(CHARACTER_LITERAL_LENGTH_ERROR, token);
-                }
+        for (const token of this.tokens.items) {
+            if (token.type === TokenType.CHARACTER && [...token.value].length !== 1) {
+                this.emitError(CHARACTER_LITERAL_LENGTH_ERROR, token);
             }
         }
     }
 
-    private expressionFromStringToken(token: Token): StringLiteral | CharacterLiteral {
+    private expressionFromQuotedToken(token: Token): StringLiteral | CharacterLiteral {
         if (
-            this.language === "typescript" ||
-            token.stringQuote !== "single" ||
+            token.type !== TokenType.CHARACTER ||
             [...token.value].length !== 1
         ) {
             return this.attachNodeBounds(new StringLiteral(token.value), token, token);
@@ -3176,8 +3173,8 @@ export class Parser {
             );
         }
 
-        if (token?.type === TokenType.STRING) {
-            return this.expressionFromStringToken(token);
+        if (token?.type === TokenType.STRING || token?.type === TokenType.CHARACTER) {
+            return this.expressionFromQuotedToken(token);
         }
 
         if (token?.type === TokenType.REGEXP) {
@@ -3719,12 +3716,13 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === TokenType.STRING && !hasLineBreakBetween(expr.lastToken, token)) {
+            if ((token?.type === TokenType.STRING || token?.type === TokenType.CHARACTER) &&
+                !hasLineBreakBetween(expr.lastToken, token)) {
                 this.tokens.skip();
                 expr = this.attachNodeBounds(new CallExpression(
                     expr,
                     [
-                        this.expressionFromStringToken(token)
+                        this.expressionFromQuotedToken(token)
                     ],
                     pendingTypeArguments
                 ), expr.firstToken, token);

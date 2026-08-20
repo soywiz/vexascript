@@ -93,7 +93,7 @@ describe("collectCodeActions aggregator", () => {
   });
 
   it("offers to convert an invalid character literal to a double-quoted string", async () => {
-    const source = "val text = 'say \\\"hi\\\"'\n";
+    const source = "val text = #'say \\\"hi\\\"'\n";
     const session = createAnalysisSession(source);
     const diagnostics = collectDiagnosticsFromSession(session, source, (offset) => positionAt(source, offset));
     const actions = await collectCodeActions({

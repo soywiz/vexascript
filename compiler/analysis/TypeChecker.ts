@@ -12388,7 +12388,7 @@ export class TypeChecker {
       "g"
     );
     const keyPattern = new RegExp(`\\b${this.escapeRegexForTypePattern(keyParameterName)}\\b`, "g");
-    const propertyTypeText = typeToString(propertyType).replace(/\s*}\s*&\s*{\s*$/, "");
+    const propertyTypeText = typeToString(propertyType).replace(/\s*\}\s*&\s*\{\s*$/, "");
     return this.substituteTypeParametersInComputedName(
       typeText
         .replace(indexedPropertyPattern, propertyTypeText)
@@ -12410,7 +12410,7 @@ export class TypeChecker {
       `${escapedSourceObjectText}\\s*\\[\\s*${keyParameterName}\\s*\\]`,
       "g"
     );
-    const propertyTypeText = typeToString(propertyType).replace(/\s*}\s*&\s*{\s*$/, "");
+    const propertyTypeText = typeToString(propertyType).replace(/\s*\}\s*&\s*\{\s*$/, "");
     const keyPattern = new RegExp(`\\b${this.escapeRegexForTypePattern(keyParameterName)}\\b`, "g");
     const substitutePropertyText = (text: string): string => this.substituteTypeParametersInComputedName(
       text
@@ -12432,7 +12432,27 @@ export class TypeChecker {
   }
 
   private escapeRegexForTypePattern(text: string): string {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let escaped = "";
+    for (const character of text) {
+      if (character === "."
+        || character === "*"
+        || character === "+"
+        || character === "?"
+        || character === "^"
+        || character === "$"
+        || character === "{"
+        || character === "}"
+        || character === "("
+        || character === ")"
+        || character === "|"
+        || character === "["
+        || character === "]"
+        || character === "\\") {
+        escaped += "\\";
+      }
+      escaped += character;
+    }
+    return escaped;
   }
 
   private objectLikePropertyEntries(type: AnalysisType): ReadonlyMap<string, AnalysisType> | null {
@@ -12448,7 +12468,7 @@ export class TypeChecker {
         }
         for (const [propertyName, propertyType] of memberProperties) {
           const propertyTypeText = typeToString(propertyType);
-          const normalizedPropertyTypeText = propertyTypeText.replace(/\s*}\s*&\s*{\s*$/, "");
+          const normalizedPropertyTypeText = propertyTypeText.replace(/\s*\}\s*&\s*\{\s*$/, "");
           properties.set(
             propertyName.replace(/^,\s*/, ""),
             normalizedPropertyTypeText === propertyTypeText

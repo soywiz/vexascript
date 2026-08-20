@@ -2170,6 +2170,18 @@ inline Value optionalCall(Target* target, Callback&& callback) {
   }
 }
 
+template <typename Callback>
+inline Value optionalCall(const Value& target, Callback&& callback) {
+  if (target.isUndefined() || target.isNull()) return Value::undefined();
+  using Result = std::invoke_result_t<Callback, const Value&>;
+  if constexpr (std::is_void_v<Result>) {
+    std::forward<Callback>(callback)(target);
+    return Value::undefined();
+  } else {
+    return convertValue<Value>(std::forward<Callback>(callback)(target));
+  }
+}
+
 template <typename T>
 inline void defineProperty(T&& object, std::u16string key, const Value& value, bool enumerable) {
   using Input = std::remove_cvref_t<T>;

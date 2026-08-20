@@ -34,7 +34,7 @@ export function createCharacterLiteralCodeActions(params: {
     const end = positionToOffset(text, diagnostic.range.end);
     const source = text.slice(start, end);
     const token = tokenize(source, { language: "vexa" })[0];
-    if (token?.type !== TokenType.STRING || token.stringQuote !== "single") {
+    if (token?.type !== TokenType.CHARACTER) {
       continue;
     }
     const key = `${start}:${end}`;

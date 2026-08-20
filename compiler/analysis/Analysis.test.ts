@@ -65,11 +65,20 @@ describe("Analysis", () => {
   });
 
   it("types VexaScript character literals as int", () => {
-    const ast = parseFile(tokenizeReader("val code: int = 'a'"));
+    const ast = parseFile(tokenizeReader("val code: int = #'a'"));
     const analysis = new Analysis(ast);
     const initializer = (ast.body[0] as VarStatement).initializer!;
 
     expect(typeToString(analysis.getExpressionTypes().get(initializer)!)).toBe("int");
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("types VexaScript single-quoted literals as string", () => {
+    const ast = parseFile(tokenizeReader("val text: string = 'a'"));
+    const analysis = new Analysis(ast);
+    const initializer = (ast.body[0] as VarStatement).initializer!;
+
+    expect(typeToString(analysis.getExpressionTypes().get(initializer)!)).toBe("string");
     expect(analysis.getIssues()).toEqual([]);
   });
 

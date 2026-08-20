@@ -51,6 +51,21 @@ Each repair exposed the next stage that CI had never reached:
    narrower return and collection types under the native compiler than under
    the JavaScript host. Explicit typed loops removed this last host-dependent
    emission path and restored the native fixed point.
+8. The broader native CLI smoke then exposed a sparse-record contract bug.
+   `importMappings` was typed as `Record<string, string>`, so native code
+   converted a missing mapping to `string` before `??` could try the fallback.
+   Modeling it as a partial record keeps missing entries as `undefined` until
+   the branch proves that a mapped target exists.
+9. The JavaScript and libc++ ECMAScript regex implementations do not accept
+   exactly the same patterns. Lone braces in a TypeChecker cleanup pattern
+   worked under V8 but failed in `std::regex`. Escaping the braces fixed the
+   pattern, and the native regex wrapper now reports the rejected pattern in
+   its diagnostic instead of only libc++'s opaque parser message.
+10. `regex.exec(text)?.[1]?.trim()` exposed a general native optional-chain
+    lowering bug: the computed access was guarded, but the following primitive
+    method call was not. Primitive methods now use the same boxed optional-call
+    contract as other native receivers, so a nullish intermediate remains
+    `undefined` instead of reaching `trim(Value)`.
 
 The fixes keep collection types explicit: direct loops replace dynamic
 `Object.entries` pipelines, set/map spreads, and inferred tuple-entry maps.
@@ -92,6 +107,18 @@ was red, allowing later failures to hide behind the first one.
 - Stopping after the first native compiler generated C++ would still have
   missed typed-map errors in the compiler it produced. Only the second native
   build and fixed-point comparison close that gap.
+- The complete native suite also stops at the first assertion inside a long
+  smoke. Once the sample bundle was repaired, the CLI regex incompatibility
+  appeared; once that was repaired, Pixi exposed the optional-chain bug. A
+  green earlier subcase is not evidence that later subcases ran.
+- A final complete native rerun started while an independent tokenizer change
+  still used object destructuring assignment. That run passed the native
+  self-compilation fixed point but failed its last CLI-bundle link after the
+  working tree had already moved to explicit temporary-field assignments.
+  Re-running that exact native CLI/Pixi smoke against the current snapshot
+  passed. Long native runs must therefore record their source snapshot; a
+  failure from a superseded snapshot should be reproduced on the current tree
+  before changing a shared emitter path.
 
 ## Regression protection
 
@@ -102,6 +129,10 @@ was red, allowing later failures to hide behind the first one.
   through the native mapping.
 - Generic inference has a collection-interface recursion regression test.
 - The C++ emitter has a negative string-`at` regression test.
+- The C++ emitter now has focused regressions for missing partial-record
+  entries and primitive method calls after optional computed-member chains.
+- Native regex construction reports the rejected pattern, making JavaScript
+  versus libc++ compatibility failures actionable without a debugger.
 - The native ES2025 Math smoke extracts every ordinary numeric `Math` member
   from `es2025.d.ts`, compares that declaration set with its execution
   manifest, and compiles, links, and runs every member. This exposed twenty

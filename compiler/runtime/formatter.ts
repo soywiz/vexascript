@@ -2581,7 +2581,9 @@ class AstFormatter {
         const character = expr as CharacterLiteral;
         const first = ftok(character as Node);
         const last = ltok(character as Node);
-        this.write(first && last ? this.srcSlice(first, last) : `'${String.fromCodePoint(character.value)}'`);
+        this.write(first && last
+          ? this.srcSlice(first, last)
+          : `#${JSON.stringify(String.fromCodePoint(character.value))}`);
         break;
       }
       case NodeKind.BigIntLiteral:

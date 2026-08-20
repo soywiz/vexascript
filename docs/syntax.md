@@ -1416,8 +1416,8 @@ Supported literals:
 - non-decimal integer literals (`0xff`, `0b1010`, `0o755`)
 - bigint literals (`10n`, `0xfn`)
 - long literals (`10L`, `0xffL`)
-- string literals (`"hello"`)
-- character literals (`'a'`, `'😀'`, `'\u0061'`), represented as Unicode code-point integers
+- string literals (`"hello"`, `'hello'`)
+- character literals (`#'a'`, `#"😀"`, `#'\u0061'`), represented as Unicode code-point integers
 - template string literals with interpolation (`` `hello ${name}` ``)
 - regular expression literals (`/abc+/gi`)
 - boolean literals (`true`, `false`)
@@ -1427,16 +1427,24 @@ Supported literals:
 
 ### Character and string literals
 
-In VexaScript source, double quotes create strings and single quotes create
-integer character literals. A character literal must decode to exactly one
-Unicode code point:
+As in TypeScript, both single and double quotes create strings. Prefix either
+form with `#` to create an integer character literal. A character literal must
+decode to exactly one Unicode code point:
 
 ```vexa
-val ascii: int = 'a'       // 97
-val emoji: int = '😀'      // 128512 (U+1F600)
-val escaped: int = '\u0061' // 97
+val singleQuoted: string = 'text'
+val doubleQuoted: string = "text"
+val ascii: int = #'a'        // 97
+val emoji: int = #"😀"       // 128512 (U+1F600)
+val escaped: int = #'\u0061' // 97
+val newline: int = #'\n'     // 10
 
-val matches = "aaa".charCodeAt(0) == 'a'
+val matches = 'A'.charCodeAt(0) == #'A'
+
+match (str.codePointAt(0)) {
+  #'\n' -> handleNewline()
+  else -> handleOther()
+}
 ```
 
 The JavaScript and C++ backends emit the character as a direct integer constant,
@@ -1444,14 +1452,14 @@ so ASCII-oriented scanners can compare `charCodeAt` results without allocating a
 one-character string. For supplementary Unicode characters, the literal still
 stores the complete code point rather than an individual UTF-16 code unit.
 
-Single-quoted values containing zero or multiple code points, such as `''` or
-`'aaa'`, are errors. The editor offers a **Convert to double-quoted string**
-quick fix, which rewrites the decoded value safely (for example, `'aaa'` becomes
-`"aaa"`). Use double quotes for module names, annotation string arguments, JSX
-attribute strings, and all other string values in `.vx` files.
+Hash-prefixed values containing zero or multiple code points, such as `#''` or
+`#'aaa'`, are errors. The editor offers a **Convert to double-quoted string**
+quick fix, which removes the character marker and rewrites the decoded value
+safely (for example, `#'aaa'` becomes `"aaa"`). Unprefixed single- and
+double-quoted literals can be used for all string values in `.vx` files.
 
-TypeScript mode is unchanged: single-quoted values in `.ts`, `.tsx`, and `.d.ts`
-sources remain strings.
+The `#` character-literal prefix is VexaScript syntax. TypeScript mode remains
+unchanged: both quote styles are strings in `.ts`, `.tsx`, and `.d.ts` sources.
 
 ### Unary operators
 

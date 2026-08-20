@@ -102,6 +102,10 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     cases: identifierCases,
     next: "@generic_declaration",
   };
+  const characterLiteralRule: PortableMonarchRule = {
+    match: String.raw`#(?:"([^"\\]|\\.)*"|'([^'\\]|\\.)*')`,
+    token: "number",
+  };
   const templateExpressionRules: PortableMonarchRule[] = [
     { match: String.raw`\}`, token: "delimiter", next: "@pop" },
     { match: String.raw`\{`, token: "delimiter", next: "@template_expression" },
@@ -112,6 +116,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     { match: VEXA_REGEXP_LITERAL_PATTERN, token: "regexp" },
     { match: String.raw`@[A-Za-z_$][\w$]*`, token: "annotation" },
     genericDeclarationRule,
+    characterLiteralRule,
     { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
     { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
     { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
@@ -143,6 +148,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`(?<![\w)\]])<>`, token: "tag", next: "@jsx_children" },
         { match: String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
         { match: "`", token: "string", next: "@template_string" },
+        characterLiteralRule,
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
@@ -222,6 +228,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
         operatorNameRule,
         { match: VEXA_REGEXP_LITERAL_PATTERN, token: "regexp" },
+        characterLiteralRule,
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
@@ -350,6 +357,22 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
       },
       strings: {
         patterns: [
+          {
+            name: "constant.numeric.character.vexa",
+            begin: "#\"",
+            beginCaptures: { "0": { name: "punctuation.definition.character.begin.vexa" } },
+            end: "\"",
+            endCaptures: { "0": { name: "punctuation.definition.character.end.vexa" } },
+            patterns: [{ name: "constant.character.escape.vexa", match: "\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})" }],
+          },
+          {
+            name: "constant.numeric.character.vexa",
+            begin: "#'",
+            beginCaptures: { "0": { name: "punctuation.definition.character.begin.vexa" } },
+            end: "'",
+            endCaptures: { "0": { name: "punctuation.definition.character.end.vexa" } },
+            patterns: [{ name: "constant.character.escape.vexa", match: "\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})" }],
+          },
           {
             name: "string.quoted.double.vexa",
             begin: "\"",
@@ -575,6 +598,7 @@ export function createCodeMirrorLegacyModeSource(): string {
     { regex: /\\/\\*/, token: "comment", next: "blockComment" },
     { regex: /${operatorNamePattern}/, token: "variableName" },
     { regex: /${regexpLiteralPattern}/, token: "regexp" },
+    { regex: /#(?:"([^"\\\\]|\\\\.)*"|'([^'\\\\]|\\\\.)*')/, token: "number" },
     { regex: /"([^"\\\\]|\\\\.)*"/, token: "string" },
     { regex: /'([^'\\\\]|\\\\.)*'/, token: "string" },
     { regex: /\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nNL])?\\b/, token: "number" },

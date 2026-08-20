@@ -1,5 +1,10 @@
 # Character literal delimiter provenance
 
+> Historical note: the single-quote character syntax described below was
+> superseded by explicit `#'…'` / `#"…"` character literals on 2026-08-20. See
+> `docs/journal/2026-08-20-hash-prefixed-character-literals.md` for the current
+> delimiter model.
+
 ## Context
 
 VexaScript changed single-quoted expression literals from strings to integer

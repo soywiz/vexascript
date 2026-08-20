@@ -5375,6 +5375,10 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     const primitiveMethod = primitiveRuntimeMethodName(member.propertyName);
     if (primitiveMethod) {
       const receiver = emitExpression(member.object);
+      const optionalReceiver = call.callee instanceof MemberExpression && (
+        (call.callee as MemberExpression).optional === true ||
+        isOptionalChainExpression((call.callee as MemberExpression).object)
+      );
       const numericArguments = new Set(["substring", "stringSlice", "charAt", "charCodeAt", "codePointAt", "stringRepeat", "stringAt"])
         .has(primitiveMethod);
       let emittedArguments: string;
@@ -5387,7 +5391,11 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       } else {
         emittedArguments = argumentsText();
       }
-      return `vexa::${primitiveMethod}(${receiver}${emittedArguments ? `, ${emittedArguments}` : ""})`;
+      const emitPrimitiveCall = (target: string): string =>
+        `vexa::${primitiveMethod}(${target}${emittedArguments ? `, ${emittedArguments}` : ""})`;
+      return optionalReceiver
+        ? `vexa::optionalCall(vexa::toValue(${receiver}), [&](const auto& __vexa_optional_receiver) { return ${emitPrimitiveCall("__vexa_optional_receiver")}; })`
+        : emitPrimitiveCall(receiver);
     }
   }
 

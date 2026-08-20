@@ -177,7 +177,7 @@ describe("semantic tokens", () => {
   });
 
   it("highlights valid character literals as numbers and invalid ones as strings", () => {
-    const source = "val code = 'a'\nval invalid = 'aaa'\n";
+    const source = "val code = #'a'\nval invalid = #\"aaa\"\nval text = 'a'\n";
     const session = createAnalysisSession(source);
     const decoded = decodeTokens(source, createSemanticTokens({
       text: source,
@@ -185,8 +185,9 @@ describe("semantic tokens", () => {
       analysis: session.analysis
     }).data);
 
-    expect(decoded.some((token) => token.lexeme === "'a'" && token.tokenType === "number")).toBe(true);
-    expect(decoded.some((token) => token.lexeme === "'aaa'" && token.tokenType === "string")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "#'a'" && token.tokenType === "number")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === '#"aaa"' && token.tokenType === "string")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "'a'" && token.tokenType === "string")).toBe(true);
   });
 
   it("keeps regular-expression literals distinct from strings", () => {

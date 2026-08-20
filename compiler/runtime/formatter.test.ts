@@ -3,6 +3,11 @@ import dedent from "compiler/utils/dedent";
 import { formatSource } from "./formatter";
 
 describe("formatSource", () => {
+  it("preserves hash-prefixed character literal delimiters", () => {
+    expect(formatSource("val newline=#'\\n'\nval letter=#\"A\"\nval text='A'"))
+      .toBe("val newline = #'\\n'\nval letter = #\"A\"\nval text = 'A'");
+  });
+
   it("uses const for omitted primary-constructor declaration kinds", () => {
     expect(formatSource("class Point(x:number,y:number)")).toBe(
       "class Point(const x: number, const y: number)"
