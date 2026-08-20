@@ -165,3 +165,36 @@ self-host compiler then failed while reading its first import. Replacing the
 both speculative optimizations and their tests were removed. Keeping them would
 have mixed an editor-latency fix with a separate native compatibility problem;
 the durable editor win comes from eliminating and coalescing foreground builds.
+
+## Follow-up: refresh auto-await gutters from the shared session
+
+Moving auto-await decoration requests onto `peekForDocument` removed another
+foreground semantic build, but initially introduced a UI regression. The first
+request after an edit returned an empty array while the idle diagnostic analysis
+was still pending. VS Code interpreted that as an authoritative empty result,
+cleared the gutter icons, and never requested them again when the shared session
+became available.
+
+A cache miss now returns `null`, distinct from a valid empty decoration list, so
+the extension preserves its tracked decorations during the short stale window.
+Completing the shared analysis session emits a URI- and version-specific
+`vexa/autoAwaitDecorations/refresh` notification. The extension then requests
+the decorations again from the completed cache and ignores responses from
+superseded document versions. This keeps diagnostics as the single owner of the
+heavy work while letting the gutter consume its result.
+
+The regression verifies that the provisional decoration request performs zero
+base builds, the diagnostic pull performs exactly one, and the refreshed request
+reuses it. A client-side state test distinguishes unavailable (`null`), valid
+empty (`[]`), and stale-version responses. In the real Hono extension host,
+typing `del` kept both existing gutter icons visible; the provisional custom
+request completed in 0.05 ms and the temporary edit was undone afterward.
+
+The first full-suite run failed across package-backed samples because an older
+fake LSP connection omitted `sendNotification`. Its synchronous `TypeError`
+escaped from the session-update observer into the asynchronous resolution
+catch, which then returned the unresolved base session and made every imported
+symbol appear missing. A clean-tree comparison passed, isolating the failure to
+the new notification side effect. Notification delivery is now optional and a
+rejected delivery cannot affect the semantic result; the isolated all-samples
+LSP suite returned to 46/46 passing.

@@ -212,7 +212,7 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
     ambientModuleDeclarations: ambientTypes.moduleDeclarations,
     ambientModuleLocations: ambientTypes.moduleDeclarationLocations
   };
-}, () => connection.languages.diagnostics.refresh());
+});
 
 function syncOpenDocumentWithProjectIndex(document: LspTextDocument): void {
   const filePath = uriToFilePath(document.uri);

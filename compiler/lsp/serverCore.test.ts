@@ -43,6 +43,7 @@ interface FakeConnection {
   handlers: Map<string, Handler>;
   diagnosticsRefreshes: () => number;
   inlayHintRefreshes: () => number;
+  sentNotifications: Array<{ method: string; params: unknown }>;
   sentRequests: string[];
   infoMessages: string[];
   listened: () => boolean;
@@ -52,6 +53,7 @@ interface FakeConnection {
 function createFakeConnection(): FakeConnection {
   const handlers = new Map<string, Handler>();
   const sentRequests: string[] = [];
+  const sentNotifications: Array<{ method: string; params: unknown }> = [];
   const infoMessages: string[] = [];
   let diagnosticsRefreshes = 0;
   let inlayHintRefreshes = 0;
@@ -94,6 +96,10 @@ function createFakeConnection(): FakeConnection {
     },
     sendRequest: (method: string) => {
       sentRequests.push(method);
+      return Promise.resolve(undefined);
+    },
+    sendNotification: (method: string, params: unknown) => {
+      sentNotifications.push({ method, params });
       return Promise.resolve(undefined);
     },
     workspace: {
@@ -146,6 +152,7 @@ function createFakeConnection(): FakeConnection {
     handlers,
     diagnosticsRefreshes: () => diagnosticsRefreshes,
     inlayHintRefreshes: () => inlayHintRefreshes,
+    sentNotifications,
     sentRequests,
     infoMessages,
     listened: () => listened,
@@ -403,6 +410,34 @@ describe("LSP server core", () => {
     assert.equal(sharedNodeHandlers.includes("request:vexa/autoAwaitDecorations"), true);
     assert.equal(node.fakeConnection.listened(), true);
     assert.equal(node.fakeDocuments.listened(), true);
+  });
+
+  it("preserves auto-await decorations until shared diagnostic analysis is ready, then requests a refresh", async () => {
+    const server = startServer(false);
+    const document = openedDocument(server,
+      "async fun fetchValue(): Promise<int> { return 1 }\n" +
+      "sync fun main(): void {\n" +
+      "  fetchValue()\n" +
+      "}\n"
+    );
+    const decorations = server.fakeConnection.handlers.get("request:vexa/autoAwaitDecorations")!;
+
+    assert.equal(await decorations({ textDocument: { uri: document.uri } }), null);
+    assert.equal(server.analysisSessions.getMetrics().baseSessionBuilds, 0);
+
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+
+    assert.deepEqual(server.fakeConnection.sentNotifications, [{
+      method: "vexa/autoAwaitDecorations/refresh",
+      params: { uri: document.uri, version: document.version }
+    }]);
+    const refreshedDecorations = await decorations({ textDocument: { uri: document.uri } }) as Array<{
+      range: { start: { line: number } };
+    }>;
+    assert.deepEqual(refreshedDecorations.map((decoration) => decoration.range.start.line), [2]);
+    assert.equal(server.analysisSessions.getMetrics().baseSessionBuilds, 1);
   });
 
   it("advertises workspace capabilities only when a workspace environment exists", async () => {
@@ -1333,6 +1368,7 @@ describe("LSP server core", () => {
       getForDocumentAsync: async () => goodSession,
       getMetrics: () => emptyMetrics,
       setProfileObserver: () => undefined,
+      setSessionUpdatedObserver: () => undefined,
       delete: () => undefined,
       clear: () => undefined
     } as unknown as AnalysisSessionCache;
@@ -1419,6 +1455,7 @@ describe("LSP server core", () => {
         resolvedSessionBuilds: 0
       }),
       setProfileObserver: () => undefined,
+      setSessionUpdatedObserver: () => undefined,
       getForDocument: () => createAnalysisSession(""),
       getForDocumentAsync: async () => createAnalysisSession("")
     } as unknown as AnalysisSessionCache;

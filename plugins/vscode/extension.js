@@ -20,6 +20,9 @@ const {
   collectDeprecatedDiagnosticRanges
 } = require("./deprecatedDecorations.js");
 const {
+  currentAutoAwaitDecorations
+} = require("./autoAwaitDecorations.js");
+const {
   findConfigSchemaDefinition
 } = require("./jsonSchemaDefinition.js");
 
@@ -246,6 +249,18 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
   const isVexaScript = (document) =>
     document && (document.languageId === "vexa" || document.uri.fsPath.endsWith(".vx"));
 
+  context.subscriptions.push(client.onNotification(
+    "vexa/autoAwaitDecorations/refresh",
+    ({ uri }) => {
+      const editor = window.visibleTextEditors.find(
+        (candidate) => candidate.document.uri.toString() === uri
+      );
+      if (editor) {
+        void updateEditor(editor);
+      }
+    }
+  ));
+
   function scheduleParameterHints(editor, reason = "typing") {
     const selectionState = editor && editor.selection
       ? {
@@ -308,11 +323,20 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
     if (!editor || !isVexaScript(editor.document)) {
       return;
     }
+    const requestedVersion = editor.document.version;
     try {
       const decorations = await client.sendRequest("vexa/autoAwaitDecorations", {
         textDocument: { uri: editor.document.uri.toString() }
       });
-      const ranges = (decorations ?? []).map(
+      const currentDecorations = currentAutoAwaitDecorations(
+        decorations,
+        requestedVersion,
+        editor.document.version
+      );
+      if (!currentDecorations) {
+        return;
+      }
+      const ranges = currentDecorations.map(
         (decoration) =>
           new Range(
             new Position(decoration.range.start.line, decoration.range.start.character),

@@ -250,10 +250,10 @@ export class AnalysisSessionCache {
   private readonly pendingExternals = new Map<string, { key: string; promise: Promise<ResolvedExternals> }>();
   private metrics = emptyAnalysisSessionCacheMetrics();
   private profileObserver: ((event: AnalysisSessionCacheProfileEvent) => void) | undefined;
+  private sessionUpdatedObserver: ((document: TextDocument) => void) | undefined;
 
   constructor(
-    private readonly resolveExternalDeclarations?: ExternalDeclarationsResolver,
-    private readonly onSessionUpdated?: () => void
+    private readonly resolveExternalDeclarations?: ExternalDeclarationsResolver
   ) {}
 
   getMetrics(): Readonly<AnalysisSessionCacheMetrics> {
@@ -266,6 +266,10 @@ export class AnalysisSessionCache {
 
   setProfileObserver(observer: ((event: AnalysisSessionCacheProfileEvent) => void) | undefined): void {
     this.profileObserver = observer;
+  }
+
+  setSessionUpdatedObserver(observer: ((document: TextDocument) => void) | undefined): void {
+    this.sessionUpdatedObserver = observer;
   }
 
   peekForDocument(document: TextDocument): AnalysisSession | undefined {
@@ -339,7 +343,7 @@ export class AnalysisSessionCache {
     const current = this.cache.get(document.uri);
     if (!current || current.version <= document.version) {
       this.cache.set(document.uri, { version: document.version, source, session });
-      this.onSessionUpdated?.();
+      this.sessionUpdatedObserver?.(document);
     }
   }
 
@@ -390,7 +394,7 @@ export class AnalysisSessionCache {
     const docUri = document.uri;
     const resolveExternalDeclarations = this.resolveExternalDeclarations;
     if (!resolveExternalDeclarations) {
-      this.cache.set(docUri, { version: docVersion, source: docText, session: baseSession });
+      this.cacheResolvedSession(document, docText, baseSession);
       return Promise.resolve(baseSession);
     }
     let pendingPromise: Promise<AnalysisSession> | undefined;
@@ -459,7 +463,7 @@ export class AnalysisSessionCache {
     this.metrics.baseSessionBuilds += 1;
 
     if (!this.resolveExternalDeclarations) {
-      this.cache.set(docUri, { version: docVersion, source: docText, session: baseSession });
+      this.cacheResolvedSession(document, docText, baseSession);
       return baseSession;
     }
 

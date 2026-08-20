@@ -26,6 +26,10 @@ import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { ProjectSessionLike } from "compiler/analysis/projectIndex";
 import type { CanonicalSyntax } from "compiler/canonicalSyntax";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
+import {
+  LANGUAGE_AUTO_AWAIT_REFRESH_NOTIFICATION,
+  LANGUAGE_AUTO_AWAIT_REQUEST
+} from "compiler/language";
 import { parseSource } from "compiler/pipeline/parse";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import type { AnalysisSession } from "./analysisSession";
@@ -310,6 +314,15 @@ export function startLspServer(options: LspServerOptions): void {
   function refreshDiagnostics(): void {
     connection.languages.diagnostics.refresh();
   }
+
+  analysisSessions.setSessionUpdatedObserver((document) => {
+    refreshDiagnostics();
+    const notification = connection.sendNotification?.(LANGUAGE_AUTO_AWAIT_REFRESH_NOTIFICATION, {
+      uri: document.uri,
+      version: document.version
+    });
+    void notification?.catch(() => undefined);
+  });
 
   function invalidateDocumentCaches(uri: string): void {
     documentDiagnosticCache.delete(uri);
@@ -1094,12 +1107,12 @@ export function startLspServer(options: LspServerOptions): void {
 
   // Custom request: the editor asks for the lines that receive an implicit `await` so it can render
   // gutter icons (similar to Kotlin's suspend-call markers). Not part of the standard LSP protocol.
-  connection.onRequest("vexa/autoAwaitDecorations", (params: { textDocument: { uri: string }; range?: Range }) =>
+  connection.onRequest(LANGUAGE_AUTO_AWAIT_REQUEST, (params: { textDocument: { uri: string }; range?: Range }) =>
     logTimedOperationSync("vexa/autoAwaitDecorations", () => {
       const doc = documents.get(params.textDocument.uri);
       if (!doc) return [];
       const session = analysisSessions.peekForDocument(doc);
-      if (!session) return [];
+      if (!session) return null;
       if (!session.ast || !session.analysis) return [];
       return createAutoAwaitDecorations(session.ast, session.analysis, params.range);
     })

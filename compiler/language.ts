@@ -8,6 +8,7 @@ export const LANGUAGE_CLI_BIN = "vexa";
 export const LANGUAGE_THEME_ID = "vexa-dark";
 export const LANGUAGE_SHOW_REFERENCES_COMMAND = "vexa.showReferences";
 export const LANGUAGE_AUTO_AWAIT_REQUEST = "vexa/autoAwaitDecorations";
+export const LANGUAGE_AUTO_AWAIT_REFRESH_NOTIFICATION = "vexa/autoAwaitDecorations/refresh";
 
 const MODULE_FILE_EXTENSIONS = [
   LANGUAGE_FILE_EXTENSION,
