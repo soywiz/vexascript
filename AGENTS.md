@@ -83,6 +83,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - Unprocessed journal notes stay in `docs/journal/`. After they are mined into concrete follow-up work, move them to `docs/journal/processed/` instead of deleting them.
 - Prefer documenting lessons that help reduce legacy, avoid future regressions, or reveal infrastructure gaps. If something fails repeatedly or is especially costly when it fails, document it.
 - Journal entries should not only record the final successful fix. They should also record meaningful investigation branches that did not work, why they were explored, and what evidence ruled them out. We want the journal to preserve dead ends and their motivation so future debugging can skip already-proven-unhelpful directions.
+- From now on, every journal entry must include a `Prompts` section that records the user prompt or prompts that explicitly requested the journal work or materially defined what the journal entry must capture. Preserve those prompts verbatim and in chronological order so the entry retains its original intent and provenance. This requirement starts with, and explicitly includes, the prompt that introduced it: `añade desde este mismo momento una cláusula donde indicas el/los prompts que se especificaron como part del journal incluyendo este mismo prompt`.
 - Active task documents live in `docs/tasks/`.
 - Completed task documents live in `docs/tasks/completed/`.
 
