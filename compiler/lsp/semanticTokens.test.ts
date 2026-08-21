@@ -359,6 +359,23 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "init" && token.tokenType === "keywordModifier")).toBe(true);
   });
 
+  it("highlights var! as one semantic keyword token", () => {
+    const source = "class Demo { var! value: int }";
+    const session = createAnalysisSession(source);
+    const decoded = decodeTokens(source, createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    }).data);
+
+    expect(decoded).toContainEqual(expect.objectContaining({
+      lexeme: "var!",
+      length: 4,
+      tokenType: "keywordModifier"
+    }));
+    expect(decoded.some((token) => token.lexeme === "!")).toBe(false);
+  });
+
   it("highlights operators and primitive literals", () => {
     const source = "let a: int = 1 + 2\na += 3\nlet re = /a+/g\n";
     const session = createAnalysisSession(source);

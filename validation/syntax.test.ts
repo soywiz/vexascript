@@ -104,7 +104,11 @@ describe("shared syntax generators", () => {
     const vscodeGrammar = createVscodeTmLanguageGrammar();
     const repository = vscodeGrammar["repository"] as Record<string, unknown>;
     const keywords = repository["keywords"] as { patterns: Array<Record<string, unknown>> };
-    const declarationRule = keywords.patterns.find((rule) => rule["name"] === "keyword.declaration.vexa");
+    const declarationRule = keywords.patterns.find((rule) =>
+      rule["name"] === "keyword.declaration.vexa" &&
+      typeof rule["match"] === "string" &&
+      rule["match"].includes("static")
+    );
 
     for (const modifier of ["static", "private", "public", "protected"]) {
       expect(monacoLanguage.modifierKeywords).toContain(modifier);

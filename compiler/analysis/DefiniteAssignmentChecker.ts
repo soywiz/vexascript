@@ -214,22 +214,38 @@ export class DefiniteAssignmentChecker {
     }
   }
 
-  private register(identifier: Identifier, declaration: Node, scope: Scope, state: AssignmentState): void {
+  private register(
+    identifier: Identifier,
+    declaration: Node,
+    scope: Scope,
+    state: AssignmentState
+  ): AnalysisSymbol | undefined {
     const symbol = resolveScopeSymbol(identifier.name, scope, nodeStartOffset(identifier));
-    if (!symbol) return;
+    if (!symbol) return undefined;
     this.declarations.set(symbol, {
       keywordOffset: declaration.firstToken?.range.start.offset ?? nodeStartOffset(identifier) ?? 0,
       nameOffset: nodeStartOffset(identifier) ?? declaration.lastToken?.range.end.offset ?? 0,
     });
     state.assigned.delete(symbol);
+    return symbol;
   }
 
   private visitClass(statement: ClassStatement | ClassExpression, outerScope: Scope, outerState: AssignmentState): void {
     const classScope = this.scopeFor(statement, outerScope);
     const initializationState = cloneState(outerState);
+    const checkedFields: Array<{ member: ClassFieldMember; symbol: AnalysisSymbol }> = [];
     for (const member of statement.members) {
-      if (!(member instanceof ClassFieldMember) || member.declarationKind !== "var" || member.declared === true || member.uncheckedInitialization === true) continue;
-      this.register(member.name, member, classScope, initializationState);
+      if (
+        !(member instanceof ClassFieldMember) ||
+        member.declarationKind !== "var" ||
+        member.declared === true ||
+        member.abstract === true ||
+        member.optional === true ||
+        member.definiteAssignment === true ||
+        member.uncheckedInitialization === true
+      ) continue;
+      const symbol = this.register(member.name, member, classScope, initializationState);
+      if (symbol) checkedFields.push({ member, symbol });
     }
     for (const member of statement.members) {
       if (!(member instanceof ClassFieldMember)) continue;
@@ -248,6 +264,20 @@ export class DefiniteAssignmentChecker {
     );
     if (constructor) {
       this.visitFunctionBody(constructor.body, this.scopeFor(constructor, classScope), initializationState);
+    }
+    for (const { member, symbol } of checkedFields) {
+      if (initializationState.assigned.has(symbol)) continue;
+      const declaration = this.declarations.get(symbol)!;
+      this.issues.push({
+        message: `Class field '${member.name.name}' is not initialized`,
+        node: member.name,
+        code: ANALYSIS_ISSUE_CODES.CLASS_FIELD_NOT_INITIALIZED,
+        data: {
+          variableName: member.name.name,
+          declarationKeywordOffset: declaration.keywordOffset,
+          declarationNameOffset: declaration.nameOffset,
+        },
+      });
     }
     for (const member of statement.members) {
       if (!(member instanceof ClassMethodMember) || member === constructor) continue;

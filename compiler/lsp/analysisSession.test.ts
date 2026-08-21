@@ -49,7 +49,7 @@ describe("lsp analysis session", () => {
   it("accepts receiver-block shorthand through the VS Code analysis session", () => {
     const source = dedent`
       class Graphics {
-        var position: number
+        var! position: number
         circle(x: number, y: number, radius: number): Graphics { return this }
         fill(color: number): Graphics { return this }
         addTo(stage: unknown): void {}

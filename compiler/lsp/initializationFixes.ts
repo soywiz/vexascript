@@ -60,7 +60,10 @@ export function createInitializationCodeActions(params: {
   const actions: CodeAction[] = [];
   const seenOffsets = new Set<number>();
   for (const diagnostic of params.diagnostics) {
-    if (!diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.VARIABLE_USED_BEFORE_INITIALIZATION)) continue;
+    if (
+      !diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.VARIABLE_USED_BEFORE_INITIALIZATION) &&
+      !diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.CLASS_FIELD_NOT_INITIALIZED)
+    ) continue;
     const data = diagnostic.data as { declarationKeywordOffset?: unknown; declarationNameOffset?: unknown } | undefined;
     const recovered = params.analysis
       ? declarationOffsetsFromAnalysis(params.ast, params.analysis, diagnostic)

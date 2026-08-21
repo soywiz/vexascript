@@ -2079,8 +2079,20 @@ export class TypeChecker {
           const annotationType = field.typeAnnotation
             ? this.resolveTypeAnnotation(field.typeAnnotation, classScope)
             : undefined;
+          const expectedFieldType = annotationType && field.optional === true
+            ? unionType([annotationType, builtinType("undefined")])
+            : annotationType;
           if (field.initializer) {
-            const inferredType = this.visitExpression(field.initializer, classScope);
+            const inferredType = this.visitExpression(field.initializer, classScope, expectedFieldType);
+            if (
+              this.validateTypes &&
+              expectedFieldType &&
+              !isUnknownType(expectedFieldType) &&
+              !isUnknownType(inferredType) &&
+              !this.isTypeAssignable(inferredType, expectedFieldType)
+            ) {
+              this.reportTypeMismatch(inferredType, expectedFieldType, field.name, field.initializer);
+            }
             if (!annotationType) {
               this.updateSymbolType(classScope, field.name.name, inferredType);
               this.invalidateNamedTypeMembers(statement);

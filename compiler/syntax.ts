@@ -92,6 +92,10 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     token: "@cases",
     cases: identifierCases,
   };
+  const uncheckedVarRule: PortableMonarchRule = {
+    match: String.raw`\bvar!(?=\s|[_$A-Za-z])`,
+    token: "keyword.declaration",
+  };
   const operatorNameRule: PortableMonarchRule = {
     match: VEXA_OPERATOR_NAME_PATTERN,
     token: "identifier",
@@ -115,6 +119,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     operatorNameRule,
     { match: VEXA_REGEXP_LITERAL_PATTERN, token: "regexp" },
     { match: String.raw`@[A-Za-z_$][\w$]*`, token: "annotation" },
+    uncheckedVarRule,
     genericDeclarationRule,
     characterLiteralRule,
     { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
@@ -144,6 +149,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         operatorNameRule,
         { match: VEXA_REGEXP_LITERAL_PATTERN, token: "regexp" },
         { match: String.raw`@[A-Za-z_$][\w$]*`, token: "annotation" },
+        uncheckedVarRule,
         genericDeclarationRule,
         { match: String.raw`(?<![\w)\]])<>`, token: "tag", next: "@jsx_children" },
         { match: String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
@@ -232,6 +238,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
+        uncheckedVarRule,
         genericDeclarationRule,
         identifierRule,
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
@@ -462,6 +469,7 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
       },
       keywords: {
         patterns: [
+          { name: "keyword.declaration.vexa", match: String.raw`\bvar!(?=\s|[_$A-Za-z])` },
           { name: "keyword.declaration.vexa", match: `\\b(${VEXA_KEYWORD_DECLARATIONS.join("|")})\\b` },
           { name: "keyword.control.vexa", match: `\\b(${VEXA_KEYWORD_CONTROLS.join("|")})\\b` },
           { name: "storage.type.vexa", match: `\\b(${VEXA_STORAGE_TYPES.join("|")})\\b` },
@@ -602,6 +610,7 @@ export function createCodeMirrorLegacyModeSource(): string {
     { regex: /"([^"\\\\]|\\\\.)*"/, token: "string" },
     { regex: /'([^'\\\\]|\\\\.)*'/, token: "string" },
     { regex: /\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nNL])?\\b/, token: "number" },
+    { regex: /\\bvar!(?=\\s|[_$A-Za-z])/, token: "keyword" },
     { regex: /\\b(?:${[...VEXA_KEYWORD_DECLARATIONS, ...VEXA_KEYWORD_CONTROLS, ...VEXA_STORAGE_TYPES, ...VEXA_CONSTANTS].join("|")})\\b/, token: "keyword" },
     { regex: /[{}()\\[\\]]/, token: "bracket" },
     { regex: /(\.\.\.|\.\.<|\.\.)/, token: "operator" },

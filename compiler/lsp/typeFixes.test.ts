@@ -80,6 +80,34 @@ fun demo() {
     expect(actions[0]?.title).toBe("Change type of 'Point.y: unknown' to 'string'");
   });
 
+  it("changes an annotated class field type to match its initializer", async () => {
+    const source = `class Demo {
+  var decimal: int = 0.5
+  var text: int = "test"
+}
+`;
+    const session = createAnalysisSession(source);
+    const diagnostics = collectSameFileDiagnostics(source, session);
+
+    const actions = await createTypeFixCodeActions({
+      uri: "file:///tmp/main.vx",
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      diagnostics,
+      sourceRoots: ["/tmp"]
+    });
+
+    expect(actions.map((action) => action.title)).toEqual([
+      "Change type of 'Demo.decimal: int' to 'number'",
+      "Change type of 'Demo.text: int' to 'string'"
+    ]);
+    expect(actions.map((action) => action.edit?.changes?.["file:///tmp/main.vx"]?.[0]?.newText)).toEqual([
+      "number",
+      "string"
+    ]);
+  });
+
   it("ignores type mismatch diagnostics that are not assignable member writes", async () => {
     const source = `fun takesInt(value: int) {}
 takesInt("test")

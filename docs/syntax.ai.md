@@ -149,8 +149,10 @@ subclass.
 
 Inside methods, `this.` is implicit — write `x` instead of `this.x`.
 
-Class `const`/`val` fields require in-situ initialization. Class `var` fields must be
-assigned before use and may be assigned in `init` blocks:
+Class `const`/`val` fields require in-situ initialization. Class `var` fields
+must be assigned on every path before construction completes, using a field
+initializer, an `init` block, or the constructor. Report an error for an
+unassigned class `var` even when the field is never read:
 
 ```vexa
 class Counter {
@@ -162,7 +164,15 @@ class Counter {
 
 Multiple instance `init` blocks run in source order after field and primary
 constructor initialization and before an explicit constructor body. `var!`
-also opts a class field out of definite-assignment checking.
+is one compound declaration keyword and opts a class field out of
+end-of-construction and use-before-initialization checking.
+
+If a class field has an explicit type and an initializer, require the
+initializer type to be assignable to the field type. Example:
+
+```vexa
+class Invalid { var count: int = 0.5 } // error: number is not assignable to int
+```
 
 ```vexa
 class Rect(const w: number, const h: number) {

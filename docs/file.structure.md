@@ -35,7 +35,7 @@ This section is the fast onboarding map for agents and contributors.
   - Public analysis API: `compiler/analysis/Analysis.ts`
   - Scope/symbol binding: `compiler/analysis/Binder.ts`
   - Type checking and semantic diagnostics: `compiler/analysis/TypeChecker.ts`
-  - Flow-sensitive `var` use-before-initialization analysis, including class initialization phases and the `var!` opt-out contract: `compiler/analysis/DefiniteAssignmentChecker.ts`
+  - Flow-sensitive `var` initialization analysis, including local use-before-initialization, class end-of-construction checks, initialization phases, and the `var!` opt-out contract: `compiler/analysis/DefiniteAssignmentChecker.ts`
   - Shared cached one-pass top-level declaration indexing for runtime/ambient/program statement arrays reused by binder/type-checker: `compiler/analysis/declarationIndex.ts`
   - Pure type display helpers (typeToDiagnosticLabel, isNumberLikeType, boxedInterfaceNameForBuiltin, expressionSnippet) extracted from TypeChecker: `compiler/analysis/typeDisplay.ts`, tests: `compiler/analysis/typeDisplay.test.ts`
   - Shared primitive matcher-name classification used by semantic analysis and both JavaScript/C++ emitters so `string`, numeric, boolean, and bigint-family patterns cannot drift between backends: `compiler/analysis/matcherPatterns.ts`

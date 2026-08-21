@@ -1,5 +1,5 @@
-import { AssignmentExpression, ClassFieldMember, FunctionParameter, Identifier, MemberExpression } from "compiler/ast/ast";
-import type { ClassStatement, Program } from "compiler/ast/ast";
+import { AssignmentExpression, ClassFieldMember, ClassStatement, FunctionParameter, Identifier, MemberExpression } from "compiler/ast/ast";
+import type { Program } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { findBestMatch } from "./nodeSearch";
@@ -36,6 +36,38 @@ function findAssignmentForDiagnosticRange(ast: Program, diagnosticRange: Range):
       return null;
     }
     return { size: rangeSize(assignmentRange), value: assignment };
+  });
+}
+
+function findClassFieldForDiagnosticRange(
+  ast: Program,
+  diagnosticRange: Range
+): { classStatement: ClassStatement; field: ClassFieldMember } | null {
+  return findBestMatch(ast, (node) => {
+    if (!(node instanceof ClassStatement)) {
+      return null;
+    }
+    for (const member of node.members) {
+      if (!(member instanceof ClassFieldMember) || !member.initializer) {
+        continue;
+      }
+      const nameRange = nodeRange(member.name);
+      if (
+        !nameRange ||
+        (!rangeContains(diagnosticRange, nameRange) && !rangeContains(nameRange, diagnosticRange))
+      ) {
+        continue;
+      }
+      const memberRange = nodeRange(member);
+      if (!memberRange) {
+        return null;
+      }
+      return {
+        size: rangeSize(memberRange),
+        value: { classStatement: node, field: member }
+      };
+    }
+    return null;
   });
 }
 
@@ -181,70 +213,86 @@ export async function createTypeFixCodeActions(params: {
     }
     const sourceType = mismatch.sourceType;
 
-    const assignment = findAssignmentForDiagnosticRange(params.ast, diagnostic.range);
-    if (!assignment || !(assignment.left instanceof MemberExpression)) {
-      continue;
-    }
-    const leftMember = assignment.left as MemberExpression;
-    if (leftMember.computed || !(leftMember.property instanceof Identifier)) {
-      continue;
-    }
+    let classStatement: ClassStatement;
+    let memberName: string;
+    let currentType: string;
+    let targetUri: string;
 
-    const objectType = await resolveExpressionTypeName(
-      leftMember.object,
-      params.analysis,
-      params.ast,
-      resolverOptions
-    );
-    if (!objectType) {
-      continue;
-    }
-
-    const classResolution = await resolveClassStatementAcrossFiles(
-      params.ast,
-      baseTypeName(objectType),
-      resolverOptions,
-      resolverCache
-    );
-    if (!classResolution) {
-      continue;
-    }
-
-    const memberName = (leftMember.property as Identifier).name;
-    const resolvedMember = await resolveClassMember(
-      classResolution.classStatement,
-      memberName,
-      objectType,
-      {
-        ast: params.ast,
-        options: resolverOptions,
-        cache: resolverCache
+    const initializedField = findClassFieldForDiagnosticRange(params.ast, diagnostic.range);
+    if (initializedField) {
+      classStatement = initializedField.classStatement;
+      memberName = initializedField.field.name.name;
+      currentType = mismatch.targetType;
+      targetUri = params.uri;
+    } else {
+      const assignment = findAssignmentForDiagnosticRange(params.ast, diagnostic.range);
+      if (!assignment || !(assignment.left instanceof MemberExpression)) {
+        continue;
       }
-    );
-    if (!resolvedMember || resolvedMember.kind !== "field") {
-      continue;
-    }
-
-    const declaration = await resolveClassMemberDeclaration(
-      classResolution,
-      memberName,
-      objectType,
-      {
-        ast: params.ast,
-        options: resolverOptions,
-        cache: resolverCache
+      const leftMember = assignment.left as MemberExpression;
+      if (leftMember.computed || !(leftMember.property instanceof Identifier)) {
+        continue;
       }
-    );
-    if (!declaration || declaration.kind !== "field") {
-      continue;
+
+      const objectType = await resolveExpressionTypeName(
+        leftMember.object,
+        params.analysis,
+        params.ast,
+        resolverOptions
+      );
+      if (!objectType) {
+        continue;
+      }
+
+      const classResolution = await resolveClassStatementAcrossFiles(
+        params.ast,
+        baseTypeName(objectType),
+        resolverOptions,
+        resolverCache
+      );
+      if (!classResolution) {
+        continue;
+      }
+
+      memberName = (leftMember.property as Identifier).name;
+      const resolvedMember = await resolveClassMember(
+        classResolution.classStatement,
+        memberName,
+        objectType,
+        {
+          ast: params.ast,
+          options: resolverOptions,
+          cache: resolverCache
+        }
+      );
+      if (!resolvedMember || resolvedMember.kind !== "field") {
+        continue;
+      }
+
+      const declaration = await resolveClassMemberDeclaration(
+        classResolution,
+        memberName,
+        objectType,
+        {
+          ast: params.ast,
+          options: resolverOptions,
+          cache: resolverCache
+        }
+      );
+      if (!declaration || declaration.kind !== "field") {
+        continue;
+      }
+
+      classStatement = declaration.classStatement;
+      currentType = resolvedMember.typeName;
+      targetUri = pathToUri(declaration.filePath);
     }
 
-    const edit = buildMemberTypeEdit(declaration.classStatement, memberName, sourceType);
+    const edit = buildMemberTypeEdit(classStatement, memberName, sourceType);
     if (!edit) {
       continue;
     }
 
-    const targetUri = pathToUri(declaration.filePath);
     const key = `${targetUri}:${memberName}:${sourceType}:${edit.range.start.line}:${edit.range.start.character}`;
     if (seen.has(key)) {
       continue;
@@ -252,7 +300,7 @@ export async function createTypeFixCodeActions(params: {
     seen.add(key);
 
     actions.push({
-      title: `Change type of '${declaration.classStatement.name.name}.${memberName}: ${resolvedMember.typeName}' to '${sourceType}'`,
+      title: `Change type of '${classStatement.name.name}.${memberName}: ${currentType}' to '${sourceType}'`,
       kind: CodeActionKind.QuickFix,
       edit: {
         changes: {

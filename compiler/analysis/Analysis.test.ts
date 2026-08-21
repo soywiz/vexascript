@@ -3294,6 +3294,42 @@ let bad = "Ada" satisfies number
       .toContain("Variable 'value' is used before being initialized");
   });
 
+  it("requires class var fields to be definitely initialized", () => {
+    const missing = parseFile(tokenizeReader("class Demo { var value: int }"));
+    expect(new Analysis(missing).getIssues().map((issue) => issue.message))
+      .toContain("Class field 'value' is not initialized");
+
+    const unchecked = parseFile(tokenizeReader("class Demo { var! value: int }"));
+    expect(new Analysis(unchecked).getIssues().map((issue) => issue.message))
+      .not.toContain("Class field 'value' is not initialized");
+
+    const initializedInSitu = parseFile(tokenizeReader("class Demo { var value: int = 1 }"));
+    expect(new Analysis(initializedInSitu).getIssues().map((issue) => issue.message))
+      .not.toContain("Class field 'value' is not initialized");
+
+    const initializedOnEveryConstructorPath = parseFile(tokenizeReader(`
+      class Demo {
+        var value: int
+        constructor(ready: boolean) {
+          if (ready) { value = 1 } else { value = 2 }
+        }
+      }
+    `));
+    expect(new Analysis(initializedOnEveryConstructorPath).getIssues().map((issue) => issue.message))
+      .not.toContain("Class field 'value' is not initialized");
+
+    const missingOnOneConstructorPath = parseFile(tokenizeReader(`
+      class Demo {
+        var value: int
+        constructor(ready: boolean) {
+          if (ready) { value = 1 }
+        }
+      }
+    `));
+    expect(new Analysis(missingOnOneConstructorPath).getIssues().map((issue) => issue.message))
+      .toContain("Class field 'value' is not initialized");
+  });
+
   it("requires var declarations to have an explicit type when not initialized", () => {
     const astBad = parseFile(tokenizeReader("var a"));
     const msgsBad = new Analysis(astBad).getIssues().map((i) => i.message);
@@ -3733,6 +3769,15 @@ let bad = "Ada" satisfies number
     const messages = analysis.getIssues().map((issue) => issue.message);
 
     expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+  });
+
+  it("reports class field initializers that are not assignable to their declared type", () => {
+    const ast = parseFile(tokenizeReader("class Demo { var demo: int = 0.5; var ready: int = 1; var label?: string = undefined }"));
+    const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'number' is not assignable to type 'int'");
+    expect(messages.filter((message) => message === "Type 'number' is not assignable to type 'int'")).toHaveLength(1);
+    expect(messages.some((message) => message.includes("Type 'undefined' is not assignable"))).toBe(false);
   });
 
   it("allows prefix and postfix update expressions on identifiers", () => {

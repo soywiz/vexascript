@@ -74,7 +74,7 @@ describe("collectCodeActions aggregator", () => {
   });
 
   it("offers var! for an uninitialized class field with modifiers", async () => {
-    const source = "class Demo {\n  private var value: int\n  fun read(): int { return value }\n}\n";
+    const source = "class Demo {\n  private var value: int\n}\n";
     const session = createAnalysisSession(source);
     const diagnostics = collectDiagnosticsFromSession(session, source, (offset) => positionAt(source, offset));
     const actions = await collectCodeActions({
@@ -82,7 +82,7 @@ describe("collectCodeActions aggregator", () => {
       text: source,
       ast: session.ast,
       analysis: session.analysis,
-      range: pointRange(2, 27),
+      range: pointRange(1, 14),
       diagnostics,
       sourceRoots: []
     });
@@ -90,6 +90,31 @@ describe("collectCodeActions aggregator", () => {
 
     expect(action).toBeTruthy();
     expect(applyFirstEdit(source, action!)).toContain("private var! value: int");
+  });
+
+  it("offers to change a class field annotation to its initializer type", async () => {
+    for (const testCase of [
+      { initializer: "0.5", typeName: "number" },
+      { initializer: '"test"', typeName: "string" }
+    ]) {
+      const source = `class Demo {\n  var value: int = ${testCase.initializer}\n}\n`;
+      const session = createAnalysisSession(source);
+      const diagnostics = collectDiagnosticsFromSession(session, source, (offset) => positionAt(source, offset));
+      const actions = await collectCodeActions({
+        uri: URI,
+        text: source,
+        ast: session.ast,
+        analysis: session.analysis,
+        range: pointRange(1, 6),
+        diagnostics,
+        sourceRoots: []
+      });
+      const title = `Change type of 'Demo.value: int' to '${testCase.typeName}'`;
+      const action = actions.find((candidate) => candidate.title === title);
+
+      expect(action).toBeTruthy();
+      expect(applyFirstEdit(source, action!)).toContain(`var value: ${testCase.typeName} = ${testCase.initializer}`);
+    }
   });
 
   it("offers to convert an invalid character literal to a double-quoted string", async () => {

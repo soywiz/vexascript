@@ -73,7 +73,7 @@ If both explicit and initializer types are known and incompatible, a type mismat
 
 - Class symbol type is the named class type.
 - Method symbols are function-typed using method parameter and return annotations (with the same parameter inference rule as functions).
-- Field initializer expressions are analyzed for diagnostics, but field type is primarily annotation-driven in current behavior.
+- Field types are annotation-driven when an annotation is present; the initializer is contextually analyzed and must be assignable to that declared type. Without an annotation, the initializer determines the field type.
 - Primary constructor parameters are treated as class properties for member resolution in LSP/class utilities.
 
 ### Type aliases

@@ -52,8 +52,11 @@ val alias: string = "Ada"  // equivalent VexaScript alias
 
 Unlike TypeScript's broadly permissive local declaration rules, VexaScript
 requires every `val` to be initialized in situ and checks that an uninitialized
-`var` is assigned on every path before it is read. `var!` is the explicit escape
-hatch for initialization performed by code the compiler cannot observe:
+local `var` is assigned on every path before it is read. A class `var` must also
+be assigned by a field initializer, `init` block, or constructor on every path
+before construction completes, even when the field is never read. The compound
+keyword `var!` is the explicit escape hatch for initialization performed by
+code the compiler cannot observe:
 
 ```vexa
 var value: int
@@ -61,6 +64,10 @@ if (ready) { value = 1 } else { value = 2 }
 consume(value)
 
 var! externallyInjected: Service
+
+class Injected {
+  var! service: Service
+}
 ```
 
 ### Destructuring: `::` for renaming and `:` for inline types
@@ -349,6 +356,15 @@ const p = new Point(1, 2);   // TypeScript equivalent
 ```
 
 `new ClassName(...)` is still valid and accepted.
+
+VexaScript also checks each class-field initializer against its explicit field
+type. Its distinct `int` type therefore rejects fractional `number` values:
+
+```vexa
+class Invalid {
+  var count: int = 0.5 // error
+}
+```
 
 ### Implicit `this` member access
 

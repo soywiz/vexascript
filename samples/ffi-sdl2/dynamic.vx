@@ -3,10 +3,10 @@
 @FFIStruct(56)
 @FFIAlign(8)
 class SDLEvent {
-  @FFIOffset(0) @FFISize(4) var type: int
-  @FFIOffset(0) @FFISize(4) var commonType: int
-  @FFIOffset(12) @FFISize(1) var keyState: int
-  @FFIOffset(16) @FFISize(4) var scanCode: int
+  @FFIOffset(0) @FFISize(4) var! type: int
+  @FFIOffset(0) @FFISize(4) var! commonType: int
+  @FFIOffset(12) @FFISize(1) var! keyState: int
+  @FFIOffset(16) @FFISize(4) var! scanCode: int
 }
 
 @FFIStruct(16)

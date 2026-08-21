@@ -51,8 +51,9 @@ console.log(result) // initialized on both paths
 ```
 
 Use `var!` only when initialization is guaranteed by code the compiler cannot
-verify, such as an external framework callback. It disables the
-use-before-initialization check for that declaration; it does not emit a
+verify, such as an external framework callback. The compound declaration
+keyword `var!` disables the use-before-initialization check for a local and the
+end-of-construction initialization check for a class field; it does not emit a
 runtime initializer:
 
 ```vexa
@@ -465,9 +466,9 @@ class Rect(
 @FFIStruct(8)
 @FFIAlign(4)
 class Event {
-  @FFIOffset(0) var type: int
-  @FFIOffset(0) @FFISize(2) var code: int
-  @FFIOffset(4) var value: int
+  @FFIOffset(0) var! type: int
+  @FFIOffset(0) @FFISize(2) var! code: int
+  @FFIOffset(4) var! value: int
 }
 ```
 
@@ -995,9 +996,12 @@ class Store {
 
 ### Stored-property initialization and `init` blocks
 
-Class `val`/`const` fields must be initialized in situ. Mutable `var` fields may
-be assigned by an instance `init { }` block or constructor before use; `var!`
-opts a field out of the static check when initialization is external.
+Class `val`/`const` fields must be initialized in situ. Every mutable `var`
+field must be assigned on every construction path, either by its field
+initializer, an instance `init { }` block, or the constructor. A field that is
+still unassigned when construction completes is an error even if no method
+reads it. The compound keyword `var!` opts a field out of this check when
+initialization is external.
 
 ```vexa
 class Session {
@@ -1205,6 +1209,16 @@ Class fields support:
 - access modifiers (`public`, `private`, `protected`)
 - `readonly` fields (assignable from constructors, diagnosed on later writes); `val` and `const` are the preferred immutable spellings inside class bodies
 - `static` fields
+
+When a field has both a type annotation and an initializer, the initializer
+must be assignable to the annotated type. In particular, a fractional `number`
+literal is not assignable to `int`:
+
+```vexa
+class Invalid {
+  var count: int = 0.5 // error: number is not assignable to int
+}
+```
 
 Examples:
 

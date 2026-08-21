@@ -326,6 +326,10 @@
       "patterns": [
         {
           "name": "keyword.declaration.vexa",
+          "match": "\\bvar!(?=\\s|[_$A-Za-z])"
+        },
+        {
+          "name": "keyword.declaration.vexa",
           "match": "\\b(import|export|from|let|var|val|const|by|function|fun|fn|func|declare|namespace|class|interface|annotation|enum|extends|implements|override|readonly|public|private|protected|static|abstract|get|set|init|keyof|infer|async|sync)\\b"
         },
         {

@@ -1440,9 +1440,9 @@ const pair = Pair()
 @FFIStruct(8)
 @FFIAlign(4)
 class Event {
-  @FFIOffset(0) var type: int
-  @FFIOffset(0) @FFISize(2) var code: int
-  @FFIOffset(4) var value: int
+  @FFIOffset(0) var! type: int
+  @FFIOffset(0) @FFISize(2) var! code: int
+  @FFIOffset(4) var! value: int
 }
 const event = Event()
 event.type = 7

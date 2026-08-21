@@ -1092,15 +1092,36 @@ export function createSemanticTokens(params: SemanticTokenParams): SemanticToken
   const tokenKinds = params.ast ? collectTokenKindsFromAst(params.ast, tokens) : new Map();
   const builder = new SimpleSemanticTokensBuilder();
 
-  for (const token of tokens) {
+  for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex += 1) {
+    const token = tokens[tokenIndex]!;
     if (token.type === TokenType.END_OF_FILE) {
       continue;
     }
-    if (!intersectsRange(token.range, params.range)) {
+    const nextToken = tokens[tokenIndex + 1];
+    const isUncheckedVarKeyword = token.type === TokenType.IDENTIFIER &&
+      token.value === "var" &&
+      nextToken?.type === TokenType.SYMBOL &&
+      nextToken.value === "!" &&
+      token.range.end.offset === nextToken.range.start.offset;
+    const effectiveRange: SourceRange = isUncheckedVarKeyword
+      ? { start: token.range.start, end: nextToken.range.end }
+      : token.range;
+    if (!intersectsRange(effectiveRange, params.range)) {
       continue;
     }
 
     const tokenModifiers = params.tokenModifiersByRangeKey?.get(semanticTokenRangeKey(token.range)) ?? 0;
+    if (isUncheckedVarKeyword) {
+      builder.push(
+        effectiveRange.start.line,
+        effectiveRange.start.column,
+        effectiveRange.end.column - effectiveRange.start.column,
+        TOKEN_TYPE_INDEX.keywordModifier,
+        tokenModifiers
+      );
+      tokenIndex += 1;
+      continue;
+    }
     if (token.type === TokenType.REGEXP) {
       for (const part of regularExpressionSemanticParts(token.value)) {
         const partRange: SourceRange = {

@@ -42,6 +42,24 @@ describe("portable monarch syntax", () => {
     expect(codeMirror).toContain("case|match|when|default");
   });
 
+  it("classifies var! as one keyword in every generated highlighter", () => {
+    const language = createPortableMonarchLanguage();
+    const uncheckedVarRule = language.tokenizer["root"]?.find(
+      (rule) => rule.match === String.raw`\bvar!(?=\s|[_$A-Za-z])`
+    );
+    const vscodeGrammar = createVscodeTmLanguageGrammar();
+    const repository = vscodeGrammar["repository"] as Record<string, unknown>;
+    const keywords = repository["keywords"] as { patterns: Array<{ name: string; match: string }> };
+    const codeMirror = createCodeMirrorLegacyModeSource();
+
+    expect(uncheckedVarRule?.token).toBe("keyword.declaration");
+    expect(keywords.patterns).toContainEqual({
+      name: "keyword.declaration.vexa",
+      match: String.raw`\bvar!(?=\s|[_$A-Za-z])`,
+    });
+    expect(codeMirror).toContain(String.raw`/\bvar!(?=\s|[_$A-Za-z])/`);
+  });
+
   it("classifies regular-expression literals distinctly in every generated highlighter", () => {
     const language = createPortableMonarchLanguage();
     const vscodeGrammar = createVscodeTmLanguageGrammar();
