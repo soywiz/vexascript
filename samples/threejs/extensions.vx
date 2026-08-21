@@ -1,3 +1,9 @@
+import { Vector3 } from "three"
+
 fun HTMLElement.addTo(other: HTMLElement) {
     other.appendChild(this)
+}
+
+fun Vector3.operator+(that: Vector3) {
+    return Vector3().addVectors(this, that)
 }

@@ -14,6 +14,7 @@ import {
 import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 import type { AmbientModuleLocation } from "./ambientTypesLoader";
+import { loadProject } from "compiler/project";
 
 export interface SymbolExport {
   name: string;
@@ -339,7 +340,7 @@ function isBareModuleSpecifier(specifier: string): boolean {
   return !specifier.startsWith(".") && !specifier.startsWith("/");
 }
 
-async function collectNodeModuleExportsFromExistingImports(
+async function collectNodeModuleExports(
   ast: Program,
   currentFilePath: string
 ): Promise<SymbolExport[]> {
@@ -351,6 +352,13 @@ async function collectNodeModuleExportsFromExistingImports(
     const importPath = (statement as ImportStatement).from.value;
     if (isBareModuleSpecifier(importPath)) {
       imports.add(importPath);
+    }
+  }
+
+  const project = await loadProject(currentFilePath);
+  for (const dependency of Object.keys(project?.dependencies ?? {})) {
+    if (!dependency.startsWith("@types/")) {
+      imports.add(dependency);
     }
   }
 
@@ -492,7 +500,7 @@ export async function createAutoImportCodeActions(params: {
     ...(params.importMappings ? { importMappings: params.importMappings } : {}),
     ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {}),
   });
-  const nodeModuleExports = await collectNodeModuleExportsFromExistingImports(ast, currentFilePath);
+  const nodeModuleExports = await collectNodeModuleExports(ast, currentFilePath);
   const availableSymbols = [...exportedSymbols, ...nodeModuleExports];
   if (availableSymbols.length === 0) {
     return [];
@@ -719,7 +727,7 @@ export async function buildAutoImportSuggestions(params: {
     ...(params.importMappings ? { importMappings: params.importMappings } : {}),
     ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {}),
   });
-  const nodeModuleExports = await collectNodeModuleExportsFromExistingImports(ast, currentFilePath);
+  const nodeModuleExports = await collectNodeModuleExports(ast, currentFilePath);
   const availableSymbols = [...exportedSymbols, ...nodeModuleExports];
   if (availableSymbols.length === 0) {
     return [];

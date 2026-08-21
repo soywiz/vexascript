@@ -827,6 +827,59 @@ describe("createCompletionItemsForPosition", () => {
     );
   });
 
+  it("offers auto-import completions from package dependencies without existing imports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dependency-"));
+    const packageDir = join(root, "node_modules", "three");
+    const consumerFile = join(root, "extensions.vx");
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun Vector3.operator+(other: Vector3) {
+        return Vector3().addVectors(this, other)
+      }
+
+      Vec^^^
+    `);
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ dependencies: { "@types/three": "0.180.0", three: "0.180.0" } }),
+      "utf8"
+    );
+    await writeFile(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "three", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(packageDir, "index.d.ts"),
+      "export class Vector3 { x: number; y: number; z: number; }\n",
+      "utf8"
+    );
+    await writeFile(consumerFile, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        uri: pathToFileURL(consumerFile).toString(),
+        sourceRoots: [root]
+      }
+    );
+    const vector3Items = items.filter((item) => item.label === "Vector3");
+    const vector3 = vector3Items[0];
+
+    expect(vector3Items).toHaveLength(1);
+    expect(vector3?.detail).toBe("Auto import from three");
+    expect(vector3?.additionalTextEdits?.[0]?.newText).toBe(
+      'import { Vector3 } from "three"\n'
+    );
+  });
+
   it("contextually types intrinsic Preact event-handler parameters", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-completion-preact-event-"));
     const packageDir = join(root, "node_modules", "preact");
