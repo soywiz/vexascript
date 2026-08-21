@@ -246,6 +246,10 @@ function startServer(
       ? {
           workspace: {
             refreshDiagnosticsCommand: "vexa.refreshDiagnostics",
+            installDependenciesCommand: "vexa.installDependencies",
+            installDependencies: async (target: { packageRoot: string; packageName: string }) => {
+              environmentEvents.push(`install:${target.packageName}:${target.packageRoot}`);
+            },
             onWatchedFileChanged: (filePath: string) => {
               environmentEvents.push(`watched:${filePath}`);
             }
@@ -362,6 +366,10 @@ async function startWorkspaceBackedServer(workspaceRoot: string): Promise<Starte
     },
     workspace: {
       refreshDiagnosticsCommand: "vexa.refreshDiagnostics",
+      installDependenciesCommand: "vexa.installDependencies",
+      installDependencies: async (target: { packageRoot: string; packageName: string }) => {
+        environmentEvents.push(`install:${target.packageName}:${target.packageRoot}`);
+      },
       onWatchedFileChanged: (filePath: string) => {
         environmentEvents.push(`watched:${filePath}`);
         projectIndex.invalidateFile(filePath);
@@ -453,7 +461,9 @@ describe("LSP server core", () => {
       serverInfo: { name: string; version: string };
     };
 
-    assert.deepEqual(nodeResult.capabilities["executeCommandProvider"], { commands: ["vexa.refreshDiagnostics"] });
+    assert.deepEqual(nodeResult.capabilities["executeCommandProvider"], {
+      commands: ["vexa.refreshDiagnostics", "vexa.installDependencies"]
+    });
     assert.equal(nodeResult.capabilities["workspaceSymbolProvider"], true);
     assert.deepEqual(nodeResult.capabilities["diagnosticProvider"], {
       interFileDependencies: true,
@@ -1417,18 +1427,69 @@ describe("LSP server core", () => {
     assert.equal(server.fakeConnection.diagnosticsRefreshes() > refreshesAfterOpen, true);
   });
 
-  it("refreshes diagnostics through the workspace execute command and watched files", () => {
+  it("refreshes diagnostics through the workspace execute command and watched files", async () => {
     const server = startServer(true);
     const before = server.fakeConnection.diagnosticsRefreshes();
 
-    server.fakeConnection.handlers.get("executeCommand")!({ command: "vexa.refreshDiagnostics" });
+    await server.fakeConnection.handlers.get("executeCommand")!({ command: "vexa.refreshDiagnostics" });
     assert.equal(server.fakeConnection.diagnosticsRefreshes(), before + 1);
+
+    await server.fakeConnection.handlers.get("executeCommand")!({
+      command: "vexa.installDependencies",
+      arguments: [{ packageRoot: "/workspace", packageName: "three" }]
+    });
+    assert.deepEqual(server.environmentEvents, ["install:three:/workspace"]);
+    assert.equal(server.fakeConnection.diagnosticsRefreshes(), before + 2);
 
     server.fakeConnection.handlers.get("didChangeWatchedFiles")!({
       changes: [{ uri: "file:///workspace/util.vx" }, { uri: "untitled:not-a-file" }]
     });
-    assert.deepEqual(server.environmentEvents, ["watched:/workspace/util.vx"]);
-    assert.equal(server.fakeConnection.diagnosticsRefreshes(), before + 2);
+    assert.deepEqual(server.environmentEvents, ["install:three:/workspace", "watched:/workspace/util.vx"]);
+    assert.equal(server.fakeConnection.diagnosticsRefreshes(), before + 3);
+  });
+
+  it("re-resolves a missing package after an external npm install and refresh command", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "vexa-lsp-npm-refresh-"));
+    const mainPath = join(workspaceRoot, "main.vx");
+    const source = "import { Scene } from \"three\"\nval scene = new Scene()\n";
+    await writeFile(mainPath, source, "utf8");
+    await writeFile(join(workspaceRoot, "package.json"), JSON.stringify({
+      dependencies: { three: "^0.180.0" }
+    }), "utf8");
+
+    const server = await startWorkspaceBackedServer(workspaceRoot);
+    const document = TextDocument.create(pathToFileURL(mainPath).href, "vexa", 1, source);
+    server.fakeDocuments.open(document);
+    const initialReport = await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    }) as { items: Array<{ message: string; range: { start: { line: number; character: number }; end: { line: number; character: number } }; code?: string }> };
+    const missingModuleDiagnostic = initialReport.items.find((item) => item.message === "Cannot find module 'three'");
+    assert.ok(missingModuleDiagnostic);
+
+    const actions = await server.fakeConnection.handlers.get("codeAction")!({
+      textDocument: { uri: document.uri },
+      range: missingModuleDiagnostic.range,
+      context: { diagnostics: [missingModuleDiagnostic] }
+    }) as Array<{ title: string; command?: { command: string; arguments?: unknown[] } }>;
+    assert.deepEqual(
+      actions.find((action) => action.title === "Run 'npm install' for 'three'")?.command,
+      {
+        title: "Run 'npm install' for 'three'",
+        command: "vexa.installDependencies",
+        arguments: [{ packageRoot: workspaceRoot, packageName: "three" }]
+      }
+    );
+
+    const packageRoot = join(workspaceRoot, "node_modules", "three");
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(join(packageRoot, "package.json"), JSON.stringify({ types: "index.d.ts" }), "utf8");
+    await writeFile(join(packageRoot, "index.d.ts"), "export declare class Scene {}\n", "utf8");
+
+    await server.fakeConnection.handlers.get("executeCommand")!({ command: "vexa.refreshDiagnostics" });
+    const refreshedReport = await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    }) as { items: Array<{ message: string }> };
+    assert.equal(refreshedReport.items.some((item) => item.message === "Cannot find module 'three'"), false);
   });
 
   it("clears analysis sessions when watched workspace files change", () => {

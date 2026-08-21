@@ -191,6 +191,7 @@ This section is the fast onboarding map for agents and contributors.
   - Await gutter decorations (lines with an explicit `await` in async/sync functions or an implicit auto-`await` inside `sync` functions, served via the custom `vexa/autoAwaitDecorations` request and the Monaco glyph margin): `compiler/lsp/autoAwaitDecorations.ts`
   - Code action orchestration: `compiler/lsp/codeActions.ts`
   - Shared code-action collection (used by the Node LSP server, browser-worker LSP server, and Monaco in-process providers): `compiler/lsp/codeActionsAggregate.ts`
+  - Missing-package installation quick fixes, including package.json dependency discovery and the workspace-scoped `npm install` command target: `compiler/lsp/installDependencyFixes.ts`
   - Quick fixes: `compiler/lsp/importFixes.ts`, `compiler/lsp/typeFixes.ts`, `compiler/lsp/memberFixes.ts`, `compiler/lsp/callFixes.ts`, `compiler/lsp/keywordFixes.ts`, `compiler/lsp/memberKeywordFixes.ts`, `compiler/lsp/interfaceImplementationFixes.ts`, `compiler/lsp/overrideModifierFixes.ts` (inserts a missing `override` modifier), `compiler/lsp/duplicateClassVariableFixes.ts` (removes a duplicate class field), `compiler/lsp/initializationFixes.ts` (changes a declaration from `var` to `var!` when definite initialization cannot be proven), `compiler/lsp/characterLiteralFixes.ts` (converts invalid multi-code-point `#`-prefixed character literals to strings), `compiler/lsp/stringTemplateFixes.ts`, `compiler/lsp/thisFixes.ts`
   - Function shorthand quick fixes: `compiler/lsp/functionShorthandFixes.ts`
   - Trailing-lambda quick fix (moves a brace lambda written as the last call argument out of the parentheses, e.g. `foo(a, { x -> ... })` to `foo(a) { x -> ... }`): `compiler/lsp/trailingLambdaFixes.ts`
@@ -216,6 +217,7 @@ This section is the fast onboarding map for agents and contributors.
   - Website package scripts and type-checking configuration: `website/package.json`, `website/tsconfig.json`
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
   - Extension entrypoint (LSP client that launches `compiler/lsp/server.ts` over stdio): `plugins/vscode/extension.js`
+  - Window-focus dependency refresh bridge that asks the LSP server to invalidate module-resolution caches after external installs: `plugins/vscode/dependencyRefresh.js`
   - TextMate grammar generated from the compiler's shared syntax source and checked in for packaging: `plugins/vscode/syntaxes/vexa.tmLanguage.json`
   - VS Code extension manifest/config, schema-backed VexaScript project-configuration completion/navigation, and checked-in language configuration generated from the compiler's shared syntax source: `plugins/vscode/package.json`, `plugins/vscode/jsonSchemaDefinition.js`, `plugins/vscode/schemas/vexascript.schema.json`, `plugins/vscode/language-configuration.json`
   - Syntax tests: `validation/vscodeext-syntax.test.ts`

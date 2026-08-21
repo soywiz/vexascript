@@ -75,6 +75,7 @@ import {
   getDeprecatedSemanticTokenWorkMetrics
 } from "./deprecatedSemanticTokens";
 import { clearNodeModuleTypingsCache } from "./nodeModulesTypings";
+import type { DependencyInstallTarget } from "./installDependencyFixes";
 import {
   createDocumentHighlights,
   createFoldingRanges,
@@ -99,6 +100,9 @@ export type GetSessionForFilePath = (
 export interface LspWorkspaceFeatures {
   /** Command id advertised via executeCommandProvider that re-publishes diagnostics. */
   refreshDiagnosticsCommand: string;
+  /** Command id and Node-only callback used by missing dependency quick fixes. */
+  installDependenciesCommand?: string;
+  installDependencies?: (target: DependencyInstallTarget) => Promise<void>;
   /** Invalidates a changed/removed on-disk file in the workspace index. */
   onWatchedFileChanged: (filePath: string) => void;
 }
@@ -341,6 +345,13 @@ export function startLspServer(options: LspServerOptions): void {
     workspaceSymbolExportsPromise = null;
   }
 
+  function invalidateWorkspaceCaches(): void {
+    invalidateAllCaches();
+    analysisSessions.clear();
+    clearNodeModuleTypingsCache();
+    clearAmbientTypesCache();
+  }
+
   function featureContext(uri: string) {
     const canonicalSyntax = environment.getCanonicalSyntax?.(uri);
     return {
@@ -566,7 +577,16 @@ export function startLspServer(options: LspServerOptions): void {
             resolveProvider: true
           },
           ...(workspace
-            ? { executeCommandProvider: { commands: [workspace.refreshDiagnosticsCommand] } }
+            ? {
+                executeCommandProvider: {
+                  commands: [
+                    workspace.refreshDiagnosticsCommand,
+                    ...(workspace.installDependenciesCommand && workspace.installDependencies
+                      ? [workspace.installDependenciesCommand]
+                      : [])
+                  ]
+                }
+              }
             : {}),
           documentFormattingProvider: true,
           documentRangeFormattingProvider: true,
@@ -756,7 +776,10 @@ export function startLspServer(options: LspServerOptions): void {
           range: params.range,
           diagnostics: params.context.diagnostics,
           getExportedSymbols: () => getExportedSymbolsForSession(session),
-          ...(workspace ? { refreshDiagnosticsCommand: workspace.refreshDiagnosticsCommand } : {})
+          ...(workspace ? { refreshDiagnosticsCommand: workspace.refreshDiagnosticsCommand } : {}),
+          ...(workspace?.installDependenciesCommand
+            ? { installDependenciesCommand: workspace.installDependenciesCommand }
+            : {})
         })
       );
 
@@ -772,8 +795,25 @@ export function startLspServer(options: LspServerOptions): void {
 
   if (workspace) {
     connection.onExecuteCommand((params) => {
-      return logTimedOperationSync("workspace/executeCommand", () => {
+      return logTimedOperation("workspace/executeCommand", async () => {
         if (params.command === workspace.refreshDiagnosticsCommand) {
+          invalidateWorkspaceCaches();
+          refreshDiagnostics();
+          return;
+        }
+        if (
+          params.command === workspace.installDependenciesCommand
+          && workspace.installDependencies
+        ) {
+          const target = params.arguments?.[0] as Partial<DependencyInstallTarget> | undefined;
+          if (typeof target?.packageRoot !== "string" || typeof target.packageName !== "string") {
+            throw new Error("Invalid dependency installation target");
+          }
+          await workspace.installDependencies({
+            packageRoot: target.packageRoot,
+            packageName: target.packageName
+          });
+          invalidateWorkspaceCaches();
           refreshDiagnostics();
         }
       });
@@ -1150,10 +1190,7 @@ export function startLspServer(options: LspServerOptions): void {
   if (workspace) {
     connection.onDidChangeWatchedFiles((params) => {
       return logTimedOperationSync("workspace/didChangeWatchedFiles", () => {
-        invalidateAllCaches();
-        analysisSessions.clear();
-        clearNodeModuleTypingsCache();
-        clearAmbientTypesCache();
+        invalidateWorkspaceCaches();
         for (const change of params.changes) {
           const filePath = uriToFilePath(change.uri);
           if (filePath) workspace.onWatchedFileChanged(filePath);

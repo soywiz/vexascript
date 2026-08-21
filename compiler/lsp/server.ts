@@ -25,8 +25,9 @@ import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
 import { startLspServer } from "./serverCore";
 import { recoverSourceForJsxTagCompletion } from "./completion";
-import { resolve as resolvePath } from "compiler/utils/path";
-import { setVfs, Vfs, type VfsDirEntry, type VfsStat } from "compiler/vfs";
+import { relative, resolve as resolvePath } from "compiler/utils/path";
+import { setVfs, vfs, Vfs, type VfsDirEntry, type VfsStat } from "compiler/vfs";
+import { packageJsonDeclaresDependency, type DependencyInstallTarget } from "./installDependencyFixes";
 
 interface NodeDirentLike {
   name: string;
@@ -40,6 +41,26 @@ interface NodeFsPromisesLike {
   stat(path: string): Promise<{ mtimeMs: number; isFile(): boolean; isDirectory(): boolean }>;
   writeFile(path: string, content: string | NodeJS.ArrayBufferView): Promise<void>;
   unlink(path: string): Promise<void>;
+}
+
+interface NodeReadableLike {
+  setEncoding(encoding: "utf8"): void;
+  on(event: "data", listener: (chunk: string) => void): void;
+}
+
+interface NodeChildProcessLike {
+  stdout: NodeReadableLike;
+  stderr: NodeReadableLike;
+  on(event: "error", listener: (error: Error) => void): void;
+  on(event: "close", listener: (code: number | null) => void): void;
+}
+
+interface NodeChildProcessModuleLike {
+  spawn(command: string, args: string[], options: {
+    cwd: string;
+    shell: boolean;
+    stdio: ["ignore", "pipe", "pipe"];
+  }): NodeChildProcessLike;
 }
 
 class NodeServerVfs extends Vfs {
@@ -108,6 +129,7 @@ let importMappings: Readonly<Record<string, string>> = {};
 const canonicalSyntaxByUri = new Map<string, CanonicalSyntax>();
 let projectIndex: ProjectIndex = getProjectIndex([]);
 const REFRESH_DIAGNOSTICS_COMMAND = "vexa.refreshDiagnostics";
+const INSTALL_DEPENDENCIES_COMMAND = "vexa.installDependencies";
 
 function resolveSourceRoots(params: InitializeParams): string[] {
   const roots: string[] = [];
@@ -127,6 +149,69 @@ function resolveSourceRoots(params: InitializeParams): string[] {
   }
 
   return roots;
+}
+
+async function runNpmInstall(packageRoot: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const builtinLoader = process.getBuiltinModule;
+  const childProcess = typeof builtinLoader === "function"
+    ? builtinLoader("node:child_process") as NodeChildProcessModuleLike | undefined
+    : undefined;
+  if (!childProcess || typeof childProcess.spawn !== "function") {
+    throw new Error("node:child_process is unavailable in this runtime");
+  }
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  return await new Promise((resolvePromise, reject) => {
+    const child = childProcess.spawn(npmCommand, ["install"], {
+      cwd: packageRoot,
+      shell: process.platform === "win32",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => resolvePromise({ code, stdout, stderr }));
+  });
+}
+
+async function installDependencies(target: DependencyInstallTarget): Promise<void> {
+  const packageRoot = resolvePath(target.packageRoot);
+  const belongsToWorkspace = sourceRoots.some((root) => {
+    const relativePath = relative(resolvePath(root), packageRoot);
+    return relativePath === "" || (relativePath !== ".." && !relativePath.startsWith("../"));
+  });
+  if (!belongsToWorkspace) {
+    throw new Error(`Refusing to install dependencies outside the workspace: ${packageRoot}`);
+  }
+
+  let packageJson: unknown;
+  try {
+    packageJson = JSON.parse(await vfs().readFile(resolvePath(packageRoot, "package.json"))) as unknown;
+  } catch {
+    throw new Error(`Cannot read package.json in '${packageRoot}'`);
+  }
+  if (!packageJsonDeclaresDependency(packageJson, target.packageName)) {
+    throw new Error(`Dependency '${target.packageName}' is not declared in '${packageRoot}/package.json'`);
+  }
+
+  connection.console.info(`Running npm install in ${packageRoot}`);
+  const result = await runNpmInstall(packageRoot);
+  if (result.stdout.trim().length > 0) {
+    connection.console.info(result.stdout.trim());
+  }
+  if (result.stderr.trim().length > 0) {
+    connection.console.info(result.stderr.trim());
+  }
+  if (result.code !== 0) {
+    throw new Error(`npm install failed with exit code ${result.code ?? "unknown"}`);
+  }
 }
 
 async function getSessionForFilePathFromOpenDocuments(filePath: string) {
@@ -252,6 +337,8 @@ startLspServer({
     },
     workspace: {
       refreshDiagnosticsCommand: REFRESH_DIAGNOSTICS_COMMAND,
+      installDependenciesCommand: INSTALL_DEPENDENCIES_COMMAND,
+      installDependencies,
       onWatchedFileChanged: (filePath) => projectIndex.invalidateFile(filePath)
     }
   }

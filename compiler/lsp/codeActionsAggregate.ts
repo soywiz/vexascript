@@ -26,6 +26,7 @@ import { createUnusedImportCodeActions } from "./unusedImportFixes";
 import { createDuplicateClassVariableCodeActions } from "./duplicateClassVariableFixes";
 import { createCharacterLiteralCodeActions } from "./characterLiteralFixes";
 import { createInitializationCodeActions } from "./initializationFixes";
+import { createInstallDependencyCodeActions } from "./installDependencyFixes";
 import type { SymbolExportProvider } from "./importFixes";
 import type { CanonicalSyntax } from "compiler/canonicalSyntax";
 
@@ -51,6 +52,7 @@ export interface CollectCodeActionsParams {
   getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null | Promise<ProjectSessionLike | null>;
   getExportedSymbols?: SymbolExportProvider;
   refreshDiagnosticsCommand?: string;
+  installDependenciesCommand?: string;
   canonicalSyntax?: CanonicalSyntax;
 }
 
@@ -69,6 +71,14 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
 
   actions.push(...createCharacterLiteralCodeActions({ uri, text, diagnostics }));
   actions.push(...createInitializationCodeActions({ uri, text, ast, analysis, diagnostics }));
+  if (params.installDependenciesCommand) {
+    actions.push(...await createInstallDependencyCodeActions({
+      uri,
+      ast,
+      diagnostics,
+      commandName: params.installDependenciesCommand
+    }));
+  }
 
   const replacements = findDeclarationKeywordReplacementsAtPosition(
     ast,

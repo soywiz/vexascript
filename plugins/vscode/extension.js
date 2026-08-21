@@ -6,6 +6,7 @@ const {
 } = require("vscode-languageclient/node");
 
 const SELECT_CODE_ACTION_RANGE_COMMAND = "vexa.selectCodeActionRange";
+const REFRESH_DIAGNOSTICS_COMMAND = "vexa.refreshDiagnostics";
 const {
   shouldRetriggerParameterHints,
   shouldRetriggerParameterHintsForSelectionChange,
@@ -25,6 +26,9 @@ const {
 const {
   findConfigSchemaDefinition
 } = require("./jsonSchemaDefinition.js");
+const {
+  registerDependencyRefreshOnFocus
+} = require("./dependencyRefresh.js");
 
 /** @type {LanguageClient | undefined} */
 let client;
@@ -104,7 +108,10 @@ function activate(context) {
     outputChannel,
     traceOutputChannel: outputChannel,
     synchronize: {
-      fileEvents: workspace.createFileSystemWatcher("**/*.vx"),
+      fileEvents: [
+        workspace.createFileSystemWatcher("**/*.vx"),
+        workspace.createFileSystemWatcher("**/{package.json,package-lock.json,pnpm-lock.yaml,yarn.lock,bun.lock,bun.lockb}")
+      ],
       configurationSection: "vexa"
     },
     initializationOptions: {
@@ -125,6 +132,9 @@ function activate(context) {
 
   const ready = client.start();
 
+  context.subscriptions.push(
+    registerDependencyRefreshOnFocus(window, client, ready, REFRESH_DIAGNOSTICS_COMMAND)
+  );
   registerVexaTagAutoClosing(context, client, ready);
   registerAutoAwaitGutterIcons(context, client, ready);
   registerDeprecatedDiagnosticDecorations(context);
