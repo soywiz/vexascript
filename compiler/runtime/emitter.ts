@@ -867,18 +867,18 @@ function variableDelegateBackingName(name: string): string {
   return `__$delegate_${resolveJsName(name)}`;
 }
 
-function namedTypeHasValueMember(typeName: string, program: Program): boolean {
-  for (const statement of program.body) {
-    const decl = statement instanceof ExportStatement ? (statement as ExportStatement).declaration : statement;
-    if (!decl || !(decl instanceof ClassStatement)) continue;
-    const cls = decl as ClassStatement;
-    if (cls.name.name !== typeName) continue;
-    return cls.members.some((m) => m instanceof ClassMethodMember && m.accessorKind === "get" && m.name.name === "value");
-  }
-  return false;
+function classHasValueDelegateMember(statement: ClassStatement): boolean {
+  return statement.members.some(
+    (member) => member instanceof ClassMethodMember
+      && member.accessorKind === "get"
+      && member.name.name === "value"
+  );
 }
 
-function variableDelegateKind(type: AnalysisType | undefined, program: Program): RuntimeVariableDelegateInfo["kind"] {
+function variableDelegateKind(
+  type: AnalysisType | undefined,
+  valueDelegateClassNames: ReadonlySet<string>
+): RuntimeVariableDelegateInfo["kind"] {
   if (type instanceof FunctionType) {
     return "function";
   }
@@ -895,7 +895,7 @@ function variableDelegateKind(type: AnalysisType | undefined, program: Program):
   if (type instanceof ObjectType && type.properties.has("value")) {
     return "objectValue";
   }
-  if (type instanceof NamedType && namedTypeHasValueMember(type.name, program)) {
+  if (type instanceof NamedType && valueDelegateClassNames.has(type.name)) {
     return "objectValue";
   }
   return "unknownTuple";
@@ -903,7 +903,8 @@ function variableDelegateKind(type: AnalysisType | undefined, program: Program):
 
 function collectVariableDelegateDeclarations(
   program: Program,
-  expressionTypes?: ReadonlyMap<Node, AnalysisType>
+  expressionTypes: ReadonlyMap<Node, AnalysisType> | undefined,
+  valueDelegateClassNames: ReadonlySet<string>
 ): Map<Node, RuntimeVariableDelegateInfo> {
   const delegates = new Map<Node, RuntimeVariableDelegateInfo>();
   walkAst(program, (node) => {
@@ -921,7 +922,10 @@ function collectVariableDelegateDeclarations(
       const sourceName = identifierName.name;
       delegates.set(declaration.delegate as unknown as Node, {
         backingName: variableDelegateBackingName(sourceName),
-        kind: variableDelegateKind(expressionTypes?.get(declaration.delegate as unknown as Node), program)
+        kind: variableDelegateKind(
+          expressionTypes?.get(declaration.delegate as unknown as Node),
+          valueDelegateClassNames
+        )
       });
     }
   });
@@ -3054,6 +3058,7 @@ export interface EmitProgramRuntimeSeed {
   extensionProperties: Map<string, string>;
   extensionPropertySetters: Map<string, string>;
   classNames: Set<string>;
+  valueDelegateClassNames: Set<string>;
   interfaceNames: Set<string>;
   interfaceMembers: Map<string, InterfaceStatement["members"]>;
   interfaceMethodNames: Map<string, Set<string>>;
@@ -3110,6 +3115,7 @@ function cloneRuntimeSeed(seed: EmitProgramRuntimeSeed): EmitProgramRuntimeSeed 
     extensionProperties: new Map(seed.extensionProperties),
     extensionPropertySetters: new Map(seed.extensionPropertySetters),
     classNames: new Set(seed.classNames),
+    valueDelegateClassNames: new Set(seed.valueDelegateClassNames),
     interfaceNames: new Set(seed.interfaceNames),
     interfaceMembers: new Map(seed.interfaceMembers),
     interfaceMethodNames: cloneSetMapValues(seed.interfaceMethodNames),
@@ -3131,6 +3137,7 @@ function emptyEmitProgramRuntimeSeed(): EmitProgramRuntimeSeed {
     extensionProperties: new Map<string, string>(),
     extensionPropertySetters: new Map<string, string>(),
     classNames: new Set<string>(),
+    valueDelegateClassNames: new Set<string>(),
     interfaceNames: new Set<string>(),
     interfaceMembers: new Map<string, InterfaceStatement["members"]>(),
     interfaceMethodNames: new Map<string, Set<string>>(),
@@ -3157,6 +3164,7 @@ export function createEmitProgramRuntimeSeed(
   const extensionProperties: Map<string, string> = seed.extensionProperties;
   const extensionPropertySetters: Map<string, string> = seed.extensionPropertySetters;
   const classNames: Set<string> = seed.classNames;
+  const valueDelegateClassNames: Set<string> = seed.valueDelegateClassNames;
   const interfaceNames: Set<string> = seed.interfaceNames;
   const interfaceMembers: Map<string, InterfaceStatement["members"]> = seed.interfaceMembers;
   const interfaceMethodNames: Map<string, Set<string>> = seed.interfaceMethodNames;
@@ -3236,6 +3244,9 @@ export function createEmitProgramRuntimeSeed(
     if (candidate instanceof ClassStatement) {
       const classStatement = candidate as ClassStatement;
       classNames.add(classStatement.name.name);
+      if (classHasValueDelegateMember(classStatement)) {
+        valueDelegateClassNames.add(classStatement.name.name);
+      }
       if (!parameterNames.has(classStatement.name.name)) {
         const primaryNames = (classStatement.primaryConstructorParameters ?? [])
           .map((parameter) => parameterBindingName(parameter.name))
@@ -3335,6 +3346,7 @@ export function createEmitProgramRuntimeSeed(
     extensionProperties,
     extensionPropertySetters,
     classNames,
+    valueDelegateClassNames,
     interfaceNames,
     interfaceMembers,
     interfaceMethodNames,
@@ -3361,6 +3373,7 @@ function collectEmitProgramRuntimeContext(
   const extensionProperties = seed.extensionProperties;
   const extensionPropertySetters = seed.extensionPropertySetters;
   const classNames = seed.classNames;
+  const valueDelegateClassNames = seed.valueDelegateClassNames;
   const interfaceNames = seed.interfaceNames;
   const interfaceMembers = seed.interfaceMembers;
   const interfaceMethodNames = seed.interfaceMethodNames;
@@ -3417,6 +3430,9 @@ function collectEmitProgramRuntimeContext(
     }
     for (const value of statementSeed.classNames) {
       classNames.add(value);
+    }
+    for (const value of statementSeed.valueDelegateClassNames) {
+      valueDelegateClassNames.add(value);
     }
     for (const value of statementSeed.interfaceNames) {
       interfaceNames.add(value);
@@ -3528,7 +3544,11 @@ function collectEmitProgramRuntimeContext(
     });
   }
 
-  const variableDelegateDeclarations = collectVariableDelegateDeclarations(contextProgram, expressionTypes);
+  const variableDelegateDeclarations = collectVariableDelegateDeclarations(
+    contextProgram,
+    expressionTypes,
+    valueDelegateClassNames
+  );
   const foreignStructNames = new Set<string>();
   for (const rawStatement of contextProgram.body) {
     const candidate = unwrapExportedDeclaration(rawStatement);

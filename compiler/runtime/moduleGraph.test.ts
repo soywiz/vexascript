@@ -467,6 +467,35 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("lowers delegated variables backed by imported generic value properties", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "counter.vx": dedent`
+          export class LoggedProperty<T>(var current: T) {
+            value: T {
+              get => current
+              set { current = newValue }
+            }
+          }
+        `,
+        "main.vx": dedent`
+          import { LoggedProperty } from "./counter.vx"
+          let prop by LoggedProperty(10)
+          prop++
+          console.log(prop)
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "optimized");
+
+        expect(result.errors).toEqual([]);
+        expect(result.code).toContain("__$delegate_prop.value = __$delegate_prop.value + 1;");
+        expect(result.code).toContain("console.log(__$delegate_prop.value);");
+      }
+    );
+  });
+
   it("emits imported extension-property setters in CommonJS module bundles", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
