@@ -1,23 +1,12 @@
-#pragma once
+#include "utf.hpp"
 
 #include <algorithm>
-#include <charconv>
-#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
-#include <optional>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <stdexcept>
-#include <type_traits>
-#include <vector>
-#include <utility>
 
 #if !defined(_WIN32)
 #include <sys/wait.h>
@@ -26,7 +15,7 @@ extern char** environ;
 
 namespace vexa {
 
-inline std::u16string utf8ToUtf16(std::string_view input) {
+std::u16string utf8ToUtf16(std::string_view input) {
   std::u16string output;
   output.reserve(input.size());
   for (std::size_t index = 0; index < input.size();) {
@@ -72,7 +61,7 @@ inline std::u16string utf8ToUtf16(std::string_view input) {
   return output;
 }
 
-inline std::string utf16ToUtf8(std::u16string_view input) {
+std::string utf16ToUtf8(std::u16string_view input) {
   std::string output;
   output.reserve(input.size());
   for (std::size_t index = 0; index < input.size(); ++index) {
@@ -103,11 +92,11 @@ inline std::string utf16ToUtf8(std::u16string_view input) {
   return output;
 }
 
-inline std::runtime_error runtimeError(std::u16string_view message) {
+std::runtime_error runtimeError(std::u16string_view message) {
   return std::runtime_error(utf16ToUtf8(message));
 }
 
-inline std::u16string formatNumberText(double value, int precision = 15) {
+std::u16string formatNumberText(double value, int precision) {
   char buffer[64];
   const auto [end, error] = std::to_chars(
       buffer,
@@ -119,7 +108,7 @@ inline std::u16string formatNumberText(double value, int precision = 15) {
   return std::u16string(buffer, end);
 }
 
-inline std::u16string formatFixedText(double value, int digits) {
+std::u16string formatFixedText(double value, int digits) {
   char buffer[128];
   const auto [end, error] = std::to_chars(
       buffer,
@@ -131,16 +120,7 @@ inline std::u16string formatFixedText(double value, int digits) {
   return std::u16string(buffer, end);
 }
 
-template <typename Integer>
-  requires std::is_integral_v<Integer>
-inline std::u16string formatIntegerText(Integer value) {
-  char buffer[32];
-  const auto [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), value);
-  if (error != std::errc()) return {};
-  return std::u16string(buffer, end);
-}
-
-inline std::u16string formatIsoDateText(const std::tm& parts, int milliseconds) {
+std::u16string formatIsoDateText(const std::tm& parts, int milliseconds) {
   std::u16string output;
   output.reserve(24);
   const auto appendPadded = [&](int value, std::size_t width) {
@@ -165,85 +145,84 @@ inline std::u16string formatIsoDateText(const std::tm& parts, int milliseconds) 
   return output;
 }
 
-class Utf16Regex final {
- public:
-  Utf16Regex(std::u16string_view pattern, bool caseInsensitive)
-      : expression_(compile(pattern, caseInsensitive)) {}
+Utf16Regex::Utf16Regex(std::u16string_view pattern, bool caseInsensitive)
+    : expression_(compile(pattern, caseInsensitive)) {}
 
-  bool test(std::u16string_view value) const {
-    return std::regex_search(utf16ToUtf8(value), expression_);
-  }
+bool Utf16Regex::test(std::u16string_view value) const {
+  return std::regex_search(utf16ToUtf8(value), expression_);
+}
 
-  std::optional<std::vector<std::u16string>> exec(std::u16string_view value) const {
-    const auto input = utf16ToUtf8(value);
-    std::smatch match;
-    if (!std::regex_search(input, match, expression_)) return std::nullopt;
+std::optional<std::vector<std::u16string>> Utf16Regex::exec(
+    std::u16string_view value) const {
+  const auto input = utf16ToUtf8(value);
+  std::smatch match;
+  if (!std::regex_search(input, match, expression_)) return std::nullopt;
+  std::vector<std::u16string> captures;
+  captures.reserve(match.size());
+  for (const auto& capture : match) captures.push_back(utf8ToUtf16(capture.str()));
+  return captures;
+}
+
+double Utf16Regex::search(std::u16string_view value) const {
+  const auto input = utf16ToUtf8(value);
+  std::smatch match;
+  if (!std::regex_search(input, match, expression_)) return -1;
+  return static_cast<double>(
+      utf8ToUtf16(input.substr(0, static_cast<std::size_t>(match.position()))).size());
+}
+
+std::vector<std::vector<std::u16string>> Utf16Regex::execAll(
+    std::u16string_view value) const {
+  const auto input = utf16ToUtf8(value);
+  std::vector<std::vector<std::u16string>> result;
+  for (std::sregex_iterator iterator(input.begin(), input.end(), expression_), end;
+       iterator != end;
+       ++iterator) {
     std::vector<std::u16string> captures;
-    captures.reserve(match.size());
-    for (const auto& capture : match) captures.push_back(utf8ToUtf16(capture.str()));
-    return captures;
+    captures.reserve(iterator->size());
+    for (const auto& capture : *iterator) captures.push_back(utf8ToUtf16(capture.str()));
+    result.push_back(std::move(captures));
   }
+  return result;
+}
 
-  double search(std::u16string_view value) const {
-    const auto input = utf16ToUtf8(value);
-    std::smatch match;
-    if (!std::regex_search(input, match, expression_)) return -1;
-    return static_cast<double>(utf8ToUtf16(input.substr(0, static_cast<std::size_t>(match.position()))).size());
+std::u16string Utf16Regex::replace(
+    std::u16string_view value,
+    std::u16string_view replacement) const {
+  return utf8ToUtf16(std::regex_replace(
+      utf16ToUtf8(value), expression_, utf16ToUtf8(replacement)));
+}
+
+std::vector<std::u16string> Utf16Regex::split(std::u16string_view value) const {
+  const auto input = utf16ToUtf8(value);
+  std::vector<std::u16string> result;
+  for (std::sregex_token_iterator iterator(input.begin(), input.end(), expression_, -1), end;
+       iterator != end;
+       ++iterator) {
+    result.push_back(utf8ToUtf16(iterator->str()));
   }
+  return result;
+}
 
-  std::vector<std::vector<std::u16string>> execAll(std::u16string_view value) const {
-    const auto input = utf16ToUtf8(value);
-    std::vector<std::vector<std::u16string>> result;
-    for (std::sregex_iterator iterator(input.begin(), input.end(), expression_), end;
-         iterator != end;
-         ++iterator) {
-      std::vector<std::u16string> captures;
-      captures.reserve(iterator->size());
-      for (const auto& capture : *iterator) captures.push_back(utf8ToUtf16(capture.str()));
-      result.push_back(std::move(captures));
-    }
-    return result;
+std::regex Utf16Regex::compile(std::u16string_view pattern, bool caseInsensitive) {
+  try {
+    return std::regex(
+        utf16ToUtf8(pattern),
+        caseInsensitive
+            ? std::regex_constants::ECMAScript | std::regex_constants::icase
+            : std::regex_constants::ECMAScript);
+  } catch (const std::regex_error& error) {
+    throw runtimeError(
+        u"Invalid native regular expression /" + std::u16string(pattern) +
+        u"/: " + utf8ToUtf16(error.what()));
   }
+}
 
-  std::u16string replace(std::u16string_view value, std::u16string_view replacement) const {
-    return utf8ToUtf16(std::regex_replace(
-        utf16ToUtf8(value), expression_, utf16ToUtf8(replacement)));
-  }
-
-  std::vector<std::u16string> split(std::u16string_view value) const {
-    const auto input = utf16ToUtf8(value);
-    std::vector<std::u16string> result;
-    for (std::sregex_token_iterator iterator(input.begin(), input.end(), expression_, -1), end;
-         iterator != end;
-         ++iterator) {
-      result.push_back(utf8ToUtf16(iterator->str()));
-    }
-    return result;
-  }
-
- private:
-  static std::regex compile(std::u16string_view pattern, bool caseInsensitive) {
-    try {
-      return std::regex(
-          utf16ToUtf8(pattern),
-          caseInsensitive
-              ? std::regex_constants::ECMAScript | std::regex_constants::icase
-              : std::regex_constants::ECMAScript);
-    } catch (const std::regex_error& error) {
-      throw runtimeError(
-          u"Invalid native regular expression /" + std::u16string(pattern) +
-          u"/: " + utf8ToUtf16(error.what()));
-    }
-  }
-
-  std::regex expression_;
-};
-
-inline std::u16string exceptionText(const std::exception& error) {
+std::u16string exceptionText(const std::exception& error) {
   return utf8ToUtf16(error.what());
 }
 
-inline std::u16string readUtf8File(std::u16string_view path) {
+std::u16string readUtf8File(std::u16string_view path) {
   std::ifstream input(std::filesystem::path(path), std::ios::binary);
   if (!input) throw runtimeError(u"Cannot open file: " + std::u16string(path));
   const std::string contents{
@@ -254,7 +233,7 @@ inline std::u16string readUtf8File(std::u16string_view path) {
   return utf8ToUtf16(contents);
 }
 
-inline void writeUtf8File(std::u16string_view path, std::u16string_view contents) {
+void writeUtf8File(std::u16string_view path, std::u16string_view contents) {
   std::ofstream output(
       std::filesystem::path(path), std::ios::binary | std::ios::trunc);
   if (!output) throw runtimeError(u"Cannot open file for writing: " + std::u16string(path));
@@ -263,12 +242,7 @@ inline void writeUtf8File(std::u16string_view path, std::u16string_view contents
   if (!output) throw runtimeError(u"Cannot write file: " + std::u16string(path));
 }
 
-struct Utf16CommandResult final {
-  int code;
-  std::u16string output;
-};
-
-inline Utf16CommandResult runShellCommand(std::u16string_view command) {
+Utf16CommandResult runShellCommand(std::u16string_view command) {
   const auto encoded = utf16ToUtf8(command);
 #if defined(_WIN32)
   FILE* pipe = _popen(encoded.c_str(), "r");
@@ -289,13 +263,13 @@ inline Utf16CommandResult runShellCommand(std::u16string_view command) {
   return Utf16CommandResult{code, utf8ToUtf16(output)};
 }
 
-inline std::optional<std::u16string> environmentVariable(std::u16string_view name) {
+std::optional<std::u16string> environmentVariable(std::u16string_view name) {
   const auto encodedName = utf16ToUtf8(name);
   const char* value = std::getenv(encodedName.c_str());
   return value ? std::optional<std::u16string>(utf8ToUtf16(value)) : std::nullopt;
 }
 
-inline std::optional<std::size_t> initialHeapSizeBytes() {
+std::optional<std::size_t> initialHeapSizeBytes() {
   const char* megabytes = std::getenv("VEXA_NATIVE_INITIAL_HEAP_MB");
   if (!megabytes) return std::nullopt;
   const auto parsed = std::strtoull(megabytes, nullptr, 10);
@@ -305,7 +279,7 @@ inline std::optional<std::size_t> initialHeapSizeBytes() {
   return static_cast<std::size_t>(parsed) * 1024 * 1024;
 }
 
-inline std::vector<std::u16string> platformArguments(int argc, char** arguments) {
+std::vector<std::u16string> platformArguments(int argc, char** arguments) {
   std::vector<std::u16string> result;
   result.reserve(static_cast<std::size_t>(std::max(argc, 0)));
   for (int index = 0; index < argc; ++index) {
@@ -314,7 +288,7 @@ inline std::vector<std::u16string> platformArguments(int argc, char** arguments)
   return result;
 }
 
-inline std::vector<std::pair<std::u16string, std::u16string>> platformEnvironment() {
+std::vector<std::pair<std::u16string, std::u16string>> platformEnvironment() {
   std::vector<std::pair<std::u16string, std::u16string>> result;
 #if defined(_WIN32)
   char** environment = _environ;
@@ -331,7 +305,7 @@ inline std::vector<std::pair<std::u16string, std::u16string>> platformEnvironmen
   return result;
 }
 
-inline std::u16string currentPathText() {
+std::u16string currentPathText() {
   return std::filesystem::current_path().u16string();
 }
 

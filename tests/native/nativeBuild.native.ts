@@ -109,6 +109,7 @@ describe("native build", () => {
     );
 
     expect(args).toContain("-include-pch");
+    expect(args).toContain("-DVEXA_RUNTIME_PRECOMPILED=1");
     expect(args).toContain("/cache/runtime.pch");
     expect(args.indexOf("/cache/libvexa-runtime.a")).toBeLessThan(args.indexOf("/cache/liboilpan.a"));
   });

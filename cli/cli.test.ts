@@ -215,7 +215,7 @@ describe("CLI", () => {
     await runCli(["node", "vexa", "cpp", input, "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
-    expect(outputCode).toContain('#include "runtime.hpp"');
+    expect(outputCode).toContain('#include "runtime/runtime.hpp"');
     expect(outputCode).not.toContain('#include "program.hpp"');
     await expect(readFile(join(dir, "program.hpp"), "utf8")).rejects.toThrow();
     expect(outputCode).not.toContain("VEXA_NATIVE_SOURCE(");
@@ -232,7 +232,24 @@ describe("CLI", () => {
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).toContain('#include "program.hpp"');
-    expect(await readFile(join(dir, "program.hpp"), "utf8")).toContain('#include "runtime.hpp"');
+    expect(await readFile(join(dir, "program.hpp"), "utf8")).toContain('#include "runtime/runtime.hpp"');
+  });
+
+  it("lets explicit module files override the legacy single-file environment default", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-module-env-"));
+    const input = join(dir, "input.vx");
+    const output = join(dir, "output.cpp");
+    const previous = process.env["VEXA_NATIVE_SINGLE_FILE"];
+    await writeFile(input, 'console.log("module files")', "utf8");
+    process.env["VEXA_NATIVE_SINGLE_FILE"] = "1";
+    try {
+      await runCli(["node", "vexa", "cpp", "build", input, "--module-files", "--out", output]);
+    } finally {
+      if (previous === undefined) delete process.env["VEXA_NATIVE_SINGLE_FILE"];
+      else process.env["VEXA_NATIVE_SINGLE_FILE"] = previous;
+    }
+
+    expect(await readFile(output, "utf8")).toContain('#include "program.hpp"');
   });
 
   it("uses TypeScript semantic analysis for JavaScript and C++ emission without transpile-only", async () => {
@@ -256,7 +273,7 @@ describe("CLI", () => {
     await runCli(["node", "vexa", "cpp", validInput, "--out", cppOutput]);
 
     expect((await readFile(jsOutput, "utf8")).length).toBeGreaterThan(0);
-    expect(await readFile(cppOutput, "utf8")).toContain('#include "runtime.hpp"');
+    expect(await readFile(cppOutput, "utf8")).toContain('#include "runtime/runtime.hpp"');
     await expect(readFile(join(dir, "program.hpp"), "utf8")).rejects.toThrow();
     await expect(runCli(["node", "vexa", "build", invalidInput, "--out", join(dir, "invalid.js")]))
       .rejects.toThrow("TypeScript semantic analysis failed");

@@ -1,5 +1,6 @@
 import { LANGUAGE_FILE_EXTENSION } from "../../compiler/language";
 import { dirname, extname, resolve } from "../../compiler/utils/path";
+import { readdir } from "./nodeFsPromises";
 
 export interface NativeProgramPaths {
   sourcePath: string;
@@ -154,16 +155,34 @@ async function ensureRuntime(
   optimization: NativeOptimization
 ): Promise<{ libraryPath: string; pchPath?: string }> {
   const compilerSuffix = nativeCompilerCacheSuffix(compiler);
-  const artifactPrefix = `vexa-runtime-20260826-${optimization.slice(1)}-${process.platform}-${nativeTargetArchitecture()}-${compilerSuffix}`;
+  const artifactPrefix = `vexa-runtime-20260826-split-v3-${optimization.slice(1)}-${process.platform}-${nativeTargetArchitecture()}-${compilerSuffix}`;
   const cacheRoot = nativeVexaCacheRoot();
-  const objectPath = resolve(cacheRoot, `${artifactPrefix}${process.platform === "win32" ? ".obj" : ".o"}`);
+  const runtimeRoot = resolve(root, "runtime");
+  const cachedNativeRoot = resolve(cacheRoot, `${artifactPrefix}-sources`);
+  const cachedRuntimeRoot = resolve(cachedNativeRoot, "runtime");
+  const objectExtension = process.platform === "win32" ? ".obj" : ".o";
+  const runtimeSources = ["runtime.cpp", "bigint.cpp", "utf.cpp"];
+  const objectPaths = runtimeSources.map((source) =>
+    resolve(cacheRoot, `${artifactPrefix}-${source.slice(0, -4)}${objectExtension}`));
   const libraryPath = resolve(cacheRoot, `lib${artifactPrefix}.a`);
   const pchPath = compiler === "clang++" ? resolve(cacheRoot, `${artifactPrefix}.pch`) : "";
-  if (await pathExists(libraryPath) && (pchPath.length === 0 || await pathExists(pchPath))) {
+  if (await pathExists(libraryPath) &&
+      (pchPath.length === 0 || await pathExists(pchPath) && await pathExists(resolve(cachedRuntimeRoot, "runtime.hpp")))) {
     return { libraryPath, ...(pchPath.length > 0 ? { pchPath } : {}) };
   }
 
   await nativeCreateDirectory(cacheRoot, true);
+  if (!(await pathExists(resolve(cachedRuntimeRoot, "runtime.hpp")))) {
+    if (pchPath.length > 0 && await pathExists(pchPath)) await nativeRemovePath(pchPath, false);
+    await nativeCreateDirectory(cachedNativeRoot, true);
+    await nativeCreateDirectory(cachedRuntimeRoot, true);
+    const runtimeFiles = await readdir(runtimeRoot);
+    for (const runtimeFile of runtimeFiles) {
+      await nativeCopyFile(resolve(runtimeRoot, runtimeFile as string), resolve(cachedRuntimeRoot, runtimeFile as string));
+    }
+    await nativeCopyFile(resolve(root, "oilpan-20260622.zip"), resolve(cachedNativeRoot, "oilpan-20260622.zip"));
+    await nativeCopyFile(resolve(root, "mimalloc-3.4.3.zip"), resolve(cachedNativeRoot, "mimalloc-3.4.3.zip"));
+  }
   const frontendArgs = [
     "-std=c++20",
     optimization,
@@ -178,14 +197,18 @@ async function ensureRuntime(
     `-I${resolve(gcRoot, "include")}`,
   ];
   if (!(await pathExists(libraryPath))) {
-    const compileArgs = frontendArgs.slice();
-    compileArgs.push(resolve(root, "runtime.cpp"), "-c", "-o", objectPath);
-    await runNativeCompiler(compileArgs);
-    await runNativeCommand("ar", ["rcs", libraryPath, objectPath], process.cwd());
+    for (let index = 0; index < runtimeSources.length; ++index) {
+      const runtimeSource = runtimeSources[index] ?? "";
+      const objectPath = objectPaths[index] ?? "";
+      const compileArgs = frontendArgs.slice();
+      compileArgs.push(resolve(cachedRuntimeRoot, runtimeSource), "-c", "-o", objectPath);
+      await runNativeCompiler(compileArgs);
+    }
+    await runNativeCommand("ar", ["rcs", libraryPath, ...objectPaths], process.cwd());
   }
   if (pchPath.length > 0 && !(await pathExists(pchPath))) {
     const pchArgs = frontendArgs.slice();
-    pchArgs.push("-x", "c++-header", resolve(root, "runtime.hpp"), "-o", pchPath);
+    pchArgs.push("-x", "c++-header", resolve(cachedRuntimeRoot, "runtime.hpp"), "-o", pchPath);
     await runNativeCompiler(pchArgs);
   }
   return { libraryPath, ...(pchPath.length > 0 ? { pchPath } : {}) };
@@ -213,7 +236,9 @@ export async function compileNativeExecutable(
     ...(process.platform === "win32" ? ["-D_WIN32_WINNT=0x0A00", "-DNOMINMAX"] : []),
     ...(process.platform === "win32" ? [] : ["-pthread"]),
     "-DV8_LOGGING_LEVEL=0",
-    ...(runtime.pchPath ? ["-include-pch", runtime.pchPath] : []),
+    ...(runtime.pchPath
+      ? ["-DVEXA_RUNTIME_PRECOMPILED=1", "-include-pch", runtime.pchPath]
+      : []),
     ...cppPaths,
     `-I${root}`,
     `-I${oilpan.gcRoot}`,

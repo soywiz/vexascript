@@ -71,10 +71,14 @@ observe allocations through the system allocator.
 The VexaScript runtime is cached in the same directory as a
 `libvexa-runtime-*.a` static library. Clang builds also cache a compatible
 precompiled `runtime.hpp` so generated translation units do not reparse the
-runtime for every project or source module. The cache key includes the runtime,
-BigInt and UTF sources, compiler, platform, architecture, optimization level,
-instrumentation mode, and native flags. Changing any of them creates a new
-artifact instead of reusing an incompatible cache entry.
+runtime for every project or source module. The cache key includes every runtime
+category header, the separately compiled runtime, BigInt and UTF sources,
+compiler, platform, architecture, optimization level, instrumentation mode, and
+native flags. Changing any of them creates a new artifact instead of reusing an
+incompatible cache entry. GitHub Actions deliberately persists only the more
+stable Oilpan and mimalloc caches between workflow runs; content-addressed
+`vexa-runtime-*` artifacts remain local to one runner execution so routine
+runtime edits do not accumulate remote cache variants.
 
 The native CLI also runs the JavaScript bundler in-process. The bundler is
 implemented in TypeScript, included in the native CLI module graph, and compiled
@@ -194,8 +198,11 @@ hard-coded numeric type. Numeric remainder uses the shared native
 `remainder` helper, preserving integral `%` behavior while mapping `number`
 operands to `std::fmod` instead of emitting invalid C++ floating-point `%`.
 
-The runtime interface and template definitions live in `native/runtime.hpp`,
-while `native/runtime.cpp` is compiled once into the cached runtime library. It initializes an actual
+The public runtime umbrella lives in `native/runtime/runtime.hpp`. Focused category
+headers beside it contain arrays, collections, dates, strings, regular expressions,
+internationalization, binary data, promises, JSON, and the remaining runtime areas.
+`native/runtime/runtime.cpp`, `bigint.cpp`, and `utf.cpp` are compiled once into the
+cached runtime library; `bigint.hpp` and `utf.hpp` expose their declarations. The runtime initializes an actual
 cppgc heap, represents dynamic `vexa::Value` strings as
 `cppgc::GarbageCollected` objects, keeps live dynamic strings rooted with
 `cppgc::Persistent`, and allocates generated class instances through the same
@@ -511,8 +518,8 @@ Native-only libraries may ship a VexaScript/TypeScript declaration facade using
 the C++ binding or dynamic-library annotations described below. Package identity,
 aliases, defaults, namespace imports, re-exports, and project mappings remain on
 the shared resolver rather than a native-only package map. The published package
-includes `native/runtime.hpp`, `native/runtime.cpp`, `native/bigint.h`, and the vendored Oilpan and
-mimalloc archives required by native executable builds.
+includes the complete `native/runtime/` source directory and the vendored Oilpan
+and mimalloc archives required by native executable builds.
 
 ## Diagnostics and sanitizer mode
 

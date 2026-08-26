@@ -90,7 +90,7 @@ the compiler until it builds and roundtrips in that mode.
 
 * `compiler/analysis/`
 * `compiler/runtime/cppEmitter.ts`
-* `native/runtime.cpp`
+* `native/runtime/runtime.hpp`
 * `samples/native-language-smoke/`
 * `docs/tasks/specialize-native-cpp-emission.md`
 * `docs/tasks/accelerate-native-self-host-iterations.md`

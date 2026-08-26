@@ -103,16 +103,21 @@ export fun runBinaryDataSmoke(): void {
   standardApiBytes(view, 72, [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f], "DataView.setFloat64 true layout")
   standardApiCheck(view.getFloat64(72, true) === 1.5, "DataView.getFloat64 true")
 
-  view.setFloat16(80, 1.5)
-  standardApiBytes(view, 80, [0x3e, 0x00], "DataView.setFloat16 default layout")
-  standardApiCheck(view.getFloat16(80) === 1.5, "DataView.setFloat16")
-  standardApiCheck(view.getFloat16(80) === 1.5, "DataView.getFloat16")
-  view.setFloat16(82, 1.5, false)
-  standardApiBytes(view, 82, [0x3e, 0x00], "DataView.setFloat16 false layout")
-  standardApiCheck(view.getFloat16(82, false) === 1.5, "DataView.getFloat16 false")
-  view.setFloat16(84, 1.5, true)
-  standardApiBytes(view, 84, [0x00, 0x3e], "DataView.setFloat16 true layout")
-  standardApiCheck(view.getFloat16(84, true) === 1.5, "DataView.getFloat16 true")
+  // Node.js 22 does not expose the ES2026 Float16 DataView methods yet. Keep
+  // exercising the complete native implementation without breaking the JS
+  // sample runner used by the regular CI job.
+  if (vexaRuntime() === "native") {
+    view.setFloat16(80, 1.5)
+    standardApiBytes(view, 80, [0x3e, 0x00], "DataView.setFloat16 default layout")
+    standardApiCheck(view.getFloat16(80) === 1.5, "DataView.setFloat16")
+    standardApiCheck(view.getFloat16(80) === 1.5, "DataView.getFloat16")
+    view.setFloat16(82, 1.5, false)
+    standardApiBytes(view, 82, [0x3e, 0x00], "DataView.setFloat16 false layout")
+    standardApiCheck(view.getFloat16(82, false) === 1.5, "DataView.getFloat16 false")
+    view.setFloat16(84, 1.5, true)
+    standardApiBytes(view, 84, [0x00, 0x3e], "DataView.setFloat16 true layout")
+    standardApiCheck(view.getFloat16(84, true) === 1.5, "DataView.getFloat16 true")
+  }
 
   view.setBigInt64(88, 0x0102030405060708n)
   standardApiBytes(view, 88, [1, 2, 3, 4, 5, 6, 7, 8], "DataView.setBigInt64 default layout")

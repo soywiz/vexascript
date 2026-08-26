@@ -45,6 +45,8 @@ Every public `Intl` constructor and method declared in the bundled runtime has a
 - Executable cases: `samples/native-language-smoke/standard-library/*.vx`
 - Declaration-to-smoke lock: `compiler/runtime/es2025.test.ts`
 - Unsupported diagnostics: `compiler/runtime/nativeStandardLibraryCoverage.ts`
-- Native implementations: `native/runtime.hpp`, `native/runtime.cpp`, `native/utf.h`, and `native/bigint.h`
+- Native implementations: the umbrella `native/runtime/runtime.hpp`, its focused
+  category headers, and the separately compiled `.cpp` implementations in
+  `native/runtime/`
 
 When an API becomes available, remove its unsupported policy entry, add an executable category test, and update this document in the same change.

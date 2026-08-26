@@ -17,10 +17,7 @@
   },
   "files": [
     "dist",
-    "native/runtime.cpp",
-    "native/runtime.hpp",
-    "native/bigint.h",
-    "native/utf.h",
+    "native/runtime",
     "native/oilpan-20260622.zip",
     "native/mimalloc-3.4.3.zip"
   ],

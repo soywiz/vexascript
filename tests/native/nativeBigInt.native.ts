@@ -11,7 +11,7 @@ describe("native bigint", () => {
     const executablePath = join(root, "bigint");
     try {
       await writeFile(sourcePath, [
-        '#include "bigint.h"',
+        '#include "bigint.hpp"',
         "#include <iostream>",
         "int main() {",
         "  using vexa::BigInt;",
@@ -28,8 +28,9 @@ describe("native bigint", () => {
         "-std=c++20",
         "-O2",
         "-I",
-        join(process.cwd(), "native"),
+        join(process.cwd(), "native/runtime"),
         sourcePath,
+        join(process.cwd(), "native/runtime/bigint.cpp"),
         "-o",
         executablePath,
       ]);

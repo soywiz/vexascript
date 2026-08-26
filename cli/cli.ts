@@ -1003,11 +1003,13 @@ function createProgram(): Command {
     );
   const resolveCppModuleFiles = (opts: { moduleFiles?: boolean; singleFile?: boolean }): boolean => {
     const moduleFiles = opts.moduleFiles === true;
-    const singleFile = opts.singleFile === true || environmentVariable("VEXA_NATIVE_SINGLE_FILE") === "1";
-    if (moduleFiles && singleFile) {
+    if (moduleFiles && opts.singleFile === true) {
       throw new Error("Choose only one native C++ layout: --module-files or --single-file");
     }
-    return moduleFiles;
+    if (moduleFiles) return true;
+    const singleFile = opts.singleFile === true || environmentVariable("VEXA_NATIVE_SINGLE_FILE") === "1";
+    if (singleFile) return false;
+    return false;
   };
 
   const buildCommand = program.command("build");

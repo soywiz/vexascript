@@ -177,11 +177,15 @@ jobs:
         shell: bash
         run: echo "clang_hash=$(clang++ --version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      - name: Cache native dependencies
+      - name: Cache stable native dependencies
         uses: actions/cache@v4
         with:
-          path: ~/.vexascript/native
-          key: vexa-native-${{ runner.os }}-${{ runner.arch }}-clang-${{ steps.native-toolchain.outputs.clang_hash }}-${{ hashFiles('native/oilpan-20260622.zip', 'native/mimalloc-3.4.3.zip') }}
+          path: |
+            ~/.vexascript/native/oilpan-20260622-*
+            ~/.vexascript/native/liboilpan-20260622-*
+            ~/.vexascript/native/mimalloc-3.4.3-*
+            ~/.vexascript/native/libmimalloc-3.4.3-*
+          key: vexa-native-dependencies-v2-${{ runner.os }}-${{ runner.arch }}-clang-${{ steps.native-toolchain.outputs.clang_hash }}-${{ hashFiles('native/oilpan-20260622.zip', 'native/mimalloc-3.4.3.zip') }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

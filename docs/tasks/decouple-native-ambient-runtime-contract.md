@@ -8,7 +8,7 @@
 
 The native emitter still contains special cases that recognize ambient method
 names and translate them to C++ helpers. This makes the emitter and
-`native/runtime.cpp` a private pair: adding an ambient declaration or another
+`native/runtime/runtime.hpp` a private pair: adding an ambient declaration or another
 native backend requires knowing the emitter's method-name tables and branches.
 
 The runtime also uses templated `ArrayObject<T>`, `MapObject<K, V>`, and
@@ -238,6 +238,6 @@ they are not evidence that the `Map.groupBy` ambient wrapper itself is broken.
 * `compiler/runtime/cppEmitter.test.ts`
 * `compiler/runtime/transpile.ts`
 * `compiler/analysis/`
-* `native/runtime.cpp`
+* `native/runtime/runtime.hpp`
 * `docs/tasks/specialize-native-cpp-emission.md`
 * `tests/native/nativeSmoke.native.ts`

@@ -63,5 +63,5 @@ field access and direct calls where the analyzer has proved them safe.
 
 * `compiler/analysis/`
 * `compiler/runtime/cppEmitter.ts`
-* `native/runtime.cpp`
+* `native/runtime/runtime.hpp`
 * `samples/native-language-smoke/`

@@ -5,6 +5,7 @@ import {
   join,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   tmpdir,
 } from "../../compiler/test/expect";
@@ -28,16 +29,26 @@ describe("native package contents", () => {
     const root = process.cwd();
     const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { files?: string[] };
     const required = [
-      "native/runtime.cpp",
-      "native/runtime.hpp",
-      "native/bigint.h",
-      "native/utf.h",
+      "native/runtime",
       "native/oilpan-20260622.zip",
       "native/mimalloc-3.4.3.zip",
     ];
     for (const path of required) {
       expect(manifest.files).toContain(path);
-      expect((await readFile(join(root, path))).byteLength).toBeTruthy();
+      if (path !== "native/runtime") {
+        expect((await readFile(join(root, path))).byteLength).toBeTruthy();
+      }
+    }
+    const runtimeFiles = await readdir(join(root, "native/runtime"));
+    for (const expected of [
+      "runtime.cpp", "runtime.hpp", "bigint.cpp", "bigint.hpp", "utf.cpp", "utf.hpp",
+      "arrays.hpp", "collections.hpp", "date.hpp", "strings.hpp", "regexp.hpp", "intl.hpp",
+      "typed_arrays.hpp", "data_view.hpp", "json.hpp",
+    ]) {
+      expect(runtimeFiles).toContain(expected);
+    }
+    for (const file of runtimeFiles) {
+      expect((await readFile(join(root, "native/runtime", file))).byteLength).toBeTruthy();
     }
   });
 
@@ -51,12 +62,13 @@ describe("native package contents", () => {
   });
 
   it("packages platform-specific native command quoting", async () => {
-    const runtime = (await readFile(join(process.cwd(), "native/runtime.hpp"), "utf8"))
+    const runtime = (await readFile(join(process.cwd(), "native/runtime/native_io.hpp"), "utf8"))
       .replace(/\r\n/g, "\n");
-    const commandQuoting = runtime.slice(
-      runtime.indexOf("inline std::u16string shellQuote"),
-      runtime.indexOf("template <typename T>\ninline void nativeRunTask")
-    );
+    const commandQuotingStart = runtime.indexOf("inline std::u16string shellQuote");
+    const commandQuotingEnd = runtime.indexOf("template <typename T>\ninline void nativeRunTask");
+    expect(commandQuotingStart).toBeGreaterThan(-1);
+    expect(commandQuotingEnd).toBeGreaterThan(commandQuotingStart);
+    const commandQuoting = runtime.slice(commandQuotingStart, commandQuotingEnd);
 
     expect(runtime).toContain("#if defined(_WIN32)\ninline std::u16string shellQuote");
     expect(commandQuoting).toContain('shellCommand = u"cd /d " + shellQuote(workingDirectory) + u" && "');
@@ -65,8 +77,34 @@ describe("native package contents", () => {
     expect(/\b(?:const\s+)?char\s*\*/.test(commandQuoting)).toBe(false);
   });
 
+  it("keeps runtime APIs in focused category headers", async () => {
+    const runtimeRoot = join(process.cwd(), "native/runtime");
+    const date = await readFile(join(runtimeRoot, "date.hpp"), "utf8");
+    const platform = await readFile(join(runtimeRoot, "platform.hpp"), "utf8");
+    const arrays = await readFile(join(runtimeRoot, "arrays.hpp"), "utf8");
+    const collections = await readFile(join(runtimeRoot, "collections.hpp"), "utf8");
+    const strings = await readFile(join(runtimeRoot, "strings.hpp"), "utf8");
+    const regexp = await readFile(join(runtimeRoot, "regexp.hpp"), "utf8");
+    const intl = await readFile(join(runtimeRoot, "intl.hpp"), "utf8");
+
+    expect(date).toContain("class DateObject final");
+    expect(date).toContain("inline double dateNow()");
+    expect(date).not.toContain("vexaRuntimeName");
+    expect(date).not.toContain("vexaPlatformName");
+    expect(date).not.toContain("performanceNow");
+    expect(platform).toContain("inline double performanceNow()");
+    expect(platform).toContain("inline std::u16string vexaRuntimeName()");
+    expect(platform).toContain("inline std::u16string vexaPlatformName()");
+    expect(arrays).toContain("class ArrayObject final");
+    expect(collections).toContain("class MapObject final");
+    expect(collections).toContain("class SetObject final");
+    expect(strings).toContain("inline std::u16string toUpperCase");
+    expect(regexp).toContain("class RegExp final");
+    expect(intl).toContain("class IntlObject final");
+  });
+
   it("uses whole-width unaligned DataView loads and stores", async () => {
-    const runtime = (await readFile(join(process.cwd(), "native/runtime.hpp"), "utf8"))
+    const runtime = (await readFile(join(process.cwd(), "native/runtime/data_view.hpp"), "utf8"))
       .replace(/\r\n/g, "\n");
     const dataView = runtime.slice(
       runtime.indexOf("class DataViewObject final"),

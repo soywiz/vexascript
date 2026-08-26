@@ -46,7 +46,6 @@ without creating a second behavior model or weakening the executable smoke test.
 
 ## Related Files
 
-* `native/runtime.cpp`
+* `native/runtime/runtime.hpp`
 * `compiler/runtime/cppEmitter.ts`
 * `samples/native-language-smoke/`
-

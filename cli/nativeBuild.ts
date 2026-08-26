@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { access, copyFile, cp, mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { availableParallelism, homedir } from "node:os";
 import { basename, dirname, extname, posix, resolve, win32 } from "node:path";
 import { LANGUAGE_FILE_EXTENSION } from "../compiler/language";
@@ -320,7 +320,9 @@ function nativeCompilerFrontendArguments(
     "-DV8_LOGGING_LEVEL=0",
     ...(options.debug || instrumented ? ["-DVEXA_NATIVE_DEBUG=1"] : []),
     ...(options.gcStress ? ["-DVEXA_NATIVE_GC_STRESS=1"] : []),
-    ...(options.runtimePchPath ? ["-include-pch", options.runtimePchPath] : []),
+    ...(options.runtimePchPath
+      ? ["-DVEXA_RUNTIME_PRECOMPILED=1", "-include-pch", options.runtimePchPath]
+      : []),
     ...(typeof cppPaths === "string" ? [cppPaths] : cppPaths),
     `-I${root}`,
     `-I${gcRoot}`,
@@ -384,7 +386,7 @@ async function nativeRuntimeCacheKey(
   optimization: NativeOptimization
 ): Promise<string> {
   const hash = createHash("sha256");
-  hash.update("vexa-runtime-cache-v2");
+  hash.update("vexa-runtime-cache-v3");
   hash.update(JSON.stringify({
     compiler,
     optimization,
@@ -395,8 +397,13 @@ async function nativeRuntimeCacheKey(
     gcStress: options.gcStress === true,
     extraFlags: options.extraFlags ?? [],
   }));
-  for (const name of ["runtime.hpp", "runtime.cpp", "bigint.h", "utf.h"]) {
-    hash.update(await readFile(resolve(root, name)));
+  const runtimeRoot = resolve(root, "runtime");
+  const sourceNames = (await readdir(runtimeRoot))
+    .filter((name) => name.endsWith(".hpp") || name.endsWith(".cpp"))
+    .sort();
+  for (const name of sourceNames) {
+    hash.update(name);
+    hash.update(await readFile(resolve(runtimeRoot, name)));
   }
   return hash.digest("hex").slice(0, 20);
 }
@@ -412,29 +419,51 @@ async function ensureNativeRuntimeLibrary(
   const artifactName = `vexa-runtime-${cacheKey}`;
   const cacheRoot = nativeDependencyCacheRoot();
   const libraryPath = nativeDependencyArtifactPath(`lib${artifactName}`, ".a", process.platform, process.arch, homedir(), compiler);
-  const objectPath = resolve(cacheRoot, `${artifactName}-${nativeCompilerCacheSuffix(compiler)}${process.platform === "win32" ? ".obj" : ".o"}`);
+  const runtimeRoot = resolve(root, "runtime");
+  const cachedNativeRoot = resolve(cacheRoot, `${artifactName}-sources`);
+  const cachedRuntimeRoot = resolve(cachedNativeRoot, "runtime");
+  const objectExtension = process.platform === "win32" ? ".obj" : ".o";
+  const runtimeSources = ["runtime.cpp", "bigint.cpp", "utf.cpp"];
+  const objectPaths = runtimeSources.map((source) => resolve(
+    cacheRoot,
+    `${artifactName}-${source.slice(0, -".cpp".length)}-${nativeCompilerCacheSuffix(compiler)}${objectExtension}`
+  ));
   const pchPath = compiler === "clang++"
     ? nativeDependencyArtifactPath(artifactName, ".pch", process.platform, process.arch, homedir(), compiler)
     : undefined;
-  if (await exists(libraryPath) && (!pchPath || await exists(pchPath))) {
+  if (await exists(libraryPath) &&
+      (!pchPath || await exists(pchPath) && await exists(resolve(cachedRuntimeRoot, "runtime.hpp")))) {
     return { libraryPath, ...(pchPath ? { pchPath } : {}) };
   }
 
   await withNativeBuildLock(resolve(cacheRoot, `${artifactName}.lock`), async () => {
     await mkdir(cacheRoot, { recursive: true });
+    if (!(await exists(resolve(cachedRuntimeRoot, "runtime.hpp")))) {
+      if (pchPath && await exists(pchPath)) await rm(pchPath, { force: true });
+      await mkdir(cachedNativeRoot, { recursive: true });
+      await cp(runtimeRoot, cachedRuntimeRoot, { recursive: true });
+      await Promise.all([
+        copyFile(resolve(root, "oilpan-20260622.zip"), resolve(cachedNativeRoot, "oilpan-20260622.zip")),
+        copyFile(resolve(root, "mimalloc-3.4.3.zip"), resolve(cachedNativeRoot, "mimalloc-3.4.3.zip")),
+      ]);
+    }
     if (!(await exists(libraryPath))) {
-      const compileArgs = [
-        ...nativeCompilerFrontendArguments(resolve(root, "runtime.cpp"), root, gcRoot, process.platform, options, optimization),
-        ...(options.extraFlags ?? []),
-        "-c",
-        "-o",
-        objectPath,
-      ];
-      const result = await runCommandCapture(compiler, compileArgs);
-      if (result.code !== 0) {
-        throw new Error(result.stderr || result.stdout || `${compiler} failed compiling the cached VexaScript runtime`);
+      for (let index = 0; index < runtimeSources.length; ++index) {
+        const runtimeSource = runtimeSources[index] ?? "";
+        const objectPath = objectPaths[index] ?? "";
+        const compileArgs = [
+          ...nativeCompilerFrontendArguments(resolve(cachedRuntimeRoot, runtimeSource), cachedNativeRoot, gcRoot, process.platform, options, optimization),
+          ...(options.extraFlags ?? []),
+          "-c",
+          "-o",
+          objectPath,
+        ];
+        const result = await runCommandCapture(compiler, compileArgs);
+        if (result.code !== 0) {
+          throw new Error(result.stderr || result.stdout || `${compiler} failed compiling the cached VexaScript runtime`);
+        }
       }
-      await runCommand("ar", ["rcs", libraryPath, objectPath]);
+      await runCommand("ar", ["rcs", libraryPath, ...objectPaths]);
     }
     if (pchPath && !(await exists(pchPath))) {
       const pchArgs = [
@@ -442,7 +471,7 @@ async function ensureNativeRuntimeLibrary(
         ...(options.extraFlags ?? []),
         "-x",
         "c++-header",
-        resolve(root, "runtime.hpp"),
+        resolve(cachedRuntimeRoot, "runtime.hpp"),
         "-o",
         pchPath,
       ];
