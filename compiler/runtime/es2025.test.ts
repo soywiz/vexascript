@@ -1,6 +1,6 @@
 import { NodeKind } from "compiler/ast/ast";
 import ts from "typescript";
-import { describe, expect, it, join, readFile } from "../test/expect";
+import { describe, expect, it, join, readFile, readdir } from "../test/expect";
 import { ensureVexaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 import {
   ECMA_SCRIPT_RUNTIME_DECLARATIONS,
@@ -10,10 +10,24 @@ import {
   NATIVE_STANDARD_LIBRARY_FAMILIES,
   NATIVE_STANDARD_LIBRARY_GLOBAL_FUNCTIONS,
   NATIVE_STANDARD_LIBRARY_NAMESPACE_POLICY,
+  nativeStandardLibraryUnsupportedReason,
 } from "./nativeStandardLibraryCoverage";
 
 function readBundledRuntime(): Promise<string> {
   return readFile(join(process.cwd(), "compiler", "runtime", "es2025.d.ts"), "utf8");
+}
+
+async function readNativeStandardLibrarySmoke(): Promise<string> {
+  const sampleRoot = join(process.cwd(), "samples", "native-language-smoke");
+  const moduleRoot = join(sampleRoot, "standard-library");
+  const moduleNames = (await readdir(moduleRoot))
+    .filter((name) => name.endsWith(".vx"))
+    .sort();
+  const sources = await Promise.all([
+    readFile(join(sampleRoot, "standard-library.vx"), "utf8"),
+    ...moduleNames.map((name) => readFile(join(moduleRoot, name), "utf8")),
+  ]);
+  return sources.join("\n");
 }
 
 function declaredInterfaceMembers(source: string): ReadonlyMap<string, ReadonlySet<string>> {
@@ -39,7 +53,7 @@ function declaredInterfaceMembers(source: string): ReadonlyMap<string, ReadonlyS
 function coveredStandardApiMembers(source: string, owner: string): string[] {
   const names = new Set<string>();
   const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  for (const label of source.matchAll(new RegExp(`"${escapedOwner}\\.([A-Za-z_$][\\w$]*)"`, "g"))) {
+  for (const label of source.matchAll(new RegExp(`"${escapedOwner}\\.([^"\\n]+)"`, "g"))) {
     if (label[1]) names.add(label[1]);
   }
   return [...names].sort();
@@ -50,6 +64,15 @@ function declaredTopLevelFunctions(source: string): string[] {
   return [...new Set(sourceFile.statements
     .filter(ts.isFunctionDeclaration)
     .map((statement) => statement.name?.text)
+    .filter((name): name is string => Boolean(name)))].sort();
+}
+
+function declaredTopLevelVariables(source: string): string[] {
+  const sourceFile = ts.createSourceFile("es2025.d.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return [...new Set(sourceFile.statements
+    .filter(ts.isVariableStatement)
+    .flatMap((statement) => statement.declarationList.declarations)
+    .map((declaration) => ts.isIdentifier(declaration.name) ? declaration.name.text : null)
     .filter((name): name is string => Boolean(name)))].sort();
 }
 
@@ -96,10 +119,7 @@ describe("bundled es2025 runtime declarations", () => {
   it("locks every native ECMAScript family to execution or an explicit unsupported policy", async () => {
     const declarations = await readBundledRuntime();
     const declaredByInterface = declaredInterfaceMembers(declarations);
-    const standardLibrarySmoke = await readFile(
-      join(process.cwd(), "samples", "native-language-smoke", "standard-library.vx"),
-      "utf8"
-    );
+    const standardLibrarySmoke = await readNativeStandardLibrarySmoke();
     const mainSmoke = await readFile(
       join(process.cwd(), "samples", "native-language-smoke", "main.vx"),
       "utf8"
@@ -112,7 +132,9 @@ describe("bundled es2025 runtime declarations", () => {
         for (const member of declaredByInterface.get(interfaceName) ?? []) declared.add(member);
       }
       for (const member of policy.additionalDeclarationMembers ?? []) declared.add(member);
-      const executed = new Set(coveredStandardApiMembers(standardLibrarySmoke, owner));
+      const executed = new Set(
+        coveredStandardApiMembers(standardLibrarySmoke, owner).filter((member) => declared.has(member))
+      );
       const unsupported = policy.unsupportedFamilyReason
         ? declared
         : new Set(policy.unsupportedMembers ?? []);
@@ -125,6 +147,11 @@ describe("bundled es2025 runtime declarations", () => {
     for (const [name, reason] of Object.entries(NATIVE_STANDARD_LIBRARY_GLOBAL_FUNCTIONS)) {
       expect(reason !== null || executedGlobals.has(name)).toBe(true);
     }
+    const uncoveredGlobalVariables = declaredTopLevelVariables(declarations).filter((name) =>
+      !standardLibrarySmoke.includes(`"global.${name}"`) &&
+      nativeStandardLibraryUnsupportedReason(name) === null
+    );
+    expect(uncoveredGlobalVariables).toEqual([]);
     for (const [namespaceName, policy] of Object.entries(NATIVE_STANDARD_LIBRARY_NAMESPACE_POLICY)) {
       expect(Object.keys(policy).sort()).toEqual(declaredNamespaceRuntimeMembers(declarations, namespaceName));
       for (const [member, reason] of Object.entries(policy)) {

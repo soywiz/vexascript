@@ -159,6 +159,7 @@ ArrayObject<Value>* makeDynamicArrayValueView(BaseObject* backing);
 std::u16string toString(const Value&);
 std::u16string jsonQuoted(const std::u16string&);
 double Number(const Value&);
+BigInt makeBigInt(const Value&);
 template <typename Result, typename Input>
 Result convertValue(Input&&);
 template <typename T>
@@ -215,6 +216,8 @@ class BaseObject : public cppgc::GarbageCollectedMixin {
   virtual Value dynamicSet(const std::u16string&, const Value&);
   virtual std::vector<std::u16string> dynamicKeys() const;
   virtual bool dynamicDelete(const std::u16string&);
+  bool dynamicHasOwn(const std::u16string&) const;
+  bool dynamicPropertyIsEnumerable(const std::u16string&) const;
   virtual Value dynamicCall(const std::vector<Value>&);
   virtual bool dynamicIsArray() const { return false; }
   virtual std::size_t dynamicArraySize() const { return 0; }
@@ -224,12 +227,27 @@ class BaseObject : public cppgc::GarbageCollectedMixin {
   virtual Value dynamicIterableGet(std::size_t);
   void dynamicDefineProperty(const std::u16string&, const Value&, bool enumerable);
   std::vector<std::u16string> dynamicEnumerableKeys(std::vector<std::u16string>) const;
+  BaseObject* dynamicPrototype() const { return prototype_.Get(); }
+  void dynamicSetPrototype(BaseObject* prototype) {
+    if (!extensible_ && prototype_.Get() != prototype) throw runtimeError(u"Object is not extensible");
+    prototype_ = prototype;
+  }
+  bool dynamicIsExtensible() const { return extensible_; }
+  bool dynamicIsSealed() const { return sealed_; }
+  bool dynamicIsFrozen() const { return frozen_; }
+  void dynamicPreventExtensions() { extensible_ = false; }
+  void dynamicSeal() { extensible_ = false; sealed_ = true; }
+  void dynamicFreeze() { extensible_ = false; sealed_ = true; frozen_ = true; }
   void Trace(cppgc::Visitor*) const;
 
  private:
   Kind kind_;
   cppgc::Member<RecordObject> dynamic_properties_;
+  cppgc::Member<BaseObject> prototype_;
   std::unordered_set<std::u16string> non_enumerable_properties_;
+  bool extensible_ = true;
+  bool sealed_ = false;
+  bool frozen_ = false;
 };
 
 class StringObject final
@@ -469,12 +487,27 @@ class RecordObject final
 
   Value get(const std::u16string& key) const;
   void set(std::u16string key, const Value& value);
-  void setHidden(std::u16string key, const Value& value);
+  void define(std::u16string key, const Value& value, bool enumerable, bool writable = false, bool configurable = false);
+  void setHidden(std::u16string key, const Value& value) { define(std::move(key), value, false); }
   bool has(const std::u16string& key) const;
+  bool propertyIsEnumerable(const std::u16string& key) const;
   bool erase(const std::u16string& key);
   void copyTo(RecordObject* target) const;
   std::vector<std::u16string> keys() const;
+  std::vector<std::u16string> ownPropertyNames() const;
   std::vector<Value> values() const;
+  BaseObject* prototype() const { return prototype_.Get(); }
+  void setPrototype(BaseObject* prototype) {
+    if (!extensible_ && prototype_.Get() != prototype) throw runtimeError(u"Object is not extensible");
+    prototype_ = prototype;
+  }
+  bool isExtensible() const { return extensible_; }
+  bool isSealed() const { return sealed_; }
+  bool isFrozen() const { return frozen_; }
+  void preventExtensions() { extensible_ = false; }
+  void seal();
+  void freeze();
+  RecordObject* descriptor(const std::u16string& key) const;
   void Trace(cppgc::Visitor* visitor) const;
 
  private:
@@ -482,6 +515,13 @@ class RecordObject final
   std::unordered_map<std::u16string, StoredValue> properties_;
   std::unordered_map<std::u16string, StoredValue> hidden_properties_;
   std::vector<std::u16string> property_order_;
+  std::vector<std::u16string> hidden_property_order_;
+  std::unordered_map<std::u16string, bool> writable_properties_;
+  std::unordered_map<std::u16string, bool> configurable_properties_;
+  cppgc::Member<BaseObject> prototype_;
+  bool extensible_ = true;
+  bool sealed_ = false;
+  bool frozen_ = false;
 };
 
 class EnumerableObject {
@@ -593,11 +633,18 @@ inline Value BaseObject::dynamicCall(const std::vector<Value>&) {
 }
 
 inline Value BaseObject::dynamicGet(const std::u16string& key) {
-  return dynamic_properties_ ? dynamic_properties_->get(key) : Value::undefined();
+  if (dynamic_properties_ && dynamic_properties_->has(key)) return dynamic_properties_->get(key);
+  return prototype_ ? prototype_->dynamicGet(key) : Value::undefined();
 }
 
 inline Value BaseObject::dynamicSet(const std::u16string& key, const Value& value) {
-    if (!dynamic_properties_) dynamic_properties_ = makeDynamicPropertyRecord();
+  if (frozen_) throw runtimeError(u"Cannot modify a frozen object");
+  if (!dynamic_properties_) {
+    if (!extensible_) throw runtimeError(u"Object is not extensible");
+    dynamic_properties_ = makeDynamicPropertyRecord();
+  } else if (!dynamic_properties_->has(key) && !extensible_) {
+    throw runtimeError(u"Object is not extensible");
+  }
   dynamic_properties_->set(key, value);
   return value;
 }
@@ -615,6 +662,14 @@ inline void BaseObject::dynamicDefineProperty(
   else non_enumerable_properties_.insert(key);
 }
 
+inline bool BaseObject::dynamicHasOwn(const std::u16string& key) const {
+  return dynamic_properties_ && dynamic_properties_->has(key);
+}
+
+inline bool BaseObject::dynamicPropertyIsEnumerable(const std::u16string& key) const {
+  return dynamicHasOwn(key) && !non_enumerable_properties_.contains(key);
+}
+
 inline std::vector<std::u16string> BaseObject::dynamicEnumerableKeys(
     std::vector<std::u16string> keys) const {
   std::erase_if(keys, [&](const std::u16string& key) {
@@ -624,12 +679,14 @@ inline std::vector<std::u16string> BaseObject::dynamicEnumerableKeys(
 }
 
 inline bool BaseObject::dynamicDelete(const std::u16string& key) {
+  if (sealed_) return false;
   non_enumerable_properties_.erase(key);
   return dynamic_properties_ && dynamic_properties_->erase(key);
 }
 
 inline void BaseObject::Trace(cppgc::Visitor* visitor) const {
   visitor->Trace(dynamic_properties_);
+  visitor->Trace(prototype_);
 }
 
 inline RecordObject::RecordObject(BaseObject* dynamicBacking)
@@ -640,7 +697,8 @@ inline Value RecordObject::get(const std::u16string& key) const {
   const auto property = properties_.find(key);
   if (property != properties_.end()) return property->second.load();
   const auto hidden = hidden_properties_.find(key);
-  return hidden == hidden_properties_.end() ? Value::undefined() : hidden->second.load();
+  if (hidden != hidden_properties_.end()) return hidden->second.load();
+  return prototype_ ? prototype_->dynamicGet(key) : Value::undefined();
 }
 
 inline void RecordObject::set(std::u16string key, const Value& value) {
@@ -648,20 +706,52 @@ inline void RecordObject::set(std::u16string key, const Value& value) {
     dynamic_backing_->dynamicSet(key, value);
     return;
   }
-  hidden_properties_.erase(key);
+  if (frozen_) throw runtimeError(u"Cannot modify a frozen object");
+  const bool exists = has(key);
+  if (!exists && !extensible_) throw runtimeError(u"Object is not extensible");
+  if (exists && writable_properties_.contains(key) && !writable_properties_.at(key)) {
+    throw runtimeError(u"Cannot assign to a read-only property");
+  }
+  if (hidden_properties_.erase(key) > 0) {
+    hidden_property_order_.erase(std::remove(hidden_property_order_.begin(), hidden_property_order_.end(), key), hidden_property_order_.end());
+  }
   if (!properties_.contains(key)) property_order_.push_back(key);
   properties_.insert_or_assign(std::move(key), StoredValue(value));
 }
 
-inline void RecordObject::setHidden(std::u16string key, const Value& value) {
+inline void RecordObject::define(
+    std::u16string key,
+    const Value& value,
+    bool enumerable,
+    bool writable,
+    bool configurable) {
   if (dynamic_backing_) {
-    dynamic_backing_->dynamicDefineProperty(key, value, false);
+    dynamic_backing_->dynamicDefineProperty(key, value, enumerable);
     return;
+  }
+  const bool exists = has(key);
+  if (!exists && !extensible_) throw runtimeError(u"Object is not extensible");
+  if (exists && configurable_properties_.contains(key) && !configurable_properties_.at(key)) {
+    const bool oldEnumerable = properties_.contains(key);
+    if (oldEnumerable != enumerable || configurable) throw runtimeError(u"Cannot redefine a non-configurable property");
+    if (!writable_properties_.at(key) && writable) throw runtimeError(u"Cannot make a non-writable property writable");
+    if (!writable_properties_.at(key) && get(key) != value) throw runtimeError(u"Cannot modify a read-only property");
   }
   if (properties_.erase(key) > 0) {
     property_order_.erase(std::remove(property_order_.begin(), property_order_.end(), key), property_order_.end());
   }
-  hidden_properties_.insert_or_assign(std::move(key), StoredValue(value));
+  if (hidden_properties_.erase(key) > 0) {
+    hidden_property_order_.erase(std::remove(hidden_property_order_.begin(), hidden_property_order_.end(), key), hidden_property_order_.end());
+  }
+  if (enumerable) {
+    property_order_.push_back(key);
+    properties_.insert_or_assign(key, StoredValue(value));
+  } else {
+    hidden_property_order_.push_back(key);
+    hidden_properties_.insert_or_assign(key, StoredValue(value));
+  }
+  writable_properties_.insert_or_assign(key, writable);
+  configurable_properties_.insert_or_assign(std::move(key), configurable);
 }
 
 inline bool RecordObject::has(const std::u16string& key) const {
@@ -672,11 +762,21 @@ inline bool RecordObject::has(const std::u16string& key) const {
   return properties_.contains(key) || hidden_properties_.contains(key);
 }
 
+inline bool RecordObject::propertyIsEnumerable(const std::u16string& key) const {
+  if (dynamic_backing_) return dynamic_backing_->dynamicPropertyIsEnumerable(key);
+  return properties_.contains(key);
+}
+
 inline bool RecordObject::erase(const std::u16string& key) {
   if (dynamic_backing_) return dynamic_backing_->dynamicDelete(key);
+  if (configurable_properties_.contains(key) && !configurable_properties_.at(key)) return false;
+  if (sealed_) return false;
   const bool visible = properties_.erase(key) > 0;
   const bool hidden = hidden_properties_.erase(key) > 0;
   if (visible) property_order_.erase(std::remove(property_order_.begin(), property_order_.end(), key), property_order_.end());
+  if (hidden) hidden_property_order_.erase(std::remove(hidden_property_order_.begin(), hidden_property_order_.end(), key), hidden_property_order_.end());
+  writable_properties_.erase(key);
+  configurable_properties_.erase(key);
   return visible || hidden;
 }
 
@@ -695,6 +795,25 @@ inline std::vector<std::u16string> RecordObject::keys() const {
   return property_order_;
 }
 
+inline std::vector<std::u16string> RecordObject::ownPropertyNames() const {
+  if (dynamic_backing_) return dynamic_backing_->dynamicKeys();
+  auto result = property_order_;
+  result.insert(result.end(), hidden_property_order_.begin(), hidden_property_order_.end());
+  return result;
+}
+
+inline void RecordObject::seal() {
+  extensible_ = false;
+  sealed_ = true;
+  for (const auto& key : ownPropertyNames()) configurable_properties_.insert_or_assign(key, false);
+}
+
+inline void RecordObject::freeze() {
+  seal();
+  frozen_ = true;
+  for (const auto& key : ownPropertyNames()) writable_properties_.insert_or_assign(key, false);
+}
+
 inline std::vector<Value> RecordObject::values() const {
   std::vector<Value> result;
   if (dynamic_backing_) {
@@ -711,6 +830,7 @@ inline std::vector<Value> RecordObject::values() const {
 inline void RecordObject::Trace(cppgc::Visitor* visitor) const {
   BaseObject::Trace(visitor);
   visitor->Trace(dynamic_backing_);
+  visitor->Trace(prototype_);
   for (const auto& [key, value] : properties_) value.Trace(visitor);
   for (const auto& [key, value] : hidden_properties_) value.Trace(visitor);
 }
@@ -1603,6 +1723,15 @@ class DateObject final : public cppgc::GarbageCollected<DateObject>, public Base
             std::chrono::system_clock::now().time_since_epoch()).count()) {}
   explicit DateObject(double milliseconds) : milliseconds_(milliseconds) {}
   explicit DateObject(const std::u16string& text) : milliseconds_(parse(text)) {}
+  DateObject(
+      double year,
+      double month,
+      double date = 1,
+      double hours = 0,
+      double minutes = 0,
+      double seconds = 0,
+      double milliseconds = 0)
+      : milliseconds_(fromParts(year, month, date, hours, minutes, seconds, milliseconds, false)) {}
 
   static double parse(const std::u16string& text) {
     std::tm parts{};
@@ -1629,8 +1758,32 @@ class DateObject final : public cppgc::GarbageCollected<DateObject>, public Base
         : static_cast<double>(seconds) * 1000.0 + milliseconds;
   }
 
+  static double utc(
+      double year,
+      double month = 0,
+      double date = 1,
+      double hours = 0,
+      double minutes = 0,
+      double seconds = 0,
+      double milliseconds = 0) {
+    return fromParts(year, month, date, hours, minutes, seconds, milliseconds, true);
+  }
+
   double getTime() const { return milliseconds_; }
   double valueOf() const { return milliseconds_; }
+  double getFullYear() const { return localParts().tm_year + 1900; }
+  double getMonth() const { return localParts().tm_mon; }
+  double getDate() const { return localParts().tm_mday; }
+  double getDay() const { return localParts().tm_wday; }
+  double getHours() const { return localParts().tm_hour; }
+  double getMinutes() const { return localParts().tm_min; }
+  double getSeconds() const { return localParts().tm_sec; }
+  double getMilliseconds() const { return millisecondPart(); }
+  double getTimezoneOffset() const {
+    const auto seconds = static_cast<std::time_t>(std::floor(milliseconds_ / 1000.0));
+    std::tm utc = utcParts();
+    return std::difftime(std::mktime(&utc), seconds) / 60.0;
+  }
   double getUTCFullYear() const { return utcParts().tm_year + 1900; }
   double getUTCMonth() const { return utcParts().tm_mon; }
   double getUTCDate() const { return utcParts().tm_mday; }
@@ -1639,9 +1792,24 @@ class DateObject final : public cppgc::GarbageCollected<DateObject>, public Base
   double getUTCMinutes() const { return utcParts().tm_min; }
   double getUTCSeconds() const { return utcParts().tm_sec; }
   double getUTCMilliseconds() const {
-    const double remainder = std::fmod(milliseconds_, 1000.0);
-    return remainder < 0 ? remainder + 1000.0 : remainder;
+    return millisecondPart();
   }
+
+  double setTime(double milliseconds) { return milliseconds_ = milliseconds; }
+  double setMilliseconds(double value) { return setLocalParts(std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, value); }
+  double setSeconds(double seconds, double milliseconds = std::numeric_limits<double>::quiet_NaN()) { return setLocalParts(std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, seconds, optionalPart(milliseconds)); }
+  double setMinutes(double minutes, double seconds = std::numeric_limits<double>::quiet_NaN(), double milliseconds = std::numeric_limits<double>::quiet_NaN()) { return setLocalParts(std::nullopt, std::nullopt, std::nullopt, std::nullopt, minutes, optionalPart(seconds), optionalPart(milliseconds)); }
+  double setHours(double hours, double minutes = std::numeric_limits<double>::quiet_NaN(), double seconds = std::numeric_limits<double>::quiet_NaN(), double milliseconds = std::numeric_limits<double>::quiet_NaN()) { return setLocalParts(std::nullopt, std::nullopt, std::nullopt, hours, optionalPart(minutes), optionalPart(seconds), optionalPart(milliseconds)); }
+  double setDate(double date) { return setLocalParts(std::nullopt, std::nullopt, date); }
+  double setMonth(double month, double date = std::numeric_limits<double>::quiet_NaN()) { return setLocalParts(std::nullopt, month, optionalPart(date)); }
+  double setFullYear(double year, double month = std::numeric_limits<double>::quiet_NaN(), double date = std::numeric_limits<double>::quiet_NaN()) { return setLocalParts(year, optionalPart(month), optionalPart(date)); }
+  double setUTCMilliseconds(double value) { return setUtcParts(std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, value); }
+  double setUTCSeconds(double seconds, double milliseconds = std::numeric_limits<double>::quiet_NaN()) { return setUtcParts(std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, seconds, optionalPart(milliseconds)); }
+  double setUTCMinutes(double minutes, double seconds = std::numeric_limits<double>::quiet_NaN(), double milliseconds = std::numeric_limits<double>::quiet_NaN()) { return setUtcParts(std::nullopt, std::nullopt, std::nullopt, std::nullopt, minutes, optionalPart(seconds), optionalPart(milliseconds)); }
+  double setUTCHours(double hours, double minutes = std::numeric_limits<double>::quiet_NaN(), double seconds = std::numeric_limits<double>::quiet_NaN(), double milliseconds = std::numeric_limits<double>::quiet_NaN()) { return setUtcParts(std::nullopt, std::nullopt, std::nullopt, hours, optionalPart(minutes), optionalPart(seconds), optionalPart(milliseconds)); }
+  double setUTCDate(double date) { return setUtcParts(std::nullopt, std::nullopt, date); }
+  double setUTCMonth(double month, double date = std::numeric_limits<double>::quiet_NaN()) { return setUtcParts(std::nullopt, month, optionalPart(date)); }
+  double setUTCFullYear(double year, double month = std::numeric_limits<double>::quiet_NaN(), double date = std::numeric_limits<double>::quiet_NaN()) { return setUtcParts(year, optionalPart(month), optionalPart(date)); }
 
   std::u16string toISOString() const {
     if (!std::isfinite(milliseconds_)) throw runtimeError(u"Invalid time value");
@@ -1651,6 +1819,12 @@ class DateObject final : public cppgc::GarbageCollected<DateObject>, public Base
 
   std::u16string toString() const { return toISOString(); }
   std::u16string toJSON() const { return toISOString(); }
+  std::u16string toUTCString() const { return formatDate(utcParts(), u" GMT", true, true); }
+  std::u16string toDateString() const { return formatDate(localParts(), u"", true, false); }
+  std::u16string toTimeString() const { return formatDate(localParts(), u"", false, true); }
+  std::u16string toLocaleString() const { return formatDate(localParts(), u"", true, true); }
+  std::u16string toLocaleDateString() const { return toDateString(); }
+  std::u16string toLocaleTimeString() const { return toTimeString(); }
 
   const void* dynamicTypeToken() const override { return nativeTypeToken<DateObject>(); }
   void* dynamicCast(const void* type) override {
@@ -1663,6 +1837,105 @@ class DateObject final : public cppgc::GarbageCollected<DateObject>, public Base
   void Trace(cppgc::Visitor* visitor) const override { BaseObject::Trace(visitor); }
 
  private:
+  static std::optional<double> optionalPart(double value) {
+    return std::isnan(value) ? std::nullopt : std::optional<double>(value);
+  }
+
+  static std::time_t partsToTime(std::tm* parts, bool utc) {
+#if defined(_WIN32)
+    return utc ? _mkgmtime(parts) : std::mktime(parts);
+#else
+    return utc ? timegm(parts) : std::mktime(parts);
+#endif
+  }
+
+  static double fromParts(
+      double year, double month, double date, double hours, double minutes,
+      double seconds, double milliseconds, bool utc) {
+    std::tm parts{};
+    const auto normalizedYear = static_cast<int>(std::trunc(year));
+    parts.tm_year = (normalizedYear >= 0 && normalizedYear <= 99 ? normalizedYear + 1900 : normalizedYear) - 1900;
+    parts.tm_mon = static_cast<int>(std::trunc(month));
+    parts.tm_mday = static_cast<int>(std::trunc(date));
+    parts.tm_hour = static_cast<int>(std::trunc(hours));
+    parts.tm_min = static_cast<int>(std::trunc(minutes));
+    parts.tm_sec = static_cast<int>(std::trunc(seconds));
+    parts.tm_isdst = utc ? 0 : -1;
+    const auto timestamp = partsToTime(&parts, utc);
+    return timestamp == static_cast<std::time_t>(-1)
+      ? std::numeric_limits<double>::quiet_NaN()
+      : static_cast<double>(timestamp) * 1000.0 + std::trunc(milliseconds);
+  }
+
+  double millisecondPart() const {
+    const double remainder = std::fmod(milliseconds_, 1000.0);
+    return remainder < 0 ? remainder + 1000.0 : remainder;
+  }
+
+  double setParts(
+      bool utc,
+      std::optional<double> year = std::nullopt,
+      std::optional<double> month = std::nullopt,
+      std::optional<double> date = std::nullopt,
+      std::optional<double> hours = std::nullopt,
+      std::optional<double> minutes = std::nullopt,
+      std::optional<double> seconds = std::nullopt,
+      std::optional<double> milliseconds = std::nullopt) {
+    std::tm parts = utc ? utcParts() : localParts();
+    if (year) parts.tm_year = static_cast<int>(std::trunc(*year)) - 1900;
+    if (month) parts.tm_mon = static_cast<int>(std::trunc(*month));
+    if (date) parts.tm_mday = static_cast<int>(std::trunc(*date));
+    if (hours) parts.tm_hour = static_cast<int>(std::trunc(*hours));
+    if (minutes) parts.tm_min = static_cast<int>(std::trunc(*minutes));
+    if (seconds) parts.tm_sec = static_cast<int>(std::trunc(*seconds));
+    parts.tm_isdst = utc ? 0 : -1;
+    const auto timestamp = partsToTime(&parts, utc);
+    milliseconds_ = timestamp == static_cast<std::time_t>(-1)
+      ? std::numeric_limits<double>::quiet_NaN()
+      : static_cast<double>(timestamp) * 1000.0 + (milliseconds ? std::trunc(*milliseconds) : millisecondPart());
+    return milliseconds_;
+  }
+
+  double setLocalParts(
+      std::optional<double> year = std::nullopt,
+      std::optional<double> month = std::nullopt,
+      std::optional<double> date = std::nullopt,
+      std::optional<double> hours = std::nullopt,
+      std::optional<double> minutes = std::nullopt,
+      std::optional<double> seconds = std::nullopt,
+      std::optional<double> milliseconds = std::nullopt) {
+    return setParts(false, year, month, date, hours, minutes, seconds, milliseconds);
+  }
+
+  double setUtcParts(
+      std::optional<double> year = std::nullopt,
+      std::optional<double> month = std::nullopt,
+      std::optional<double> date = std::nullopt,
+      std::optional<double> hours = std::nullopt,
+      std::optional<double> minutes = std::nullopt,
+      std::optional<double> seconds = std::nullopt,
+      std::optional<double> milliseconds = std::nullopt) {
+    return setParts(true, year, month, date, hours, minutes, seconds, milliseconds);
+  }
+
+  static std::u16string formatDate(const std::tm& parts, const std::u16string& suffix, bool date, bool time) {
+    char buffer[64];
+    const char* format = date && time ? "%a %b %d %Y %H:%M:%S" : date ? "%a %b %d %Y" : "%H:%M:%S";
+    std::strftime(buffer, sizeof(buffer), format, &parts);
+    return utf8ToUtf16(buffer) + suffix;
+  }
+
+  std::tm localParts() const {
+    const auto seconds = static_cast<std::time_t>(std::floor(milliseconds_ / 1000.0));
+    std::tm result{};
+#if defined(_WIN32)
+    localtime_s(&result, &seconds);
+#else
+    localtime_r(&seconds, &result);
+#endif
+    return result;
+  }
+
   std::tm utcParts() const {
     const auto seconds = static_cast<std::time_t>(std::floor(milliseconds_ / 1000.0));
     std::tm result{};
@@ -1706,6 +1979,17 @@ inline std::u16string vexaPlatformName() {
 
 inline double dateParse(const std::u16string& value) { return DateObject::parse(value); }
 
+inline double dateUTC(
+    double year,
+    double month = 0,
+    double date = 1,
+    double hours = 0,
+    double minutes = 0,
+    double seconds = 0,
+    double milliseconds = 0) {
+  return DateObject::utc(year, month, date, hours, minutes, seconds, milliseconds);
+}
+
 class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject>, public BaseObject {
  public:
   explicit ArrayBufferObject(
@@ -1720,8 +2004,8 @@ class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject
     if (byteLength > max_byte_length_) throw std::out_of_range("ArrayBuffer length exceeds maxByteLength");
   }
   std::size_t byteLength() const { return bytes_->size(); }
-  std::size_t maxByteLength() const { return max_byte_length_; }
-  bool detached() const { return false; }
+  std::size_t maxByteLength() const { return detached_ ? 0 : max_byte_length_; }
+  bool detached() const { return detached_; }
   bool growable() const { return shared_ && variable_length_; }
   bool resizable() const { return !shared_ && variable_length_; }
   void grow(double newByteLength = 0) {
@@ -1730,6 +2014,19 @@ class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject
       throw std::out_of_range("Invalid SharedArrayBuffer grow length");
     }
     bytes_->resize(length, 0);
+  }
+  void resize(double newByteLength = 0) {
+    const auto length = static_cast<std::size_t>(std::max(0.0, std::trunc(newByteLength)));
+    if (shared_ || !variable_length_ || detached_ || length > max_byte_length_) {
+      throw std::out_of_range("Invalid ArrayBuffer resize length");
+    }
+    bytes_->resize(length, 0);
+  }
+  ArrayBufferObject* transfer(double requestedLength = std::numeric_limits<double>::quiet_NaN()) {
+    return transferImpl(requestedLength, variable_length_);
+  }
+  ArrayBufferObject* transferToFixedLength(double requestedLength = std::numeric_limits<double>::quiet_NaN()) {
+    return transferImpl(requestedLength, false);
   }
   ArrayBufferObject* slice(
       double begin = 0,
@@ -1772,6 +2069,22 @@ class ArrayBufferObject final : public cppgc::GarbageCollected<ArrayBufferObject
   std::size_t max_byte_length_;
   bool shared_;
   bool variable_length_;
+  bool detached_ = false;
+
+  ArrayBufferObject* transferImpl(double requestedLength, bool variableLength) {
+    if (shared_ || detached_) throw std::out_of_range("Cannot transfer this ArrayBuffer");
+    const std::size_t length = std::isnan(requestedLength)
+      ? bytes_->size()
+      : static_cast<std::size_t>(std::max(0.0, std::trunc(requestedLength)));
+    const std::size_t maximum = variableLength ? std::max(max_byte_length_, length) : length;
+    auto* result = makeManaged<ArrayBufferObject>(length, maximum, false, variableLength);
+    if (length > 0 && !bytes_->empty()) {
+      std::memcpy(result->data(), data(), std::min(length, bytes_->size()));
+    }
+    bytes_ = std::make_shared<std::vector<std::uint8_t>>();
+    detached_ = true;
+    return result;
+  }
 };
 
 class FFIPointerObject final : public cppgc::GarbageCollected<FFIPointerObject>, public BaseObject {
@@ -1828,156 +2141,645 @@ class FFIPointerObject final : public cppgc::GarbageCollected<FFIPointerObject>,
   std::size_t byte_length_ = 0;
 };
 
-class Uint8ArrayObject final : public cppgc::GarbageCollected<Uint8ArrayObject>, public BaseObject {
- public:
-  Uint8ArrayObject(ArrayBufferObject* buffer, std::size_t byteOffset, std::size_t length)
-      : buffer_(buffer), byte_offset_(byteOffset), length_(length) {
-    if (!buffer || byteOffset + length > buffer->byteLength()) {
-      throw std::out_of_range("Uint8Array view is outside its ArrayBuffer");
-    }
-  }
-  std::size_t size() const { return length_; }
-  std::size_t length() const { return length_; }
-  std::size_t byteLength() const { return length_; }
-  std::size_t byteOffset() const { return byte_offset_; }
-  ArrayBufferObject* buffer() const { return buffer_.Get(); }
-  std::uint8_t get(std::size_t index) const {
-    if (index >= length_) throw std::out_of_range("Uint8Array index is out of range");
-    return buffer_->get(byte_offset_ + index);
-  }
-  std::uint8_t set(std::size_t index, double value) {
-    if (index >= length_) throw std::out_of_range("Uint8Array index is out of range");
-    double modulo = std::isfinite(value) ? std::fmod(std::trunc(value), 256.0) : 0.0;
-    if (modulo < 0) modulo += 256.0;
-    const auto converted = static_cast<std::uint8_t>(modulo);
-    buffer_->set(byte_offset_ + index, converted);
-    return converted;
-  }
-  const void* dynamicTypeToken() const override { return nativeTypeToken<Uint8ArrayObject>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<Uint8ArrayObject>() ? this : nullptr;
-  }
-  std::u16string dynamicToString() const override { return u"[object Uint8Array]"; }
-  Value dynamicGet(const std::u16string& key) override {
-    if (key == u"length") return Value(static_cast<double>(length_));
-    if (key == u"byteLength") return Value(static_cast<double>(length_));
-    if (key == u"byteOffset") return Value(static_cast<double>(byte_offset_));
-    const auto index = propertyIndex(key);
-    return index && *index < length_ ? Value(static_cast<double>(get(*index))) : Value::undefined();
-  }
-  Value dynamicSet(const std::u16string& key, const Value& value) override {
-    const auto index = propertyIndex(key);
-    if (!index) throw runtimeError(u"Invalid Uint8Array index");
-    return Value(static_cast<double>(set(*index, Number(value))));
-  }
-  void Trace(cppgc::Visitor* visitor) const override {
-    BaseObject::Trace(visitor);
-    visitor->Trace(buffer_);
-  }
+class TypedArrayLikeObject : public BaseObject {};
 
- private:
-  cppgc::Member<ArrayBufferObject> buffer_;
-  std::size_t byte_offset_;
-  std::size_t length_;
+enum class TypedArrayKind {
+  Int8,
+  Uint8,
+  Uint8Clamped,
+  Int16,
+  Uint16,
+  Int32,
+  Uint32,
+  Float16,
+  Float32,
+  Float64,
+  BigInt64,
+  BigUint64,
 };
 
-class Uint32ArrayObject final : public cppgc::GarbageCollected<Uint32ArrayObject>, public BaseObject {
+template <TypedArrayKind Kind>
+struct TypedArrayTraits;
+
+#define VEXA_NUMERIC_TYPED_ARRAY(kindName, storageType, displayName) \
+  template <> struct TypedArrayTraits<TypedArrayKind::kindName> final { \
+    using Storage = storageType; \
+    using Value = double; \
+    static constexpr std::u16string_view name = u##displayName; \
+  }
+
+VEXA_NUMERIC_TYPED_ARRAY(Int8, std::int8_t, "Int8Array");
+VEXA_NUMERIC_TYPED_ARRAY(Uint8, std::uint8_t, "Uint8Array");
+VEXA_NUMERIC_TYPED_ARRAY(Uint8Clamped, std::uint8_t, "Uint8ClampedArray");
+VEXA_NUMERIC_TYPED_ARRAY(Int16, std::int16_t, "Int16Array");
+VEXA_NUMERIC_TYPED_ARRAY(Uint16, std::uint16_t, "Uint16Array");
+VEXA_NUMERIC_TYPED_ARRAY(Int32, std::int32_t, "Int32Array");
+VEXA_NUMERIC_TYPED_ARRAY(Uint32, std::uint32_t, "Uint32Array");
+VEXA_NUMERIC_TYPED_ARRAY(Float16, std::uint16_t, "Float16Array");
+VEXA_NUMERIC_TYPED_ARRAY(Float32, float, "Float32Array");
+VEXA_NUMERIC_TYPED_ARRAY(Float64, double, "Float64Array");
+#undef VEXA_NUMERIC_TYPED_ARRAY
+
+template <> struct TypedArrayTraits<TypedArrayKind::BigInt64> final {
+  using Storage = std::int64_t;
+  using Value = BigInt;
+  static constexpr std::u16string_view name = u"BigInt64Array";
+};
+
+template <> struct TypedArrayTraits<TypedArrayKind::BigUint64> final {
+  using Storage = std::uint64_t;
+  using Value = BigInt;
+  static constexpr std::u16string_view name = u"BigUint64Array";
+};
+
+template <typename Storage>
+inline Storage typedArrayIntegerStorage(double value) {
+  if (!std::isfinite(value) || value == 0) return 0;
+  constexpr int bits = static_cast<int>(sizeof(Storage) * 8);
+  const double modulus = std::ldexp(1.0, bits);
+  double converted = std::fmod(std::trunc(value), modulus);
+  if (converted < 0) converted += modulus;
+  using Unsigned = std::make_unsigned_t<Storage>;
+  const auto unsignedValue = static_cast<Unsigned>(converted);
+  if constexpr (std::is_signed_v<Storage>) return std::bit_cast<Storage>(unsignedValue);
+  else return unsignedValue;
+}
+
+inline std::uint8_t typedArrayClampedStorage(double value) {
+  if (std::isnan(value) || value <= 0) return 0;
+  if (value >= 255) return 255;
+  const double floorValue = std::floor(value);
+  const double fraction = value - floorValue;
+  if (fraction < 0.5) return static_cast<std::uint8_t>(floorValue);
+  if (fraction > 0.5) return static_cast<std::uint8_t>(floorValue + 1);
+  const auto integer = static_cast<std::uint8_t>(floorValue);
+  return (integer & 1U) == 0 ? integer : static_cast<std::uint8_t>(integer + 1);
+}
+
+inline std::uint16_t float16Storage(double value) {
+  const auto bits = std::bit_cast<std::uint32_t>(static_cast<float>(value));
+  const std::uint32_t sign = (bits >> 16U) & 0x8000U;
+  const std::uint32_t exponentBits = (bits >> 23U) & 0xffU;
+  std::uint32_t mantissa = bits & 0x7fffffU;
+  if (exponentBits == 0xffU) return static_cast<std::uint16_t>(sign | (mantissa == 0 ? 0x7c00U : 0x7e00U));
+
+  std::int32_t exponent = static_cast<std::int32_t>(exponentBits) - 127 + 15;
+  std::uint32_t half;
+  if (exponent <= 0) {
+    if (exponent < -10) {
+      half = sign;
+    } else {
+      mantissa |= 0x800000U;
+      const auto shift = static_cast<std::uint32_t>(14 - exponent);
+      std::uint32_t rounded = mantissa >> shift;
+      const std::uint32_t remainder = mantissa & ((1U << shift) - 1U);
+      const std::uint32_t halfway = 1U << (shift - 1U);
+      if (remainder > halfway || (remainder == halfway && (rounded & 1U) != 0)) ++rounded;
+      half = sign | rounded;
+    }
+  } else if (exponent >= 31) {
+    half = sign | 0x7c00U;
+  } else {
+    std::uint32_t rounded = mantissa >> 13U;
+    const std::uint32_t remainder = mantissa & 0x1fffU;
+    if (remainder > 0x1000U || (remainder == 0x1000U && (rounded & 1U) != 0)) {
+      ++rounded;
+      if (rounded == 0x400U) {
+        rounded = 0;
+        ++exponent;
+      }
+    }
+    half = exponent >= 31
+      ? sign | 0x7c00U
+      : sign | (static_cast<std::uint32_t>(exponent) << 10U) | rounded;
+  }
+  return static_cast<std::uint16_t>(half);
+}
+
+inline double float16Value(std::uint16_t half) {
+  const std::uint32_t exponent = (half >> 10U) & 0x1fU;
+  const std::uint32_t mantissa = half & 0x3ffU;
+  double result;
+  if (exponent == 0x1fU) {
+    result = mantissa == 0
+      ? std::numeric_limits<double>::infinity()
+      : std::numeric_limits<double>::quiet_NaN();
+  } else {
+    result = exponent == 0
+      ? std::ldexp(static_cast<double>(mantissa), -24)
+      : std::ldexp(static_cast<double>(0x400U + mantissa), static_cast<int>(exponent) - 25);
+  }
+  return (half & 0x8000U) != 0 ? -result : result;
+}
+
+template <TypedArrayKind Kind>
+inline typename TypedArrayTraits<Kind>::Storage typedArrayStorage(
+    const typename TypedArrayTraits<Kind>::Value& value) {
+  using Traits = TypedArrayTraits<Kind>;
+  using Storage = typename Traits::Storage;
+  if constexpr (Kind == TypedArrayKind::Uint8Clamped) {
+    return typedArrayClampedStorage(value);
+  } else if constexpr (Kind == TypedArrayKind::Float16) {
+    return float16Storage(value);
+  } else if constexpr (Kind == TypedArrayKind::Float32 || Kind == TypedArrayKind::Float64) {
+    return static_cast<Storage>(value);
+  } else if constexpr (Kind == TypedArrayKind::BigInt64 || Kind == TypedArrayKind::BigUint64) {
+    const std::uint64_t bits = value.toUint64Modulo();
+    if constexpr (Kind == TypedArrayKind::BigInt64) return std::bit_cast<std::int64_t>(bits);
+    else return bits;
+  } else {
+    return typedArrayIntegerStorage<Storage>(value);
+  }
+}
+
+template <TypedArrayKind Kind>
+inline typename TypedArrayTraits<Kind>::Value typedArrayValue(
+    typename TypedArrayTraits<Kind>::Storage value) {
+  if constexpr (Kind == TypedArrayKind::Float16) {
+    return float16Value(value);
+  } else if constexpr (Kind == TypedArrayKind::BigInt64) {
+    return BigInt(static_cast<long long>(value));
+  } else if constexpr (Kind == TypedArrayKind::BigUint64) {
+    return BigInt(static_cast<unsigned long long>(value));
+  } else {
+    return static_cast<double>(value);
+  }
+}
+
+inline bool typedArrayCallbackTruth(const Value& value) {
+  return static_cast<bool>(value);
+}
+
+inline bool typedArrayCallbackTruth(const std::u16string& value) {
+  return !value.empty();
+}
+
+template <typename T>
+inline bool typedArrayCallbackTruth(const T& value) {
+  if constexpr (std::is_pointer_v<T>) return value != nullptr;
+  else return static_cast<bool>(value);
+}
+
+template <TypedArrayKind ArrayKind>
+class TypedArrayObject final
+    : public cppgc::GarbageCollected<TypedArrayObject<ArrayKind>>, public TypedArrayLikeObject {
  public:
-  Uint32ArrayObject(ArrayBufferObject* buffer, std::size_t byteOffset, std::size_t length)
+  using Traits = TypedArrayTraits<ArrayKind>;
+  using Storage = typename Traits::Storage;
+  using ValueType = typename Traits::Value;
+  static constexpr std::size_t bytesPerElement = sizeof(Storage);
+
+  TypedArrayObject(ArrayBufferObject* buffer, std::size_t byteOffset, std::size_t length)
       : buffer_(buffer), byte_offset_(byteOffset), length_(length) {
-    if (!buffer || length > (buffer->byteLength() - std::min(byteOffset, buffer->byteLength())) / sizeof(std::uint32_t)) {
-      throw std::out_of_range("Uint32Array view is outside its ArrayBuffer");
+    const std::size_t available = buffer
+      ? buffer->byteLength() - std::min(byteOffset, buffer->byteLength())
+      : 0;
+    if (!buffer || byteOffset % bytesPerElement != 0 || length > available / bytesPerElement) {
+      throw std::out_of_range(utf16ToUtf8(std::u16string(Traits::name) + u" view is outside its ArrayBuffer"));
     }
   }
+
   std::size_t size() const { return length_; }
   std::size_t length() const { return length_; }
-  std::size_t byteLength() const { return length_ * sizeof(std::uint32_t); }
+  std::size_t byteLength() const { return length_ * bytesPerElement; }
   std::size_t byteOffset() const { return byte_offset_; }
   ArrayBufferObject* buffer() const { return buffer_.Get(); }
-  std::uint32_t get(std::size_t index) const {
-    if (index >= length_) throw std::out_of_range("Uint32Array index is out of range");
-    std::uint32_t value = 0;
-    std::memcpy(&value, buffer_->data() + byte_offset_ + index * sizeof(std::uint32_t), sizeof(value));
-    return value;
+
+  ValueType get(std::size_t index) const {
+    if (index >= length_) throw std::out_of_range(utf16ToUtf8(std::u16string(Traits::name) + u" index is out of range"));
+    Storage stored{};
+    std::memcpy(&stored, buffer_->data() + byte_offset_ + index * bytesPerElement, bytesPerElement);
+    return typedArrayValue<ArrayKind>(stored);
   }
-  std::uint32_t set(std::size_t index, double value) {
-    if (index >= length_) throw std::out_of_range("Uint32Array index is out of range");
-    double modulo = std::isfinite(value) ? std::fmod(std::trunc(value), 4294967296.0) : 0.0;
-    if (modulo < 0) modulo += 4294967296.0;
-    const auto converted = static_cast<std::uint32_t>(modulo);
-    std::memcpy(buffer_->data() + byte_offset_ + index * sizeof(converted), &converted, sizeof(converted));
-    return converted;
+
+  ValueType set(std::size_t index, ValueType value) {
+    if (index >= length_) throw std::out_of_range(utf16ToUtf8(std::u16string(Traits::name) + u" index is out of range"));
+    const Storage stored = typedArrayStorage<ArrayKind>(value);
+    std::memcpy(buffer_->data() + byte_offset_ + index * bytesPerElement, &stored, bytesPerElement);
+    return typedArrayValue<ArrayKind>(stored);
   }
-  const void* dynamicTypeToken() const override { return nativeTypeToken<Uint32ArrayObject>(); }
+
+  ValueType at(double index) const {
+    const auto integer = static_cast<std::int64_t>(std::trunc(index));
+    const auto resolved = integer < 0 ? static_cast<std::int64_t>(length_) + integer : integer;
+    return resolved < 0 || resolved >= static_cast<std::int64_t>(length_)
+      ? ValueType{}
+      : get(static_cast<std::size_t>(resolved));
+  }
+
+  TypedArrayObject* copyWithin(
+      double target,
+      double start,
+      double end = std::numeric_limits<double>::infinity()) {
+    const std::size_t destination = normalizedIndex(target);
+    const std::size_t first = normalizedIndex(start);
+    const std::size_t last = std::isinf(end) ? length_ : normalizedIndex(end);
+    std::vector<ValueType> copied;
+    copied.reserve(last > first ? last - first : 0);
+    for (std::size_t index = first; index < last; ++index) copied.push_back(get(index));
+    for (std::size_t index = 0; index < copied.size() && destination + index < length_; ++index) {
+      set(destination + index, copied[index]);
+    }
+    return this;
+  }
+
+  template <typename Callback>
+  bool every(Callback callback) const {
+    for (std::size_t index = 0; index < length_; ++index) {
+      if (!typedArrayCallbackTruth(invokeCallback(callback, get(index), index))) return false;
+    }
+    return true;
+  }
+
+  TypedArrayObject* fill(
+      ValueType value,
+      double start = 0,
+      double end = std::numeric_limits<double>::infinity()) {
+    const std::size_t first = normalizedIndex(start);
+    const std::size_t last = std::isinf(end) ? length_ : normalizedIndex(end);
+    for (std::size_t index = first; index < last; ++index) set(index, value);
+    return this;
+  }
+
+  template <typename Callback>
+  TypedArrayObject* filter(Callback callback) const {
+    std::vector<ValueType> selected;
+    for (std::size_t index = 0; index < length_; ++index) {
+      const auto value = get(index);
+      if (typedArrayCallbackTruth(invokeCallback(callback, value, index))) selected.push_back(value);
+    }
+    auto* result = create(selected.size());
+    for (std::size_t index = 0; index < selected.size(); ++index) result->set(index, selected[index]);
+    return result;
+  }
+
+  template <typename Callback>
+  ValueType find(Callback callback) const {
+    for (std::size_t index = 0; index < length_; ++index) {
+      const auto value = get(index);
+      if (typedArrayCallbackTruth(invokeCallback(callback, value, index))) return value;
+    }
+    return ValueType{};
+  }
+
+  template <typename Callback>
+  double findIndex(Callback callback) const {
+    for (std::size_t index = 0; index < length_; ++index) {
+      if (typedArrayCallbackTruth(invokeCallback(callback, get(index), index))) {
+        return static_cast<double>(index);
+      }
+    }
+    return -1;
+  }
+
+  template <typename Callback>
+  ValueType findLast(Callback callback) const {
+    for (std::size_t index = length_; index > 0; --index) {
+      const auto value = get(index - 1);
+      if (typedArrayCallbackTruth(invokeCallback(callback, value, index - 1))) return value;
+    }
+    return ValueType{};
+  }
+
+  template <typename Callback>
+  double findLastIndex(Callback callback) const {
+    for (std::size_t index = length_; index > 0; --index) {
+      if (typedArrayCallbackTruth(invokeCallback(callback, get(index - 1), index - 1))) {
+        return static_cast<double>(index - 1);
+      }
+    }
+    return -1;
+  }
+
+  template <typename Callback>
+  void forEach(Callback callback) const {
+    for (std::size_t index = 0; index < length_; ++index) {
+      invokeCallback(callback, get(index), index);
+    }
+  }
+
+  template <typename U>
+  bool includes(const U& value, double fromIndex = 0) const {
+    for (std::size_t index = forwardIndex(fromIndex); index < length_; ++index) {
+      if (sameValueZero(get(index), value)) return true;
+    }
+    return false;
+  }
+
+  template <typename U>
+  double indexOf(const U& value, double fromIndex = 0) const {
+    for (std::size_t index = forwardIndex(fromIndex); index < length_; ++index) {
+      if (sameValueZero(get(index), value)) return static_cast<double>(index);
+    }
+    return -1;
+  }
+
+  template <typename U>
+  double lastIndexOf(const U& value, double fromIndex = std::numeric_limits<double>::infinity()) const {
+    std::size_t index = std::isinf(fromIndex) ? length_ : std::min(length_, forwardIndex(fromIndex) + 1);
+    for (; index > 0; --index) if (sameValueZero(get(index - 1), value)) return static_cast<double>(index - 1);
+    return -1;
+  }
+
+  std::u16string join(const std::u16string& separator = u",") const {
+    std::u16string result;
+    for (std::size_t index = 0; index < length_; ++index) {
+      if (index > 0) result += separator;
+      result += vexa::toString(convertValue<Value>(get(index)));
+    }
+    return result;
+  }
+
+  template <typename Callback>
+  TypedArrayObject* map(Callback callback) const {
+    auto* result = create(length_);
+    for (std::size_t index = 0; index < length_; ++index) {
+      result->set(index, invokeCallback(callback, get(index), index));
+    }
+    return result;
+  }
+
+  template <typename Callback, typename Accumulator>
+  Accumulator reduce(Callback callback, Accumulator initial) const {
+    for (std::size_t index = 0; index < length_; ++index) {
+      initial = invokeReduceCallback(callback, std::move(initial), get(index), index);
+    }
+    return initial;
+  }
+
+  template <typename Callback>
+  ValueType reduce(Callback callback) const {
+    if (length_ == 0) throw runtimeError(u"Reduce of empty typed array with no initial value");
+    ValueType result = get(0);
+    for (std::size_t index = 1; index < length_; ++index) {
+      result = invokeReduceCallback(callback, std::move(result), get(index), index);
+    }
+    return result;
+  }
+
+  template <typename Callback, typename Accumulator>
+  Accumulator reduceRight(Callback callback, Accumulator initial) const {
+    for (std::size_t index = length_; index > 0; --index) {
+      resultAssign(initial, invokeReduceCallback(callback, std::move(initial), get(index - 1), index - 1));
+    }
+    return initial;
+  }
+
+  template <typename Callback>
+  ValueType reduceRight(Callback callback) const {
+    if (length_ == 0) throw runtimeError(u"Reduce of empty typed array with no initial value");
+    ValueType result = get(length_ - 1);
+    for (std::size_t index = length_ - 1; index > 0; --index) {
+      result = invokeReduceCallback(callback, std::move(result), get(index - 1), index - 1);
+    }
+    return result;
+  }
+
+  TypedArrayObject* reverse() {
+    for (std::size_t left = 0, right = length_; left < right && left < --right; ++left) {
+      const auto value = get(left);
+      set(left, get(right));
+      set(right, value);
+    }
+    return this;
+  }
+
+  template <typename Source>
+  void set(const Source* source, double offset = 0) {
+    if (!source || !std::isfinite(offset) || offset < 0) throw runtimeError(u"Invalid typed-array set source or offset");
+    const auto destination = static_cast<std::size_t>(std::trunc(offset));
+    if (destination > length_ || source->size() > length_ - destination) {
+      throw runtimeError(u"Typed-array set source is outside the destination");
+    }
+    std::vector<ValueType> copied;
+    copied.reserve(source->size());
+    for (std::size_t index = 0; index < source->size(); ++index) {
+      copied.push_back(convertInput(source->get(index)));
+    }
+    for (std::size_t index = 0; index < copied.size(); ++index) set(destination + index, copied[index]);
+  }
+
+  TypedArrayObject* slice(
+      double start = 0,
+      double end = std::numeric_limits<double>::infinity()) const {
+    const std::size_t first = normalizedIndex(start);
+    const std::size_t last = std::isinf(end) ? length_ : normalizedIndex(end);
+    auto* result = create(last > first ? last - first : 0);
+    for (std::size_t index = first; index < last; ++index) result->set(index - first, get(index));
+    return result;
+  }
+
+  template <typename Callback>
+  bool some(Callback callback) const {
+    for (std::size_t index = 0; index < length_; ++index) {
+      if (typedArrayCallbackTruth(invokeCallback(callback, get(index), index))) return true;
+    }
+    return false;
+  }
+
+  TypedArrayObject* sort() {
+    std::vector<ValueType> values;
+    values.reserve(length_);
+    for (std::size_t index = 0; index < length_; ++index) values.push_back(get(index));
+    std::sort(values.begin(), values.end(), [](const auto& left, const auto& right) { return left < right; });
+    for (std::size_t index = 0; index < length_; ++index) set(index, values[index]);
+    return this;
+  }
+
+  template <typename Callback>
+  TypedArrayObject* sort(Callback callback) {
+    std::vector<ValueType> values;
+    values.reserve(length_);
+    for (std::size_t index = 0; index < length_; ++index) values.push_back(get(index));
+    std::sort(values.begin(), values.end(), [&](const auto& left, const auto& right) {
+      return callback(left, right) < 0;
+    });
+    for (std::size_t index = 0; index < length_; ++index) set(index, values[index]);
+    return this;
+  }
+
+  TypedArrayObject* subarray(
+      double begin = 0,
+      double end = std::numeric_limits<double>::infinity()) const {
+    const std::size_t first = normalizedIndex(begin);
+    const std::size_t last = std::isinf(end) ? length_ : normalizedIndex(end);
+    return makeManaged<TypedArrayObject>(
+        buffer_.Get(), byte_offset_ + first * bytesPerElement, last > first ? last - first : 0);
+  }
+
+  std::u16string toLocaleString() const { return join(); }
+  TypedArrayObject* toReversed() const { return slice()->reverse(); }
+  TypedArrayObject* toSorted() const { return slice()->sort(); }
+  template <typename Callback>
+  TypedArrayObject* toSorted(Callback callback) const { return slice()->sort(std::move(callback)); }
+  std::u16string toString() const { return join(); }
+  TypedArrayObject* valueOf() { return this; }
+
+  ArrayObject<ValueType>* values() const {
+    auto* result = makeManaged<ArrayObject<ValueType>>();
+    result->reserve(length_);
+    for (std::size_t index = 0; index < length_; ++index) result->append(get(index));
+    return result;
+  }
+
+  ArrayObject<double>* keys() const {
+    auto* result = makeManaged<ArrayObject<double>>();
+    result->reserve(length_);
+    for (std::size_t index = 0; index < length_; ++index) result->append(static_cast<double>(index));
+    return result;
+  }
+
+  ArrayObject<ArrayObject<Value>*>* entries() const {
+    auto* result = makeManaged<ArrayObject<ArrayObject<Value>*>>();
+    result->reserve(length_);
+    for (std::size_t index = 0; index < length_; ++index) {
+      auto* entry = makeManaged<ArrayObject<Value>>();
+      entry->append(Value(static_cast<double>(index)));
+      entry->append(convertValue<Value>(get(index)));
+      result->append(entry);
+    }
+    return result;
+  }
+
+  TypedArrayObject* with(double index, ValueType value) const {
+    const auto integer = static_cast<std::int64_t>(std::trunc(index));
+    const auto resolved = integer < 0 ? static_cast<std::int64_t>(length_) + integer : integer;
+    if (resolved < 0 || resolved >= static_cast<std::int64_t>(length_)) {
+      throw runtimeError(u"TypedArray.with index is outside the array");
+    }
+    auto* result = slice();
+    result->set(static_cast<std::size_t>(resolved), value);
+    return result;
+  }
+
+  const void* dynamicTypeToken() const override { return nativeTypeToken<TypedArrayObject<ArrayKind>>(); }
   void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<Uint32ArrayObject>() ? this : nullptr;
+    if (type == nativeTypeToken<TypedArrayObject<ArrayKind>>()) return this;
+    if (type == nativeTypeToken<TypedArrayLikeObject>()) return static_cast<TypedArrayLikeObject*>(this);
+    return nullptr;
   }
-  std::u16string dynamicToString() const override { return u"[object Uint32Array]"; }
+  std::u16string dynamicToString() const override {
+    return u"[object " + std::u16string(Traits::name) + u"]";
+  }
+  bool dynamicIsIterable() const override { return true; }
+  std::size_t dynamicIterableSize() const override { return length_; }
+  Value dynamicIterableGet(std::size_t index) override {
+    return index < length_ ? convertValue<Value>(get(index)) : Value::undefined();
+  }
   Value dynamicGet(const std::u16string& key) override {
     if (key == u"length") return Value(static_cast<double>(length_));
     if (key == u"byteLength") return Value(static_cast<double>(byteLength()));
     if (key == u"byteOffset") return Value(static_cast<double>(byte_offset_));
     const auto index = propertyIndex(key);
-    return index && *index < length_ ? Value(static_cast<double>(get(*index))) : Value::undefined();
+    return index && *index < length_ ? convertValue<Value>(get(*index)) : Value::undefined();
   }
   Value dynamicSet(const std::u16string& key, const Value& value) override {
     const auto index = propertyIndex(key);
-    if (!index) throw runtimeError(u"Invalid Uint32Array index");
-    return Value(static_cast<double>(set(*index, Number(value))));
+    if (!index) throw runtimeError(u"Invalid typed-array index");
+    if constexpr (std::is_same_v<ValueType, BigInt>) return Value(set(*index, makeBigInt(value)));
+    else return Value(set(*index, Number(value)));
   }
+
+  class Iterator final {
+   public:
+    Iterator(const TypedArrayObject* array, std::size_t index) : array_(array), index_(index) {}
+    ValueType operator*() const { return array_->get(index_); }
+    Iterator& operator++() { ++index_; return *this; }
+    bool operator!=(const Iterator& other) const { return index_ != other.index_; }
+   private:
+    const TypedArrayObject* array_;
+    std::size_t index_;
+  };
+  Iterator begin() const { return Iterator(this, 0); }
+  Iterator end() const { return Iterator(this, length_); }
+
   void Trace(cppgc::Visitor* visitor) const override {
     BaseObject::Trace(visitor);
     visitor->Trace(buffer_);
   }
 
  private:
-  cppgc::Member<ArrayBufferObject> buffer_;
-  std::size_t byte_offset_;
-  std::size_t length_;
-};
+  static TypedArrayObject* create(std::size_t length) {
+    auto* buffer = makeManaged<ArrayBufferObject>(length * bytesPerElement);
+    return makeManaged<TypedArrayObject>(buffer, 0, length);
+  }
 
-class Int32ArrayObject final : public cppgc::GarbageCollected<Int32ArrayObject>, public BaseObject {
- public:
-  Int32ArrayObject(ArrayBufferObject* buffer, std::size_t byteOffset, std::size_t length)
-      : buffer_(buffer), byte_offset_(byteOffset), length_(length) {
-    if (!buffer || length > (buffer->byteLength() - std::min(byteOffset, buffer->byteLength())) / sizeof(std::int32_t)) {
-      throw std::out_of_range("Int32Array view is outside its ArrayBuffer");
+  std::size_t normalizedIndex(double index) const {
+    if (std::isnan(index)) return 0;
+    const auto integer = static_cast<std::int64_t>(std::trunc(index));
+    if (integer < 0) {
+      return static_cast<std::size_t>(std::max<std::int64_t>(0, static_cast<std::int64_t>(length_) + integer));
+    }
+    return std::min<std::size_t>(static_cast<std::size_t>(integer), length_);
+  }
+
+  std::size_t forwardIndex(double index) const {
+    if (index >= static_cast<double>(length_)) return length_;
+    if (index < 0) return normalizedIndex(index);
+    return static_cast<std::size_t>(std::max(0.0, std::trunc(index)));
+  }
+
+  template <typename Input>
+  static ValueType convertInput(const Input& value) {
+    if constexpr (std::is_same_v<ValueType, BigInt>) return makeBigInt(convertValue<Value>(value));
+    else return Number(convertValue<Value>(value));
+  }
+
+  template <typename Callback>
+  decltype(auto) invokeCallback(Callback& callback, ValueType value, std::size_t index) const {
+    auto* mutableArray = const_cast<TypedArrayObject*>(this);
+    if constexpr (std::is_invocable_v<Callback, ValueType, double, TypedArrayObject*>) {
+      return callback(std::move(value), static_cast<double>(index), mutableArray);
+    } else if constexpr (std::is_invocable_v<Callback, ValueType, double>) {
+      return callback(std::move(value), static_cast<double>(index));
+    } else if constexpr (std::is_invocable_v<Callback, ValueType>) {
+      return callback(std::move(value));
+    } else {
+      return callback();
     }
   }
-  std::size_t size() const { return length_; }
-  std::size_t length() const { return length_; }
-  std::size_t byteLength() const { return length_ * sizeof(std::int32_t); }
-  std::size_t byteOffset() const { return byte_offset_; }
-  ArrayBufferObject* buffer() const { return buffer_.Get(); }
-  std::int32_t get(std::size_t index) const {
-    if (index >= length_) throw std::out_of_range("Int32Array index is out of range");
-    std::int32_t value = 0;
-    std::memcpy(&value, buffer_->data() + byte_offset_ + index * sizeof(value), sizeof(value));
-    return value;
-  }
-  std::int32_t set(std::size_t index, double value) {
-    if (index >= length_) throw std::out_of_range("Int32Array index is out of range");
-    double modulo = std::isfinite(value) ? std::fmod(std::trunc(value), 4294967296.0) : 0.0;
-    if (modulo < 0) modulo += 4294967296.0;
-    const auto converted = std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(modulo));
-    std::memcpy(buffer_->data() + byte_offset_ + index * sizeof(converted), &converted, sizeof(converted));
-    return converted;
-  }
-  const void* dynamicTypeToken() const override { return nativeTypeToken<Int32ArrayObject>(); }
-  void* dynamicCast(const void* type) override {
-    return type == nativeTypeToken<Int32ArrayObject>() ? this : nullptr;
-  }
-  std::u16string dynamicToString() const override { return u"[object Int32Array]"; }
-  void Trace(cppgc::Visitor* visitor) const override {
-    BaseObject::Trace(visitor);
-    visitor->Trace(buffer_);
+
+  template <typename Callback, typename Accumulator>
+  decltype(auto) invokeReduceCallback(
+      Callback& callback,
+      Accumulator accumulator,
+      ValueType value,
+      std::size_t index) const {
+    auto* mutableArray = const_cast<TypedArrayObject*>(this);
+    if constexpr (std::is_invocable_v<Callback, Accumulator, ValueType, double, TypedArrayObject*>) {
+      return callback(std::move(accumulator), std::move(value), static_cast<double>(index), mutableArray);
+    } else if constexpr (std::is_invocable_v<Callback, Accumulator, ValueType, double>) {
+      return callback(std::move(accumulator), std::move(value), static_cast<double>(index));
+    } else {
+      return callback(std::move(accumulator), std::move(value));
+    }
   }
 
- private:
+  template <typename Accumulator, typename Result>
+  static void resultAssign(Accumulator& target, Result&& value) {
+    target = std::forward<Result>(value);
+  }
+
   cppgc::Member<ArrayBufferObject> buffer_;
   std::size_t byte_offset_;
   std::size_t length_;
 };
+
+using NativeInt8ArrayObject = TypedArrayObject<TypedArrayKind::Int8>;
+using NativeUint8ArrayObject = TypedArrayObject<TypedArrayKind::Uint8>;
+using NativeUint8ClampedArrayObject = TypedArrayObject<TypedArrayKind::Uint8Clamped>;
+using NativeInt16ArrayObject = TypedArrayObject<TypedArrayKind::Int16>;
+using NativeUint16ArrayObject = TypedArrayObject<TypedArrayKind::Uint16>;
+using NativeInt32ArrayObject = TypedArrayObject<TypedArrayKind::Int32>;
+using NativeUint32ArrayObject = TypedArrayObject<TypedArrayKind::Uint32>;
+using NativeFloat16ArrayObject = TypedArrayObject<TypedArrayKind::Float16>;
+using NativeFloat32ArrayObject = TypedArrayObject<TypedArrayKind::Float32>;
+using NativeFloat64ArrayObject = TypedArrayObject<TypedArrayKind::Float64>;
+using NativeBigInt64ArrayObject = TypedArrayObject<TypedArrayKind::BigInt64>;
+using NativeBigUint64ArrayObject = TypedArrayObject<TypedArrayKind::BigUint64>;
+using Uint8ArrayObject = NativeUint8ArrayObject;
+using Int32ArrayObject = NativeInt32ArrayObject;
+using Uint32ArrayObject = NativeUint32ArrayObject;
 
 class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, public BaseObject {
  public:
@@ -2006,6 +2808,16 @@ class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, pub
   double getFloat64(double offset, bool littleEndian = false) const {
     return std::bit_cast<double>(readValue<std::uint64_t>(offset, littleEndian));
   }
+  BigInt getBigInt64(double offset, bool littleEndian = false) const {
+    return BigInt(static_cast<long long>(std::bit_cast<std::int64_t>(
+        readValue<std::uint64_t>(offset, littleEndian))));
+  }
+  BigInt getBigUint64(double offset, bool littleEndian = false) const {
+    return BigInt(static_cast<unsigned long long>(readValue<std::uint64_t>(offset, littleEndian)));
+  }
+  double getFloat16(double offset, bool littleEndian = false) const {
+    return float16Value(readValue<std::uint16_t>(offset, littleEndian));
+  }
   void setUint8(double offset, double value) { writeValue(offset, static_cast<std::uint8_t>(value), true); }
   void setInt8(double offset, double value) { writeValue(offset, static_cast<std::uint8_t>(value), true); }
   void setUint16(double offset, double value, bool littleEndian = false) { writeValue(offset, static_cast<std::uint16_t>(value), littleEndian); }
@@ -2017,6 +2829,15 @@ class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, pub
   }
   void setFloat64(double offset, double value, bool littleEndian = false) {
     writeValue(offset, std::bit_cast<std::uint64_t>(value), littleEndian);
+  }
+  void setBigInt64(double offset, const BigInt& value, bool littleEndian = false) {
+    writeValue(offset, value.toUint64Modulo(), littleEndian);
+  }
+  void setBigUint64(double offset, const BigInt& value, bool littleEndian = false) {
+    writeValue(offset, value.toUint64Modulo(), littleEndian);
+  }
+  void setFloat16(double offset, double value, bool littleEndian = false) {
+    writeValue(offset, float16Storage(value), littleEndian);
   }
   const void* dynamicTypeToken() const override { return nativeTypeToken<DataViewObject>(); }
   void* dynamicCast(const void* type) override {
@@ -2096,20 +2917,18 @@ class DataViewObject final : public cppgc::GarbageCollected<DataViewObject>, pub
 };
 
 inline bool arrayBufferIsView(const ArrayBufferObject*) { return false; }
-inline bool arrayBufferIsView(const Uint8ArrayObject*) { return true; }
-inline bool arrayBufferIsView(Uint8ArrayObject*) { return true; }
-inline bool arrayBufferIsView(const Uint32ArrayObject*) { return true; }
-inline bool arrayBufferIsView(Uint32ArrayObject*) { return true; }
-inline bool arrayBufferIsView(const Int32ArrayObject*) { return true; }
-inline bool arrayBufferIsView(Int32ArrayObject*) { return true; }
+inline bool arrayBufferIsView(const TypedArrayLikeObject*) { return true; }
+inline bool arrayBufferIsView(TypedArrayLikeObject*) { return true; }
+template <TypedArrayKind ArrayKind>
+inline bool arrayBufferIsView(const TypedArrayObject<ArrayKind>*) { return true; }
+template <TypedArrayKind ArrayKind>
+inline bool arrayBufferIsView(TypedArrayObject<ArrayKind>*) { return true; }
 inline bool arrayBufferIsView(const DataViewObject*) { return true; }
 inline bool arrayBufferIsView(DataViewObject*) { return true; }
 inline bool arrayBufferIsView(const Value& value) {
   if (!value.isRuntimeObject()) return false;
   BaseObject* object = value.object();
-  return object->dynamicCast(nativeTypeToken<Uint8ArrayObject>()) ||
-    object->dynamicCast(nativeTypeToken<Uint32ArrayObject>()) ||
-    object->dynamicCast(nativeTypeToken<Int32ArrayObject>()) ||
+  return object->dynamicCast(nativeTypeToken<TypedArrayLikeObject>()) ||
     object->dynamicCast(nativeTypeToken<DataViewObject>());
 }
 
@@ -2329,12 +3148,17 @@ inline Value optionalCall(const Value& target, Callback&& callback) {
 }
 
 template <typename T>
-inline void defineProperty(T&& object, std::u16string key, const Value& value, bool enumerable) {
+inline void defineProperty(
+    T&& object,
+    std::u16string key,
+    const Value& value,
+    bool enumerable,
+    bool writable = false,
+    bool configurable = false) {
   using Input = std::remove_cvref_t<T>;
   if constexpr (std::is_same_v<Input, Value>) {
     if (object.isRecord()) {
-      if (enumerable) object.record()->set(std::move(key), value);
-      else object.record()->setHidden(std::move(key), value);
+      object.record()->define(std::move(key), value, enumerable, writable, configurable);
     } else if (object.isRuntimeObject()) {
       object.object()->dynamicDefineProperty(key, value, enumerable);
     } else {
@@ -2343,16 +3167,15 @@ inline void defineProperty(T&& object, std::u16string key, const Value& value, b
   } else {
     auto* pointer = rawPointer(std::forward<T>(object));
     using Object = std::remove_pointer_t<decltype(pointer)>;
-    if constexpr (std::is_base_of_v<BaseObject, Object>) {
+    if constexpr (std::is_same_v<Object, RecordObject>) {
+      if (!pointer) throw runtimeError(u"Cannot define a property on null");
+      pointer->define(std::move(key), value, enumerable, writable, configurable);
+    } else if constexpr (std::is_base_of_v<BaseObject, Object>) {
       if (!pointer) throw runtimeError(u"Cannot define a property on null");
       pointer->dynamicDefineProperty(key, value, enumerable);
     } else if constexpr (std::is_base_of_v<EnumerableObject, Object>) {
       if (!pointer) throw runtimeError(u"Cannot define a property on null");
       pointer->defineProperty(key, value, enumerable);
-    } else if constexpr (std::is_same_v<Object, RecordObject>) {
-      if (!pointer) throw runtimeError(u"Cannot define a property on null");
-      if (enumerable) pointer->set(std::move(key), value);
-      else pointer->setHidden(std::move(key), value);
     } else {
       throw runtimeError(u"Native Object.defineProperty requires an enumerable native object");
     }
@@ -2361,16 +3184,31 @@ inline void defineProperty(T&& object, std::u16string key, const Value& value, b
 
 class Error {
  public:
-  explicit Error(const Value& value)
-      : message_(value.isString() ? value.string() : toString(value)) {}
+  explicit Error(
+      const Value& value,
+      std::u16string name = u"Error",
+      Value cause = Value::undefined(),
+      Value errors = Value::undefined())
+      : message_(value.isUndefined() ? u"" : value.isString() ? value.string() : toString(value)),
+        name_(std::move(name)),
+        cause_(std::move(cause)),
+        errors_(std::move(errors)) {}
   explicit Error(std::u16string value)
-      : message_(std::move(value)) {}
+      : message_(std::move(value)), name_(u"Error") {}
 
   const std::u16string& messageText() const { return message_; }
-  Value name;
+  const std::u16string& nameText() const { return name_; }
+  std::u16string stackText() const {
+    return message_.empty() ? name_ : name_ + u": " + message_;
+  }
+  const Value& cause() const { return cause_; }
+  const Value& errors() const { return errors_; }
 
  private:
   std::u16string message_;
+  std::u16string name_;
+  Value cause_;
+  Value errors_;
 };
 
 class RegExp final {
@@ -2399,12 +3237,57 @@ class RegExp final {
   bool hasIndices;
   std::u16string source;
   std::u16string flags;
-  double lastIndex = 0;
+  mutable double lastIndex = 0;
 
-  bool test(const std::u16string& value) const { return expression_->test(value); }
+  bool test(const std::u16string& value) const { return exec(value).has_value(); }
   std::optional<std::vector<std::u16string>> exec(const std::u16string& value) const {
-    return expression_->exec(value);
+    const std::size_t start = global || sticky
+      ? static_cast<std::size_t>(std::clamp(lastIndex, 0.0, static_cast<double>(value.size())))
+      : 0;
+    const std::u16string suffix = value.substr(start);
+    const double relative = expression_->search(suffix);
+    if (relative < 0 || (sticky && relative != 0)) {
+      if (global || sticky) lastIndex = 0;
+      return std::nullopt;
+    }
+    const auto matchStart = start + static_cast<std::size_t>(relative);
+    auto captures = expression_->exec(value.substr(matchStart));
+    if (!captures) {
+      if (global || sticky) lastIndex = 0;
+      return std::nullopt;
+    }
+    const std::size_t matchLength = captures->empty() ? 0 : captures->front().size();
+    if (global || sticky) lastIndex = static_cast<double>(matchStart + std::max<std::size_t>(matchLength, 1));
+    legacyInput_ = value;
+    legacyLastMatch_ = captures->empty() ? u"" : captures->front();
+    legacyLastParen_ = captures->size() > 1 ? captures->back() : u"";
+    legacyLeftContext_ = value.substr(0, matchStart);
+    legacyRightContext_ = value.substr(matchStart + matchLength);
+    legacyCaptures_.fill(u"");
+    for (std::size_t index = 1; index < captures->size() && index <= legacyCaptures_.size(); ++index) {
+      legacyCaptures_[index - 1] = (*captures)[index];
+    }
+    return captures;
   }
+  double search(const std::u16string& value) const { return expression_->search(value); }
+  std::vector<std::vector<std::u16string>> execAll(const std::u16string& value) const {
+    return expression_->execAll(value);
+  }
+  RegExp& compile(std::u16string pattern, const std::u16string& rawFlags = u"") {
+    *this = RegExp(std::move(pattern), rawFlags);
+    return *this;
+  }
+  std::u16string toString() const { return u"/" + source + u"/" + flags; }
+
+  static const std::u16string& legacyCapture(std::size_t index) {
+    static const std::u16string empty;
+    return index < legacyCaptures_.size() ? legacyCaptures_[index] : empty;
+  }
+  static const std::u16string& legacyInput() { return legacyInput_; }
+  static const std::u16string& legacyLastMatch() { return legacyLastMatch_; }
+  static const std::u16string& legacyLastParen() { return legacyLastParen_; }
+  static const std::u16string& legacyLeftContext() { return legacyLeftContext_; }
+  static const std::u16string& legacyRightContext() { return legacyRightContext_; }
   std::u16string replace(const std::u16string& value, const std::u16string& replacement) const {
     return expression_->replace(value, replacement);
   }
@@ -2430,7 +3313,22 @@ class RegExp final {
   }
 
   std::shared_ptr<const Utf16Regex> expression_;
+  inline static std::array<std::u16string, 9> legacyCaptures_{};
+  inline static std::u16string legacyInput_;
+  inline static std::u16string legacyLastMatch_;
+  inline static std::u16string legacyLastParen_;
+  inline static std::u16string legacyLeftContext_;
+  inline static std::u16string legacyRightContext_;
 };
+
+inline const std::u16string& regexLegacyCapture(double index) {
+  return RegExp::legacyCapture(static_cast<std::size_t>(std::max(0.0, std::trunc(index))));
+}
+inline const std::u16string& regexLegacyInput() { return RegExp::legacyInput(); }
+inline const std::u16string& regexLegacyLastMatch() { return RegExp::legacyLastMatch(); }
+inline const std::u16string& regexLegacyLastParen() { return RegExp::legacyLastParen(); }
+inline const std::u16string& regexLegacyLeftContext() { return RegExp::legacyLeftContext(); }
+inline const std::u16string& regexLegacyRightContext() { return RegExp::legacyRightContext(); }
 
 inline std::u16string regexEscape(const std::u16string& value) {
   static constexpr char16_t hex[] = u"0123456789abcdef";
@@ -2551,6 +3449,515 @@ class DurationFormatObject final
   std::u16string locale_;
   std::u16string style_;
 };
+
+enum class IntlObjectKind : std::uint8_t {
+  Collator,
+  DateTimeFormat,
+  DisplayNames,
+  ListFormat,
+  Locale,
+  NumberFormat,
+  PluralRules,
+  RelativeTimeFormat,
+  Segmenter,
+};
+
+inline std::u16string canonicalLocale(std::u16string locale) {
+  if (locale.empty()) return u"en";
+  std::replace(locale.begin(), locale.end(), u'_', u'-');
+  std::size_t start = 0;
+  int part = 0;
+  while (start <= locale.size()) {
+    const std::size_t end = locale.find(u'-', start);
+    const std::size_t length = (end == std::u16string::npos ? locale.size() : end) - start;
+    for (std::size_t index = start; index < start + length; ++index) {
+      auto& character = locale[index];
+      if (character >= u'A' && character <= u'Z') character += u'a' - u'A';
+    }
+    if (part > 0 && length == 4 && locale[start] >= u'a' && locale[start] <= u'z') {
+      locale[start] -= u'a' - u'A';
+    } else if (part > 0 && (length == 2 || length == 3)) {
+      for (std::size_t index = start; index < start + length; ++index) {
+        if (locale[index] >= u'a' && locale[index] <= u'z') locale[index] -= u'a' - u'A';
+      }
+    }
+    if (end == std::u16string::npos) break;
+    start = end + 1;
+    ++part;
+  }
+  return locale;
+}
+
+inline bool isSupportedEnglishLocale(const std::u16string& locale) {
+  return locale == u"en" || locale.starts_with(u"en-");
+}
+
+inline std::tm intlUtcTime(std::time_t seconds) {
+  std::tm result{};
+#if defined(_WIN32)
+  gmtime_s(&result, &seconds);
+#else
+  gmtime_r(&seconds, &result);
+#endif
+  return result;
+}
+
+inline std::u16string intlPadDecimal(int value, std::size_t width) {
+  std::u16string result = utf8ToUtf16(std::to_string(value));
+  if (result.size() < width) result.insert(result.begin(), width - result.size(), u'0');
+  return result;
+}
+
+class IntlSegmentsObject final
+    : public cppgc::GarbageCollected<IntlSegmentsObject>, public BaseObject {
+ public:
+  IntlSegmentsObject(std::u16string input, std::u16string granularity)
+      : input_(std::move(input)), items_(makeManaged<ArrayObject<RecordObject*>>()) {
+    std::size_t index = 0;
+    while (index < input_.size()) {
+      std::size_t end = index + 1;
+      if (granularity == u"word") {
+        const bool whitespace = input_[index] == u' ' || input_[index] == u'\t' || input_[index] == u'\n';
+        while (end < input_.size()) {
+          const bool nextWhitespace = input_[end] == u' ' || input_[end] == u'\t' || input_[end] == u'\n';
+          if (nextWhitespace != whitespace) break;
+          ++end;
+        }
+      } else if (granularity == u"sentence") {
+        while (end < input_.size() && input_[end - 1] != u'.' && input_[end - 1] != u'!' && input_[end - 1] != u'?') ++end;
+        while (end < input_.size() && input_[end] == u' ') ++end;
+      } else if (input_[index] >= 0xD800 && input_[index] <= 0xDBFF && end < input_.size() &&
+                 input_[end] >= 0xDC00 && input_[end] <= 0xDFFF) {
+        ++end;
+      }
+      auto* part = makeManaged<RecordObject>();
+      part->set(u"segment", Value(makeManaged<StringObject>(input_.substr(index, end - index))));
+      part->set(u"index", Value(static_cast<double>(index)));
+      part->set(u"input", Value(makeManaged<StringObject>(input_)));
+      if (granularity == u"word") part->set(u"isWordLike", Value(input_[index] != u' '));
+      items_->append(part);
+      index = end;
+    }
+  }
+
+  Value containing(double codeUnitIndex = 0) const {
+    if (!std::isfinite(codeUnitIndex) || codeUnitIndex < 0 || codeUnitIndex >= input_.size()) {
+      return Value::undefined();
+    }
+    const auto requested = static_cast<std::size_t>(std::floor(codeUnitIndex));
+    for (std::size_t index = 0; index < items_->size(); ++index) {
+      auto* item = items_->get(index);
+      const auto start = static_cast<std::size_t>(Number(item->get(u"index")));
+      const auto end = index + 1 < items_->size()
+        ? static_cast<std::size_t>(Number(items_->get(index + 1)->get(u"index")))
+        : input_.size();
+      if (requested >= start && requested < end) return Value(item);
+    }
+    return Value::undefined();
+  }
+
+  ArrayObject<RecordObject*>* items() const { return items_.Get(); }
+  bool dynamicIsIterable() const override { return true; }
+  std::size_t dynamicIterableSize() const override { return items_->size(); }
+  Value dynamicIterableGet(std::size_t index) override {
+    return index < items_->size() ? Value(items_->get(index)) : Value::undefined();
+  }
+  const void* dynamicTypeToken() const override { return nativeTypeToken<IntlSegmentsObject>(); }
+  void* dynamicCast(const void* type) override {
+    if (type == nativeTypeToken<IntlSegmentsObject>()) return this;
+    return type == nativeTypeToken<BaseObject>() ? static_cast<BaseObject*>(this) : nullptr;
+  }
+  std::u16string dynamicToString() const override { return u"[object Intl.Segments]"; }
+  void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
+    visitor->Trace(items_);
+  }
+
+ private:
+  std::u16string input_;
+  cppgc::Member<ArrayObject<RecordObject*>> items_;
+};
+
+inline std::u16string intlLocaleText(const Value& locales) {
+  if (locales.isUndefined()) return u"en";
+  if (locales.isString()) return canonicalLocale(locales.utf16());
+  if (locales.isRuntimeObject() && locales.object()->dynamicIsArray() && locales.object()->dynamicArraySize() > 0) {
+    return canonicalLocale(vexa::toString(locales.object()->dynamicArrayGet(0)));
+  }
+    return canonicalLocale(vexa::toString(locales));
+}
+
+class IntlObject final
+    : public cppgc::GarbageCollected<IntlObject>, public BaseObject {
+ public:
+  IntlObject(IntlObjectKind kind, Value locales, Value options = Value::undefined())
+      : kind_(kind), locale_(kind == IntlObjectKind::Locale
+          ? canonicalLocale(vexa::toString(locales))
+          : intlLocaleText(locales)), options_(options.isRecord() ? options.record() : nullptr) {
+    if (kind_ == IntlObjectKind::Locale) parseLocale();
+  }
+
+  int compare(const std::u16string& left, const std::u16string& right) const {
+    const bool numeric = optionBoolean(u"numeric", false);
+    if (numeric) {
+      try {
+        const double leftNumber = std::stod(utf16ToUtf8(left));
+        const double rightNumber = std::stod(utf16ToUtf8(right));
+        if (leftNumber < rightNumber) return -1;
+        if (leftNumber > rightNumber) return 1;
+        return 0;
+      } catch (...) {}
+    }
+    const std::u16string sensitivity = optionText(u"sensitivity", u"variant");
+    const auto normalizeCase = [&](std::u16string value) {
+      if (sensitivity == u"base" || sensitivity == u"accent") {
+        for (auto& character : value) {
+          if (character >= u'A' && character <= u'Z') character += u'a' - u'A';
+        }
+      }
+      return value;
+    };
+    const auto normalizedLeft = normalizeCase(left);
+    const auto normalizedRight = normalizeCase(right);
+    return normalizedLeft < normalizedRight ? -1 : normalizedLeft > normalizedRight ? 1 : 0;
+  }
+
+  std::u16string format(double value) const {
+    if (kind_ == IntlObjectKind::NumberFormat) return formatNumber(value);
+    if (kind_ == IntlObjectKind::DateTimeFormat) return formatDate(value);
+    return vexa::toString(value);
+  }
+
+  std::u16string format(const BigInt& value) const { return value.toString(); }
+
+  std::u16string format(double value, const std::u16string& unit) const {
+    const std::u16string style = optionText(u"style", u"long");
+    const std::u16string numeric = optionText(u"numeric", u"always");
+    if (numeric == u"auto" && value == -1 && unit.starts_with(u"day")) return u"yesterday";
+    if (numeric == u"auto" && value == 0 && unit.starts_with(u"day")) return u"today";
+    if (numeric == u"auto" && value == 1 && unit.starts_with(u"day")) return u"tomorrow";
+    std::u16string name = unit;
+    if (style == u"short" && name.size() > 3) name = name.substr(0, 3) + u".";
+    if (style == u"narrow" && !name.empty()) name = name.substr(0, 1);
+    if (style == u"long" && std::abs(value) != 1 && !name.ends_with(u"s")) name += u"s";
+    return value < 0
+      ? vexa::toString(std::abs(value)) + u" " + name + u" ago"
+      : u"in " + vexa::toString(value) + u" " + name;
+  }
+
+  template <typename T>
+  std::u16string format(ArrayObject<T>* values) const {
+    if (!values || values->empty()) return u"";
+    const std::u16string type = optionText(u"type", u"conjunction");
+    const std::u16string style = optionText(u"style", u"long");
+    const std::u16string conjunction = type == u"disjunction" ? u"or" : u"and";
+    std::u16string result;
+    for (std::size_t index = 0; index < values->size(); ++index) {
+      const std::u16string item = vexa::toString(convertValue<Value>(values->get(index)));
+      if (index > 0) {
+        if (index + 1 == values->size()) result += values->size() > 2 && style == u"long" ? u", " : u" ";
+        else result += u", ";
+        if (index + 1 == values->size()) result += conjunction + u" ";
+      }
+      result += item;
+    }
+    return result;
+  }
+
+  std::u16string formatRange(double start, double end) const {
+    return format(start) + u" – " + format(end);
+  }
+
+  ArrayObject<RecordObject*>* formatToParts(double value) const {
+    return singlePart(kind_ == IntlObjectKind::NumberFormat ? u"integer" : u"literal", format(value));
+  }
+
+  ArrayObject<RecordObject*>* formatToParts(double value, const std::u16string& unit) const {
+    auto* result = makeManaged<ArrayObject<RecordObject*>>();
+    auto* number = makeManaged<RecordObject>();
+    number->set(u"type", Value(makeManaged<StringObject>(u"integer")));
+    number->set(u"value", Value(makeManaged<StringObject>(vexa::toString(std::abs(value)))));
+    number->set(u"unit", Value(makeManaged<StringObject>(unit)));
+    result->append(number);
+    auto* literal = makeManaged<RecordObject>();
+    literal->set(u"type", Value(makeManaged<StringObject>(u"literal")));
+    literal->set(u"value", Value(makeManaged<StringObject>(value < 0 ? u" ago" : u"in ")));
+    result->append(literal);
+    return result;
+  }
+
+  template <typename T>
+  ArrayObject<RecordObject*>* formatToParts(ArrayObject<T>* values) const {
+    auto* result = makeManaged<ArrayObject<RecordObject*>>();
+    if (!values) return result;
+    for (std::size_t index = 0; index < values->size(); ++index) {
+      auto* part = makeManaged<RecordObject>();
+      part->set(u"type", Value(makeManaged<StringObject>(index == 0 ? u"element" : u"literal")));
+      part->set(u"value", Value(makeManaged<StringObject>(vexa::toString(convertValue<Value>(values->get(index))))));
+      result->append(part);
+    }
+    return result;
+  }
+
+  ArrayObject<RecordObject*>* formatRangeToParts(double start, double end) const {
+    auto* result = singlePart(u"integer", format(start));
+    result->get(0)->set(u"source", Value(makeManaged<StringObject>(u"startRange")));
+    auto* separator = makeManaged<RecordObject>();
+    separator->set(u"type", Value(makeManaged<StringObject>(u"literal")));
+    separator->set(u"value", Value(makeManaged<StringObject>(u" – ")));
+    separator->set(u"source", Value(makeManaged<StringObject>(u"shared")));
+    result->append(separator);
+    auto* endPart = makeManaged<RecordObject>();
+    endPart->set(u"type", Value(makeManaged<StringObject>(u"integer")));
+    endPart->set(u"value", Value(makeManaged<StringObject>(format(end))));
+    endPart->set(u"source", Value(makeManaged<StringObject>(u"endRange")));
+    result->append(endPart);
+    return result;
+  }
+
+  std::u16string select(double value) const {
+    const std::u16string type = optionText(u"type", u"cardinal");
+    if (type == u"ordinal") {
+      const int integer = static_cast<int>(std::abs(value));
+      if (integer % 10 == 1 && integer % 100 != 11) return u"one";
+      if (integer % 10 == 2 && integer % 100 != 12) return u"two";
+      if (integer % 10 == 3 && integer % 100 != 13) return u"few";
+      return u"other";
+    }
+    return std::abs(value) == 1 ? u"one" : u"other";
+  }
+
+  std::u16string selectRange(double start, double end) const {
+    return start == end ? select(start) : u"other";
+  }
+
+  Value of(const std::u16string& code) const {
+    static const std::unordered_map<std::u16string, std::u16string> englishNames = {
+      {u"US", u"United States"}, {u"GB", u"United Kingdom"}, {u"ES", u"Spain"},
+      {u"EUR", u"Euro"}, {u"USD", u"US Dollar"}, {u"en", u"English"}, {u"es", u"Spanish"},
+    };
+    const auto found = englishNames.find(code);
+    if (found != englishNames.end()) return Value(makeManaged<StringObject>(found->second));
+    return optionText(u"fallback", u"code") == u"none"
+      ? Value::undefined()
+      : Value(makeManaged<StringObject>(code));
+  }
+
+  RecordObject* resolvedOptions() const {
+    auto* result = makeManaged<RecordObject>();
+    result->set(u"locale", Value(makeManaged<StringObject>(locale_)));
+    result->set(u"numberingSystem", Value(makeManaged<StringObject>(u"latn")));
+    switch (kind_) {
+      case IntlObjectKind::Collator:
+        result->set(u"usage", Value(makeManaged<StringObject>(optionText(u"usage", u"sort"))));
+        result->set(u"sensitivity", Value(makeManaged<StringObject>(optionText(u"sensitivity", u"variant"))));
+        result->set(u"ignorePunctuation", Value(optionBoolean(u"ignorePunctuation", false)));
+        result->set(u"collation", Value(makeManaged<StringObject>(optionText(u"collation", u"default"))));
+        result->set(u"caseFirst", Value(makeManaged<StringObject>(optionText(u"caseFirst", u"false"))));
+        result->set(u"numeric", Value(optionBoolean(u"numeric", false)));
+        break;
+      case IntlObjectKind::NumberFormat:
+        result->set(u"style", Value(makeManaged<StringObject>(optionText(u"style", u"decimal"))));
+        result->set(u"useGrouping", Value(optionBoolean(u"useGrouping", true)));
+        result->set(u"minimumIntegerDigits", Value(1));
+        break;
+      case IntlObjectKind::DateTimeFormat:
+        result->set(u"calendar", Value(makeManaged<StringObject>(optionText(u"calendar", u"gregory"))));
+        result->set(u"timeZone", Value(makeManaged<StringObject>(optionText(u"timeZone", u"UTC"))));
+        break;
+      case IntlObjectKind::PluralRules:
+        result->set(u"type", Value(makeManaged<StringObject>(optionText(u"type", u"cardinal"))));
+        {
+          auto* categories = makeManaged<ArrayObject<std::u16string>>();
+          categories->append(u"one");
+          categories->append(u"other");
+          result->set(u"pluralCategories", Value(categories));
+        }
+        break;
+      case IntlObjectKind::RelativeTimeFormat:
+        result->set(u"style", Value(makeManaged<StringObject>(optionText(u"style", u"long"))));
+        result->set(u"numeric", Value(makeManaged<StringObject>(optionText(u"numeric", u"always"))));
+        break;
+      case IntlObjectKind::ListFormat:
+        result->set(u"style", Value(makeManaged<StringObject>(optionText(u"style", u"long"))));
+        result->set(u"type", Value(makeManaged<StringObject>(optionText(u"type", u"conjunction"))));
+        break;
+      case IntlObjectKind::DisplayNames:
+        result->set(u"style", Value(makeManaged<StringObject>(optionText(u"style", u"long"))));
+        result->set(u"type", Value(makeManaged<StringObject>(optionText(u"type", u"language"))));
+        result->set(u"fallback", Value(makeManaged<StringObject>(optionText(u"fallback", u"code"))));
+        break;
+      case IntlObjectKind::Segmenter:
+        result->set(u"granularity", Value(makeManaged<StringObject>(optionText(u"granularity", u"grapheme"))));
+        break;
+      case IntlObjectKind::Locale:
+        break;
+    }
+    return result;
+  }
+
+  IntlSegmentsObject* segment(const std::u16string& input) const {
+    return makeManaged<IntlSegmentsObject>(input, optionText(u"granularity", u"grapheme"));
+  }
+
+  IntlObject* maximize() const {
+    std::u16string result = locale_;
+    if (result == u"en" || result == u"en-US") {
+      result = u"en-Latn-US";
+    } else if (result.starts_with(u"en-") && result.find(u"Latn") == std::u16string::npos) {
+      result = u"en-Latn-" + result.substr(3);
+    }
+    return makeManaged<IntlObject>(
+      IntlObjectKind::Locale,
+      Value(makeManaged<StringObject>(result)),
+      options_ ? Value(options_.Get()) : Value::undefined()
+    );
+  }
+
+  IntlObject* minimize() const {
+    std::u16string result = locale_;
+    if (result == u"en-US" || result == u"en-Latn-US") result = u"en";
+    else if (result.starts_with(u"en-Latn-")) result = u"en-" + result.substr(8);
+    return makeManaged<IntlObject>(
+      IntlObjectKind::Locale,
+      Value(makeManaged<StringObject>(result)),
+      options_ ? Value(options_.Get()) : Value::undefined()
+    );
+  }
+
+  const std::u16string& toString() const { return locale_; }
+  const std::u16string& baseName() const { return base_name_; }
+  const std::u16string& language() const { return language_; }
+  Value script() const { return script_.empty() ? Value::undefined() : Value(makeManaged<StringObject>(script_)); }
+  Value region() const { return region_.empty() ? Value::undefined() : Value(makeManaged<StringObject>(region_)); }
+  Value calendar() const { return optionValue(u"calendar"); }
+  Value caseFirst() const { return optionValue(u"caseFirst"); }
+  Value collation() const { return optionValue(u"collation"); }
+  Value hourCycle() const { return optionValue(u"hourCycle"); }
+  Value numberingSystem() const { return optionValue(u"numberingSystem"); }
+  bool numeric() const { return optionBoolean(u"numeric", false); }
+
+  const void* dynamicTypeToken() const override { return nativeTypeToken<IntlObject>(); }
+  void* dynamicCast(const void* type) override {
+    if (type == nativeTypeToken<IntlObject>()) return this;
+    return type == nativeTypeToken<BaseObject>() ? static_cast<BaseObject*>(this) : nullptr;
+  }
+  std::u16string dynamicToString() const override {
+    return kind_ == IntlObjectKind::Locale ? locale_ : u"[object Intl]";
+  }
+  void Trace(cppgc::Visitor* visitor) const override {
+    BaseObject::Trace(visitor);
+    visitor->Trace(options_);
+  }
+
+ private:
+  Value optionValue(const std::u16string& key) const {
+    return options_ ? options_->get(key) : Value::undefined();
+  }
+  std::u16string optionText(const std::u16string& key, std::u16string fallback) const {
+    const Value value = optionValue(key);
+    return value.isString() ? value.utf16() : fallback;
+  }
+  bool optionBoolean(const std::u16string& key, bool fallback) const {
+    const Value value = optionValue(key);
+    return value.isUndefined() ? fallback : static_cast<bool>(value);
+  }
+  std::u16string formatNumber(double value) const {
+    const std::u16string style = optionText(u"style", u"decimal");
+    if (style == u"percent") return vexa::toString(value * 100) + u"%";
+    if (style == u"currency") {
+      const std::u16string currency = optionText(u"currency", u"USD");
+      return currency + u" " + formatNumberText(value, 2);
+    }
+    return vexa::toString(value);
+  }
+  std::u16string formatDate(double milliseconds) const {
+    const auto seconds = static_cast<std::time_t>(std::floor(milliseconds / 1000));
+    const std::tm value = intlUtcTime(seconds);
+    return intlPadDecimal(value.tm_year + 1900, 4) + u"-" + intlPadDecimal(value.tm_mon + 1, 2) + u"-" + intlPadDecimal(value.tm_mday, 2);
+  }
+  ArrayObject<RecordObject*>* singlePart(const std::u16string& type, const std::u16string& value) const {
+    auto* result = makeManaged<ArrayObject<RecordObject*>>();
+    auto* part = makeManaged<RecordObject>();
+    part->set(u"type", Value(makeManaged<StringObject>(type)));
+    part->set(u"value", Value(makeManaged<StringObject>(value)));
+    result->append(part);
+    return result;
+  }
+  void parseLocale() {
+    base_name_ = locale_;
+    language_.clear();
+    script_.clear();
+    region_.clear();
+    std::size_t start = 0;
+    int part = 0;
+    while (start <= locale_.size()) {
+      const std::size_t end = locale_.find(u'-', start);
+      const std::u16string token = locale_.substr(start, end == std::u16string::npos ? locale_.size() - start : end - start);
+      if (part == 0) language_ = token;
+      else if (token.size() == 4) script_ = token;
+      else if (token.size() == 2 || token.size() == 3) region_ = token;
+      if (end == std::u16string::npos) break;
+      start = end + 1;
+      ++part;
+    }
+  }
+
+  IntlObjectKind kind_;
+  std::u16string locale_;
+  cppgc::Member<RecordObject> options_;
+  std::u16string base_name_;
+  std::u16string language_;
+  std::u16string script_;
+  std::u16string region_;
+};
+
+inline ArrayObject<std::u16string>* intlCanonicalLocales(const Value& locales) {
+  auto* result = makeManaged<ArrayObject<std::u16string>>();
+  std::unordered_set<std::u16string> seen;
+  const auto append = [&](const Value& value) {
+    const std::u16string locale = canonicalLocale(toString(value));
+    if (seen.insert(locale).second) result->append(locale);
+  };
+  if (locales.isRuntimeObject() && locales.object()->dynamicIsArray()) {
+    for (std::size_t index = 0; index < locales.object()->dynamicArraySize(); ++index) {
+      append(locales.object()->dynamicArrayGet(index));
+    }
+  } else {
+    append(locales);
+  }
+  return result;
+}
+
+inline ArrayObject<std::u16string>* intlSupportedLocales(const Value& locales) {
+  auto* canonical = intlCanonicalLocales(locales);
+  auto* supported = makeManaged<ArrayObject<std::u16string>>();
+  for (std::size_t index = 0; index < canonical->size(); ++index) {
+    if (isSupportedEnglishLocale(canonical->get(index))) supported->append(canonical->get(index));
+  }
+  return supported;
+}
+
+inline ArrayObject<std::u16string>* intlSupportedValuesOf(const std::u16string& key) {
+  auto* result = makeManaged<ArrayObject<std::u16string>>();
+  if (key == u"calendar") result->append(u"gregory");
+  else if (key == u"collation") result->append(u"default");
+  else if (key == u"currency") {
+    result->append(u"EUR");
+    result->append(u"GBP");
+    result->append(u"USD");
+  } else if (key == u"numberingSystem") result->append(u"latn");
+  else if (key == u"timeZone") result->append(u"UTC");
+  else if (key == u"unit") {
+    result->append(u"day");
+    result->append(u"hour");
+    result->append(u"minute");
+    result->append(u"second");
+  } else {
+    throw runtimeError(u"Unsupported Intl.supportedValuesOf key");
+  }
+  return result;
+}
 
 inline bool regexTest(const RegExp& expression, const Value& value) {
   return expression.test(value.isString() ? value.string() : u"");
@@ -2967,6 +4374,10 @@ inline ArrayObject<T>* arrayFrom(const ArrayObject<T>* source) {
   return source ? source->slice() : Runtime::array<T>();
 }
 
+inline ArrayObject<RecordObject*>* arrayFrom(const IntlSegmentsObject* source) {
+  return source ? source->items()->slice() : Runtime::array<RecordObject*>();
+}
+
 template <typename T, typename Callback>
 inline auto arrayFrom(const ArrayObject<T>* source, Callback callback) {
   return source->map(std::move(callback));
@@ -2975,6 +4386,16 @@ inline auto arrayFrom(const ArrayObject<T>* source, Callback callback) {
 inline RecordObject* makeRecord(
     std::initializer_list<std::pair<std::u16string, Value>> properties = {}) {
   return Runtime::record(properties);
+}
+
+inline RecordObject* RecordObject::descriptor(const std::u16string& key) const {
+  if (!has(key)) return nullptr;
+  auto* result = Runtime::record();
+  result->set(u"value", get(key));
+  result->set(u"writable", Value(!writable_properties_.contains(key) || writable_properties_.at(key)));
+  result->set(u"enumerable", Value(propertyIsEnumerable(key)));
+  result->set(u"configurable", Value(!configurable_properties_.contains(key) || configurable_properties_.at(key)));
+  return result;
 }
 
 inline Value makeString(std::u16string value) {
@@ -3036,6 +4457,185 @@ inline ArrayObject<Value>* regexExec(const RegExp& expression, const std::u16str
 
 inline ArrayObject<Value>* regexExec(const RegExp& expression, const Value& value) {
   return regexExec(expression, value.isString() ? value.string() : std::u16string());
+}
+
+inline ArrayObject<Value>* stringMatch(const std::u16string& value, const RegExp& expression) {
+  return regexExec(expression, value);
+}
+
+inline ArrayObject<ArrayObject<Value>*>* stringMatchAll(
+    const std::u16string& value,
+    const RegExp& expression) {
+  if (!expression.global) throw runtimeError(u"String.matchAll requires a global regular expression");
+  auto* result = Runtime::array<ArrayObject<Value>*>();
+  for (const auto& captures : expression.execAll(value)) {
+    auto* match = Runtime::array<Value>();
+    for (const auto& capture : captures) match->append(Runtime::string(capture));
+    result->append(match);
+  }
+  return result;
+}
+
+inline double stringSearch(const std::u16string& value, const RegExp& expression) {
+  return expression.search(value);
+}
+
+inline std::u16string stringHtmlWrap(
+    const std::u16string& value,
+    const std::u16string& tag,
+    const std::u16string& attribute = u"",
+    const std::u16string& attributeValue = u"") {
+  std::u16string result = u"<" + tag;
+  if (!attribute.empty()) {
+    result += u" " + attribute + u"=\"";
+    for (const char16_t character : attributeValue) result += character == u'\"' ? u"&quot;" : std::u16string(1, character);
+    result += u"\"";
+  }
+  return result + u">" + value + u"</" + tag + u">";
+}
+
+inline std::u16string anchor(const std::u16string& value, const std::u16string& name) { return stringHtmlWrap(value, u"a", u"name", name); }
+inline std::u16string big(const std::u16string& value) { return stringHtmlWrap(value, u"big"); }
+inline std::u16string blink(const std::u16string& value) { return stringHtmlWrap(value, u"blink"); }
+inline std::u16string bold(const std::u16string& value) { return stringHtmlWrap(value, u"b"); }
+inline std::u16string fixed(const std::u16string& value) { return stringHtmlWrap(value, u"tt"); }
+template <typename Color>
+inline std::u16string fontcolor(const std::u16string& value, const Color& color) {
+  return stringHtmlWrap(value, u"font", u"color", toString(convertValue<Value>(color)));
+}
+template <typename Size>
+inline std::u16string fontsize(const std::u16string& value, const Size& size) {
+  return stringHtmlWrap(value, u"font", u"size", toString(convertValue<Value>(size)));
+}
+inline std::u16string italics(const std::u16string& value) { return stringHtmlWrap(value, u"i"); }
+inline std::u16string link(const std::u16string& value, const std::u16string& url) { return stringHtmlWrap(value, u"a", u"href", url); }
+inline std::u16string small(const std::u16string& value) { return stringHtmlWrap(value, u"small"); }
+inline std::u16string strike(const std::u16string& value) { return stringHtmlWrap(value, u"strike"); }
+inline std::u16string sub(const std::u16string& value) { return stringHtmlWrap(value, u"sub"); }
+inline std::u16string sup(const std::u16string& value) { return stringHtmlWrap(value, u"sup"); }
+
+inline double localeCompare(const std::u16string& value, const std::u16string& other) {
+  return value < other ? -1 : value > other ? 1 : 0;
+}
+
+inline std::u16string padStart(
+    const std::u16string& value,
+    double targetLength,
+    const std::u16string& fill = u" ") {
+  const auto target = static_cast<std::size_t>(std::max(0.0, std::trunc(targetLength)));
+  if (value.size() >= target || fill.empty()) return value;
+  std::u16string prefix;
+  while (prefix.size() < target - value.size()) prefix += fill;
+  prefix.resize(target - value.size());
+  return prefix + value;
+}
+
+inline std::u16string padEnd(
+    const std::u16string& value,
+    double targetLength,
+    const std::u16string& fill = u" ") {
+  std::u16string result = value;
+  const auto target = static_cast<std::size_t>(std::max(0.0, std::trunc(targetLength)));
+  if (result.size() >= target || fill.empty()) return result;
+  while (result.size() < target) result += fill;
+  result.resize(target);
+  return result;
+}
+
+inline std::u16string substr(
+    const std::u16string& value,
+    double start,
+    double length = std::numeric_limits<double>::infinity()) {
+  const auto size = static_cast<std::int64_t>(value.size());
+  auto first = static_cast<std::int64_t>(std::trunc(start));
+  if (first < 0) first = std::max<std::int64_t>(0, size + first);
+  first = std::min(first, size);
+  const auto count = std::isinf(length)
+    ? size - first
+    : std::max<std::int64_t>(0, std::min<std::int64_t>(size - first, static_cast<std::int64_t>(std::trunc(length))));
+  return value.substr(static_cast<std::size_t>(first), static_cast<std::size_t>(count));
+}
+
+inline std::u16string normalize(
+    std::u16string value,
+    const std::u16string& form = u"NFC") {
+  if (form != u"NFC" && form != u"NFD" && form != u"NFKC" && form != u"NFKD") {
+    throw runtimeError(u"Invalid Unicode normalization form");
+  }
+  static const std::unordered_map<char16_t, std::u16string> canonicalDecomposition = {
+    {u'À', u"A\u0300"}, {u'Á', u"A\u0301"}, {u'Â', u"A\u0302"}, {u'Ã', u"A\u0303"},
+    {u'Ä', u"A\u0308"}, {u'Å', u"A\u030A"}, {u'Ç', u"C\u0327"}, {u'È', u"E\u0300"},
+    {u'É', u"E\u0301"}, {u'Ê', u"E\u0302"}, {u'Ë', u"E\u0308"}, {u'Ì', u"I\u0300"},
+    {u'Í', u"I\u0301"}, {u'Î', u"I\u0302"}, {u'Ï', u"I\u0308"}, {u'Ñ', u"N\u0303"},
+    {u'Ò', u"O\u0300"}, {u'Ó', u"O\u0301"}, {u'Ô', u"O\u0302"}, {u'Õ', u"O\u0303"},
+    {u'Ö', u"O\u0308"}, {u'Ù', u"U\u0300"}, {u'Ú', u"U\u0301"}, {u'Û', u"U\u0302"},
+    {u'Ü', u"U\u0308"}, {u'Ý', u"Y\u0301"}, {u'à', u"a\u0300"}, {u'á', u"a\u0301"},
+    {u'â', u"a\u0302"}, {u'ã', u"a\u0303"}, {u'ä', u"a\u0308"}, {u'å', u"a\u030A"},
+    {u'ç', u"c\u0327"}, {u'è', u"e\u0300"}, {u'é', u"e\u0301"}, {u'ê', u"e\u0302"},
+    {u'ë', u"e\u0308"}, {u'ì', u"i\u0300"}, {u'í', u"i\u0301"}, {u'î', u"i\u0302"},
+    {u'ï', u"i\u0308"}, {u'ñ', u"n\u0303"}, {u'ò', u"o\u0300"}, {u'ó', u"o\u0301"},
+    {u'ô', u"o\u0302"}, {u'õ', u"o\u0303"}, {u'ö', u"o\u0308"}, {u'ù', u"u\u0300"},
+    {u'ú', u"u\u0301"}, {u'û', u"u\u0302"}, {u'ü', u"u\u0308"}, {u'ý', u"y\u0301"},
+    {u'ÿ', u"y\u0308"},
+  };
+  const bool compatibility = form == u"NFKC" || form == u"NFKD";
+  const bool compose = form == u"NFC" || form == u"NFKC";
+  std::u16string decomposed;
+  for (const char16_t character : value) {
+    const auto canonical = canonicalDecomposition.find(character);
+    if (canonical != canonicalDecomposition.end()) decomposed += canonical->second;
+    else if (compatibility && character == u'\u00A0') decomposed += u' ';
+    else if (compatibility && character == u'\uFB01') decomposed += u"fi";
+    else decomposed += character;
+  }
+  if (!compose) return decomposed;
+  std::unordered_map<std::u16string, char16_t> composition;
+  for (const auto& [character, sequence] : canonicalDecomposition) composition.emplace(sequence, character);
+  std::u16string result;
+  for (std::size_t index = 0; index < decomposed.size();) {
+    if (index + 1 < decomposed.size()) {
+      const auto found = composition.find(decomposed.substr(index, 2));
+      if (found != composition.end()) {
+        result += found->second;
+        index += 2;
+        continue;
+      }
+    }
+    result += decomposed[index++];
+  }
+  return result;
+}
+
+template <typename... Points>
+inline std::u16string stringFromCodePoint(Points... rawPoints) {
+  std::u16string result;
+  const auto append = [&](double rawPoint) {
+    if (!std::isfinite(rawPoint) || std::trunc(rawPoint) != rawPoint || rawPoint < 0 || rawPoint > 0x10ffff) {
+      throw runtimeError(u"Invalid Unicode code point");
+    }
+    const auto point = static_cast<std::uint32_t>(rawPoint);
+    if (point <= 0xffff) {
+      result.push_back(static_cast<char16_t>(point));
+    } else {
+      const auto adjusted = point - 0x10000;
+      result.push_back(static_cast<char16_t>(0xd800 + (adjusted >> 10U)));
+      result.push_back(static_cast<char16_t>(0xdc00 + (adjusted & 0x3ffU)));
+    }
+  };
+  (append(Number(convertValue<Value>(rawPoints))), ...);
+  return result;
+}
+
+inline std::u16string stringRaw(RecordObject* templateObject, ArrayObject<Value>* substitutions) {
+  if (!templateObject) throw runtimeError(u"String.raw requires a template object");
+  const Value raw = templateObject->get(u"raw");
+  auto* strings = arrayPointer(raw);
+  std::u16string result;
+  for (std::size_t index = 0; index < strings->size(); ++index) {
+    result += toString(strings->get(index));
+    if (index < substitutions->size()) result += toString(substitutions->get(index));
+  }
+  return result;
 }
 
 template <typename T>
@@ -3853,36 +5453,15 @@ inline bool weakSetDelete(WeakSetObject<T>* set, Input&& value) {
   return set->erase(convertValue<T>(std::forward<Input>(value)));
 }
 
-inline Uint8ArrayObject* makeUint8Array(double length) {
-  const auto size = static_cast<std::size_t>(std::max(0.0, length));
-  auto* buffer = Runtime::make<ArrayBufferObject>(size);
-  return Runtime::make<Uint8ArrayObject>(buffer, 0, size);
+inline ArrayBufferObject* makeArrayBuffer(double length) {
+  const auto size = static_cast<std::size_t>(std::max(0.0, std::trunc(length)));
+  return Runtime::make<ArrayBufferObject>(size);
 }
 
-inline Uint8ArrayObject* makeUint8Array(ArrayBufferObject* buffer) {
-  return Runtime::make<Uint8ArrayObject>(buffer, 0, buffer->byteLength());
-}
-
-template <typename T>
-inline Uint8ArrayObject* makeUint8Array(const ArrayObject<T>* values) {
-  auto* result = makeUint8Array(static_cast<double>(values->size()));
-  for (std::size_t index = 0; index < values->size(); ++index) result->set(index, Number(convertValue<Value>(values->get(index))));
-  return result;
-}
-
-inline Uint8ArrayObject* makeUint8Array(const std::u16string& value) {
-  const auto encoded = utf16ToUtf8(value);
-  auto* result = makeUint8Array(static_cast<double>(encoded.size()));
-  for (std::size_t index = 0; index < encoded.size(); ++index) {
-    result->set(index, static_cast<double>(static_cast<unsigned char>(encoded[index])));
-  }
-  return result;
-}
-
-inline Uint32ArrayObject* makeUint32Array(double length) {
-  const auto size = static_cast<std::size_t>(std::max(0.0, length));
-  auto* buffer = Runtime::make<ArrayBufferObject>(size * sizeof(std::uint32_t));
-  return Runtime::make<Uint32ArrayObject>(buffer, 0, size);
+inline ArrayBufferObject* makeArrayBuffer(double length, double maxByteLength) {
+  const auto size = static_cast<std::size_t>(std::max(0.0, std::trunc(length)));
+  const auto maximum = static_cast<std::size_t>(std::max(0.0, std::trunc(maxByteLength)));
+  return Runtime::make<ArrayBufferObject>(size, maximum, false, true);
 }
 
 inline ArrayBufferObject* makeSharedArrayBuffer(double length) {
@@ -3896,14 +5475,94 @@ inline ArrayBufferObject* makeSharedArrayBuffer(double length, double maxByteLen
   return Runtime::make<ArrayBufferObject>(size, maximum, true, true);
 }
 
-inline Int32ArrayObject* makeInt32Array(double length) {
+template <TypedArrayKind ArrayKind>
+inline TypedArrayObject<ArrayKind>* makeTypedArray(double length = 0) {
+  using Array = TypedArrayObject<ArrayKind>;
   const auto size = static_cast<std::size_t>(std::max(0.0, std::trunc(length)));
-  auto* buffer = Runtime::make<ArrayBufferObject>(size * sizeof(std::int32_t));
-  return Runtime::make<Int32ArrayObject>(buffer, 0, size);
+  auto* buffer = Runtime::make<ArrayBufferObject>(size * Array::bytesPerElement);
+  return Runtime::make<Array>(buffer, 0, size);
 }
 
-inline Int32ArrayObject* makeInt32Array(ArrayBufferObject* buffer) {
-  return Runtime::make<Int32ArrayObject>(buffer, 0, buffer->byteLength() / sizeof(std::int32_t));
+template <TypedArrayKind ArrayKind>
+inline TypedArrayObject<ArrayKind>* makeTypedArray(
+    ArrayBufferObject* buffer,
+    double byteOffset = 0,
+    double requestedLength = std::numeric_limits<double>::quiet_NaN()) {
+  using Array = TypedArrayObject<ArrayKind>;
+  if (!buffer || !std::isfinite(byteOffset) || byteOffset < 0) {
+    throw runtimeError(u"Invalid typed-array buffer or byte offset");
+  }
+  const auto offset = static_cast<std::size_t>(std::trunc(byteOffset));
+  if (offset > buffer->byteLength()) throw runtimeError(u"Typed-array byte offset is outside its buffer");
+  const auto available = buffer->byteLength() - offset;
+  const auto length = std::isnan(requestedLength)
+    ? available / Array::bytesPerElement
+    : static_cast<std::size_t>(std::max(0.0, std::trunc(requestedLength)));
+  return Runtime::make<Array>(buffer, offset, length);
+}
+
+template <TypedArrayKind ArrayKind, typename Input>
+inline typename TypedArrayTraits<ArrayKind>::Value typedArrayInputValue(const Input& value) {
+  using Result = typename TypedArrayTraits<ArrayKind>::Value;
+  if constexpr (std::is_same_v<Result, BigInt>) return makeBigInt(convertValue<Value>(value));
+  else return Number(convertValue<Value>(value));
+}
+
+template <TypedArrayKind ArrayKind, typename Input>
+inline TypedArrayObject<ArrayKind>* makeTypedArray(const ArrayObject<Input>* values) {
+  auto* result = makeTypedArray<ArrayKind>(values ? static_cast<double>(values->size()) : 0);
+  if (!values) return result;
+  for (std::size_t index = 0; index < values->size(); ++index) {
+    result->set(index, typedArrayInputValue<ArrayKind>(values->get(index)));
+  }
+  return result;
+}
+
+template <TypedArrayKind ArrayKind, TypedArrayKind SourceKind>
+inline TypedArrayObject<ArrayKind>* makeTypedArray(const TypedArrayObject<SourceKind>* values) {
+  auto* result = makeTypedArray<ArrayKind>(values ? static_cast<double>(values->size()) : 0);
+  if (!values) return result;
+  for (std::size_t index = 0; index < values->size(); ++index) {
+    result->set(index, typedArrayInputValue<ArrayKind>(values->get(index)));
+  }
+  return result;
+}
+
+template <TypedArrayKind ArrayKind, typename... Values>
+inline TypedArrayObject<ArrayKind>* typedArrayOf(Values... values) {
+  auto* result = makeTypedArray<ArrayKind>(static_cast<double>(sizeof...(Values)));
+  std::size_t index = 0;
+  (result->set(index++, typedArrayInputValue<ArrayKind>(values)), ...);
+  return result;
+}
+
+template <TypedArrayKind ArrayKind, typename Input>
+inline TypedArrayObject<ArrayKind>* typedArrayFrom(const ArrayObject<Input>* values) {
+  return makeTypedArray<ArrayKind>(values);
+}
+
+template <TypedArrayKind ArrayKind, typename Input, typename Callback>
+inline TypedArrayObject<ArrayKind>* typedArrayFrom(const ArrayObject<Input>* values, Callback callback) {
+  auto* result = makeTypedArray<ArrayKind>(values ? static_cast<double>(values->size()) : 0);
+  if (!values) return result;
+  for (std::size_t index = 0; index < values->size(); ++index) {
+    const auto value = typedArrayInputValue<ArrayKind>(values->get(index));
+    if constexpr (std::is_invocable_v<Callback, decltype(value), double>) {
+      result->set(index, callback(value, static_cast<double>(index)));
+    } else {
+      result->set(index, callback(value));
+    }
+  }
+  return result;
+}
+
+inline Uint8ArrayObject* makeUint8Array(const std::u16string& value) {
+  const auto encoded = utf16ToUtf8(value);
+  auto* result = makeTypedArray<TypedArrayKind::Uint8>(static_cast<double>(encoded.size()));
+  for (std::size_t index = 0; index < encoded.size(); ++index) {
+    result->set(index, static_cast<double>(static_cast<unsigned char>(encoded[index])));
+  }
+  return result;
 }
 
 inline double atomicsLoad(Int32ArrayObject* array, double index) {
@@ -3974,13 +5633,6 @@ inline RecordObject* atomicsWaitAsync(Int32ArrayObject* array, double index, dou
     {u"async", Value(false)},
     {u"value", Runtime::string(atomicsWait(array, index, value, timeout))},
   });
-}
-
-inline ArrayObject<std::uint8_t>* uint8ArrayValues(const Uint8ArrayObject* values) {
-  auto* result = Runtime::array<std::uint8_t>();
-  if (!values) return result;
-  for (std::size_t index = 0; index < values->length(); ++index) result->append(values->get(index));
-  return result;
 }
 
 inline DataViewObject* makeDataView(
@@ -4567,6 +6219,320 @@ inline ArrayObject<Value>* recordValues(const Value& value) {
   if (value.isRecord()) return recordValues(value.record());
   if (value.isRuntimeObject()) return recordValues(value.object());
   return Runtime::array<Value>();
+}
+
+inline BaseObject* requireObject(const Value& value) {
+  if (!value.isObject() || value.isString()) throw runtimeError(u"Object operation requires an object");
+  return value.object();
+}
+
+template <typename T>
+inline BaseObject* requireObject(T* value) {
+  static_assert(std::is_base_of_v<BaseObject, T>);
+  if (!value) throw runtimeError(u"Object operation requires a non-null object");
+  return static_cast<BaseObject*>(value);
+}
+
+inline RecordObject* objectCreate(const Value& prototype) {
+  auto* result = Runtime::record();
+  if (prototype.isNull()) return result;
+  result->setPrototype(requireObject(prototype));
+  return result;
+}
+
+inline Value objectConstructor() {
+  return Value(Runtime::record());
+}
+
+template <typename T>
+inline Value objectConstructor(T&& input) {
+  const Value value = convertValue<Value>(std::forward<T>(input));
+  return value.isNull() || value.isUndefined() ? objectConstructor() : value;
+}
+
+template <typename Prototype>
+inline RecordObject* objectCreate(Prototype* prototype) {
+  auto* result = Runtime::record();
+  result->setPrototype(requireObject(prototype));
+  return result;
+}
+
+template <typename Target, typename Source>
+inline void objectAssignSource(Target* target, Source* source) {
+  if (!target || !source) return;
+  for (const auto& key : objectKeys(source)) {
+    dynamicSet(target, key, dynamicGet(source, key));
+  }
+}
+
+template <typename Target, typename Source>
+inline void objectAssignSource(Target* target, const Source& source) {
+  if constexpr (std::is_same_v<std::remove_cvref_t<Source>, Value>) {
+    if (source.isNull() || source.isUndefined()) return;
+    for (const auto& key : objectKeys(source)) dynamicSet(target, key, dynamicGet(source, key));
+  } else {
+    objectAssignSource(target, rawPointer(source));
+  }
+}
+
+template <typename Target, typename... Sources>
+inline Target* objectAssign(Target* target, Sources&&... sources) {
+  if (!target) throw runtimeError(u"Object.assign target cannot be null");
+  (objectAssignSource(target, std::forward<Sources>(sources)), ...);
+  return target;
+}
+
+inline bool objectHasOwn(const Value& value, const std::u16string& key) {
+  if (value.isRecord()) return value.record()->has(key);
+  if (value.isRuntimeObject()) return value.object()->dynamicHasOwn(key);
+  return false;
+}
+
+template <typename T>
+inline bool objectHasOwn(T* value, const std::u16string& key) {
+  if (!value) return false;
+  if constexpr (std::is_same_v<T, RecordObject>) return value->has(key);
+  else if constexpr (std::is_base_of_v<BaseObject, T>) return value->dynamicHasOwn(key);
+  else return false;
+}
+
+inline bool objectPropertyIsEnumerable(const Value& value, const std::u16string& key) {
+  if (value.isRecord()) return value.record()->propertyIsEnumerable(key);
+  if (value.isRuntimeObject()) return value.object()->dynamicPropertyIsEnumerable(key);
+  return false;
+}
+
+template <typename T>
+inline bool objectPropertyIsEnumerable(T* value, const std::u16string& key) {
+  if (!value) return false;
+  if constexpr (std::is_same_v<T, RecordObject>) return value->propertyIsEnumerable(key);
+  else if constexpr (std::is_base_of_v<BaseObject, T>) return value->dynamicPropertyIsEnumerable(key);
+  else return false;
+}
+
+inline bool objectIs(const Value& left, const Value& right) {
+  if (left.isNumber() && right.isNumber()) {
+    if (std::isnan(left.number()) && std::isnan(right.number())) return true;
+    if (left.number() == 0 && right.number() == 0) return std::signbit(left.number()) == std::signbit(right.number());
+  }
+  return left == right;
+}
+
+template <typename Left, typename Right>
+inline bool objectIs(Left&& left, Right&& right) {
+  const Value leftValue = convertValue<Value>(std::forward<Left>(left));
+  const Value rightValue = convertValue<Value>(std::forward<Right>(right));
+  return objectIs(
+      static_cast<const Value&>(leftValue),
+      static_cast<const Value&>(rightValue));
+}
+
+inline RecordObject* objectGetOwnPropertyDescriptor(const Value& value, const std::u16string& key) {
+  if (value.isRecord()) return value.record()->descriptor(key);
+  if (!value.isRuntimeObject() || !value.object()->dynamicHasOwn(key)) return nullptr;
+  auto* result = Runtime::record();
+  result->set(u"value", value.object()->dynamicGet(key));
+  result->set(u"writable", Value(!value.object()->dynamicIsFrozen()));
+  result->set(u"enumerable", Value(value.object()->dynamicPropertyIsEnumerable(key)));
+  result->set(u"configurable", Value(!value.object()->dynamicIsSealed()));
+  return result;
+}
+
+template <typename T>
+inline RecordObject* objectGetOwnPropertyDescriptor(T* value, const std::u16string& key) {
+  return objectGetOwnPropertyDescriptor(convertValue<Value>(value), key);
+}
+
+inline ArrayObject<std::u16string>* objectGetOwnPropertyNames(const Value& value) {
+  auto* result = Runtime::array<std::u16string>();
+  if (value.isRecord()) {
+    for (const auto& key : value.record()->ownPropertyNames()) result->append(key);
+  } else if (value.isRuntimeObject()) {
+    for (const auto& key : value.object()->dynamicKeys()) result->append(key);
+  }
+  return result;
+}
+
+template <typename T>
+inline ArrayObject<std::u16string>* objectGetOwnPropertyNames(T* value) {
+  return objectGetOwnPropertyNames(convertValue<Value>(value));
+}
+
+inline RecordObject* objectGetOwnPropertyDescriptors(const Value& value) {
+  auto* result = Runtime::record();
+  for (const auto& key : *objectGetOwnPropertyNames(value)) {
+    result->set(key, Value(objectGetOwnPropertyDescriptor(value, key)));
+  }
+  return result;
+}
+
+template <typename T>
+inline RecordObject* objectGetOwnPropertyDescriptors(T* value) {
+  return objectGetOwnPropertyDescriptors(convertValue<Value>(value));
+}
+
+inline Value objectGetPrototypeOf(const Value& value) {
+  BaseObject* prototype = value.isRecord()
+      ? value.record()->prototype()
+      : requireObject(value)->dynamicPrototype();
+  return prototype ? Value(prototype) : Value::null();
+}
+
+template <typename T>
+inline Value objectGetPrototypeOf(T* value) {
+  return objectGetPrototypeOf(convertValue<Value>(value));
+}
+
+inline bool objectSetPrototypeOf(const Value& value, const Value& prototype) {
+  BaseObject* target = requireObject(value);
+  BaseObject* next = prototype.isNull() ? nullptr : requireObject(prototype);
+  if (value.isRecord()) value.record()->setPrototype(next);
+  else target->dynamicSetPrototype(next);
+  return true;
+}
+
+template <typename Target, typename Prototype>
+inline bool objectSetPrototypeOf(Target* target, Prototype* prototype) {
+  return objectSetPrototypeOf(convertValue<Value>(target), convertValue<Value>(prototype));
+}
+
+template <typename T>
+inline T* objectPreventExtensions(T* value) {
+  if constexpr (std::is_same_v<T, RecordObject>) value->preventExtensions();
+  else requireObject(value)->dynamicPreventExtensions();
+  return value;
+}
+
+inline Value objectPreventExtensions(const Value& value) {
+  if (value.isRecord()) value.record()->preventExtensions();
+  else requireObject(value)->dynamicPreventExtensions();
+  return value;
+}
+
+template <typename T>
+inline T* objectSeal(T* value) {
+  if constexpr (std::is_same_v<T, RecordObject>) value->seal();
+  else requireObject(value)->dynamicSeal();
+  return value;
+}
+
+inline Value objectSeal(const Value& value) {
+  if (value.isRecord()) value.record()->seal();
+  else requireObject(value)->dynamicSeal();
+  return value;
+}
+
+template <typename T>
+inline T* objectFreeze(T* value) {
+  if constexpr (std::is_same_v<T, RecordObject>) value->freeze();
+  else requireObject(value)->dynamicFreeze();
+  return value;
+}
+
+inline Value objectFreeze(const Value& value) {
+  if (value.isRecord()) value.record()->freeze();
+  else requireObject(value)->dynamicFreeze();
+  return value;
+}
+
+template <typename T>
+inline bool objectIsExtensible(T* value) {
+  if constexpr (std::is_same_v<T, RecordObject>) return value && value->isExtensible();
+  else return value && value->dynamicIsExtensible();
+}
+
+inline bool objectIsExtensible(const Value& value) {
+  return value.isRecord() ? value.record()->isExtensible() : requireObject(value)->dynamicIsExtensible();
+}
+
+template <typename T>
+inline bool objectIsSealed(T* value) {
+  if constexpr (std::is_same_v<T, RecordObject>) return value && value->isSealed();
+  else return value && value->dynamicIsSealed();
+}
+
+inline bool objectIsSealed(const Value& value) {
+  return value.isRecord() ? value.record()->isSealed() : requireObject(value)->dynamicIsSealed();
+}
+
+template <typename T>
+inline bool objectIsFrozen(T* value) {
+  if constexpr (std::is_same_v<T, RecordObject>) return value && value->isFrozen();
+  else return value && value->dynamicIsFrozen();
+}
+
+inline bool objectIsFrozen(const Value& value) {
+  return value.isRecord() ? value.record()->isFrozen() : requireObject(value)->dynamicIsFrozen();
+}
+
+inline bool objectIsPrototypeOf(const Value& prototype, const Value& candidate) {
+  if (!prototype.isObject() || !candidate.isObject()) return false;
+  BaseObject* current = candidate.isRecord() ? candidate.record()->prototype() : candidate.object()->dynamicPrototype();
+  while (current) {
+    if (current == prototype.object()) return true;
+    if (current->objectKind() == BaseObject::Kind::Record) current = static_cast<RecordObject*>(current)->prototype();
+    else current = current->dynamicPrototype();
+  }
+  return false;
+}
+
+template <typename Prototype, typename Candidate>
+inline bool objectIsPrototypeOf(Prototype* prototype, Candidate* candidate) {
+  return objectIsPrototypeOf(convertValue<Value>(prototype), convertValue<Value>(candidate));
+}
+
+template <typename T>
+inline std::u16string objectToString(T&& value) {
+  const Value object = convertValue<Value>(std::forward<T>(value));
+  if (object.isNull()) return u"[object Null]";
+  if (object.isUndefined()) return u"[object Undefined]";
+  if (object.isString()) return u"[object String]";
+  if (object.isBoolean()) return u"[object Boolean]";
+  if (object.isNumber()) return u"[object Number]";
+  if (object.isBigInt()) return u"[object BigInt]";
+  return object.isRecord() ? u"[object Object]" : object.object()->dynamicToString();
+}
+
+template <typename Target>
+inline Target objectDefineProperty(
+    Target target,
+    const std::u16string& key,
+    const Value& descriptor) {
+  if (!descriptor.isRecord() && !descriptor.isRuntimeObject()) {
+    throw runtimeError(u"Object property descriptor must be an object");
+  }
+  const Value getter = dynamicGet(descriptor, u"get");
+  const Value setter = dynamicGet(descriptor, u"set");
+  if (!getter.isUndefined() || !setter.isUndefined()) {
+    throw runtimeError(u"Native generated C++ does not support accessor property descriptors");
+  }
+  const Value value = dynamicGet(descriptor, u"value");
+  const Value enumerable = dynamicGet(descriptor, u"enumerable");
+  const Value writable = dynamicGet(descriptor, u"writable");
+  const Value configurable = dynamicGet(descriptor, u"configurable");
+  defineProperty(
+      target,
+      key,
+      value,
+      !enumerable.isUndefined() && static_cast<bool>(enumerable),
+      !writable.isUndefined() && static_cast<bool>(writable),
+      !configurable.isUndefined() && static_cast<bool>(configurable));
+  return target;
+}
+
+template <typename Target, typename Descriptors>
+inline Target objectDefineProperties(Target target, Descriptors descriptors) {
+  for (const auto& key : objectKeys(descriptors)) {
+    objectDefineProperty(target, key, convertValue<Value>(dynamicGet(descriptors, key)));
+  }
+  return target;
+}
+
+template <typename Prototype, typename Descriptors>
+inline RecordObject* objectCreate(Prototype prototype, Descriptors descriptors) {
+  auto* result = objectCreate(convertValue<Value>(prototype));
+  objectDefineProperties(result, descriptors);
+  return result;
 }
 
 inline bool numberIsInteger(const Value& value) {
@@ -6523,6 +8489,12 @@ inline std::u16string toString(std::int64_t value, double radix) { return number
 inline std::u16string toString(bool value) { return value ? u"true" : u"false"; }
 inline const std::u16string& toString(const std::u16string& value) { return value; }
 
+template <typename T>
+  requires std::is_base_of_v<BaseObject, T>
+inline std::u16string toString(T* value) {
+  return value ? value->dynamicToString() : u"null";
+}
+
 inline BigInt makeBigInt(const BigInt& value) { return value; }
 inline BigInt makeBigInt(bool value) { return BigInt(value ? 1 : 0); }
 inline BigInt makeBigInt(std::int32_t value) { return BigInt(value); }
@@ -7316,6 +9288,48 @@ inline std::u16string toFixed(double value, int digits = 0) {
   return formatFixedText(value, std::clamp(digits, 0, 100));
 }
 
+inline std::u16string toExponential(double value, int digits = -1) {
+  std::ostringstream stream;
+  stream.imbue(std::locale::classic());
+  stream << std::scientific;
+  if (digits >= 0) stream << std::setprecision(std::clamp(digits, 0, 100));
+  else stream << std::setprecision(std::numeric_limits<double>::max_digits10 - 1);
+  stream << value;
+  std::string result = stream.str();
+  const auto exponent = result.find('e');
+  if (digits < 0 && exponent != std::string::npos) {
+    auto decimal = result.find('.');
+    auto last = exponent;
+    while (last > decimal + 1 && result[last - 1] == '0') --last;
+    if (last > decimal && result[last - 1] == '.') --last;
+    result.erase(last, exponent - last);
+  }
+  if (exponent != std::string::npos) {
+    auto firstExponentDigit = exponent + 1;
+    if (firstExponentDigit < result.size() &&
+        (result[firstExponentDigit] == '+' || result[firstExponentDigit] == '-')) {
+      ++firstExponentDigit;
+    }
+    while (firstExponentDigit + 1 < result.size() && result[firstExponentDigit] == '0') {
+      result.erase(firstExponentDigit, 1);
+    }
+  }
+  return utf8ToUtf16(result);
+}
+
+inline std::u16string toPrecision(double value, int precision = -1) {
+  if (precision < 0) return numberToString(value);
+  std::ostringstream stream;
+  stream.imbue(std::locale::classic());
+  stream << std::setprecision(std::clamp(precision, 1, 100)) << value;
+  return utf8ToUtf16(stream.str());
+}
+
+inline bool numberIsSafeInteger(double value) {
+  return std::isfinite(value) && std::trunc(value) == value &&
+    std::abs(value) <= 9007199254740991.0;
+}
+
 inline std::u16string toUpperCase(std::u16string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](char16_t character) {
     return character <= 0x7f
@@ -7712,6 +9726,9 @@ inline std::u16string String(const T& value) {
 
 inline bool Boolean(bool value) { return value; }
 inline bool Boolean(Undefined) { return false; }
+template <typename T>
+  requires (std::is_integral_v<T> && !std::is_same_v<std::remove_cv_t<T>, bool>)
+inline bool Boolean(T value) { return value != 0; }
 inline bool Boolean(double value) { return value != 0 && !std::isnan(value); }
 inline bool Boolean(const std::u16string& value) { return !value.empty(); }
 template <typename Result, typename... Arguments>
@@ -8152,6 +10169,40 @@ inline bool isErrorLike(const Value& value) {
 inline const std::u16string& errorMessageText(const Error& error) {
   return error.messageText();
 }
+inline const std::u16string& errorNameText(const Error& error) {
+  return error.nameText();
+}
+inline std::u16string errorStackText(const Error& error) {
+  return error.stackText();
+}
+inline Value errorCause(const Error& error) {
+  return error.cause();
+}
+inline Value aggregateErrorErrors(const Error& error) {
+  return error.errors();
+}
+inline Value errorOptionsCause(const Value& options) {
+  if (options.isUndefined()) return Value::undefined();
+  if (!options.isRecord() && !options.isRuntimeObject()) {
+    throw runtimeError(u"Error options must be an object");
+  }
+  return dynamicGet(options, u"cause");
+}
+inline Error makeError(
+    std::u16string name,
+    Value message = Value::undefined(),
+    Value options = Value::undefined()) {
+  return Error(message, std::move(name), errorOptionsCause(options));
+}
+inline Error makeAggregateError(
+    Value errors,
+    Value message = Value::undefined(),
+    Value options = Value::undefined()) {
+  if (!errors.isRuntimeObject() || !errors.object()->dynamicIsIterable()) {
+    throw runtimeError(u"AggregateError errors must be iterable");
+  }
+  return Error(message, u"AggregateError", errorOptionsCause(options), std::move(errors));
+}
 inline std::u16string errorMessageText(const Value& value) {
   if (value.isString()) return value.string();
   if (value.isRuntimeObject()) {
@@ -8295,104 +10346,12 @@ struct Math final {
     return static_cast<double>(std::bit_cast<std::int32_t>(product));
   }
   static double f16round(double value) {
-    const auto bits = std::bit_cast<std::uint32_t>(static_cast<float>(value));
-    const std::uint32_t sign = (bits >> 16U) & 0x8000U;
-    const std::uint32_t exponentBits = (bits >> 23U) & 0xffU;
-    std::uint32_t mantissa = bits & 0x7fffffU;
-    if (exponentBits == 0xffU) {
-      return mantissa == 0
-        ? (sign == 0 ? std::numeric_limits<double>::infinity() : -std::numeric_limits<double>::infinity())
-        : std::numeric_limits<double>::quiet_NaN();
-    }
-
-    std::int32_t exponent = static_cast<std::int32_t>(exponentBits) - 127 + 15;
-    std::uint32_t half;
-    if (exponent <= 0) {
-      if (exponent < -10) {
-        half = sign;
-      } else {
-        mantissa |= 0x800000U;
-        const auto shift = static_cast<std::uint32_t>(14 - exponent);
-        std::uint32_t rounded = mantissa >> shift;
-        const std::uint32_t remainder = mantissa & ((1U << shift) - 1U);
-        const std::uint32_t halfway = 1U << (shift - 1U);
-        if (remainder > halfway || (remainder == halfway && (rounded & 1U) != 0)) ++rounded;
-        half = sign | rounded;
-      }
-    } else if (exponent >= 31) {
-      half = sign | 0x7c00U;
-    } else {
-      std::uint32_t rounded = mantissa >> 13U;
-      const std::uint32_t remainder = mantissa & 0x1fffU;
-      if (remainder > 0x1000U || (remainder == 0x1000U && (rounded & 1U) != 0)) {
-        ++rounded;
-        if (rounded == 0x400U) {
-          rounded = 0;
-          ++exponent;
-        }
-      }
-      half = exponent >= 31
-        ? sign | 0x7c00U
-        : sign | (static_cast<std::uint32_t>(exponent) << 10U) | rounded;
-    }
-
-    const std::uint32_t halfExponent = (half >> 10U) & 0x1fU;
-    const std::uint32_t halfMantissa = half & 0x3ffU;
-    double result = halfExponent == 0
-      ? std::ldexp(static_cast<double>(halfMantissa), -24)
-      : std::ldexp(static_cast<double>(0x400U + halfMantissa), static_cast<int>(halfExponent) - 25);
-    return (half & 0x8000U) != 0 ? -result : result;
+    return float16Value(float16Storage(value));
   }
   static double random() {
     return static_cast<double>(std::rand()) / static_cast<double>(RAND_MAX);
   }
 };
-
-inline ArrayObject<double>* makeFloat16Array(double length) {
-  auto* result = Runtime::array<double>();
-  result->resize(static_cast<std::size_t>(std::max(0.0, std::trunc(length))));
-  return result;
-}
-
-template <typename T>
-inline ArrayObject<double>* makeFloat16Array(const ArrayObject<T>* values) {
-  auto* result = Runtime::array<double>();
-  if (!values) return result;
-  result->reserve(values->size());
-  for (std::size_t index = 0; index < values->size(); ++index) {
-    result->append(Math::f16round(Number(convertValue<Value>(values->get(index)))));
-  }
-  return result;
-}
-
-template <typename... Values>
-inline ArrayObject<double>* float16ArrayOf(Values... values) {
-  auto* result = Runtime::array<double>();
-  (result->append(Math::f16round(Number(convertValue<Value>(values)))), ...);
-  return result;
-}
-
-template <typename T>
-inline ArrayObject<double>* float16ArrayFrom(const ArrayObject<T>* values) {
-  return makeFloat16Array(values);
-}
-
-template <typename T, typename Callback>
-inline ArrayObject<double>* float16ArrayFrom(const ArrayObject<T>* values, Callback callback) {
-  auto* result = Runtime::array<double>();
-  if (!values) return result;
-  result->reserve(values->size());
-  for (std::size_t index = 0; index < values->size(); ++index) {
-    double mapped;
-    if constexpr (std::is_invocable_v<Callback, T, double>) {
-      mapped = Number(convertValue<Value>(callback(values->get(index), static_cast<double>(index))));
-    } else {
-      mapped = Number(convertValue<Value>(callback(values->get(index))));
-    }
-    result->append(Math::f16round(mapped));
-  }
-  return result;
-}
 
 class Console final {
  public:

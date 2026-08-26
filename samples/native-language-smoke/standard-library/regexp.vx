@@ -1,0 +1,50 @@
+import { standardApiCheck } from "./checks.vx"
+
+export fun runRegExpSmoke(): void {
+  val expression = /a/i
+  standardApiCheck(expression.test("A"), "RegExp.test")
+  standardApiCheck(expression.exec("A")?.[0] === "A", "RegExp.exec")
+  standardApiCheck(expression.source === "a", "RegExp.source")
+  standardApiCheck(expression.flags === "i", "RegExp.flags")
+  standardApiCheck(expression.ignoreCase, "RegExp.ignoreCase")
+  standardApiCheck(!expression.global, "RegExp.global")
+  standardApiCheck(!expression.multiline, "RegExp.multiline")
+  standardApiCheck(!expression.dotAll, "RegExp.dotAll")
+  standardApiCheck(!expression.sticky, "RegExp.sticky")
+  standardApiCheck(!expression.unicode, "RegExp.unicode")
+  standardApiCheck(!expression.unicodeSets, "RegExp.unicodeSets")
+  standardApiCheck(!expression.hasIndices, "RegExp.hasIndices")
+  standardApiCheck(expression.lastIndex === 0, "RegExp.lastIndex")
+  val repeated = /a/g
+  standardApiCheck(repeated.test("aba") && repeated.lastIndex === 1, "RegExp global first lastIndex")
+  standardApiCheck(repeated.test("aba") && repeated.lastIndex === 3, "RegExp global next lastIndex")
+  standardApiCheck(!repeated.test("aba") && repeated.lastIndex === 0, "RegExp global reset lastIndex")
+  val stickyExpression = /b/y
+  stickyExpression.lastIndex = 1
+  standardApiCheck(stickyExpression.test("abc") && stickyExpression.lastIndex === 2, "RegExp sticky lastIndex")
+  val compiled = /x/
+  compiled.compile("a", "i")
+  standardApiCheck(compiled.test("A"), "RegExp.compile")
+  val legacyExpression = /(a)(b)/
+  legacyExpression.exec("zabx")
+  standardApiCheck(RegExp.input === "zabx", "RegExp.input")
+  standardApiCheck(RegExp.lastMatch === "ab", "RegExp.lastMatch")
+  standardApiCheck(RegExp.lastParen === "b", "RegExp.lastParen")
+  standardApiCheck(RegExp.leftContext === "z", "RegExp.leftContext")
+  standardApiCheck(RegExp.rightContext === "x", "RegExp.rightContext")
+  standardApiCheck(RegExp["$1"] === "a", "RegExp.$1")
+  standardApiCheck(RegExp["$2"] === "b", "RegExp.$2")
+  standardApiCheck(RegExp["$3"] === "", "RegExp.$3")
+  standardApiCheck(RegExp["$4"] === "", "RegExp.$4")
+  standardApiCheck(RegExp["$5"] === "", "RegExp.$5")
+  standardApiCheck(RegExp["$6"] === "", "RegExp.$6")
+  standardApiCheck(RegExp["$7"] === "", "RegExp.$7")
+  standardApiCheck(RegExp["$8"] === "", "RegExp.$8")
+  standardApiCheck(RegExp["$9"] === "", "RegExp.$9")
+  standardApiCheck(RegExp["$&"] === "ab", "RegExp.$&")
+  standardApiCheck(RegExp["$+"] === "b", "RegExp.$+")
+  standardApiCheck(RegExp["$_"] === "zabx", "RegExp.$_")
+  standardApiCheck(RegExp["$`"] === "z", "RegExp.$`")
+  standardApiCheck(RegExp["$'"] === "x", "RegExp.$'")
+  if (vexaRuntime() === "native") standardApiCheck(RegExp.escape("a+b") === "\\x61\\+b", "RegExp.escape")
+}

@@ -18,7 +18,8 @@ function positionAfter(source: string, text: string, offsetAdjustment = 0): LspP
 
 describe("zod sample editor features", () => {
   it("preserves inferred alias types with bounded reusable analysis work", async () => {
-    const sourcePath = resolve(process.cwd(), "samples/zod/models.vx");
+    const workspaceRoot = resolve(process.cwd(), "samples/zod");
+    const sourcePath = resolve(workspaceRoot, "models.vx");
     const project = await resolveProjectForSource(sourcePath);
     await ensureRuntimeDependencies(sourcePath, project);
 
@@ -58,7 +59,7 @@ describe("zod sample editor features", () => {
     ];
     const result = await openEntrypointInLspSession(
       sourcePath,
-      process.cwd(),
+      workspaceRoot,
       hoverProbes,
       [completionProbe],
       source,
@@ -144,7 +145,7 @@ describe("zod sample editor features", () => {
     expect(inferredParsingSource === parsingSource).toBe(false);
     const importedAliasResult = await openEntrypointInLspSession(
       parsingSourcePath,
-      process.cwd(),
+      workspaceRoot,
       [
         positionAfter(inferredParsingSource, "const event =", -2),
         positionAfter(inferredParsingSource, "EventSchema.parse", -8),
@@ -221,7 +222,7 @@ describe("zod sample editor features", () => {
     const mainSource = await vfs().readFile(mainSourcePath);
     const parseDefinitionResult = await openEntrypointInLspSession(
       mainSourcePath,
-      process.cwd(),
+      workspaceRoot,
       [
         positionAfter(mainSource, "PublicUserSchema.parse", -2),
         positionAfter(mainSource, "EvenSchema.parse", -8),

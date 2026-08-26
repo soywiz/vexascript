@@ -1,0 +1,14 @@
+import { standardApiCheck } from "./checks.vx"
+
+sync fun invokeSyncBraceLambda(callback: (value: int) => int): int {
+  return callback(2)
+}
+
+async fun invokeAsyncBraceLambda(callback: (value: int) => Promise<int>): Promise<int> {
+  return await callback(2)
+}
+
+export async fun runSyntaxSmoke(): Promise<void> {
+  standardApiCheck(await invokeSyncBraceLambda(sync { it + 1 }) === 3, "syntax.sync-brace-lambda")
+  standardApiCheck(await invokeAsyncBraceLambda(async { Promise.resolve(it + 2) }) === 4, "syntax.async-brace-lambda")
+}

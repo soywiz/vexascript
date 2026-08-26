@@ -235,6 +235,14 @@ describe("parseObjectTypeAnnotation", () => {
     expect(result?.[0]?.name).toBe("constructor");
   });
 
+  it("parses a constructor signature with whitespace after new", () => {
+    const result = parseObjectTypeAnnotation("{ new (x: string): MyClass }");
+    expect(result?.[0]).toEqual({
+      name: "constructor",
+      typeName: "(x: string) => MyClass"
+    });
+  });
+
   it("distinguishes generic and non-generic call signatures from properties", () => {
     expect(parseObjectTypeAnnotation("{ <T>(value: T): Box<T>; (value: string): string; <T>(): <U = []>(value: T): Box<U>; label: string }"))
       .toEqual([

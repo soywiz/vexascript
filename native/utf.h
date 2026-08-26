@@ -184,6 +184,27 @@ class Utf16Regex final {
     return captures;
   }
 
+  double search(std::u16string_view value) const {
+    const auto input = utf16ToUtf8(value);
+    std::smatch match;
+    if (!std::regex_search(input, match, expression_)) return -1;
+    return static_cast<double>(utf8ToUtf16(input.substr(0, static_cast<std::size_t>(match.position()))).size());
+  }
+
+  std::vector<std::vector<std::u16string>> execAll(std::u16string_view value) const {
+    const auto input = utf16ToUtf8(value);
+    std::vector<std::vector<std::u16string>> result;
+    for (std::sregex_iterator iterator(input.begin(), input.end(), expression_), end;
+         iterator != end;
+         ++iterator) {
+      std::vector<std::u16string> captures;
+      captures.reserve(iterator->size());
+      for (const auto& capture : *iterator) captures.push_back(utf8ToUtf16(capture.str()));
+      result.push_back(std::move(captures));
+    }
+    return result;
+  }
+
   std::u16string replace(std::u16string_view value, std::u16string_view replacement) const {
     return utf8ToUtf16(std::regex_replace(
         utf16ToUtf8(value), expression_, utf16ToUtf8(replacement)));

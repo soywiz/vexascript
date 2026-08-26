@@ -1414,6 +1414,26 @@ describe("Analysis", () => {
     expect(messages).toEqual([]);
   });
 
+  it("resolves merged structural constructors inside ambient namespaces", () => {
+    const source = dedent`
+      fun demo() {
+        let collator = new Intl.Collator("en", { numeric: true })
+        let comparison: number = collator.compare("file2", "file10")
+        let locales: string[] = Intl.Collator.supportedLocalesOf(["en-US"])
+        let localeArgument: Intl.LocalesArgument = "en"
+        let numberFormat = new Intl.NumberFormat("en", { style: "currency", currency: "USD" })
+        let currencyStyle: Intl.NumberFormatOptionsStyle = numberFormat.resolvedOptions().style
+        console.log(comparison, locales.join(","), collator.resolvedOptions().numeric, localeArgument, currencyStyle)
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
   it("reports instance members accessed through a class while accepting static members", () => {
     const source = dedent`
       declare class Box3 {

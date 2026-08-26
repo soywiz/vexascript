@@ -11634,3 +11634,22 @@ interface RegExpConstructor {
      */
     escape(string: string): string;
 }
+
+// Compact additions already standardized by ECMA-402 but not yet present in
+// the TypeScript library snapshot used to assemble this declaration bundle.
+declare namespace Intl {
+    interface Locale {
+        readonly calendar: string | undefined;
+        readonly caseFirst: LocaleCollationCaseFirst | undefined;
+        readonly collation: string | undefined;
+        readonly hourCycle: LocaleHourCycleKey | undefined;
+        readonly numberingSystem: string | undefined;
+        readonly numeric: boolean;
+        readonly region: string | undefined;
+        readonly script: string | undefined;
+    }
+
+    interface PluralRules {
+        selectRange(start: number, end: number): LDMLPluralRule;
+    }
+}

@@ -891,12 +891,14 @@ export function parseObjectTypeAnnotation(typeName: string): ObjectTypeAnnotatio
 function parseObjectTypeAnnotationMember(part: string): ObjectTypeAnnotationMember {
   const trimmedPart = part.trim();
   const colonIndex = findTopLevelTypeCharacter(trimmedPart, ":");
-    if (trimmedPart.startsWith("new(")) {
-      const closeParenIndex = findMatchingTypeDelimiter(trimmedPart, 3, "(", ")");
+    const constructorPrefix = /^new\s*\(/.exec(trimmedPart);
+    if (constructorPrefix) {
+      const openParenIndex = constructorPrefix[0].length - 1;
+      const closeParenIndex = findMatchingTypeDelimiter(trimmedPart, openParenIndex, "(", ")");
       if (closeParenIndex >= 0) {
         const returnTypeSeparator = trimmedPart.slice(closeParenIndex + 1).trimStart();
         if (returnTypeSeparator.startsWith(":")) {
-          const parameterText = trimmedPart.slice(3, closeParenIndex + 1);
+          const parameterText = trimmedPart.slice(openParenIndex, closeParenIndex + 1);
           const returnTypeName = returnTypeSeparator.slice(1).trim();
           return {
             name: "constructor",

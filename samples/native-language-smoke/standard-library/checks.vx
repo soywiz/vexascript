@@ -1,0 +1,10 @@
+export fun standardApiCheck(condition: boolean, name: string): void {
+  if (!condition) {
+    console.log("standard library failure", name)
+    throw Error(`Standard library smoke failed: ${name}`)
+  }
+}
+
+export fun standardApiNear(actual: number, expected: number, name: string): void {
+  standardApiCheck(Math.abs(actual - expected) < 0.000001, name)
+}

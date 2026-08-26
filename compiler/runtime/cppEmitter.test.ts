@@ -3,6 +3,17 @@ import { getTypeCheckerWorkMetrics, resetTypeCheckerWorkMetrics } from "../analy
 import { transpile } from "./transpile";
 
 describe("C++ emitter", () => {
+  it("preserves floating-point type and signed zero in literals", () => {
+    const result = transpile(`
+const positiveZero = 0.0;
+const negativeZero = -0.0;
+`, { emit: "cpp", sourceFilePath: "/tmp/native-signed-zero.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("positiveZero = 0.0;");
+    expect(result.code).toContain("negativeZero = (-0.0);");
+  });
+
   it("declares recursive local callbacks before assigning their lambda", () => {
     const result = transpile(`
 class Node {}
@@ -236,20 +247,29 @@ function isKnown(value: string): boolean {
     expect(result.code).not.toContain("vexa::includes(");
   });
 
-  it("rejects explicitly unsupported standard-library APIs before generating invalid C++", () => {
-    const typedArray = transpile(`
-const values = new Int8Array(4);
-`, { emit: "cpp", sourceFilePath: "/tmp/unsupported-int8-array.ts" });
-    expect(typedArray.errors[0]).toContain("C++ standard library API 'Int8Array' is unsupported");
+  it("emits every standard typed-array representation plus resizable buffers and Intl", () => {
+    for (const name of [
+      "Int8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array",
+      "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array",
+    ]) {
+      const typedArray = transpile(`const values = new ${name}(4);`, {
+        emit: "cpp",
+        sourceFilePath: `/tmp/native-${name}.ts`,
+      });
+      expect(typedArray.errors).toEqual([]);
+      expect(typedArray.code).toContain(`vexa::makeTypedArray<vexa::TypedArrayKind::${name.slice(0, -"Array".length)}>(4)`);
+    }
     const buffer = transpile(`
 const buffer = new ArrayBuffer(8);
 buffer.resize(4);
-`, { emit: "cpp", sourceFilePath: "/tmp/unsupported-array-buffer-resize.ts" });
-    expect(buffer.errors[0]).toContain("C++ standard library API 'ArrayBuffer.resize' is unsupported");
+`, { emit: "cpp", sourceFilePath: "/tmp/native-array-buffer-resize.ts" });
+    expect(buffer.errors).toEqual([]);
+    expect(buffer.code).toContain("buffer->resize(static_cast<double>(4))");
     const intl = transpile(`
 const collator = new Intl.Collator("en");
-`, { emit: "cpp", sourceFilePath: "/tmp/unsupported-intl-collator.ts" });
-    expect(intl.errors[0]).toContain("C++ standard library API 'Intl.Collator' is unsupported");
+`, { emit: "cpp", sourceFilePath: "/tmp/native-intl-collator.ts" });
+    expect(intl.errors).toEqual([]);
+    expect(intl.code).toContain("vexa::IntlObjectKind::Collator");
   });
 
   it("does not treat inherited coverage-policy keys as standard-library owners", () => {
@@ -719,6 +739,33 @@ main()
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("vexa::vexaRuntimeName()");
     expect(result.code).toContain("vexa::vexaPlatformName()");
+  });
+
+  it("routes every supported ECMAScript error constructor through the native error type", () => {
+    const result = transpile(`
+const base = Error("base")
+const range = RangeError("range")
+const syntax = SyntaxError("syntax")
+const type = TypeError("type")
+`, { emit: "cpp", sourceFilePath: "/tmp/native-error-constructors.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code.match(/vexa::makeError\(/g)?.length).toBe(4);
+    expect(result.code).not.toContain("RangeError(");
+    expect(result.code).not.toContain("SyntaxError(");
+    expect(result.code).not.toContain("TypeError(");
+  });
+
+  it("widens typed-array reduce accumulators to the analyzed result type", () => {
+    const result = transpile(`
+const total = Float16Array.of(1.5, 2.25).reduce((sum, value) => sum + value, 0)
+`, { emit: "cpp", sourceFilePath: "/tmp/native-float16-reduce.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("double total");
+    expect(result.code).toContain("-> double");
+    expect(result.code).toContain("static_cast<double>(0)");
+    expect(result.code).not.toContain("std::int32_t total");
   });
 
   it("guards optional array method receivers before invoking native helpers", () => {

@@ -25,6 +25,7 @@ class BigInt final {
   BigInt() = default;
   BigInt(int value) { assignSigned(value); }
   BigInt(long long value) { assignSigned(value); }
+  BigInt(unsigned long long value) { assignUnsigned(value); }
   explicit BigInt(std::string_view text) { parse(text); }
   explicit BigInt(std::u16string_view text) { parse(text); }
 
@@ -61,6 +62,12 @@ class BigInt final {
       result = result * 4'294'967'296.0 + static_cast<double>(*iterator);
     }
     return negative_ ? -result : result;
+  }
+
+  std::uint64_t toUint64Modulo() const {
+    std::uint64_t result = limbs_.empty() ? 0 : limbs_[0];
+    if (limbs_.size() > 1) result |= static_cast<std::uint64_t>(limbs_[1]) << 32U;
+    return negative_ ? std::uint64_t(0) - result : result;
   }
 
   BigInt operator-() const {
@@ -194,6 +201,15 @@ class BigInt final {
       else magnitude = 0;
     }
     negative_ = negative && !isZero();
+  }
+
+  template <typename Unsigned>
+  void assignUnsigned(Unsigned value) {
+    while (value != 0) {
+      limbs_.push_back(static_cast<std::uint32_t>(value));
+      if constexpr (sizeof(Unsigned) > sizeof(std::uint32_t)) value >>= 32U;
+      else value = 0;
+    }
   }
 
   template <typename Character>

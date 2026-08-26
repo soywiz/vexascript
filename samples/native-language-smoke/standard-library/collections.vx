@@ -1,0 +1,59 @@
+import { standardApiCheck } from "./checks.vx"
+
+export fun runCollectionSmoke(): void {
+  val map = new Map<string, number>()
+  standardApiCheck(map.size === 0, "Map.size")
+  standardApiCheck(map.set("one", 1) === map, "Map.set")
+  standardApiCheck(map.get("one") === 1, "Map.get")
+  standardApiCheck(map.has("one"), "Map.has")
+  standardApiCheck([...map.keys()].join(",") === "one", "Map.keys")
+  standardApiCheck([...map.values()].join(",") === "1", "Map.values")
+  standardApiCheck([...map.entries()].length === 1, "Map.entries")
+  var mapTotal: number = 0
+  map.forEach((value) => mapTotal += value)
+  standardApiCheck(mapTotal === 1, "Map.forEach")
+  standardApiCheck(map.delete("one"), "Map.delete")
+  map.set("two", 2)
+  map.clear()
+  standardApiCheck(map.size === 0, "Map.clear")
+
+  val set = new Set<number>()
+  standardApiCheck(set.size === 0, "Set.size")
+  standardApiCheck(set.add(1) === set, "Set.add")
+  standardApiCheck(set.has(1), "Set.has")
+  standardApiCheck([...set.keys()].join(",") === "1", "Set.keys")
+  standardApiCheck([...set.values()].join(",") === "1", "Set.values")
+  var entryCount = 0
+  for (val entry of set.entries()) entryCount += 1
+  standardApiCheck(entryCount === 1, "Set.entries")
+  var setTotal: number = 0
+  set.forEach((value) => setTotal += value)
+  standardApiCheck(setTotal === 1, "Set.forEach")
+  standardApiCheck(set.delete(1), "Set.delete")
+  set.add(2)
+  set.clear()
+  standardApiCheck(set.size === 0, "Set.clear")
+
+  val weakKey = { id: 1 }
+  val weakMap = new WeakMap<object, number>()
+  standardApiCheck(weakMap.set(weakKey, 7) === weakMap, "WeakMap.set")
+  standardApiCheck(weakMap.get(weakKey) === 7, "WeakMap.get")
+  standardApiCheck(weakMap.has(weakKey), "WeakMap.has")
+  standardApiCheck(weakMap.delete(weakKey), "WeakMap.delete")
+  val weakSet = new WeakSet<object>()
+  standardApiCheck(weakSet.add(weakKey) === weakSet, "WeakSet.add")
+  standardApiCheck(weakSet.has(weakKey), "WeakSet.has")
+  standardApiCheck(weakSet.delete(weakKey), "WeakSet.delete")
+
+  val left = new Set<number>([1, 2, 3])
+  val right = new Set<number>([3, 4])
+  standardApiCheck([...left.union(right)].join(",") === "1,2,3,4", "Set.union")
+  standardApiCheck([...left.intersection(right)].join(",") === "3", "Set.intersection")
+  standardApiCheck([...left.difference(right)].join(",") === "1,2", "Set.difference")
+  standardApiCheck([...left.symmetricDifference(right)].join(",") === "1,2,4", "Set.symmetricDifference")
+  standardApiCheck(new Set<number>([1, 2]).isSubsetOf(left), "Set.isSubsetOf")
+  standardApiCheck(left.isSupersetOf(new Set<number>([1, 2])), "Set.isSupersetOf")
+  standardApiCheck(left.isDisjointFrom(new Set<number>([8, 9])), "Set.isDisjointFrom")
+  val groups = Map.groupBy([1, 2, 3, 4], (value) => value % 2)
+  standardApiCheck(groups.get(1)?.join(",") === "1,3", "Map.groupBy")
+}

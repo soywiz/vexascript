@@ -1,0 +1,99 @@
+import { standardApiCheck } from "./checks.vx"
+
+export fun runObjectAndPrimitiveSmoke(): void {
+  standardApiCheck(true.valueOf(), "Boolean.valueOf")
+  standardApiCheck((12.5).toFixed(1) === "12.5", "Number.toFixed")
+  standardApiCheck((12).toExponential(1) === "1.2e+1", "Number.toExponential")
+  standardApiCheck((12.345).toPrecision(4) === "12.35", "Number.toPrecision")
+  standardApiCheck((12).toString() === "12", "Number.toString")
+  standardApiCheck((12).valueOf() === 12, "Number.valueOf")
+  standardApiCheck((12).toLocaleString() === "12", "Number.toLocaleString")
+  standardApiCheck(Number.isFinite(12), "Number.isFinite")
+  standardApiCheck(Number.isInteger(12), "Number.isInteger")
+  standardApiCheck(Number.isNaN(parseFloat("not-a-number")), "Number.isNaN")
+  standardApiCheck(Number.isSafeInteger(9007199254740991), "Number.isSafeInteger")
+  standardApiCheck(Number.parseFloat("1.25") === 1.25, "Number.parseFloat")
+  standardApiCheck(Number.parseInt("ff", 16) === 255, "Number.parseInt")
+  standardApiCheck(Number.EPSILON > 0 && Number.EPSILON < 0.000000000000001, "Number.EPSILON")
+  standardApiCheck(Number.MAX_SAFE_INTEGER === 9007199254740991, "Number.MAX_SAFE_INTEGER")
+  standardApiCheck(Number.MAX_VALUE > Number.MAX_SAFE_INTEGER, "Number.MAX_VALUE")
+  standardApiCheck(Number.MIN_SAFE_INTEGER === -9007199254740991, "Number.MIN_SAFE_INTEGER")
+  standardApiCheck(Number.MIN_VALUE > 0 && Number.MIN_VALUE < Number.EPSILON, "Number.MIN_VALUE")
+  standardApiCheck(Number.NEGATIVE_INFINITY < -Number.MAX_VALUE, "Number.NEGATIVE_INFINITY")
+  standardApiCheck(Number.isNaN(Number.NaN), "Number.NaN")
+  standardApiCheck(Number.POSITIVE_INFINITY > Number.MAX_VALUE, "Number.POSITIVE_INFINITY")
+
+  val object = { first: 1, second: 2 }
+  val constructed = Object()
+  standardApiCheck(Object.keys(constructed).length === 0, "Object.constructor")
+  val assigned = Object.assign({ first: 1 }, { second: 2 }, { third: 3 })
+  standardApiCheck(
+    ((assigned as any)["first"] as number) +
+      ((assigned as any)["second"] as number) +
+      ((assigned as any)["third"] as number) === 6,
+    "Object.assign",
+  )
+  val prototype = { inherited: 11 }
+  val created = Object.create(prototype, {
+    own: { value: 7, enumerable: true, writable: true, configurable: true },
+  } as any)
+  standardApiCheck(created.inherited === 11 && created.own === 7, "Object.create")
+  standardApiCheck(Object.keys(object).join(",") === "first,second", "Object.keys")
+  standardApiCheck(Object.values(object).join(",") === "1,2", "Object.values")
+  standardApiCheck(Object.entries(object).length === 2, "Object.entries")
+  standardApiCheck(Object.fromEntries([["answer", 42]]).answer === 42, "Object.fromEntries")
+  val defined: { visible?: number } = {}
+  Object.defineProperty(defined, "visible", { value: 7, enumerable: true })
+  standardApiCheck(defined.visible === 7, "Object.defineProperty")
+  val multiple: { first?: number, hidden?: number } = {}
+  Object.defineProperties(multiple, {
+    first: { value: 3, enumerable: true, writable: true, configurable: true },
+    hidden: { value: 4, enumerable: false, writable: false, configurable: false },
+  } as any)
+  standardApiCheck(multiple.first === 3 && multiple.hidden === 4, "Object.defineProperties")
+  val descriptor = Object.getOwnPropertyDescriptor(multiple, "hidden")!
+  standardApiCheck(
+    ((descriptor as any)["value"] as number) === 4 &&
+      !((descriptor as any)["enumerable"] as boolean) &&
+      !((descriptor as any)["writable"] as boolean) &&
+      !((descriptor as any)["configurable"] as boolean),
+    "Object.getOwnPropertyDescriptor",
+  )
+  val descriptors = Object.getOwnPropertyDescriptors(multiple)
+  standardApiCheck(
+    ((descriptors["first"] as any)["value"] as number) === 3 &&
+      ((descriptors["hidden"] as any)["value"] as number) === 4,
+    "Object.getOwnPropertyDescriptors",
+  )
+  standardApiCheck(Object.getOwnPropertyNames(multiple).join(",") === "first,hidden", "Object.getOwnPropertyNames")
+  standardApiCheck(Object.getPrototypeOf(created) === prototype, "Object.getPrototypeOf")
+  val replacementPrototype = { replacement: 13 }
+  Object.setPrototypeOf(created, replacementPrototype)
+  standardApiCheck(created.replacement === 13, "Object.setPrototypeOf")
+  standardApiCheck(Object.hasOwn(created, "own") && !Object.hasOwn(created, "replacement"), "Object.hasOwn")
+  standardApiCheck(Object.is(parseFloat("NaN"), Number.NaN), "Object.is")
+  standardApiCheck(!Object.is(0.0, -0.0), "Object.is signed zero")
+
+  val extensible = { value: 1 }
+  standardApiCheck(Object.isExtensible(extensible), "Object.isExtensible")
+  Object.preventExtensions(extensible)
+  standardApiCheck(!Object.isExtensible(extensible), "Object.preventExtensions")
+  val sealed = Object.seal({ value: 2 })
+  standardApiCheck(Object.isSealed(sealed) && !Object.isFrozen(sealed), "Object.seal")
+  standardApiCheck(Object.isSealed(sealed), "Object.isSealed")
+  val frozen = Object.freeze({ value: 3 })
+  standardApiCheck(Object.isFrozen(frozen) && Object.isSealed(frozen), "Object.freeze")
+  standardApiCheck(Object.isFrozen(frozen), "Object.isFrozen")
+
+  standardApiCheck(
+    (created as Object).hasOwnProperty("own") && !(created as Object).hasOwnProperty("replacement"),
+    "Object.hasOwnProperty",
+  )
+  standardApiCheck((replacementPrototype as any as Object).isPrototypeOf(created), "Object.isPrototypeOf")
+  standardApiCheck((multiple as Object).propertyIsEnumerable("first") && !(multiple as Object).propertyIsEnumerable("hidden"), "Object.propertyIsEnumerable")
+  standardApiCheck((object as any as Object).toString() === "[object Object]", "Object.toString")
+  standardApiCheck((object as any as Object).toLocaleString() === "[object Object]", "Object.toLocaleString")
+  standardApiCheck((object as any as Object).valueOf() === object, "Object.valueOf")
+  val groups = Object.groupBy([1, 2, 3, 4], (value) => value % 2 === 0 ? "even" : "odd")
+  standardApiCheck(Object.keys(groups).includes("even"), "Object.groupBy")
+}
