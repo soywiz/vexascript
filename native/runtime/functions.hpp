@@ -103,17 +103,9 @@ inline Value toValue(const std::function<Result(Arguments...)>& callback) {
   return Value(makeFunction<Result, Arguments...>(callback));
 }
 
-inline Value call(const Value& callable, std::vector<Value> arguments) {
-  if (!callable.isRuntimeObject()) {
-    throw errorAtCurrentSource(u"VexaScript value is not callable");
-  }
-  return callable.object()->dynamicCall(arguments);
-}
+Value call(const Value& callable, std::vector<Value> arguments);
 
-inline Value callOptional(const Value& callable, std::vector<Value> arguments) {
-  if (callable.isNull() || callable.isUndefined()) return Value::undefined();
-  return call(callable, std::move(arguments));
-}
+Value callOptional(const Value& callable, std::vector<Value> arguments);
 
 template <typename Result>
 Result recordGet(RecordObject* record, const std::u16string& key) {

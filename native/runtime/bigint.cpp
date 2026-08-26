@@ -9,6 +9,7 @@
 
 namespace vexa {
 
+BigInt::BigInt() = default;
 BigInt::BigInt(int value) { assignSigned(value); }
 BigInt::BigInt(long long value) { assignSigned(value); }
 BigInt::BigInt(unsigned long long value) { assignUnsigned(value); }

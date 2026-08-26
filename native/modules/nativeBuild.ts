@@ -155,13 +155,16 @@ async function ensureRuntime(
   optimization: NativeOptimization
 ): Promise<{ libraryPath: string; pchPath?: string }> {
   const compilerSuffix = nativeCompilerCacheSuffix(compiler);
-  const artifactPrefix = `vexa-runtime-20260826-split-v3-${optimization.slice(1)}-${process.platform}-${nativeTargetArchitecture()}-${compilerSuffix}`;
+  const artifactPrefix = `vexa-runtime-20260826-split-v4-${optimization.slice(1)}-${process.platform}-${nativeTargetArchitecture()}-${compilerSuffix}`;
   const cacheRoot = nativeVexaCacheRoot();
   const runtimeRoot = resolve(root, "runtime");
   const cachedNativeRoot = resolve(cacheRoot, `${artifactPrefix}-sources`);
   const cachedRuntimeRoot = resolve(cachedNativeRoot, "runtime");
   const objectExtension = process.platform === "win32" ? ".obj" : ".o";
-  const runtimeSources = ["runtime.cpp", "bigint.cpp", "utf.cpp"];
+  const runtimeSources = (await readdir(runtimeRoot))
+    .filter((name) => (name as string).endsWith(".cpp"))
+    .map((name) => name as string)
+    .sort();
   const objectPaths = runtimeSources.map((source) =>
     resolve(cacheRoot, `${artifactPrefix}-${source.slice(0, -4)}${objectExtension}`));
   const libraryPath = resolve(cacheRoot, `lib${artifactPrefix}.a`);

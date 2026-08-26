@@ -4,21 +4,13 @@
 
 class Console final {
  public:
-  void log(std::initializer_list<Value> arguments) const {
-    write(std::cout, arguments);
-  }
+  void log(std::initializer_list<Value> arguments) const;
 
-  void info(std::initializer_list<Value> arguments) const {
-    write(std::cout, arguments);
-  }
+  void info(std::initializer_list<Value> arguments) const;
 
-  void warn(std::initializer_list<Value> arguments) const {
-    write(std::cerr, arguments);
-  }
+  void warn(std::initializer_list<Value> arguments) const;
 
-  void error(std::initializer_list<Value> arguments) const {
-    write(std::cerr, arguments);
-  }
+  void error(std::initializer_list<Value> arguments) const;
 
   template <typename... Arguments>
   void log(const Arguments&... arguments) const {
@@ -41,22 +33,14 @@ class Console final {
   }
 
  private:
-  static void write(std::ostream& output, std::initializer_list<Value> arguments) {
-    bool first = true;
-    for (const auto& argument : arguments) {
-      if (!first) output << ' ';
-      first = false;
-      print(output, argument);
-    }
-    output << '\n';
-  }
+  static void write(std::ostream& output, std::initializer_list<Value> arguments);
 
-  static void print(std::ostream& output, const Value& value) { output << utf16ToUtf8(inspectValue(value)); }
-  static void print(std::ostream& output, const std::u16string& value) { output << utf16ToUtf8(value); }
-  static void print(std::ostream& output, bool value) { output << (value ? "true" : "false"); }
-  static void print(std::ostream& output, double value) { output << utf16ToUtf8(numberToString(value)); }
-  static void print(std::ostream& output, float value) { output << utf16ToUtf8(numberToString(value)); }
-  static void print(std::ostream& output, const BigInt& value) { output << utf16ToUtf8(inspectValue(value)); }
+  static void print(std::ostream& output, const Value& value);
+  static void print(std::ostream& output, const std::u16string& value);
+  static void print(std::ostream& output, bool value);
+  static void print(std::ostream& output, double value);
+  static void print(std::ostream& output, float value);
+  static void print(std::ostream& output, const BigInt& value);
 
   template <typename T>
   static void print(std::ostream& output, ArrayObject<T>* values) {
@@ -105,4 +89,4 @@ class Console final {
   }
 };
 
-inline const Console console;
+extern const Console console;

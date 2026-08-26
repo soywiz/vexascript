@@ -17,9 +17,7 @@ inline T* rawPointer(const cppgc::Persistent<T>& value) {
   return value.Get();
 }
 
-inline BaseObject* rawPointer(const Value& value) {
-  return value.isRuntimeObject() ? value.object() : nullptr;
-}
+BaseObject* rawPointer(const Value& value);
 
 template <typename Target, typename Callback>
 inline Value optionalCall(Target* target, Callback&& callback) {

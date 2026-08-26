@@ -50,6 +50,10 @@ describe("native package contents", () => {
     for (const file of runtimeFiles) {
       expect((await readFile(join(root, "native/runtime", file))).byteLength).toBeTruthy();
     }
+    const runtimeHeaders = runtimeFiles.filter((file) => file.endsWith(".hpp"));
+    for (const header of runtimeHeaders) {
+      expect(runtimeFiles).toContain(`${header.slice(0, -".hpp".length)}.cpp`);
+    }
   });
 
   it("guards Clang-only Oilpan warning probes before GCC parses them", async () => {
@@ -62,17 +66,17 @@ describe("native package contents", () => {
   });
 
   it("packages platform-specific native command quoting", async () => {
-    const runtime = (await readFile(join(process.cwd(), "native/runtime/native_io.hpp"), "utf8"))
+    const runtime = (await readFile(join(process.cwd(), "native/runtime/native_io.cpp"), "utf8"))
       .replace(/\r\n/g, "\n");
-    const commandQuotingStart = runtime.indexOf("inline std::u16string shellQuote");
-    const commandQuotingEnd = runtime.indexOf("template <typename T>\ninline void nativeRunTask");
+    const commandQuotingStart = runtime.indexOf("std::u16string shellQuote");
+    const commandQuotingEnd = runtime.indexOf("Task<Value> nativeRunCommandCapture");
     expect(commandQuotingStart).toBeGreaterThan(-1);
     expect(commandQuotingEnd).toBeGreaterThan(commandQuotingStart);
     const commandQuoting = runtime.slice(commandQuotingStart, commandQuotingEnd);
 
-    expect(runtime).toContain("#if defined(_WIN32)\ninline std::u16string shellQuote");
-    expect(commandQuoting).toContain('shellCommand = u"cd /d " + shellQuote(workingDirectory) + u" && "');
-    expect(commandQuoting).toContain('#else\n    if (!workingDirectory.empty()) shellCommand = u"cd "');
+    expect(commandQuoting).toContain("#if defined(_WIN32)");
+    expect(runtime).toContain('shellCommand = u"cd /d " + shellQuote(workingDirectory) + u" && "');
+    expect(runtime).toContain('#else\n    if (!workingDirectory.empty()) shellCommand = u"cd "');
     expect(commandQuoting).not.toContain("std::string");
     expect(/\b(?:const\s+)?char\s*\*/.test(commandQuoting)).toBe(false);
   });
@@ -88,17 +92,17 @@ describe("native package contents", () => {
     const intl = await readFile(join(runtimeRoot, "intl.hpp"), "utf8");
 
     expect(date).toContain("class DateObject final");
-    expect(date).toContain("inline double dateNow()");
+    expect(date).toContain("double dateNow();");
     expect(date).not.toContain("vexaRuntimeName");
     expect(date).not.toContain("vexaPlatformName");
     expect(date).not.toContain("performanceNow");
-    expect(platform).toContain("inline double performanceNow()");
-    expect(platform).toContain("inline std::u16string vexaRuntimeName()");
-    expect(platform).toContain("inline std::u16string vexaPlatformName()");
+    expect(platform).toContain("double performanceNow();");
+    expect(platform).toContain("std::u16string vexaRuntimeName();");
+    expect(platform).toContain("std::u16string vexaPlatformName();");
     expect(arrays).toContain("class ArrayObject final");
     expect(collections).toContain("class MapObject final");
     expect(collections).toContain("class SetObject final");
-    expect(strings).toContain("inline std::u16string toUpperCase");
+    expect(strings).toContain("std::u16string toUpperCase");
     expect(regexp).toContain("class RegExp final");
     expect(intl).toContain("class IntlObject final");
   });
@@ -106,10 +110,7 @@ describe("native package contents", () => {
   it("uses whole-width unaligned DataView loads and stores", async () => {
     const runtime = (await readFile(join(process.cwd(), "native/runtime/data_view.hpp"), "utf8"))
       .replace(/\r\n/g, "\n");
-    const dataView = runtime.slice(
-      runtime.indexOf("class DataViewObject final"),
-      runtime.indexOf("template <typename T>\ninline ArrayObject<T>* arrayPointer")
-    );
+    const dataView = runtime.slice(runtime.indexOf("class DataViewObject final"));
 
     expect(dataView).toContain("std::memcpy(&value");
     expect(dataView).toContain("std::memcpy(buffer_->data()");

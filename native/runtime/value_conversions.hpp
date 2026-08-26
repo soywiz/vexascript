@@ -12,64 +12,37 @@ concept DynamicObjectView = requires(BaseObject* object) {
   { T::fromDynamicObject(object) } -> std::convertible_to<T*>;
 };
 
-inline const std::u16string& toText(const std::u16string& value) { return value; }
-inline std::u16string toText(std::u16string&& value) { return std::move(value); }
-inline std::u16string toText(const Value& value) {
-  if (value.isString()) return value.utf16();
-  throw errorAtCurrentSource(u"VexaScript value is not a string");
-}
+const std::u16string& toText(const std::u16string& value);
+std::u16string toText(std::u16string&& value);
+std::u16string toText(const Value& value);
 
-inline bool toBoolean(bool value) { return value; }
-inline bool toBoolean(Undefined) { return false; }
-inline bool toBoolean(double value) { return value != 0 && !std::isnan(value); }
-inline bool toBoolean(std::int32_t value) { return value != 0; }
-inline bool toBoolean(const Value& value) {
-  if (value.isBoolean()) return value.boolean();
-  if (value.isNumber()) return toBoolean(value.number());
-  if (value.isBigInt()) return !value.bigint().isZero();
-  return !value.isUndefined() && !value.isNull();
-}
+bool toBoolean(bool value);
+bool toBoolean(Undefined);
+bool toBoolean(double value);
+bool toBoolean(std::int32_t value);
+bool toBoolean(const Value& value);
 
-inline double toDouble(double value) { return value; }
-inline double toDouble(std::int32_t value) { return static_cast<double>(value); }
-inline double toDouble(bool value) { return static_cast<double>(value); }
-inline double toDouble(const Value& value) {
-  if (value.isNumber()) return value.number();
-  if (value.isBoolean()) return static_cast<double>(value.boolean());
-  if (value.isBigInt()) return value.bigint().toDouble();
-  throw errorAtCurrentSource(u"VexaScript value is not numeric");
-}
+double toDouble(double value);
+double toDouble(std::int32_t value);
+double toDouble(bool value);
+double toDouble(const Value& value);
 
-inline std::int32_t toNativeInt32(std::int32_t value) { return value; }
-inline std::int32_t toNativeInt32(double value) { return static_cast<std::int32_t>(value); }
-inline std::int32_t toNativeInt32(bool value) { return static_cast<std::int32_t>(value); }
-inline std::int32_t toNativeInt32(const Value& value) { return static_cast<std::int32_t>(toDouble(value)); }
+std::int32_t toNativeInt32(std::int32_t value);
+std::int32_t toNativeInt32(double value);
+std::int32_t toNativeInt32(bool value);
+std::int32_t toNativeInt32(const Value& value);
 
-inline BigInt toBigInt(const BigInt& value) { return value; }
-inline BigInt toBigInt(BigInt&& value) { return std::move(value); }
-inline BigInt toBigInt(const Value& value) {
-  if (value.isBigInt()) return value.bigint();
-  if (value.isBoolean()) return BigInt(value.boolean() ? 1 : 0);
-  if (value.isNumber() && std::isfinite(value.number()) && std::trunc(value.number()) == value.number()) {
-    return BigInt(formatFixedText(value.number(), 0));
-  }
-  if (value.isString()) return BigInt(value.string());
-  throw runtimeError(u"VexaScript value cannot be converted to bigint");
-}
+BigInt toBigInt(const BigInt& value);
+BigInt toBigInt(BigInt&& value);
+BigInt toBigInt(const Value& value);
 
-inline Undefined toUndefined(Undefined value) { return value; }
-inline Undefined toUndefined(const Value& value) {
-  if (!value.isUndefined()) throw runtimeError(u"VexaScript value is not undefined");
-  return {};
-}
+Undefined toUndefined(Undefined value);
+Undefined toUndefined(const Value& value);
 
-inline Null toNull(Null value) { return value; }
-inline Null toNull(const Value& value) {
-  if (!value.isNull()) throw errorAtCurrentSource(u"VexaScript value is not null");
-  return {};
-}
+Null toNull(Null value);
+Null toNull(const Value& value);
 
-inline Error toError(Error value) { return value; }
+Error toError(Error value);
 
 template <typename Result, typename Input>
   requires IsStdFunction<Result>::value
@@ -302,21 +275,21 @@ Result convertValue(Input&& input) {
   }
 }
 
-inline Value toValue(Value value) { return value; }
-inline Value toValue(const StoredValue& value) { return value.load(); }
-inline Value toValue(Undefined) { return Value::undefined(); }
-inline Value toValue(Null) { return Value::null(); }
-inline Value toValue(std::nullptr_t) { return Value::null(); }
-inline Value toValue(bool value) { return Value(value); }
-inline Value toValue(double value) { return Value(value); }
-inline Value toValue(float value) { return Value(static_cast<double>(value)); }
-inline Value toValue(std::int32_t value) { return Value(static_cast<double>(value)); }
-inline Value toValue(std::uint32_t value) { return Value(static_cast<double>(value)); }
-inline Value toValue(std::int64_t value) { return Value(static_cast<double>(value)); }
-inline Value toValue(std::uint64_t value) { return Value(static_cast<double>(value)); }
-inline Value toValue(BigInt value) { return Value(std::move(value)); }
-inline Value toValue(const std::u16string& value) { return Runtime::string(value); }
-inline Value toValue(std::u16string&& value) { return Runtime::string(std::move(value)); }
+Value toValue(Value value);
+Value toValue(const StoredValue& value);
+Value toValue(Undefined);
+Value toValue(Null);
+Value toValue(std::nullptr_t);
+Value toValue(bool value);
+Value toValue(double value);
+Value toValue(float value);
+Value toValue(std::int32_t value);
+Value toValue(std::uint32_t value);
+Value toValue(std::int64_t value);
+Value toValue(std::uint64_t value);
+Value toValue(BigInt value);
+Value toValue(const std::u16string& value);
+Value toValue(std::u16string&& value);
 
 template <typename T>
   requires std::is_enum_v<T>

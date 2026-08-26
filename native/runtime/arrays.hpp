@@ -51,12 +51,12 @@ class ArraySlot<T*> final {
 template <>
 class ArraySlot<Value> final {
  public:
-  ArraySlot() = default;
-  explicit ArraySlot(Value value) : value_(value) {}
+  ArraySlot();
+  explicit ArraySlot(Value value);
 
-  Value load() const { return value_.load(); }
-  void store(Value value) { value_.store(value); }
-  void Trace(cppgc::Visitor* visitor) const { value_.Trace(visitor); }
+  Value load() const;
+  void store(Value value);
+  void Trace(cppgc::Visitor* visitor) const;
 
  private:
   StoredValue value_;

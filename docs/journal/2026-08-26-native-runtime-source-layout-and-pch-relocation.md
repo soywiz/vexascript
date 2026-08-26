@@ -15,7 +15,11 @@ public umbrella over focused internal category headers for arrays, collections,
 Date, strings, regular expressions, Intl, binary data, promises, JSON, objects,
 tasks, math, console, and their dependency layers. BigInt and UTF helpers now
 have declaration headers and separately compiled implementations. The cached
-runtime archive contains objects for `runtime.cpp`, `bigint.cpp`, and `utf.cpp`.
+runtime archive originally contained objects for `runtime.cpp`, `bigint.cpp`,
+and `utf.cpp`. It now compiles every focused `.cpp` beside its `.hpp`, moving
+all concrete implementations out of the umbrella. Templates and `constexpr`
+functions remain in headers because their definitions must be visible at the
+point of instantiation.
 
 Generated code includes `runtime/runtime.hpp`, while Clang builds can suppress
 that textual include when a compatible PCH has already supplied the umbrella.
@@ -48,6 +52,15 @@ C++ test included the checkout umbrella while the PCH contained the mirrored
 umbrella. `#pragma once` is path-sensitive and therefore admitted both copies.
 A conventional umbrella include guard now makes the PCH and textual include
 mutually exclusive even when Clang sees different absolute paths.
+
+Splitting the implementations also exposed two mechanical hazards worth
+preserving. Libclang source offsets are UTF-8 byte offsets, so source rewriting
+must translate them before indexing a Unicode string; otherwise a literal such
+as the microsecond `μ` in Intl shifts every later edit. Out-of-line definitions
+also require nested return types such as `Runtime::TimerId` and
+`DynamicArrayRange::Iterator` to be explicitly qualified before the function
+name establishes class scope. Compiling every new translation unit separately
+before linking caught both classes of error quickly.
 
 The Linux CI job also exposed an option-precedence bug. Its legacy
 `VEXA_NATIVE_SINGLE_FILE=1` environment setting conflicted with tests that

@@ -69,7 +69,10 @@ level (default `-O2`). Sanitizer builds omit mimalloc so ASan can
 observe allocations through the system allocator.
 
 The VexaScript runtime is cached in the same directory as a
-`libvexa-runtime-*.a` static library. Clang builds also cache a compatible
+`libvexa-runtime-*.a` static library. Every focused runtime header has a matching
+translation unit; concrete functions and methods are compiled independently,
+while template and `constexpr` implementations remain visible in headers as
+required by C++. Clang builds also cache a compatible
 precompiled `runtime.hpp` so generated translation units do not reparse the
 runtime for every project or source module. The cache key includes every runtime
 category header, the separately compiled runtime, BigInt and UTF sources,
@@ -204,8 +207,9 @@ operands to `std::fmod` instead of emitting invalid C++ floating-point `%`.
 The public runtime umbrella lives in `native/runtime/runtime.hpp`. Focused category
 headers beside it contain arrays, collections, dates, strings, regular expressions,
 internationalization, binary data, promises, JSON, and the remaining runtime areas.
-`native/runtime/runtime.cpp`, `bigint.cpp`, and `utf.cpp` are compiled once into the
-cached runtime library; `bigint.hpp` and `utf.hpp` expose their declarations. The runtime initializes an actual
+Every `.cpp` beside those headers is compiled once into the cached runtime
+library. `bigint.hpp` and `utf.hpp` expose their declarations using the same
+header/implementation split. The runtime initializes an actual
 cppgc heap, represents dynamic `vexa::Value` strings as
 `cppgc::GarbageCollected` objects, keeps live dynamic strings rooted with
 `cppgc::Persistent`, and allocates generated class instances through the same

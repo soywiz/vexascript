@@ -407,10 +407,10 @@ inline bool isCollectionLikePointer(T* value) {
   return value && value->dynamicCast(nativeTypeToken<Kind>()) != nullptr;
 }
 
-inline bool isMapLike(const Value& value) { return isCollectionLikeValue<MapLikeObject>(value); }
-inline bool isSetLike(const Value& value) { return isCollectionLikeValue<SetLikeObject>(value); }
-inline bool isWeakMapLike(const Value& value) { return isCollectionLikeValue<WeakMapLikeObject>(value); }
-inline bool isWeakSetLike(const Value& value) { return isCollectionLikeValue<WeakSetLikeObject>(value); }
+bool isMapLike(const Value& value);
+bool isSetLike(const Value& value);
+bool isWeakMapLike(const Value& value);
+bool isWeakSetLike(const Value& value);
 
 template <typename T> inline bool isMapLike(T* value) { return isCollectionLikePointer<MapLikeObject>(value); }
 template <typename T> inline bool isSetLike(T* value) { return isCollectionLikePointer<SetLikeObject>(value); }

@@ -2,24 +2,13 @@
 
 // Internal runtime category header. Include runtime.hpp instead.
 
-inline const std::u16string& propertyKey(const std::u16string& value) { return value; }
-inline std::u16string propertyKey(double value) {
-  return formatNumberText(value);
-}
-inline std::u16string propertyKey(std::int32_t value) { return formatIntegerText(value); }
-inline std::u16string propertyKey(std::int64_t value) { return formatIntegerText(value); }
-inline std::u16string propertyKey(const BigInt& value) { return value.toString(); }
-inline std::u16string propertyKey(bool value) { return value ? u"true" : u"false"; }
-inline std::u16string propertyKey(const Value& value) {
-  if (value.isString()) return value.utf16();
-  if (value.isNumber()) return propertyKey(value.number());
-  if (value.isBigInt()) return propertyKey(value.bigint());
-  if (value.isBoolean()) return propertyKey(value.boolean());
-  if (value.isNull()) return u"null";
-  if (value.isUndefined()) return u"undefined";
-  if (value.isRuntimeObject()) return value.object()->dynamicToString();
-  return u"[object Object]";
-}
+const std::u16string& propertyKey(const std::u16string& value);
+std::u16string propertyKey(double value);
+std::u16string propertyKey(std::int32_t value);
+std::u16string propertyKey(std::int64_t value);
+std::u16string propertyKey(const BigInt& value);
+std::u16string propertyKey(bool value);
+std::u16string propertyKey(const Value& value);
 
 template <typename Callback, typename T>
 inline decltype(auto) invokeGroupByCallback(Callback& callback, T value, std::size_t index) {

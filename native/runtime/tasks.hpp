@@ -31,7 +31,7 @@ class ReturnSignal final {
 template <>
 class ReturnSignal<void> final {
  public:
-  void value() const {}
+  void value() const;
 };
 
 template <typename T, typename Callback>
@@ -48,23 +48,23 @@ class BreakSignal final {};
 class ContinueSignal final {};
 class LabeledBreakSignal final {
  public:
-  explicit LabeledBreakSignal(std::u16string label) : label_(std::move(label)) {}
-  const std::u16string& label() const { return label_; }
+  explicit LabeledBreakSignal(std::u16string label);
+  const std::u16string& label() const;
  private:
   std::u16string label_;
 };
 class LabeledContinueSignal final {
  public:
-  explicit LabeledContinueSignal(std::u16string label) : label_(std::move(label)) {}
-  const std::u16string& label() const { return label_; }
+  explicit LabeledContinueSignal(std::u16string label);
+  const std::u16string& label() const;
  private:
   std::u16string label_;
 };
 
 class RejectedValue final {
  public:
-  explicit RejectedValue(Value reason) : reason_(std::move(reason)) {}
-  const Value& reason() const { return reason_; }
+  explicit RejectedValue(Value reason);
+  const Value& reason() const;
 
  private:
   Value reason_;
@@ -293,7 +293,7 @@ class Task<void> final {
   };
 
   struct promise_type final {
-    promise_type() : state(makeState()) {}
+    promise_type();
 
     template <typename... Arguments>
     explicit promise_type(Arguments&&...) : state(makeState()) {}
@@ -301,27 +301,23 @@ class Task<void> final {
     template <typename Owner, typename... Arguments>
     promise_type(Owner&, Arguments&&...) : state(makeState()) {}
 
-    Task get_return_object() { return Task(state); }
-    std::suspend_never initial_suspend() const noexcept { return {}; }
-    std::suspend_never final_suspend() const noexcept { return {}; }
-    void return_void() { resolve(state); }
-    void unhandled_exception() { reject(state, std::current_exception()); }
+    Task get_return_object();
+    std::suspend_never initial_suspend() const noexcept;
+    std::suspend_never final_suspend() const noexcept;
+    void return_void();
+    void unhandled_exception();
 
     TaskStateHandle<State> state;
   };
 
-  Task() = default;
+  Task();
 
   class Awaiter final {
    public:
-    explicit Awaiter(TaskStateHandle<State> state) : state_(std::move(state)) {}
-    bool await_ready() const noexcept { return state_->settled; }
-    void await_suspend(std::coroutine_handle<> continuation) {
-      onSettled(state_, [continuation]() mutable { continuation.resume(); });
-    }
-    void await_resume() const {
-      if (state_->error) std::rethrow_exception(state_->error);
-    }
+    explicit Awaiter(TaskStateHandle<State> state);
+    bool await_ready() const noexcept;
+    void await_suspend(std::coroutine_handle<> continuation);
+    void await_resume() const;
 
    private:
     TaskStateHandle<State> state_;
@@ -352,29 +348,21 @@ class Task<void> final {
     return Task(std::move(state));
   }
 
-  void get() const {
-    Runtime::runUntil([this] { return state_->settled; });
-    if (state_->error) std::rethrow_exception(state_->error);
-  }
+  void get() const;
 
-  Awaiter operator co_await() const { return Awaiter(state_); }
+  Awaiter operator co_await() const;
 
-  void whenSettled(std::function<void()> continuation) const {
-    onSettled(state_, std::move(continuation));
-  }
+  void whenSettled(std::function<void()> continuation) const;
 
-  void settledValue() const {
-    if (!state_->settled) throw runtimeError(u"Promise is not settled");
-    if (state_->error) std::rethrow_exception(state_->error);
-  }
+  void settledValue() const;
 
-  std::exception_ptr settledError() const { return state_->error; }
+  std::exception_ptr settledError() const;
 
  private:
   class Resolver final {
    public:
-    explicit Resolver(TaskStateHandle<State> state) : state_(std::move(state)) {}
-    void operator()() const { resolve(state_); }
+    explicit Resolver(TaskStateHandle<State> state);
+    void operator()() const;
 
    private:
     TaskStateHandle<State> state_;
@@ -382,15 +370,11 @@ class Task<void> final {
 
   class Rejecter final {
    public:
-    explicit Rejecter(TaskStateHandle<State> state) : state_(std::move(state)) {}
+    explicit Rejecter(TaskStateHandle<State> state);
 
-    void operator()() const {
-      reject(state_, std::make_exception_ptr(runtimeError(u"Promise rejected")));
-    }
+    void operator()() const;
 
-    void operator()(const Error& error) const {
-      reject(state_, std::make_exception_ptr(RejectedValue(Runtime::string(error.messageText()))));
-    }
+    void operator()(const Error& error) const;
 
     template <typename Reason>
       requires (!std::is_same_v<std::remove_cvref_t<Reason>, Error>)
@@ -403,36 +387,17 @@ class Task<void> final {
     TaskStateHandle<State> state_;
   };
 
-  static TaskStateHandle<State> makeState() {
-    return TaskStateHandle<State>();
-  }
+  static TaskStateHandle<State> makeState();
 
-  static void resolve(const TaskStateHandle<State>& state) {
-    if (state->settled) return;
-    state->settled = true;
-    notify(state);
-  }
+  static void resolve(const TaskStateHandle<State>& state);
 
-  static void reject(const TaskStateHandle<State>& state, std::exception_ptr error) {
-    if (state->settled) return;
-    state->error = std::move(error);
-    state->settled = true;
-    notify(state);
-  }
+  static void reject(const TaskStateHandle<State>& state, std::exception_ptr error);
 
-  static void onSettled(const TaskStateHandle<State>& state, std::function<void()> continuation) {
-    if (state->settled) Runtime::enqueueMicrotask(std::move(continuation));
-    else state->continuations.push_back(std::move(continuation));
-  }
+  static void onSettled(const TaskStateHandle<State>& state, std::function<void()> continuation);
 
-  static void notify(const TaskStateHandle<State>& state) {
-    for (auto& continuation : state->continuations) {
-      Runtime::enqueueMicrotask(std::move(continuation));
-    }
-    state->continuations.clear();
-  }
+  static void notify(const TaskStateHandle<State>& state);
 
-  explicit Task(TaskStateHandle<State> state) : state_(std::move(state)) {}
+  explicit Task(TaskStateHandle<State> state);
 
   TaskStateHandle<State> state_;
 };

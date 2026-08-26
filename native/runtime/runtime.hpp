@@ -9,6 +9,7 @@
 #include <atomic>
 #include <bit>
 #include <chrono>
+#include <compare>
 #include <cctype>
 #include <cmath>
 #include <coroutine>

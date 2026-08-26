@@ -11,9 +11,7 @@ inline ArrayObject<T>* arrayWithLength(double length) {
 }
 
 template <>
-inline Value defaultValue<Value>() {
-  return Value::undefined();
-}
+Value defaultValue<Value>();
 
 template <typename T>
 class Ready final {

@@ -16,7 +16,7 @@ namespace vexa {
 // common small divisors and a dependency-free bit-at-a-time general fallback.
 class BigInt final {
  public:
-  BigInt() = default;
+  BigInt();
   BigInt(int value);
   BigInt(long long value);
   BigInt(unsigned long long value);

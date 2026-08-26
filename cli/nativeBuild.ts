@@ -423,7 +423,9 @@ async function ensureNativeRuntimeLibrary(
   const cachedNativeRoot = resolve(cacheRoot, `${artifactName}-sources`);
   const cachedRuntimeRoot = resolve(cachedNativeRoot, "runtime");
   const objectExtension = process.platform === "win32" ? ".obj" : ".o";
-  const runtimeSources = ["runtime.cpp", "bigint.cpp", "utf.cpp"];
+  const runtimeSources = (await readdir(runtimeRoot))
+    .filter((name) => name.endsWith(".cpp"))
+    .sort();
   const objectPaths = runtimeSources.map((source) => resolve(
     cacheRoot,
     `${artifactName}-${source.slice(0, -".cpp".length)}-${nativeCompilerCacheSuffix(compiler)}${objectExtension}`
@@ -448,21 +450,27 @@ async function ensureNativeRuntimeLibrary(
       ]);
     }
     if (!(await exists(libraryPath))) {
-      for (let index = 0; index < runtimeSources.length; ++index) {
-        const runtimeSource = runtimeSources[index] ?? "";
-        const objectPath = objectPaths[index] ?? "";
-        const compileArgs = [
-          ...nativeCompilerFrontendArguments(resolve(cachedRuntimeRoot, runtimeSource), cachedNativeRoot, gcRoot, process.platform, options, optimization),
-          ...(options.extraFlags ?? []),
-          "-c",
-          "-o",
-          objectPath,
-        ];
-        const result = await runCommandCapture(compiler, compileArgs);
-        if (result.code !== 0) {
-          throw new Error(result.stderr || result.stdout || `${compiler} failed compiling the cached VexaScript runtime`);
+      let nextRuntimeSource = 0;
+      const compileNextRuntimeSource = async (): Promise<void> => {
+        while (nextRuntimeSource < runtimeSources.length) {
+          const index = nextRuntimeSource++;
+          const runtimeSource = runtimeSources[index] ?? "";
+          const objectPath = objectPaths[index] ?? "";
+          const compileArgs = [
+            ...nativeCompilerFrontendArguments(resolve(cachedRuntimeRoot, runtimeSource), cachedNativeRoot, gcRoot, process.platform, options, optimization),
+            ...(options.extraFlags ?? []),
+            "-c",
+            "-o",
+            objectPath,
+          ];
+          const result = await runCommandCapture(compiler, compileArgs);
+          if (result.code !== 0) {
+            throw new Error(result.stderr || result.stdout || `${compiler} failed compiling ${runtimeSource}`);
+          }
         }
-      }
+      };
+      const runtimeWorkerCount = Math.max(1, Math.min(2, availableParallelism(), runtimeSources.length));
+      await Promise.all(Array.from({ length: runtimeWorkerCount }, () => compileNextRuntimeSource()));
       await runCommand("ar", ["rcs", libraryPath, ...objectPaths]);
     }
     if (pchPath && !(await exists(pchPath))) {
