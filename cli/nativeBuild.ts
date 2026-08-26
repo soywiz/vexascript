@@ -1,4 +1,5 @@
-import { access, copyFile, mkdir, rename, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { availableParallelism, homedir } from "node:os";
 import { basename, dirname, extname, posix, resolve, win32 } from "node:path";
 import { LANGUAGE_FILE_EXTENSION } from "../compiler/language";
@@ -8,6 +9,7 @@ import { nativeCompilerCommand, runCommand, runCommandCapture } from "./io";
 export interface NativeBuildResult {
   executablePath: string;
   oilpanLibraryPath: string;
+  runtimeLibraryPath: string;
   mimallocLibraryPath?: string;
   compiler: "g++" | "clang++" | "g++ + clang++" | "clang++ + g++";
   fallbackCompiler?: "g++" | "clang++";
@@ -241,6 +243,8 @@ interface NativeCompilerOptions {
   gcStress?: boolean;
   optimization?: NativeOptimization;
   mimallocLibraryPath?: string;
+  runtimeLibraryPath?: string;
+  runtimePchPath?: string;
   extraFlags?: string[];
 }
 
@@ -285,7 +289,7 @@ async function ensureMimallocLibrary(root: string, platform: NodeJS.Platform, co
   return libraryPath;
 }
 
-function nativeMimallocLinkArguments(libraryPath: string, platform: NodeJS.Platform): string[] {
+function nativeWholeArchiveLinkArguments(libraryPath: string, platform: NodeJS.Platform): string[] {
   return platform === "darwin"
     ? [`-Wl,-force_load,${libraryPath}`]
     : ["-Wl,--whole-archive", libraryPath, "-Wl,--no-whole-archive"];
@@ -312,9 +316,11 @@ function nativeCompilerFrontendArguments(
     "-DCPPGC_IS_STANDALONE=1",
     ...(platform === "darwin" ? ["-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO"] : []),
     ...(platform === "win32" ? ["-D_WIN32_WINNT=0x0A00", "-DNOMINMAX"] : []),
+    ...(platform === "win32" ? [] : ["-pthread"]),
     "-DV8_LOGGING_LEVEL=0",
     ...(options.debug || instrumented ? ["-DVEXA_NATIVE_DEBUG=1"] : []),
     ...(options.gcStress ? ["-DVEXA_NATIVE_GC_STRESS=1"] : []),
+    ...(options.runtimePchPath ? ["-include-pch", options.runtimePchPath] : []),
     ...(typeof cppPaths === "string" ? [cppPaths] : cppPaths),
     `-I${root}`,
     `-I${gcRoot}`,
@@ -342,8 +348,9 @@ export function nativeCompilerArguments(
       options.optimization ?? (instrumented ? "-O1" : "-O2")
     ),
     ...(!instrumented && options.mimallocLibraryPath
-      ? nativeMimallocLinkArguments(options.mimallocLibraryPath, platform)
+      ? nativeWholeArchiveLinkArguments(options.mimallocLibraryPath, platform)
       : []),
+    ...(options.runtimeLibraryPath ? nativeWholeArchiveLinkArguments(options.runtimeLibraryPath, platform) : []),
     libraryPath,
     ...(platform === "win32" ? [] : ["-pthread"]),
     ...(platform === "darwin"
@@ -365,27 +372,118 @@ export function nativeSyntaxCompiler(platform: NodeJS.Platform = process.platfor
   return platform === "linux" ? "clang++" : "g++";
 }
 
+interface NativeRuntimeBuildArtifacts {
+  libraryPath: string;
+  pchPath?: string;
+}
+
+async function nativeRuntimeCacheKey(
+  root: string,
+  compiler: NativeCxxCompiler,
+  options: NativeCompilerOptions,
+  optimization: NativeOptimization
+): Promise<string> {
+  const hash = createHash("sha256");
+  hash.update("vexa-runtime-cache-v2");
+  hash.update(JSON.stringify({
+    compiler,
+    optimization,
+    platform: process.platform,
+    architecture: process.arch,
+    sanitizers: options.sanitizers === true,
+    debug: options.debug === true,
+    gcStress: options.gcStress === true,
+    extraFlags: options.extraFlags ?? [],
+  }));
+  for (const name of ["runtime.hpp", "runtime.cpp", "bigint.h", "utf.h"]) {
+    hash.update(await readFile(resolve(root, name)));
+  }
+  return hash.digest("hex").slice(0, 20);
+}
+
+async function ensureNativeRuntimeLibrary(
+  root: string,
+  gcRoot: string,
+  compiler: NativeCxxCompiler,
+  options: NativeCompilerOptions,
+  optimization: NativeOptimization
+): Promise<NativeRuntimeBuildArtifacts> {
+  const cacheKey = await nativeRuntimeCacheKey(root, compiler, options, optimization);
+  const artifactName = `vexa-runtime-${cacheKey}`;
+  const cacheRoot = nativeDependencyCacheRoot();
+  const libraryPath = nativeDependencyArtifactPath(`lib${artifactName}`, ".a", process.platform, process.arch, homedir(), compiler);
+  const objectPath = resolve(cacheRoot, `${artifactName}-${nativeCompilerCacheSuffix(compiler)}${process.platform === "win32" ? ".obj" : ".o"}`);
+  const pchPath = compiler === "clang++"
+    ? nativeDependencyArtifactPath(artifactName, ".pch", process.platform, process.arch, homedir(), compiler)
+    : undefined;
+  if (await exists(libraryPath) && (!pchPath || await exists(pchPath))) {
+    return { libraryPath, ...(pchPath ? { pchPath } : {}) };
+  }
+
+  await withNativeBuildLock(resolve(cacheRoot, `${artifactName}.lock`), async () => {
+    await mkdir(cacheRoot, { recursive: true });
+    if (!(await exists(libraryPath))) {
+      const compileArgs = [
+        ...nativeCompilerFrontendArguments(resolve(root, "runtime.cpp"), root, gcRoot, process.platform, options, optimization),
+        ...(options.extraFlags ?? []),
+        "-c",
+        "-o",
+        objectPath,
+      ];
+      const result = await runCommandCapture(compiler, compileArgs);
+      if (result.code !== 0) {
+        throw new Error(result.stderr || result.stdout || `${compiler} failed compiling the cached VexaScript runtime`);
+      }
+      await runCommand("ar", ["rcs", libraryPath, objectPath]);
+    }
+    if (pchPath && !(await exists(pchPath))) {
+      const pchArgs = [
+        ...nativeCompilerFrontendArguments([], root, gcRoot, process.platform, options, optimization),
+        ...(options.extraFlags ?? []),
+        "-x",
+        "c++-header",
+        resolve(root, "runtime.hpp"),
+        "-o",
+        pchPath,
+      ];
+      const result = await runCommandCapture(compiler, pchArgs);
+      if (result.code !== 0) {
+        throw new Error(result.stderr || result.stdout || `${compiler} failed compiling the cached VexaScript runtime header`);
+      }
+    }
+  });
+  return { libraryPath, ...(pchPath ? { pchPath } : {}) };
+}
+
 interface PreparedNativeBuildDependencies {
   compiler: NativeCxxCompiler;
   root: string;
   gcRoot: string;
   oilpanLibraryPath: string;
   mimallocLibraryPath?: string;
+  runtimeLibraryPath: string;
+  runtimePchPath?: string;
 }
 
-async function preparedNativeBuildDependencies(): Promise<PreparedNativeBuildDependencies> {
+async function preparedNativeBuildDependencies(
+  options: NativeCompilerOptions = {},
+  optimization: NativeOptimization = options.sanitizers ? "-O1" : "-O2"
+): Promise<PreparedNativeBuildDependencies> {
   const compiler = await nativeCompiler(process.platform);
   const root = nativeRoot();
-  const sanitizers = process.env["VEXA_NATIVE_SANITIZERS"] === "1";
+  const sanitizers = options.sanitizers === true || process.env["VEXA_NATIVE_SANITIZERS"] === "1";
   const [{ gcRoot, libraryPath: oilpanLibraryPath }, mimallocLibraryPath] = await Promise.all([
     ensureOilpanLibrary(root, compiler),
     sanitizers ? Promise.resolve(undefined) : ensureMimallocLibrary(root, process.platform, compiler),
   ]);
+  const runtime = await ensureNativeRuntimeLibrary(root, gcRoot, compiler, { ...options, sanitizers }, optimization);
   return {
     compiler,
     root,
     gcRoot,
     oilpanLibraryPath,
+    runtimeLibraryPath: runtime.libraryPath,
+    ...(runtime.pchPath ? { runtimePchPath: runtime.pchPath } : {}),
     ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
   };
 }
@@ -415,7 +513,16 @@ export async function compileNativeExecutable(
   optimization?: NativeOptimization
 ): Promise<NativeBuildResult> {
   const sanitizers = process.env["VEXA_NATIVE_SANITIZERS"] === "1";
-  const { compiler, root, gcRoot, oilpanLibraryPath, mimallocLibraryPath } = await preparedNativeBuildDependencies();
+  const selectedOptimization = optimization ?? (sanitizers ? "-O1" : "-O2");
+  const compilerOptions: NativeCompilerOptions = {
+    sanitizers,
+    debug: process.env["VEXA_NATIVE_DEBUG"] === "1",
+    gcStress: process.env["VEXA_NATIVE_GC_STRESS"] === "1",
+    optimization: selectedOptimization,
+    extraFlags,
+  };
+  const { compiler, root, gcRoot, oilpanLibraryPath, mimallocLibraryPath, runtimeLibraryPath, runtimePchPath } =
+    await preparedNativeBuildDependencies(compilerOptions, selectedOptimization);
   await mkdir(dirname(executablePath), { recursive: true });
 
   if (typeof cppPaths !== "string" && cppPaths.length > 1) {
@@ -435,11 +542,9 @@ export async function compileNativeExecutable(
         const objectPath = objectPaths[index]!;
         const compileArgs = [
           ...nativeCompilerFrontendArguments(sourcePath, root, gcRoot, process.platform, {
-            sanitizers,
-            debug: process.env["VEXA_NATIVE_DEBUG"] === "1",
-            gcStress: process.env["VEXA_NATIVE_GC_STRESS"] === "1",
-            ...(optimization ? { optimization } : {}),
-          }, optimization ?? (sanitizers ? "-O1" : "-O2")),
+            ...compilerOptions,
+            ...(runtimePchPath ? { runtimePchPath } : {}),
+          }, selectedOptimization),
           ...extraFlags,
           "-c",
           "-o",
@@ -468,7 +573,8 @@ export async function compileNativeExecutable(
     await Promise.all(Array.from({ length: workerCount }, () => compileNext()));
     const linkArgs = [
       ...objectPaths,
-      ...(!sanitizers && mimallocLibraryPath ? nativeMimallocLinkArguments(mimallocLibraryPath, process.platform) : []),
+      ...(!sanitizers && mimallocLibraryPath ? nativeWholeArchiveLinkArguments(mimallocLibraryPath, process.platform) : []),
+      ...nativeWholeArchiveLinkArguments(runtimeLibraryPath, process.platform),
       oilpanLibraryPath,
       ...(process.platform === "win32" ? [] : ["-pthread"]),
       ...(process.platform === "darwin"
@@ -487,6 +593,7 @@ export async function compileNativeExecutable(
     return {
       executablePath,
       oilpanLibraryPath,
+      runtimeLibraryPath,
       compiler: fallbackCompiler ? `${compiler} + ${fallbackCompiler}` as "g++ + clang++" | "clang++ + g++" : usedCompiler,
       ...(fallbackCompiler ? { fallbackCompiler } : {}),
       ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
@@ -494,10 +601,9 @@ export async function compileNativeExecutable(
   }
 
   const args = nativeCompilerArguments(cppPaths, executablePath, root, gcRoot, oilpanLibraryPath, process.platform, {
-    sanitizers,
-    debug: process.env["VEXA_NATIVE_DEBUG"] === "1",
-    gcStress: process.env["VEXA_NATIVE_GC_STRESS"] === "1",
-    ...(optimization ? { optimization } : {}),
+    ...compilerOptions,
+    ...(runtimePchPath ? { runtimePchPath } : {}),
+    runtimeLibraryPath,
     extraFlags,
     ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
   });
@@ -505,6 +611,7 @@ export async function compileNativeExecutable(
   if (result.code === 0) return {
     executablePath,
     oilpanLibraryPath,
+    runtimeLibraryPath,
     compiler,
     ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),
   };
@@ -517,6 +624,7 @@ export async function compileNativeExecutable(
     if (fallback.code === 0) return {
       executablePath,
       oilpanLibraryPath,
+      runtimeLibraryPath,
       compiler: `${compiler} + ${fallbackCompiler}` as "g++ + clang++" | "clang++ + g++",
       fallbackCompiler,
       ...(mimallocLibraryPath ? { mimallocLibraryPath } : {}),

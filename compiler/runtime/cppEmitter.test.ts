@@ -627,7 +627,7 @@ console.log(nativeAdd(2, 3))
 `, { emit: "cpp" });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain('#include <native_api.h>\n#include "runtime.cpp"');
+    expect(result.code).toContain('#include <native_api.h>\n#include "runtime.hpp"');
     expect(result.code).toContain("return native_add(left, right);");
   });
 

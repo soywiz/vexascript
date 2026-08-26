@@ -274,6 +274,7 @@ async function main(): Promise<void> {
         copyFile(resolve(rootDirectory, "compiler", "runtime", "es2025.d.ts"), resolve(tscDirectory, "compiler", "runtime", "es2025.d.ts")),
         copyFile(resolve(rootDirectory, "compiler", "runtime", "vexascript.d.vx"), resolve(tscDirectory, "compiler", "runtime", "vexascript.d.vx")),
         copyFile(resolve(rootDirectory, "native", "runtime.cpp"), resolve(tscDirectory, "native", "runtime.cpp")),
+        copyFile(resolve(rootDirectory, "native", "runtime.hpp"), resolve(tscDirectory, "native", "runtime.hpp")),
         copyFile(resolve(rootDirectory, "native", "bigint.h"), resolve(tscDirectory, "native", "bigint.h")),
         copyFile(resolve(rootDirectory, "native", "utf.h"), resolve(tscDirectory, "native", "utf.h")),
         copyFile(resolve(rootDirectory, "native", "oilpan-20260622.zip"), resolve(tscDirectory, "native", "oilpan-20260622.zip")),

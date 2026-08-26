@@ -18,6 +18,7 @@
   "files": [
     "dist",
     "native/runtime.cpp",
+    "native/runtime.hpp",
     "native/bigint.h",
     "native/utf.h",
     "native/oilpan-20260622.zip",

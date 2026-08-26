@@ -39,6 +39,7 @@ console.log(new Box<string>(nameOf(named)).get());`, "utf8");
         executablePath,
         "--build-dir",
         buildRoot,
+        "--module-files",
         "-O0",
       ]);
       const result = await runCommandCapture(executablePath, [], { cwd: projectRoot });
@@ -81,6 +82,7 @@ console.log(selected(), renamed(), values.second(), [1, 2, 3].doubledLength, 4.t
         executablePath,
         "--build-dir",
         buildRoot,
+        "--module-files",
         "-O0",
       ]);
       const result = await runCommandCapture(executablePath, [], { cwd: projectRoot });
@@ -105,7 +107,7 @@ console.log(value())`, "utf8");
 
     try {
       await runCli(["node", "vexa", "cpp", projectRoot]);
-      const cpp = await readFile(join(projectRoot, "native-dist", "module-0000.cpp"), "utf8");
+      const cpp = await readFile(join(projectRoot, "native-dist", "main.cpp"), "utf8");
       expect(cpp).toContain("__vexa_module_0_value");
 
       await runCli(["node", "vexa", "cpp", "link", projectRoot, "-O0"]);

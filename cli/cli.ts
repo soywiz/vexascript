@@ -303,7 +303,7 @@ async function compileNativeProgram(
   typeCheck = true,
   emitNativeSourceLocations = false,
   jsxOptions: JsxOptions = new JsxOptions(),
-  emitCppModuleFiles = true
+  emitCppModuleFiles = false
 ): Promise<NativeCompilationResult> {
   const buildStartedAt = monotonicNow();
   const phaseTimings = new Map<string, number>();
@@ -424,7 +424,7 @@ async function linkNativeProgram(
   emitNativeSourceLocations: boolean,
   jsxOptions: JsxOptions = new JsxOptions(),
   optimization: NativeOptimization = "-O2",
-  emitCppModuleFiles = true
+  emitCppModuleFiles = false
 ): Promise<string> {
   const compilation = await compileNativeProgram(
     input,
@@ -457,7 +457,8 @@ async function linkNativeProgram(
   } catch {
     linkCache = "";
   }
-  const linkCacheMatches = linkCache === `${optimization}\n${JSON.stringify(nativeCompilerFlags)}`;
+  const linkCacheKey = `${COMPILER_VERSION}\n${optimization}\n${JSON.stringify(nativeCompilerFlags)}`;
+  const linkCacheMatches = linkCache === linkCacheKey;
   if (executableInfo && generatedCppIsOlder && linkCacheMatches) {
     console.log(`Reusing cached native executable: ${paths.executablePath}`);
     return linkedExecutablePath;
@@ -470,7 +471,7 @@ async function linkNativeProgram(
     nativeCompilerFlags,
     optimization
   );
-  await vfs().writeFile(linkCachePath, `${optimization}\n${JSON.stringify(nativeCompilerFlags)}`);
+  await vfs().writeFile(linkCachePath, linkCacheKey);
   if (runtimePlatform() === "native") {
     console.error("Linked native executable");
     if (process.argv.includes("link")) process.exit(0);
@@ -490,7 +491,7 @@ async function buildCppModuleGraph(
   typeCheck = true,
   emitNativeSourceLocations = false,
   jsxOptions: JsxOptions = new JsxOptions(),
-  emitCppModuleFiles = true
+  emitCppModuleFiles = false
 ): Promise<void> {
   const buildStartedAt = monotonicNow();
   const phaseTimings = new Map<string, number>();
@@ -1000,6 +1001,14 @@ function createProgram(): Command {
       opts.target === "conservative" ? "conservative" : "optimized",
       new JsxOptions(opts.jsxFactory ?? "", opts.jsxFragmentFactory ?? "")
     );
+  const resolveCppModuleFiles = (opts: { moduleFiles?: boolean; singleFile?: boolean }): boolean => {
+    const moduleFiles = opts.moduleFiles === true;
+    const singleFile = opts.singleFile === true || environmentVariable("VEXA_NATIVE_SINGLE_FILE") === "1";
+    if (moduleFiles && singleFile) {
+      throw new Error("Choose only one native C++ layout: --module-files or --single-file");
+    }
+    return moduleFiles;
+  };
 
   const buildCommand = program.command("build");
   buildCommand.description("Compile a VexaScript file to JavaScript");
@@ -1040,10 +1049,11 @@ function createProgram(): Command {
   cppCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
   cppCommand.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
   cppCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
-  cppCommand.option("--single-file", "Emit one C++ translation unit instead of module files");
-  cppCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; singleFile?: boolean }): Promise<void> => {
+  cppCommand.option("--module-files", "Emit one C++ translation unit per source module");
+  cppCommand.option("--single-file", "Emit one C++ translation unit (default)");
+  cppCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; moduleFiles?: boolean; singleFile?: boolean }): Promise<void> => {
       const buildOptions = resolveBuildOptions(opts);
-      await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, opts.singleFile !== true);
+      await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, resolveCppModuleFiles(opts));
   });
 
   const cppBuildCommand = cppCommand.command("build");
@@ -1055,10 +1065,11 @@ function createProgram(): Command {
   cppBuildCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
   cppBuildCommand.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
   cppBuildCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
-  cppBuildCommand.option("--single-file", "Emit one C++ translation unit instead of module files");
-  cppBuildCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; singleFile?: boolean }): Promise<void> => {
+  cppBuildCommand.option("--module-files", "Emit one C++ translation unit per source module");
+  cppBuildCommand.option("--single-file", "Emit one C++ translation unit (default)");
+  cppBuildCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; moduleFiles?: boolean; singleFile?: boolean }): Promise<void> => {
     const buildOptions = resolveBuildOptions(opts);
-    await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, opts.singleFile !== true);
+    await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, resolveCppModuleFiles(opts));
   });
 
   const addCppLinkCommand = (name: "link" | "run", description: string): void => {
@@ -1072,7 +1083,8 @@ function createProgram(): Command {
     command.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
     command.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
     command.option("--native-source-locations", "Emit per-statement native source-location hooks");
-    command.option("--single-file", "Emit one C++ translation unit instead of module files");
+    command.option("--module-files", "Emit one C++ translation unit per source module");
+    command.option("--single-file", "Emit one C++ translation unit (default)");
     command.option("-O0", "Disable native compiler optimizations");
     command.option("-O1", "Enable basic native compiler optimizations");
     command.option("-O2", "Enable standard native compiler optimizations (default)");
@@ -1080,7 +1092,7 @@ function createProgram(): Command {
     command.option("-Os", "Optimize native code for size");
     command.option("-Oz", "Optimize native code aggressively for size");
     command.option("-Og", "Optimize native code for debugging");
-    command.actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; singleFile?: boolean; O0?: boolean; O1?: boolean; O2?: boolean; O3?: boolean; Os?: boolean; Oz?: boolean; Og?: boolean }): Promise<void> => {
+    command.actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; moduleFiles?: boolean; singleFile?: boolean; O0?: boolean; O1?: boolean; O2?: boolean; O3?: boolean; Os?: boolean; Oz?: boolean; Og?: boolean }): Promise<void> => {
       const nativeArgO0 = runtimePlatform() === "native" && process.argv.includes("-O0");
       const nativeArgO1 = runtimePlatform() === "native" && process.argv.includes("-O1");
       const nativeArgO2 = runtimePlatform() === "native" && process.argv.includes("-O2");
@@ -1115,7 +1127,7 @@ function createProgram(): Command {
                     ? "-Og"
                     : "-O2";
       const buildOptions = resolveBuildOptions(opts);
-      const emitCppModuleFiles = opts.singleFile !== true && environmentVariable("VEXA_NATIVE_SINGLE_FILE") !== "1";
+      const emitCppModuleFiles = resolveCppModuleFiles(opts);
       const executablePath = await linkNativeProgram(input, opts.out, opts.buildDir, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, optimization, emitCppModuleFiles);
       if (name === "run") await runProcessCommand(executablePath, []);
     });

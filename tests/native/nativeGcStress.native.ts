@@ -11,7 +11,7 @@ import {
 import { compileNativeExecutable } from "../../cli/nativeBuild";
 import { runCommandCapture } from "../../cli/io";
 
-const GC_CYCLE_PROGRAM = `#include "runtime.cpp"
+const GC_CYCLE_PROGRAM = `#include "runtime.hpp"
 
 class FinalizationProbe final
     : public cppgc::GarbageCollected<FinalizationProbe>,

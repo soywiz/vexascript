@@ -29,6 +29,7 @@ describe("native package contents", () => {
     const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { files?: string[] };
     const required = [
       "native/runtime.cpp",
+      "native/runtime.hpp",
       "native/bigint.h",
       "native/utf.h",
       "native/oilpan-20260622.zip",
@@ -50,11 +51,11 @@ describe("native package contents", () => {
   });
 
   it("packages platform-specific native command quoting", async () => {
-    const runtime = (await readFile(join(process.cwd(), "native/runtime.cpp"), "utf8"))
+    const runtime = (await readFile(join(process.cwd(), "native/runtime.hpp"), "utf8"))
       .replace(/\r\n/g, "\n");
     const commandQuoting = runtime.slice(
       runtime.indexOf("inline std::u16string shellQuote"),
-      runtime.indexOf("struct CommandCaptureResult")
+      runtime.indexOf("template <typename T>\ninline void nativeRunTask")
     );
 
     expect(runtime).toContain("#if defined(_WIN32)\ninline std::u16string shellQuote");
@@ -65,7 +66,7 @@ describe("native package contents", () => {
   });
 
   it("uses whole-width unaligned DataView loads and stores", async () => {
-    const runtime = (await readFile(join(process.cwd(), "native/runtime.cpp"), "utf8"))
+    const runtime = (await readFile(join(process.cwd(), "native/runtime.hpp"), "utf8"))
       .replace(/\r\n/g, "\n");
     const dataView = runtime.slice(
       runtime.indexOf("class DataViewObject final"),

@@ -147,6 +147,50 @@ async function ensureMimalloc(root: string, compiler: "clang++" | "g++"): Promis
   return libraryPath;
 }
 
+async function ensureRuntime(
+  root: string,
+  gcRoot: string,
+  compiler: "clang++" | "g++",
+  optimization: NativeOptimization
+): Promise<{ libraryPath: string; pchPath?: string }> {
+  const compilerSuffix = nativeCompilerCacheSuffix(compiler);
+  const artifactPrefix = `vexa-runtime-20260826-${optimization.slice(1)}-${process.platform}-${nativeTargetArchitecture()}-${compilerSuffix}`;
+  const cacheRoot = nativeVexaCacheRoot();
+  const objectPath = resolve(cacheRoot, `${artifactPrefix}${process.platform === "win32" ? ".obj" : ".o"}`);
+  const libraryPath = resolve(cacheRoot, `lib${artifactPrefix}.a`);
+  const pchPath = compiler === "clang++" ? resolve(cacheRoot, `${artifactPrefix}.pch`) : "";
+  if (await pathExists(libraryPath) && (pchPath.length === 0 || await pathExists(pchPath))) {
+    return { libraryPath, ...(pchPath.length > 0 ? { pchPath } : {}) };
+  }
+
+  await nativeCreateDirectory(cacheRoot, true);
+  const frontendArgs = [
+    "-std=c++20",
+    optimization,
+    "-DNDEBUG",
+    "-fno-rtti",
+    "-DCPPGC_IS_STANDALONE=1",
+    ...(process.platform === "darwin" ? ["-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO"] : []),
+    ...(process.platform === "win32" ? ["-D_WIN32_WINNT=0x0A00", "-DNOMINMAX"] : ["-pthread"]),
+    "-DV8_LOGGING_LEVEL=0",
+    `-I${root}`,
+    `-I${gcRoot}`,
+    `-I${resolve(gcRoot, "include")}`,
+  ];
+  if (!(await pathExists(libraryPath))) {
+    const compileArgs = frontendArgs.slice();
+    compileArgs.push(resolve(root, "runtime.cpp"), "-c", "-o", objectPath);
+    await runNativeCompiler(compileArgs);
+    await runNativeCommand("ar", ["rcs", libraryPath, objectPath], process.cwd());
+  }
+  if (pchPath.length > 0 && !(await pathExists(pchPath))) {
+    const pchArgs = frontendArgs.slice();
+    pchArgs.push("-x", "c++-header", resolve(root, "runtime.hpp"), "-o", pchPath);
+    await runNativeCompiler(pchArgs);
+  }
+  return { libraryPath, ...(pchPath.length > 0 ? { pchPath } : {}) };
+}
+
 export async function compileNativeExecutable(
   cppPaths: string[],
   executablePath: string,
@@ -157,6 +201,7 @@ export async function compileNativeExecutable(
   const compiler = await nativeCompilerCommand();
   const oilpan = await ensureOilpan(root, compiler);
   const mimallocLibraryPath = await ensureMimalloc(root, compiler);
+  const runtime = await ensureRuntime(root, oilpan.gcRoot, compiler, optimization);
   await nativeCreateDirectory(dirname(executablePath), true);
   const args = [
     "-std=c++20",
@@ -166,7 +211,9 @@ export async function compileNativeExecutable(
     "-DCPPGC_IS_STANDALONE=1",
     ...(process.platform === "darwin" ? ["-DCPPGC_ENABLE_OBJECT_SECTION_GCINFO"] : []),
     ...(process.platform === "win32" ? ["-D_WIN32_WINNT=0x0A00", "-DNOMINMAX"] : []),
+    ...(process.platform === "win32" ? [] : ["-pthread"]),
     "-DV8_LOGGING_LEVEL=0",
+    ...(runtime.pchPath ? ["-include-pch", runtime.pchPath] : []),
     ...cppPaths,
     `-I${root}`,
     `-I${oilpan.gcRoot}`,
@@ -174,6 +221,9 @@ export async function compileNativeExecutable(
     ...(process.platform === "darwin"
       ? [`-Wl,-force_load,${mimallocLibraryPath}`]
       : ["-Wl,--whole-archive", mimallocLibraryPath, "-Wl,--no-whole-archive"]),
+    ...(process.platform === "darwin"
+      ? [`-Wl,-force_load,${runtime.libraryPath}`]
+      : ["-Wl,--whole-archive", runtime.libraryPath, "-Wl,--no-whole-archive"]),
     oilpan.libraryPath,
     ...(process.platform === "win32"
       ? ["-ldbghelp", "-lshlwapi", "-lwinmm"]

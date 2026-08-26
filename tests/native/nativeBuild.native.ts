@@ -94,6 +94,25 @@ describe("native build", () => {
     expect(args.indexOf("/cache/libmimalloc.a")).toBeLessThan(args.indexOf("/repo/native/oilpan/gc/build/liboilpan_gc.a"));
   });
 
+  it("reuses the cached runtime header and static library", () => {
+    const args = nativeCompilerArguments(
+      "/tmp/main.cpp",
+      "/tmp/main",
+      "/repo/native",
+      "/repo/native/oilpan/gc",
+      "/cache/liboilpan.a",
+      "linux",
+      {
+        runtimePchPath: "/cache/runtime.pch",
+        runtimeLibraryPath: "/cache/libvexa-runtime.a",
+      }
+    );
+
+    expect(args).toContain("-include-pch");
+    expect(args).toContain("/cache/runtime.pch");
+    expect(args.indexOf("/cache/libvexa-runtime.a")).toBeLessThan(args.indexOf("/cache/liboilpan.a"));
+  });
+
   for (const optimization of ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "-Og"] as const) {
     it(`passes an explicit ${optimization} optimization level to the native compiler`, () => {
       const args = nativeCompilerArguments(

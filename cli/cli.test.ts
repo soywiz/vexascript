@@ -206,7 +206,7 @@ describe("CLI", () => {
     expect(compilationLog).toContain("total");
   });
 
-  it("cpp command emits a C++ translation unit without compiling it", async () => {
+  it("cpp command emits one C++ translation unit by default", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-command-"));
     const input = join(dir, "input.vx");
     const output = join(dir, "output.cpp");
@@ -215,25 +215,24 @@ describe("CLI", () => {
     await runCli(["node", "vexa", "cpp", input, "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
-    const headerCode = await readFile(join(dir, "program.hpp"), "utf8");
-    expect(outputCode).toContain('#include "program.hpp"');
-    expect(headerCode).toContain('#include "runtime.cpp"');
+    expect(outputCode).toContain('#include "runtime.hpp"');
+    expect(outputCode).not.toContain('#include "program.hpp"');
+    await expect(readFile(join(dir, "program.hpp"), "utf8")).rejects.toThrow();
     expect(outputCode).not.toContain("VEXA_NATIVE_SOURCE(");
     await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
   });
 
-  it("cpp build can emit a single C++ translation unit", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-single-file-"));
+  it("cpp build can explicitly emit C++ module files", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-module-files-"));
     const input = join(dir, "input.vx");
     const output = join(dir, "output.cpp");
-    await writeFile(input, 'console.log("single file")', "utf8");
+    await writeFile(input, 'console.log("module files")', "utf8");
 
-    await runCli(["node", "vexa", "cpp", "build", input, "--single-file", "--out", output]);
+    await runCli(["node", "vexa", "cpp", "build", input, "--module-files", "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
-    expect(outputCode).toContain('#include "runtime.cpp"');
-    expect(outputCode).not.toContain('#include "program.hpp"');
-    await expect(readFile(join(dir, "program.hpp"), "utf8")).rejects.toThrow();
+    expect(outputCode).toContain('#include "program.hpp"');
+    expect(await readFile(join(dir, "program.hpp"), "utf8")).toContain('#include "runtime.hpp"');
   });
 
   it("uses TypeScript semantic analysis for JavaScript and C++ emission without transpile-only", async () => {
@@ -257,8 +256,8 @@ describe("CLI", () => {
     await runCli(["node", "vexa", "cpp", validInput, "--out", cppOutput]);
 
     expect((await readFile(jsOutput, "utf8")).length).toBeGreaterThan(0);
-    expect(await readFile(cppOutput, "utf8")).toContain('#include "program.hpp"');
-    expect(await readFile(join(dir, "program.hpp"), "utf8")).toContain('#include "runtime.cpp"');
+    expect(await readFile(cppOutput, "utf8")).toContain('#include "runtime.hpp"');
+    await expect(readFile(join(dir, "program.hpp"), "utf8")).rejects.toThrow();
     await expect(runCli(["node", "vexa", "build", invalidInput, "--out", join(dir, "invalid.js")]))
       .rejects.toThrow("TypeScript semantic analysis failed");
     await expect(runCli(["node", "vexa", "cpp", invalidInput, "--out", join(dir, "invalid.cpp")]))
@@ -711,6 +710,7 @@ describe("CLI", () => {
     expect(linkHelp).toContain("Usage: vexa cpp link [options] <input>");
     expect(linkHelp).toContain("--build-dir <dir>");
     expect(linkHelp).toContain("--single-file");
+    expect(linkHelp).toContain("--module-files");
     expect(linkHelp).toContain("-O0");
     expect(linkHelp).toContain("-O1");
     expect(linkHelp).toContain("-O2");

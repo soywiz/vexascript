@@ -43,9 +43,11 @@ cache the generated C++ and linked executable; unchanged sources reuse both
 artifacts. Measurements use the monotonic high-resolution `performance.now()`
 clock on Node.js and browsers.
 
-`cpp link` and `cpp run` emit modular C++ files by default. Pass
-`--single-file` to emit one translation unit; the Linux native CI job uses this
-mode for executable smoke tests to avoid the extra per-module compiler work.
+All native C++ commands emit one translation unit by default. This avoids
+reparsing the native runtime and the generated shared declarations once for
+every source module. Pass `--module-files` to emit `program.hpp`, `main.cpp`,
+and one deterministic `module-XXXX.cpp` translation unit per source module.
+`--single-file` remains available as an explicit spelling of the default.
 
 JavaScript file builds print source/project/declaration loading, type-check,
 parse, analysis, emission, write, and total timings. For `.ts` inputs the
@@ -57,13 +59,22 @@ The first native build extracts `native/oilpan-20260622.zip` and
 reuses platform- and architecture-named static libraries such as
 `liboilpan-20260622-darwin-aarch64.a` and
 `libmimalloc-3.4.3-darwin-aarch64.a`; later builds reuse both caches. The final
-generated translation unit is compiled
-and linked with `g++ -std=c++20` plus the selected optimization level. The
+generated translation unit is compiled and linked with the selected C++
+compiler (`clang++` when available, otherwise `g++`) using C++20 plus the
+selected optimization level. The
 trimmed mimalloc ZIP contains its
 source/include tree plus only the three small CMake modules needed to configure
 the object build. The generated translation unit uses the selected optimization
 level (default `-O2`). Sanitizer builds omit mimalloc so ASan can
 observe allocations through the system allocator.
+
+The VexaScript runtime is cached in the same directory as a
+`libvexa-runtime-*.a` static library. Clang builds also cache a compatible
+precompiled `runtime.hpp` so generated translation units do not reparse the
+runtime for every project or source module. The cache key includes the runtime,
+BigInt and UTF sources, compiler, platform, architecture, optimization level,
+instrumentation mode, and native flags. Changing any of them creates a new
+artifact instead of reusing an incompatible cache entry.
 
 The native CLI also runs the JavaScript bundler in-process. The bundler is
 implemented in TypeScript, included in the native CLI module graph, and compiled
@@ -183,7 +194,8 @@ hard-coded numeric type. Numeric remainder uses the shared native
 `remainder` helper, preserving integral `%` behavior while mapping `number`
 operands to `std::fmod` instead of emitting invalid C++ floating-point `%`.
 
-The runtime lives entirely in `native/runtime.cpp`. It initializes an actual
+The runtime interface and template definitions live in `native/runtime.hpp`,
+while `native/runtime.cpp` is compiled once into the cached runtime library. It initializes an actual
 cppgc heap, represents dynamic `vexa::Value` strings as
 `cppgc::GarbageCollected` objects, keeps live dynamic strings rooted with
 `cppgc::Persistent`, and allocates generated class instances through the same
@@ -499,7 +511,7 @@ Native-only libraries may ship a VexaScript/TypeScript declaration facade using
 the C++ binding or dynamic-library annotations described below. Package identity,
 aliases, defaults, namespace imports, re-exports, and project mappings remain on
 the shared resolver rather than a native-only package map. The published package
-includes `native/runtime.cpp`, `native/bigint.h`, and the vendored Oilpan and
+includes `native/runtime.hpp`, `native/runtime.cpp`, `native/bigint.h`, and the vendored Oilpan and
 mimalloc archives required by native executable builds.
 
 ## Diagnostics and sanitizer mode
