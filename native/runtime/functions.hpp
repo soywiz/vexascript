@@ -115,19 +115,6 @@ inline Value callOptional(const Value& callable, std::vector<Value> arguments) {
   return call(callable, std::move(arguments));
 }
 
-template <typename... Arguments>
-inline std::optional<Value> callDynamicOperator(
-    const Value& receiver,
-    const std::u16string& operatorKey,
-    Arguments&&... arguments) {
-  if (!receiver.isRuntimeObject()) return std::nullopt;
-  const Value callable = receiver.object()->dynamicGet(operatorKey);
-  if (callable.isUndefined()) return std::nullopt;
-  return call(callable, {
-    convertValue<Value>(std::forward<Arguments>(arguments))...
-  });
-}
-
 template <typename Result>
 Result recordGet(RecordObject* record, const std::u16string& key) {
   if (!record) throw runtimeError(u"Cannot read a property of null");

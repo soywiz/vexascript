@@ -10647,6 +10647,7 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
   for (const method of methods) {
     if (
       method.isStatic || method.abstract || method.missingBody ||
+      method.operator !== undefined ||
       method.accessorKind || method.getterShorthand || method.typeParameters?.length ||
       (method.accessModifier !== undefined && method.accessModifier !== "public") ||
       method.async || method.sync || method.generator ||
@@ -10661,16 +10662,14 @@ function emitClassWithActiveTypeParameters(statement: ClassStatement): string {
     const lambdaParameters = parameterTypes.map((type, index) =>
       `${type!} __vexa_argument_${index}`).join(", ");
     const argumentsText = parameterTypes.map((_, index) => `__vexa_argument_${index}`).join(", ");
-    const invocation = `this->${method.operator
-      ? cppOperatorMethodName(method.operator, method.parameters)
-      : cppName(method.name.name)}(${argumentsText})`;
+    const invocation = `this->${cppName(method.name.name)}(${argumentsText})`;
     const result = resultType === "void"
       ? `${invocation};`
       : `return ${invocation};`;
     const functionTypes = [resultType];
     for (const parameterType of parameterTypes) functionTypes.push(parameterType!);
     dynamicMethodReads.push({
-      key: method.operator ? `__vexa_operator:${method.operator}` : method.name.name,
+      key: method.name.name,
       body: `return vexa::Value(vexa::makeFunction<${functionTypes.join(", ")}>([this](${lambdaParameters}) -> ${resultType} { ${result} }, {vexa::toValue(this)}));`,
     });
   }

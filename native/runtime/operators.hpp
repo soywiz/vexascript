@@ -6,9 +6,6 @@ template <typename Left, typename Right>
 inline Value add(Left&& leftInput, Right&& rightInput) {
   const Value left = convertValue<Value>(std::forward<Left>(leftInput));
   const Value right = convertValue<Value>(std::forward<Right>(rightInput));
-  if (const auto result = callDynamicOperator(left, u"__vexa_operator:+", right)) {
-    return *result;
-  }
   if (left.isString() || right.isString()) {
     const Value leftText = left.isString() ? left : Runtime::string(toString(left));
     const Value rightText = right.isString() ? right : Runtime::string(toString(right));
@@ -36,9 +33,6 @@ inline void requireMatchingBigInts(const Value& left, const Value& right) {
 }
 
 inline Value subtract(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(left, u"__vexa_operator:-", right)) {
-    return *result;
-  }
   requireMatchingBigInts(left, right);
   return left.isBigInt()
       ? Value(left.bigint() - right.bigint())
@@ -46,9 +40,6 @@ inline Value subtract(const Value& left, const Value& right) {
 }
 
 inline Value multiply(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(left, u"__vexa_operator:*", right)) {
-    return *result;
-  }
   requireMatchingBigInts(left, right);
   return left.isBigInt()
       ? Value(left.bigint() * right.bigint())
@@ -56,9 +47,6 @@ inline Value multiply(const Value& left, const Value& right) {
 }
 
 inline Value divide(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(left, u"__vexa_operator:/", right)) {
-    return *result;
-  }
   requireMatchingBigInts(left, right);
   return left.isBigInt()
       ? Value(left.bigint() / right.bigint())
@@ -66,9 +54,6 @@ inline Value divide(const Value& left, const Value& right) {
 }
 
 inline Value power(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(left, u"__vexa_operator:**", right)) {
-    return *result;
-  }
   requireMatchingBigInts(left, right);
   return left.isBigInt()
       ? Value(vexa::pow(left.bigint(), right.bigint()))
@@ -76,9 +61,6 @@ inline Value power(const Value& left, const Value& right) {
 }
 
 inline Value negate(const Value& value) {
-  if (const auto result = callDynamicOperator(value, u"__vexa_operator:-")) {
-    return *result;
-  }
   return value.isBigInt() ? Value(-value.bigint()) : Value(-Number(value));
 }
 
@@ -179,10 +161,6 @@ inline std::int32_t compare(const Left& left, const Right& right) {
 }
 
 inline std::int32_t compare(const Value& left, const Value& right) {
-  if (const auto result = callDynamicOperator(
-        left, u"__vexa_operator:<=>", right)) {
-    return convertValue<std::int32_t>(*result);
-  }
   if (left.isRuntimeObject() && right.isRuntimeObject()) {
     auto* leftDate = static_cast<DateObject*>(
       left.object()->dynamicCast(nativeTypeToken<DateObject>()));

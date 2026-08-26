@@ -126,10 +126,13 @@ x86_64, and for 64-bit Windows with MinGW-w64. On Windows, `g++` and
 The end-to-end regression lives in `samples/native-language-smoke/`. It is a
 multi-file program covering functions, classes, interfaces, operators, managed
 arrays and records, control flow, exceptions, generators, promises, timers, and
-local imports. `tests/native/nativeSmoke.native.ts` compiles it through the public
-`cpp link` command, runs the resulting process, and compares its complete
-stdout with `expected.native.txt`. The ordinary sample harness separately runs
-the same entry through JavaScript and compares it with `expected.txt`.
+local imports. Focused compiler semantics are grouped under
+`language-features/`, separately from the ECMAScript APIs under
+`standard-library/`. `tests/native/nativeSmoke.native.ts` compiles the fixture
+through the public `cpp link` command, runs the resulting process, and compares
+its complete stdout with `expected.native.txt`. The ordinary sample harness
+separately runs the same entry through JavaScript and compares it with
+`expected.txt`.
 
 ## Initial supported surface
 

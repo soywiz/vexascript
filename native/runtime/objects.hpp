@@ -179,32 +179,15 @@ inline Value dynamicSet(T* target, const std::u16string& key, const Value& value
   return target->dynamicSet(key, value);
 }
 
-inline Value dynamicIndexArgument(const std::u16string& key) {
-  if (const auto index = propertyIndex(key)) return Value(static_cast<double>(*index));
-  return Runtime::string(key);
-}
-
 template <typename Target>
 inline Value dynamicIndexGet(Target&& target, const std::u16string& key) {
   const Value receiver = convertValue<Value>(std::forward<Target>(target));
-  if (const auto result = callDynamicOperator(
-        receiver,
-        u"__vexa_operator:[]",
-        dynamicIndexArgument(key))) {
-    return *result;
-  }
   return dynamicGet(receiver, key);
 }
 
 template <typename Target>
 inline Value dynamicIndexSet(Target&& target, const std::u16string& key, const Value& value) {
   const Value receiver = convertValue<Value>(std::forward<Target>(target));
-  if (const auto result = callDynamicOperator(
-        receiver,
-        u"__vexa_operator:[]=",
-        dynamicIndexArgument(key), value)) {
-    return *result;
-  }
   return dynamicSet(receiver, key, value);
 }
 

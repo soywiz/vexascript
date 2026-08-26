@@ -43,6 +43,12 @@ cache directory before building the PCH. The mirror retains the public
 native self-host discovery still resolves a complete native root. Both the
 runtime archive and PCH are built from that stable mirror.
 
+The complete native suite then found one more path-identity case: a hand-written
+C++ test included the checkout umbrella while the PCH contained the mirrored
+umbrella. `#pragma once` is path-sensitive and therefore admitted both copies.
+A conventional umbrella include guard now makes the PCH and textual include
+mutually exclusive even when Clang sees different absolute paths.
+
 The Linux CI job also exposed an option-precedence bug. Its legacy
 `VEXA_NATIVE_SINGLE_FILE=1` environment setting conflicted with tests that
 explicitly requested `--module-files`. Explicit command-line layout selection
@@ -56,6 +62,17 @@ nearly every runtime edit. The workflow now persists only the more stable
 Oilpan and mimalloc directories and libraries. Runtime archives, PCH files, and
 their source mirrors remain runner-local.
 
+## Operator lowering lesson
+
+The runtime previously offered `callDynamicOperator` and registered class
+operators under private `__vexa_operator:*` property keys. This was neither an
+ECMAScript behavior nor necessary for VexaScript: semantic analysis already
+records the selected operator symbol and both emitters lower it to the concrete
+mangled method. Keeping the fallback could conceal a missing resolution and make
+native behavior diverge from JavaScript. The dynamic helper, registrations, and
+fallback calls were removed; unresolved dynamic `Value` operations now follow
+only their ordinary primitive/object semantics.
+
 ## Regression coverage
 
 - The JavaScript sample runner skips native-only Float16 DataView checks on
@@ -66,6 +83,11 @@ their source mirrors remain runner-local.
   its temporary package directory disappears.
 - Packaging tests verify the complete runtime directory and representative API
   ownership across category headers.
+- The multi-file native language smoke groups compiler semantics under
+  `language-features/`; its custom-operator case executes arithmetic, unary,
+  comparison, index-get, and index-set overloads through JavaScript and the
+  linked native executable. The smoke deliberately validates observable output
+  rather than generated-source text.
 
 ## Execution metadata
 

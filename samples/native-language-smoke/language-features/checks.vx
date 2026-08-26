@@ -1,0 +1,6 @@
+export fun languageFeatureCheck(condition: boolean, name: string): void {
+  if (!condition) {
+    console.log("language feature failure", name)
+    throw Error(`Language feature smoke failed: ${name}`)
+  }
+}

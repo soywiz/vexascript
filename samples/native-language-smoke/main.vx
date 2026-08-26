@@ -1,4 +1,5 @@
 import { ImportedStructuralBox, importedDouble, importedLabel } from "./support.vx"
+import { runNativeLanguageFeatureSmoke } from "./language-features.vx"
 import { runNativeStandardLibrarySmoke } from "./standard-library.vx"
 
 enum Permission {
@@ -51,14 +52,6 @@ class English(val name: string) : Greeter {
 
 class Spanish(val name: string) : Greeter {
   override fun greet(prefix: string): string => prefix + ", " + name
-}
-
-class NumberBox(var value: int) {
-  operator+(other: NumberBox): NumberBox => NumberBox(value + other.value)
-  operator-(): NumberBox => NumberBox(-value)
-  operator<=>(other: NumberBox): int => value <=> other.value
-  operator[](offset: int): int => value + offset
-  operator[]=(next: int, offset: int): void { value = next + offset }
 }
 
 class Bag(val values: int[])
@@ -583,13 +576,7 @@ console.log("typed null pointer", nullLeaf() === null)
 val greeters: Greeter[] = [English("Ada"), Spanish("Luz")]
 console.log("dispatch", greet(greeters[0], "Hello"), greet(greeters[1], "Hola"))
 
-var box = NumberBox(2) + NumberBox(3)
-box += NumberBox(1)
-val negative = -box
-val less = NumberBox(1) < NumberBox(2)
-val indexed = box[4]
-box[2] = 8
-console.log("operators", box.value, negative.value, less, indexed)
+runNativeLanguageFeatureSmoke()
 console.log("inheritance", Dog().speak())
 val conditionalAnimal = true ? Dog() : Cat()
 console.log("conditional base", conditionalAnimal.speak())
