@@ -481,7 +481,7 @@ val dynamicCounterRestored = dynamicCounter as Counter
 val dynamicMeter = dynamicCounter as Meter
 dynamicCounterRestored.value += 3
 dynamicMeter.value += 4
-console.log("dynamic object", dynamicCounterSource.value, dynamicCounterRestored.value, dynamicMeter.value, dynamicCounter)
+console.log("dynamic object", dynamicCounterSource.value, dynamicCounterRestored.value, dynamicMeter.value, dynamicCounter.toString())
 val dynamicOffset = 3
 val dynamicFunction: any = (value: int) => value + dynamicOffset
 val dynamicFunctions = {
@@ -853,6 +853,7 @@ val parsedHuge = BigInt("999999999999999999999999999999")
 console.log("bigint-arithmetic", huge + parsedHuge, huge - hugeDivisor, huge * hugeDivisor, huge / hugeDivisor, huge % hugeDivisor, -huge)
 console.log("bigint-bits", huge > hugeDivisor, 2n ** 100n, -5n >> 1n, -5n & 3n, 5n << 70n)
 console.log("bigint-signed", -17n / 5n, -17n % 5n, 17n / -5n, 17n % -5n, ~5n, -5n | 2n, -5n ^ 2n)
+console.log("bigint-string", 10n.toString(), 10n)
 val incrementedHuge = [1n, huge].map((value: bigint) => value + 1n)
 console.log("bigint-values", incrementedHuge.join("|"), [1n, "x"].join("|"), typeof huge, Boolean(0n), Number(42n))
 console.log("bigint-prefixes", BigInt("0xff"), BigInt("0b101"), BigInt("0o77"), BigInt(" 42 "))
@@ -885,10 +886,14 @@ console.log("promise combinators", raced, settled.length, firstAny)
 console.log("async", await asyncValue(), await doubledAsync())
 console.log("async rooted array", await rootedArrayAcrossAwait())
 console.log("async rooted parameter", await rootedParameterAcrossAwait(Leaf(23)))
-if (typeof writeTextFile == "function") console.log("async io", await ioRoundtrip())
+if (typeof writeTextFile == "function" && await ioRoundtrip() !== "native io works") {
+  throw Error("Native async I/O smoke failed")
+}
 if (typeof nativeRunCommandCapture == "function") {
   val commandResult = await nativeRunCommandCapture("node", ["-e", "process.stdout.write('native subprocess')"], process.cwd())
-  console.log("native command", commandResult.code, commandResult.stdout, commandResult.stderr.length)
+  if (commandResult.code !== 0 || commandResult.stdout !== "native subprocess" || commandResult.stderr.length !== 0) {
+    throw Error("Native subprocess smoke failed")
+  }
 }
 
 val cancelledInterval = setInterval(() => console.log("unexpected interval"), 0)

@@ -48,7 +48,7 @@ describe("installed native package", () => {
       const executed = await runCommandCapture(executablePath, [], { cwd: consumerRoot });
       expect(executed.code).toBe(0);
       expect(executed.stderr).toBe("");
-      expect(executed.stdout).toBe("installed [2, 4, 6]\n");
+      expect(executed.stdout).toBe("installed [ 2, 4, 6 ]\n");
     } finally {
       await rm(outputRoot, { recursive: true, force: true });
     }

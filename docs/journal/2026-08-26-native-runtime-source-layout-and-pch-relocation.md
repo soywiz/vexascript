@@ -88,6 +88,10 @@ only their ordinary primitive/object semantics.
   comparison, index-get, and index-set overloads through JavaScript and the
   linked native executable. The smoke deliberately validates observable output
   rather than generated-source text.
+- JavaScript and native execution share one `expected.txt`. Native console
+  inspection distinguishes array display (`[ 1, 2 ]`) from ECMAScript
+  `Array.prototype.toString()` (`1,2`) and displays BigInt values with the
+  JavaScript `n` suffix, preventing backend-specific expectation drift.
 
 ## Execution metadata
 

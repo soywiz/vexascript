@@ -130,9 +130,9 @@ local imports. Focused compiler semantics are grouped under
 `language-features/`, separately from the ECMAScript APIs under
 `standard-library/`. `tests/native/nativeSmoke.native.ts` compiles the fixture
 through the public `cpp link` command, runs the resulting process, and compares
-its complete stdout with `expected.native.txt`. The ordinary sample harness
-separately runs the same entry through JavaScript and compares it with
-`expected.txt`.
+its complete stdout with `expected.txt`. The ordinary sample harness uses the
+same expectation for JavaScript, so observable output cannot drift between
+backends.
 
 ## Initial supported surface
 

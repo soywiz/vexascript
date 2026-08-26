@@ -163,7 +163,7 @@ console.log(captured, subjectEvaluations, updateMatchedSubject(15), updateMatche
     const root = process.cwd();
     const sampleRoot = join(root, "samples", "native-language-smoke");
     const sourcePath = join(sampleRoot, "main.vx");
-    const expectedPath = join(sampleRoot, "expected.native.txt");
+    const expectedPath = join(sampleRoot, "expected.txt");
     const outputRoot = await mkdtemp(join(tmpdir(), "vexa-native-language-smoke-"));
     const executablePath = join(outputRoot, "smoke");
     const buildRoot = join(outputRoot, "build");

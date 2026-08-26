@@ -73,6 +73,7 @@ class BaseObject : public cppgc::GarbageCollectedMixin {
   virtual const void* dynamicTypeToken() const = 0;
   virtual void* dynamicCast(const void* type) = 0;
   virtual std::u16string dynamicToString() const = 0;
+  virtual std::u16string dynamicInspect() const { return dynamicToString(); }
   virtual std::optional<std::u16string> dynamicJsonStringify(std::unordered_set<const void*>&) const {
     return std::nullopt;
   }

@@ -111,7 +111,39 @@ inline std::u16string join(const ArrayObject<T>* array, const Separator& separat
 
 template <typename T>
 inline std::u16string ArrayObject<T>::toString() const {
-  return std::u16string(u"[") + join(u", ") + u"]";
+  return join(u",");
+}
+
+inline std::u16string inspectValue(const BigInt& value) {
+  return value.toString() + u"n";
+}
+
+inline std::u16string inspectValue(const Value& value) {
+  if (value.isBigInt()) return inspectValue(value.bigint());
+  if (value.isObject()) return value.object()->dynamicInspect();
+  return toString(value);
+}
+
+template <typename T>
+inline std::u16string inspectValue(ArrayObject<T>* value) {
+  return value ? value->inspect() : u"null";
+}
+
+template <typename T>
+inline std::u16string inspectValue(const T& value) {
+  return toString(value);
+}
+
+template <typename T>
+inline std::u16string ArrayObject<T>::inspect() const {
+  if (empty()) return u"[]";
+  std::u16string output = u"[ ";
+  for (std::size_t index = 0; index < size(); ++index) {
+    if (index > 0) output += u", ";
+    output += inspectValue(get(index));
+  }
+  output += u" ]";
+  return output;
 }
 
 template <typename T>

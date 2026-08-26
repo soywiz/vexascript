@@ -51,25 +51,26 @@ class Console final {
     output << '\n';
   }
 
-  static void print(std::ostream& output, const Value& value) { output << utf16ToUtf8(toString(value)); }
+  static void print(std::ostream& output, const Value& value) { output << utf16ToUtf8(inspectValue(value)); }
   static void print(std::ostream& output, const std::u16string& value) { output << utf16ToUtf8(value); }
   static void print(std::ostream& output, bool value) { output << (value ? "true" : "false"); }
   static void print(std::ostream& output, double value) { output << utf16ToUtf8(numberToString(value)); }
   static void print(std::ostream& output, float value) { output << utf16ToUtf8(numberToString(value)); }
+  static void print(std::ostream& output, const BigInt& value) { output << utf16ToUtf8(inspectValue(value)); }
 
   template <typename T>
   static void print(std::ostream& output, ArrayObject<T>* values) {
-    output << utf16ToUtf8(toString(values));
+    output << utf16ToUtf8(inspectValue(values));
   }
 
   template <typename T>
   static void print(std::ostream& output, const cppgc::Member<ArrayObject<T>>& values) {
-    output << utf16ToUtf8(toString(values));
+    output << utf16ToUtf8(inspectValue(values.Get()));
   }
 
   template <typename T>
   static void print(std::ostream& output, const cppgc::Persistent<ArrayObject<T>>& values) {
-    output << utf16ToUtf8(toString(values));
+    output << utf16ToUtf8(inspectValue(values.Get()));
   }
 
   template <typename T>
@@ -79,12 +80,16 @@ class Console final {
 
   template <typename T>
   static void print(std::ostream& output, const std::vector<T>& values) {
-    output << '[';
+    if (values.empty()) {
+      output << "[]";
+      return;
+    }
+    output << "[ ";
     for (std::size_t index = 0; index < values.size(); ++index) {
       if (index > 0) output << ", ";
       print(output, values[index]);
     }
-    output << ']';
+    output << " ]";
   }
 
   template <typename... Arguments>

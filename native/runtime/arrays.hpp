@@ -225,12 +225,14 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   ArrayObject* sort(Callback callback);
   std::u16string join(const std::u16string& separator = u",") const;
   std::u16string toString() const;
+  std::u16string inspect() const;
   std::u16string toLocaleString() const { return toString(); }
   const void* dynamicTypeToken() const override { return nativeTypeToken<ArrayObject<T>>(); }
   void* dynamicCast(const void* type) override {
     return type == nativeTypeToken<ArrayObject<T>>() ? this : nullptr;
   }
   std::u16string dynamicToString() const override { return toString(); }
+  std::u16string dynamicInspect() const override { return inspect(); }
   bool dynamicIsArray() const override { return true; }
   bool dynamicIsIterable() const override { return true; }
   std::size_t dynamicIterableSize() const override { return size(); }
