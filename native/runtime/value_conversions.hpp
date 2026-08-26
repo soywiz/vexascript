@@ -232,6 +232,9 @@ Result convertValue(Input&& input) {
         return Value(static_cast<BaseObject*>(input));
       } else if constexpr (std::is_base_of_v<EnumerableObject, std::remove_pointer_t<Source>>) {
         auto* enumerable = static_cast<EnumerableObject*>(input);
+        if (void* nativeObject = enumerable->nativeInterfaceCast(nativeTypeToken<BaseObject>())) {
+          return Value(static_cast<BaseObject*>(nativeObject));
+        }
         auto* record = enumerable->enumerableBackingRecord();
         if (!record) {
                     record = Runtime::record();

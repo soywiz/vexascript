@@ -37,16 +37,17 @@ inline RecordObject* objectGroupBy(const ArrayObject<T>* items, Callback callbac
 }
 
 template <typename T, typename Callback>
-inline auto mapGroupBy(const ArrayObject<T>* items, Callback callback) {
-  using K = std::remove_cvref_t<decltype(invokeGroupByCallback(callback, std::declval<T>(), 0))>;
-  auto* result = Runtime::make<MapObject<K, ArrayObject<T>*>>();
+inline MapObject* mapGroupBy(const ArrayObject<T>* items, Callback callback) {
+  auto* result = Runtime::make<MapObject>();
   if (!items) return result;
   for (std::size_t index = 0; index < items->size(); ++index) {
     const T value = items->get(index);
-    K key = invokeGroupByCallback(callback, value, index);
+    Value key = toValue(invokeGroupByCallback(callback, value, index));
     const auto existing = result->get(key);
-    ArrayObject<T>* group = existing ? *existing : Runtime::array<T>();
-    if (!existing) result->set(key, group);
+    ArrayObject<T>* group = existing
+        ? convertValue<ArrayObject<T>*>(*existing)
+        : Runtime::array<T>();
+    if (!existing) result->set(key, toValue(group));
     group->append(value);
   }
   return result;

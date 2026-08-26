@@ -94,7 +94,7 @@ describe("native build", () => {
     expect(args.indexOf("/cache/libmimalloc.a")).toBeLessThan(args.indexOf("/repo/native/oilpan/gc/build/liboilpan_gc.a"));
   });
 
-  it("reuses the cached runtime header and static library", () => {
+  it("reuses the cached runtime static library and precompiled header", () => {
     const args = nativeCompilerArguments(
       "/tmp/main.cpp",
       "/tmp/main",

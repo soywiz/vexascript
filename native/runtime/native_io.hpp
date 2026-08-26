@@ -4,6 +4,8 @@
 
 Task<Value> readTextFile(std::u16string path);
 
+Task<Uint8ArrayObject*> nativeReadFileBytes(std::u16string path);
+
 Task<void> writeTextFile(std::u16string path, std::u16string contents);
 
 Task<Value> nativeStatPath(std::u16string path);

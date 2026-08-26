@@ -1,6 +1,6 @@
 import { LANGUAGE_FILE_EXTENSION } from "../../compiler/language";
 import { dirname, extname, resolve } from "../../compiler/utils/path";
-import { readdir } from "./nodeFsPromises";
+import { readFile, readdir } from "./nodeFsPromises";
 
 export interface NativeProgramPaths {
   sourcePath: string;
@@ -27,6 +27,30 @@ function nativeTargetArchitecture(): string {
 
 function nativeCompilerCacheSuffix(compiler: "clang++" | "g++"): string {
   return compiler === "clang++" ? "clang" : "gcc";
+}
+
+async function nativeRuntimeContentFingerprint(runtimeRoot: string): Promise<string> {
+  const sourceNames = (await readdir(runtimeRoot))
+    .map((name) => name as string)
+    .filter((name) => name.endsWith(".cpp") || name.endsWith(".hpp"))
+    .sort();
+  let hash = 2166136261;
+  for (const sourceName of sourceNames) {
+    for (let index = 0; index < sourceName.length; index += 1) {
+      hash ^= sourceName.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    hash ^= 0;
+    hash = Math.imul(hash, 16777619);
+    const contents = await readFile(resolve(runtimeRoot, sourceName)) as Uint8Array;
+    for (let index = 0; index < contents.length; index += 1) {
+      hash ^= contents[index]!;
+      hash = Math.imul(hash, 16777619);
+    }
+    hash ^= 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 export async function nativeCompilerCommand(): Promise<"clang++" | "g++"> {
@@ -155,37 +179,31 @@ async function ensureRuntime(
   optimization: NativeOptimization
 ): Promise<{ libraryPath: string; pchPath?: string }> {
   const compilerSuffix = nativeCompilerCacheSuffix(compiler);
-  const artifactPrefix = `vexa-runtime-20260826-split-v4-${optimization.slice(1)}-${process.platform}-${nativeTargetArchitecture()}-${compilerSuffix}`;
   const cacheRoot = nativeVexaCacheRoot();
   const runtimeRoot = resolve(root, "runtime");
-  const cachedNativeRoot = resolve(cacheRoot, `${artifactPrefix}-sources`);
-  const cachedRuntimeRoot = resolve(cachedNativeRoot, "runtime");
+  const runtimeFingerprint = await nativeRuntimeContentFingerprint(runtimeRoot);
+  const artifactPrefix = `vexa-runtime-${runtimeFingerprint}-${optimization.slice(1)}-${process.platform}-${nativeTargetArchitecture()}-${compilerSuffix}`;
   const objectExtension = process.platform === "win32" ? ".obj" : ".o";
   const runtimeSources = (await readdir(runtimeRoot))
     .filter((name) => (name as string).endsWith(".cpp"))
     .map((name) => name as string)
     .sort();
-  const objectPaths = runtimeSources.map((source) =>
+  const legacyObjectPaths = runtimeSources.map((source) =>
     resolve(cacheRoot, `${artifactPrefix}-${source.slice(0, -4)}${objectExtension}`));
   const libraryPath = resolve(cacheRoot, `lib${artifactPrefix}.a`);
   const pchPath = compiler === "clang++" ? resolve(cacheRoot, `${artifactPrefix}.pch`) : "";
-  if (await pathExists(libraryPath) &&
-      (pchPath.length === 0 || await pathExists(pchPath) && await pathExists(resolve(cachedRuntimeRoot, "runtime.hpp")))) {
+  const legacyPaths = [
+    resolve(cacheRoot, `${artifactPrefix}-sources`),
+    ...legacyObjectPaths,
+  ];
+  for (const legacyPath of legacyPaths) {
+    if (await pathExists(legacyPath)) await nativeRemovePath(legacyPath, true);
+  }
+  if (await pathExists(libraryPath) && (pchPath.length === 0 || await pathExists(pchPath))) {
     return { libraryPath, ...(pchPath.length > 0 ? { pchPath } : {}) };
   }
 
   await nativeCreateDirectory(cacheRoot, true);
-  if (!(await pathExists(resolve(cachedRuntimeRoot, "runtime.hpp")))) {
-    if (pchPath.length > 0 && await pathExists(pchPath)) await nativeRemovePath(pchPath, false);
-    await nativeCreateDirectory(cachedNativeRoot, true);
-    await nativeCreateDirectory(cachedRuntimeRoot, true);
-    const runtimeFiles = await readdir(runtimeRoot);
-    for (const runtimeFile of runtimeFiles) {
-      await nativeCopyFile(resolve(runtimeRoot, runtimeFile as string), resolve(cachedRuntimeRoot, runtimeFile as string));
-    }
-    await nativeCopyFile(resolve(root, "oilpan-20260622.zip"), resolve(cachedNativeRoot, "oilpan-20260622.zip"));
-    await nativeCopyFile(resolve(root, "mimalloc-3.4.3.zip"), resolve(cachedNativeRoot, "mimalloc-3.4.3.zip"));
-  }
   const frontendArgs = [
     "-std=c++20",
     optimization,
@@ -200,18 +218,27 @@ async function ensureRuntime(
     `-I${resolve(gcRoot, "include")}`,
   ];
   if (!(await pathExists(libraryPath))) {
-    for (let index = 0; index < runtimeSources.length; ++index) {
-      const runtimeSource = runtimeSources[index] ?? "";
-      const objectPath = objectPaths[index] ?? "";
-      const compileArgs = frontendArgs.slice();
-      compileArgs.push(resolve(cachedRuntimeRoot, runtimeSource), "-c", "-o", objectPath);
-      await runNativeCompiler(compileArgs);
+    const objectRoot = resolve(cacheRoot, `${artifactPrefix}-objects`);
+    if (await pathExists(objectRoot)) await nativeRemovePath(objectRoot, true);
+    await nativeCreateDirectory(objectRoot, true);
+    const objectPaths = runtimeSources.map((source) =>
+      resolve(objectRoot, `${source.slice(0, -4)}${objectExtension}`));
+    try {
+      for (let index = 0; index < runtimeSources.length; ++index) {
+        const runtimeSource = runtimeSources[index] ?? "";
+        const objectPath = objectPaths[index] ?? "";
+        const compileArgs = frontendArgs.slice();
+        compileArgs.push(resolve(runtimeRoot, runtimeSource), "-c", "-o", objectPath);
+        await runNativeCompiler(compileArgs);
+      }
+      await runNativeCommand("ar", ["rcs", libraryPath, ...objectPaths], process.cwd());
+    } finally {
+      if (await pathExists(objectRoot)) await nativeRemovePath(objectRoot, true);
     }
-    await runNativeCommand("ar", ["rcs", libraryPath, ...objectPaths], process.cwd());
   }
   if (pchPath.length > 0 && !(await pathExists(pchPath))) {
     const pchArgs = frontendArgs.slice();
-    pchArgs.push("-x", "c++-header", resolve(cachedRuntimeRoot, "runtime.hpp"), "-o", pchPath);
+    pchArgs.push("-x", "c++-header", resolve(runtimeRoot, "runtime.hpp"), "-o", pchPath);
     await runNativeCompiler(pchArgs);
   }
   return { libraryPath, ...(pchPath.length > 0 ? { pchPath } : {}) };

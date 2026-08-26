@@ -36,9 +36,9 @@ inline void appendAll(ArrayObject<T>* target, const ArrayObject<U>* source) {
   }
 }
 
-template <typename T, typename U>
-inline void appendAll(ArrayObject<T>* target, SetObject<U>* source) {
-  source->forEach([&](U value) {
+template <typename T>
+inline void appendAll(ArrayObject<T>* target, SetObject* source) {
+  source->forEach([&](Value value, Value, SetObject*) {
     target->append(convertValue<T>(value));
   });
 }
@@ -74,31 +74,25 @@ inline void appendAllConverted(ArrayObject<Value>* target, const ArrayObject<T>*
 
 void appendAllConverted(ArrayObject<Value>* target, const std::u16string& source);
 
-template <typename K, typename V>
-inline void appendAllConverted(ArrayObject<Value>* target, MapObject<K, V>* source) {
-  source->forEach([&](V value, K key) {
-    target->append(convertValue<Value>(Runtime::array<Value>({
-        convertValue<Value>(key),
-        convertValue<Value>(value)})));
+inline void appendAllConverted(ArrayObject<Value>* target, MapObject* source) {
+  source->forEach([&](Value value, Value key, MapObject*) {
+    target->append(toValue(Runtime::array<Value>({key, value})));
   });
 }
 
-template <typename K, typename V>
 inline void appendAllConverted(
     ArrayObject<Value>* target,
-    const cppgc::Persistent<MapObject<K, V>>& source) {
+    const cppgc::Persistent<MapObject>& source) {
   appendAllConverted(target, source.Get());
 }
 
-template <typename T>
-inline void appendAllConverted(ArrayObject<Value>* target, SetObject<T>* source) {
-  source->forEach([&](T value) { target->append(convertValue<Value>(value)); });
+inline void appendAllConverted(ArrayObject<Value>* target, SetObject* source) {
+  source->forEach([&](Value value, Value, SetObject*) { target->append(value); });
 }
 
-template <typename T>
 inline void appendAllConverted(
     ArrayObject<Value>* target,
-    const cppgc::Persistent<SetObject<T>>& source) {
+    const cppgc::Persistent<SetObject>& source) {
   appendAllConverted(target, source.Get());
 }
 
@@ -717,8 +711,14 @@ inline ArrayObject<T>* ArrayObject<T>::splice(
   values_.erase(
       values_.begin() + static_cast<std::ptrdiff_t>(first),
       values_.begin() + static_cast<std::ptrdiff_t>(first + count));
-  std::vector<ArraySlot<T>> inserted{
-      ArraySlot<T>(convertValue<T>(std::forward<Items>(items)))...};
+  std::vector<typename ArrayObject<T>::Slot> inserted{
+      ([&]() -> typename ArrayObject<T>::Slot {
+        if constexpr (IsDynamicArrayElement<T>) {
+          return StoredValue(convertValue<Value>(std::forward<Items>(items)));
+        } else {
+          return ArraySlot<T>(convertValue<T>(std::forward<Items>(items)));
+        }
+      }())...};
   values_.insert(
       values_.begin() + static_cast<std::ptrdiff_t>(first),
       std::make_move_iterator(inserted.begin()),

@@ -72,16 +72,33 @@ The VexaScript runtime is cached in the same directory as a
 `libvexa-runtime-*.a` static library. Every focused runtime header has a matching
 translation unit; concrete functions and methods are compiled independently,
 while template and `constexpr` implementations remain visible in headers as
-required by C++. Clang builds also cache a compatible
-precompiled `runtime.hpp` so generated translation units do not reparse the
-runtime for every project or source module. The cache key includes every runtime
-category header, the separately compiled runtime, BigInt and UTF sources,
-compiler, platform, architecture, optimization level, instrumentation mode, and
-native flags. Changing any of them creates a new artifact instead of reusing an
-incompatible cache entry. GitHub Actions deliberately persists only the more
-stable Oilpan and mimalloc caches between workflow runs; content-addressed
-`vexa-runtime-*` artifacts remain local to one runner execution so routine
+required by C++. Runtime object files are built in a temporary directory and
+removed as soon as the archive is created. Clang builds also retain a
+content-addressed precompiled `runtime.hpp`, so generated translation units do
+not repeatedly parse the complete runtime interface. The runtime cache does not
+copy headers, sources, dependency ZIP files, or object files; its only
+runtime-specific artifacts are the static archive and, for Clang, its compatible
+PCH. The cache key hashes
+the raw bytes of every runtime category header and source, plus the compiler,
+platform, architecture, optimization level, instrumentation mode, and native
+flags. Changing any of them creates a new archive instead of reusing an
+incompatible one. GitHub Actions deliberately persists only the more stable
+Oilpan and mimalloc caches between workflow runs; content-addressed
+`vexa-runtime-*` archives and PCH files remain local to one runner execution so routine
 runtime edits do not accumulate remote cache variants.
+
+ECMAScript `Map`, `Set`, `WeakMap`, and `WeakSet` type arguments remain part of
+VexaScript's static type system, but they do not produce distinct C++ runtime
+classes. The generated program uses the concrete `MapObject`, `SetObject`,
+`WeakMapObject`, and `WeakSetObject` classes, whose contents use the common
+`Value` representation. This matches JavaScript collection identity and permits
+values to cross `any` boundaries without selecting a different C++ template
+instantiation. Language arrays still expose a typed C++ view in this phase;
+compatible covariant views share dynamic backing storage, while native-only
+arrays whose elements cannot be represented as ECMAScript values, such as
+internal task storage, retain typed slots. Removing the remaining
+`ArrayObject<T>` adapter and validating the final `any[]` contract is a separate
+follow-up phase.
 
 The native CLI also runs the JavaScript bundler in-process. The bundler is
 implemented in TypeScript, included in the native CLI module graph, and compiled

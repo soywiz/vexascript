@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { access, copyFile, cp, mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises";
-import { availableParallelism, homedir } from "node:os";
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { availableParallelism, homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, posix, resolve, win32 } from "node:path";
 import { LANGUAGE_FILE_EXTENSION } from "../compiler/language";
 import { fileURLToPath } from "node:url";
@@ -420,58 +420,59 @@ async function ensureNativeRuntimeLibrary(
   const cacheRoot = nativeDependencyCacheRoot();
   const libraryPath = nativeDependencyArtifactPath(`lib${artifactName}`, ".a", process.platform, process.arch, homedir(), compiler);
   const runtimeRoot = resolve(root, "runtime");
-  const cachedNativeRoot = resolve(cacheRoot, `${artifactName}-sources`);
-  const cachedRuntimeRoot = resolve(cachedNativeRoot, "runtime");
   const objectExtension = process.platform === "win32" ? ".obj" : ".o";
   const runtimeSources = (await readdir(runtimeRoot))
     .filter((name) => name.endsWith(".cpp"))
     .sort();
-  const objectPaths = runtimeSources.map((source) => resolve(
+  const legacyObjectPaths = runtimeSources.map((source) => resolve(
     cacheRoot,
     `${artifactName}-${source.slice(0, -".cpp".length)}-${nativeCompilerCacheSuffix(compiler)}${objectExtension}`
   ));
   const pchPath = compiler === "clang++"
     ? nativeDependencyArtifactPath(artifactName, ".pch", process.platform, process.arch, homedir(), compiler)
     : undefined;
-  if (await exists(libraryPath) &&
-      (!pchPath || await exists(pchPath) && await exists(resolve(cachedRuntimeRoot, "runtime.hpp")))) {
+  await Promise.all([
+    rm(resolve(cacheRoot, `${artifactName}-sources`), { recursive: true, force: true }),
+    ...legacyObjectPaths.map((path) => rm(path, { force: true })),
+  ]);
+  if (await exists(libraryPath) && (!pchPath || await exists(pchPath))) {
     return { libraryPath, ...(pchPath ? { pchPath } : {}) };
   }
 
   await withNativeBuildLock(resolve(cacheRoot, `${artifactName}.lock`), async () => {
     await mkdir(cacheRoot, { recursive: true });
-    if (!(await exists(resolve(cachedRuntimeRoot, "runtime.hpp")))) {
-      if (pchPath && await exists(pchPath)) await rm(pchPath, { force: true });
-      await mkdir(cachedNativeRoot, { recursive: true });
-      await cp(runtimeRoot, cachedRuntimeRoot, { recursive: true });
-      await Promise.all([
-        copyFile(resolve(root, "oilpan-20260622.zip"), resolve(cachedNativeRoot, "oilpan-20260622.zip")),
-        copyFile(resolve(root, "mimalloc-3.4.3.zip"), resolve(cachedNativeRoot, "mimalloc-3.4.3.zip")),
-      ]);
-    }
     if (!(await exists(libraryPath))) {
-      let nextRuntimeSource = 0;
-      const compileNextRuntimeSource = async (): Promise<void> => {
-        while (nextRuntimeSource < runtimeSources.length) {
-          const index = nextRuntimeSource++;
-          const runtimeSource = runtimeSources[index] ?? "";
-          const objectPath = objectPaths[index] ?? "";
-          const compileArgs = [
-            ...nativeCompilerFrontendArguments(resolve(cachedRuntimeRoot, runtimeSource), cachedNativeRoot, gcRoot, process.platform, options, optimization),
-            ...(options.extraFlags ?? []),
-            "-c",
-            "-o",
-            objectPath,
-          ];
-          const result = await runCommandCapture(compiler, compileArgs);
-          if (result.code !== 0) {
-            throw new Error(result.stderr || result.stdout || `${compiler} failed compiling ${runtimeSource}`);
+      const objectRoot = await mkdtemp(resolve(tmpdir(), "vexa-runtime-objects-"));
+      try {
+        const objectPaths = runtimeSources.map((source) => resolve(
+          objectRoot,
+          `${source.slice(0, -".cpp".length)}${objectExtension}`
+        ));
+        let nextRuntimeSource = 0;
+        const compileNextRuntimeSource = async (): Promise<void> => {
+          while (nextRuntimeSource < runtimeSources.length) {
+            const index = nextRuntimeSource++;
+            const runtimeSource = runtimeSources[index] ?? "";
+            const objectPath = objectPaths[index] ?? "";
+            const compileArgs = [
+              ...nativeCompilerFrontendArguments(resolve(runtimeRoot, runtimeSource), root, gcRoot, process.platform, options, optimization),
+              ...(options.extraFlags ?? []),
+              "-c",
+              "-o",
+              objectPath,
+            ];
+            const result = await runCommandCapture(compiler, compileArgs);
+            if (result.code !== 0) {
+              throw new Error(result.stderr || result.stdout || `${compiler} failed compiling ${runtimeSource}`);
+            }
           }
-        }
-      };
-      const runtimeWorkerCount = Math.max(1, Math.min(2, availableParallelism(), runtimeSources.length));
-      await Promise.all(Array.from({ length: runtimeWorkerCount }, () => compileNextRuntimeSource()));
-      await runCommand("ar", ["rcs", libraryPath, ...objectPaths]);
+        };
+        const runtimeWorkerCount = Math.max(1, Math.min(2, availableParallelism(), runtimeSources.length));
+        await Promise.all(Array.from({ length: runtimeWorkerCount }, () => compileNextRuntimeSource()));
+        await runCommand("ar", ["rcs", libraryPath, ...objectPaths]);
+      } finally {
+        await rm(objectRoot, { recursive: true, force: true });
+      }
     }
     if (pchPath && !(await exists(pchPath))) {
       const pchArgs = [
@@ -479,13 +480,13 @@ async function ensureNativeRuntimeLibrary(
         ...(options.extraFlags ?? []),
         "-x",
         "c++-header",
-        resolve(cachedRuntimeRoot, "runtime.hpp"),
+        resolve(runtimeRoot, "runtime.hpp"),
         "-o",
         pchPath,
       ];
       const result = await runCommandCapture(compiler, pchArgs);
       if (result.code !== 0) {
-        throw new Error(result.stderr || result.stdout || `${compiler} failed compiling the cached VexaScript runtime header`);
+        throw new Error(result.stderr || result.stdout || `${compiler} failed compiling the VexaScript runtime precompiled header`);
       }
     }
   });

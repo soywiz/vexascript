@@ -1,6 +1,6 @@
 // VexaScript C++ runtime interface and template implementation. Native builds
 // consume this through a reusable precompiled header and link the cached
-// runtime.cpp static library.
+// runtime static library assembled from the focused category translation units.
 #pragma once
 #ifndef VEXASCRIPT_NATIVE_RUNTIME_HPP
 #define VEXASCRIPT_NATIVE_RUNTIME_HPP

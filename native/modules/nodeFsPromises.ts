@@ -1,4 +1,5 @@
 export async function readFile(path: string, _options?: unknown): Promise<any> {
+  if (_options === undefined) return await nativeReadFileBytes(path);
   return await readTextFile(path);
 }
 

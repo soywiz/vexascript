@@ -21,6 +21,33 @@ Task<Value> readTextFile(std::u16string path) {
   });
 }
 
+Task<Uint8ArrayObject*> nativeReadFileBytes(std::u16string path) {
+  auto operation = std::async(std::launch::async, [path = std::move(path)] {
+    std::ifstream input(std::filesystem::path(path), std::ios::binary);
+    if (!input) throw std::runtime_error("Cannot read file");
+    return std::vector<std::uint8_t>(
+        std::istreambuf_iterator<char>(input),
+        std::istreambuf_iterator<char>());
+  }).share();
+  return Task<Uint8ArrayObject*>::create(
+      [operation = std::move(operation)](auto resolve, auto reject) mutable {
+        Runtime::enqueueIo([operation = std::move(operation), resolve, reject]() mutable {
+          if (operation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
+          try {
+            const auto bytes = operation.get();
+            auto* result = makeTypedArray<TypedArrayKind::Uint8>(static_cast<double>(bytes.size()));
+            for (std::size_t index = 0; index < bytes.size(); ++index) {
+              result->set(index, static_cast<double>(bytes[index]));
+            }
+            resolve(result);
+          } catch (const std::exception& error) {
+            reject(Error(exceptionText(error)));
+          }
+          return true;
+        });
+      });
+}
+
 Task<void> writeTextFile(std::u16string path, std::u16string contents) {
   auto operation = std::async(std::launch::async, [path = std::move(path), contents = std::move(contents)] {
     writeUtf8File(path, contents);

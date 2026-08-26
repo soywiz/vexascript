@@ -93,7 +93,8 @@ function collect(): ReadonlyMap<string, string> | undefined {
       typeCheck: false
     });
 
-    expect(result.code).toContain("withResult<vexa::MapObject<std::u16string, std::u16string>*>(");
+    expect(result.code).toContain("withResult<vexa::MapObject*>(");
+    expect(result.code).not.toContain("MapObject<");
     expect(result.code).not.toContain("withResult<vexa::Undefined>(");
   });
 
@@ -452,8 +453,87 @@ type Name = "alpha" | "beta";
 export const names: ReadonlySet<string> = new Set<Name>(["alpha", "beta"]);
 `, { emit: "cpp", sourceFilePath: "/tmp/readonly-set.ts", typeCheck: false });
 
-    expect(result.code).toContain("vexa::setFromIterable<std::u16string>");
-    expect(result.code).not.toContain("vexa::setFromIterable<vexa::Value>");
+    expect(result.code).toContain("vexa::setFromIterable(vexa::toValue(");
+    expect(result.code).not.toContain("SetObject<");
+  });
+
+  it("infers templates nested inside erased native collections", () => {
+    const result = transpile(`
+function cloneSetValues<T>(values: Map<string, Set<T>>): Map<string, Set<T>> {
+  return values;
+}
+function cloneArrayValues<T>(values: Map<string, T[]>): Map<string, T[]> {
+  return values;
+}
+const setValues: Map<string, Set<string>> = new Map();
+const arrayValues: Map<string, number[]> = new Map();
+cloneSetValues(setValues);
+cloneArrayValues(arrayValues);
+`, { emit: "cpp", sourceFilePath: "/tmp/erased-collection-template-inference.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("cloneSetValues<std::u16string>(setValues)");
+    expect(result.code).toContain("cloneArrayValues<double>(arrayValues)");
+  });
+
+  it("infers flatMap tuple elements from the callback instead of the receiver", () => {
+    const result = transpile(`
+interface Property { name: string; type: string }
+const properties: Property[] = [];
+const entries = properties.flatMap((property) => {
+  const type = property.type;
+  return type ? [[property.name, type] as const] : [];
+});
+const mapped = new Map(entries);
+`, { emit: "cpp", sourceFilePath: "/tmp/flat-map-tuples.ts", typeCheck: false });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("ArrayObject<vexa::ArrayObject<std::u16string>*>*");
+    expect(result.code).not.toContain("toInstance<Property*>(vexa::makeArray<std::u16string>");
+  });
+
+  it("infers a chained map callback from its receiver before filter context", () => {
+    const result = transpile(`
+const numbers = [1, 2, 3, 4]
+const transformed = numbers.map { it * 3 }.filter { it % 2 == 0 }
+`, { emit: "cpp", sourceFilePath: "/tmp/chained-array-callbacks.vx" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::ArrayObject<std::int32_t>* transformed = nullptr;");
+    expect(result.code).toContain("transformed = vexa::filter(");
+    expect(result.code).toContain("vexa::map(");
+    expect(result.code).toContain("[&](auto it) -> std::int32_t");
+    expect(result.code).not.toContain("vexa::ArrayObject<vexa::Value>* transformed");
+  });
+
+  it("does not force a filtered result type into nullable map callback values", () => {
+    const result = transpile(`
+class Node {}
+class Identifier extends Node { name: string }
+function bindingName(node: Node | undefined): string | null {
+  return node instanceof Identifier ? node.name : null
+}
+function names(nodes: Node[]): string[] {
+  return nodes.map((node) => bindingName(node)).filter((name) => name !== null)
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/nullable-map-filter.ts", typeCheck: false });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("[&](auto node) mutable -> vexa::Value");
+    expect(result.code).not.toContain("vexa::toText(bindingName(node))");
+  });
+
+  it("adapts covariant array arguments through shared runtime views", () => {
+    const result = transpile(`
+class Base {}
+class Derived extends Base {}
+function useBase(values: Base[]): void {}
+const derived: Derived[] = [];
+useBase(derived);
+`, { emit: "cpp", sourceFilePath: "/tmp/shared-array-views.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("toInstance<vexa::ArrayObject<Base*>*>(derived)");
   });
 
   it("does not impose a Map result type on a nullish iterable fallback", () => {
@@ -464,9 +544,9 @@ function copy(existing: ReadonlyMap<string, string> | undefined): Map<string, st
 `, { emit: "cpp", sourceFilePath: "/tmp/map-nullish-iterable.ts" });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("vexa::mapFromIterable<std::u16string, std::u16string>(vexa::nullishCoalesce(");
+    expect(result.code).toContain("vexa::mapFromIterable(vexa::toValue(vexa::nullishCoalesce(");
     expect(result.code).toContain("return vexa::toValue(vexa::makeArray<vexa::Value>({}));");
-    expect(result.code).not.toContain("toInstance<vexa::MapObject<std::u16string, std::u16string>*>(vexa::makeArray");
+    expect(result.code).not.toContain("MapObject<");
   });
 
   it("lowers WeakMap iterables, radix string conversion, and native binary helpers", () => {
@@ -478,7 +558,8 @@ console.log(metadata.get(key), value.toString(16))
 `, { emit: "cpp", sourceFilePath: "/tmp/native-collections-and-binary.ts" });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("vexa::weakMapFromIterable<");
+    expect(result.code).toContain("vexa::weakMapFromIterable(vexa::toValue(");
+    expect(result.code).not.toContain("WeakMapObject<");
     expect(result.code).toContain("vexa::toString(value, static_cast<double>(16))");
   });
 
@@ -737,10 +818,16 @@ main()
   });
 
   it("emits native runtime and platform intrinsics", () => {
-    const result = transpile("console.log(vexaRuntime(), vexaPlatform())", { emit: "cpp" });
+    const result = transpile(`
+console.log(vexaRuntime(), vexaPlatform())
+async function loadBytes(): Promise<Uint8Array> {
+  return await nativeReadFileBytes("runtime.hpp")
+}
+`, { emit: "cpp" });
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("vexa::vexaRuntimeName()");
     expect(result.code).toContain("vexa::vexaPlatformName()");
+    expect(result.code).toContain("vexa::nativeReadFileBytes(vexa::toText(");
   });
 
   it("routes every supported ECMAScript error constructor through the native error type", () => {

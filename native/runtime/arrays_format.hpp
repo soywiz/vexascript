@@ -48,20 +48,6 @@ inline std::u16string joinWithSeparator(const ArrayObject<T>* array, const std::
 
 template <typename T>
 inline std::u16string ArrayObject<T>::join(const std::u16string& separator) const {
-  if constexpr (std::is_same_v<T, std::u16string>) {
-    if (!dynamic_backing_) {
-      if (values_.empty()) return {};
-      std::size_t outputSize = separator.size() * (values_.size() - 1);
-      for (const auto& value : values_) outputSize += value.loadRef().size();
-      std::u16string output;
-      output.reserve(outputSize);
-      for (std::size_t index = 0; index < values_.size(); ++index) {
-        if (index > 0) output += separator;
-        output += values_[index].loadRef();
-      }
-      return output;
-    }
-  }
   return joinWithSeparator(this, separator);
 }
 
@@ -134,7 +120,11 @@ inline ArrayObject<T>* ArrayObject<T>::sort() {
     return vexa::toString(left) < vexa::toString(right);
   });
   for (std::size_t index = 0; index < sorted.size(); ++index) {
-    values_[index].store(std::move(sorted[index]));
+    if constexpr (IsDynamicArrayElement<T>) {
+      values_[index].store(convertValue<Value>(std::move(sorted[index])));
+    } else {
+      values_[index].store(std::move(sorted[index]));
+    }
   }
   return this;
 }

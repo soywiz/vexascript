@@ -57,7 +57,7 @@ const CPP_RESERVED_WORDS = new Set([
 ]);
 const NATIVE_RUNTIME_FUNCTION_NAMES = new Set([
   "readTextFile", "writeTextFile", "commandLineArguments",
-  "nativeRealPath", "nativeStatPath", "nativeReadDirectory", "nativeCreateDirectory", "nativeRemovePath", "nativeCopyFile", "nativeRunCommandCapture", "nativeRunTask", "nativeEnvironmentVariable", "nativeRuntimeRoot",
+  "nativeReadFileBytes", "nativeRealPath", "nativeStatPath", "nativeReadDirectory", "nativeCreateDirectory", "nativeRemovePath", "nativeCopyFile", "nativeRunCommandCapture", "nativeRunTask", "nativeEnvironmentVariable", "nativeRuntimeRoot",
   "setTimeout", "setInterval", "clearTimeout", "clearInterval",
 ]);
 
@@ -700,22 +700,20 @@ function cppTypeForAnalysisType(type: AnalysisType): string | null {
   if (type instanceof NamedType && type.name === "URL") return "vexa::URLObject*";
   if (type instanceof NamedType && isNativeErrorTypeName(type.name)) return "vexa::Error";
   if (type instanceof NamedType && (type.name === "Map" || type.name === "ReadonlyMap")) {
-    const keyType = cppTypeForAnalysisType(namedTypeArgument(type, 0) ?? builtinType("any")) ?? "vexa::Value";
-    const valueType = cppTypeForAnalysisType(namedTypeArgument(type, 1) ?? builtinType("any")) ?? "vexa::Value";
-    return `vexa::MapObject<${keyType}, ${valueType}>*`;
+    return "vexa::MapObject*";
   }
   if (type instanceof NamedType && (type.name === "Set" || type.name === "ReadonlySet")) {
-    const valueType = cppTypeForAnalysisType(namedTypeArgument(type, 0) ?? builtinType("any")) ?? "vexa::Value";
-    return `vexa::SetObject<${valueType}>*`;
+    return "vexa::SetObject*";
   }
   if (type instanceof NamedType && type.name === "WeakMap") {
-    const keyType = cppTypeForWeakAnalysisKey(namedTypeArgument(type, 0) ?? builtinType("unknown"));
-    const valueType = cppTypeForAnalysisType(namedTypeArgument(type, 1) ?? builtinType("any")) ?? "vexa::Value";
-    return keyType?.endsWith("*") ? `vexa::WeakMapObject<${keyType}, ${valueType}>*` : null;
+    return cppTypeForWeakAnalysisKey(namedTypeArgument(type, 0) ?? builtinType("unknown"))?.endsWith("*")
+      ? "vexa::WeakMapObject*"
+      : null;
   }
   if (type instanceof NamedType && type.name === "WeakSet") {
-    const valueType = cppTypeForWeakAnalysisKey(namedTypeArgument(type, 0) ?? builtinType("unknown"));
-    return valueType?.endsWith("*") ? `vexa::WeakSetObject<${valueType}>*` : null;
+    return cppTypeForWeakAnalysisKey(namedTypeArgument(type, 0) ?? builtinType("unknown"))?.endsWith("*")
+      ? "vexa::WeakSetObject*"
+      : null;
   }
   if (type instanceof NamedType && type.name === "RegExp") return "vexa::RegExp";
   if (type instanceof NamedType && type.name === "Date") return "vexa::DateObject*";
@@ -903,9 +901,7 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
     return elementType && elementType !== "void" ? `vexa::ArrayObject<${elementType}>*` : "";
   }
   if (shape.baseName === "Map" || shape.baseName === "ReadonlyMap") {
-    const keyType = cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "any", "vexa::Value", visitedAliases);
-    const valueType = cppTypeForDeclaredNameOr(shape.typeArguments[1] ?? "any", "vexa::Value", visitedAliases);
-    return `vexa::MapObject<${keyType}, ${valueType}>*`;
+    return "vexa::MapObject*";
   }
   if (shape.baseName === "Promise") {
     const resultType = cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "unknown", "vexa::Value", visitedAliases);
@@ -917,17 +913,15 @@ function computeCppTypeForDeclaredName(typeName: string, visitedAliases: Set<str
   }
   if (shape.baseName === "Record") return "vexa::RecordObject*";
   if (shape.baseName === "Set" || shape.baseName === "ReadonlySet") {
-    const valueType = cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "any", "vexa::Value", visitedAliases);
-    return `vexa::SetObject<${valueType}>*`;
+    return "vexa::SetObject*";
   }
   if (shape.baseName === "WeakMap") {
     const keyType = cppTypeForWeakDeclaredKey(shape.typeArguments[0] ?? "unknown");
-    const valueType = cppTypeForDeclaredNameOr(shape.typeArguments[1] ?? "any", "vexa::Value", visitedAliases);
-    return keyType?.endsWith("*") ? `vexa::WeakMapObject<${keyType}, ${valueType}>*` : "";
+    return keyType?.endsWith("*") ? "vexa::WeakMapObject*" : "";
   }
   if (shape.baseName === "WeakSet") {
     const valueType = cppTypeForWeakDeclaredKey(shape.typeArguments[0] ?? "unknown");
-    return valueType?.endsWith("*") ? `vexa::WeakSetObject<${valueType}>*` : "";
+    return valueType?.endsWith("*") ? "vexa::WeakSetObject*" : "";
   }
   if (shape.baseName === "Date") return "vexa::DateObject*";
   if (shape.baseName === "URL") return "vexa::URLObject*";
@@ -1131,18 +1125,8 @@ function computeCppTypeForExpression(expression: Expr): string {
     if (inferredFunctionResult) return inferredFunctionResult;
     const member = memberParts((expression as CallExpression).callee);
     if (member?.propertyName === "get") {
-      const receiverType = emittedCppTypeForExpression(member.object) ?? cppTypeForExpression(member.object);
-      const mapTypes = cppTemplateArguments(receiverType, "vexa::MapObject<");
-      if (mapTypes?.length === 2) return mapTypes[1]!;
-      const receiverAnalysisType = activeExpressionTypes.get(member.object as Node);
-      if (
-        receiverAnalysisType instanceof NamedType &&
-        isNativeMapTypeName(receiverAnalysisType.name)
-      ) {
-        const valueType = namedTypeArgument(receiverAnalysisType, 1);
-        const mappedValueType = valueType ? cppTypeForAnalysisType(valueType) : null;
-        if (mappedValueType) return mappedValueType;
-      }
+      const valueType = nativeCollectionSemanticCppTypes(member.object)?.[1];
+      if (valueType) return valueType;
     }
   }
   if (expression instanceof NewExpression) {
@@ -1299,10 +1283,10 @@ function nativeCollectionKind(expression: Expr): "map" | "set" | "weakMap" | "we
   const mapped = expression instanceof CallExpression
     ? cppTypeForExpression(expression)
     : emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
-  if (mapped.startsWith("vexa::MapObject<")) return "map";
-  if (mapped.startsWith("vexa::SetObject<")) return "set";
-  if (mapped.startsWith("vexa::WeakMapObject<")) return "weakMap";
-  if (mapped.startsWith("vexa::WeakSetObject<")) return "weakSet";
+  if (mapped === "vexa::MapObject*") return "map";
+  if (mapped === "vexa::SetObject*") return "set";
+  if (mapped === "vexa::WeakMapObject*") return "weakMap";
+  if (mapped === "vexa::WeakSetObject*") return "weakSet";
   if (type instanceof UnionType || type instanceof IntersectionType) {
     for (const memberType of type.types) {
       if (!(memberType instanceof NamedType)) continue;
@@ -1310,6 +1294,16 @@ function nativeCollectionKind(expression: Expr): "map" | "set" | "weakMap" | "we
       if (memberType.name === "Set" || memberType.name === "ReadonlySet") return "set";
       if (memberType.name === "WeakMap") return "weakMap";
       if (memberType.name === "WeakSet") return "weakSet";
+    }
+  }
+  if (expression instanceof CallExpression) {
+    const getMember = memberParts((expression as CallExpression).callee);
+    if (getMember?.propertyName === "get") {
+      const nestedType = nativeCollectionSemanticCppTypes(getMember.object)?.[1];
+      if (nestedType === "vexa::MapObject*") return "map";
+      if (nestedType === "vexa::SetObject*") return "set";
+      if (nestedType === "vexa::WeakMapObject*") return "weakMap";
+      if (nestedType === "vexa::WeakSetObject*") return "weakSet";
     }
   }
   if (!(type instanceof NamedType)) return null;
@@ -1320,7 +1314,73 @@ function nativeCollectionKind(expression: Expr): "map" | "set" | "weakMap" | "we
   return null;
 }
 
+function nativeCollectionSemanticCppTypes(expression: Expr): string[] | null {
+  if (expression instanceof CallExpression) {
+    const getMember = memberParts((expression as CallExpression).callee);
+    const receiverAnalysis = getMember?.propertyName === "get"
+      ? activeExpressionTypes.get(getMember.object as Node)
+      : null;
+    const receiverCandidates = receiverAnalysis instanceof UnionType || receiverAnalysis instanceof IntersectionType
+      ? receiverAnalysis.types
+      : receiverAnalysis ? [receiverAnalysis] : [];
+    for (const receiverCandidate of receiverCandidates) {
+      if (!(receiverCandidate instanceof NamedType) || !isNativeMapTypeName(receiverCandidate.name)) continue;
+      const valueType = namedTypeArgument(receiverCandidate, 1);
+      const valueCandidates = valueType instanceof UnionType || valueType instanceof IntersectionType
+        ? valueType.types
+        : valueType ? [valueType] : [];
+      for (const valueCandidate of valueCandidates) {
+        if (!(valueCandidate instanceof NamedType)) continue;
+        if (valueCandidate.name === "Map" || valueCandidate.name === "ReadonlyMap" || valueCandidate.name === "WeakMap") {
+          return [
+            cppTypeForAnalysisType(namedTypeArgument(valueCandidate, 0) ?? builtinType("any")) ?? "vexa::Value",
+            cppTypeForAnalysisType(namedTypeArgument(valueCandidate, 1) ?? builtinType("any")) ?? "vexa::Value",
+          ];
+        }
+        if (valueCandidate.name === "Set" || valueCandidate.name === "ReadonlySet" || valueCandidate.name === "WeakSet") {
+          return [cppTypeForAnalysisType(namedTypeArgument(valueCandidate, 0) ?? builtinType("any")) ?? "vexa::Value"];
+        }
+      }
+    }
+  }
+  const declared = declaredTypeNameForExpression(expression);
+  if (declared) {
+    const shape = parseTypeNameShape(declared);
+    if (shape.baseName === "Map" || shape.baseName === "ReadonlyMap" || shape.baseName === "WeakMap") {
+      return [
+        cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "any", "vexa::Value"),
+        cppTypeForDeclaredNameOr(shape.typeArguments[1] ?? "any", "vexa::Value"),
+      ];
+    }
+    if (shape.baseName === "Set" || shape.baseName === "ReadonlySet" || shape.baseName === "WeakSet") {
+      return [cppTypeForDeclaredNameOr(shape.typeArguments[0] ?? "any", "vexa::Value")];
+    }
+  }
+  const analysis = activeExpressionTypes.get(expression as Node);
+  const candidates = analysis instanceof UnionType || analysis instanceof IntersectionType
+    ? analysis.types
+    : analysis ? [analysis] : [];
+  for (const candidate of candidates) {
+    if (!(candidate instanceof NamedType)) continue;
+    if (candidate.name === "Map" || candidate.name === "ReadonlyMap" || candidate.name === "WeakMap") {
+      return [
+        cppTypeForAnalysisType(namedTypeArgument(candidate, 0) ?? builtinType("any")) ?? "vexa::Value",
+        cppTypeForAnalysisType(namedTypeArgument(candidate, 1) ?? builtinType("any")) ?? "vexa::Value",
+      ];
+    }
+    if (candidate.name === "Set" || candidate.name === "ReadonlySet" || candidate.name === "WeakSet") {
+      return [cppTypeForAnalysisType(namedTypeArgument(candidate, 0) ?? builtinType("any")) ?? "vexa::Value"];
+    }
+  }
+  return null;
+}
+
 function nativeCollectionPointerCppType(expression: Expr): string | null {
+  const kind = nativeCollectionKind(expression);
+  if (kind === "map") return "vexa::MapObject*";
+  if (kind === "set") return "vexa::SetObject*";
+  if (kind === "weakMap") return "vexa::WeakMapObject*";
+  if (kind === "weakSet") return "vexa::WeakSetObject*";
   const type = activeExpressionTypes.get(expression as Node);
   if (type) {
     let candidates: AnalysisType[] = [type];
@@ -1336,8 +1396,10 @@ function nativeCollectionPointerCppType(expression: Expr): string | null {
     }
   }
   const emitted = emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression);
-  const collectionPrefixes = ["vexa::MapObject<", "vexa::SetObject<", "vexa::WeakMapObject<", "vexa::WeakSetObject<"];
-  if (collectionPrefixes.some((prefix) => emitted.startsWith(prefix)) && emitted.endsWith("*")) return emitted;
+  const collectionTypes = new Set([
+    "vexa::MapObject*", "vexa::SetObject*", "vexa::WeakMapObject*", "vexa::WeakSetObject*",
+  ]);
+  if (collectionTypes.has(emitted)) return emitted;
   return null;
 }
 
@@ -1413,184 +1475,29 @@ function nativeCollectionTypeArguments(call: CallExpression | NewExpression): Id
 function nativeCollectionCppType(
   call: CallExpression | NewExpression,
   name: NativeCollectionName
-): { mapped: string; explicit: string[] } {
-  const argumentsList = nativeCollectionArguments(call);
+): string {
   const typeArguments = nativeCollectionTypeArguments(call);
-  let mapped = cppTypeForExpression(call as unknown as Expr);
-  let explicit: string[] = [];
-  if (typeArguments.length) {
-    explicit = typeArguments.map((argument, index): string => {
-      if ((name === "WeakMap" || name === "WeakSet") && index === 0) {
-        return cppTypeForWeakDeclaredKey(argument.name) ?? "vexa::Value";
-      }
-      return cppTypeForDeclaredNameOr(argument.name, "vexa::Value");
-    });
-    if (name === "Map" || name === "WeakMap") {
-      if (explicit.length !== 2) throw new CppEmitError("C++ Map expects two explicit type arguments", call);
-      mapped = name === "Map"
-        ? `vexa::MapObject<${explicit[0]}, ${explicit[1]}>*`
-        : `vexa::WeakMapObject<${explicit[0]}, ${explicit[1]}>*`;
-    } else {
-      if (explicit.length !== 1) throw new CppEmitError("C++ Set expects one explicit type argument", call);
-      mapped = name === "Set"
-        ? `vexa::SetObject<${explicit[0]}>*`
-        : `vexa::WeakSetObject<${explicit[0]}>*`;
-    }
+  const expectedCount = name === "Map" || name === "WeakMap" ? 2 : 1;
+  if (typeArguments.length > 0 && typeArguments.length !== expectedCount) {
+    throw new CppEmitError(`C++ ${name} expects ${expectedCount} explicit type argument${expectedCount === 1 ? "" : "s"}`, call);
   }
-  if (
-    activeExpectedExpressionCppType &&
-    (explicit.length === 0 || explicit.every((type) => type === "vexa::Value"))
-  ) {
-    const expectedPrefix = `vexa::${name}Object<`;
-    if (activeExpectedExpressionCppType.startsWith(expectedPrefix) && activeExpectedExpressionCppType.endsWith(">*")) {
-      mapped = activeExpectedExpressionCppType;
-    }
-  }
-  if (explicit.length === 0 && !activeExpectedExpressionCppType && argumentsList.length === 1) {
-    const iterable = argumentsList[0]!;
-    const collectionType = nativeCollectionPointerCppType(iterable);
-    if (name === "Map" && collectionType?.startsWith("vexa::MapObject<")) {
-      mapped = collectionType;
-    } else if (name === "Set") {
-      const setElementType = collectionType?.startsWith("vexa::SetObject<")
-        ? cppTemplateArguments(collectionType, "vexa::SetObject<")?.[0]
-        : iterable instanceof ArrayLiteral
-          ? arrayLiteralCppElementType(iterable as ArrayLiteral)
-          : managedArrayElementType(managedArrayCppTypeForExpression(iterable) ?? "");
-      if (setElementType && setElementType !== "auto") {
-        mapped = `vexa::SetObject<${setElementType}>*`;
-      }
-    }
-  }
-  if (!activeExpectedExpressionCppType && argumentsList.length === 1) {
-    const mappedTypes: string[] | null = cppTemplateArguments(mapped, `vexa::${name}Object<`);
-    if (mappedTypes?.every((type) => type === "vexa::Value")) {
-      const iterable = argumentsList[0]!;
-      const collectionType = nativeCollectionPointerCppType(iterable);
-      if (name === "Map" && collectionType?.startsWith("vexa::MapObject<")) {
-        mapped = collectionType;
-      } else if (name === "Set") {
-        const elementType = iterable instanceof ArrayLiteral
-          ? arrayLiteralCppElementType(iterable as ArrayLiteral)
-          : collectionType?.startsWith("vexa::SetObject<")
-            ? cppTemplateArguments(collectionType, "vexa::SetObject<")?.[0]
-            : managedArrayElementType(managedArrayCppTypeForExpression(iterable) ?? "");
-        if (elementType && elementType !== "auto" && elementType !== "vexa::Value") {
-          mapped = `vexa::SetObject<${elementType}>*`;
-        }
-      }
-    }
-  }
-  if (!mapped.endsWith("*") && name === "Map") mapped = "vexa::MapObject<vexa::Value, vexa::Value>*";
-  if (!mapped.endsWith("*") && name === "Set") mapped = "vexa::SetObject<vexa::Value>*";
-  if (!mapped.endsWith("*") && name === "WeakSet" && argumentsList.length === 1) {
-    const arrayType = managedArrayCppTypeForExpression(argumentsList[0]!);
-    const elementType = arrayType ? managedArrayElementType(arrayType) : null;
-    const arrayAnalysisType = activeExpressionTypes.get(argumentsList[0]! as Node);
-    const analysisElementType = arrayAnalysisType instanceof ArrayType
-      ? arrayAnalysisType.elementType
-      : arrayAnalysisType instanceof NamedType &&
-          (arrayAnalysisType.name === "Array" || arrayAnalysisType.name === "ReadonlyArray")
-        ? namedTypeArgument(arrayAnalysisType, 0)
-        : null;
-    const inferredElementType = elementType === "vexa::Value" && analysisElementType instanceof BuiltinType && analysisElementType.name === "object"
-      ? nativeWeakObjectKeyCppType
-      : elementType;
-    if (inferredElementType?.endsWith("*")) {
-      mapped = `vexa::WeakSetObject<${inferredElementType}>*`;
-      explicit = [inferredElementType];
-    }
-  }
-  return { mapped, explicit };
+  return `vexa::${name}Object*`;
 }
 
 function emitNativeCollectionConstruction(call: CallExpression | NewExpression, name: NativeCollectionName): string {
   const argumentsList = nativeCollectionArguments(call);
-  const typeArguments = nativeCollectionTypeArguments(call);
   if (argumentsList.length > 1) throw new CppEmitError(`C++ ${name} construction expects at most one iterable`, call);
-  const { mapped, explicit } = nativeCollectionCppType(call, name);
-  if (!mapped.endsWith("*")) {
-    throw new CppEmitError(
-      `C++ cannot resolve ${name} type arguments${typeArguments.length ? ` '${typeArguments.map((argument) => argument.name).join(", ")}'` : ""}${activeExpectedExpressionCppType ? ` for expected '${activeExpectedExpressionCppType}'` : ""}${activeSourceFilePath ? ` in ${activeSourceFilePath}` : ""}`,
-      call
-    );
-  }
+  const mapped = nativeCollectionCppType(call, name);
   if (argumentsList.length === 1) {
-    if (name === "WeakMap") {
-      const values = argumentsList[0]!;
-      const mappedTypes = cppTemplateArguments(mapped, "vexa::WeakMapObject<");
-      const analysisType = activeExpressionTypes.get(call as Node);
-      let inferred: string[] = [];
-      if (analysisType instanceof NamedType) {
-        inferred = (analysisType.typeArguments ?? []).map(
-          (argument: AnalysisType): string => cppTypeForAnalysisType(argument) ?? "vexa::Value"
-        );
-      }
-      let types = inferred;
-      if (mappedTypes) types = mappedTypes;
-      if (explicit.length === 2) types = explicit;
-      if (types.length < 2 || !types[0]!.endsWith("*")) {
-        throw new CppEmitError("C++ cannot infer WeakMap entry types", call);
-      }
-      return `vexa::weakMapFromIterable<${types[0]}, ${types[1]}>(${emitExpression(values)})`;
-    }
     const values = argumentsList[0]!;
-    if (name === "WeakSet") {
-      if (!isManagedArrayExpression(values) || explicit.length !== 1) {
-        throw new CppEmitError("C++ WeakSet iterable construction requires a typed native object array", call);
-      }
-      return `vexa::weakSetFromArray<${explicit[0]}>(${emitManagedArrayPointer(values)})`;
-    }
-    if (name === "Map") {
-      const mappedTypes = cppTemplateArguments(mapped, "vexa::MapObject<");
-      const iterableCollectionTypes = cppTemplateArguments(
-        nativeCollectionPointerCppType(values) ?? "",
-        "vexa::MapObject<"
-      );
-      const analysisType = activeExpressionTypes.get(call as Node);
-      let inferred: string[] = [];
-      if (analysisType instanceof NamedType) {
-        const namedAnalysisType = analysisType as NamedType;
-        inferred = (namedAnalysisType.typeArguments ?? []).map(
-          (argument: AnalysisType): string => cppTypeForAnalysisType(argument) ?? "vexa::Value"
-        );
-      }
-      let types: string[] = inferred;
-      if (mappedTypes) types = mappedTypes;
-      if (types.every((type) => type === "vexa::Value") && iterableCollectionTypes) {
-        types = iterableCollectionTypes;
-      }
-      if (explicit.length === 2) types = explicit;
-      if (types.length < 2) throw new CppEmitError("C++ cannot infer Map entry types", call);
-      return `vexa::mapFromIterable<${types[0]}, ${types[1]}>(${emitExpression(values)})`;
-    }
-    const mappedTypes = cppTemplateArguments(mapped, `vexa::${name}Object<`);
-    const analysisType = activeExpressionTypes.get(call as Node);
-    const inferred: string = analysisType instanceof NamedType
-      ? cppTypeForAnalysisType(namedTypeArgument(analysisType, 0) ?? builtinType("any")) ?? "vexa::Value"
-      : "vexa::Value";
-    let selectedType: string = inferred;
-    if (mappedTypes && mappedTypes.length > 0) selectedType = mappedTypes[0]!;
-    if (explicit.length > 0 && (explicit[0] !== "vexa::Value" || selectedType === "vexa::Value")) {
-      selectedType = explicit[0]!;
-    }
-    const iterableType: string | null = managedArrayCppTypeForExpression(values);
-    const elementType: string | null = iterableType ? managedArrayElementType(iterableType) : null;
-    let iterableCollectionType: string | null = null;
-    const collectionPointerType = nativeCollectionPointerCppType(values);
-    if (collectionPointerType) {
-      const collectionTypeArguments = cppTemplateArguments(collectionPointerType, `vexa::${name}Object<`);
-      if (collectionTypeArguments && collectionTypeArguments.length > 0) {
-        iterableCollectionType = collectionTypeArguments[0]!;
-      }
-    }
-    let inferredIterableType: string | null = elementType;
-    if (inferredIterableType === null) inferredIterableType = iterableCollectionType;
-    const emittedType: string = selectedType === "undefined" || selectedType === "vexa::Undefined" ||
-        (selectedType === "vexa::Value" && inferredIterableType && inferredIterableType !== "vexa::Value")
-      ? inferredIterableType ?? "vexa::Value"
-      : selectedType;
-    return `vexa::setFromIterable<${emittedType}>(${emitExpression(values)})`;
+    const helper = name === "Map"
+      ? "mapFromIterable"
+      : name === "Set"
+        ? "setFromIterable"
+        : name === "WeakMap"
+          ? "weakMapFromIterable"
+          : "weakSetFromIterable";
+    return `vexa::${helper}(vexa::toValue(${emitExpression(values)}))`;
   }
   return `vexa::makeManaged<${mapped.slice(0, -1)}>()`;
 }
@@ -1930,6 +1837,34 @@ function arrayLiteralCppElementType(array: ArrayLiteral): string {
   return elementTypes.size === 1 ? [...elementTypes][0]! : "vexa::Value";
 }
 
+function syntacticArrayResultCppType(expression: Expr): string | null {
+  if (expression instanceof ArrayLiteral) {
+    return `vexa::ArrayObject<${arrayLiteralCppElementType(expression as ArrayLiteral)}>*`;
+  }
+  if (!(expression instanceof ConditionalExpression)) return null;
+  const consequent = syntacticArrayResultCppType((expression as ConditionalExpression).consequent);
+  const alternate = syntacticArrayResultCppType((expression as ConditionalExpression).alternate);
+  if (!consequent || !alternate) return null;
+  if (consequent === alternate) return consequent;
+  const consequentElement = managedArrayElementType(consequent);
+  const alternateElement = managedArrayElementType(alternate);
+  if (consequentElement === "vexa::Value") return alternate;
+  if (alternateElement === "vexa::Value") return consequent;
+  return "vexa::ArrayObject<vexa::Value>*";
+}
+
+function syntacticCallbackArrayResultCppType(expression: Expr): string | null {
+  if (!(expression instanceof ArrowFunctionExpression) && !(expression instanceof FunctionExpression)) return null;
+  const body = (expression as ArrowFunctionExpression | FunctionExpression).body;
+  if (!(body instanceof BlockStatement)) return syntacticArrayResultCppType(body as Expr);
+  for (const statement of (body as BlockStatement).body) {
+    if (statement instanceof ReturnStatement && (statement as ReturnStatement).expression) {
+      return syntacticArrayResultCppType((statement as ReturnStatement).expression!);
+    }
+  }
+  return null;
+}
+
 function arrayElementCanUseCppType(element: Expr, expectedElementType: string): boolean {
   if (element instanceof ArrayHole) return expectedElementType === "vexa::Value";
   if (element instanceof SpreadExpression) {
@@ -2210,10 +2145,6 @@ function callableExpressionResultCppType(
     if (mapped) return mapped;
   }
   const functionType = activeExpressionTypes.get(expression as Node);
-  if (functionType instanceof FunctionType) {
-    const mapped = cppTypeForAnalysisType((functionType as FunctionType).returnType);
-    if (mapped) return mapped;
-  }
   const previousLocalCppTypes = activeLocalCppTypes;
   const previousDynamicNames = activeDynamicValueNames;
   const previousCppTypeCache = activeCppExpressionTypeCache;
@@ -2230,40 +2161,63 @@ function callableExpressionResultCppType(
     activeLocalCppTypes.set(parameter.name.name, type);
     if (type === "vexa::Value") activeDynamicValueNames.add(parameter.name.name);
   });
+  let syntacticResult: string | null = null;
   try {
     const body = expression instanceof FunctionExpression
       ? (expression as FunctionExpression).body
       : (expression as ArrowFunctionExpression).body;
     if (body instanceof BlockStatement) {
       const block = body as BlockStatement;
-      if (!containsValueReturn(block)) return "void";
-      return inferredCallableReturnType(block);
+      syntacticResult = !containsValueReturn(block) ? "void" : inferredCallableReturnType(block);
+    } else {
+      const emitted = emittedCppTypeForExpression(body as Expr);
+      const declared = cppTypeForExpression(body as Expr);
+      const mapped = emitted ?? (declared === "auto" ? null : declared);
+      syntacticResult = mapped === "auto" ? null : mapped;
     }
-    const declared = cppTypeForExpression(body as Expr);
-    const mapped = declared === "auto" ? emittedCppTypeForExpression(body as Expr) : declared;
-    return mapped === "auto" ? null : mapped;
   } finally {
     activeLocalCppTypes = previousLocalCppTypes;
     activeDynamicValueNames = previousDynamicNames;
     activeCppExpressionTypeCache = previousCppTypeCache;
     activeEmittedExpressionTypeCache = previousEmittedTypeCache;
   }
+  if (syntacticResult) return syntacticResult;
+  if (functionType instanceof FunctionType) {
+    const mapped = cppTypeForAnalysisType((functionType as FunctionType).returnType);
+    if (mapped) return mapped;
+  }
+  return null;
 }
 
 function callbackResultCppType(expression: Expr): string | null {
+  if (expression instanceof ArrowFunctionExpression || expression instanceof FunctionExpression) {
+    return callableExpressionResultCppType(expression as ArrowFunctionExpression | FunctionExpression);
+  }
   const analyzed = activeExpressionTypes.get(expression as Node);
   if (analyzed instanceof FunctionType) {
     const mapped = cppTypeForAnalysisType(analyzed.returnType);
     if (mapped) return mapped;
-  }
-  if (expression instanceof ArrowFunctionExpression || expression instanceof FunctionExpression) {
-    return callableExpressionResultCppType(expression as ArrowFunctionExpression | FunctionExpression);
   }
   if (expression instanceof Identifier) {
     const statement = activeFunctionStatements.get((expression as Identifier).name);
     if (statement?.returnType) return cppTypeForDeclaredName(statement.returnType.name);
   }
   return null;
+}
+
+function callableParameterCount(expression: Expr): number {
+  if (expression instanceof ArrowFunctionExpression || expression instanceof FunctionExpression) {
+    return expression.parameters.length;
+  }
+  if (expression instanceof Identifier) {
+    return activeFunctionStatements.get((expression as Identifier).name)?.parameters.length ?? 1;
+  }
+  const analyzed = activeExpressionTypes.get(expression as Node);
+  return analyzed instanceof FunctionType ? analyzed.parameters.length : 1;
+}
+
+function emitCollectionCallbackArgument(value: string, cppType: string): string {
+  return cppType === "vexa::Value" ? value : emitNativeConversion(value, cppType);
 }
 
 function emitNativePointerExpression(expression: Expr, expectedPointerType: string | null = null): string {
@@ -2430,7 +2384,6 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
     }
     const member = memberParts((expression as CallExpression).callee);
     const collectionKind = member ? nativeCollectionKind(member.object) : null;
-    const collectionType = member ? nativeCollectionPointerCppType(member.object) : null;
     if (member && collectionKind && new Set(["has", "delete"]).has(member.propertyName)) {
       return "bool";
     }
@@ -2439,7 +2392,9 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
       if (resultType.endsWith("*")) return resultType;
       return "vexa::Value";
     }
-    const mapTypes = collectionType ? cppTemplateArguments(collectionType, "vexa::MapObject<") : null;
+    const mapTypes = member && collectionKind === "map"
+      ? nativeCollectionSemanticCppTypes(member.object)
+      : null;
     if (member?.propertyName === "keys" && mapTypes) {
       return `vexa::ArrayObject<${mapTypes[0]}>*`;
     }
@@ -2449,7 +2404,9 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
     if (member?.propertyName === "entries" && mapTypes) {
       return "vexa::ArrayObject<vexa::ArrayObject<vexa::Value>*>*";
     }
-    const setTypes = collectionType ? cppTemplateArguments(collectionType, "vexa::SetObject<") : null;
+    const setTypes = member && collectionKind === "set"
+      ? nativeCollectionSemanticCppTypes(member.object)
+      : null;
     if ((member?.propertyName === "keys" || member?.propertyName === "values" || member?.propertyName === "entries") && setTypes) {
       return `vexa::ArrayObject<${setTypes[0]}>*`;
     }
@@ -2577,7 +2534,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
     const call = expression as NewExpression | CallExpression;
     const name = identifierName(call instanceof NewExpression ? call.callee : call.callee);
     if (name && new Set<string>(["Map", "Set", "WeakMap", "WeakSet"]).has(name)) {
-      return nativeCollectionCppType(call, name as NativeCollectionName).mapped;
+      return nativeCollectionCppType(call, name as NativeCollectionName);
     }
     if (expression instanceof NewExpression && name === "URL") return "vexa::URLObject*";
     if (expression instanceof NewExpression && name === "Date") return "vexa::DateObject*";
@@ -2725,8 +2682,8 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         if (member.propertyName === "join") return "std::u16string";
         if (member.propertyName === "map" || member.propertyName === "flatMap") {
           const callback = callExpression.args[0];
-          let callbackResult = callback ? callbackResultCppType(callback) : null;
-          if ((!callbackResult || callbackResult === "void" || callbackResult === "auto") && callback &&
+          let callbackResult = callback ? syntacticCallbackArrayResultCppType(callback) : null;
+          if (!callbackResult && callback &&
               (callback instanceof ArrowFunctionExpression || callback instanceof FunctionExpression)) {
             const callable = callback as ArrowFunctionExpression | FunctionExpression;
             const previousParameters = activeExpectedLambdaParameterCppTypes;
@@ -2738,6 +2695,8 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
             } finally {
               activeExpectedLambdaParameterCppTypes = previousParameters;
             }
+          } else if (!callbackResult && callback) {
+            callbackResult = callbackResultCppType(callback);
           }
           if (callbackResult && callbackResult !== "void" && callbackResult !== "auto") {
             const mappedElement = member.propertyName === "flatMap"
@@ -2771,10 +2730,7 @@ function computeEmittedCppTypeForExpression(expression: Expr): string | null {
         return "vexa::Value";
       }
       if (member?.propertyName === "get" && nativeCollectionKind(member.object) === "weakMap") {
-        const mapTypes = cppTemplateArguments(
-          emittedCppTypeForExpression(member.object) ?? cppTypeForExpression(member.object),
-          "vexa::WeakMapObject<"
-        );
+        const mapTypes = nativeCollectionSemanticCppTypes(member.object);
         if (mapTypes?.[1]) return mapTypes[1];
       }
       const inferredFunctionResult = inferredFunctionCallCppType(expression as CallExpression);
@@ -3062,6 +3018,14 @@ function declaredTypeNameForExpression(expression: Expr): string | null {
     const declaredTypeName = declaredTypeNameForIdentifier(name);
     if (declaredTypeName) return declaredTypeName;
     return null;
+  }
+  if (expression instanceof NewExpression || expression instanceof CallExpression) {
+    const call = expression as NewExpression | CallExpression;
+    const name = identifierName(call.callee);
+    const typeArguments = call.typeArguments ?? [];
+    if (name && new Set(["Map", "Set", "WeakMap", "WeakSet"]).has(name) && typeArguments.length > 0) {
+      return `${name}<${typeArguments.map((argument) => argument.name).join(", ")}>`;
+    }
   }
   if (expression instanceof CallExpression) {
     return declaredCallResultType(expression as CallExpression);
@@ -3353,10 +3317,10 @@ function cppTypeForBoundDeclaredName(typeName: string, bindings: ReadonlyMap<str
     return `vexa::ArrayObject<${argumentsList[0]}>*`;
   }
   if (isNativeMapTypeName(shape.baseName)) {
-    return `vexa::MapObject<${argumentsList[0]}, ${argumentsList[1]}>*`;
+    return "vexa::MapObject*";
   }
   if (isNativeSetTypeName(shape.baseName)) {
-    return `vexa::SetObject<${argumentsList[0]}>*`;
+    return "vexa::SetObject*";
   }
   if (shape.baseName === "Promise") return `vexa::Task<${argumentsList[0]}>`;
   if (activeClassNames.has(shape.baseName) || activeInterfaceNames.has(shape.baseName)) {
@@ -3735,10 +3699,12 @@ function emitExpressionWithExpectedCppType(expression: Expr, expectedCppType: st
     } else if (managedArrayElementType(expectedCppType) !== null &&
       managedArrayElementType(actual ?? "") !== null &&
       (expression instanceof CallExpression || expression instanceof ArrayLiteral)) {
-      result = emitted;
+      result = actual === expectedCppType
+        ? emitted
+        : emitNativeConversion(emitted, expectedCppType);
     } else if ((expression instanceof CallExpression || expression instanceof NewExpression) &&
-        ["vexa::MapObject<", "vexa::SetObject<", "vexa::WeakMapObject<", "vexa::WeakSetObject<"]
-          .some((prefix) => expectedCppType.startsWith(prefix))) {
+        new Set(["vexa::MapObject*", "vexa::SetObject*", "vexa::WeakMapObject*", "vexa::WeakSetObject*"])
+          .has(expectedCppType)) {
       result = emitted;
     } else if (expectedCppType === "vexa::Value" && isStringExpression(expression)) {
       result = emitConvertedValue(expression, expectedCppType);
@@ -4504,7 +4470,8 @@ function classConstructionTypeSubstitutions(
         classStatement.typeParameters,
         typeSubstitutions,
         parameterType,
-        argumentType === "auto" ? "vexa::Value" : argumentType
+        argumentType === "auto" ? "vexa::Value" : argumentType,
+        nativeCollectionSemanticCppTypes(argument)
       );
     }
   }
@@ -4757,7 +4724,8 @@ function bindCppTypePattern(
   typeParameters: readonly TypeParameter[],
   bindings: Map<string, string>,
   pattern: string,
-  actual: string
+  actual: string,
+  actualSemanticArguments: string[] | null = null
 ): void {
   const direct = typeParameters.find((candidate) => candidate.name.name === pattern);
   if (direct) {
@@ -4766,15 +4734,35 @@ function bindCppTypePattern(
   }
   const shape = parseTypeNameShape(pattern);
   if (shape.typeArguments.length === 0 && shape.arrayDepth === 0) return;
-  let actualArguments: string[] | null = null;
-  if (isNativeMapTypeName(shape.baseName)) {
-    actualArguments = cppTemplateArguments(actual, "vexa::MapObject<");
+  const actualShape = parseTypeNameShape(actual);
+  let actualArguments: readonly string[] | null = null;
+  if (
+    isNativeMapTypeName(shape.baseName) &&
+    isNativeMapTypeName(actualShape.baseName)
+  ) {
+    actualArguments = actualShape.typeArguments;
+  } else if (shape.baseName === "WeakMap" && actualShape.baseName === "WeakMap") {
+    actualArguments = actualShape.typeArguments;
+  } else if (
+    isNativeSetTypeName(shape.baseName) &&
+    isNativeSetTypeName(actualShape.baseName)
+  ) {
+    actualArguments = actualShape.typeArguments;
+  } else if (shape.baseName === "WeakSet" && actualShape.baseName === "WeakSet") {
+    actualArguments = actualShape.typeArguments;
+  } else if (
+    (shape.baseName === "Array" || shape.baseName === "ReadonlyArray" || shape.arrayDepth > 0) &&
+    (actualShape.baseName === "Array" || actualShape.baseName === "ReadonlyArray" || actualShape.arrayDepth > 0)
+  ) {
+    actualArguments = actualShape.arrayDepth > 0 ? [actualShape.baseName] : actualShape.typeArguments;
+  } else if (isNativeMapTypeName(shape.baseName)) {
+    actualArguments = actualSemanticArguments;
   } else if (shape.baseName === "WeakMap") {
-    actualArguments = cppTemplateArguments(actual, "vexa::WeakMapObject<");
+    actualArguments = actualSemanticArguments;
   } else if (isNativeSetTypeName(shape.baseName)) {
-    actualArguments = cppTemplateArguments(actual, "vexa::SetObject<");
+    actualArguments = actualSemanticArguments;
   } else if (shape.baseName === "WeakSet") {
-    actualArguments = cppTemplateArguments(actual, "vexa::WeakSetObject<");
+    actualArguments = actualSemanticArguments;
   } else if ((shape.baseName === "Array" || shape.baseName === "ReadonlyArray") || shape.arrayDepth > 0) {
     const elementType = managedArrayElementType(actual);
     if (elementType) actualArguments = [elementType];
@@ -4784,10 +4772,7 @@ function bindCppTypePattern(
   patternArguments.forEach((argument, index) => {
     const actualArgument = actualArguments[index];
     if (!actualArgument) return;
-    const parameter = typeParameters.find((candidate) => candidate.name.name === argument);
-    if (parameter && !bindings.has(parameter.name.name)) {
-      bindings.set(parameter.name.name, actualArgument);
-    }
+    bindCppTypePattern(typeParameters, bindings, argument, actualArgument);
   });
 }
 
@@ -4832,7 +4817,14 @@ function methodTemplateBindings(
     const argumentType = declaredArgumentType !== "auto"
       ? declaredArgumentType
       : emittedCppTypeForExpression(argument) ?? "vexa::Value";
-    bindCppTypePattern(typeParameters, bindings, parameter.typeAnnotation.name, argumentType);
+    const declaredArgumentTypeName = declaredTypeNameForExpression(argument);
+    bindCppTypePattern(
+      typeParameters,
+      bindings,
+      parameter.typeAnnotation.name,
+      declaredArgumentTypeName ?? argumentType,
+      nativeCollectionSemanticCppTypes(argument)
+    );
     const direct = typeParameters.find((candidate) => candidate.name.name === parameter.typeAnnotation!.name);
     if (direct && !bindings.has(direct.name.name)) bindings.set(direct.name.name, argumentType);
     const callback = parseFunctionTypeAnnotation(parameter.typeAnnotation.name);
@@ -5683,13 +5675,18 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       if (member.propertyName === "get" || member.propertyName === "has" || member.propertyName === "delete") {
         if (call.args.length !== 1) throw new CppEmitError(`C++ Map.${member.propertyName} expects one key`, call);
         const getResultType = member.propertyName === "get" ? cppTypeForExpression(call) : null;
-        const helper = member.propertyName === "get"
-          ? getResultType?.endsWith("*") ? "mapGet" : "mapGetValue"
-          : member.propertyName === "has" ? "mapHas" : "mapDelete";
         return emitNativeReceiverCall(
           optionalReceiver,
           receiver,
-          (target) => `vexa::${helper}(${target}, ${emitExpression(call.args[0]!)})`
+          (target) => {
+            const helper = member.propertyName === "get"
+              ? "mapGet"
+              : member.propertyName === "has" ? "mapHas" : "mapDelete";
+            const emitted = `vexa::${helper}(${target}, vexa::toValue(${emitExpression(call.args[0]!)}))`;
+            return member.propertyName === "get" && getResultType?.endsWith("*")
+              ? emitNativeConversion(emitted, getResultType)
+              : emitted;
+          }
         );
       }
       if (member.propertyName === "set") {
@@ -5697,19 +5694,48 @@ function emitCall(call: CallExpression, resultUsed = true): string {
         return emitNativeReceiverCall(
           optionalReceiver,
           receiver,
-          (target) => `vexa::mapSet(${target}, ${emitExpression(call.args[0]!)}, ${emitExpression(call.args[1]!)})`
+          (target) => `vexa::mapSet(${target}, vexa::toValue(${emitExpression(call.args[0]!)}), vexa::toValue(${emitExpression(call.args[1]!)}))`
         );
       }
       if (member.propertyName === "forEach") {
         if (call.args.length !== 1) throw new CppEmitError("C++ Map.forEach expects one callback", call);
+        const callback = call.args[0]!;
+        const semanticTypes = nativeCollectionSemanticCppTypes(member.object) ?? ["vexa::Value", "vexa::Value"];
+        const callbackTypes = [semanticTypes[1] ?? "vexa::Value", semanticTypes[0] ?? "vexa::Value", "vexa::MapObject*"];
+        const parameterCount = callableParameterCount(callback);
+        const previousParameters = activeExpectedLambdaParameterCppTypes;
+        activeExpectedLambdaParameterCppTypes = callbackTypes.slice(0, parameterCount);
+        let emittedCallback: string;
+        try {
+          emittedCallback = emitExpression(callback);
+        } finally {
+          activeExpectedLambdaParameterCppTypes = previousParameters;
+        }
+        const forwarded = [
+          emitCollectionCallbackArgument("__vexa_value", callbackTypes[0]!),
+          emitCollectionCallbackArgument("__vexa_key", callbackTypes[1]!),
+          "__vexa_map",
+        ].slice(0, parameterCount);
+        const adapter = `[__vexa_callback = ${emittedCallback}](vexa::Value __vexa_value, vexa::Value __vexa_key, vexa::MapObject* __vexa_map) mutable { __vexa_callback(${forwarded.join(", ")}); }`;
         return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
-          `vexa::mapForEach(${target}, ${emitExpression(call.args[0]!)})`);
+          `vexa::mapForEach(${target}, ${adapter})`);
       }
       if (member.propertyName === "keys" || member.propertyName === "values" || member.propertyName === "entries") {
         if (call.args.length !== 0) throw new CppEmitError(`C++ Map.${member.propertyName} expects no arguments`, call);
         const helper = member.propertyName === "keys" ? "mapKeys" : member.propertyName === "values" ? "mapValues" : "mapEntries";
-        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
-          `vexa::${helper}(${target})`);
+        const semanticTypes = nativeCollectionSemanticCppTypes(member.object);
+        const resultType = member.propertyName === "keys" && semanticTypes?.[0]
+          ? `vexa::ArrayObject<${semanticTypes[0]}>*`
+          : member.propertyName === "values" && semanticTypes?.[1]
+            ? `vexa::ArrayObject<${semanticTypes[1]}>*`
+            : "vexa::ArrayObject<vexa::ArrayObject<vexa::Value>*>*";
+        const actualType = member.propertyName === "entries"
+          ? "vexa::ArrayObject<vexa::ArrayObject<vexa::Value>*>*"
+          : "vexa::ArrayObject<vexa::Value>*";
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) => {
+          const emitted = `vexa::${helper}(${target})`;
+          return resultType === actualType ? emitted : emitNativeConversion(emitted, resultType);
+        });
       }
     }
     if (collection === "set") {
@@ -5737,17 +5763,39 @@ function emitCall(call: CallExpression, resultUsed = true): string {
         if (call.args.length !== 1) throw new CppEmitError(`C++ Set.${member.propertyName} expects one value`, call);
         const helper = member.propertyName === "add" ? "setAdd" : member.propertyName === "has" ? "setHas" : "setDelete";
         return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
-          `vexa::${helper}(${target}, ${emitExpression(call.args[0]!)})`);
+          `vexa::${helper}(${target}, vexa::toValue(${emitExpression(call.args[0]!)}))`);
       }
       if (member.propertyName === "forEach") {
         if (call.args.length !== 1) throw new CppEmitError("C++ Set.forEach expects one callback", call);
+        const callback = call.args[0]!;
+        const elementType = nativeCollectionSemanticCppTypes(member.object)?.[0] ?? "vexa::Value";
+        const callbackTypes = [elementType, elementType, "vexa::SetObject*"];
+        const parameterCount = callableParameterCount(callback);
+        const previousParameters = activeExpectedLambdaParameterCppTypes;
+        activeExpectedLambdaParameterCppTypes = callbackTypes.slice(0, parameterCount);
+        let emittedCallback: string;
+        try {
+          emittedCallback = emitExpression(callback);
+        } finally {
+          activeExpectedLambdaParameterCppTypes = previousParameters;
+        }
+        const forwarded = [
+          emitCollectionCallbackArgument("__vexa_value", elementType),
+          emitCollectionCallbackArgument("__vexa_value", elementType),
+          "__vexa_set",
+        ].slice(0, parameterCount);
+        const adapter = `[__vexa_callback = ${emittedCallback}](vexa::Value __vexa_value, vexa::Value, vexa::SetObject* __vexa_set) mutable { __vexa_callback(${forwarded.join(", ")}); }`;
         return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
-          `vexa::setForEach(${target}, ${emitExpression(call.args[0]!)})`);
+          `vexa::setForEach(${target}, ${adapter})`);
       }
       if (member.propertyName === "keys" || member.propertyName === "values") {
         if (call.args.length !== 0) throw new CppEmitError(`C++ Set.${member.propertyName} expects no arguments`, call);
-        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
-          `vexa::setValues(${target})`);
+        const elementType = nativeCollectionSemanticCppTypes(member.object)?.[0] ?? "vexa::Value";
+        const resultType = `vexa::ArrayObject<${elementType}>*`;
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) => {
+          const emitted = `vexa::setValues(${target})`;
+          return elementType === "vexa::Value" ? emitted : emitNativeConversion(emitted, resultType);
+        });
       }
       if (member.propertyName === "entries") {
         if (call.args.length !== 0) throw new CppEmitError("C++ Set.entries expects no arguments", call);
@@ -5760,13 +5808,18 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       if (member.propertyName === "get" || member.propertyName === "has" || member.propertyName === "delete") {
         if (call.args.length !== 1) throw new CppEmitError(`C++ WeakMap.${member.propertyName} expects one key`, call);
         const helper = member.propertyName === "get" ? "weakMapGet" : member.propertyName === "has" ? "weakMapHas" : "weakMapDelete";
-        return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
-          `vexa::${helper}(${target}, ${emitExpression(call.args[0]!)})`);
+        return emitNativeReceiverCall(optionalReceiver, receiver, (target) => {
+          const emitted = `vexa::${helper}(${target}, vexa::weakCollectionKey(vexa::toValue(${emitExpression(call.args[0]!)})))`;
+          const resultType = member.propertyName === "get" ? cppTypeForExpression(call) : null;
+          return resultType && resultType !== "vexa::Value" && resultType !== "auto"
+            ? emitNativeConversion(emitted, resultType)
+            : emitted;
+        });
       }
       if (member.propertyName === "set") {
         if (call.args.length !== 2) throw new CppEmitError("C++ WeakMap.set expects a key and value", call);
         return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
-          `vexa::weakMapSet(${target}, ${emitExpression(call.args[0]!)}, ${emitExpression(call.args[1]!)})`);
+          `vexa::weakMapSet(${target}, vexa::weakCollectionKey(vexa::toValue(${emitExpression(call.args[0]!)})), vexa::toValue(${emitExpression(call.args[1]!)}))`);
       }
     }
     if (collection === "weakSet") {
@@ -5775,7 +5828,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
         if (call.args.length !== 1) throw new CppEmitError(`C++ WeakSet.${member.propertyName} expects one value`, call);
         const helper = member.propertyName === "add" ? "weakSetAdd" : member.propertyName === "has" ? "weakSetHas" : "weakSetDelete";
         return emitNativeReceiverCall(optionalReceiver, receiver, (target) =>
-          `vexa::${helper}(${target}, ${emitExpression(call.args[0]!)})`);
+          `vexa::${helper}(${target}, vexa::weakCollectionKey(vexa::toValue(${emitExpression(call.args[0]!)})))`);
       }
     }
   }
@@ -5938,9 +5991,12 @@ function emitCall(call: CallExpression, resultUsed = true): string {
       return resultUsed ? `([&]() { ${body} return ${splice}; }())` : `{ ${body} ${splice}; }`;
     }
     const semanticCallType = cppTypeForExpression(call);
-    let mappedCallType = activeExpectedExpressionCppType;
+    const syntacticArrayCallType = new Set(["map", "flatMap"]).has(member.propertyName)
+      ? emittedCppTypeForExpression(call) ?? ""
+      : "";
+    let mappedCallType: string = activeExpectedExpressionCppType ?? syntacticArrayCallType;
     if (!mappedCallType && semanticCallType !== "auto") mappedCallType = semanticCallType;
-    if (!mappedCallType) mappedCallType = emittedCppTypeForExpression(call);
+    if (!mappedCallType) mappedCallType = emittedCppTypeForExpression(call) ?? "";
     if (!mappedCallType) mappedCallType = semanticCallType;
     const contextualCallbackResult = new Set(["map", "flatMap"]).has(member.propertyName) &&
       managedArrayElementType(mappedCallType) !== null
@@ -6080,7 +6136,8 @@ function emitCall(call: CallExpression, resultUsed = true): string {
   }
 
   const resolvedClassMemberMethod = member ? classMethodForMember(member) : null;
-  if (member && isDynamicValueExpression(member.object) && !resolvedClassMemberMethod) {
+  if (member && isDynamicValueExpression(member.object) &&
+      !nativeCollectionKind(member.object) && !resolvedClassMemberMethod) {
     const calleeMember = call.callee as MemberExpression;
     const key = calleeMember.computed
       ? `vexa::propertyKey(${emitExpression(calleeMember.property)})`
@@ -6165,7 +6222,7 @@ function emitCall(call: CallExpression, resultUsed = true): string {
     }
     return `vexa::dynamicImportUnavailable(vexa::toString(${emitExpression(call.args[0]!)}))`;
   }
-  if (calleeName === "nativeRealPath" || calleeName === "nativeStatPath" || calleeName === "nativeReadDirectory") {
+  if (calleeName === "nativeReadFileBytes" || calleeName === "nativeRealPath" || calleeName === "nativeStatPath" || calleeName === "nativeReadDirectory") {
     if (call.args.length !== 1) {
       throw new CppEmitError(`C++ ${calleeName} expects one path`);
     }
@@ -8276,8 +8333,8 @@ function emitFor(statement: ForStatement, indent: string, label?: string): strin
       const iterableCppType = emittedCppTypeForExpression(statement.iterable) ??
         cppTypeForExpression(statement.iterable);
       const collection = nativeCollectionKind(statement.iterable) ??
-        (iterableCppType.startsWith("vexa::MapObject<") ? "map" :
-          iterableCppType.startsWith("vexa::SetObject<") ? "set" : "");
+        (iterableCppType === "vexa::MapObject*" ? "map" :
+          iterableCppType === "vexa::SetObject*" ? "set" : "");
       const stringIterable = isStringExpression(statement.iterable);
       const binaryIterable = nativeBinaryObjectKind(statement.iterable) === "typedArray";
       const deferredNativeArray = !stringIterable && (iterableCppType === "auto" || iterableCppType === "vexa::Value");
@@ -8320,7 +8377,7 @@ function emitFor(statement: ForStatement, indent: string, label?: string): strin
       const temporary = `__vexa_loop_binding_${activeDestructureTemporaryCounter++}`;
       const bindingLines: string[] = [];
       const mapTypes: string[] | null = collection === "map"
-        ? cppTemplateArguments(iterableCppType, "vexa::MapObject<")
+        ? nativeCollectionSemanticCppTypes(statement.iterable)
         : null;
       const iterableAnalysisType = activeExpressionTypes.get(statement.iterable as Node);
       const tupleTypes = iterableAnalysisType instanceof ArrayType && iterableAnalysisType.elementType instanceof TupleType
@@ -8604,7 +8661,7 @@ function returnExpressions(statement: Statement): Expr[] {
 
 function inferredCallableReturnType(body: BlockStatement): string | null {
   const mapped = returnExpressions(body)
-    .map((expression) => cppTypeForExpression(expression))
+    .map((expression) => emittedCppTypeForExpression(expression) ?? cppTypeForExpression(expression))
     .filter((type) => type !== "auto");
   if (mapped.length === 0) return null;
   return mapped.every((type) => type === mapped[0]) ? mapped[0]! : "vexa::Value";
@@ -11252,9 +11309,10 @@ function buildCppProgram(
   activeGlobalCppTypes = new Map(activeLocalCppTypes);
   const globalDeclaredTypeNames = new Map<string, string>();
   for (const statement of topLevelVariables) {
-    if (statement.typeAnnotation && statement.name instanceof Identifier) {
-      globalDeclaredTypeNames.set((statement.name as Identifier).name, statement.typeAnnotation.name);
-    }
+    if (!(statement.name instanceof Identifier)) continue;
+    const declaredTypeName = statement.typeAnnotation?.name ??
+      (statement.initializer ? declaredTypeNameForExpression(statement.initializer) : null);
+    if (declaredTypeName) globalDeclaredTypeNames.set(statement.name.name, declaredTypeName);
   }
   activeGlobalDeclaredTypeNames = globalDeclaredTypeNames;
   activeGlobalGcRootTypes = new Map();

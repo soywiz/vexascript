@@ -71,17 +71,25 @@ inline constexpr bool IsDynamicArrayElement =
       std::is_base_of_v<EnumerableObject, std::remove_pointer_t<T>> ||
       std::is_same_v<std::remove_pointer_t<T>, RecordObject>));
 
-// Language arrays have reference semantics. The backing storage is an Oilpan
-// object, and every GC-managed element is represented by a traced Member edge.
+// Language arrays have one dynamic storage representation regardless of their
+// static source element type. T only adapts reads and writes at generated-code
+// boundaries; it must never constrain the layout or values visible through an
+// `any[]` view of the same array.
 template <typename T>
 class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public BaseObject {
+ private:
+  using Slot = std::conditional_t<IsDynamicArrayElement<T>, StoredValue, ArraySlot<T>>;
+
  public:
   ArrayObject() = default;
   explicit ArrayObject(BaseObject* dynamicBacking) : dynamic_backing_(dynamicBacking) {}
   static ArrayObject* fromDynamicObject(BaseObject* backing);
   explicit ArrayObject(std::initializer_list<T> values) {
     values_.reserve(values.size());
-    for (const auto& value : values) values_.emplace_back(value);
+    for (const auto& value : values) {
+      if constexpr (IsDynamicArrayElement<T>) values_.emplace_back(convertValue<Value>(value));
+      else values_.emplace_back(value);
+    }
   }
 
   std::size_t size() const {
@@ -108,7 +116,8 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
       }
     }
     if (index >= values_.size()) return T{};
-    return values_[index].load();
+    if constexpr (IsDynamicArrayElement<T>) return convertValue<T>(values_[index].load());
+    else return values_[index].load();
   }
   T set(std::size_t index, T value) {
     if (dynamic_backing_) {
@@ -120,7 +129,8 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
       }
     }
     if (index >= values_.size()) values_.resize(index + 1);
-    values_[index].store(value);
+    if constexpr (IsDynamicArrayElement<T>) values_[index].store(convertValue<Value>(value));
+    else values_[index].store(value);
     return value;
   }
   void append(T value) {
@@ -128,27 +138,40 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
       set(size(), value);
       return;
     }
-    values_.emplace_back(std::move(value));
+    if constexpr (IsDynamicArrayElement<T>) values_.emplace_back(convertValue<Value>(value));
+    else values_.emplace_back(std::move(value));
   }
   void insert(std::size_t index, T value) {
     values_.insert(
         values_.begin() + static_cast<std::ptrdiff_t>(std::min(index, values_.size())),
-        ArraySlot<T>(std::move(value)));
+        [&]() -> Slot {
+          if constexpr (IsDynamicArrayElement<T>) return StoredValue(convertValue<Value>(value));
+          else return ArraySlot<T>(std::move(value));
+        }());
   }
-  void prepend(T value) { values_.insert(values_.begin(), ArraySlot<T>(std::move(value))); }
+  void prepend(T value) {
+    values_.insert(values_.begin(), [&]() -> Slot {
+      if constexpr (IsDynamicArrayElement<T>) return StoredValue(convertValue<Value>(value));
+      else return ArraySlot<T>(std::move(value));
+    }());
+  }
   double push(T value) {
     append(std::move(value));
     return static_cast<double>(size());
   }
   T removeLast() {
     if (values_.empty()) return T{};
-    T value = values_.back().load();
+    T value;
+    if constexpr (IsDynamicArrayElement<T>) value = convertValue<T>(values_.back().load());
+    else value = values_.back().load();
     values_.pop_back();
     return value;
   }
   T removeFirst() {
     if (values_.empty()) return T{};
-    T value = values_.front().load();
+    T value;
+    if constexpr (IsDynamicArrayElement<T>) value = convertValue<T>(values_.front().load());
+    else value = values_.front().load();
     values_.erase(values_.begin());
     return value;
   }
@@ -241,8 +264,9 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   }
   std::size_t dynamicArraySize() const override { return size(); }
   Value dynamicArrayGet(std::size_t index) override {
+    if (dynamic_backing_) return dynamic_backing_->dynamicArrayGet(index);
     if constexpr (IsDynamicArrayElement<T>) {
-      return index < size() ? convertValue<Value>(get(index)) : Value::undefined();
+      return index < values_.size() ? values_[index].load() : Value::undefined();
     } else {
       throw runtimeError(u"This native array element type cannot flow through dynamic iteration");
     }
@@ -252,7 +276,13 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
     std::u16string output = u"[";
     for (std::size_t index = 0; index < size(); ++index) {
       if (index > 0) output += u',';
-      output += jsonStringifyNative(get(index), seen);
+      if constexpr (IsDynamicArrayElement<T>) {
+        output += jsonStringifyNative(
+            dynamic_backing_ ? dynamic_backing_->dynamicArrayGet(index) : values_[index].load(),
+            seen);
+      } else {
+        output += jsonStringifyNative(get(index), seen);
+      }
     }
     output += u']';
     seen.erase(this);
@@ -260,14 +290,19 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
   }
   Value dynamicGet(const std::u16string& key) override;
   Value dynamicSet(const std::u16string& key, const Value& value) override {
-        if constexpr (IsDynamicArrayElement<T>) {
+    if constexpr (IsDynamicArrayElement<T>) {
       if (key == u"length") {
         resize(static_cast<std::size_t>(convertValue<double>(value)));
         return value;
       }
       const auto index = propertyIndex(key);
       if (!index) throw runtimeError(u"Invalid dynamic array index");
-      set(*index, convertValue<T>(value));
+      if (dynamic_backing_) {
+        dynamic_backing_->dynamicSet(key, value);
+        return value;
+      }
+      if (*index >= values_.size()) values_.resize(*index + 1);
+      values_[*index].store(value);
       return value;
     } else {
       throw runtimeError(u"This native array element type cannot flow through dynamic access");
@@ -298,5 +333,5 @@ class ArrayObject final : public cppgc::GarbageCollected<ArrayObject<T>>, public
 
  private:
   cppgc::Member<BaseObject> dynamic_backing_;
-  std::vector<ArraySlot<T>> values_;
+  std::vector<Slot> values_;
 };
