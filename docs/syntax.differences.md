@@ -678,6 +678,21 @@ items)`. A `for-of` source with neither `Symbol.iterator` nor
 `Symbol.asyncIterator` is a type error; the diagnostic points at that source
 expression in the loop header.
 
+The return annotation on a VexaScript generator protocol method is optional.
+For example, `sync *[Symbol.asyncIterator]()` with `yield 1` is inferred as
+returning `AsyncGenerator<int>`, and an ordinary `for (item of source)` infers
+`item` as `int`. The protocol resolver uses that yield-derived method type; it
+does not require a repeated explicit `AsyncGenerator<T>` annotation.
+
+If the annotation is present, VexaScript checks each `yield` against the
+declared generator element type. Thus `(): AsyncGenerator<int>` followed by
+`yield "text"` is an error on `"text"`; the shorthand `(): int` has the same
+element constraint. Delegated `yield*` expressions are checked by their source
+element type, including when the source is another generator whose return type
+is inferred. Direct and mutually recursive generator dependencies use bounded
+fixed-point inference, so cycles terminate while propagating all known yielded
+types.
+
 ### Array comprehensions
 
 VexaScript can collect a loop expression directly into a new array. TypeScript

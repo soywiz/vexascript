@@ -21,6 +21,30 @@ function analysisOf(source: string): Analysis {
 }
 
 describe("lsp navigation", () => {
+  it("hovers yield-inferred async iterator variables with their element type", () => {
+    const marked = sourceWithCursor(dedent`
+      class Stream {
+        sync *[Symbol.asyncIterator]() {
+          yield 1
+          yield 2
+        }
+      }
+      sync fun demo() {
+        for (item of Stream()) {
+          ^^^item
+        }
+      }
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(createHover(analysis, marked.line, marked.character, ast)?.contents).toEqual({
+      kind: "markdown",
+      value: "```typescript\nlet item: int\n```"
+    });
+  });
+
   it("hovers the generic value produced by a nullish continue guard", () => {
     const marked = sourceWithCursor(dedent`
       fun scan<T>(array: T?[]) {

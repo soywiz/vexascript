@@ -152,6 +152,22 @@ function* ids() {
 }
 ```
 
+When a generator has no return type annotation, VexaScript combines the types
+of its `yield` expressions and infers `Generator<T>` for a plain generator or
+`AsyncGenerator<T>` for an `async`/`sync` generator. This also applies to class
+methods, including computed iterator-protocol methods, so the inferred `T`
+flows into consumers such as `for-of`.
+
+When a generator return type is explicit, every yielded value must be
+assignable to its element type. Both `Generator<T>`/`AsyncGenerator<T>` wrapper
+annotations and the shorthand element annotation `(): T` are supported. A
+`yield*` expression is checked using the delegated iterable's element type. A
+mismatch is reported on the expression after `yield` or `yield*`.
+Delegation to another inferred generator contributes that generator's yielded
+element type. Direct and mutually recursive generator groups are resolved with
+a bounded fixed-point calculation, so known yielded types propagate around a
+cycle without recursive analysis or nontermination.
+
 In `async` functions, return expressions are checked against the inner `Promise<T>` value type, so both `return 10` and `return Promise.resolve(10)` are valid for `Promise<int>`. `await expr` evaluates to `T` when `expr` has type `Promise<T>`; otherwise `await` preserves the original type. When no return type is annotated, the inferred return type is `Promise<T>`. If an `async` function has an explicit return type annotation, it must be `Promise<...>`.
 
 `await` is only allowed at the top level (module/global scope) and inside `async` or `sync` functions. Using `await` inside a normal (non-`async`/`sync`) function or a normal generator is a semantic error (`AWAIT_OUTSIDE_ASYNC`).
@@ -1263,11 +1279,14 @@ TypeScript-style computed method names are also supported, including async-itera
 
 ```vexa
 class Stream {
-  async *[Symbol.asyncIterator](): AsyncGenerator<int> {
+  sync *[Symbol.asyncIterator]() {
     yield 1
   }
 }
 ```
+
+Here the omitted method return type is inferred as `AsyncGenerator<int>` from
+the yielded value.
 
 Class fields and methods also support the `override` modifier when redefining a
 member from a base class **or** from an implemented interface:
@@ -1997,7 +2016,7 @@ asynchronous, VexaScript infers the yielded element type and emits a JavaScript
 
 ```vexa
 class Stream {
-  async *[Symbol.asyncIterator](): AsyncGenerator<int> {
+  sync *[Symbol.asyncIterator]() {
     yield 1
   }
 }

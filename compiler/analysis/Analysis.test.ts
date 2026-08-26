@@ -1255,6 +1255,159 @@ val total = negative + (-4294967297n)
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("checks yielded values against an annotated async generator element type", () => {
+    const source = dedent`
+      class Stream {
+        sync *[Symbol.asyncIterator](): AsyncGenerator<int> {
+          yield "test"
+          yield 2
+        }
+      }
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const stream = ast.body[0] as import("compiler/ast/ast").ClassStatement;
+    const method = stream.members[0] as import("compiler/ast/ast").ClassMethodMember;
+    const yieldStatement = method.body.body[0] as import("compiler/ast/ast").ExprStatement;
+    const yieldExpression = yieldStatement.expression as import("compiler/ast/ast").UnaryExpression;
+
+    const issues = new Analysis(ast).getIssues();
+    const mismatch = issues.find((issue) =>
+      issue.message === "Type 'string' is not assignable to type 'int'"
+    );
+
+    expect(mismatch?.node).toBe(yieldExpression.argument);
+    expect(issues.filter((issue) => issue.message.includes("not assignable"))).toHaveLength(1);
+  });
+
+  it("checks yielded values against shorthand generator element annotations", () => {
+    const source = dedent`
+      fun * values(): int {
+        yield "test"
+      }
+      sync fun * asyncValues(): int {
+        yield "test"
+      }
+    `;
+
+    const messages = new Analysis(parseFile(tokenizeReader(source)))
+      .getIssues()
+      .map((issue) => issue.message);
+
+    expect(messages.filter((message) =>
+      message === "Type 'string' is not assignable to type 'int'"
+    )).toHaveLength(2);
+  });
+
+  it("checks delegated yield element types against generator annotations", () => {
+    const source = dedent`
+      fun * values(): Generator<int> {
+        yield* ["test"]
+        yield* [1, 2]
+      }
+    `;
+
+    const messages = new Analysis(parseFile(tokenizeReader(source)))
+      .getIssues()
+      .map((issue) => issue.message);
+
+    expect(messages.filter((message) =>
+      message === "Type 'string' is not assignable to type 'int'"
+    )).toHaveLength(1);
+  });
+
+  it("infers delegated generator elements instead of the iterator container", () => {
+    const source = dedent`
+      sync fun * mixedValues() {
+        yield "test"
+        yield 2
+      }
+      sync fun * values() {
+        yield* mixedValues()
+      }
+      val result: AsyncGenerator<string | int> = values()
+    `;
+
+    expect(new Analysis(parseFile(tokenizeReader(source))).getIssues()).toEqual([]);
+  });
+
+  it("checks yield delegation from an inferred async generator", () => {
+    const source = dedent`
+      class Stream {
+        sync *[Symbol.asyncIterator](): AsyncGenerator<int> {
+          yield 1
+          yield* mixedValues()
+        }
+      }
+
+      sync fun * mixedValues() {
+        yield "test"
+        yield 2
+      }
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const stream = ast.body[0] as import("compiler/ast/ast").ClassStatement;
+    const method = stream.members[0] as import("compiler/ast/ast").ClassMethodMember;
+    const yieldStatement = method.body.body[1] as import("compiler/ast/ast").ExprStatement;
+    const yieldExpression = yieldStatement.expression as import("compiler/ast/ast").UnaryExpression;
+
+    const issues = new Analysis(ast).getIssues();
+    const mismatch = issues.find((issue) => issue.message.includes("is not assignable to type 'int'"));
+
+    expect(mismatch?.message).toContain("string");
+    expect(mismatch?.node).toBe(yieldExpression.argument);
+  });
+
+  it("terminates and validates direct recursive generator inference", () => {
+    const source = dedent`
+      class Stream {
+        sync *[Symbol.asyncIterator](): AsyncGenerator<int> {
+          yield* recursiveValues()
+        }
+      }
+
+      sync fun * recursiveValues() {
+        yield "test"
+        yield* recursiveValues()
+      }
+    `;
+
+    const messages = new Analysis(parseFile(tokenizeReader(source)))
+      .getIssues()
+      .map((issue) => issue.message);
+
+    expect(messages.filter((message) =>
+      message === "Type 'string' is not assignable to type 'int'"
+    )).toHaveLength(1);
+  });
+
+  it("terminates and propagates mutually recursive generator yield types", () => {
+    const source = dedent`
+      class Stream {
+        sync *[Symbol.asyncIterator](): AsyncGenerator<int> {
+          yield* firstValues()
+        }
+      }
+
+      sync fun * firstValues() {
+        yield 1
+        yield* secondValues()
+      }
+
+      sync fun * secondValues() {
+        yield "test"
+        yield* firstValues()
+      }
+    `;
+
+    const messages = new Analysis(parseFile(tokenizeReader(source)))
+      .getIssues()
+      .map((issue) => issue.message);
+    const mismatches = messages.filter((message) => message.includes("is not assignable to type 'int'"));
+
+    expect(mismatches).toHaveLength(1);
+    expect(mismatches[0]).toContain("string");
+  });
+
   it("infers string yields through template interpolation in sync generators", () => {
     const source = dedent`
       sync fun * demo() {
@@ -3833,6 +3986,28 @@ let bad = "Ada" satisfies number
       class Stream {
         async *[Symbol.asyncIterator](): AsyncGenerator<int> {
           yield 1
+        }
+      }
+      sync fun demo() {
+        val stream: Stream = Stream()
+        for (item of stream) {
+          ^^^item
+        }
+      }
+    `);
+
+    const symbols = symbolsOfVisibleSymbolsAt(marked.source, marked.line, marked.character);
+
+    expect(symbols.get("item")?.valueType).toBe("int");
+  });
+
+  it("infers async iterator element types from unannotated generator method yields", () => {
+    const marked = sourceWithCursor(dedent`
+      class Stream {
+        sync *[Symbol.asyncIterator]() {
+          yield 1
+          yield 2
+          yield 3
         }
       }
       sync fun demo() {

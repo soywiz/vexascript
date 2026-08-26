@@ -301,6 +301,13 @@ export class TypeChecker {
   // Promise-typed expressions. Plain functions do not (the stack handles nesting).
   private readonly asyncLikeFunctionStack: boolean[] = [];
   private readonly activeFlowContexts: FlowContext[] = [];
+  private readonly pendingYieldValidations: Array<{
+    expression: UnaryExpression;
+    declaredType: AnalysisType;
+    scope: Scope;
+  }> = [];
+  private generatorInferenceFunctions: FunctionStatement[] = [];
+  private generatorInferenceElementTypes: AnalysisType[] = [];
   private readonly assignabilityChecksInProgress: Set<string> = new Set();
   private readonly assignabilityCache: Map<string, boolean> = new Map();
   private readonly analysisTypeIds: WeakMap<object, number> = new WeakMap<object, number>();
@@ -617,6 +624,8 @@ export class TypeChecker {
 
   check(): CheckedAnalysis {
     this.visitProgram(this.program, this.bound.rootScope, new FlowContext(0, 0, []));
+    this.resolveRecursiveGeneratorReturnTypes();
+    this.validatePendingYieldTypes();
     this.collectJsxIntrinsicElementSymbols();
     return {
       issues: [...this.issues],
@@ -2414,17 +2423,32 @@ export class TypeChecker {
     const classStatement = this.classStatementsByName.get(type.name);
     if (classStatement) {
       const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters, type);
+      const classScope = this.bound.scopeByNode.get(classStatement);
       const direct = classStatement.members
         .filter((member): member is ClassMethodMember =>
           member instanceof ClassMethodMember && member.computed === true && member.name.name === memberName
         )
-        .map((method) => {
+        .flatMap((method) => {
           const annotated = this.typeFromAnnotationLooseWithTypeParameters(
             method.returnType,
             [...substitutions.keys()],
             typeToString(type)
-          ) ?? UNKNOWN_TYPE;
-          return this.substituteTypeParameters(annotated, substitutions);
+          );
+          if (annotated) {
+            return [this.substituteTypeParameters(annotated, substitutions)];
+          }
+
+          const inferredMemberType = classScope?.symbols.get(method.name.name)?.type;
+          const inferredReturnTypes = inferredMemberType instanceof FunctionType
+            ? [inferredMemberType.returnType]
+            : inferredMemberType instanceof UnionType
+              ? inferredMemberType.types
+                .filter((member): member is FunctionType => member instanceof FunctionType)
+                .map((member) => member.returnType)
+              : [];
+          return inferredReturnTypes.map((returnType) =>
+            this.substituteTypeParameters(returnType, substitutions)
+          );
         });
       if (direct.length > 0) return direct;
       if (classStatement.extendsType) {
@@ -2496,6 +2520,144 @@ export class TypeChecker {
 
   private activeFlowContext(): FlowContext {
     return this.activeFlowContexts.at(-1) ?? new FlowContext(0, 0, []);
+  }
+
+  private expectedYieldType(): AnalysisType | null {
+    const flow = this.activeFlowContext();
+    const returnType = flow.inGenerator === true ? flow.expectedReturnType : undefined;
+    if (!returnType || isUnknownType(returnType)) {
+      return null;
+    }
+    if (
+      returnType instanceof NamedType &&
+      TypeChecker.isGeneratorTypeName(returnType.name, flow.inAsync === true)
+    ) {
+      const elementType = namedTypeArgument(returnType, 0);
+      return elementType && !isUnknownType(elementType) ? elementType : null;
+    }
+    return returnType;
+  }
+
+  private generatorFunctionForCall(expression: Expr, scope?: Scope): FunctionStatement | null {
+    if (!(expression instanceof CallExpression) || !(expression.callee instanceof Identifier)) {
+      return null;
+    }
+    const identifier = expression.callee as Identifier;
+    const candidate = this.functionStatementsByName.get(identifier.name);
+    if (!candidate || candidate.generator !== true) {
+      return null;
+    }
+    if (scope) {
+      const symbol = resolveScopeSymbol(identifier.name, scope, nodeStartOffset(identifier));
+      if (symbol?.node !== candidate.name) {
+        return null;
+      }
+    }
+    return candidate;
+  }
+
+  private delegatedYieldElementType(
+    expression: Expr,
+    expressionType: AnalysisType,
+    scope?: Scope
+  ): AnalysisType {
+    const generator = this.generatorFunctionForCall(expression, scope);
+    if (generator) {
+      const inferenceIndex = this.generatorInferenceFunctions.indexOf(generator);
+      if (inferenceIndex >= 0) {
+        return this.generatorInferenceElementTypes[inferenceIndex] ?? UNKNOWN_TYPE;
+      }
+      const declarationScope = this.bound.scopeByNode.get(generator)?.parent;
+      const symbolType = declarationScope?.symbols.get(generator.name.name)?.type;
+      if (symbolType instanceof FunctionType) {
+        return elementTypeFromIterable(symbolType.returnType);
+      }
+    }
+    return elementTypeFromIterable(expressionType);
+  }
+
+  private resolveRecursiveGeneratorReturnTypes(): void {
+    const functions = declarationIndexForStatements(this.program.body).functions.filter((statement) =>
+      statement.generator === true &&
+      !statement.returnType &&
+      !statement.receiverType &&
+      this.functionStatementsByName.get(statement.name.name) === statement
+    );
+    if (functions.length === 0) {
+      return;
+    }
+
+    const elementTypes = functions.map((statement) => {
+      const declarationScope = this.bound.scopeByNode.get(statement)?.parent;
+      const symbolType = declarationScope?.symbols.get(statement.name.name)?.type;
+      return symbolType instanceof FunctionType
+        ? elementTypeFromIterable(symbolType.returnType)
+        : UNKNOWN_TYPE;
+    });
+
+    this.generatorInferenceFunctions = functions;
+    this.generatorInferenceElementTypes = elementTypes;
+    try {
+      for (let pass = 0; pass <= functions.length; pass += 1) {
+        let changed = false;
+        for (let index = 0; index < functions.length; index += 1) {
+          const inferredType = this.inferYieldTypeFromBlock(functions[index]!.body);
+          if (isUnknownType(inferredType) || isSameType(inferredType, elementTypes[index]!)) {
+            continue;
+          }
+          elementTypes[index] = inferredType;
+          changed = true;
+        }
+        if (!changed) {
+          break;
+        }
+      }
+
+      for (let index = 0; index < functions.length; index += 1) {
+        const statement = functions[index]!;
+        const elementType = elementTypes[index]!;
+        if (isUnknownType(elementType)) {
+          continue;
+        }
+        const declarationScope = this.bound.scopeByNode.get(statement)?.parent;
+        if (!declarationScope) {
+          continue;
+        }
+        const returnType = namedType(
+          isAsyncLike(statement.async, statement.sync) ? "AsyncGenerator" : "Generator",
+          [elementType]
+        );
+        this.updateSymbolType(
+          declarationScope,
+          statement.name.name,
+          this.buildFunctionType(
+            statement.parameters,
+            returnType,
+            declarationScope,
+            statement.typeParameters ?? [],
+            statement.returnType?.name
+          )
+        );
+      }
+    } finally {
+      this.generatorInferenceFunctions = [];
+      this.generatorInferenceElementTypes = [];
+    }
+  }
+
+  private validatePendingYieldTypes(): void {
+    for (const validation of this.pendingYieldValidations) {
+      const expressionType = this.expressionTypes.get(validation.expression.argument) ?? UNKNOWN_TYPE;
+      const yieldedType = validation.expression.operator === "yield*"
+        ? this.delegatedYieldElementType(validation.expression.argument, expressionType, validation.scope)
+        : expressionType;
+      if (
+        !isUnknownType(yieldedType) &&
+        !this.isTypeAssignable(yieldedType, validation.declaredType)
+      ) {
+        this.reportTypeMismatch(yieldedType, validation.declaredType, validation.expression.argument);
+      }
+    }
   }
 
   private withActiveFlowContext<T>(flow: FlowContext, run: () => T): T {
@@ -4471,7 +4633,13 @@ export class TypeChecker {
         // `await x` and `go x` consume the Promise directly, so their operand must not be
         // auto-awaited (which would otherwise unwrap it before they see it).
         const suppressArgumentAutoAwait = unary.operator === "await" || unary.operator === "go";
-        const argumentType = this.visitExpression(unary.argument, scope, undefined, suppressArgumentAutoAwait);
+        const expectedYieldType = unary.operator === "yield" ? this.expectedYieldType() : null;
+        const argumentType = this.visitExpression(
+          unary.argument,
+          scope,
+          expectedYieldType ?? undefined,
+          suppressArgumentAutoAwait
+        );
         if (unary.operator === "!") {
           result = builtinType("boolean");
           break;
@@ -4528,6 +4696,14 @@ export class TypeChecker {
             });
             result = UNKNOWN_TYPE;
             break;
+          }
+          const declaredYieldType = expectedYieldType ?? this.expectedYieldType();
+          if (this.validateTypes && declaredYieldType) {
+            this.pendingYieldValidations.push({
+              expression: unary,
+              declaredType: declaredYieldType,
+              scope
+            });
           }
           result = argumentType;
           break;
@@ -10348,8 +10524,11 @@ export class TypeChecker {
     // wrapped in Promise<T> by finalizeFunctionReturnType.
   }
 
-  private static readonly ASYNC_GENERATOR_TYPE_NAMES = new Set(["AsyncGenerator", "AsyncIterator", "AsyncIteratorObject"]);
-  private static readonly SYNC_GENERATOR_TYPE_NAMES = new Set(["Generator", "Iterator", "IteratorObject", "IterableIterator"]);
+  private static isGeneratorTypeName(name: string, inAsync: boolean): boolean {
+    return inAsync
+      ? name === "AsyncGenerator" || name === "AsyncIterator" || name === "AsyncIteratorObject"
+      : name === "Generator" || name === "Iterator" || name === "IteratorObject" || name === "IterableIterator";
+  }
 
   private finalizeFunctionReturnType(
     declaredOrExpectedReturnType: AnalysisType | undefined,
@@ -10359,9 +10538,11 @@ export class TypeChecker {
   ): AnalysisType {
     if (inGenerator) {
       const wrapperName = inAsync ? "AsyncGenerator" : "Generator";
-      const generatorTypeNames = inAsync ? TypeChecker.ASYNC_GENERATOR_TYPE_NAMES : TypeChecker.SYNC_GENERATOR_TYPE_NAMES;
       if (declaredOrExpectedReturnType && !isUnknownType(declaredOrExpectedReturnType)) {
-        if (declaredOrExpectedReturnType instanceof NamedType && generatorTypeNames.has(declaredOrExpectedReturnType.name)) {
+        if (
+          declaredOrExpectedReturnType instanceof NamedType &&
+          TypeChecker.isGeneratorTypeName(declaredOrExpectedReturnType.name, inAsync)
+        ) {
           return declaredOrExpectedReturnType;
         }
         return namedType(wrapperName, [declaredOrExpectedReturnType]);
@@ -10416,7 +10597,10 @@ export class TypeChecker {
       case NodeKind.UnaryExpression: {
         const unary = expr as UnaryExpression;
         if (unary.operator === "yield" || unary.operator === "yield*") {
-          const yieldedType = this.expressionTypes.get(unary.argument);
+          const expressionType = this.expressionTypes.get(unary.argument);
+          const yieldedType = expressionType && unary.operator === "yield*"
+            ? this.delegatedYieldElementType(unary.argument, expressionType)
+            : expressionType;
           if (yieldedType && !isUnknownType(yieldedType)) {
             collected.push(yieldedType);
           }

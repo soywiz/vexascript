@@ -264,6 +264,30 @@ for (n of 0 ... 10) { }           // inclusive range (0 through 10)
 // makes the ordinary loop emit `for await...of`; item is inferred as T.
 for (item of asyncSource) { }
 
+// Generator return annotations are optional. Infer T from yield expressions,
+// including computed protocol methods, then propagate T to the loop variable.
+class Stream {
+  sync *[Symbol.asyncIterator]() { yield 1 } // AsyncGenerator<int>
+}
+for (item of Stream()) { } // item: int
+
+// An explicit generator return constrains every yielded element. Accept both
+// wrapper and shorthand annotations; range mismatches over the yielded value.
+sync fun * ints(): AsyncGenerator<int> {
+  yield 1
+  yield "bad" // error: string is not assignable to int
+}
+
+// `yield*` uses the delegated generator's inferred element type. Resolve
+// direct and mutual generator recursion with a bounded fixed point.
+sync fun * mixed() {
+  yield "bad"
+  yield* mixed()
+}
+sync fun * delegatedInts(): AsyncGenerator<int> {
+  yield* mixed() // error: string is not assignable to int
+}
+
 const doubled = [for (item of items) item * 2] // fresh inferred array; `of` visits values
 const normal = [for (n in 0 ..< 10) n]        // `in` also visits values; ranges are iterable
 const labels = [for (const [name, score] of entries) "$name:$score"]
