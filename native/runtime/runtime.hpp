@@ -2,6 +2,8 @@
 // consume this through a reusable precompiled header and link the cached
 // runtime.cpp static library.
 #pragma once
+#ifndef VEXASCRIPT_NATIVE_RUNTIME_HPP
+#define VEXASCRIPT_NATIVE_RUNTIME_HPP
 
 #include <algorithm>
 #include <atomic>
@@ -113,3 +115,5 @@ namespace vexa {
 #include "console.hpp"
 
 }  // namespace vexa
+
+#endif  // VEXASCRIPT_NATIVE_RUNTIME_HPP
