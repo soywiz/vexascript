@@ -1989,6 +1989,27 @@ for (value of iterable) {
 }
 ```
 
+The source expression must have an iterable type. Classes and interfaces that
+declare `[Symbol.iterator]()` are synchronous iterables; declarations with
+`[Symbol.asyncIterator]()` are asynchronous iterables. When the source is
+asynchronous, VexaScript infers the yielded element type and emits a JavaScript
+`for await...of` loop automatically:
+
+```vexa
+class Stream {
+  async *[Symbol.asyncIterator](): AsyncGenerator<int> {
+    yield 1
+  }
+}
+
+sync fun consume(stream: Stream) {
+  for (value of stream) console.log(value) // value: int
+}
+```
+
+A non-iterable `for-of` source is a type error, and the diagnostic range covers
+the source expression after `of` rather than the whole loop.
+
 Native C++ emission also supports declaration-based array and object
 destructuring in `for-of` loops:
 

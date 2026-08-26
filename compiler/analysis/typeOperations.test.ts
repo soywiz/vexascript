@@ -249,6 +249,11 @@ describe("isAsyncIteratorType", () => {
     assert.equal(isAsyncIteratorType(namedType("AsyncIteratorObject")), true);
   });
 
+  it("returns true for AsyncIterable and AsyncIterableIterator", () => {
+    assert.equal(isAsyncIteratorType(namedType("AsyncIterable")), true);
+    assert.equal(isAsyncIteratorType(namedType("AsyncIterableIterator")), true);
+  });
+
   it("returns false for Generator (sync)", () => {
     assert.equal(isAsyncIteratorType(namedType("Generator")), false);
   });

@@ -3828,6 +3828,36 @@ let bad = "Ada" satisfies number
     expect(messages.some((message) => message.includes("'value'"))).toBe(false);
   });
 
+  it("infers iterator variables from classes that implement the async iterable protocol", () => {
+    const marked = sourceWithCursor(dedent`
+      class Stream {
+        async *[Symbol.asyncIterator](): AsyncGenerator<int> {
+          yield 1
+        }
+      }
+      sync fun demo() {
+        val stream: Stream = Stream()
+        for (item of stream) {
+          ^^^item
+        }
+      }
+    `);
+
+    const symbols = symbolsOfVisibleSymbolsAt(marked.source, marked.line, marked.character);
+
+    expect(symbols.get("item")?.valueType).toBe("int");
+  });
+
+  it("reports a non-iterable for-of source on the source expression", () => {
+    const ast = parseFile(tokenizeReader("for (item of 42) { console.log(item) }"));
+    const loop = ast.body[0] as import("compiler/ast/ast").ForStatement;
+    const issue = new Analysis(ast).getIssues().find((candidate) =>
+      candidate.message === "Type 'int' is not iterable"
+    );
+
+    expect(issue?.node).toBe(loop.iterable);
+  });
+
   it("infers expression and variable types, including function signature types", () => {
     const source = dedent`
       val a = 10

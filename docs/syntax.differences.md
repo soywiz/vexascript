@@ -670,6 +670,14 @@ for (const item of items) process(item);
 for (const key in map) use(key);
 ```
 
+VexaScript also selects asynchronous iteration from the source type. A class or
+interface with `[Symbol.asyncIterator]()` can be used in the ordinary
+declaration-free loop form, and the compiler emits JavaScript `for await...of`.
+TypeScript normally spells that choice explicitly as `for await (const item of
+items)`. A `for-of` source with neither `Symbol.iterator` nor
+`Symbol.asyncIterator` is a type error; the diagnostic points at that source
+expression in the loop header.
+
 ### Array comprehensions
 
 VexaScript can collect a loop expression directly into a new array. TypeScript

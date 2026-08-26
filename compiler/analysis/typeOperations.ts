@@ -15,11 +15,11 @@ import {
 import { isNullishType } from "./typeClassifiers";
 
 const ASYNC_ITERATOR_TYPE_NAMES = new Set([
-  "AsyncGenerator", "AsyncIterator", "AsyncIteratorObject"
+  "AsyncGenerator", "AsyncIterable", "AsyncIterableIterator", "AsyncIterator", "AsyncIteratorObject"
 ]);
 
 const ITERABLE_TYPE_NAMES = new Set([
-  "AsyncGenerator", "AsyncIterator", "AsyncIteratorObject",
+  "AsyncGenerator", "AsyncIterable", "AsyncIterableIterator", "AsyncIterator", "AsyncIteratorObject",
   "Generator", "Iterator", "IteratorObject", "IterableIterator", "Iterable",
   "Array", "ReadonlyArray", "Set", "ReadonlySet"
 ]);

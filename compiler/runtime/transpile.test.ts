@@ -1320,6 +1320,41 @@ c += 5`;
     expect(result.code).toContain("for await (const v of gen)");
   });
 
+  it("emits for await for a class that implements Symbol.asyncIterator", () => {
+    const source = [
+      "class Stream {",
+      "  async *[Symbol.asyncIterator](): AsyncGenerator<int> {",
+      "    yield 1",
+      "  }",
+      "}",
+      "sync fun demo() {",
+      "  val stream: Stream = Stream()",
+      "  for (item of stream) {",
+      "    console.log(item)",
+      "  }",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("for await (const item of stream)");
+  });
+
+  it("ranges non-iterable for-of diagnostics over the source expression", () => {
+    const result = transpile("for (item of 42) { console.log(item) }");
+
+    expect(result.errors).toEqual(["Type 'int' is not iterable at 1:14"]);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        line: 1,
+        column: 14,
+        endColumn: 16,
+        message: "Type 'int' is not iterable"
+      })
+    ]);
+  });
+
   it("emits the three-way comparison (spaceship) operator for primitive operands", () => {
     const result = transpile("let order = 1 <=> 2\n");
 

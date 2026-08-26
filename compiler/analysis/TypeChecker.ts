@@ -2304,10 +2304,23 @@ export class TypeChecker {
       }
 
       const iterableType = this.visitExpression(statement.iterable, loopScope);
-      if (isAsyncIteratorType(iterableType)) {
+      const iteration = this.resolveIteration(iterableType);
+      if (iteration?.isAsync === true || statement.isAwait === true) {
         this.asyncForStatements.add(statement);
       }
-      const iteratorType = elementTypeFromIterable(iterableType);
+      if (
+        !iteration &&
+        this.validateTypes &&
+        statement.iterationKind === "of" &&
+        !isUnknownType(iterableType) &&
+        !(iterableType instanceof BuiltinType && iterableType.name === "any")
+      ) {
+        this.issues.push({
+          message: `Type '${typeToDiagnosticLabel(iterableType)}' is not iterable`,
+          node: statement.iterable
+        });
+      }
+      const iteratorType = iteration?.elementType ?? UNKNOWN_TYPE;
       this.propagateIteratorType(statement.iterator, iteratorType, loopScope);
       this.visitStatement(statement.body, loopScope, loopFlow);
       return;
@@ -2327,6 +2340,123 @@ export class TypeChecker {
       this.visitExpression(statement.update, loopScope);
     }
     this.visitStatement(statement.body, loopScope, loopFlow);
+  }
+
+  private resolveIteration(type: AnalysisType): { elementType: AnalysisType; isAsync: boolean } | null {
+    if (type instanceof UnionType) {
+      const members = type.types.map((member) => this.resolveIteration(member));
+      if (members.some((member) => member === null)) return null;
+      const resolved = members as Array<{ elementType: AnalysisType; isAsync: boolean }>;
+      return {
+        elementType: combineTypes(resolved.map((member) => member.elementType)),
+        isAsync: resolved.some((member) => member.isAsync)
+      };
+    }
+
+    if (type instanceof ArrayType || type instanceof TupleType || type instanceof RangeType) {
+      return { elementType: elementTypeFromIterable(type), isAsync: false };
+    }
+    if (type instanceof BuiltinType && (type.name === "string" || type.name === "any")) {
+      return { elementType: elementTypeFromIterable(type), isAsync: false };
+    }
+    if (type instanceof NamedType) {
+      const directElementType = elementTypeFromIterable(type);
+      if (!isUnknownType(directElementType) || isAsyncIteratorType(type)) {
+        return { elementType: directElementType, isAsync: isAsyncIteratorType(type) };
+      }
+      const expanded = this.expandTypeAliases(type);
+      if (!isSameType(expanded, type)) {
+        const expandedIteration = this.resolveIteration(expanded);
+        if (expandedIteration) return expandedIteration;
+      }
+    }
+
+    const asyncElementType = this.protocolIteratorElementType(type, "[Symbol.asyncIterator]");
+    if (asyncElementType) return { elementType: asyncElementType, isAsync: true };
+    const syncElementType = this.protocolIteratorElementType(type, "[Symbol.iterator]");
+    if (syncElementType) return { elementType: syncElementType, isAsync: false };
+    return null;
+  }
+
+  private protocolIteratorElementType(type: AnalysisType, memberName: string): AnalysisType | null {
+    const returnTypes = this.iteratorProtocolReturnTypes(type, memberName, new Set<string>());
+    if (returnTypes.length === 0) return null;
+    const elementTypes = returnTypes
+      .map((returnType) => elementTypeFromIterable(returnType))
+      .filter((elementType) => !isUnknownType(elementType));
+    return elementTypes.length > 0 ? combineTypes(elementTypes) : UNKNOWN_TYPE;
+  }
+
+  private iteratorProtocolReturnTypes(
+    type: AnalysisType,
+    memberName: string,
+    visited: Set<string>
+  ): AnalysisType[] {
+    if (type instanceof ObjectType) {
+      const memberType = this.memberTypeFromObjectType(type, memberName);
+      if (memberType instanceof FunctionType) return [memberType.returnType];
+      if (memberType instanceof UnionType) {
+        return memberType.types
+          .filter((member): member is FunctionType => member instanceof FunctionType)
+          .map((member) => member.returnType);
+      }
+      return [];
+    }
+    if (type instanceof IntersectionType) {
+      return type.types.flatMap((member) => this.iteratorProtocolReturnTypes(member, memberName, visited));
+    }
+    if (!(type instanceof NamedType)) return [];
+
+    const visitKey = `${typeToString(type)}:${memberName}`;
+    if (visited.has(visitKey)) return [];
+    visited.add(visitKey);
+
+    const classStatement = this.classStatementsByName.get(type.name);
+    if (classStatement) {
+      const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters, type);
+      const direct = classStatement.members
+        .filter((member): member is ClassMethodMember =>
+          member instanceof ClassMethodMember && member.computed === true && member.name.name === memberName
+        )
+        .map((method) => {
+          const annotated = this.typeFromAnnotationLooseWithTypeParameters(
+            method.returnType,
+            [...substitutions.keys()],
+            typeToString(type)
+          ) ?? UNKNOWN_TYPE;
+          return this.substituteTypeParameters(annotated, substitutions);
+        });
+      if (direct.length > 0) return direct;
+      if (classStatement.extendsType) {
+        const baseType = this.typeFromTypeNameLooseWithSubstitutions(classStatement.extendsType.name, substitutions);
+        return this.iteratorProtocolReturnTypes(baseType, memberName, visited);
+      }
+      return [];
+    }
+
+    const interfaceStatement = this.interfaceStatementsByName.get(type.name);
+    if (!interfaceStatement) return [];
+    const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters, type);
+    const direct = interfaceStatement.members
+      .filter((member): member is InterfaceMethodMember =>
+        member instanceof InterfaceMethodMember && member.computed === true && member.name.name === memberName
+      )
+      .map((method) => this.substituteTypeParameters(
+        this.typeFromAnnotationLooseWithTypeParameters(
+          method.returnType,
+          [...substitutions.keys()],
+          typeToString(type)
+        ) ?? UNKNOWN_TYPE,
+        substitutions
+      ));
+    if (direct.length > 0) return direct;
+    return (interfaceStatement.extendsTypes ?? []).flatMap((parent) =>
+      this.iteratorProtocolReturnTypes(
+        this.typeFromTypeNameLooseWithSubstitutions(parent.name, substitutions),
+        memberName,
+        visited
+      )
+    );
   }
 
   private visitIfStatement(statement: IfStatement, scope: Scope, flow: FlowContext): void {

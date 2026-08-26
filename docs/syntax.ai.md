@@ -260,6 +260,10 @@ for (key in map) { }
 for (n of 0 ..< 10) { }           // exclusive range → for (let n = 0; n < 10; n++)
 for (n of 0 ... 10) { }           // inclusive range (0 through 10)
 
+// A source with [Symbol.asyncIterator](): AsyncIterator<T> or AsyncGenerator<T>
+// makes the ordinary loop emit `for await...of`; item is inferred as T.
+for (item of asyncSource) { }
+
 const doubled = [for (item of items) item * 2] // fresh inferred array; `of` visits values
 const normal = [for (n in 0 ..< 10) n]        // `in` also visits values; ranges are iterable
 const labels = [for (const [name, score] of entries) "$name:$score"]
@@ -275,6 +279,13 @@ defer file.close()                 // runs at block exit, like finally
 
 if (x is Circle) { x.radius }      // basic `is` is instanceof; both smart-cast
 ```
+
+`for-of` statement sources must be iterable. Accept synchronous
+`[Symbol.iterator]()` and asynchronous `[Symbol.asyncIterator]()` protocols;
+for an asynchronous source, emit `for await...of` automatically. If neither
+protocol applies, report the error on the source expression after `of`. Do not
+invent iterability from the class name or unrelated members. Keep `for-in`
+object-key behavior separate from this `for-of` validation.
 
 Array-comprehension grammar: `[` `for` `(` iterator (`of` | `in`) iterable
 `)` result-expression `]`. It supports one loop header and one expression;
