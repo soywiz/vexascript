@@ -4,8 +4,8 @@
 
 VexaScript now has one code-generation target: JavaScript. The secondary
 source-generation backend, its runtime, build adapters, command-line commands,
-configuration, fixtures, samples, CI jobs, and documentation were removed as a
-single subtractive change.
+configuration, fixtures, samples, CI jobs, and current reference documentation
+were removed as a single subtractive change.
 
 JavaScript FFI remains supported. Foreign-library declarations, ABI-aware
 struct layouts, pointers, buffers, and the Deno sample continue to use the
@@ -27,6 +27,10 @@ The cleanup deliberately retained terminology such as foreign library and
 native memory where it describes JavaScript FFI behavior. Those concepts are
 part of the supported JavaScript runtime contract and are independent of a
 compiler output target.
+
+Historical blog posts and engineering journals remain in the repository as an
+archive of earlier implementation stages. Their descriptions are intentionally
+historical and do not define the compiler's current supported targets.
 
 ## Regression prevention
 
