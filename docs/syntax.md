@@ -139,8 +139,7 @@ const [result, setResult] = useState(0) // result: int, setResult: (newValue: in
 
 Functions can be declared with `func`, `fn`, `fun`, or TypeScript-style
 `function`. `func` is the canonical spelling by default. All four forms support
-`async` and generator modifiers. Supported generator functions can also be
-emitted by the native C++ backend as lazy C++20 coroutines:
+`async` and generator modifiers:
 
 ```vexa
 async function load(id: string): Promise<Response> {
@@ -414,24 +413,6 @@ The annotated declaration itself is omitted from JavaScript output. Templates
 are raw JavaScript and are responsible for being valid in every context where
 the function is called.
 
-Native bindings use three equivalent trusted annotations on a signature-only
-function. `@CppHeader` inserts arbitrary translation-unit text, repeated
-`@CppFlags` values are appended as individual compiler/linker arguments, and
-`@CppBody` supplies the C++ function body:
-
-```vexa
-@CppHeader("#include <native_api.h>")
-@CppFlags("-I/opt/native/include")
-@CppFlags("-lnative")
-@CppBody("return native_add(left, right);")
-declare fun nativeAdd(left: int, right: int): int
-```
-
-Only modules reached by the native module graph contribute headers, bodies, and
-flags. Flags are passed directly as process arguments and are never interpreted
-by a shell. These annotations execute trusted build/source input and must not be
-constructed from untrusted text.
-
 `@FFILibrary` declares a dynamic C library as an ordered list of candidate
 paths. The first path that opens is used. Static signature-only class methods map
 to C symbols with the same names:
@@ -449,15 +430,13 @@ Without `@FFIName`, the source method name is used as the imported C symbol.
 `@FFIName("symbol")` overrides only the imported name, so callers still use the
 clean source API (`Native.wait(...)` in the example).
 
-Native C++ uses cached `LibraryOpen`/`dlopen` or `LoadLibrary` handles and caches
-each resolved symbol at its call site. JavaScript uses `Deno.dlopen` when run
+JavaScript uses `Deno.dlopen` when run
 with `--allow-ffi`, or `globalThis.VexaFFI.open(path, symbols)` when another
 runtime installs a compatible adapter. Parameters support `int`, `long`,
 `number`, `boolean`, `string`, `ArrayBuffer`, `FFIPointer`, and `@FFIStruct`
 classes; results support numeric/boolean types, `FFIPointer`, and `void`. String
-results are not yet supported. A method returning `Promise<T>` is nonblocking:
-Deno sets `nonblocking: true`, while native C++ invokes the symbol on a worker
-and settles the Vexa task through the main event loop.
+results are not yet supported. A method returning `Promise<T>` sets Deno's
+`nonblocking` symbol option so the call does not block the event loop.
 
 `@FFIStruct(totalBytes)` defines an owned native memory layout backed by an
 `ArrayBuffer`. Primary-constructor parameters and ordinary instance fields
@@ -489,14 +468,13 @@ class Event {
 ```
 
 Passing a struct or `ArrayBuffer` to an FFI method passes a pointer to its bytes
-without copying. In Deno, the compiler supplies a byte view accepted by
-`Deno.dlopen`; in native C++, it supplies the backing storage address directly.
+without copying. The compiler supplies a byte view accepted by `Deno.dlopen`.
 `FFIPointer` represents an opaque native address and provides
 signed 8/16/32/64-bit and 32/64-bit floating-point reads and writes at byte
-offsets. Native pointers use direct `memcpy`-safe access; Deno reads through
-`UnsafePointerView` and writes through the platform C runtime's `memcpy`.
+offsets. Deno reads through `UnsafePointerView` and writes through the platform
+C runtime's `memcpy`.
 
-`vexaRuntime()` returns `browser`, `node`, `deno`, or `native`.
+`vexaRuntime()` returns `browser`, `node`, or `deno`.
 `vexaPlatform()` returns the normalized host platform, including `macos`,
 `windows`, and `linux`.
 
@@ -892,7 +870,7 @@ canvas.getContext("2d")?. {
 }
 ```
 
-Conceptually the compiler-generated function has type `T.() -> T` and is immediately invoked with `value` as its first argument. JavaScript and C++ emit it directly at the use site, so no helper function is required at runtime.
+Conceptually the compiler-generated function has type `T.() -> T` and is immediately invoked with `value` as its first argument. JavaScript emits it directly at the use site, so no helper function is required at runtime.
 
 Nested receiver lambdas select the nearest receiver for unqualified access. Use `this@functionName` to select the receiver introduced by a particular call:
 
@@ -921,7 +899,7 @@ import type { Shape } from "./types"
 
 Type-only imports participate in semantic analysis as bindings but are omitted from emitted JavaScript output.
 
-Relative imports can target local `.ts`/`.tsx` files as well as `.vx` files. Extensionless resolution checks the direct path, then `.vx`, `.ts`, `.tsx`, `.json`, and `.txt`. During `vexa run` and CLI bundling, local TypeScript modules are parsed in TypeScript mode, type-checked with their exported declarations available to the importing VexaScript file, transpiled to JavaScript, and inlined into the same executable module. This supports TypeScript runtime declarations such as classes, functions, variables, enums, destructuring, arrow functions, and async functions; type-only constructs such as interfaces and type aliases remain analysis-only and are erased from emitted JavaScript. Local JSON and text assets can be imported as default imports; JSON imports are parsed and inlined as JavaScript values, while text imports are inlined as strings. Appending `?text` explicitly loads any local file as a string regardless of its extension. Text-module imports require exactly one default binding and work in both JavaScript bundles and native C++ compilation.
+Relative imports can target local `.ts`/`.tsx` files as well as `.vx` files. Extensionless resolution checks the direct path, then `.vx`, `.ts`, `.tsx`, `.json`, and `.txt`. During `vexa run` and CLI bundling, local TypeScript modules are parsed in TypeScript mode, type-checked with their exported declarations available to the importing VexaScript file, transpiled to JavaScript, and inlined into the same executable module. This supports TypeScript runtime declarations such as classes, functions, variables, enums, destructuring, arrow functions, and async functions; type-only constructs such as interfaces and type aliases remain analysis-only and are erased from emitted JavaScript. Local JSON and text assets can be imported as default imports; JSON imports are parsed and inlined as JavaScript values, while text imports are inlined as strings. Appending `?text` explicitly loads any local file as a string regardless of its extension. Text-module imports require exactly one default binding and work in JavaScript bundles.
 
 ```vexa
 import { Color, Person, describePerson } from "./helpers"
@@ -1078,12 +1056,6 @@ class Box<T extends Entity> extends Base<T> {
 ### Get and set accessors
 
 Class bodies support TypeScript-style property accessors. Getter accessors must not declare parameters, and setter accessors must declare exactly one parameter. Accessor type annotations participate in member type analysis as property types. Getters also support a shorthand form that omits `get` and the empty parameter list when the body is a single returned expression.
-
-Native C++ emission supports synchronous instance getters in both forms and
-synchronous setter accessors. Getter/setter pairs can implement mutable interface
-properties, and concrete or interface-typed writes support direct, compound,
-prefix, and postfix operations. Compound accessor blocks use the same accessor
-lowering in JavaScript and native C++.
 
 VexaScript also supports a compound accessor block where the property name is written once and `get`/`set` sub-blocks are nested inside `{ }`. The setter parameter defaults to the implicit name `newValue` typed to the declared property type; it can be overridden by writing `set(name)` or `set(name: Type)`. Either `get`/`set` order is accepted.
 
@@ -1384,15 +1356,6 @@ interface PairStore<K, V> extends Iterable<K> {
 
 `interface` declarations are type-only and are omitted from emitted JavaScript output.
 
-The native C++ backend supports required, non-generic method-and-property
-interfaces with at most one base interface. Classes can conform to one interface
-through either the colon form or `implements`; interface-typed parameters, fields,
-local values, returns, and homogeneous arrays use virtual dispatch. Interface
-properties can be implemented by primary-constructor or regular class fields;
-`val`/`const` properties emit a getter, while mutable properties also support
-direct, compound, prefix, and postfix writes through a virtual setter.
-
-
 ### Enums
 
 VexaScript supports TypeScript-style `enum` and `const enum` declarations, including exported `export const enum` forms, with numeric auto-increment members, numeric initializers, and string initializers. Enum declarations create a named semantic type, enum member access is checked as a known member, and non-ambient enums emit JavaScript runtime enum objects. Ambient `declare enum` declarations participate in analysis but are omitted from emitted JavaScript.
@@ -1414,11 +1377,6 @@ const enum Status {
 
 let direction: Direction = Direction.Up
 ```
-
-The native C++ backend supports numeric enums whose explicit initializers are
-integer arithmetic, shift, or bitwise constant expressions. Enum values can be
-used in typed parameters, returns, arrays, comparisons, bitwise expressions, and
-switch cases. Native string and ambient enums are rejected explicitly.
 
 ### Type aliases
 
@@ -1442,10 +1400,6 @@ let boxed: Boxed<Text> = new Box<string>()
 ```
 
 `type` declarations are type-only and are omitted from emitted JavaScript output. Mapped and conditional types are preserved structurally by the parser; semantic analysis resolves the portions it understands and otherwise treats them conservatively as `unknown`. Template literal types are also resolved when their interpolated members reduce to literal or union-of-literal values; when an interpolation stays wide (for example `${string}`), the result degrades conservatively to `string` instead of `unknown`. Top-level conditional aliases also resolve a practical subset of common `infer` patterns such as array element extraction, `Promise<infer T>`, function return types, constrained forms like `infer U extends string`, and nested conditional branches; naked-type-parameter conditionals also distribute over unions in common cases. TypeScript readonly container shorthand such as `readonly string[]` and `readonly [string, int]` is also resolved semantically, including readonly-aware assignability and write/mutation diagnostics for readonly index access. Homomorphic mapped aliases also support practical key-remapping forms such as `as K`, `as Exclude<K, ...>`, and template-literal remaps like `` as `label_${K}` ``, plus `readonly`/`-readonly` and `?`/`-?` modifiers when the remapped keys reduce to string literals. `unique symbol` currently resolves conservatively as `symbol`, and TypeScript assertion signatures such as `(value: unknown) => asserts value is T` or `(value: T) => asserts value` are preserved as assertion-aware function types that participate in flow-sensitive narrowing for direct call-site checks. Constructor-signature type forms such as `new (...) => T` and `abstract new (...) => T` are also understood well enough for utility aliases like `ConstructorParameters` and `InstanceType`. Common TypeScript utility aliases such as `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Exclude`, `Extract`, `NonNullable`, `Record`, `Awaited`, `ReturnType`, `Parameters`, `ConstructorParameters`, `InstanceType`, `ThisParameterType`, `OmitThisParameter`, `NoInfer`, `ThisType`, `Uppercase`, `Lowercase`, `Capitalize`, and `Uncapitalize` are also resolved when their inputs fit the currently supported type forms.
-
-Native C++ emission resolves non-generic aliases of supported native types,
-including nested aliases and homogeneous array aliases. Generic and structural
-aliases remain analysis-only for native builds.
 
 ### Type annotation forms
 
@@ -1516,7 +1470,7 @@ match (str.codePointAt(0)) {
 }
 ```
 
-The JavaScript and C++ backends emit the character as a direct integer constant,
+The JavaScript emitter emits the character as a direct integer constant,
 so ASCII-oriented scanners can compare `charCodeAt` results without allocating a
 one-character string. For supplementary Unicode characters, the literal still
 stores the complete code point rather than an individual UTF-16 code unit.
@@ -1643,8 +1597,8 @@ let matcher: RegExp = /a[0-9]+/gi
 A regular-expression literal is also a built-in matcher pattern for `is` and
 subject `match`. It only matches string subjects, uses search semantics, and
 narrows a successful `unknown`, `any`, or union subject to its string portion.
-Matcher patterns are portable across JavaScript and native C++ with no flags or
-the `g` and `i` flags; other flags are rejected in matcher position. Ordinary
+Matcher patterns support no flags or the `g` and `i` flags; other flags are
+rejected in matcher position. Ordinary
 regular-expression expressions retain the flags supported by their target
 backend.
 
@@ -1876,13 +1830,11 @@ range-membership (`in`) checks. The false branch excludes definitely matched
 members from union types, and negated checks reverse the branch narrowing.
 
 The basic nominal form of `is` remains a shorter spelling of `instanceof`:
-`value is Cat` emits a JavaScript `instanceof` check and uses the equivalent
-native class check in C++. `is` additionally accepts matcher patterns without
+`value is Cat` emits a JavaScript `instanceof` check. `is` additionally accepts matcher patterns without
 custom matcher objects:
 
 - primitive type patterns use runtime type tests: `string`, `number`/`int`,
-  `boolean`, and `bigint`/`long` lower to JavaScript `typeof` checks and the
-  equivalent native value-kind checks;
+  `boolean`, and `bigint`/`long` lower to JavaScript `typeof` checks;
 - primitive literals use exact matching;
 - regular-expression literals search string subjects and narrow successful
   branches to `string`;
@@ -1897,7 +1849,7 @@ custom matcher objects:
 
 The subject and each recursively inspected property are captured before their
 nested checks, so a source expression is evaluated once. Matcher patterns use
-the same lowering in JavaScript and C++.
+the shared JavaScript lowering path.
 
 ```vexa
 if (value is Cat) {
@@ -2029,16 +1981,7 @@ sync fun consume(stream: Stream) {
 A non-iterable `for-of` source is a type error, and the diagnostic range covers
 the source expression after `of` rather than the whole loop.
 
-Native C++ emission also supports declaration-based array and object
-destructuring in `for-of` loops:
-
-```vexa
-for (val [key, value] of entries) consume(key, value)
-for (val { name: string } of records) console.log(name)
-```
-
-Native C++ emission also supports declaration-based array and object
-destructuring in `for-of` loops:
+Declaration-based array and object destructuring is supported in `for-of` loops:
 
 ```vexa
 for (val [key, value] of entries) consume(key, value)
@@ -2227,7 +2170,7 @@ statement such as `throw`. The compiler lowers condition matches to nested
 `if` expressions and subject matches to a single-evaluation immediately
 invoked expression around the same `if` chain. This preserves contextual result
 types, cumulative false-branch narrowing, short-circuit evaluation, and branch
-scoping in both backends.
+scoping in JavaScript emission.
 
 Custom matcher objects are never invoked and are not supported. Computed object
 keys, object rest, and array rest bindings are also unsupported. Regular-expression
@@ -2266,7 +2209,7 @@ The same label and enclosing-context rules apply in expression position:
 labeled `continue` must target a loop, `break` must target an active loop,
 switch, or label, and `return` must be inside a function. These expression
 forms are lowered to ordinary target-language control-flow statements before
-both JavaScript and C++ emission. TypeScript parser mode keeps the standard
+JavaScript emission. TypeScript parser mode keeps the standard
 TypeScript statement-only grammar.
 
 The remaining statement-only forms are:
@@ -2302,12 +2245,6 @@ try {
   cleanup()
 }
 ```
-
-The native C++ backend preserves abrupt completion through `finally`: cleanup runs
-before a pending `return`, `throw`, `break`, or `continue`, while a new abrupt
-completion inside `finally` replaces the pending one. This also applies to nested
-`finally` blocks and to `defer`. Native labeled `break` and `continue` use the
-same completion propagation, including jumps across nested loops and cleanup.
 
 ### Defer
 
@@ -2467,69 +2404,3 @@ try {
 - Mixed incompatible arrays (with no common supertype, for example `[10, "string"]`) fall back to `any[]`.
 - An array variable whose element type is still unknown (for example `const array: unknown[] = []` or `let xs = []`) evolves its element type from the first `push`/`unshift` mutation, so `array.push(10)` refines the inferred type of `array` to `int[]`.
 - Object literals checked against an expected object, class, or interface type use matching property types as context for nested generic calls.
-
-The native C++ backend represents object literals as managed records. It supports
-shorthand and computed keys, nested objects, ordered object spread, dot and
-bracket access, direct/compound/update writes, optional property reads, `in`, and
-`delete`. Structurally compatible record values use generated native adapters for
-both properties and methods; callable fields and object-literal methods share the
-dynamic callable representation.
-
-Native C++ classes support abstract methods, concrete single inheritance,
-virtual overrides, qualified `super.member` calls, access sections, and multiple
-implemented interfaces. TypeScript-style derived constructors forward arguments
-to non-default generated base constructors through `super(...)`; constructor
-parameter properties initialize after the base and participate in native GC
-tracing. Optional interface properties and methods may be omitted by concrete or
-structural implementations.
-
-Native CLI builds resolve transitive local modules and project import mappings
-into one dependency-ordered translation unit. Named, aliased, default, namespace,
-re-export, and side-effect imports are supported with module-local native symbol
-identity.
-
-Native async and sync functions are continuation-based C++20 coroutines: source
-code runs synchronously until the first pending `await`, then resumes through the
-runtime microtask queue. The native Promise surface includes executor creation,
-`resolve`, `reject`, `then`, `catch`, `finally`, `all`, `race`, `allSettled`, and
-`any`, including flattening a task returned by a continuation. Timers accept
-heterogeneous callback arguments and async anonymous callbacks.
-`readTextFile(path)` returns a `Promise<string>` whose native implementation reads
-off-thread and settles through that same microtask queue.
-
-The native standard-library subset includes the common mutating, searching,
-slicing, concatenation, and higher-order array methods; common string search,
-slicing, and splitting methods; and `Object.keys`/`Object.values` for managed
-records. Higher-order array callbacks use ordinary typed VexaScript lambdas.
-Managed arrays support `forEach`, `some`, `every`, `find`, `findIndex`, `at`,
-`lastIndexOf`, `splice`, `fill`, `copyWithin`, `flat`, `flatMap`, and both lexical
-`sort()` and comparator-based `sort(callback)` in addition to
-`map`/`filter`/`reduce`. Native higher-order methods use the JavaScript callback
-contract: `map`, `filter`, `forEach`, `some`, `every`, and `findIndex` supply
-`(value, index, array)`, while `reduce` supplies
-`(accumulator, value, index, array)`; callbacks may declare fewer parameters.
-The native numeric remainder operator also supports both integral values and
-floating-point `number` values.
-
-Native `bigint` values are arbitrary precision and do not depend on a system
-bigint library. Literals and `BigInt(...)` construction support arithmetic,
-remainder, exponentiation with a non-negative exponent, comparisons, bitwise
-operators, signed shifts, `String`/`Number`/`Boolean` conversion, homogeneous
-arrays, and mixed dynamic arrays. The initial native division implementation is
-intentionally simple and may be slow for very large operands.
-
-Native arrays preserve JavaScript-style reference identity. Assigning one array
-to another variable, passing it to a function, or storing it in multiple class
-instances does not duplicate its contents; mutation through any reference is
-visible through the others. Their backing storage and any managed object
-elements are traced by Oilpan, including cycles, and become collectible after
-the last reachable owner disappears. Operations defined to produce a new array,
-including `slice`, `concat`, `map`, and `filter`, still return distinct backing
-storage.
-
-Native `concat` accepts both scalar items and arrays, including variadic mixtures
-such as `values.concat(3, [4, 5], 6)`, matching the visible JavaScript API.
-
-Native array string conversion uses a bracketed representation: `values.toString()`,
-`String(values)`, template/string conversion paths, and `console.log(values)` all
-format an array as `[item, item]` rather than exposing its C++ backing pointer.

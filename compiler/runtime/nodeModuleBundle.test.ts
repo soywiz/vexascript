@@ -288,11 +288,11 @@ describe("transpileModuleSource", () => {
 });
 
 describe("bundleNodeModuleGraph", () => {
-  it("prefers TypeScript source over an extensionless native executable", async () => {
+  it("prefers TypeScript source over an extensionless executable", async () => {
     await withTempProject(
       {
         "main.js": 'const cli = require("./cli"); exports.value = cli.value;\n',
-        "cli": "native executable bytes",
+        "cli": "executable bytes",
         "cli.ts": "export const value: number = 42;\n"
       },
       async (dir) => {
@@ -302,7 +302,7 @@ describe("bundleNodeModuleGraph", () => {
         );
 
         expect(result.code).toContain("const value = 42;");
-        expect(result.code).not.toContain("native executable bytes");
+        expect(result.code).not.toContain("executable bytes");
       }
     );
   });

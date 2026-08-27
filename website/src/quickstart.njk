@@ -46,12 +46,6 @@ console.log(g.greet())
 vexa run hello.vx
 vexa build hello.vx -o dist/hello.js
 {% endhighlightVexaScript %}
-      <p>You can also compile either <code>.vx</code> or <code>.ts</code> entrypoints through the native C++ command group:</p>
-{% highlightVexaScript %}
-vexa cpp hello.vx
-vexa cpp link hello.vx -o dist/hello
-vexa cpp run cli/cli.ts -o dist/vexa-native
-{% endhighlightVexaScript %}
     </article>
 
     <article class="card getting-started-card">

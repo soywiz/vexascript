@@ -174,11 +174,11 @@ imported, and ambient declarations.
 
 Two additional background type-check optimizations were explored: identifier
 scanning instead of regular-expression substitution and identity caching of
-rendered type graphs. They reduced the isolated resolved build, but the native
-self-host compiler then failed while reading its first import. Replacing the
+rendered type graphs. They reduced the isolated resolved build, but compiler
+self-hosting then failed while reading its first import. Replacing the
 `WeakMap` with an object-local generation cache did not change that failure, so
 both speculative optimizations and their tests were removed. Keeping them would
-have mixed an editor-latency fix with a separate native compatibility problem;
+have mixed an editor-latency fix with a separate self-hosting problem;
 the durable editor win comes from eliminating and coalescing foreground builds.
 
 ## Follow-up: refresh auto-await gutters from the shared session

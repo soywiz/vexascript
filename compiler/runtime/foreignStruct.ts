@@ -16,7 +16,6 @@ export interface ForeignStructField {
   alignment: number;
   dataViewGetter: string;
   dataViewSetter: string;
-  cppType: string;
 }
 
 export interface ForeignStructDefinition {
@@ -59,21 +58,21 @@ function defaultFieldSize(typeName: string): number | null {
   }
 }
 
-function fieldMapping(typeName: string, size: number): Pick<ForeignStructField, "dataViewGetter" | "dataViewSetter" | "cppType"> | null {
+function fieldMapping(typeName: string, size: number): Pick<ForeignStructField, "dataViewGetter" | "dataViewSetter"> | null {
   if (typeName === "boolean" && size === 1) {
-    return { dataViewGetter: "getUint8", dataViewSetter: "setUint8", cppType: "std::uint8_t" };
+    return { dataViewGetter: "getUint8", dataViewSetter: "setUint8" };
   }
   if (typeName === "int") {
-    if (size === 1) return { dataViewGetter: "getInt8", dataViewSetter: "setInt8", cppType: "std::int8_t" };
-    if (size === 2) return { dataViewGetter: "getInt16", dataViewSetter: "setInt16", cppType: "std::int16_t" };
-    if (size === 4) return { dataViewGetter: "getInt32", dataViewSetter: "setInt32", cppType: "std::int32_t" };
+    if (size === 1) return { dataViewGetter: "getInt8", dataViewSetter: "setInt8" };
+    if (size === 2) return { dataViewGetter: "getInt16", dataViewSetter: "setInt16" };
+    if (size === 4) return { dataViewGetter: "getInt32", dataViewSetter: "setInt32" };
   }
   if (typeName === "long" && size === 8) {
-    return { dataViewGetter: "getBigInt64", dataViewSetter: "setBigInt64", cppType: "std::int64_t" };
+    return { dataViewGetter: "getBigInt64", dataViewSetter: "setBigInt64" };
   }
   if (typeName === "number") {
-    if (size === 4) return { dataViewGetter: "getFloat32", dataViewSetter: "setFloat32", cppType: "float" };
-    if (size === 8) return { dataViewGetter: "getFloat64", dataViewSetter: "setFloat64", cppType: "double" };
+    if (size === 4) return { dataViewGetter: "getFloat32", dataViewSetter: "setFloat32" };
+    if (size === 8) return { dataViewGetter: "getFloat64", dataViewSetter: "setFloat64" };
   }
   return null;
 }

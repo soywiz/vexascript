@@ -95,8 +95,8 @@ export interface AnalysisOptions {
    */
   checkTypes?: boolean;
   /**
-   * Populate type-driven emitter metadata. Dynamic native bootstrap builds may
-   * disable this after binding and rely on conservative lowering instead.
+   * Populate type-driven emitter metadata. Bootstrap builds may disable this
+   * after binding and rely on conservative lowering instead.
    * Defaults to true.
    */
   inferTypes?: boolean;

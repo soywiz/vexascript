@@ -22,25 +22,6 @@ interface CommandCaptureOptions {
   onStderr?: (chunk: string) => void;
 }
 
-export function runtimePlatform(): string {
-  return process.platform;
-}
-
-export async function nativeCompilerCommand(platform: NodeJS.Platform = process.platform): Promise<"clang++" | "g++"> {
-  if (platform === "win32") return "g++";
-  try {
-    const result = await runCommandCapture("clang++", ["--version"]);
-    if (result.code === 0) return "clang++";
-  } catch {
-    // Fall through to g++ when clang++ is not installed or cannot start.
-  }
-  return "g++";
-}
-
-export function environmentVariable(name: string): string | undefined {
-  return process.env[name];
-}
-
 export function runtimePid(): number {
   return process.pid;
 }
@@ -74,34 +55,6 @@ export async function executeJavaScriptModule(code: string, sourceMap: string | 
 
 export async function startLanguageServer(): Promise<void> {
   await import("../compiler/lsp/server");
-}
-
-export interface NativeProgramPaths {
-  sourcePath: string;
-  buildRoot: string;
-  cppPath: string;
-  executablePath: string;
-}
-
-export type NativeOptimization = "-O0" | "-O1" | "-O2" | "-O3" | "-Os" | "-Oz" | "-Og";
-
-export async function resolveNativeProgramPaths(
-  sourcePath: string,
-  outputPath?: string,
-  buildDir?: string
-): Promise<NativeProgramPaths> {
-  const { nativeProgramPaths } = await import("./nativeBuild");
-  return nativeProgramPaths(sourcePath, outputPath, buildDir);
-}
-
-export async function linkNativeExecutable(
-  cppPath: readonly string[],
-  executablePath: string,
-  extraFlags: string[] = [],
-  optimization?: NativeOptimization
-): Promise<void> {
-  const { compileNativeExecutable } = await import("./nativeBuild");
-  await compileNativeExecutable(cppPath, executablePath, extraFlags, optimization);
 }
 
 export async function runTestFiles(

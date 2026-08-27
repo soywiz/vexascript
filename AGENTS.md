@@ -31,7 +31,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 
 - Run tests once: `pnpm test`
 - Validate compiler CLI is working: `pnpm cli vexa testFixtures/sample.vx`
-- Validate the full TypeScript, bundled-JavaScript, and native C++ compiler bootstrap: `pnpm self-host:ci`
+- Validate the bundled-JavaScript compiler bootstrap and byte-stable fixed point: `pnpm self-host:ci`
 - Keep the `test` script as `tsc --noEmit && node --import tsx --test --test-reporter spec`. Do not add explicit test-file globs or `rg`/`find` enumeration to it unless the current autodiscovery behavior actually breaks. In this repository, Node's test runner with `--import tsx` already discovers and runs the `.test.ts` suite correctly.
 - Run tests with coverage: `pnpm coverage`
 - Run vscode with the plugin+lsp: `pnpm code`
@@ -56,8 +56,8 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - When a bug is first observed through a larger sample, reproduce it in a small, isolated, fast automated test in the same change whenever possible. The sample regression may remain as broader coverage, but the minimal test is required so the bug stays covered even if the sample later changes or is removed.
 - Minimum acceptance criterion: a feature is not considered complete without automated tests validating its behavior.
 - Before closing any task, running the full test suite with `pnpm test` is mandatory.
-- Before closing a task, run `pnpm self-host:ci` successfully in the final working-tree state only when the changes can affect the native/self-hosting bootstrap. This includes changes to the parser, AST, shared analysis or lowering used by the C++ backend, the C++ emitter, native runtime or adapters, CLI paths exercised by self-hosting, and self-hosting scripts. It is not required for changes isolated to the JavaScript emitter, LSP/editor behavior, website, documentation, or tests when those changes cannot alter the native bootstrap. When required, `pnpm test` is not a substitute for this check.
-- Do not rerun the native fixed point after every intermediate edit. When `pnpm self-host:ci` is required, use focused tests while iterating and run the fixed point once after the final working-tree state is ready for handoff.
+- Before closing a task, run `pnpm self-host:ci` successfully in the final working-tree state when changes can affect compiler self-hosting. This includes changes to the parser, AST, shared analysis or lowering, JavaScript emitter, CLI paths exercised by self-hosting, and self-hosting scripts. It is not required for changes isolated to LSP/editor behavior, website, documentation, or tests when those changes cannot alter the JavaScript bootstrap. When required, `pnpm test` is not a substitute for this check.
+- Do not rerun the self-hosted fixed point after every intermediate edit. When `pnpm self-host:ci` is required, use focused tests while iterating and run the fixed point once after the final working-tree state is ready for handoff.
 - Focused or partial test runs are useful during development, but they never replace the final full-suite run.
 - Do not finish a task, report success, commit, or hand off work until `pnpm test` has been run successfully in the current state of the branch.
 - In LSP/editor tests, prefer the `^^^` cursor-marker style with the shared helper in `compiler/test/sourceWithCursor.ts` instead of hardcoded line/column coordinates whenever practical.

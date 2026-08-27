@@ -6,8 +6,7 @@
  */
 
 /**
- * High-resolution monotonic timing available in browsers, Node.js, and the
- * native VexaScript runtime.
+ * High-resolution monotonic timing available in browsers and Node.js.
  */
 interface Performance {
     now(): number;

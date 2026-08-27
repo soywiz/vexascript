@@ -87,14 +87,11 @@ function copyNodeBounds<T extends Node>(target: T, source: Node): T {
       enumerable: false
     });
   }
-  if (source.__vexaNativeSourcePath) {
-    (target as Node).__vexaNativeSourcePath = source.__vexaNativeSourcePath;
-  }
   return target;
 }
 
 function cloneIdentifier(identifier: Identifier): Identifier {
-  return copyNodeBounds(new Identifier(identifier.name, identifier.__vexaNativeOriginalName, identifier.receiverLabel), identifier);
+  return copyNodeBounds(new Identifier(identifier.name, identifier.receiverLabel), identifier);
 }
 
 function cloneFunctionParameter(parameter: FunctionParameter): FunctionParameter {
@@ -675,7 +672,7 @@ function lowerControlExpression(
       return lowerExpressionSequence(
         elements,
         state,
-        (elements) => copyNodeBounds(new ArrayLiteral(elements, array.__vexaEmptyRest), array),
+        (elements) => copyNodeBounds(new ArrayLiteral(elements), array),
         continuation
       );
     }
@@ -685,8 +682,6 @@ function lowerControlExpression(
         comprehension.iterable,
         state,
         (iterable) => {
-          // Preserve the analyzed comprehension node: native emission uses its
-          // expression type to choose the concrete result-array element type.
           comprehension.iterable = iterable;
           comprehension.body = comprehension.body instanceof IfStatement && !comprehension.body.elseBranch
             ? lowerComprehensionFilter(comprehension.body, state)

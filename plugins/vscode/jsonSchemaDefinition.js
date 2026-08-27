@@ -166,7 +166,6 @@ const TOP_LEVEL_PROPERTIES = new Set([
   "canonicalSyntax",
   "importMappings",
   "imports",
-  "nativeImports",
   "globalSymbols",
   "serveMappings"
 ]);
@@ -183,7 +182,7 @@ const CANONICAL_SYNTAX_PROPERTIES = new Set([
   "functionDeclaration"
 ]);
 const GLOBAL_SYMBOL_PROPERTIES = new Set(["paths", "files", "include", "emit"]);
-const MAPPING_PROPERTIES = new Set(["importMappings", "imports", "nativeImports"]);
+const MAPPING_PROPERTIES = new Set(["importMappings", "imports"]);
 
 function configSchemaPathForProperty(configPath) {
   const [topLevel, nested, itemProperty] = configPath;

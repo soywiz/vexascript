@@ -5388,12 +5388,12 @@ export class TypeChecker {
   }
 
   /**
-   * Native ordering category of a type. Numbers (the whole numeric family plus
+   * Built-in ordering category of a type. Numbers (the whole numeric family plus
    * int-backed enums), strings, and Date timestamps support
    * `< > <= >= <=>` without an operator overload; both sides must share the
    * same category. Returns null for anything else.
    */
-  private nativeOrderingCategory(type: AnalysisType): "numeric" | "string" | "date" | null {
+  private orderingCategory(type: AnalysisType): "numeric" | "string" | "date" | null {
     const expanded = this.expandTypeAliases(type);
     if (expanded instanceof NamedType && expanded.name === "Date") {
       return "date";
@@ -5409,10 +5409,10 @@ export class TypeChecker {
 
   /**
    * Ordering comparisons (`< > <= >= <=>`) are only meaningful when an operator
-   * overload applies or the operands are natively comparable. A direct overload
+   * overload applies or the operands have built-in comparability. A direct overload
    * has already been resolved (and consumed) by the caller, so this additionally
    * honours `operator<=>` (which derives the four relational operators) and the
-   * native-type rule: number-with-number, string-with-string, or an
+   * built-in rule: number-with-number, string-with-string, or an
    * `any`/untyped/generic operand. Comparing two unrelated class instances, or a
    * `string` against a `number`, is reported as an undefined operator.
    */
@@ -5431,8 +5431,8 @@ export class TypeChecker {
     if (this.resolveDerivedComparisonOverload(operator, leftType, rightType, scope)) {
       return false;
     }
-    const leftCategory = this.nativeOrderingCategory(leftType);
-    return leftCategory === null || leftCategory !== this.nativeOrderingCategory(rightType);
+    const leftCategory = this.orderingCategory(leftType);
+    return leftCategory === null || leftCategory !== this.orderingCategory(rightType);
   }
 
   private resolveDerivedComparisonOverload(

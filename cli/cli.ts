@@ -1,16 +1,13 @@
 import "./localVfs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { Command } from "./command";
-import { transpile, type EmitLanguage, type TranspileDiagnostic, type TranspileTarget } from "../compiler/runtime/transpile";
+import { transpile, type TranspileDiagnostic, type TranspileTarget } from "../compiler/runtime/transpile";
 import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "../compiler/language";
 import { loadProject } from "../compiler/project";
-import type { VexaProject } from "../compiler/project";
 import { SYNTAX_TARGETS, type SyntaxTarget } from "../compiler/syntaxTargets";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
 import { basename, dirname, extname, resolve } from "../compiler/utils/path";
 import { vfs } from "../compiler/vfs";
-import { compileNativeModuleGraph } from "../compiler/runtime/nativeModuleGraph";
-import type { NativeCollectionRepresentation } from "../compiler/runtime/cppEmitter";
 import { monotonicNow, roundedMilliseconds } from "../compiler/utils/time";
 import {
   ambientDeclarationsForProject,
@@ -23,30 +20,23 @@ import {
 } from "./cliShared";
 import {
   astForCli,
-  environmentVariable,
   executeJavaScriptModule,
   formatForCli,
   isBootstrappedCliExecution,
   isDirectModuleExecution,
-  linkNativeExecutable,
-  nativeCompilerCommand,
   openUrlInDefaultBrowser,
   renderSyntaxForCli,
-  resolveNativeProgramPaths,
   resolveNodeModuleImportsForCli,
   runCommand as runProcessCommand,
   runAsyncMain,
   runTestFiles,
   runtimePid,
-  runtimePlatform,
   startLanguageServer,
   startMcpServer,
   startServe,
   testRuntimeImportsForCli,
   tokenizeForCli,
-  type NativeProgramPaths,
 } from "./io";
-type NativeOptimization = "-O0" | "-O1" | "-O2" | "-O3" | "-Os" | "-Oz" | "-Og";
 
 /** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
 export class DiagnosticError extends Error {
@@ -63,13 +53,6 @@ class BuildOptions {
 
 class CopyDirectoryOptions {
   constructor(public bundleFileName?: string) {}
-}
-
-function nativeImportMappings(project: VexaProject | null): Record<string, string> {
-  return {
-    ...(project?.importMappings ?? {}),
-    ...(project?.nativeImportMappings ?? {}),
-  };
 }
 
 function printDiagnostic(diag: TranspileDiagnostic, useColor: boolean): void {
@@ -143,9 +126,7 @@ async function buildFile(
   out?: string,
   target: TranspileTarget = "optimized",
   jsxOptions: JsxOptions = new JsxOptions(),
-  emit: EmitLanguage = "javascript",
-  typeCheck = true,
-  emitNativeSourceLocations = false
+  typeCheck = true
 ): Promise<void> {
   const buildStartedAt = monotonicNow();
   const phaseTimings = new Map<string, number>();
@@ -168,8 +149,7 @@ async function buildFile(
   const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, typeCheck)
     ? false
     : await semanticValidation;
-  const outputExtension = emit === "cpp" ? ".cpp" : ".js";
-  const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, outputExtension));
+  const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
   const declarationsStartedAt = monotonicNow();
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
@@ -178,10 +158,8 @@ async function buildFile(
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
-    emit,
-    emitNativeSourceLocations,
     typeCheck: vexaTypeCheck,
-    emitSourceMap: emit === "javascript",
+    emitSourceMap: true,
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
     rewriteImportExtensions: true,
     profile: (event) => phaseTimings.set(event.phase, event.elapsedMs),
@@ -227,352 +205,6 @@ async function buildFile(
       console.warn(`warning: ${warning}`);
     }
   }
-}
-
-interface NativeCompilationCache {
-  version: 4;
-  compilerVersion: string;
-  sourcePath: string;
-  cppPath: string;
-  target: TranspileTarget;
-  typeCheck: boolean;
-  emitNativeSourceLocations: boolean;
-  emitCppModuleFiles: boolean;
-  nativeCollectionRepresentation: NativeCollectionRepresentation;
-  jsxFactory: string;
-  jsxFragmentFactory: string;
-  watchedFiles: Record<string, number>;
-  nativeCompilerFlags: string[];
-  generatedCppPaths: string[];
-}
-
-interface NativeCompilationResult {
-  paths: NativeProgramPaths;
-  cppPaths: string[];
-  nativeCompilerFlags: string[];
-}
-
-async function nativeFileSignatures(paths: string[]): Promise<Record<string, number> | null> {
-  const signatures: Record<string, number> = {};
-  for (const path of paths) {
-    const info = await vfs().stat(path).catch((_error) => null);
-    if (!info) return null;
-    signatures[path] = info.mtimeMs;
-  }
-  return signatures;
-}
-
-async function readNativeCompilationCache(cachePath: string): Promise<NativeCompilationCache | null> {
-  // Keep the missing-cache fallback string-shaped for the native emitter. A
-  // Promise<string> catch callback returning null would otherwise be lowered
-  // to toText(null) in a native self-hosted build.
-  const content = await vfs().readFile(cachePath).catch((_error) => "");
-  if (!content) return null;
-  try {
-    const cache = JSON.parse(content) as NativeCompilationCache;
-    return cache.version === 4 ? cache : null;
-  } catch {
-    return null;
-  }
-}
-
-async function isNativeCompilationCacheValid(
-  cache: NativeCompilationCache | null,
-  options: Omit<NativeCompilationCache, "watchedFiles" | "nativeCompilerFlags" | "generatedCppPaths">,
-  cppPaths: readonly string[]
-): Promise<boolean> {
-  if (!cache || cache.version !== options.version || cache.compilerVersion !== options.compilerVersion ||
-      cache.sourcePath !== options.sourcePath || cache.cppPath !== options.cppPath ||
-      cache.target !== options.target || cache.typeCheck !== options.typeCheck ||
-      cache.emitNativeSourceLocations !== options.emitNativeSourceLocations ||
-      cache.emitCppModuleFiles !== options.emitCppModuleFiles ||
-      cache.nativeCollectionRepresentation !== options.nativeCollectionRepresentation ||
-      cache.jsxFactory !== options.jsxFactory || cache.jsxFragmentFactory !== options.jsxFragmentFactory) {
-    return false;
-  }
-  for (const cppPath of cppPaths) {
-    if (!(await vfs().stat(cppPath).catch((_error) => null))) return false;
-  }
-  const files = await nativeFileSignatures(Object.keys(cache.watchedFiles));
-  if (!files) return false;
-  return Object.entries(files).every(([path, mtimeMs]) => cache.watchedFiles[path] === mtimeMs);
-}
-
-async function compileNativeProgram(
-  input: string,
-  out?: string,
-  buildDir?: string,
-  target: TranspileTarget = "optimized",
-  typeCheck = true,
-  emitNativeSourceLocations = false,
-  jsxOptions: JsxOptions = new JsxOptions(),
-  emitCppModuleFiles = false,
-  nativeCollectionRepresentation: NativeCollectionRepresentation = "specialized"
-): Promise<NativeCompilationResult> {
-  const buildStartedAt = monotonicNow();
-  const phaseTimings = new Map<string, number>();
-  const inputPath = resolve(process.cwd(), input);
-  const inputStats = await vfs().stat(inputPath).catch((_error) => null);
-  const projectLoadStartedAt = monotonicNow();
-  const project = await loadProject(inputPath);
-  phaseTimings.set("project-load", monotonicNow() - projectLoadStartedAt);
-  const directoryBuild = inputStats?.isDirectory === true;
-  const sourcePath = directoryBuild
-    ? project?.bundleEntrypoint
-    : inputPath;
-  if (!sourcePath) {
-    throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
-  }
-  const projectOutputDir = project?.buildOutputDir ?? resolve(inputPath, "dist");
-  const executableName = basename(sourcePath).replace(/\.[^.]+$/, runtimePlatform() === "win32" ? ".exe" : "");
-  const paths = await resolveNativeProgramPaths(
-    sourcePath,
-    directoryBuild
-      ? resolve(process.cwd(), out ? resolve(out, executableName) : resolve(projectOutputDir, executableName))
-      : out,
-    directoryBuild ? resolve(process.cwd(), buildDir ?? resolve(projectOutputDir, ".vexa-native")) : buildDir
-  );
-  await mkdir(paths.buildRoot, { recursive: true });
-  const cachePath = resolve(paths.buildRoot, ".vexa-native-cache.json");
-  const cacheOptions = {
-    version: 4 as const,
-    compilerVersion: COMPILER_VERSION,
-    sourcePath: paths.sourcePath,
-    cppPath: paths.cppPath,
-    target,
-    typeCheck,
-    emitNativeSourceLocations,
-    emitCppModuleFiles,
-    nativeCollectionRepresentation,
-    jsxFactory: jsxOptions.jsxFactory,
-    jsxFragmentFactory: jsxOptions.jsxFragmentFactory,
-  };
-  const cached = await readNativeCompilationCache(cachePath);
-  if (await isNativeCompilationCacheValid(cached, cacheOptions, cached?.generatedCppPaths ?? [])) {
-    console.log(`Reusing cached C++: ${paths.cppPath}`);
-    return { paths, cppPaths: cached!.generatedCppPaths, nativeCompilerFlags: cached!.nativeCompilerFlags };
-  }
-  const typeCheckStartedAt = monotonicNow();
-  let typeCheckElapsedMs = 0;
-  const semanticValidation = (async (): Promise<boolean> => {
-    try {
-      return await vexaTypeCheckForSource(sourcePath, project, typeCheck);
-    } finally {
-      typeCheckElapsedMs = monotonicNow() - typeCheckStartedAt;
-    }
-  })();
-  const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, typeCheck)
-    ? false
-    : await semanticValidation;
-  const declarationsStartedAt = monotonicNow();
-  const ambientDeclarations = await ambientDeclarationsForProject(paths.sourcePath, project);
-  const globalDeclarations = await globalDeclarationsForProject(project);
-  phaseTimings.set("declarations", monotonicNow() - declarationsStartedAt);
-  const result = await compileNativeModuleGraph(paths.sourcePath, target, {
-    ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
-    importMappings: nativeImportMappings(project),
-    typeCheck: vexaTypeCheck,
-    emitNativeSourceLocations,
-    emitCppModuleFiles,
-    nativeCollectionRepresentation,
-    profile: (event) => {
-      if (event.phase !== "total") {
-        phaseTimings.set(event.phase, (phaseTimings.get(event.phase) ?? 0) + event.elapsedMs);
-      }
-    },
-    ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
-    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
-    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
-    ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
-    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {}),
-  });
-  await semanticValidation;
-  if (result.errors.length > 0) {
-    printDiagnostics(result.errors, result.diagnostics, paths.sourcePath);
-    throw new Error(`Compilation failed for ${paths.sourcePath}`);
-  }
-  const writeStartedAt = monotonicNow();
-  const generatedFiles = result.files ?? [{ relativePath: "main.cpp", code: result.code }];
-  const cppPaths = generatedFiles
-    .filter((file) => file.relativePath.endsWith(".cpp"))
-    .map((file) => resolve(paths.buildRoot, file.relativePath));
-  for (const file of generatedFiles) {
-    const outputPath = resolve(paths.buildRoot, file.relativePath);
-    await mkdir(dirname(outputPath), { recursive: true });
-    await vfs().writeFile(outputPath, file.code);
-  }
-  phaseTimings.set("type-check", typeCheckElapsedMs);
-  phaseTimings.set("write", monotonicNow() - writeStartedAt);
-  phaseTimings.set("cpp-generation-total", monotonicNow() - buildStartedAt);
-  console.log(`Compiled: ${paths.sourcePath} -> ${paths.cppPath} (${formatPhaseTimings(phaseTimings)})`);
-  const watchedFiles = [...result.watchedFiles];
-  const projectConfigRoot = directoryBuild ? inputPath : dirname(paths.sourcePath);
-  for (const configName of ["vexascript.json", "tsconfig.json"]) {
-    const configPath = resolve(projectConfigRoot, configName);
-    if (await vfs().stat(configPath).catch((_error) => null)) watchedFiles.push(configPath);
-  }
-  const watchedFileSignatures = await nativeFileSignatures(watchedFiles);
-  await vfs().writeFile(cachePath, JSON.stringify({
-    ...cacheOptions,
-    watchedFiles: watchedFileSignatures ?? {},
-    nativeCompilerFlags: result.nativeCompilerFlags,
-    generatedCppPaths: cppPaths,
-  } satisfies NativeCompilationCache));
-  return { paths, cppPaths, nativeCompilerFlags: result.nativeCompilerFlags };
-}
-
-async function linkNativeProgram(
-  input: string,
-  out: string | undefined,
-  buildDir: string | undefined,
-  target: TranspileTarget,
-  typeCheck: boolean,
-  emitNativeSourceLocations: boolean,
-  jsxOptions: JsxOptions = new JsxOptions(),
-  optimization: NativeOptimization = "-O2",
-  emitCppModuleFiles = false,
-  nativeCollectionRepresentation: NativeCollectionRepresentation = "specialized"
-): Promise<string> {
-  const compilation = await compileNativeProgram(
-    input,
-    out,
-    buildDir,
-    target,
-    typeCheck,
-    emitNativeSourceLocations,
-    jsxOptions,
-    emitCppModuleFiles,
-    nativeCollectionRepresentation,
-  );
-  const paths = compilation.paths as NativeProgramPaths;
-  const cppPaths = compilation.cppPaths as string[];
-  const nativeCompilerFlags = compilation.nativeCompilerFlags as string[];
-  const linkedCppPath = paths.cppPath;
-  const linkedExecutablePath = paths.executablePath;
-  const executableInfo = await vfs().stat(paths.executablePath).catch((_error) => null);
-  let generatedCppIsOlder = executableInfo !== null;
-  for (const path of cppPaths) {
-    const cppInfo = await vfs().stat(path).catch((_error) => null);
-    if (!cppInfo || !executableInfo || executableInfo.mtimeMs < cppInfo.mtimeMs) {
-      generatedCppIsOlder = false;
-      break;
-    }
-  }
-  const linkCachePath = resolve(paths.buildRoot, ".vexa-native-link-cache.json");
-  let linkCache = "";
-  try {
-    linkCache = (await vfs().readFile(linkCachePath)) ?? "";
-  } catch {
-    linkCache = "";
-  }
-  const linkCacheKey = `${COMPILER_VERSION}\n${optimization}\n${JSON.stringify(nativeCompilerFlags)}`;
-  const linkCacheMatches = linkCache === linkCacheKey;
-  if (executableInfo && generatedCppIsOlder && linkCacheMatches) {
-    console.log(`Reusing cached native executable: ${paths.executablePath}`);
-    return linkedExecutablePath;
-  }
-  console.log(`Compiling native executable with ${await nativeCompilerCommand()} ${optimization}: ${paths.executablePath}`);
-  const nativeCompileStartedAt = monotonicNow();
-  await linkNativeExecutable(
-    cppPaths,
-    paths.executablePath,
-    nativeCompilerFlags,
-    optimization
-  );
-  await vfs().writeFile(linkCachePath, linkCacheKey);
-  if (runtimePlatform() === "native") {
-    console.error("Linked native executable");
-    if (process.argv.includes("link")) process.exit(0);
-    return linkedExecutablePath;
-  }
-  console.log(
-    `Linked: ${linkedCppPath} + Oilpan -> ${linkedExecutablePath} ` +
-    `(native-compile-link ${roundedMilliseconds(monotonicNow() - nativeCompileStartedAt)}ms)`
-  );
-  return linkedExecutablePath;
-}
-
-async function buildCppModuleGraph(
-  input: string,
-  out: string | undefined,
-  target: TranspileTarget,
-  typeCheck = true,
-  emitNativeSourceLocations = false,
-  jsxOptions: JsxOptions = new JsxOptions(),
-  emitCppModuleFiles = false,
-  nativeCollectionRepresentation: NativeCollectionRepresentation = "specialized"
-): Promise<void> {
-  const buildStartedAt = monotonicNow();
-  const phaseTimings = new Map<string, number>();
-  const inputPath = resolve(process.cwd(), input);
-  const inputStats = await vfs().stat(inputPath).catch((_error) => null);
-  const projectLoadStartedAt = monotonicNow();
-  const project = await loadProject(inputPath);
-  phaseTimings.set("project-load", monotonicNow() - projectLoadStartedAt);
-  const directoryBuild = inputStats?.isDirectory === true;
-  const sourcePath = directoryBuild ? project?.bundleEntrypoint : inputPath;
-  if (!sourcePath) {
-    throw new Error(`Native project builds require an 'entrypoint' in ${resolve(inputPath, "vexascript.json")}`);
-  }
-  const typeCheckStartedAt = monotonicNow();
-  let typeCheckElapsedMs = 0;
-  const semanticValidation = (async (): Promise<boolean> => {
-    try {
-      return await vexaTypeCheckForSource(sourcePath, project, typeCheck);
-    } finally {
-      typeCheckElapsedMs = monotonicNow() - typeCheckStartedAt;
-    }
-  })();
-  const vexaTypeCheck = usesExternalTypeScriptCheck(sourcePath, typeCheck)
-    ? false
-    : await semanticValidation;
-  const outputPath = directoryBuild
-    ? resolve(process.cwd(), out ?? project?.buildOutputDir ?? resolve(inputPath, "dist"), "main.cpp")
-    : resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".cpp"));
-  const declarationsStartedAt = monotonicNow();
-  const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
-  const globalDeclarations = await globalDeclarationsForProject(project);
-  phaseTimings.set("declarations", monotonicNow() - declarationsStartedAt);
-  const profile = (event: { phase: string; elapsedMs: number; moduleCount: number }): void => {
-    if (event.phase !== "total") {
-      phaseTimings.set(event.phase, (phaseTimings.get(event.phase) ?? 0) + event.elapsedMs);
-    }
-    if (environmentVariable("VEXA_PROFILE_COMPILER") === "1") {
-      console.error(`[compiler] ${event.phase}: ${event.elapsedMs}ms (${event.moduleCount} modules)`);
-    }
-  };
-  const result = await compileNativeModuleGraph(sourcePath, target, {
-    ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
-    importMappings: nativeImportMappings(project),
-    typeCheck: vexaTypeCheck,
-    emitNativeSourceLocations,
-    emitCppModuleFiles,
-    nativeCollectionRepresentation,
-    profile,
-    ...(project?.baseUrl ? { baseUrl: project.baseUrl } : {}),
-    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
-    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
-    ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
-    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {}),
-  });
-  await semanticValidation;
-  if (result.errors.length > 0) {
-    printDiagnostics(result.errors, result.diagnostics, sourcePath);
-    throw new Error(`Compilation failed for ${sourcePath}`);
-  }
-  const writeStartedAt = monotonicNow();
-  const generatedFiles = result.files ?? [{ relativePath: "main.cpp", code: result.code }];
-  for (const file of generatedFiles) {
-    const generatedPath = file.relativePath === "main.cpp"
-      ? outputPath
-      : resolve(dirname(outputPath), file.relativePath);
-    await mkdir(dirname(generatedPath), { recursive: true });
-    await vfs().writeFile(generatedPath, file.code);
-  }
-  phaseTimings.set("write", monotonicNow() - writeStartedAt);
-  phaseTimings.set("type-check", typeCheckElapsedMs);
-  phaseTimings.set("total", monotonicNow() - buildStartedAt);
-  console.log(`Compiled: ${sourcePath} -> ${outputPath} (${formatPhaseTimings(phaseTimings)})`);
 }
 
 async function bundleFile(
@@ -1011,17 +643,6 @@ function createProgram(): Command {
       opts.target === "conservative" ? "conservative" : "optimized",
       new JsxOptions(opts.jsxFactory ?? "", opts.jsxFragmentFactory ?? "")
     );
-  const resolveCppModuleFiles = (opts: { moduleFiles?: boolean; singleFile?: boolean }): boolean => {
-    const moduleFiles = opts.moduleFiles === true;
-    if (moduleFiles && opts.singleFile === true) {
-      throw new Error("Choose only one native C++ layout: --module-files or --single-file");
-    }
-    if (moduleFiles) return true;
-    const singleFile = opts.singleFile === true || environmentVariable("VEXA_NATIVE_SINGLE_FILE") === "1";
-    if (singleFile) return false;
-    return false;
-  };
-
   const buildCommand = program.command("build");
   buildCommand.description("Compile a VexaScript file to JavaScript");
   buildCommand.argument("<input>", "Input file or project directory");
@@ -1049,106 +670,9 @@ function createProgram(): Command {
         await bundleFile(input, opts.out, target, jsxOptions, opts.transpileOnly !== true, opts.platform);
         return;
       }
-      await buildFile(input, opts.out, target, jsxOptions, "javascript", opts.transpileOnly !== true);
+      await buildFile(input, opts.out, target, jsxOptions, opts.transpileOnly !== true);
   });
 
-  const cppCommand = program.command("cpp");
-  cppCommand.description("Compile, link, or run a VexaScript program through the native C++ backend");
-  cppCommand.argument("<input>", "Input .vx file or configured project directory");
-  cppCommand.option("-o, --out <path>", "Output C++ file, or output directory for project builds");
-  cppCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
-  cppCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
-  cppCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
-  cppCommand.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
-  cppCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
-  cppCommand.option("--module-files", "Emit one C++ translation unit per source module");
-  cppCommand.option("--single-file", "Emit one C++ translation unit (default)");
-  cppCommand.option("--generic-native-collections", "Emit Map and Set templates with Value storage for performance comparison");
-  cppCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; moduleFiles?: boolean; singleFile?: boolean; genericNativeCollections?: boolean }): Promise<void> => {
-      const buildOptions = resolveBuildOptions(opts);
-      await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, resolveCppModuleFiles(opts), opts.genericNativeCollections ? "generic" : "specialized");
-  });
-
-  const cppBuildCommand = cppCommand.command("build");
-  cppBuildCommand.description("Compile a VexaScript file to a C++ translation unit");
-  cppBuildCommand.argument("<input>", "Input .vx file or configured project directory");
-  cppBuildCommand.option("-o, --out <path>", "Output C++ file, or output directory for project builds");
-  cppBuildCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
-  cppBuildCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
-  cppBuildCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
-  cppBuildCommand.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
-  cppBuildCommand.option("--native-source-locations", "Emit per-statement native source-location hooks");
-  cppBuildCommand.option("--module-files", "Emit one C++ translation unit per source module");
-  cppBuildCommand.option("--single-file", "Emit one C++ translation unit (default)");
-  cppBuildCommand.option("--generic-native-collections", "Emit Map and Set templates with Value storage for performance comparison");
-  cppBuildCommand.actionInput(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; moduleFiles?: boolean; singleFile?: boolean; genericNativeCollections?: boolean }): Promise<void> => {
-    const buildOptions = resolveBuildOptions(opts);
-    await buildCppModuleGraph(input, opts.out, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, resolveCppModuleFiles(opts), opts.genericNativeCollections ? "generic" : "specialized");
-  });
-
-  const addCppLinkCommand = (name: "link" | "run", description: string): void => {
-    const command = cppCommand.command(name);
-    command.description(description);
-    command.argument("<input>", "Input .vx or .ts file, or configured project directory");
-    command.option("-o, --out <path>", "Output executable, or output directory for project builds");
-    command.option("--build-dir <dir>", "Intermediate build directory (defaults to <input>.build)");
-    command.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
-    command.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
-    command.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
-    command.option("--transpile-only", "Emit C++ without failing on VexaScript semantic diagnostics");
-    command.option("--native-source-locations", "Emit per-statement native source-location hooks");
-    command.option("--module-files", "Emit one C++ translation unit per source module");
-    command.option("--single-file", "Emit one C++ translation unit (default)");
-    command.option("--generic-native-collections", "Emit Map and Set templates with Value storage for performance comparison");
-    command.option("-O0", "Disable native compiler optimizations");
-    command.option("-O1", "Enable basic native compiler optimizations");
-    command.option("-O2", "Enable standard native compiler optimizations (default)");
-    command.option("-O3", "Enable aggressive native compiler optimizations");
-    command.option("-Os", "Optimize native code for size");
-    command.option("-Oz", "Optimize native code aggressively for size");
-    command.option("-Og", "Optimize native code for debugging");
-    command.actionInput(async (input: string, opts: { out?: string; buildDir?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; transpileOnly?: boolean; nativeSourceLocations?: boolean; moduleFiles?: boolean; singleFile?: boolean; genericNativeCollections?: boolean; O0?: boolean; O1?: boolean; O2?: boolean; O3?: boolean; Os?: boolean; Oz?: boolean; Og?: boolean }): Promise<void> => {
-      const nativeArgO0 = runtimePlatform() === "native" && process.argv.includes("-O0");
-      const nativeArgO1 = runtimePlatform() === "native" && process.argv.includes("-O1");
-      const nativeArgO2 = runtimePlatform() === "native" && process.argv.includes("-O2");
-      const nativeArgO3 = runtimePlatform() === "native" && process.argv.includes("-O3");
-      const nativeArgOs = runtimePlatform() === "native" && process.argv.includes("-Os");
-      const nativeArgOz = runtimePlatform() === "native" && process.argv.includes("-Oz");
-      const nativeArgOg = runtimePlatform() === "native" && process.argv.includes("-Og");
-      const useO0 = opts.O0 === true || nativeArgO0;
-      const useO1 = opts.O1 === true || nativeArgO1;
-      const useO2 = opts.O2 === true || nativeArgO2;
-      const useO3 = opts.O3 === true || nativeArgO3;
-      const useOs = opts.Os === true || nativeArgOs;
-      const useOz = opts.Oz === true || nativeArgOz;
-      const useOg = opts.Og === true || nativeArgOg;
-      const selectedOptimizationCount = Number(useO0) + Number(useO1) + Number(useO2) + Number(useO3) + Number(useOs) + Number(useOz) + Number(useOg);
-      if (selectedOptimizationCount > 1) {
-        throw new Error("Choose only one native optimization level: -O0, -O1, -O2, -O3, -Os, -Oz, or -Og");
-      }
-      const optimization: NativeOptimization = useO0
-        ? "-O0"
-        : useO1
-          ? "-O1"
-          : useO2
-            ? "-O2"
-            : useO3
-              ? "-O3"
-              : useOs
-                ? "-Os"
-                : useOz
-                  ? "-Oz"
-                  : useOg
-                    ? "-Og"
-                    : "-O2";
-      const buildOptions = resolveBuildOptions(opts);
-      const emitCppModuleFiles = resolveCppModuleFiles(opts);
-      const executablePath = await linkNativeProgram(input, opts.out, opts.buildDir, buildOptions.target, opts.transpileOnly !== true, opts.nativeSourceLocations ?? false, buildOptions.jsxOptions, optimization, emitCppModuleFiles, opts.genericNativeCollections ? "generic" : "specialized");
-      if (name === "run") await runProcessCommand(executablePath, []);
-    });
-  };
-  addCppLinkCommand("link", "Compile and link a native Oilpan executable");
-  addCppLinkCommand("run", "Compile, link, and run a native Oilpan executable");
 
   const bundleCommand = program.command("bundle");
   bundleCommand.description("Bundle a VexaScript entry file, or build a configured project directory");

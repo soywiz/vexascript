@@ -21,7 +21,7 @@ Never invent a metric to fill a table. If exact data is unavailable, state the q
 
 ## Define a technical thesis
 
-Choose one question the article answers, such as why an incremental rebuild still reloads the page, how one FFI declaration lowers to two runtimes, or why Oilpan and mimalloc are complementary. Use the milestone as context, not as the entire thesis.
+Choose one question the article answers, such as why an incremental rebuild still reloads the page, how JavaScript FFI declarations become runtime bindings, or how compiler self-hosting reaches a byte-stable fixed point. Use the milestone as context, not as the entire thesis.
 
 Write for a reader who wants to understand or reproduce the engineering decision. Explain mechanisms, boundaries, and tradeoffs at the level needed to distinguish the chosen design from plausible alternatives.
 

@@ -23,7 +23,7 @@ match (str.codePointAt(0)) {
 A `#`-prefixed literal must contain exactly one decoded Unicode code point.
 `#'aaa'` and `#""` are errors; the editor quick fix removes the prefix and
 converts the value to a string. Character literals emit as direct integer
-constants in JavaScript and C++, avoiding one-character string allocation. The
+constants in JavaScript, avoiding one-character string allocation. The
 prefix is VexaScript-only; TypeScript quote behavior remains unchanged.
 
 ### String-template shorthand
@@ -281,14 +281,13 @@ methods. Their arguments are checked like top-level annotation applications and
 the annotations themselves are erased unless a compiler-recognized annotation
 defines lowering behavior.
 
-### Native implementation and FFI annotations
+### JavaScript FFI annotations
 
-`@CppHeader`, `@CppFlags`, and `@CppBody` attach trusted C++ source and build
-metadata to a signature-only function. `@FFILibrary("candidate", ...)` attaches
+`@FFILibrary("candidate", ...)` attaches
 an ordered dynamic-library search list to an ambient class whose static methods
 name C symbols. `@FFIName` optionally separates the imported symbol from the
-source method name. Native builds use cached `LibraryOpen` symbol resolution;
-JavaScript uses Deno FFI or a compatible `globalThis.VexaFFI` adapter. See
+source method name. JavaScript uses Deno FFI or a compatible
+`globalThis.VexaFFI` adapter. See
 `docs/syntax.md` for `@FFIStruct` layouts, `FFIPointer`, asynchronous
 `Promise<T>` calls, and the complete type and security contract.
 
@@ -397,8 +396,7 @@ class Counter {
 }
 ```
 
-JavaScript emission folds these statements into an instance constructor; the
-native backend emits the same initialization phase in the C++ constructor.
+JavaScript emission folds these statements into an instance constructor.
 
 ### Explicit member kinds in classes and interfaces
 
@@ -435,7 +433,7 @@ class Counter {
 }
 ```
 
-The form lowers through the same property-accessor path in JavaScript and C++.
+The form lowers through the shared JavaScript property-accessor path.
 
 ### Operator overloads
 
@@ -784,8 +782,7 @@ patterns (`string`, `number`/`int`, `boolean`, and `bigint`/`long`) lower to
 `typeof` rather than `instanceof`; class names remain nominal. Regex patterns
 only match strings and accept no flags or the portable `g`/`i` flags. Computed
 keys, object rest, array rest bindings, and custom matcher protocols are not
-supported. Subjects and recursively inspected values are evaluated once in
-both JavaScript and C++.
+supported. Subjects and recursively inspected values are evaluated once.
 
 ### `if` and abrupt control flow as expressions
 
@@ -809,8 +806,8 @@ statement-only.
 
 ### Match expressions
 
-`match` is an expression lowered to the same typed `if`/`else` representation in
-JavaScript and C++. Arms are ordered and braced bodies evaluate to their final
+`match` is an expression lowered to a typed `if`/`else` representation in
+JavaScript. Arms are ordered and braced bodies evaluate to their final
 expression without a `do` keyword.
 
 ```vexa
@@ -866,8 +863,8 @@ canvas.getContext("2d")?. {
 ```
 
 Inside the block, `x` and `y` resolve against the `Point` receiver. The complete
-expression still evaluates to that same `Point` instance. JavaScript and native
-C++ emit the receiver block directly at the use site.
+expression still evaluates to that same `Point` instance. JavaScript emits the
+receiver block directly at the use site.
 
 ### Cascade operator
 
@@ -957,8 +954,7 @@ TypeScript namespaces are erased to IIFEs and are primarily a compile-time const
 ## Module imports
 
 In addition to `.vx`, local runtime imports may target `.ts`, `.tsx`, `.json`,
-and `.txt`. Appending `?text` loads any local file as a string in both JavaScript
-and native C++ builds:
+and `.txt`. Appending `?text` loads any local file as a string in JavaScript:
 
 ```vexa
 import declarationSource from "./runtime.d.ts?text"

@@ -33,7 +33,7 @@ describe("lowerProgram", () => {
     });
   });
 
-  it("eliminates nested control-flow expressions while preserving native control statements", () => {
+  it("eliminates nested control-flow expressions while preserving source control statements", () => {
     const program = parseFile(tokenizeReader(`
 fun demo(flag: boolean): int {
   flag || return 1

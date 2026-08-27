@@ -94,7 +94,7 @@
     },
     "importMappings": {
       "type": "object",
-      "description": "Maps exact module specifiers to local source files for JavaScript and native compilation, module resolution, and editor navigation.",
+      "description": "Maps exact module specifiers to local source files for JavaScript compilation, module resolution, and editor navigation.",
       "propertyNames": {
         "minLength": 1
       },
@@ -115,18 +115,6 @@
         "type": "string",
         "minLength": 1
       }
-    },
-    "nativeImports": {
-      "type": "object",
-      "description": "Adds or overrides module mappings only for the native C++ backend.",
-      "propertyNames": {
-        "minLength": 1
-      },
-      "additionalProperties": {
-        "type": "string",
-        "minLength": 1
-      },
-      "examples": [{"myengine": "native/myengine.vx"}]
     },
     "globalSymbols": {
       "description": "Loads source files whose declarations should be available globally without imports.",

@@ -987,35 +987,6 @@ describe("JavaScript implementation annotations", () => {
     });
 });
 
-describe("C++ implementation annotations", () => {
-    it("parses raw headers, compiler flags, and bodies on native functions", () => {
-        const program = parseFile(tokenizeReader([
-            '@CppHeader("#include <SDL2/SDL.h>")',
-            '@CppFlags("-I/opt/include")',
-            '@CppFlags("-lSDL2")',
-            '@CppBody("return SDL_Init(flags);")',
-            'declare fun sdlInit(flags: int): int'
-        ].join("\n")));
-
-        expect(program.body[0]).toMatchObject({
-            kind: NodeKind.FunctionStatement,
-            name: { name: "sdlInit" },
-            declared: true,
-            missingBody: true,
-            annotations: [
-                { name: { name: "CppHeader" }, args: [{ value: "#include <SDL2/SDL.h>" }] },
-                { name: { name: "CppFlags" }, args: [{ value: "-I/opt/include" }] },
-                { name: { name: "CppFlags" }, args: [{ value: "-lSDL2" }] },
-                { name: { name: "CppBody" }, args: [{ value: "return SDL_Init(flags);" }] }
-            ]
-        });
-    });
-
-    it("rejects C++ implementation annotations on non-function declarations", () => {
-        expect(() => parseFile(tokenizeReader('@CppBody("return 0;")\nclass Native {}'))).toThrow();
-    });
-});
-
 describe("foreign library annotations", () => {
     it("parses platform library names on ambient classes", () => {
         const program = parseFile(tokenizeReader([

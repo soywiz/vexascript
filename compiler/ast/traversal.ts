@@ -122,8 +122,8 @@ function appendNodes(
 
 /**
  * Returns the direct structural AST children of a node. The explicit kind
- * dispatch keeps the compiler's own AST traversal statically typed in native
- * builds instead of enumerating object keys and performing dynamic gets.
+ * dispatch keeps the compiler's own AST traversal statically typed instead of
+ * enumerating object keys and performing dynamic gets.
  */
 export function appendChildNodes(node: Node, children: Node[], keys?: string[]): void {
   switch (node.kind) {

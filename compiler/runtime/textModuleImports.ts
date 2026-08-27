@@ -110,9 +110,6 @@ function textImportBinding(statement: ImportStatement, source: string): Statemen
   if (statement.lastToken) {
     declaration.lastToken = statement.lastToken;
   }
-  if (statement.__vexaNativeSourcePath) {
-    declaration.__vexaNativeSourcePath = statement.__vexaNativeSourcePath;
-  }
   return declaration;
 }
 

@@ -436,11 +436,11 @@ console.log(describe("hello"))  // "str:hello"
     </article>
   </div>
 
-  <h2 class="samples-group-heading">Native &amp; Interop</h2>
+  <h2 class="samples-group-heading">JavaScript FFI</h2>
   <div class="grid">
     <article class="card">
-      <h3>Cross-backend FFI</h3>
-      <p>Declare a C ABI once and try platform library candidates in order. The same typed call uses Deno FFI or the native C++ runtime.</p>
+      <h3>Deno FFI</h3>
+      <p>Declare a C ABI once and try platform library candidates in order through Deno FFI.</p>
 {% highlightVexaScript %}
 @FFILibrary("libSystem.B.dylib", "libc.so.6", "msvcrt.dll")
 declare class NativeC {
@@ -478,7 +478,7 @@ class Rect(
 
 const rect = Rect(x: 10, y: 20, width: 320, height: 180)
 
-// Output fields populated by native code use var!.
+// Output fields populated by foreign code use var!.
 @FFIStruct(56)
 @FFIAlign(8)
 class SDLEvent {
@@ -492,7 +492,7 @@ declare class SDL2 {
 }
 
 const event = SDLEvent()
-SDL2.PollEvent(event) // native code initializes the var! fields
+SDL2.PollEvent(event) // foreign code initializes the var! fields
 {% endhighlightVexaScript %}
     </article>
     <article class="card">

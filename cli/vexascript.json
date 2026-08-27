@@ -1,11 +1,3 @@
 {
-  "entrypoint": "cli.ts",
-  "nativeImports": {
-    "node:fs/promises": "../native/modules/nodeFsPromises.ts",
-    "node:module": "../native/modules/nodeModule.ts",
-    "compiler/nodeModuleImportResolution": "../native/modules/nodeModuleImportResolution.ts",
-    "compiler/runtime/embeddedRuntimeSources": "../native/modules/runtimeDeclarationSources.ts",
-    "./io": "../native/modules/cliIo.ts",
-    "./cliShared": "../native/modules/cliShared.ts"
-  }
+  "entrypoint": "cli.ts"
 }

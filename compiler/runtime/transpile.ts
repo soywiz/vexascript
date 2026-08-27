@@ -31,7 +31,7 @@ import {
 } from "compiler/ast/ast";
 import { findNode } from "compiler/ast/traversal";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
-import type { AnalysisSymbol, ExtensionPropertyResolution, ReceiverLambdaInfo } from "compiler/analysis/model";
+import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import type { SourceRange } from "compiler/parser/tokenizer";
 import {
   VEXA_DIAGNOSTIC_CODES,
@@ -39,7 +39,6 @@ import {
   mapAnalysisIssueCodeToDiagnosticCode
 } from "compiler/diagnosticCodes";
 import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
-import { CppEmitError, emitCppProgram, emitCppProgramFiles, type CppProgramFile, type NativeCollectionRepresentation } from "./cppEmitter";
 
 export interface TranspileDiagnostic {
   file: string;
@@ -53,7 +52,6 @@ export interface TranspileDiagnostic {
 
 export interface TranspileResult {
   code: string;
-  files?: CppProgramFile[];
   warnings: string[];
   errors: string[];
   diagnostics: TranspileDiagnostic[];
@@ -61,7 +59,6 @@ export interface TranspileResult {
 }
 
 export type TranspileTarget = "conservative" | "optimized";
-export type EmitLanguage = "javascript" | "cpp";
 
 function ensureTrailingSemicolon(code: string): string {
   const trimmed = code.trim();
@@ -114,14 +111,6 @@ export interface TranspileOptions {
    * already validated by TypeScript itself, such as compiler bootstrapping.
    */
   typeCheck?: boolean;
-  /** Output language. Defaults to JavaScript. */
-  emit?: EmitLanguage;
-  /** Emit a header, entry point, and one C++ translation unit per source module. */
-  emitCppModuleFiles?: boolean;
-  /** Emit per-statement native source hooks for diagnostic C++ builds. */
-  emitNativeSourceLocations?: boolean;
-  /** Select specialized collection templates or generic Value-based templates. */
-  nativeCollectionRepresentation?: NativeCollectionRepresentation;
   preserveSourceLineOffsets?: boolean;
   /**
    * Whether to generate a source map. Defaults to true so direct transpile
@@ -468,63 +457,6 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     lowerRangeForLoops: target !== "conservative",
     expressionTypeName
   });
-  if (options.emit === "cpp") {
-    try {
-      const operatorResolutions = new Map<Node, AnalysisSymbol>();
-      for (const resolution of artifacts.analysis.getOperatorResolutions()) {
-        operatorResolutions.set(resolution.expression, resolution.symbol);
-      }
-      const extensionPropertyResolutions = new Map<Node, ExtensionPropertyResolution>();
-      for (const resolution of artifacts.analysis.getExtensionPropertyResolutions()) {
-        extensionPropertyResolutions.set(resolution.expression, resolution);
-      }
-      const cppProgram = lowerProgram(artifacts.ast, { lowerRangeForLoops: true, expressionTypeName });
-      const cppSemantics = {
-            ...(options.sourceFilePath ? { sourceFilePath: options.sourceFilePath } : {}),
-            ...(options.emitNativeSourceLocations ? { emitSourceLocations: true } : {}),
-            ...(options.nativeCollectionRepresentation ? { nativeCollectionRepresentation: options.nativeCollectionRepresentation } : {}),
-            expressionTypes: artifacts.analysis.getExpressionTypes(),
-            implicitReceiverIdentifiers: artifacts.analysis.getImplicitReceiverIdentifiers(),
-            implicitReceiverExtensionIdentifiers: artifacts.analysis.getImplicitReceiverExtensionIdentifiers(),
-            staticImplicitReceiverIdentifiers: artifacts.analysis.getStaticImplicitReceiverIdentifiers(),
-            autoAwaitExpressions: artifacts.analysis.getAutoAwaitExpressions(),
-            callableTypes: artifacts.analysis.getCallableTypes(),
-            operatorResolutions,
-            extensionPropertyResolutions,
-            receiverLambdas: artifacts.analysis.getReceiverLambdas()
-          };
-      const cppFiles = options.emitCppModuleFiles ? emitCppProgramFiles(cppProgram, cppSemantics) : undefined;
-      const result: TranspileResult = {
-        code: cppFiles?.find((file) => file.relativePath === "main.cpp")?.code ?? emitCppProgram(cppProgram, cppSemantics),
-        ...(cppFiles ? { files: cppFiles } : {}),
-        warnings: [],
-        errors: [],
-        diagnostics: []
-      };
-      options.profile?.({ phase: "emit", elapsedMs: monotonicNow() - emissionStartedAt });
-      return result;
-    } catch (error) {
-      let message: string;
-      let statement: Node | undefined;
-      if (error instanceof CppEmitError) {
-        message = error.message;
-        statement = error.statement;
-      } else {
-        message = String(error);
-      }
-      const range: SourceRange | undefined = statement?.firstToken?.range;
-      const fatalDiagnostics: TranspileDiagnostic[] = [
-        makeDiagnostic(message, range, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)
-      ];
-      options.profile?.({ phase: "emit", elapsedMs: monotonicNow() - emissionStartedAt });
-      return {
-        code: "",
-        warnings: [],
-        errors: [message],
-        diagnostics: fatalDiagnostics
-      };
-    }
-  }
   // Emission collects classes, constructor-only runtime globals, operator
   // overloads and extension properties from the local program plus a seed of
   // ambient and imported declarations. Keeping external declarations in the

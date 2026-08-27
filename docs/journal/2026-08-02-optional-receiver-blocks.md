@@ -8,7 +8,7 @@ identifier after '?.'`, made a useful DOM pattern such as
 
 The fix keeps this construct on the shared receiver-block path. The AST marks
 the receiver block as an optional call, the type checker removes nullish parts
-only for the block's receiver type, and the JavaScript/native emitters guard
+only for the block's receiver type, and the JavaScript emitter guards
 the block after evaluating the receiver exactly once. A focused parser test
 and runtime test cover both parsing and the non-nullish execution rule.
 

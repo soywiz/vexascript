@@ -535,7 +535,7 @@ const DERIVABLE_COMPARISON_OPERATORS = new Set<string>([
  *  - any of `< <= > >= == !=` is derived from `operator<=>` as `(a <=> b) OP 0`;
  *  - `!=` is also derived from `operator==` as `!(a == b)`.
  * Returns null when no such overload exists (e.g. primitive operands), leaving
- * the native emission in place.
+ * JavaScript emission in place.
  */
 function resolveDerivedComparison(
   binary: BinaryExpression,

@@ -1,8 +1,5 @@
 annotation JsName(val name: string)
 annotation JsInline(val replacement: string)
-annotation CppHeader(val source: string)
-annotation CppFlags(val flag: string)
-annotation CppBody(val body: string)
 annotation FFILibrary(...paths: string[])
 annotation FFIName(name: string)
 annotation FFIStruct(size: int)
@@ -33,38 +30,3 @@ declare interface Property<T> {
   name: string
   value: T
 }
-
-/// Reads a UTF-8/text file asynchronously on the native C++ runtime.
-declare fun readTextFile(path: string): Promise<string>
-
-/// Writes a UTF-8/text file asynchronously on the native C++ runtime.
-declare fun writeTextFile(path: string, contents: string): Promise<void>
-
-/// Returns user arguments, matching Node's process.argv.slice(2).
-declare fun commandLineArguments(): string[]
-
-/// Native filesystem primitives used by platform adapters such as node:fs/promises.
-declare fun nativeReadFileBytes(path: string): Promise<Uint8Array>
-declare fun nativeRealPath(path: string): Promise<string>
-declare fun nativeStatPath(path: string): Promise<any>
-declare fun nativeReadDirectory(path: string): Promise<any[]>
-declare fun nativeCreateDirectory(path: string, recursive: boolean): Promise<void>
-declare fun nativeRemovePath(path: string, recursive: boolean): Promise<void>
-declare fun nativeCopyFile(source: string, target: string): Promise<void>
-declare fun nativeRunCommandCapture(command: string, args: string[], cwd: string): Promise<any>
-declare fun nativeRunTask(task: Promise<void>): void
-declare fun nativeEnvironmentVariable(name: string): string
-declare fun nativeRuntimeRoot(): string
-
-declare interface Process {
-  argv: string[]
-  env: { [key: string]: string | undefined }
-  platform: string
-  arch: string
-  exitCode: number
-  cwd(): string
-  exit(code?: number): void
-}
-
-/// Node-compatible process subset backed directly by the native C++ runtime.
-declare var process: Process

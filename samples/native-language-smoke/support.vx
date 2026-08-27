@@ -1,7 +1,0 @@
-export fun importedDouble(value: int): int {
-  return value * 2
-}
-
-export fun importedLabel(): string => "module"
-
-export class ImportedStructuralBox(var value: int)

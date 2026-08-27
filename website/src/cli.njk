@@ -18,11 +18,6 @@ permalink: /cli.html
           <p>Compile a VexaScript or TypeScript file to JavaScript, with optional bundling and JSX factory overrides.</p>
         </div>
         <div>
-          <code>cpp</code> <code class="command_switch">&lt;input.vx|input.ts&gt;</code>
-          <p>Compile, link, or run through the native C++ backend. The direct form is equivalent to <code>cpp build</code>.</p>
-          <p><code>cpp build</code> compiles, <code>cpp link</code> compiles and links, and <code>cpp run</code> compiles, links, and executes.</p>
-        </div>
-        <div>
           <code>bundle</code> <code class="command_switch">&lt;input&gt;</code>
           <p>Bundle a VexaScript entry file and all referenced modules as ESM output.</p>
         </div>
@@ -89,8 +84,6 @@ permalink: /cli.html
   </div>
 {% highlightVexaScript %}
 vexa build src/main.vx --out dist/main.js --target optimized
-vexa cpp src/main.ts --out dist/main.cpp
-vexa cpp link src/main.ts --out dist/main
 vexa serve demo/ --bundle demo/main.vx
 vexa syntax --monaco
 vexa test samples/
@@ -101,7 +94,7 @@ vexa test samples/
   <div class="section-heading">
     <p class="eyebrow">Command reference</p>
     <h2>Flags and supported forms</h2>
-    <p class="lead">These sections mirror <code>vexa help &lt;command&gt;</code>. Native C++ operations are grouped below <code>cpp</code>.</p>
+    <p class="lead">These sections mirror <code>vexa help &lt;command&gt;</code>.</p>
   </div>
   <div class="cli-layout">
     <article class="card cli-flags">
@@ -112,31 +105,6 @@ vexa test samples/
       <p><code>--jsx-factory &lt;factory&gt;</code> and <code>--jsx-fragment-factory &lt;factory&gt;</code> override JSX factories.</p>
       <p><code>--bundle</code> bundles the entry and referenced modules; <code>--platform &lt;platform&gt;</code> selects <code>browser</code> or <code>node</code>.</p>
       <p><code>--transpile-only</code> skips semantic diagnostics.</p>
-    </article>
-    <article class="card cli-flags">
-      <h3><code>vexa cpp &lt;input&gt;</code></h3>
-      <p>Compile to C++ directly. This is the short form of <code>vexa cpp build &lt;input&gt;</code>.</p>
-      <p><code>-o, --out &lt;path&gt;</code> output C++ file or project directory.</p>
-      <p><code>--target &lt;mode&gt;</code> <code>conservative</code> or <code>optimized</code>.</p>
-      <p><code>--jsx-factory &lt;factory&gt;</code> and <code>--jsx-fragment-factory &lt;factory&gt;</code> configure JSX emission.</p>
-      <p><code>--transpile-only</code> skips semantic diagnostics; <code>--native-source-locations</code> adds native source hooks.</p>
-    </article>
-    <article class="card cli-flags">
-      <h3><code>vexa cpp build &lt;input&gt;</code></h3>
-      <p>Explicit C++ compilation. It accepts the same output, target, diagnostic, and source-location flags as <code>cpp</code>.</p>
-      <p><code>-o, --out &lt;path&gt;</code>, <code>--target &lt;mode&gt;</code>, <code>--jsx-factory &lt;factory&gt;</code>, <code>--jsx-fragment-factory &lt;factory&gt;</code>, <code>--transpile-only</code>, and <code>--native-source-locations</code>.</p>
-    </article>
-    <article class="card cli-flags">
-      <h3><code>vexa cpp link &lt;input&gt;</code></h3>
-      <p>Compile and link a native Oilpan executable. Generated C++ and unchanged executables are reused from the cache.</p>
-      <p><code>-o, --out &lt;path&gt;</code> executable path or project output directory.</p>
-      <p><code>--build-dir &lt;dir&gt;</code> intermediate directory; defaults to <code>&lt;input&gt;.build</code>.</p>
-      <p><code>--target &lt;mode&gt;</code>, <code>--jsx-factory &lt;factory&gt;</code>, <code>--jsx-fragment-factory &lt;factory&gt;</code>, <code>--transpile-only</code>, and <code>--native-source-locations</code>.</p>
-    </article>
-    <article class="card cli-flags">
-      <h3><code>vexa cpp run &lt;input&gt;</code></h3>
-      <p>Compile, link, and execute a native Oilpan executable, reusing cached artifacts when inputs are unchanged.</p>
-      <p>Supports the same flags as <code>cpp link</code>: <code>-o, --out &lt;path&gt;</code>, <code>--build-dir &lt;dir&gt;</code>, <code>--target &lt;mode&gt;</code>, <code>--jsx-factory &lt;factory&gt;</code>, <code>--jsx-fragment-factory &lt;factory&gt;</code>, <code>--transpile-only</code>, and <code>--native-source-locations</code>.</p>
     </article>
     <article class="card cli-flags">
       <h3><code>vexa run &lt;input&gt;</code></h3>

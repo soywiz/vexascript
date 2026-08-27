@@ -13,12 +13,12 @@ A comparison is "defined" when:
 
 - a matching overload applies — a direct one, or `operator<=>` (which derives
   `< > <= >=`); or
-- the operands are natively comparable: numeric-with-numeric (including
+- the operands have built-in comparability: numeric-with-numeric (including
   int-backed enums), string-with-string, or an `any`/untyped/bare-generic
   operand.
 
 Implementation: `TypeChecker.shouldReportUndefinedComparison` +
-`nativeOrderingCategory` + `isUncheckableComparisonOperand`, reported via the
+`orderingCategory` + `isUncheckableComparisonOperand`, reported via the
 existing `reportMissingOperatorOverload` (same message/format as the arithmetic
 path), wired into the `BinaryExpression` handler's no-direct-overload branch.
 
@@ -26,7 +26,7 @@ path), wired into the `BinaryExpression` handler's no-direct-overload branch.
 
 The *runtime* side already knew these rules: `emitter.ts`
 `resolveDerivedComparison` derives `< == !=` from `operator<=>`/`operator==`, and
-native `<=>` lowers to an inline `($l < $r ? -1 : $l > $r ? 1 : 0)` IIFE. The
+JavaScript `<=>` lowers to an inline `($l < $r ? -1 : $l > $r ? 1 : 0)` IIFE. The
 type checker did **not** — it accepted everything. That is the classic split
 where one surface (emit) encodes a rule the other (diagnostics) ignores.
 

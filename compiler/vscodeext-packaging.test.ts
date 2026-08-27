@@ -122,7 +122,6 @@ describe("VS Code extension packaging", () => {
       "canonicalSyntax",
       "importMappings",
       "imports",
-      "nativeImports",
       "globalSymbols",
       "serveMappings"
     ]);

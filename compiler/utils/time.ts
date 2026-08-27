@@ -1,6 +1,6 @@
 /**
  * Returns a monotonic, high-resolution timestamp when the host provides one.
- * The native emitter lowers the same API to its steady-clock implementation.
+ * Browser and Node.js hosts provide the same monotonic timing API.
  */
 export function monotonicNow(): number {
   return performance.now();

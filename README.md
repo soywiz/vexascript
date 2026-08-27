@@ -1,6 +1,6 @@
 # VexaScript
 
-VexaScript is a modern language derived from TypeScript. It keeps the TypeScript ecosystem while introducing deliberate `.vx` syntax differences, and compiles to JavaScript and, for a growing native subset, C++ backed by Oilpan GC. TypeScript inputs retain TypeScript semantics through the dedicated `.ts`/`.tsx` parser mode.
+VexaScript is a modern language derived from TypeScript. It keeps the TypeScript ecosystem while introducing deliberate `.vx` syntax differences and compiles to JavaScript. TypeScript inputs retain TypeScript semantics through the dedicated `.ts`/`.tsx` parser mode.
 
 It is designed to be concise for humans and efficient for AI: less syntactic noise, fewer tokens, same expressive power.
 
@@ -16,7 +16,7 @@ It is designed to be concise for humans and efficient for AI: less syntactic noi
 - **Trailing lambdas** — pass a lambda after the closing paren of a call
 - **Null-aware access** — `?.`, `??`, and non-null assertions
 - **Full JS/TS interop** — consume any npm package or TypeScript declaration file
-- **Native C++ output** — emit C++ or link a native Oilpan executable with `g++`
+- **JavaScript output** — emit ESM with source maps for Node.js and browser projects
 
 ## Install
 
@@ -32,14 +32,6 @@ vexa run hello.vx
 
 # Compile to JavaScript
 vexa build hello.vx -o dist/hello.js
-
-# Compile to C++
-vexa cpp hello.vx
-
-# Compile to C++ explicitly, then link or run a native executable
-vexa cpp build hello.vx
-vexa cpp link hello.vx
-vexa cpp run hello.vx
 
 # Format in place
 vexa format hello.vx --write
@@ -80,10 +72,7 @@ Like Vite's TypeScript transform, this per-module transform does not perform who
 |---|---|
 | `vexa run <file>` | Execute a `.vx` file |
 | `vexa build <file> -o <out>` | Compile to JavaScript |
-| `vexa cpp <file>` | Compile to a C++ translation unit |
-| `vexa cpp build <file>` | Compile to a C++ translation unit explicitly |
-| `vexa cpp link <file>` | Compile and link a cached native Oilpan executable |
-| `vexa cpp run <file>` | Compile, link, and run a cached native Oilpan executable |
+| `vexa bundle <file> -o <out>` | Bundle local and package modules as JavaScript |
 | `vexa format <file> [--write]` | Format source (print or overwrite) |
 | `vexa tokens <file>` | Print the token stream |
 | `vexa ast <file>` | Print the simplified AST |
@@ -125,7 +114,6 @@ count++
 - [CLI guide](https://vexascript.com/cli)
 - [Quickstart](https://vexascript.com/quickstart)
 - [Embedding guide](https://vexascript.com/embed)
-- [Native C++ backend](docs/native.md)
 - [Playground](https://vexascript.com/playground)
 
 ## Development

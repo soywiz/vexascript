@@ -51,7 +51,7 @@ export function candidateImportTargetFilePaths(
  *  3. The same path with a `.json` or `.txt` extension appended for local
  *     data/text asset imports.
  *  4. The direct extensionless path as a fallback. Source siblings take priority
- *     so native executables do not shadow their `.vx` or `.ts` entrypoints.
+ *     so extensionless executables do not shadow their `.vx` or `.ts` entrypoints.
  *
  * This is the shared resolver used by the semantic project index and the LSP
  * cross-file features so they all agree on how local module paths map to files,

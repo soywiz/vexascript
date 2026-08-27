@@ -6,7 +6,6 @@ export interface VexaProject {
   projectDir: string;
   dependencies: Record<string, string>;
   importMappings?: Record<string, string>;
-  nativeImportMappings?: Record<string, string>;
   baseUrl?: string;
   globalSymbols?: VexaGlobalSymbols;
   jsxFactory?: string;
@@ -53,7 +52,6 @@ type VexaScriptConfigJson = CompilerOptionsConfig & {
   outputDir?: unknown;
   imports?: unknown;
   importMappings?: unknown;
-  nativeImports?: unknown;
   globalSymbols?: unknown;
   serveMappings?: unknown;
   canonicalSyntax?: unknown;
@@ -340,7 +338,6 @@ export async function loadProject(startPath: string, activeVfs: Vfs = vfs()): Pr
   const buildOutputDir = configuredBuildOutputDir ? resolve(configDir, configuredBuildOutputDir) : undefined;
   const serveMappings = serveMappingsFromConfig(configDir, vexaConfig);
   const importMappings = importMappingsFromConfig(configDir, vexaConfig);
-  const nativeImportMappings = resolvedImportMappings(configDir, vexaConfig?.nativeImports);
   const globalSymbols = globalSymbolsFromConfig(configDir, vexaConfig);
   const canonicalSyntax = canonicalSyntaxFromConfig(vexaConfig?.canonicalSyntax);
   const configuredBaseUrl = typeof vexaConfig?.compilerOptions?.baseUrl === "string"
@@ -357,7 +354,6 @@ export async function loadProject(startPath: string, activeVfs: Vfs = vfs()): Pr
     projectDir: packageDir ?? resolve(startDir),
     dependencies,
     ...(Object.keys(importMappings).length > 0 ? { importMappings } : {}),
-    ...(Object.keys(nativeImportMappings).length > 0 ? { nativeImportMappings } : {}),
     ...(baseUrl !== undefined ? { baseUrl } : {}),
     ...(globalSymbols.paths.length > 0 ? { globalSymbols } : {}),
     libs: libsFromConfig(config),

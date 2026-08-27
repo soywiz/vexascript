@@ -187,77 +187,11 @@ describe("CLI", () => {
     await expect(readFile(denoArgs[2]!)).rejects.toThrow();
   });
 
-  it("build command emits C++ without a JavaScript source map", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-"));
-    const input = join(dir, "input.vx");
-    const output = join(dir, "output.cpp");
-    await writeFile(input, "for (n of 0 ..< 10) { console.log(n) }", "utf8");
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-
-    await runCli(["node", "vexa", "cpp", "build", input, "--out", output]);
-
-    const outputCode = await readFile(output, "utf8");
-    expect(outputCode.length).toBeGreaterThan(0);
-    await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
-    const compilationLog = String(logSpy.mock.calls[0]?.[0] ?? "");
-    expect(compilationLog).toContain("load-and-parse");
-    expect(compilationLog).toContain("cpp-emission");
-    expect(compilationLog).toContain("type-check");
-    expect(compilationLog).toContain("total");
-  });
-
-  it("cpp command emits one C++ translation unit by default", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-command-"));
-    const input = join(dir, "input.vx");
-    const output = join(dir, "output.cpp");
-    await writeFile(input, 'console.log("cpp")', "utf8");
-
-    await runCli(["node", "vexa", "cpp", input, "--out", output]);
-
-    const outputCode = await readFile(output, "utf8");
-    expect(outputCode).toContain('#include "runtime/runtime.hpp"');
-    expect(outputCode).not.toContain('#include "program.hpp"');
-    await expect(readFile(join(dir, "program.hpp"), "utf8")).rejects.toThrow();
-    expect(outputCode).not.toContain("VEXA_NATIVE_SOURCE(");
-    await expect(readFile(`${output}.map`, "utf8")).rejects.toThrow();
-  });
-
-  it("cpp build can explicitly emit C++ module files", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-module-files-"));
-    const input = join(dir, "input.vx");
-    const output = join(dir, "output.cpp");
-    await writeFile(input, 'console.log("module files")', "utf8");
-
-    await runCli(["node", "vexa", "cpp", "build", input, "--module-files", "--out", output]);
-
-    const outputCode = await readFile(output, "utf8");
-    expect(outputCode).toContain('#include "program.hpp"');
-    expect(await readFile(join(dir, "program.hpp"), "utf8")).toContain('#include "runtime/runtime.hpp"');
-  });
-
-  it("lets explicit module files override the legacy single-file environment default", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-module-env-"));
-    const input = join(dir, "input.vx");
-    const output = join(dir, "output.cpp");
-    const previous = process.env["VEXA_NATIVE_SINGLE_FILE"];
-    await writeFile(input, 'console.log("module files")', "utf8");
-    process.env["VEXA_NATIVE_SINGLE_FILE"] = "1";
-    try {
-      await runCli(["node", "vexa", "cpp", "build", input, "--module-files", "--out", output]);
-    } finally {
-      if (previous === undefined) delete process.env["VEXA_NATIVE_SINGLE_FILE"];
-      else process.env["VEXA_NATIVE_SINGLE_FILE"] = previous;
-    }
-
-    expect(await readFile(output, "utf8")).toContain('#include "program.hpp"');
-  });
-
-  it("uses TypeScript semantic analysis for JavaScript and C++ emission without transpile-only", async () => {
+  it("uses TypeScript semantic analysis for JavaScript emission without transpile-only", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-typescript-semantics-"));
     const validInput = join(dir, "valid.ts");
     const invalidInput = join(dir, "invalid.ts");
     const jsOutput = join(dir, "valid.js");
-    const cppOutput = join(dir, "valid.cpp");
     await writeFile(
       validInput,
       [
@@ -270,27 +204,10 @@ describe("CLI", () => {
     await writeFile(invalidInput, "const value: string = 1;\nconsole.log(value);", "utf8");
 
     await runCli(["node", "vexa", "build", validInput, "--out", jsOutput]);
-    await runCli(["node", "vexa", "cpp", validInput, "--out", cppOutput]);
 
     expect((await readFile(jsOutput, "utf8")).length).toBeGreaterThan(0);
-    expect(await readFile(cppOutput, "utf8")).toContain('#include "runtime/runtime.hpp"');
-    await expect(readFile(join(dir, "program.hpp"), "utf8")).rejects.toThrow();
     await expect(runCli(["node", "vexa", "build", invalidInput, "--out", join(dir, "invalid.js")]))
       .rejects.toThrow("TypeScript semantic analysis failed");
-    await expect(runCli(["node", "vexa", "cpp", invalidInput, "--out", join(dir, "invalid.cpp")]))
-      .rejects.toThrow("TypeScript semantic analysis failed");
-  });
-
-  it("cpp link rejects unsupported native source inputs", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-cpp-link-command-"));
-    const input = join(dir, "input.js");
-    await writeFile(input, "console.log('native')", "utf8");
-
-    await expect(runCli(["node", "vexa", "cpp", "link", input])).rejects.toThrow(
-      "Native compilation expects a .vx or .ts input file"
-    );
-    await expect(runCli(["node", "vexa", "cpp", "link", input, "-O0", "-O1"]))
-      .rejects.toThrow("Choose only one native optimization level");
   });
 
   it("build command uses JSX factories from vexascript.json", async () => {
@@ -692,54 +609,27 @@ describe("CLI", () => {
     expect(output).toContain("\"defaultToken\"");
   });
 
-  it("lists the C++ command group in CLI help", async () => {
+  it("lists only JavaScript generation commands in CLI help", async () => {
     const stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     await runCli(["node", "vexa", "--help"]);
 
     const help = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
-    expect(help).toContain("cpp [options] <input>");
-    expect(help).not.toContain("executable [options]");
-    expect(help).not.toContain("native [options]");
+    expect(help).toContain("build [options] <input>");
+    expect(help).toContain("bundle [options] <input>");
+    expect(help).not.toContain("cpp [options]");
   });
 
-  it("prints command-specific build and nested C++ help", async () => {
+  it("prints JavaScript build help", async () => {
     const stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process, "exit").mockImplementation((...args: unknown[]) => {
-      throw new Error(`process.exit:${typeof args[0] === "number" ? args[0] : 0}`);
+      throw new Error("process.exit:" + (typeof args[0] === "number" ? args[0] : 0));
     });
 
     await expect(runCli(["node", "vexa", "help", "build"])).rejects.toThrow("process.exit:0");
     const buildHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
     expect(buildHelp).toContain("Usage: vexa build [options] <input>");
     expect(buildHelp).not.toContain("--emit");
-    expect(buildHelp).not.toContain("--native");
-
-    await expect(runCli(["node", "vexa", "cpp", "--help"])).rejects.toThrow("process.exit:0");
-    const cppHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
-    expect(cppHelp).toContain("Commands:");
-    expect(cppHelp).toContain("build [options] <input>");
-    expect(cppHelp).toContain("link [options] <input>");
-    expect(cppHelp).toContain("run [options] <input>");
-
-    await expect(runCli(["node", "vexa", "cpp", "link", "--help"])).rejects.toThrow("process.exit:0");
-    const linkHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
-    expect(linkHelp).toContain("Usage: vexa cpp link [options] <input>");
-    expect(linkHelp).toContain("--build-dir <dir>");
-    expect(linkHelp).toContain("--single-file");
-    expect(linkHelp).toContain("--module-files");
-    expect(linkHelp).toContain("-O0");
-    expect(linkHelp).toContain("-O1");
-    expect(linkHelp).toContain("-O2");
-    expect(linkHelp).toContain("-O3");
-    expect(linkHelp).toContain("-Os");
-    expect(linkHelp).toContain("-Oz");
-    expect(linkHelp).toContain("-Og");
-
-    const nestedHelpStart = stdoutWriteSpy.mock.calls.length;
-    await expect(runCli(["node", "vexa", "help", "cpp", "run"])).rejects.toThrow("process.exit:0");
-    const nestedHelp = stdoutWriteSpy.mock.calls.slice(nestedHelpStart).map((call) => String(call[0] ?? "")).join("");
-    expect(nestedHelp).toContain("Usage: vexa cpp run [options] <input>");
   });
 
   it("reports the compiler version from the root package.json", async () => {
@@ -831,7 +721,7 @@ describe("CLI", () => {
     const run = await runCommandCapture(process.execPath, ["dist/vexa.js"], { cwd: process.cwd() });
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("Usage: vexa [options] [command]");
-    expect(run.stdout).toContain("Compile, link, or run through the native C++ backend");
+    expect(run.stdout).not.toContain("cpp <input>");
     expect(run.stderr).toBe("");
   });
 
@@ -846,7 +736,6 @@ describe("CLI", () => {
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("Usage: vexa build [options] <input>");
     expect(run.stdout).not.toContain("--emit <language>");
-    expect(run.stdout).not.toContain("--native");
     expect(run.stderr).toBe("");
   });
 

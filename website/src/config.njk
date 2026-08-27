@@ -50,7 +50,7 @@ permalink: /config.html
         <tr>
           <td><code>entrypoint</code></td>
           <td>string</td>
-          <td>The <code>.vx</code> or <code>.ts</code> entry file used when a CLI command receives a project directory. Required for directory builds, bundles, and native project builds; also used by <code>serve</code> when <code>--bundle</code> is omitted.</td>
+          <td>The <code>.vx</code> or <code>.ts</code> entry file used when a CLI command receives a project directory. Required for directory builds and bundles; also used by <code>serve</code> when <code>--bundle</code> is omitted.</td>
         </tr>
         <tr>
           <td><code>outDir</code></td>
@@ -75,17 +75,12 @@ permalink: /config.html
         <tr>
           <td><code>importMappings</code></td>
           <td>object</td>
-          <td>Maps exact module specifiers to local source files for JavaScript and native compilation, module resolution, and editor navigation.</td>
+          <td>Maps exact module specifiers to local source files for JavaScript compilation, module resolution, and editor navigation.</td>
         </tr>
         <tr>
           <td><code>imports</code></td>
           <td>object</td>
           <td>Alias for <code>importMappings</code>. Prefer <code>importMappings</code> in new projects.</td>
-        </tr>
-        <tr>
-          <td><code>nativeImports</code></td>
-          <td>object</td>
-          <td>Adds or overrides module mappings only for the native C++ backend.</td>
         </tr>
         <tr>
           <td><code>globalSymbols</code></td>
@@ -196,14 +191,10 @@ permalink: /config.html
   "importMappings": {
     "@app/config": "src/config.vx",
     "myengine": "runtime/myengine-runtime.vx"
-  },
-  "nativeImports": {
-    "myengine": "native/myengine.vx",
-    "commander": "native/commander.vx"
   }
 }
 {% endhighlightVexaScript %}
-    <p>JavaScript builds use <code>importMappings</code>. Native builds start with the same mappings and then apply <code>nativeImports</code>, so a native-specific entry can replace the target for the same specifier.</p>
+    <p>JavaScript builds, module resolution, and editor navigation all use the same <code>importMappings</code> entries.</p>
 
     <h2>Global source files</h2>
     <p>Use <code>globalSymbols</code> for source files whose declarations should be visible without imports. The recommended object form accepts <code>paths</code> and an <code>emit</code> mode:</p>

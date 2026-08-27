@@ -919,7 +919,7 @@ val total = negative + (-4294967297n)
       expect(messages.some((message) => message.startsWith("Operator '<' is not defined"))).toBe(true);
     });
 
-    it("accepts native numeric and string ordering comparisons", () => {
+    it("accepts built-in numeric and string ordering comparisons", () => {
       const messages = comparisonIssues(dedent`
         val n = 1 < 2
         val m = 3 >= 4

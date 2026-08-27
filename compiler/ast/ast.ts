@@ -211,8 +211,6 @@ export function isNodeKind(value: unknown): value is NodeKind {
 export abstract class Node {
     firstToken?: Token = undefined
     lastToken?: Token = undefined
-    /** Internal source path retained while modules are merged for native emission. */
-    __vexaNativeSourcePath?: string = undefined
 
     protected constructor(public kind: NodeKind) {
     }
@@ -302,7 +300,6 @@ export class Identifier extends Expr {
 
     constructor(
         public name: string,
-        /** Original module-local name retained while native symbols are isolated. */ public __vexaNativeOriginalName?: string,
         /** Receiver-lambda label written as `this@label`. */ public receiverLabel?: string
     ) {
         super(NodeKind.Identifier)
@@ -562,7 +559,7 @@ export type ArrayLiteralElement = Expr | ArrayHole;
 export class ArrayLiteral extends Expr {
     declare kind: NodeKind.ArrayLiteral
 
-    constructor(public elements: ArrayLiteralElement[], /** Internal marker for an omitted native rest argument. */ public __vexaEmptyRest?: boolean) {
+    constructor(public elements: ArrayLiteralElement[]) {
         super(NodeKind.ArrayLiteral)
     }
 }

@@ -78,7 +78,7 @@ Possible follow-up wave:
 * [x] At least one new sample stresses generic-heavy non-React typings.
 * [x] At least one new sample stresses Node/server or CLI framework interop.
 * [x] Each sample has a clear reason for existing and documents the interop or syntax surface it validates.
-* [x] New failures found while building these samples are captured in focused regressions, the engineering journal, and the native-emission follow-up task.
+* [x] New failures found while building these samples are captured in focused regressions, the engineering journal, and follow-up tasks.
 
 ## Tests
 

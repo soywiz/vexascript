@@ -4,7 +4,7 @@ title: VexaScript — Modern language for the JavaScript ecosystem
 ---
 <section class="hero">
   <div class="hero-copy">
-    <p class="eyebrow">TypeScript-derived · JavaScript and native C++</p>
+    <p class="eyebrow">TypeScript-derived · JavaScript output</p>
     <h1>VexaScript</h1>
     <div class="lead">
       <p>
@@ -14,7 +14,7 @@ title: VexaScript — Modern language for the JavaScript ecosystem
         Operator overloading, await-less async, primary-constructor classes, delegated variables, new-less instantiation, and more — without leaving the tools you already use.
       </p>
       <p>
-        Compile <code>.vx</code> or <code>.ts</code> to JavaScript or an optimized native C++ executable. The compiler can compile itself in both backends, and one FFI declaration surface connects Deno and native C++ to the same libraries.
+        Compile <code>.vx</code> or <code>.ts</code> to JavaScript for Node.js or the browser. The compiler can compile itself, and its FFI declarations connect Deno and compatible JavaScript hosts to native libraries.
       </p>
     </div>
     <div class="actions">
@@ -63,7 +63,7 @@ sync func loadUser(id: string): User {
   <div class="grid">
     <article class="card">
       <h3>Integer character literals</h3>
-      <p>Single quotes hold exactly one Unicode code point and compile directly to an integer in JavaScript and C++. Double quotes remain strings.</p>
+      <p>Single quotes hold exactly one Unicode code point and compile directly to an integer in JavaScript. Double quotes remain strings.</p>
 {% highlightVexaScript %}
 const letter: int = 'a' // 97
 const emoji: int = '😀' // 128512
@@ -134,17 +134,16 @@ const pt = Point(3, 4)
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
-      <h3>JavaScript and native C++</h3>
-      <p>The same analyzed project can emit JavaScript, a C++ translation unit, or an optimized native executable. TypeScript entrypoints are supported too.</p>
+      <h3>JavaScript for Node.js and browsers</h3>
+      <p>The analyzed project emits JavaScript with source maps. TypeScript entrypoints and browser or Node.js bundles are supported too.</p>
 {% highlightVexaScript %}
 vexa build app.ts -o app.js
-vexa cpp app.ts -o app.cpp
-vexa cpp link app.ts -o app
+vexa bundle app.ts --platform node -o app.bundle.js
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
-      <h3>Cross-backend FFI</h3>
-      <p><code>@FFILibrary</code>, ABI-aware structs, pointers, and buffers describe a native API once. Deno uses dynamic FFI while generated C++ calls the same symbols directly.</p>
+      <h3>JavaScript FFI</h3>
+      <p><code>@FFILibrary</code>, ABI-aware structs, pointers, and buffers describe a native API for Deno and compatible JavaScript hosts.</p>
 {% highlightVexaScript %}
 @FFILibrary("libSDL2.so", "SDL2.framework/SDL2")
 declare class SDL2 {
@@ -154,10 +153,9 @@ declare class SDL2 {
     </article>
     <article class="card">
       <h3>A self-hosting compiler</h3>
-      <p>VexaScript compiles the complete TypeScript compiler graph, then runs the generated compiler to produce the next generation in JavaScript or native C++.</p>
+      <p>VexaScript compiles the complete TypeScript compiler graph, then runs the generated JavaScript compiler to produce a byte-identical next generation.</p>
 {% highlightVexaScript %}
 pnpm self-host
-vexa cpp run cli/cli.ts -o vexa-native
 {% endhighlightVexaScript %}
     </article>
   </div>
@@ -187,7 +185,6 @@ npm install -g vexascript
 {% highlightVexaScript %}
 vexa run hello.vx
 vexa build hello.vx -o dist/hello.js
-vexa cpp link hello.vx -o dist/hello
 {% endhighlightVexaScript %}
     </article>
     <article class="card getting-started-card">

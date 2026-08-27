@@ -44,7 +44,6 @@ describe("parseProgram", () => {
         expect(returned.kind).toBe(NodeKind.ReturnStatement);
         expect(returned).toHaveProperty("firstToken", undefined);
         expect(returned).toHaveProperty("lastToken", undefined);
-        expect(returned).toHaveProperty("__vexaNativeSourcePath", undefined);
     });
 
     it("constructs every parsed AST value as a nominal node", () => {

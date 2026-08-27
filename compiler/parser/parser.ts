@@ -420,12 +420,11 @@ export class Parser {
 
     private applyBuiltinAnnotation(statement: Statement, annotation: AnnotationApplication): void {
         const name = annotation.name.name;
-        const cppAnnotation = name === "CppHeader" || name === "CppFlags" || name === "CppBody";
-        const cppLayoutAnnotation = name === "FFIStruct" || name === "FFIAlign";
-        if (name !== "JsName" && name !== "JsInline" && !cppAnnotation && name !== "FFILibrary" && !cppLayoutAnnotation) {
+        const ffiLayoutAnnotation = name === "FFIStruct" || name === "FFIAlign";
+        if (name !== "JsName" && name !== "JsInline" && name !== "FFILibrary" && !ffiLayoutAnnotation) {
             return;
         }
-        if (cppLayoutAnnotation) {
+        if (ffiLayoutAnnotation) {
             const layoutTarget = statement instanceof ExportStatement && statement.declaration
                 ? statement.declaration
                 : statement;
@@ -452,21 +451,6 @@ export class Parser {
             }
             if (libraryTarget !== statement) {
                 libraryTarget.annotations = [...(libraryTarget.annotations ?? []), annotation];
-            }
-            return;
-        }
-        if (cppAnnotation) {
-            const cppTarget = statement instanceof ExportStatement && statement.declaration
-                ? statement.declaration
-                : statement;
-            if (!(cppTarget instanceof FunctionStatement)) {
-                this.fail(`'@${name}' can only be applied to a function declaration`, this.tokenAt(annotation.name.firstToken));
-            }
-            if (annotation.args.length !== 1 || !(annotation.args[0] instanceof StringLiteral)) {
-                this.fail(`Expected a single string argument in '@${name}'`, this.tokenAt(annotation.args[0]?.firstToken));
-            }
-            if (cppTarget !== statement) {
-                cppTarget.annotations = [...(cppTarget.annotations ?? []), annotation];
             }
             return;
         }
@@ -3295,7 +3279,7 @@ export class Parser {
                 this.tokens.skip();
                 const label = this.tokens.read()!;
                 return this.attachNodeBounds(
-                    new Identifier("this", undefined, label.value),
+                    new Identifier("this", label.value),
                     token,
                     label
                 );

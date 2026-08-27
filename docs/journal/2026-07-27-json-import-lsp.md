@@ -2,7 +2,7 @@
 
 ## Symptom
 
-The compiler resolved a local `import data from "./data.json"`, but the editor treated `data` as `unknown`. As a result, member hover and type checking could not see properties such as `data.title`, even though native and JavaScript module paths already understood JSON imports.
+The compiler resolved a local `import data from "./data.json"`, but the editor treated `data` as `unknown`. As a result, member hover and type checking could not see properties such as `data.title`, even though the JavaScript module path already understood JSON imports.
 
 ## Investigation
 

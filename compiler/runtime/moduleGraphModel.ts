@@ -1,6 +1,5 @@
 import type { Statement } from "compiler/ast/ast";
 import type { Vfs } from "compiler/vfs";
-import type { NativeCollectionRepresentation } from "./cppEmitter";
 
 export interface GlobalSymbolSourceOptions {
   paths?: string[];
@@ -37,10 +36,4 @@ export interface ModuleGraphOptions {
   incrementalCache?: ModuleGraphIncrementalCache;
   /** Files known to have changed since the previous incremental build. */
   changedFiles?: readonly string[];
-  /** Emit per-statement native source hooks for diagnostic C++ builds. */
-  emitNativeSourceLocations?: boolean;
-  /** Emit one C++ translation unit instead of a header plus per-module files. */
-  emitCppModuleFiles?: boolean;
-  /** Select specialized collection templates or generic Value-based templates. */
-  nativeCollectionRepresentation?: NativeCollectionRepresentation;
 }

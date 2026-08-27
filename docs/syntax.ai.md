@@ -7,7 +7,7 @@ VexaScript (`.vx` files) is derived from TypeScript and keeps its ecosystem, wit
 - `"text"` and `'text'` are both `string` values.
 - Prefix either quote style with `#` for an `int` Unicode code point: `#'a'` is `97`, `#"😀"` is `128512`, and `#'\n'` is `10`.
 - A `#`-prefixed quoted literal must contain exactly one decoded code point. `#'aaa'` and `#""` are errors; remove `#` for a string (the editor offers a quick fix).
-- Character literals emit as direct integer constants in JavaScript and C++.
+- Character literals emit as direct integer constants in JavaScript.
 - The `#` prefix is VexaScript-only. TypeScript mode keeps its normal single- and double-quoted strings.
 
 ```vexa
@@ -419,12 +419,11 @@ Inside JSX children, control blocks are expressions:
 - Annotations: `annotation Benchmark` / `@Benchmark func measure() {}`
 - `@JsName("jsName")` overrides the emitted JavaScript identifier.
 - `@JsInline("js template")` inlines raw JS at each call site.
-- Native/FFI declarations use `@CppHeader`, `@CppFlags`, `@CppBody`,
-  `@FFILibrary`, `@FFIName`, and `@FFIStruct`; consult `docs/syntax.md` for the
-  ABI and security contract.
+- JavaScript FFI declarations use `@FFILibrary`, `@FFIName`, and `@FFIStruct`;
+  consult `docs/syntax.md` for the ABI and security contract.
 - Runtime namespaces: `namespace Foo { export func bar() {} }` creates a real JS object.
 - `vexa test` discovers `.test.vx`; `test("name") { ... }` and strict
   `assert(condition)` are available without imports.
 - Local `.ts`, `.tsx`, `.json`, and `.txt` files can be imported. Add `?text` to
-  load any local file through one default string binding in JS and C++.
+  load any local file through one default string binding in JavaScript.
 - Delegated variables: `var count by useState(0)` routes reads/writes through the delegate.
