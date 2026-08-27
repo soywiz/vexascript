@@ -56,6 +56,14 @@ ArrayObject<T>* ArrayObject<T>::fromDynamicObject(BaseObject* backing) {
   return Runtime::make<ArrayObject<T>>(backing);
 }
 
+template <typename K, typename V>
+MapObject<K, V>* MapObject<K, V>::fromDynamicObject(BaseObject* backing) {
+  if (!backing) throw errorAtCurrentSource(u"VexaScript value is not a compatible map");
+  void* converted = backing->dynamicCast(nativeTypeToken<MapLikeObject>());
+  if (!converted) throw errorAtCurrentSource(u"VexaScript value is not a compatible map");
+  return Runtime::make<MapObject<K, V>>(static_cast<MapLikeObject*>(converted));
+}
+
 #if defined(VEXA_NATIVE_DEBUG) || defined(VEXA_NATIVE_GC_STRESS)
 #define VEXA_NATIVE_SOURCE(file, line, column) \
   do {                                                    \

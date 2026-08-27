@@ -93,8 +93,7 @@ function collect(): ReadonlyMap<string, string> | undefined {
       typeCheck: false
     });
 
-    expect(result.code).toContain("withResult<vexa::MapObject*>(");
-    expect(result.code).not.toContain("MapObject<");
+    expect(result.code).toContain("withResult<vexa::MapObject<std::u16string, std::u16string>*>(");
     expect(result.code).not.toContain("withResult<vexa::Undefined>(");
   });
 
@@ -447,17 +446,17 @@ fun typed(value: any): string {
     expect(result.code).toContain("std::u16string ending");
   });
 
-  it("keeps concrete Set storage when an explicit semantic type lowers dynamically", () => {
+  it("keeps specialized Set storage when an explicit semantic type lowers dynamically", () => {
     const result = transpile(`
 type Name = "alpha" | "beta";
 export const names: ReadonlySet<string> = new Set<Name>(["alpha", "beta"]);
 `, { emit: "cpp", sourceFilePath: "/tmp/readonly-set.ts", typeCheck: false });
 
-    expect(result.code).toContain("vexa::setFromIterable(vexa::toValue(");
-    expect(result.code).not.toContain("SetObject<");
+    expect(result.code).toContain("vexa::SetObject<std::u16string>* names");
+    expect(result.code).toContain("vexa::setFromIterable<std::u16string>(");
   });
 
-  it("infers templates nested inside erased native collections", () => {
+  it("infers templates nested inside native collections", () => {
     const result = transpile(`
 function cloneSetValues<T>(values: Map<string, Set<T>>): Map<string, Set<T>> {
   return values;
@@ -469,11 +468,56 @@ const setValues: Map<string, Set<string>> = new Map();
 const arrayValues: Map<string, number[]> = new Map();
 cloneSetValues(setValues);
 cloneArrayValues(arrayValues);
-`, { emit: "cpp", sourceFilePath: "/tmp/erased-collection-template-inference.ts" });
+`, { emit: "cpp", sourceFilePath: "/tmp/collection-template-inference.ts" });
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("cloneSetValues<std::u16string>(setValues)");
     expect(result.code).toContain("cloneArrayValues<double>(arrayValues)");
+  });
+
+  it("keeps statically typed collection keys and values out of transient Value boxes", () => {
+    const result = transpile(`
+class Entry {}
+const entries = new Map<string, Entry>()
+const entry = new Entry()
+entries.set("key", entry)
+const present = entries.has("key")
+const loaded = entries.get("key")
+for (const [key, value] of entries) {
+  console.log(key, value)
+}
+`, { emit: "cpp", sourceFilePath: "/tmp/specialized-collection-boundaries.ts" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::mapSet(vexa::rawPointer(entries), __vexa_literal_0->value(), entry)");
+    expect(result.code).toContain("vexa::mapHas(vexa::rawPointer(entries), __vexa_literal_0->value())");
+    expect(result.code).toContain("vexa::MapObject<std::u16string, Entry*>* entries");
+    expect(result.code).toContain("vexa::mapGet(vexa::rawPointer(entries), __vexa_literal_0->value())");
+    expect(result.code).toContain("vexa::mapKeyAtAs<std::u16string>");
+    expect(result.code).toContain("vexa::mapValueAtAs<Entry*>");
+    expect(result.code).not.toContain("vexa::mapEntries(vexa::rawPointer(entries))");
+    expect(result.code).not.toContain("vexa::mapSet(entries, vexa::toValue(");
+    expect(result.code).not.toContain("vexa::mapHas(entries, vexa::toValue(");
+  });
+
+  it("can emit the same collections with generic Value template storage", () => {
+    const result = transpile(`
+class Entry {}
+const entries = new Map<string, Entry>()
+const names = new Set<string>()
+entries.set("key", new Entry())
+names.add("name")
+`, {
+      emit: "cpp",
+      sourceFilePath: "/tmp/generic-native-collections.ts",
+      nativeCollectionRepresentation: "generic"
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("vexa::MapObject<vexa::Value, vexa::Value>* entries");
+    expect(result.code).toContain("vexa::SetObject<vexa::Value>* names");
+    expect(result.code).not.toContain("vexa::MapObject<std::u16string, Entry*>");
+    expect(result.code).not.toContain("vexa::SetObject<std::u16string>");
   });
 
   it("infers flatMap tuple elements from the callback instead of the receiver", () => {
@@ -544,9 +588,9 @@ function copy(existing: ReadonlyMap<string, string> | undefined): Map<string, st
 `, { emit: "cpp", sourceFilePath: "/tmp/map-nullish-iterable.ts" });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("vexa::mapFromIterable(vexa::toValue(vexa::nullishCoalesce(");
+    expect(result.code).toContain("vexa::mapFromIterable<std::u16string, std::u16string>(vexa::nullishCoalesce(");
     expect(result.code).toContain("return vexa::toValue(vexa::makeArray<vexa::Value>({}));");
-    expect(result.code).not.toContain("MapObject<");
+    expect(result.code).toContain("vexa::MapObject<std::u16string, std::u16string>* copy");
   });
 
   it("lowers WeakMap iterables, radix string conversion, and native binary helpers", () => {
@@ -558,8 +602,8 @@ console.log(metadata.get(key), value.toString(16))
 `, { emit: "cpp", sourceFilePath: "/tmp/native-collections-and-binary.ts" });
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("vexa::weakMapFromIterable(vexa::toValue(");
-    expect(result.code).not.toContain("WeakMapObject<");
+    expect(result.code).toContain("vexa::weakMapFromIterable<cppgc::GarbageCollectedMixin*, std::u16string>(");
+    expect(result.code).toContain("vexa::WeakMapObject<cppgc::GarbageCollectedMixin*, std::u16string>* metadata");
     expect(result.code).toContain("vexa::toString(value, static_cast<double>(16))");
   });
 

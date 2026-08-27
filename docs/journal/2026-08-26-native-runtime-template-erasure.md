@@ -12,12 +12,18 @@ must point at the same mutable JavaScript array.
 
 ## Resolution
 
-Map, Set, WeakMap, and WeakSet now have one concrete runtime class each. Their
-keys and values use `Value`/`StoredValue`; source generic arguments remain solely
-in semantic analysis and guide conversions at generated-code boundaries.
-Collection construction and ordinary calls are direct, non-templated runtime
-calls. `forEach` uses one concrete Value callback contract, with generated
-adapters converting arguments to the callback's semantic parameter types.
+The collection erasure was reverted after measuring a material self-host
+regression. Map, Set, WeakMap, and WeakSet remain templates, and the default C++
+emission preserves analyzed key and value types through construction, lookup,
+iteration, and callbacks. The newer split-runtime layout, direct indexed Map
+destructuring, byte-based runtime fingerprint, static archive, and PCH cache are
+retained.
+
+The emitter also exposes `--generic-native-collections`. This uses the same
+templated runtime implementation but selects `MapObject<Value, Value>`,
+`SetObject<Value>`, and the corresponding generic weak-collection
+instantiations. Keeping both modes behind one emission decision provides a
+controlled A/B comparison without maintaining two runtime implementations.
 
 `ArrayObject<T>` remains a typed native view because internal arrays can contain
 non-ECMAScript values such as `Task<T>`. For every ECMAScript-representable T,
@@ -28,11 +34,10 @@ type. Explicit `MyType[]`-to-`any[]` smoke coverage is intentionally deferred to
 the follow-up that removes `ArrayObject<T>` itself, so this intermediate phase
 does not claim the final erased-array contract prematurely.
 
-The deterministic header count fell from 529 lines beginning with `template`
-to 372. Map/Set/weak-collection class templates and the large family of
-key/value-specialized collection algorithms were removed entirely. Remaining
-templates primarily implement typed array algorithms, promises/tasks,
-generated-language generics, callbacks, and native conversion boundaries.
+Template erasure reduced the number of runtime templates but moved hot compiler
+operations through repeated `Value` hashing, loading, and conversion. The lower
+template count was therefore not a useful optimization metric for this
+workload.
 
 ## Investigation notes
 
@@ -99,15 +104,41 @@ linked, and executed the main smoke in about 4.36 seconds and completed all 55
 native tests in about 489.5 seconds; most of that total was the two native CLI
 self-hosted workloads.
 
-The final fixed-point run measured compiler generation separately from native
+The erased fixed-point run measured compiler generation separately from native
 toolchain work. The JavaScript-hosted compiler generated the complete C++ CLI in
-4.84 seconds; the `clang++ -O1` native compiler generated it in 13.62 and 13.70
-seconds, roughly 2.8 times the JavaScript-hosted generation time. Native
+4.84 seconds; the `clang++ -O1` erased native compiler generated it in 13.62 and
+13.70 seconds, roughly 2.8 times the JavaScript-hosted generation time. Native
 dependency preparation took 32.88 seconds, and the complete native fixed-point
 stage took 264.37 seconds because it also compiled and linked the large generated
 CLI and ran two native generations. A representative warm-PCH `-O0` CLI link
 took about 18.4 seconds. These separate measurements avoid attributing native
 compiler execution time to the C++ linker or runtime parsing.
+
+After restoring specialized templates, two local `clang++ -O1` native
+generations completed in 10.47 and 10.44 seconds internally. The otherwise
+identical `--generic-native-collections` executable completed in 13.11 and 13.14
+seconds. Specialized storage was therefore about 20% faster by elapsed time, or
+the generic representation about 26% slower relative to the specialized one.
+The specialized runs spent about 4.23 seconds in merged type inference and 4.58
+seconds in C++ emission; the generic runs spent about 5.77 and 5.66 seconds in
+those phases. Repeated output within each mode was byte-identical. These are
+diagnostic observations, not timing assertions.
+
+Sampling the erased compiler showed the additional work at the generic
+collection boundary: `MapObject::getStored`, `StoredValue::load`, `Value`
+construction, string equality, and generic collection-key hashing all appeared
+in hot stacks. The repository contains hundreds of compiler Map and Set
+construction sites, so even small per-operation costs multiply across binding,
+type inference, and emission. RTTI was not responsible; the hot path was the
+repeated conversion and erased storage itself.
+
+The final repository fixed-point validation passed with native generation wall
+times of 9.88 and 9.92 seconds, down from 13.62 and 13.70 seconds in the erased
+run recorded above. The TypeScript and JavaScript hosts took 4.80 and 4.63
+seconds respectively. Consecutive native outputs were byte-identical. The native
+host is therefore still about twice as slow as V8 on this workload, but restoring
+specialized collections removed roughly one third of the erased native
+generation time.
 
 ## Cache behavior
 

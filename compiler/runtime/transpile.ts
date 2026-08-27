@@ -39,7 +39,7 @@ import {
   mapAnalysisIssueCodeToDiagnosticCode
 } from "compiler/diagnosticCodes";
 import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
-import { CppEmitError, emitCppProgram, emitCppProgramFiles, type CppProgramFile } from "./cppEmitter";
+import { CppEmitError, emitCppProgram, emitCppProgramFiles, type CppProgramFile, type NativeCollectionRepresentation } from "./cppEmitter";
 
 export interface TranspileDiagnostic {
   file: string;
@@ -120,6 +120,8 @@ export interface TranspileOptions {
   emitCppModuleFiles?: boolean;
   /** Emit per-statement native source hooks for diagnostic C++ builds. */
   emitNativeSourceLocations?: boolean;
+  /** Select specialized collection templates or generic Value-based templates. */
+  nativeCollectionRepresentation?: NativeCollectionRepresentation;
   preserveSourceLineOffsets?: boolean;
   /**
    * Whether to generate a source map. Defaults to true so direct transpile
@@ -480,6 +482,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
       const cppSemantics = {
             ...(options.sourceFilePath ? { sourceFilePath: options.sourceFilePath } : {}),
             ...(options.emitNativeSourceLocations ? { emitSourceLocations: true } : {}),
+            ...(options.nativeCollectionRepresentation ? { nativeCollectionRepresentation: options.nativeCollectionRepresentation } : {}),
             expressionTypes: artifacts.analysis.getExpressionTypes(),
             implicitReceiverIdentifiers: artifacts.analysis.getImplicitReceiverIdentifiers(),
             implicitReceiverExtensionIdentifiers: artifacts.analysis.getImplicitReceiverExtensionIdentifiers(),

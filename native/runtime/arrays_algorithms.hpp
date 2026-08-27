@@ -36,9 +36,9 @@ inline void appendAll(ArrayObject<T>* target, const ArrayObject<U>* source) {
   }
 }
 
-template <typename T>
-inline void appendAll(ArrayObject<T>* target, SetObject* source) {
-  source->forEach([&](Value value, Value, SetObject*) {
+template <typename T, typename U>
+inline void appendAll(ArrayObject<T>* target, SetObject<U>* source) {
+  source->forEach([&](U value) {
     target->append(convertValue<T>(value));
   });
 }
@@ -74,25 +74,31 @@ inline void appendAllConverted(ArrayObject<Value>* target, const ArrayObject<T>*
 
 void appendAllConverted(ArrayObject<Value>* target, const std::u16string& source);
 
-inline void appendAllConverted(ArrayObject<Value>* target, MapObject* source) {
-  source->forEach([&](Value value, Value key, MapObject*) {
-    target->append(toValue(Runtime::array<Value>({key, value})));
+template <typename K, typename V>
+inline void appendAllConverted(ArrayObject<Value>* target, MapObject<K, V>* source) {
+  source->forEach([&](V value, K key) {
+    target->append(convertValue<Value>(Runtime::array<Value>({
+        convertValue<Value>(key),
+        convertValue<Value>(value)})));
   });
 }
 
+template <typename K, typename V>
 inline void appendAllConverted(
     ArrayObject<Value>* target,
-    const cppgc::Persistent<MapObject>& source) {
+    const cppgc::Persistent<MapObject<K, V>>& source) {
   appendAllConverted(target, source.Get());
 }
 
-inline void appendAllConverted(ArrayObject<Value>* target, SetObject* source) {
-  source->forEach([&](Value value, Value, SetObject*) { target->append(value); });
+template <typename T>
+inline void appendAllConverted(ArrayObject<Value>* target, SetObject<T>* source) {
+  source->forEach([&](T value) { target->append(convertValue<Value>(value)); });
 }
 
+template <typename T>
 inline void appendAllConverted(
     ArrayObject<Value>* target,
-    const cppgc::Persistent<SetObject>& source) {
+    const cppgc::Persistent<SetObject<T>>& source) {
   appendAllConverted(target, source.Get());
 }
 

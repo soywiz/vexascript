@@ -321,7 +321,13 @@ function nativeCompilerFrontendArguments(
     ...(options.debug || instrumented ? ["-DVEXA_NATIVE_DEBUG=1"] : []),
     ...(options.gcStress ? ["-DVEXA_NATIVE_GC_STRESS=1"] : []),
     ...(options.runtimePchPath
-      ? ["-DVEXA_RUNTIME_PRECOMPILED=1", "-include-pch", options.runtimePchPath]
+      ? [
+          "-DVEXA_RUNTIME_PRECOMPILED=1",
+          "-Xclang",
+          "-fno-validate-pch",
+          "-include-pch",
+          options.runtimePchPath,
+        ]
       : []),
     ...(typeof cppPaths === "string" ? [cppPaths] : cppPaths),
     `-I${root}`,

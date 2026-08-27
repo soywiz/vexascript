@@ -663,6 +663,7 @@ export async function compileNativeModuleGraph(
     emit: "cpp",
     emitCppModuleFiles: options.emitCppModuleFiles ?? true,
     emitNativeSourceLocations: options.emitNativeSourceLocations ?? false,
+    ...(options.nativeCollectionRepresentation ? { nativeCollectionRepresentation: options.nativeCollectionRepresentation } : {}),
     emitSourceMap: false,
     typeCheck: options.typeCheck ?? true,
     ambientDeclarations: options.ambientDeclarations ?? [],

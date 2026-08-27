@@ -87,18 +87,20 @@ Oilpan and mimalloc caches between workflow runs; content-addressed
 `vexa-runtime-*` archives and PCH files remain local to one runner execution so routine
 runtime edits do not accumulate remote cache variants.
 
-ECMAScript `Map`, `Set`, `WeakMap`, and `WeakSet` type arguments remain part of
-VexaScript's static type system, but they do not produce distinct C++ runtime
-classes. The generated program uses the concrete `MapObject`, `SetObject`,
-`WeakMapObject`, and `WeakSetObject` classes, whose contents use the common
-`Value` representation. This matches JavaScript collection identity and permits
-values to cross `any` boundaries without selecting a different C++ template
-instantiation. Language arrays still expose a typed C++ view in this phase;
-compatible covariant views share dynamic backing storage, while native-only
-arrays whose elements cannot be represented as ECMAScript values, such as
-internal task storage, retain typed slots. Removing the remaining
-`ArrayObject<T>` adapter and validating the final `any[]` contract is a separate
-follow-up phase.
+ECMAScript `Map`, `Set`, `WeakMap`, and `WeakSet` use specialized C++ templates
+by default. A `Map<string, Entry>` therefore lowers to
+`MapObject<std::u16string, Entry*>`, keeping ordinary lookup, hashing, and
+callback paths out of the dynamic `Value` representation. The experimental
+`--generic-native-collections` flag selects the same runtime templates with
+`Value` storage (`MapObject<Value, Value>`, `SetObject<Value>`, and equivalent
+weak-collection forms). This flag exists for controlled performance and
+correctness comparisons; it is not the default representation.
+
+Language arrays still expose a typed C++ view in this phase. Compatible
+covariant views share dynamic backing storage, while native-only arrays whose
+elements cannot be represented as ECMAScript values, such as internal task
+storage, retain typed slots. Removing the remaining `ArrayObject<T>` adapter and
+validating the final `any[]` contract is a separate follow-up phase.
 
 The native CLI also runs the JavaScript bundler in-process. The bundler is
 implemented in TypeScript, included in the native CLI module graph, and compiled

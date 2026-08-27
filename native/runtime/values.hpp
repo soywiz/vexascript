@@ -15,10 +15,10 @@ class Value;
 std::runtime_error errorAtCurrentSource(std::u16string);
 template <typename T>
 class ArrayObject;
+template <typename K, typename V>
 class MapObject;
+template <typename T>
 class SetObject;
-class WeakMapObject;
-class WeakSetObject;
 ArrayObject<Value>* makeDynamicArrayValueView(BaseObject* backing);
 std::u16string toString(const Value&);
 std::u16string jsonQuoted(const std::u16string&);
