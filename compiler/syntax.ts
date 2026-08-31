@@ -22,7 +22,7 @@ export const VEXA_PRIMITIVE_TYPES = [
   "unknown", "any", "void", "never", "object"
 ] as const;
 
-const VEXA_OPERATOR_NAME_PATTERN = String.raw`\boperator(?:\[\]=?|[+\-*/%&|^~<>!=?:]+)`;
+const VEXA_OPERATOR_NAME_PATTERN = String.raw`\boperator(?:\[\]=?|[+\-*/\\%&|^~<>!=?:]+)`;
 const VEXA_REGEXP_LITERAL_PATTERN = String.raw`/(?![/*])(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\r\n])+/[dgimsuvy]*`;
 const JSX_OPENING_TAG_PATTERN = String.raw`<(?:>|(?!/)(?![^<>]*\/>)[A-Za-z_$][\w$:-]*(?:\.[A-Za-z_$][\w$:-]*)*(?:\s+[^<>]*)?>)`;
 const JSX_CLOSING_TAG_PATTERN = String.raw`<\/(?:>|[A-Za-z_$][\w$:-]*(?:\.[A-Za-z_$][\w$:-]*)*\s*>)`;
@@ -124,12 +124,12 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     characterLiteralRule,
     { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
     { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
-    { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
+    { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[inNL])?\b`, token: "number.float" },
     identifierRule,
     { match: String.raw`[{}()\[\]]`, token: "delimiter" },
     { match: String.raw`(\.\.\.|\.\.<|\.\.)`, token: "operator" },
     { match: String.raw`[;,.]`, token: "delimiter" },
-    { match: String.raw`[+\-*/%&|^~<>!=?:]+`, token: "operator" },
+    { match: String.raw`[+\-*/\\%&|^~<>!=?:]+`, token: "operator" },
   ];
   return {
     defaultToken: "",
@@ -157,12 +157,12 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         characterLiteralRule,
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
-        { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
+        { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[inNL])?\b`, token: "number.float" },
         identifierRule,
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
         { match: String.raw`(\.\.\.|\.\.<|\.\.)`, token: "operator" },
         { match: String.raw`[;,.]`, token: "delimiter" },
-        { match: String.raw`[+\-*/%&|^~<>!=?:]+`, token: "operator" },
+        { match: String.raw`[+\-*/\\%&|^~<>!=?:]+`, token: "operator" },
       ],
       generic_declaration: [
         { match: String.raw`\s+`, token: "" },
@@ -187,7 +187,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         identifierRule,
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
         { match: String.raw`[;,.]`, token: "delimiter" },
-        { match: String.raw`[+\-*/%&|^~!=?:]+`, token: "operator" },
+        { match: String.raw`[+\-*/\\%&|^~!=?:]+`, token: "operator" },
       ],
       block_comment: [
         { match: String.raw`[^/*]+`, token: "comment" },
@@ -237,14 +237,14 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         characterLiteralRule,
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
-        { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
+        { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[inNL])?\b`, token: "number.float" },
         uncheckedVarRule,
         genericDeclarationRule,
         identifierRule,
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
         { match: String.raw`(\.\.\.|\.\.<|\.\.)`, token: "operator" },
         { match: String.raw`[;,.]`, token: "delimiter" },
-        { match: String.raw`[+\-*/%&|^~<>!=?:]+`, token: "operator" },
+        { match: String.raw`[+\-*/\\%&|^~<>!=?:]+`, token: "operator" },
       ],
     },
   };
@@ -477,14 +477,14 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
         ],
       },
       numbers: {
-        patterns: [{ name: "constant.numeric.integer.vexa", match: "\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nN]|L)?\\b" }],
+        patterns: [{ name: "constant.numeric.integer.vexa", match: "\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[inN]|L)?\\b" }],
       },
       operators: {
         patterns: [
           { name: "keyword.operator.assignment.compound.vexa", match: "(\\+=|-=|%=|\\*=|/=|&=|\\|=|&&=|\\|\\|=|\\?\\?=)" },
           { name: "keyword.operator.range.vexa", match: "(\\.\\.\\.|\\.\\.<)" },
           { name: "keyword.operator.chain.vexa", match: "\\.\\." },
-          { name: "keyword.operator.arithmetic.vexa", match: "(\\*\\*|\\+|-|\\*|/|%)" },
+          { name: "keyword.operator.arithmetic.vexa", match: "(\\*\\*|\\+|-|\\*|/|\\\\|%)" },
           { name: "keyword.operator.relational.vexa", match: "(<=>|<=|>=|<|>)" },
           { name: "keyword.operator.equality.vexa", match: "(===|!==|==|!=)" },
           { name: "keyword.operator.member.vexa", match: "(\\?\\.|!\\.)" },
@@ -609,13 +609,13 @@ export function createCodeMirrorLegacyModeSource(): string {
     { regex: /#(?:"([^"\\\\]|\\\\.)*"|'([^'\\\\]|\\\\.)*')/, token: "number" },
     { regex: /"([^"\\\\]|\\\\.)*"/, token: "string" },
     { regex: /'([^'\\\\]|\\\\.)*'/, token: "string" },
-    { regex: /\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nNL])?\\b/, token: "number" },
+    { regex: /\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[inNL])?\\b/, token: "number" },
     { regex: /\\bvar!(?=\\s|[_$A-Za-z])/, token: "keyword" },
     { regex: /\\b(?:${[...VEXA_KEYWORD_DECLARATIONS, ...VEXA_KEYWORD_CONTROLS, ...VEXA_STORAGE_TYPES, ...VEXA_CONSTANTS].join("|")})\\b/, token: "keyword" },
     { regex: /[{}()\\[\\]]/, token: "bracket" },
     { regex: /(\.\.\.|\.\.<|\.\.)/, token: "operator" },
     { regex: /[;,.]/, token: "punctuation" },
-    { regex: /[+\\-*/%&|^~<>!=?:]+/, token: "operator" },
+    { regex: /[+\\-*/\\%&|^~<>!=?:]+/, token: "operator" },
     { regex: /\\b[_A-Za-z][_A-Za-z0-9]*\\b/, token: "variableName" }
   ],
   blockComment: [

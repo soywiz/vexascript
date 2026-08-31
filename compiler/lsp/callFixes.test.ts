@@ -22,7 +22,7 @@ describe("call quick fixes", () => {
     const source = `fun test2(a: number, b: string) {
 }
 fun demo() {
-  test2(1, "test", 3, 4)
+  test2(1i, "test", 3i, 4i)
 }
 `;
 
@@ -46,7 +46,7 @@ fun demo() {
     const source = `fun test2(a: number, b: string) {
 }
 fun demo() {
-  test2("hello", 10)
+  test2("hello", 10i)
 }
 `;
 
@@ -68,7 +68,7 @@ fun demo() {
     const source = `fun test2(a: number, b: string) {
 }
 fun demo() {
-  test2("hello", 10, 3)
+  test2("hello", 10i, 3i)
 }
 `;
 

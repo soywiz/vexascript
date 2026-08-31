@@ -128,7 +128,7 @@ fun demo() {
     const source = `class MyPoint { }
 fun demo() {
   const point = new MyPoint()
-  point.zz = 42
+  point.zz = 42i
 }
 `;
     await writeFile(file, source, "utf8");

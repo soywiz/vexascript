@@ -33,10 +33,10 @@ configured canonical spelling.
 Examples:
 
 ```vexa
-let a = 1
-var b = 2
+let a = 1 // number
+var b = 2 // number
 const c: number = 3
-val d: int = 4 // supported alias
+val d: int = 4i // supported alias; i forces signed int32
 ```
 
 `val` and `const` declarations must be initialized at their declaration site
@@ -132,7 +132,7 @@ Variable declarations support nested object and array binding patterns. Object b
 let { id, name :: displayName, nested :: { value = 1 }, ...rest } = source
 let { name : string, title :: displayTitle : string } = props
 const [first : string, , third = 3, ...tail] = values
-const [result, setResult] = useState(0) // result: int, setResult: (newValue: int) => void
+const [result, setResult] = useState(0) // result: number, setResult: (newValue: number) => void
 ```
 
 ## Functions
@@ -167,7 +167,7 @@ element type. Direct and mutually recursive generator groups are resolved with
 a bounded fixed-point calculation, so known yielded types propagate around a
 cycle without recursive analysis or nontermination.
 
-In `async` functions, return expressions are checked against the inner `Promise<T>` value type, so both `return 10` and `return Promise.resolve(10)` are valid for `Promise<int>`. `await expr` evaluates to `T` when `expr` has type `Promise<T>`; otherwise `await` preserves the original type. When no return type is annotated, the inferred return type is `Promise<T>`. If an `async` function has an explicit return type annotation, it must be `Promise<...>`.
+In `async` functions, return expressions are checked against the inner `Promise<T>` value type, so both `return 10i` and `return Promise.resolve(10i)` are valid for `Promise<int>`. `await expr` evaluates to `T` when `expr` has type `Promise<T>`; otherwise `await` preserves the original type. When no return type is annotated, the inferred return type is `Promise<T>`. If an `async` function has an explicit return type annotation, it must be `Promise<...>`.
 
 `await` is only allowed at the top level (module/global scope) and inside `async` or `sync` functions. Using `await` inside a normal (non-`async`/`sync`) function or a normal generator is a semantic error (`AWAIT_OUTSIDE_ASYNC`).
 
@@ -182,14 +182,14 @@ The `sync` modifier declares a function that behaves like `async` internally (it
 
 ```vexa
 sync fun fetchValue(): int {
-  return 1
+  return 1i
 }
 
 sync fun main(): int {
   let x = fetchValue()                 // let x = await fetchValue();   -> x: int
   fetchValue()                         // await fetchValue();
-  use(fetchValue(), fetchValue() + 1)  // use(await fetchValue(), (await fetchValue()) + 1);
-  return x + 10
+  use(fetchValue(), fetchValue() + 1i)  // use(await fetchValue(), (await fetchValue()) + 1);
+  return x + 10i
 }
 ```
 
@@ -449,21 +449,21 @@ compiler rejects invalid sizes, non-power-of-two alignments, and out-of-bounds
 layouts:
 
 ```vexa
-@FFIStruct(16)
-@FFIAlign(4)
+@FFIStruct(16i)
+@FFIAlign(4i)
 class Rect(
-  @FFIOffset(0) @FFISize(4) var x: int = 0,
-  @FFIOffset(4) @FFISize(4) var y: int = 0,
-  @FFIOffset(8) @FFISize(4) var width: int = 0,
-  @FFIOffset(12) @FFISize(4) var height: int = 0
+  @FFIOffset(0i) @FFISize(4i) var x: int = 0i,
+  @FFIOffset(4i) @FFISize(4i) var y: int = 0i,
+  @FFIOffset(8i) @FFISize(4i) var width: int = 0i,
+  @FFIOffset(12i) @FFISize(4i) var height: int = 0i
 )
 
-@FFIStruct(8)
-@FFIAlign(4)
+@FFIStruct(8i)
+@FFIAlign(4i)
 class Event {
-  @FFIOffset(0) var! type: int
-  @FFIOffset(0) @FFISize(2) var! code: int
-  @FFIOffset(4) var! value: int
+  @FFIOffset(0i) var! type: int
+  @FFIOffset(0i) @FFISize(2i) var! code: int
+  @FFIOffset(4i) var! value: int
 }
 ```
 
@@ -1103,11 +1103,11 @@ TypeScript-style constructors can promote parameters to instance properties by a
 
 ```vexa
 class User {
-  constructor(public readonly id: string, private age: int = 0) {
+  constructor(public readonly id: string, private age: int = 0i) {
   }
 
   birthday() {
-    this.age = this.age + 1
+    this.age = this.age + 1i
   }
 }
 ```
@@ -1199,11 +1199,12 @@ Class fields support:
 - `static` fields
 
 When a field has both a type annotation and an initializer, the initializer
-must be assignable to the annotated type. In particular, a fractional `number`
-literal is not assignable to `int`:
+must be assignable to the annotated type. No `number` value converts implicitly
+to `int`, even when it is an integer-looking literal:
 
 ```vexa
 class Invalid {
+  var integerLooking: int = 0 // error: use 0i or int(0)
   var count: int = 0.5 // error: number is not assignable to int
 }
 ```
@@ -1213,10 +1214,10 @@ Examples:
 ```vexa
 class Demo {
   var a = 10
-  let b: int = 20
+  let b: int = 20i
   c: int
   public val id?: string
-  private static var count: int = 0
+  private static var count: int = 0i
   service!: Service
 }
 ```
@@ -2371,8 +2372,9 @@ try {
 
 ### Expression typing
 
-- Integer literals have type `int`.
-- Decimal/scientific numeric literals, including leading-dot forms such as `.5`, have type `number`.
+- All unsuffixed numeric literals have type `number`, matching TypeScript. This includes integer-looking, hexadecimal, binary, octal, decimal, scientific, and leading-dot forms such as `10`, `0xff`, and `.5`.
+- The VexaScript-only `i` suffix produces an `int` literal and truncates its value to signed 32-bit with `|0`; for example, `10i` is `int` and `4_294_967_297i` is `1i`.
+- There is no implicit conversion from a `number` literal or expression to `int`. Use an `i` literal or the intrinsic `int(value)`, which emits `value | 0` and returns `int`.
 - BigInt literals have type `bigint`.
 - Long literals have type `long`.
 - Character literals have type `int` and carry their Unicode code-point value.
@@ -2382,12 +2384,13 @@ try {
 - `undefined` has type `undefined`.
 - Regular expression literals have the named type `RegExp`.
 - `+`, `-`, `*`, `%`, shifts and bitwise operators on `int` operands infer `int`.
-- `/` on `int` operands infers `number`, matching JavaScript and TypeScript division. An explicitly `int`-typed result uses truncating 32-bit integer division.
+- `/` always performs JavaScript/TypeScript fractional division and infers `number`, including for `int` operands. Thus `1 / 60` has type `number` and is non-zero.
+- `left \\ right` is integer division at multiplicative precedence. It accepts `number` operands, emits `(left / right) | 0`, and returns `int`; `7 \\ 2` is `3i`.
 - `+` with at least one `string` operand infers `string`.
 - Comparisons and equality operators infer `boolean`. Logical `&&`, `||`, and
   `??` expressions infer their reachable operand value types, excluding
   `never` branches and applying truthy/falsy/nullish narrowing.
-- `start ... end` infers `range<int>` and is end-inclusive; `start ..< end` infers `range<int>` and is end-exclusive.
+- `start ... end` and `start ..< end` infer `range<number>` for ordinary numeric literals and `range<int>` only when both endpoints are explicitly `int`.
 
 ### Long runtime lowering
 
@@ -2400,8 +2403,8 @@ try {
 - When an array literal is checked against an expected array type, that element type is used as context for nested generic calls.
 - When an array literal is checked against an expected tuple type, each tuple element type is used as context for the corresponding array element.
 - Array literals returned from functions infer tuple return types, so generic helpers such as `useState<T>(value: T) { return [value, (newValue: T) => {}] }` preserve each destructured element type at call sites.
-- Homogeneous arrays infer typed arrays, for example `int[]`.
-- Mixed element types unify to their common supertype. Members of the numeric tower unify to `numeric`, so `[10, 10L]` (an `int` and a `long`) infers `numeric[]`.
+- Homogeneous arrays infer typed arrays; for example, `[1, 2]` is `number[]` and `[1i, 2i]` is `int[]`.
+- Mixed element types unify to their common supertype. Members of the numeric tower unify to `numeric`, so `[10i, 10L]` (an `int` and a `long`) infers `numeric[]`.
 - Mixed incompatible arrays (with no common supertype, for example `[10, "string"]`) fall back to `any[]`.
-- An array variable whose element type is still unknown (for example `const array: unknown[] = []` or `let xs = []`) evolves its element type from the first `push`/`unshift` mutation, so `array.push(10)` refines the inferred type of `array` to `int[]`.
+- An array variable whose element type is still unknown (for example `const array: unknown[] = []` or `let xs = []`) evolves its element type from the first `push`/`unshift` mutation, so `array.push(10)` refines the inferred type of `array` to `number[]`.
 - Object literals checked against an expected object, class, or interface type use matching property types as context for nested generic calls.

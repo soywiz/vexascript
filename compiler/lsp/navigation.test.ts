@@ -41,7 +41,7 @@ describe("lsp navigation", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(createHover(analysis, marked.line, marked.character, ast)?.contents).toEqual({
       kind: "markdown",
-      value: "```typescript\nlet item: int\n```"
+      value: "```typescript\nlet item: number\n```"
     });
   });
 
@@ -184,13 +184,13 @@ describe("lsp navigation", () => {
     const symbolHover = createHover(analysis, 0, 5);
     expect(symbolHover?.contents).toEqual({
       kind: "markdown",
-      value: "```typescript\nlet value: int\n```"
+      value: "```typescript\nlet value: number\n```"
     });
 
     const expressionHover = createHover(analysis, 0, 12);
     expect(expressionHover?.contents).toEqual({
       kind: "markdown",
-      value: "```typescript\nexpression: int\n```"
+      value: "```typescript\nexpression: number\n```"
     });
   });
 
@@ -220,7 +220,7 @@ describe("lsp navigation", () => {
     const hover = createHover(analysis, 0, 9);
     expect(hover?.contents).toEqual({
       kind: "markdown",
-      value: "```typescript\nlet value: int\n```"
+      value: "```typescript\nlet value: number\n```"
     });
   });
 

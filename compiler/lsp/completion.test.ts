@@ -265,7 +265,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("inner");
     expect(labels).toContain("top");
     expect(labels).toContain("demo");
-    expect(byLabel.get("top")?.detail).toBe("In-scope variable: int");
+    expect(byLabel.get("top")?.detail).toBe("In-scope variable: number");
     expect(byLabel.get("inner")?.detail).toBe("In-scope variable: unknown");
     expect(byLabel.get("b")?.detail).toBe("In-scope parameter: int");
     expect(byLabel.get("demo")?.detail).toBe("In-scope function: (a: unknown, b: int) => unknown");
@@ -318,7 +318,7 @@ describe("createCompletionItemsForPosition", () => {
     const items = await createCompletionItemsForPosition(ast, line, character);
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
-    expect(byLabel.get("resolve")?.detail).toBe("In-scope parameter: (arg1: int) => void");
+    expect(byLabel.get("resolve")?.detail).toBe("In-scope parameter: (arg1: number) => void");
     expect(byLabel.get("reject")?.detail).toBe("In-scope parameter: (arg1: Error) => void");
   });
 
@@ -1204,7 +1204,7 @@ describe("createCompletionItemsForPosition", () => {
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
-    expect(byLabel.get("value")?.detail).toBe("Class property: int");
+    expect(byLabel.get("value")?.detail).toBe("Class property: number");
   });
 
   it("offers generic Array extension members for array member access", async () => {
@@ -1950,7 +1950,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("push");
   });
 
-  it("surfaces builtin array length as an int property", async () => {
+  it("surfaces builtin array length as a number property", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun demo() {
         const items: int[] = []
@@ -1962,7 +1962,7 @@ describe("createCompletionItemsForPosition", () => {
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
-    expect(byLabel.get("length")?.detail).toBe("Interface property: int");
+    expect(byLabel.get("length")?.detail).toBe("Interface property: number");
   });
 
   it("offers Array<T> members after chained trailing-lambda calls", async () => {

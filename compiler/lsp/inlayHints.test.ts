@@ -51,7 +51,7 @@ dedent`
   it("uses unions for inferred function return hints", async () => {
     const source = dedent`
       fun format(ok: boolean) {
-        if (ok) return 1
+        if (ok) return 1i
         return "fallback"
       }
       `;
@@ -150,7 +150,7 @@ dedent`
   it("infers generic type arguments for class constructor calls", async () => {
     const source = dedent`
       class Box<T>(val value: T)
-      let b = Box(42)
+      let b = Box(42i)
       let s = Box("hello")
       `;
     const session = createAnalysisSession(source);
@@ -318,7 +318,7 @@ dedent`
 
   it("parenthesizes union element types in Promise.allSettled variable hints", async () => {
     const source = dedent`
-      const settled = Promise.allSettled([Promise.resolve(1)])
+      const settled = Promise.allSettled([Promise.resolve(1i)])
       `;
     const session = createAnalysisSession(source);
 
@@ -336,7 +336,7 @@ dedent`
 
   it("uses inferred Map entry types in Array.from variable hints", async () => {
     const source = dedent`
-      const entries = Array.from(new Map([["name", 1]]))
+      const entries = Array.from(new Map([["name", 1i]]))
       `;
     const session = createAnalysisSession(source);
 

@@ -125,7 +125,7 @@ describe("portable monarch syntax", () => {
 
     expect(annotationRule?.token).toBe("annotation");
     expect(stringRule?.match).toBe(String.raw`"([^"\\]|\\.)*"`);
-    expect(numberRule?.match).toBe(String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`);
+    expect(numberRule?.match).toBe(String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[inNL])?\b`);
   });
 
   it("classifies an initial shebang line as a comment", () => {

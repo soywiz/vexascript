@@ -1,6 +1,6 @@
 import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.vx"
 
-function precedence(expression: any): int {
+function precedence(expression: any): number {
   if (expression is SequenceExpr) return 1
   if (expression is AssignExpr) return 2
   if (expression is BinaryExpr) {
@@ -22,11 +22,11 @@ function precedence(expression: any): int {
   return 7
 }
 
-function maybeWrap(expression: any, text: string, parentPrecedence: int): string {
+function maybeWrap(expression: any, text: string, parentPrecedence: number): string {
   return precedence(expression) < parentPrecedence ? `(${text})` : text
 }
 
-export function printExpr(expression: any, parentPrecedence: int = 0): string {
+export function printExpr(expression: any, parentPrecedence: number = 0): string {
   if (expression is NumberExpr) {
     return `${expression.value}`
   }

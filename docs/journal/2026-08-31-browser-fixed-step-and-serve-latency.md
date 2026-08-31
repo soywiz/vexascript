@@ -31,12 +31,12 @@ the decisive technique.
 
 ## Fix
 
-- Division of two inferred `int` values now infers `number`, matching
-  JavaScript and TypeScript. An explicitly `int`-typed destination keeps the
-  existing truncating semantics.
-- Literal integer division that is explicitly truncated to zero produces a
-  source-located warning. Warnings flow through both the Vite plugin and CLI
-  serve output.
+- Unsuffixed numeric literals and `/` now use TypeScript `number` semantics, so
+  fixed timesteps such as `1 / 60` remain fractional regardless of context.
+  Explicit integer values use the `i` suffix or `int(value)`, while the `\`
+  operator provides explicit integer division.
+- Literal `\` divisions that truncate to zero produce a source-located warning.
+  Warnings flow through both the Vite plugin and CLI serve output.
 - `vexa serve` uses transpile-only graph construction by default; `--type-check`
   opts back into whole-project semantic checking. Pure type-only local imports
   and package typing collection are skipped on this runtime-only path.
@@ -48,8 +48,8 @@ the decisive technique.
 
 ## Regression coverage
 
-Tests cover inferred fractional division, explicit truncating division and its
-warning, propagation of warnings through Vite, transpile-only type-import
+Tests cover fractional `/`, explicit `\` division and its warning, propagation
+of warnings through Vite, transpile-only type-import
 elision, Vite-style serve entrypoints, public assets, and browser CSS injection.
 The platformer remains an end-to-end sample because its zero-step accumulator
 turns this otherwise subtle numeric mismatch into an immediate failure.

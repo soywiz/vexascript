@@ -37,6 +37,9 @@ const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typ
   ["false", builtinType("boolean")],
   ["null", builtinType("null")],
   ["undefined", builtinType("undefined")],
+  ["int", functionType([
+    new FunctionTypeParameter("value", builtinType("number"))
+  ], builtinType("int"))],
   ["console", objectTypeWithProperties({
     log: functionType([new FunctionTypeParameter("args", UNKNOWN_TYPE, undefined, undefined, true)], builtinType("void")),
     error: functionType([new FunctionTypeParameter("args", UNKNOWN_TYPE, undefined, undefined, true)], builtinType("void")),
@@ -47,17 +50,17 @@ const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typ
     new FunctionTypeParameter("code", functionType(noFunctionParameters(), builtinType("void"))),
     new FunctionTypeParameter("time", builtinType("number")),
     new FunctionTypeParameter("arguments", UNKNOWN_TYPE, undefined, undefined, true)
-  ], builtinType("int"))],
+  ], builtinType("number"))],
   ["setInterval", functionType([
     new FunctionTypeParameter("code", functionType(noFunctionParameters(), builtinType("void"))),
     new FunctionTypeParameter("time", builtinType("number")),
     new FunctionTypeParameter("arguments", UNKNOWN_TYPE, undefined, undefined, true)
-  ], builtinType("int"))],
+  ], builtinType("number"))],
   ["clearTimeout", functionType([
-    new FunctionTypeParameter("id", builtinType("int"))
+    new FunctionTypeParameter("id", builtinType("number"))
   ], builtinType("void"))],
   ["clearInterval", functionType([
-    new FunctionTypeParameter("id", builtinType("int"))
+    new FunctionTypeParameter("id", builtinType("number"))
   ], builtinType("void"))]
 ]);
 

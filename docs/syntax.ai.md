@@ -51,12 +51,19 @@ var x by property
 tween(view::x[0, 100], time: 1.seconds) // if Property<number>.operator[] is defined
 ```
 
-## Numeric division
+## Numeric literals and division
 
-Division of two inferred `int` operands produces a `number`, as it does in
-JavaScript and TypeScript: `1 / 60` is fractional. Only an explicitly
-`int`-typed result uses truncating 32-bit division. Prefer decimal operands such
-as `1.0 / 60.0` when the fractional intent should be visually explicit.
+- Unsuffixed numeric literals use TypeScript semantics: `10`, `0xff`, and
+  `1 / 60` are `number`; `/` always performs JavaScript fractional division.
+- Append `i` to create a signed 32-bit `int`: `10i`, `0xffi`. The literal is
+  truncated with `|0`. Unsuffixed literals and arbitrary `number` expressions
+  are never converted implicitly to `int`.
+- `int(value)` explicitly converts an expression with `value | 0` and returns
+  `int`.
+- `left \\ right` accepts `number` operands, performs division, truncates the
+  result with `|0`, and returns `int`. For example, `7 \\ 2` is `3i`.
+- Collection and string `length` properties use the standard TypeScript
+  `number` type.
 
 ## Functions
 
@@ -178,7 +185,7 @@ If a class field has an explicit type and an initializer, require the
 initializer type to be assignable to the field type. Example:
 
 ```vexa
-class Invalid { var count: int = 0.5 } // error: number is not assignable to int
+class Invalid { var count: int = 0 } // error: use 0i or int(0)
 ```
 
 ```vexa
@@ -253,7 +260,7 @@ type forms and generic arguments such as `T?[]`, `Context<User?>`, and
 
 | Type | Description | TS equivalent |
 |---|---|---|
-| `int` | 32-bit integer, wrapped with `\|0` | `number` |
+| `int` | 32-bit integer; literal suffix `i`, conversion `int(value)` | `number` |
 | `number` | 64-bit float | `number` |
 | `long` | 64-bit signed int; literal suffix `L` | `bigint` |
 | `numeric` | supertype of all numeric types | — |

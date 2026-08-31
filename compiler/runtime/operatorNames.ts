@@ -29,6 +29,7 @@ export const OPERATOR_METHOD_NAMES: Partial<Record<OverloadableOperator, string>
   "-": "operator$minus",
   "*": "operator$star",
   "/": "operator$slash",
+  "\\": "operator$integerDivide",
   "%": "operator$percent",
   "**": "operator$power",
   "<<": "operator$shiftLeft",

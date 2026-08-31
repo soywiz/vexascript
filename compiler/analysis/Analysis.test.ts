@@ -189,14 +189,14 @@ describe("Analysis", () => {
     const analysis = new Analysis(ast);
 
     expect(analysis.getVisibleSymbolsAt(2, 0).map((symbol) => symbol.name)).toEqual(expect.arrayContaining(["Id", "lookup"]));
-    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Argument 1 of type 'int' is not assignable to parameter 'id' of type 'string'");
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Argument 1 of type 'number' is not assignable to parameter 'id' of type 'string'");
   });
 
   it("tracks annotation references and validates annotation arguments", () => {
     const source = dedent`
       annotation DemoTag(val label: string)
       @DemoTag("ok")
-      @DemoTag(1)
+      @DemoTag(1i)
       @DemoTag()
       @DemoTag("a", "b")
       fun demo() {}
@@ -501,7 +501,7 @@ describe("Analysis", () => {
     const analysis = new Analysis(ast, { ambientDeclarations: (await ensureDomProgram()).body });
 
     expect(analysis.getIssues().map((issue) => issue.message)).toContain(
-      "Type argument 'int' does not satisfy constraint 'Node' for type parameter 'T'"
+      "Type argument 'number' does not satisfy constraint 'Node' for type parameter 'T'"
     );
   });
 
@@ -683,7 +683,7 @@ let after = bind`));
   it("treats ambient callable interfaces as invocable values", () => {
     const source = dedent`
       fun demo() {
-        val test: int = 10
+        val test: int = 10i
         val result = BigInt(test)
         return result
       }
@@ -975,8 +975,8 @@ val total = negative + (-4294967297n)
           operator[]=(value: string, index: int): void { }
         }
         val bag = Bag()
-        val item = bag[0]
-        bag[1] = "next"
+        val item = bag[0i]
+        bag[1i] = "next"
 
 `;
       const ast = parseFile(tokenizeReader(source));
@@ -995,8 +995,8 @@ val total = negative + (-4294967297n)
         fun Bag.operator[](index: int): string => "item"
         fun Bag.operator[]=(value: string, index: int): void { }
         val bag = Bag()
-        val item = bag[0]
-        bag[1] = "next"
+        val item = bag[0i]
+        bag[1i] = "next"
 
 `;
       const ast = parseFile(tokenizeReader(source));
@@ -1016,8 +1016,8 @@ val total = negative + (-4294967297n)
           operator[]=(value: string, x: int, y: int): void { }
         }
         val grid = Grid()
-        val item = grid[1, 2]
-        grid[1, 2] = "next"
+        val item = grid[1i, 2i]
+        grid[1i, 2i] = "next"
 
 `;
       const ast = parseFile(tokenizeReader(source));
@@ -1037,8 +1037,8 @@ val total = negative + (-4294967297n)
           operator[]=(value: string, ...dimensions: int[]): void { }
         }
         val array = MultiArray()
-        val item = array[1, 2, 3]
-        array[1, 2, 3] = "next"
+        val item = array[1i, 2i, 3i]
+        array[1i, 2i, 3i] = "next"
 
 `;
       const ast = parseFile(tokenizeReader(source));
@@ -1058,8 +1058,8 @@ val total = negative + (-4294967297n)
           operator[]=(value: T, x: int, y: int): void { }
         }
         val array = Array2<string>("seed")
-        val item = array[1, 2]
-        array[1, 2] = "next"
+        val item = array[1i, 2i]
+        array[1i, 2i] = "next"
 
 `;
       const ast = parseFile(tokenizeReader(source));
@@ -1080,7 +1080,7 @@ val total = negative + (-4294967297n)
         }
         val bag = Bag()
         val missing = bag["name"]
-        bag[0] = 42
+        bag[0i] = 42i
 
 `;
       const ast = parseFile(tokenizeReader(source));
@@ -1245,8 +1245,8 @@ val total = negative + (-4294967297n)
   it("types sync generator functions as AsyncGenerator<T> inferred from yield expressions", () => {
     const source = dedent`
       sync fun * demo() {
-        yield 10
-        yield 20
+        yield 10i
+        yield 20i
       }
       val res = demo()
       val ok: AsyncGenerator<int> = res
@@ -1260,7 +1260,7 @@ val total = negative + (-4294967297n)
       class Stream {
         sync *[Symbol.asyncIterator](): AsyncGenerator<int> {
           yield "test"
-          yield 2
+          yield 2i
         }
       }
     `;
@@ -1319,7 +1319,7 @@ val total = negative + (-4294967297n)
     const source = dedent`
       sync fun * mixedValues() {
         yield "test"
-        yield 2
+        yield 2i
       }
       sync fun * values() {
         yield* mixedValues()
@@ -1334,14 +1334,14 @@ val total = negative + (-4294967297n)
     const source = dedent`
       class Stream {
         sync *[Symbol.asyncIterator](): AsyncGenerator<int> {
-          yield 1
+          yield 1i
           yield* mixedValues()
         }
       }
 
       sync fun * mixedValues() {
         yield "test"
-        yield 2
+        yield 2i
       }
     `;
     const ast = parseFile(tokenizeReader(source));
@@ -1439,7 +1439,7 @@ val total = negative + (-4294967297n)
   it("resolves the element type of AsyncGenerator in for-in loops", () => {
     const source = dedent`
       sync fun * produce() {
-        yield 42
+        yield 42i
       }
       sync fun consume() {
         for (v in produce()) {
@@ -1548,12 +1548,12 @@ let bad = "Ada" satisfies number
         name: string
         age: int
       }
-      let person: Person = { name: "Ada", age: 36 }
+      let person: Person = { name: "Ada", age: 36i }
       let key: keyof Person = "name"
       let copiedName: typeof person.name = "Ada"
       let indexedName: Person["name"] = "Grace"
       let indexedNames: Person["name"][] = ["Grace"]
-      let indexedValue: Person[keyof Person] = 1
+      let indexedValue: Person[keyof Person] = 1i
       
 `;
 
@@ -1677,16 +1677,16 @@ let bad = "Ada" satisfies number
         value || throw "Not found"
       }
       fun pick(flag: boolean): int {
-        return if (flag) 1 else throw "No value"
+        return if (flag) 1i else throw "No value"
       }
       fun early(flag: boolean): int {
-        flag || return 0
-        return 1
+        flag || return 0i
+        return 1i
       }
       fun scan(values: int[]) {
         for (val value of values) {
-          value > 0 || continue
-          value < 10 || break
+          value > 0i || continue
+          value < 10i || break
         }
       }
     `;
@@ -1764,17 +1764,17 @@ let bad = "Ada" satisfies number
     const source = dedent`
       fun use(value: string | undefined, nested: { name: string } | undefined, payload: { name: string | undefined }): int {
         value || throw Error("missing")
-        val length: int = value.length
-        nested ?? return 0
-        val nestedLength: int = nested.name.length
+        val length: int = int(value.length)
+        nested ?? return 0i
+        val nestedLength: int = int(nested.name.length)
         payload.name ?? throw Error("missing name")
-        val memberLength: int = payload.name.length
+        val memberLength: int = int(payload.name.length)
         return length + nestedLength + memberLength
       }
       fun scan(values: (string | undefined)[]) {
         for (value of values) {
           value ?? continue
-          val length: int = value.length
+          val length: int = int(value.length)
         }
       }
     `;
@@ -1782,10 +1782,9 @@ let bad = "Ada" satisfies number
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
-    expect(analysis.getHoverAt(2, 20)?.contents).toContain("value: string");
-    expect(analysis.getHoverAt(4, 26)?.contents).toContain("nested: { name: string }");
-    expect(analysis.getHoverAt(6, 32)?.contents).toContain("name: string");
-    expect(analysis.getHoverAt(12, 22)?.contents).toContain("value: string");
+    expect(analysis.getHoverAt(2, 24)?.contents).toContain("value: string");
+    expect(analysis.getHoverAt(4, 30)?.contents).toContain("nested: { name: string }");
+    expect(analysis.getHoverAt(6, 38)?.contents).toContain("string");
   });
 
   it("reports illegal control-flow expressions using their enclosing context", () => {
@@ -1896,7 +1895,7 @@ let bad = "Ada" satisfies number
         return
       }
       function wrongVoid(): void {
-        return 1
+        return 1i
       }
       function outer(): string {
         function inner(): int {
@@ -1971,7 +1970,7 @@ let bad = "Ada" satisfies number
     const source = dedent`
       declare function promisedInt(): Promise<int>
       async function goodValue(): Promise<int> {
-        return 10
+        return 10i
       }
       async function goodPromise(): Promise<int> {
         return promisedInt()
@@ -2034,8 +2033,8 @@ let bad = "Ada" satisfies number
   it("infers Promise return types from async function returns", () => {
     const source = dedent`
       async function inferred(flag: boolean) {
-        if (flag) return 10
-        return 20
+        if (flag) return 10i
+        return 20i
       }
       let expectsPromise: (flag: boolean) => Promise<int> = inferred
     `;
@@ -2049,7 +2048,7 @@ let bad = "Ada" satisfies number
   it("contextually types Promise constructor executors and infers resolved values", () => {
     const okSource = dedent`
       let promise: Promise<int> = new Promise((resolve, reject) => {
-        resolve(123)
+        resolve(123i)
       })
     `;
     const okAnalysis = new Analysis(parseFile(tokenizeReader(okSource)));
@@ -2057,7 +2056,7 @@ let bad = "Ada" satisfies number
 
     const mismatchSource = dedent`
       let promise: Promise<string> = new Promise((resolve, reject) => {
-        resolve(123)
+        resolve(123i)
       })
     `;
     const mismatchAnalysis = new Analysis(parseFile(tokenizeReader(mismatchSource)));
@@ -2084,7 +2083,7 @@ let bad = "Ada" satisfies number
   it("contextually types Promise executors for class calls without new", () => {
     const source = dedent`
       let promise: Promise<int> = Promise { resolve, reject ->
-        resolve(123)
+        resolve(123i)
       }
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
@@ -2095,7 +2094,7 @@ let bad = "Ada" satisfies number
   it("infers Promise executor types for new expressions with trailing lambdas", () => {
     const source = dedent`
       let promise = new Promise { resolve, reject ->
-        resolve(123)
+        resolve(123i)
       }
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
@@ -2107,7 +2106,7 @@ let bad = "Ada" satisfies number
 
   it("resolves Promise.resolve(value) to Promise<T> matching the argument type", () => {
     const source = dedent`
-      let p: Promise<int> = Promise.resolve(10)
+      let p: Promise<int> = Promise.resolve(10i)
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
@@ -2115,7 +2114,7 @@ let bad = "Ada" satisfies number
 
   it("recursively unwraps nested Promise values in Promise.resolve", () => {
     const source = dedent`
-      const value = Promise.resolve(Promise.resolve(10))
+      const value = Promise.resolve(Promise.resolve(10i))
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2222,7 +2221,7 @@ let bad = "Ada" satisfies number
           else -> ({ value: "right" })
         }
       }
-      const selected: int = choose(true, 1, 2)
+      const selected: int = choose(true, 1i, 2i)
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2233,14 +2232,14 @@ let bad = "Ada" satisfies number
     const source = dedent`
       const flag: boolean = true
       const union = match {
-        flag -> 1
+        flag -> 1i
         else -> "fallback"
       }
       const optional = match {
-        flag -> 1
+        flag -> 1i
       }
       const fallbackOnly = match {
-        default -> 2
+        default -> 2i
       }
     `;
     const ast = parseFile(tokenizeReader(source));
@@ -2433,12 +2432,12 @@ let bad = "Ada" satisfies number
       fun inspect(packet: Packet): string {
         return match (packet) {
           [string, val value: number, 3] -> {
-            const tag: string = packet[0]
+            const tag: string = packet[0i]
             const bound: number = value
             bound.toString()
           }
           [int, val value: string, 3] -> {
-            const tag: int = packet[0]
+            const tag: int = packet[0i]
             const bound: string = value
             bound
           }
@@ -2446,12 +2445,12 @@ let bad = "Ada" satisfies number
         }
       }
 
-      val captured = match ([1, 2, 3]) {
-        [1, val value, 3] -> {
+      val captured = match ([1i, 2i, 3i]) {
+        [1i, val value, 3i] -> {
           const inferred: int = value
           inferred
         }
-        else -> 0
+        else -> 0i
       }
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
@@ -2476,9 +2475,9 @@ let bad = "Ada" satisfies number
       type Event =
         | { payload: { kind: "data", values: [int, int] } }
         | { payload: { kind: "error", message: string } }
-      fun inspect(event: Event): int {
+      fun inspect(event: Event): number {
         return match {
-          event is { payload: { kind: "data", values } } -> event.payload.values[0]
+          event is { payload: { kind: "data", values } } -> event.payload.values[0i]
           else -> event.payload.message.length
         }
       }
@@ -2664,7 +2663,7 @@ let bad = "Ada" satisfies number
 
   it("preserves Promise values through finally callbacks that return promises", () => {
     const source = dedent`
-      const value = Promise.resolve(1).finally({ Promise.resolve("cleanup") })
+      const value = Promise.resolve(1i).finally({ Promise.resolve("cleanup") })
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2674,7 +2673,7 @@ let bad = "Ada" satisfies number
 
   it("infers Promise.all element types from promise arrays", () => {
     const source = dedent`
-      const values = Promise.all([Promise.resolve(1), Promise.resolve(2)])
+      const values = Promise.all([Promise.resolve(1i), Promise.resolve(2i)])
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2695,7 +2694,7 @@ let bad = "Ada" satisfies number
 
   it("preserves typed tuple shapes in Promise.all", () => {
     const source = dedent`
-      const promises: [Promise<int>, Promise<string>] = [Promise.resolve(1), Promise.resolve("ok")]
+      const promises: [Promise<int>, Promise<string>] = [Promise.resolve(1i), Promise.resolve("ok")]
       const values = Promise.all(promises)
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
@@ -2706,7 +2705,7 @@ let bad = "Ada" satisfies number
 
   it("contextually types flatMap brace callbacks with generic return unions", () => {
     const source = dedent`
-      const flattened = [1].flatMap({ [it, it + 1] })
+      const flattened = [1i].flatMap({ [it, it + 1i] })
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2716,7 +2715,7 @@ let bad = "Ada" satisfies number
 
   it("infers Array.from element types from Set instances", () => {
     const source = dedent`
-      const values = Array.from(new Set([1]))
+      const values = Array.from(new Set([1i]))
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2726,8 +2725,8 @@ let bad = "Ada" satisfies number
 
   it("infers array comprehension element types", () => {
     const source = dedent`
-      const values = [for (value of [1, 2]) value.toString()]
-      const rangeValues = [for (value in 0 ..< 3) value]
+      const values = [for (value of [1i, 2i]) value.toString()]
+      const rangeValues = [for (value in 0i ..< 3i) value]
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2738,7 +2737,7 @@ let bad = "Ada" satisfies number
 
   it("infers mixed array comprehension element types", () => {
     const source = dedent`
-      const values = [1, for (value in 0 ..< 3) value, ...[4, 5], 6]
+      const values = [1i, for (value in 0i ..< 3i) value, ...[4i, 5i], 6i]
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2748,11 +2747,11 @@ let bad = "Ada" satisfies number
 
   it("infers array comprehension if-expression result types", () => {
     const source = dedent`
-      const withElse = [for (n in 0 ..< 3) if (n % 2 == 0) n else n * 3]
-      const withoutElse = [for (n in 0 ..< 3) if (n % 2 == 0) n]
+      const withElse = [for (n in 0i ..< 3i) if (n % 2i == 0i) n else n * 3i]
+      const withoutElse = [for (n in 0i ..< 3i) if (n % 2i == 0i) n]
       const combined = [
-        for (n in 0 ..< 3) if (n % 2 == 0) n else n * 3,
-        for (n in 0 ..< 3) if (n % 2 == 0) n,
+        for (n in 0i ..< 3i) if (n % 2i == 0i) n else n * 3i,
+        for (n in 0i ..< 3i) if (n % 2i == 0i) n,
       ]
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
@@ -2815,7 +2814,7 @@ let bad = "Ada" satisfies number
 
   it("preserves Map entry tuple types through Array.from", () => {
     const source = dedent`
-      const entries = Array.from(new Map([["name", 1]]))
+      const entries = Array.from(new Map([["name", 1i]]))
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2825,7 +2824,7 @@ let bad = "Ada" satisfies number
 
   it("merges heterogeneous Map constructor entry types", () => {
     const source = dedent`
-      const values = new Map([[1, "one"], ["two", 2]])
+      const values = new Map([[1i, "one"], ["two", 2i]])
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2835,7 +2834,7 @@ let bad = "Ada" satisfies number
 
   it("preserves heterogeneous array element types through Set construction", () => {
     const source = dedent`
-      const values = new Set([1, "two"])
+      const values = new Set([1i, "two"])
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2845,7 +2844,7 @@ let bad = "Ada" satisfies number
 
   it("preserves heterogeneous value types through Promise.all", () => {
     const source = dedent`
-      const values = Promise.all([Promise.resolve(1), "two"])
+      const values = Promise.all([Promise.resolve(1i), "two"])
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2855,7 +2854,7 @@ let bad = "Ada" satisfies number
 
   it("contextually types heterogeneous Array.from mapper values", () => {
     const validSource = dedent`
-      const values = Array.from([1, "two"], (value) => value.toString())
+      const values = Array.from([1i, "two"], (value) => value.toString())
     `;
     const validAnalysis = new Analysis(parseFile(tokenizeReader(validSource)));
 
@@ -2864,7 +2863,7 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(validSource, 0, 6).get("values")?.valueType).toBe("string[]");
 
     const invalidSource = dedent`
-      const values = Array.from([1, "two"], (value) => value.toFixed())
+      const values = Array.from([1i, "two"], (value) => value.toFixed())
     `;
     const invalidAnalysis = new Analysis(parseFile(tokenizeReader(invalidSource)));
 
@@ -2902,7 +2901,7 @@ let bad = "Ada" satisfies number
 
   it("contextually types Array.from mapping callbacks for iterable inputs", () => {
     const source = dedent`
-      const values = Array.from(new Set([1]), { it + 1 })
+      const values = Array.from(new Set([1i]), { it + 1i })
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2912,7 +2911,7 @@ let bad = "Ada" satisfies number
 
   it("contextually types Array.reduce callbacks with an initial accumulator", () => {
     const source = dedent`
-      const total = [1, 2].reduce({ acc, value -> acc + value }, 0)
+      const total = [1i, 2i].reduce({ acc, value -> acc + value }, 0i)
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2922,7 +2921,7 @@ let bad = "Ada" satisfies number
 
   it("infers Promise.all values from Set instances", () => {
     const source = dedent`
-      const values = Promise.all(new Set([Promise.resolve(1)]))
+      const values = Promise.all(new Set([Promise.resolve(1i)]))
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2942,7 +2941,7 @@ let bad = "Ada" satisfies number
 
   it("infers Promise.race values from Set instances", () => {
     const source = dedent`
-      const value = Promise.race(new Set([Promise.resolve(1)]))
+      const value = Promise.race(new Set([Promise.resolve(1i)]))
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2952,7 +2951,7 @@ let bad = "Ada" satisfies number
 
   it("infers Promise.any values from Set instances", () => {
     const source = dedent`
-      const value = Promise.any(new Set([Promise.resolve(1)]))
+      const value = Promise.any(new Set([Promise.resolve(1i)]))
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -2976,7 +2975,7 @@ let bad = "Ada" satisfies number
 
   it("infers Promise.allSettled values from Set instances", () => {
     const source = dedent`
-      const values = Promise.allSettled(new Set([Promise.resolve(1)]))
+      const values = Promise.allSettled(new Set([Promise.resolve(1i)]))
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -3001,7 +3000,7 @@ let bad = "Ada" satisfies number
 
   it("preserves typed tuple shapes in Promise.allSettled", () => {
     const source = dedent`
-      const promises: [Promise<int>, Promise<string>] = [Promise.resolve(1), Promise.resolve("ok")]
+      const promises: [Promise<int>, Promise<string>] = [Promise.resolve(1i), Promise.resolve("ok")]
       const values = Promise.allSettled(promises)
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
@@ -3014,7 +3013,7 @@ let bad = "Ada" satisfies number
 
   it("infers array spreads from Set instances", () => {
     const source = dedent`
-      const values = [...new Set([1])]
+      const values = [...new Set([1i])]
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -3038,7 +3037,7 @@ let bad = "Ada" satisfies number
 
   it("infers Set union element types from Set arguments", () => {
     const source = dedent`
-      const values = new Set([1]).union(new Set([2]))
+      const values = new Set([1i]).union(new Set([2i]))
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -3068,7 +3067,7 @@ let bad = "Ada" satisfies number
   it("allows returning Promise<T> inside sync/async functions with non-Promise return annotation", () => {
     const source = dedent`
       sync fun demo(): int {
-        return Promise.resolve(10)
+        return Promise.resolve(10i)
       }
       async function fetchStr(): string {
         return Promise.resolve("hi")
@@ -3109,11 +3108,11 @@ let bad = "Ada" satisfies number
 
   it("auto-awaits Promise-typed bindings inside sync functions while go preserves the Promise", () => {
     const source = dedent`
-      sync fun fetchValue(): int { return 1 }
+      sync fun fetchValue(): int { return 1i }
       sync fun main(): int {
         let x = fetchValue()
         let p: Promise<int> = go fetchValue()
-        return x + 10
+        return x + 10i
       }
     `;
 
@@ -3140,12 +3139,12 @@ let bad = "Ada" satisfies number
   it("auto-awaits Promise-typed subexpressions in argument and member positions", () => {
     const source = dedent`
       declare function use(value: int): void
-      class Box { value(): int { return 1 } }
-      sync fun fetchValue(): int { return 1 }
+      class Box { value(): int { return 1i } }
+      sync fun fetchValue(): int { return 1i }
       sync fun fetchBox(): Box { return Box() }
       sync fun main(): void {
         use(fetchValue())
-        use(fetchValue() + 1)
+        use(fetchValue() + 1i)
         use(fetchBox().value())
       }
     `;
@@ -3157,7 +3156,7 @@ let bad = "Ada" satisfies number
 
   it("keeps the Promise type of local variables instead of auto-awaiting references", () => {
     const source = dedent`
-      async fun demo2(): Promise<int> { return 10 }
+      async fun demo2(): Promise<int> { return 10i }
       sync fun demo(): void {
         let stored = go demo2()
         let alias: Promise<int> = stored
@@ -3193,10 +3192,10 @@ let bad = "Ada" satisfies number
   it("checks contextual function-expression and arrow-function returns", () => {
     const source = dedent`
       let arrow: (flag: boolean) => int = (flag) => {
-        if (flag) return 1
+        if (flag) return 1i
       }
       let expression: () => string = function(): string {
-        return 1
+        return 1i
       }
       let concise: () => int = () => "bad"
     `;
@@ -3220,7 +3219,7 @@ let bad = "Ada" satisfies number
     const source = dedent`
       function viaSwitch(value: int): string {
         switch (value) {
-          case 1:
+          case 1i:
             return "one"
           default:
             return "other"
@@ -3228,10 +3227,10 @@ let bad = "Ada" satisfies number
       }
       function viaTry(flag: boolean): int {
         try {
-          if (flag) return 1
+          if (flag) return 1i
           throw "bad"
         } catch (error) {
-          return 2
+          return 2i
         }
       }
     `;
@@ -3506,7 +3505,7 @@ let bad = "Ada" satisfies number
 
   it("reports incompatible assignment types", () => {
     const source = dedent`
-      var a = 10
+      var a = 10i
       a = "test"
 
 `;
@@ -3521,12 +3520,12 @@ let bad = "Ada" satisfies number
   it("reports non-array values used with array destructuring and invalid property delegates", () => {
     const source = dedent`
       fun useState(value: number) {
-        return 10
+        return 10i
       }
 
       fun demo2() {
-        val [value, setValue] = useState(0)
-        var nvalue by useState(0)
+        val [value, setValue] = useState(0i)
+        var nvalue by useState(0i)
       }
     `;
 
@@ -3548,11 +3547,11 @@ let bad = "Ada" satisfies number
 
     // [value] — single-element getter: valid, no error
     expect(issues("fun f() => [1]\nvar a by f()")).not.toContain("Property delegate tuple must not be empty");
-    expect(issues("fun f() => [1]\nvar a by f()")).not.toContain("Second element of property delegate tuple must be a setter function, got 'int'");
+    expect(issues("fun f() => [1]\nvar a by f()")).not.toContain("Second element of property delegate tuple must be a setter function, got 'number'");
 
     // [a, b] where b is not a function — invalid setter
     expect(issues("fun f() => [1, 2]\nvar a by f()")).toContain(
-      "Second element of property delegate tuple must be a setter function, got 'int'"
+      "Second element of property delegate tuple must be a setter function, got 'number'"
     );
 
     // [a, b, c] — too many elements
@@ -3567,7 +3566,7 @@ let bad = "Ada" satisfies number
 
     // [value, setterAlias] where setter is a callable type alias: valid
     expect(issues(
-      "type Dispatch<T> = (value: T) => void\nfun f(): [int, Dispatch<int>] => [1, (value: int) => {}]\nvar a by f()"
+      "type Dispatch<T> = (value: T) => void\nfun f(): [int, Dispatch<int>] => [1i, (value: int) => {}]\nvar a by f()"
     )).not.toContain(
       "Second element of property delegate tuple must be a setter function, got 'Dispatch<int>'"
     );
@@ -3582,7 +3581,7 @@ let bad = "Ada" satisfies number
     )).body;
     const aliasCollisionSource = dedent`
       declare function state<T>(value: T): [T, Dispatch<T>]
-      var count by state(0)
+      var count by state(0i)
     `;
     const aliasCollisionAnalysis = new Analysis(
       parseFile(tokenizeReader(aliasCollisionSource)),
@@ -3594,7 +3593,7 @@ let bad = "Ada" satisfies number
 
     // [value, setter] with mismatched types: invalid
     expect(issues("fun f() => [1, (value: string) => {}]\nvar a by f()")).toContain(
-      "Getter type 'int' is not assignable to setter parameter type 'string'"
+      "Getter type 'number' is not assignable to setter parameter type 'string'"
     );
 
     // [getter fn, setter] with matching types: valid
@@ -3604,7 +3603,7 @@ let bad = "Ada" satisfies number
 
     // [getter fn, setter] with mismatched types: invalid
     expect(issues("fun f() => [() => 10, (value: string) => {}]\nvar a by f()")).toContain(
-      "Getter type 'int' is not assignable to setter parameter type 'string'"
+      "Getter type 'number' is not assignable to setter parameter type 'string'"
     );
   });
 
@@ -3677,8 +3676,8 @@ let bad = "Ada" satisfies number
       }
 
       fun demo() {
-        const [result, setResult] = useState(0)
-        setResult(result + 1)
+        const [result, setResult] = useState(0i)
+        setResult(result + 1i)
         setResult("wrong")
         return result
       }
@@ -3716,9 +3715,9 @@ let bad = "Ada" satisfies number
 
   it("supports labeled TypeScript tuple element types", () => {
     const source = dedent`
-      let pair: [name: string, count: int] = ["Ada", 1]
+      let pair: [name: string, count: int] = ["Ada", 1i]
       const [name, count] = pair
-      let bad: [name: string, count: int] = [1, "Ada"]
+      let bad: [name: string, count: int] = [1i, "Ada"]
       fun demo() {
         return count
       }
@@ -3737,11 +3736,11 @@ let bad = "Ada" satisfies number
   it("supports arrays whose element type is a tuple", () => {
     const source = dedent`
       class Animation {}
-      let frames: [int, number, Animation][] = [[1, 0.5, Animation()]]
-      let broken: [int, string][] = [1, "hello"]
-      var demo1: [string, int][] = ["hello", 20]
-      var demo2: [string, int][] = [["hello", 20]]
-      const [frame, weight, animation] = frames[0]
+      let frames: [int, number, Animation][] = [[1i, 0.5, Animation()]]
+      let broken: [int, string][] = [1i, "hello"]
+      var demo1: [string, int][] = ["hello", 20i]
+      var demo2: [string, int][] = [["hello", 20i]]
+      const [frame, weight, animation] = frames[0i]
       fun demo() {
         return animation
       }
@@ -3767,15 +3766,15 @@ let bad = "Ada" satisfies number
     const source = dedent`
       interface Named { name: string }
       interface Aged { age: int }
-      let person: Named & Aged = { name: "Ada", age: 1 }
+      let person: Named & Aged = { name: "Ada", age: 1i }
       let incomplete: Named & Aged = { name: "Ada" }
-      let maybe: string | int = 1
+      let maybe: string | int = 1i
       maybe = "ok"
       maybe = false
       let status: "ready" | "done" = "ready"
       status = "bad"
-      let pair: [string, int] = ["age", 1]
-      pair = [2, "wrong"]
+      let pair: [string, int] = ["age", 1i]
+      pair = [2i, "wrong"]
       
 `;
 
@@ -3794,7 +3793,7 @@ let bad = "Ada" satisfies number
   it("keeps nested unions inside object type annotations", () => {
     const source = dedent`
       type Result = { value: string | int }
-      let numeric: Result = { value: 1 }
+      let numeric: Result = { value: 1i }
       let textual: Result = { value: "ok" }
       let invalid: Result = { value: true }
     `;
@@ -3812,8 +3811,8 @@ let bad = "Ada" satisfies number
     const source = dedent`
       let mapper: (value: int) => string = (value: int) => "ok"
       let badMapper: (value: int) => string = (value: int) => value
-      let point: { x: int; label?: string } = { x: 1 }
-      let badPoint: { x: int; label: string } = { x: 1, label: 2 }
+      let point: { x: int; label?: string } = { x: 1i }
+      let badPoint: { x: int; label: string } = { x: 1i, label: 2i }
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -3831,7 +3830,7 @@ let bad = "Ada" satisfies number
     const source = dedent`
       let maybe: string? = "ok"
       maybe = undefined
-      maybe = 1
+      maybe = 1i
       let callback: (() => void)? = undefined
     `;
 
@@ -3847,7 +3846,7 @@ let bad = "Ada" satisfies number
 
   it("accepts required object properties where the target property type is optional", () => {
     const source = dedent`
-      let point: { x: int, label: string? } = { x: 1, label: "ok" }
+      let point: { x: int, label: string? } = { x: 1i, label: "ok" }
       let clock: { time: number? } = { time: Date.now() }
     `;
 
@@ -3925,7 +3924,7 @@ let bad = "Ada" satisfies number
   });
 
   it("reports class field initializers that are not assignable to their declared type", () => {
-    const ast = parseFile(tokenizeReader("class Demo { var demo: int = 0.5; var ready: int = 1; var label?: string = undefined }"));
+    const ast = parseFile(tokenizeReader("class Demo { var demo: int = 0.5; var ready: int = 1i; var label?: string = undefined }"));
     const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
 
     expect(messages).toContain("Type 'number' is not assignable to type 'int'");
@@ -3935,7 +3934,7 @@ let bad = "Ada" satisfies number
 
   it("allows prefix and postfix update expressions on identifiers", () => {
     const source = dedent`
-      var a: int = 10
+      var a: int = 10i
       ++a
       --a
       a++
@@ -4005,9 +4004,9 @@ let bad = "Ada" satisfies number
     const marked = sourceWithCursor(dedent`
       class Stream {
         sync *[Symbol.asyncIterator]() {
-          yield 1
-          yield 2
-          yield 3
+          yield 1i
+          yield 2i
+          yield 3i
         }
       }
       sync fun demo() {
@@ -4027,7 +4026,7 @@ let bad = "Ada" satisfies number
     const ast = parseFile(tokenizeReader("for (item of 42) { console.log(item) }"));
     const loop = ast.body[0] as import("compiler/ast/ast").ForStatement;
     const issue = new Analysis(ast).getIssues().find((candidate) =>
-      candidate.message === "Type 'int' is not iterable"
+      candidate.message === "Type 'number' is not iterable"
     );
 
     expect(issue?.node).toBe(loop.iterable);
@@ -4035,8 +4034,8 @@ let bad = "Ada" satisfies number
 
   it("infers expression and variable types, including function signature types", () => {
     const source = dedent`
-      val a = 10
-      val b = a + 20
+      val a = 10i
+      val b = a + 20i
       val s = "hello"
       function hello(x: int): int {
         return x + b
@@ -4057,9 +4056,9 @@ let bad = "Ada" satisfies number
 
   it("infers typed arrays from literal element types", () => {
     const source = dedent`
-      let nums = [1, 2, 3]
-      let mixed = [1, "x"]
-      let mixedContinues = [1, "x", true]
+      let nums = [1i, 2i, 3i]
+      let mixed = [1i, "x"]
+      let mixedContinues = [1i, "x", true]
       fun demo() {
         return nums
       }
@@ -4144,7 +4143,7 @@ let bad = "Ada" satisfies number
       "}\n";
 
     const symbols = symbolsOfVisibleSymbolsAt(source, 3, 5);
-    expect(symbols.get("array")?.valueType).toBe("int[]");
+    expect(symbols.get("array")?.valueType).toBe("number[]");
   });
 
   it("evolves an implicitly typed empty array from unshift", () => {
@@ -4260,7 +4259,7 @@ let bad = "Ada" satisfies number
     const issues = analysis.getIssues();
 
     const mismatch = issues.find((issue) =>
-      issue.message === "Type 'int' is not assignable to type 'string'"
+      issue.message === "Type 'number' is not assignable to type 'string'"
     );
     expect(mismatch).toBeDefined();
     expect(mismatch?.node.kind).toBe(NodeKind.Identifier);
@@ -4360,7 +4359,7 @@ let bad = "Ada" satisfies number
   it("infers class instance types when classes are called without new", () => {
     const source = dedent`
       class Point(val x: int)
-      let point = Point(1)
+      let point = Point(1i)
       
 `;
     const ast = parseFile(tokenizeReader(source));
@@ -4431,7 +4430,7 @@ let bad = "Ada" satisfies number
   it("reports constructor argument type mismatches for class calls without new", () => {
     const source = dedent`
       class Demo(val a: number, val b: string)
-      Demo(10, 10)
+      Demo(10i, 10i)
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -4466,8 +4465,8 @@ let bad = "Ada" satisfies number
 
   it("infers numeric separator and non-decimal literal types", () => {
     const source = dedent`
-      let a = 1_000
-      let b = 0xff
+      let a = 1_000i
+      let b = 0xffi
       let c = 0xfn
       
 `;
@@ -4496,7 +4495,7 @@ let bad = "Ada" satisfies number
     expect(symbols.get("z")?.valueType).toBe("long");
   });
 
-  it("treats builtin string and array length properties as int", () => {
+  it("keeps builtin string and array length properties as TypeScript number", () => {
     const source = dedent`
       let textLength = "hello".length
       let arrayLength = [1, 2, 3].length
@@ -4505,9 +4504,9 @@ let bad = "Ada" satisfies number
 `;
     const symbols = symbolsOfVisibleSymbolsAt(source, 2, 5);
 
-    expect(symbols.get("textLength")?.valueType).toBe("int");
-    expect(symbols.get("arrayLength")?.valueType).toBe("int");
-    expect(symbols.get("bytesLength")?.valueType).toBe("int");
+    expect(symbols.get("textLength")?.valueType).toBe("number");
+    expect(symbols.get("arrayLength")?.valueType).toBe("number");
+    expect(symbols.get("bytesLength")?.valueType).toBe("number");
   });
 
   it("infers dedicated primitive literal node types", () => {
@@ -4547,9 +4546,9 @@ let bad = "Ada" satisfies number
 
   it("infers types for ternary, nullish coalescing, relational keywords, and unary word operators", () => {
     const source = dedent`
-      let a = true ? 1 : 2
-      let mixed = true ? 1 : "fallback"
-      let b = maybe ?? 10
+      let a = true ? 1i : 2i
+      let mixed = true ? 1i : "fallback"
+      let b = maybe ?? 10i
       let c = item in obj
       let d = item instanceof Point
       let e = typeof a
@@ -4659,10 +4658,10 @@ let bad = "Ada" satisfies number
       fun test2(a: number, b: bigint, c: string) {
       }
       fun demo() {
-        test2(1, 10L, "ok")
-        test2("hello", 10, "ok")
-        test2(1, 10L)
-        test2(1, 10L, "ok", 42)
+        test2(1i, 10L, "ok")
+        test2("hello", 10i, "ok")
+        test2(1i, 10L)
+        test2(1i, 10L, "ok", 42i)
       }
     `;
 

@@ -83,7 +83,7 @@ describe("explicit return type quick fixes", () => {
     expect(actions).toHaveLength(1);
     const edits = actions[0]?.edit?.changes?.[URI] ?? [];
     expect(applyEdits(source, edits)).toBe(
-      "async function load(): Promise<int> {\n  return 1\n}\n"
+      "async function load(): Promise<number> {\n  return 1\n}\n"
     );
   });
 
@@ -100,7 +100,7 @@ describe("explicit return type quick fixes", () => {
     expect(actions).toHaveLength(1);
     const edits = actions[0]?.edit?.changes?.[URI] ?? [];
     expect(applyEdits(source, edits)).toBe(
-      "async function load(): Promise<int> {\n  return Promise.resolve(1)\n}\n"
+      "async function load(): Promise<number> {\n  return Promise.resolve(1)\n}\n"
     );
   });
 
@@ -117,7 +117,7 @@ describe("explicit return type quick fixes", () => {
     expect(actions).toHaveLength(1);
     const edits = actions[0]?.edit?.changes?.[URI] ?? [];
     expect(applyEdits(source, edits)).toBe(
-      "async function load(ok: boolean): Promise<int> {\n  return ok ? Promise.resolve(1) : 2\n}\n"
+      "async function load(ok: boolean): Promise<number> {\n  return ok ? Promise.resolve(1) : 2\n}\n"
     );
   });
 
@@ -134,7 +134,7 @@ describe("explicit return type quick fixes", () => {
     expect(actions).toHaveLength(1);
     const edits = actions[0]?.edit?.changes?.[URI] ?? [];
     expect(applyEdits(source, edits)).toBe(
-      "function format(ok: boolean): int | string {\n  if (ok) return 1\n  return \"fallback\"\n}\n"
+      "function format(ok: boolean): number | string {\n  if (ok) return 1\n  return \"fallback\"\n}\n"
     );
   });
 
@@ -151,7 +151,7 @@ describe("explicit return type quick fixes", () => {
     expect(actions).toHaveLength(1);
     const edits = actions[0]?.edit?.changes?.[URI] ?? [];
     expect(applyEdits(source, edits)).toBe(
-      "function format(ok: boolean, other: boolean): int | string {\n  if (ok) return 1\n  return other ? 2 : \"fallback\"\n}\n"
+      "function format(ok: boolean, other: boolean): number | string {\n  if (ok) return 1\n  return other ? 2 : \"fallback\"\n}\n"
     );
   });
 

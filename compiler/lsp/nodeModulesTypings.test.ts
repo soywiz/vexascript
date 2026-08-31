@@ -847,7 +847,7 @@ describe("node_modules typings resolution", () => {
     });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
-    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("int");
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("number");
   });
 
   it("infers context through conditional low-priority config wrappers", async () => {
@@ -881,7 +881,7 @@ describe("node_modules typings resolution", () => {
     const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
-    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("int");
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("number");
   });
 
   it("infers several conditional arguments through an implemented generic interface", async () => {
@@ -1949,7 +1949,7 @@ describe("node_modules typings resolution", () => {
     const marked = sourceWithCursor(dedent`
       import { Effect, flatMap, map, pipe, succeed } from "effect-like"
 
-      const mapped: (self: Effect<int>) => Effect<int> = map((value) => value * 2)
+      const mapped: (self: Effect<number>) => Effect<number> = map((value) => value * 2)
       const result = pipe(
         succeed(21),
         map((value) => value * 2),
@@ -4290,9 +4290,9 @@ describe("node_modules typings resolution", () => {
       let readonlyNames: Names = mutableNames
       let mutableFromReadonly: string[] = readonlyNames
 
-      let readonlyPair: Pair = ["Ada", 1]
-      readonlyNames[0] = "Grace"
-      readonlyPair[1]++
+      let readonlyPair: Pair = ["Ada", 1i]
+      readonlyNames[0i] = "Grace"
+      readonlyPair[1i]++
     `;
     await writeFile(mainPath, source, "utf8");
 

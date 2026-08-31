@@ -21,7 +21,7 @@ describe("classResolverTypeNames", () => {
     const session = createAnalysisSession(source);
     const symbol = session.analysis!.getSymbolAt(line, character)?.symbol;
 
-    expect(typeNameFromAnalysisType(symbol?.type)).toBe("int");
+    expect(typeNameFromAnalysisType(symbol?.type)).toBe("number");
     expect(typeNameFromAnalysisType(undefined)).toBeNull();
   });
 

@@ -152,7 +152,7 @@ describe("lsp diagnostics", () => {
 
   it("assigns distinct return diagnostic codes at the nearest source locations", () => {
     const diagnostics = diagnosticsFor(`function incomplete(flag: boolean): int {
-  if (flag) return 1
+  if (flag) return 1i
 }
 function wrong(): int {
   return "bad"
@@ -494,10 +494,10 @@ function empty(): int {
   it("does not report parser or semantic diagnostics for keyof, typeof, and indexed access types", () => {
     const source = dedent`
       interface Person { name: string; age: int }
-      let person: Person = { name: "Ada", age: 36 }
+      let person: Person = { name: "Ada", age: 36i }
       let key: keyof Person = "name"
       let name: typeof person.name = "Ada"
-      let age: Person["age"] = 36
+      let age: Person["age"] = 36i
       `;
 
     expect(diagnosticsFor(source)).toEqual([]);

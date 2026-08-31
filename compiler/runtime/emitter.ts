@@ -273,6 +273,7 @@ function binaryPrecedence(operator: BinaryExpression["operator"]): number {
       return PREC_ADDITIVE;
     case "*":
     case "/":
+    case "\\":
     case "%":
       return PREC_MULTIPLICATIVE;
     case "**":
@@ -698,8 +699,6 @@ function emitTypedIntegerBinary(binary: BinaryExpression, leftText: string, righ
   switch (binary.operator) {
     case "*":
       return `Math.imul(${leftText}, ${rightText})`;
-    case "/":
-      return `(${leftText} / ${rightText}) | 0`;
     default:
       return null;
   }
@@ -1577,6 +1576,9 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (typedIntegerBinary) {
           return typedIntegerBinary;
         }
+        if (binary.operator === "\\") {
+          return `(${leftText} / ${rightText}) | 0`;
+        }
         // The three-way comparison (spaceship) operator has no native JS form.
         // Emit a self-contained arrow IIFE so each operand is evaluated once and
         // the result is -1 / 0 / 1 (works for numbers and strings).
@@ -1677,6 +1679,9 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case NodeKind.CallExpression: {
         const call = expression as CallExpression;
+        if (call.callee instanceof Identifier && (call.callee as Identifier).name === "int" && call.args.length === 1) {
+          return `(${emitExpression(call.args[0]!, PREC_ASSIGNMENT)} | 0)`;
+        }
         if (call.callee instanceof Identifier && call.args.length === 0) {
           const intrinsicName = (call.callee as Identifier).name;
           if (intrinsicName === "vexaRuntime") {
@@ -2516,6 +2521,9 @@ function emitEnumInitializerExpression(expression: Expr, enumName: string, membe
     }
     case NodeKind.BinaryExpression: {
       const binary = expression as BinaryExpression;
+      if (binary.operator === "\\") {
+        return `(${emitEnumInitializerExpression(binary.left, enumName, memberNames)} / ${emitEnumInitializerExpression(binary.right, enumName, memberNames)}) | 0`;
+      }
       return `${emitEnumInitializerExpression(binary.left, enumName, memberNames)} ${binary.operator} ${emitEnumInitializerExpression(binary.right, enumName, memberNames)}`;
     }
     case NodeKind.UnaryExpression: {

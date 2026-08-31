@@ -306,6 +306,11 @@ describe("formatSource", () => {
       .toBe("a << 1\nb >>= 2\nc === d\nx != y");
   });
 
+  it("formats explicit int literals and integer division", () => {
+    expect(formatSource("const quotient=10i\\3i"))
+      .toBe("const quotient = 10i \\ 3i");
+  });
+
   it("formats nullish, unary word operators, and ternary", () => {
     expect(
       formatSource("a??b\nx??=y\ntypeof a\nvoid a\ndelete a.b\nawait x\na?b:c")

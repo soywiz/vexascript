@@ -127,8 +127,8 @@ describe("Analysis", () => {
         return pair.x + pair.y
       }
       fun demo() {
-        let pair: Pair = { x: 1, y: 2 }
-        return sum({ x: 3, y: 4 })
+        let pair: Pair = { x: 1i, y: 2i }
+        return sum({ x: 3i, y: 4i })
       }
     `;
 
@@ -173,7 +173,7 @@ describe("Analysis", () => {
   it("reports missing members for inferred object literal shapes", () => {
     const source = dedent`
       fun demo() {
-        let pair = { x: 1, y: 2 }
+        let pair = { x: 1i, y: 2i }
         return pair.z
       }
     `;
@@ -188,7 +188,7 @@ describe("Analysis", () => {
   it("infers shorthand and spread object literal shapes and checks spread operands", () => {
     const source = dedent`
       fun demo() {
-        let a = 1
+        let a = 1i
         let base = { name: "Ada" }
         let merged = { a, ...base, name: "Grace" }
         let age: int = merged.name
@@ -220,11 +220,11 @@ describe("Analysis", () => {
 
   it("propagates array element type through iterator and computed assignment", () => {
     const source = dedent`
-      let nums = [1, 2, 3]
+      let nums = [1i, 2i, 3i]
       for (value in nums) {
         let s: string = value
       }
-      nums[0] = "x"
+      nums[0i] = "x"
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -293,12 +293,12 @@ describe("Analysis", () => {
         return value
       }
       fun first<T>(items: T[]): T {
-        return items[0]
+        return items[0i]
       }
       let okString: string = identity("hello")
       let wrongString: int = identity("hello")
-      let okArray: int = first([1, 2, 3])
-      let wrongArray: string = first([1, 2, 3])
+      let okArray: int = first([1i, 2i, 3i])
+      let wrongArray: string = first([1i, 2i, 3i])
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -399,9 +399,9 @@ describe("Analysis", () => {
       }
       fun mapValue<T, U>(value: T, mapper: Mapper<T, U>): U {
       }
-      let okNumber: number = mapValue(1, { map: item => 1 })
+      let okNumber: number = mapValue(1i, { map: item => 1i })
       let okText: string = mapValue("hello", { map: item => "ok" })
-      let wrongArgument = mapValue(1, { map: item => item.missing })
+      let wrongArgument = mapValue(1i, { map: item => item.missing })
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -465,7 +465,7 @@ describe("Analysis", () => {
       type TextBox = Box<Text>
       type Boxed<T> = Box<T>
       let ok: Text = "hello"
-      let bad: Text = 1
+      let bad: Text = 1i
       let box: Boxed<Text> = new Box<string>()
       let value: string = box.value
       let wrongValue: int = box.value
@@ -541,10 +541,10 @@ describe("Analysis", () => {
       let loading: LoadingState = "loading"
       let final: FinalState = "done"
       let labels: Labels = { title: "Hello", subtitle: "World" }
-      let config: Config = { theme: "light", retries: 3 }
+      let config: Config = { theme: "light", retries: 3i }
       let settled: Settled = "ok"
       let fnReturn: FnReturn = true
-      let fnParameters: FnParameters = ["Ada", 1]
+      let fnParameters: FnParameters = ["Ada", 1i]
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -565,8 +565,8 @@ describe("Analysis", () => {
       type Receiver = ThisParameterType<Method>
       type BoundMethod = OmitThisParameter<Method>
 
-      let ctorArgs: UserCtorArgs = ["Ada", 1]
-      let user: UserInstance = new User("Ada", 1)
+      let ctorArgs: UserCtorArgs = ["Ada", 1i]
+      let user: UserInstance = new User("Ada", 1i)
       let receiver: Receiver = user
       let bound: BoundMethod = (value: string) => true
     `;
@@ -626,7 +626,7 @@ describe("Analysis", () => {
       type First<T extends ReadonlyArray<unknown>> = T[number]
 
       let names: ReadonlyNames = ["Ada", "Grace"]
-      let pair: ReadonlyPair = ["Ada", 1]
+      let pair: ReadonlyPair = ["Ada", 1i]
       let arrayLike: ReadonlyArray<string> = names
       let firstName: First<ReadonlyNames> = "Ada"
     `;
@@ -646,9 +646,9 @@ describe("Analysis", () => {
       let readonlyNames: ReadonlyNames = mutableNames
       let mutableFromReadonly: string[] = readonlyNames
 
-      let readonlyPair: ReadonlyPair = ["Ada", 1]
-      readonlyNames[0] = "Grace"
-      readonlyPair[1]++
+      let readonlyPair: ReadonlyPair = ["Ada", 1i]
+      readonlyNames[0i] = "Grace"
+      readonlyPair[1i]++
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -669,14 +669,14 @@ describe("Analysis", () => {
       type FrozenViaMapped = Freeze<User>
       type MutableAgain = { -readonly [K in keyof FrozenViaMapped]-?: FrozenViaMapped[K] }
 
-      let frozenUser: FrozenUser = { id: 1, name: "Ada" }
-      let frozenViaMapped: FrozenViaMapped = { id: 2 }
-      let mutableAgain: MutableAgain = { id: 3, name: "Grace" }
+      let frozenUser: FrozenUser = { id: 1i, name: "Ada" }
+      let frozenViaMapped: FrozenViaMapped = { id: 2i }
+      let mutableAgain: MutableAgain = { id: 3i, name: "Grace" }
       let exactUser: { id: int, name: string } = mutableAgain
 
-      frozenUser.id = 2
-      frozenViaMapped["id"] = 4
-      mutableAgain.id = 5
+      frozenUser.id = 2i
+      frozenViaMapped["id"] = 4i
+      mutableAgain.id = 5i
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -697,7 +697,7 @@ describe("Analysis", () => {
       type Handler = (name: string, count: int) => boolean
 
       let element: Element<string[]> = "Ada"
-      let awaitedValue: AwaitedValue<Promise<int>> = 1
+      let awaitedValue: AwaitedValue<Promise<int>> = 1i
       let result: Result<Handler> = true
     `;
 
@@ -739,9 +739,9 @@ describe("Analysis", () => {
       type WithoutName<T> = { [K in keyof T as Exclude<K, "name">]: T[K] }
       type Concrete<T> = { [K in keyof T as K]-?: T[K] }
 
-      let labels: Labels<Person> = { label_name: "Ada", label_age: 1 }
+      let labels: Labels<Person> = { label_name: "Ada", label_age: 1i }
       let labelName: string = labels.label_name
-      let onlyAge: WithoutName<Person> = { age: 1 }
+      let onlyAge: WithoutName<Person> = { age: 1i }
       let age: int = onlyAge.age
       let concrete: Concrete<MaybePerson> = { name: "Ada" }
       let concreteName: string = concrete.name
@@ -765,8 +765,8 @@ describe("Analysis", () => {
 
       let token: Token = Symbol.iterator
       let assertString: AssertString = (value: unknown) => {}
-      let args: UserCtorArgs = ["Ada", 1]
-      let user: UserInstance = new User("Ada", 1)
+      let args: UserCtorArgs = ["Ada", 1i]
+      let user: UserInstance = new User("Ada", 1i)
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -936,7 +936,7 @@ describe("Analysis", () => {
           stored = next
         }
         fun bump(): int {
-          value += 1
+          value += 1i
           return value
         }
       }
@@ -999,7 +999,7 @@ describe("Analysis", () => {
       fun demo() {
         const map: Map<string, int> = new Map<string, int>()
         const ok: int = map.get("id")
-        const badArg: int = map.get(1)
+        const badArg: int = map.get(1i)
         const badReturn: string = map.get("id")
       }
     `;
@@ -1675,8 +1675,8 @@ describe("Analysis", () => {
   it("rejects direct construction of abstract classes", () => {
     const source = dedent`
       abstract class Demo(val value: int)
-      Demo(1)
-      new Demo(2)
+      Demo(1i)
+      new Demo(2i)
     `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
@@ -2067,18 +2067,18 @@ describe("Analysis", () => {
   it("checks rest parameters, spread arguments, and optional access types", () => {
     const source = dedent`
       fun collect(label: string, ...values: int[]): int {
-        return values[0]
+        return values[0i]
       }
-      let numbers: int[] = [1, 2, 3]
-      let moreNumbers = [0, ...numbers]
-      let ok: int = collect("ok", 1, 2, ...numbers)
+      let numbers: int[] = [1i, 2i, 3i]
+      let moreNumbers = [0i, ...numbers]
+      let ok: int = collect("ok", 1i, 2i, ...numbers)
       let bad = collect("bad", "wrong")
       interface MaybeRunner {
         run(): int
       }
       let maybe: MaybeRunner | undefined
       let optionalCall = maybe?.run()
-      let optionalElement = numbers?.[0]
+      let optionalElement = numbers?.[0i]
       let badOptional: int = optionalCall
     `;
 
@@ -2104,10 +2104,10 @@ describe("Analysis", () => {
       fun announce(label: string, value: int) {
         console.log(label, value)
       }
-      schedule(announce, 0, "named", 3)
+      schedule(announce, 0i, "named", 3i)
       schedule(async (value: int) => {
         await Promise.resolve(value)
-      }, 0, 4)
+      }, 0i, 4i)
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -2179,7 +2179,7 @@ describe("Analysis", () => {
       fun read(values: int[], index: int): int {
         const value = values?.[index]
         if (value === undefined) throw new Error("missing")
-        return value + 1
+        return value + 1i
       }
     `;
 

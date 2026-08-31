@@ -389,6 +389,30 @@ describe("parseExpression", () => {
         expect(parseExpression(tokenizeReader("0xfn"))).toEqual(
             { kind: NodeKind.BigIntLiteral, value: 15n }
         );
+        expect(parseExpression(tokenizeReader("4_294_967_297i"))).toEqual(
+            { kind: NodeKind.IntLiteral, value: 1, explicitInt: true }
+        );
+    });
+
+    it("parses integer division with multiplicative precedence", () => {
+        expect(parseExpression(tokenizeReader("10 \\ 3 + 1"))).toMatchObject({
+            kind: NodeKind.BinaryExpression,
+            operator: "+",
+            left: {
+                kind: NodeKind.BinaryExpression,
+                operator: "\\",
+                left: { kind: NodeKind.IntLiteral, value: 10 },
+                right: { kind: NodeKind.IntLiteral, value: 3 }
+            },
+            right: { kind: NodeKind.IntLiteral, value: 1 }
+        });
+    });
+
+    it("rejects the VexaScript int suffix in TypeScript mode", () => {
+        expect(() => parseExpression(
+            tokenizeReader("10i", { language: "typescript" }),
+            { language: "typescript" }
+        )).toThrow("The 'i' integer suffix is only available in VexaScript");
     });
 
     it("builds an AST for boolean, null, and undefined literals", () => {

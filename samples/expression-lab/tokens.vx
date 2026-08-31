@@ -5,7 +5,7 @@ export enum TokenKind {
   EOF = "eof"
 }
 
-export class Token(val kind: TokenKind, val text: string, val index: int) {
+export class Token(val kind: TokenKind, val text: string, val index: number) {
   describe(): string {
     return `${kind}@${index}:${text}`
   }
@@ -26,7 +26,7 @@ export fun isIdentifierPart(value: string): boolean {
   return isIdentifierStart(value) || isDigit(value)
 }
 
-export fun previewTokens(tokens: Token[], limit: int = 10): string {
+export fun previewTokens(tokens: Token[], limit: number = 10): string {
   return tokens
     .slice(0, limit)
     .map { token -> token.describe() }

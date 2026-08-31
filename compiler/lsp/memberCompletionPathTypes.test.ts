@@ -19,7 +19,7 @@ describe("memberCompletionPathTypes", () => {
       resolverOptions,
       createClassResolverCache(),
       resolveExtensionMemberTypeName
-    )).toBe("int");
+    )).toBe("number");
   });
 
   it("resolves annotated bindings and chained class members", async () => {

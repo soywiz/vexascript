@@ -1623,7 +1623,7 @@ export async function resolveExpressionTypeName(
       ast,
       options
     );
-    return argumentType ?? "int";
+    return argumentType ?? "number";
   }
 
   if (expression instanceof ConditionalExpression) {
@@ -1637,7 +1637,7 @@ export async function resolveExpressionTypeName(
   }
 
   if (expression instanceof RangeExpression) {
-    return "range<int>";
+    return "range<number>";
   }
 
   if (expression instanceof BinaryExpression) {
@@ -1646,6 +1646,9 @@ export async function resolveExpressionTypeName(
     const right = await resolveExpressionTypeName(binary.right, analysis, ast, options);
     if (binary.operator === "+" && (left === "string" || right === "string")) {
       return "string";
+    }
+    if (binary.operator === "\\") {
+      return "int";
     }
     if (
       [

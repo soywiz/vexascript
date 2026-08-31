@@ -313,7 +313,7 @@ Classes can declare their constructor parameters inline after the class name (Ko
 
 ```vexa
 class Point(val x: number, val y: number)
-class User(val name: string, var age: int = 0)
+class User(val name: string, var age: int = 0i)
 ```
 
 Primary-constructor parameters can be forwarded directly to a base constructor.
@@ -357,11 +357,12 @@ const p = new Point(1, 2);   // TypeScript equivalent
 `new ClassName(...)` is still valid and accepted.
 
 VexaScript also checks each class-field initializer against its explicit field
-type. Its distinct `int` type therefore rejects fractional `number` values:
+type. Its distinct `int` type rejects every implicit `number` conversion,
+including integer-looking literals:
 
 ```vexa
 class Invalid {
-  var count: int = 0.5 // error
+  var count: int = 0 // error: use 0i or int(0)
 }
 ```
 
@@ -605,13 +606,26 @@ VexaScript extends the TypeScript type system with explicit integer types.
 
 `long` literals use the `L` suffix: `10L`, `0xffL`. At runtime, `long` values are lowered to JavaScript `bigint` with 64-bit wrapping (`BigInt.asIntN(64, ...)`).
 
-`int` expressions are wrapped with `|0` to keep the values `int32`.
+Unsuffixed numeric literals have TypeScript's `number` type, including literals
+whose spelling has no decimal point. Use the VexaScript-only `i` suffix for an
+explicit signed 32-bit literal. It truncates with JavaScript `|0`; arbitrary
+`number` values do not convert to `int` implicitly. The intrinsic `int(value)`
+performs that explicit `|0` conversion and returns `int`.
 
 ```vexa
-val count: int = 0
+val count: int = 0i
+val wrapped = 4_294_967_297i // 1i
+val converted = int(3.9)     // 3i
 val big: long = 9_223_372_036_854_775_807L
 val ratio: number = 3.14
 ```
+
+The `/` operator always follows JavaScript/TypeScript division and returns a
+fractional `number`, so `1 / 60` is non-zero. VexaScript adds `\\` at
+multiplicative precedence for explicit integer division: `7 \\ 2` emits as
+`(7 / 2) | 0` and has type `int`. Standard-library properties such as
+`Array.length` and `String.length` retain TypeScript's `number` type; the
+ES2025 declarations contain no VexaScript `int` types.
 
 ## Statements
 

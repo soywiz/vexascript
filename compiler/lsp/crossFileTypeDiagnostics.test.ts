@@ -150,7 +150,7 @@ describe("cross-file type diagnostics", () => {
       "Argument 1 of type 'string' is not assignable to parameter 'value' of type 'number'"
     );
     expect(messages).toContain(
-      "Argument 2 of type 'int' is not assignable to parameter 'text' of type 'string'"
+      "Argument 2 of type 'number' is not assignable to parameter 'text' of type 'string'"
     );
     expect(messages).toContain("Expected at least 2 argument(s), but got 1");
     expect(messages).toContain("Expected at most 2 argument(s), but got 3");
@@ -868,7 +868,7 @@ describe("cross-file type diagnostics", () => {
     const messages = diagnostics.map((diagnostic) => diagnostic.message);
 
     expect(messages).toContain(
-      "Argument 1 of type 'int' is not assignable to parameter 'key' of type 'string'"
+      "Argument 1 of type 'number' is not assignable to parameter 'key' of type 'string'"
     );
   });
 
@@ -907,7 +907,7 @@ describe("cross-file type diagnostics", () => {
     const messages = diagnostics.map((diagnostic) => diagnostic.message);
 
     expect(messages).toContain(
-      "Argument 1 of type 'int' is not assignable to parameter 'key' of type 'string'"
+      "Argument 1 of type 'number' is not assignable to parameter 'key' of type 'string'"
     );
   });
 

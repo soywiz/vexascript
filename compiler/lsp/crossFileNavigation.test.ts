@@ -2404,7 +2404,7 @@ describe("cross-file navigation", () => {
     const file = join(root, "main.vx");
     const source = dedent`
       class Adler32 {
-        private checksum = 1
+        private checksum = 1i
         value => checksum
       }
       val adler = Adler32()

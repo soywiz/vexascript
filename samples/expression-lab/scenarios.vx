@@ -37,7 +37,7 @@ export const scenarios: Scenario[] = [
   }
 ]
 
-export function buildStressScenario(width: int = 32): Scenario {
+export function buildStressScenario(width: number = 32): Scenario {
   const parts: string[] = ["seed = 3", "acc = 0"]
 
   for (index of 1 ... width) {
@@ -55,7 +55,7 @@ export function buildStressScenario(width: int = 32): Scenario {
   }
 }
 
-export function buildPipelineScenario(width: int = 24): Scenario {
+export function buildPipelineScenario(width: number = 24): Scenario {
   const parts: string[] = ["seed = 11", "rolling = 0", "checksum = 1"]
 
   for (index of 1 ... width) {
@@ -75,7 +75,7 @@ export function buildPipelineScenario(width: int = 24): Scenario {
   }
 }
 
-export function buildMonsterScenario(width: int = 48): Scenario {
+export function buildMonsterScenario(width: number = 48): Scenario {
   const parts: string[] = ["origin = 2", "acc = 0", "floor = 0"]
 
   for (index of 1 ... width) {

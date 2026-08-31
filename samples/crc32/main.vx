@@ -14,7 +14,7 @@ export class CRC32 {
 
   public calculate(input: string): number {
     val bytes = strToBytes(input);
-    var crc: int = 0xFFFFFFFF;
+    var crc: int = 0xFFFFFFFFi;
     for (const byte of bytes) {
       const tableIndex = (crc ^ byte) & 0xFF;
       const tableVal = LOOKUP_TABLE?.[tableIndex];

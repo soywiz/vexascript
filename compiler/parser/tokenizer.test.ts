@@ -512,6 +512,14 @@ describe("tokenizer", () => {
         expect(() => tokenize("10e+")).toThrow("Invalid exponent in number literal")
     })
 
+    it("tokenizes the VexaScript int suffix and integer-division operator", () => {
+        expect(simplifyTokens("10i \\ 3")).toStrictEqual([
+            { type: "number", value: "10i" },
+            { type: "symbol", value: "\\" },
+            { type: "number", value: "3" }
+        ]);
+    });
+
     it("tracks offset/line/column ranges for tokens", () => {
         const tokens = tokenize("a\n+ 2").filter((token) => token.type !== TokenType.END_OF_FILE);
         expect(tokens.map((token) => token.range)).toEqual([

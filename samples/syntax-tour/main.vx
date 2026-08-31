@@ -17,8 +17,8 @@ declare abstract class AbstractShape {
 }
 
 enum Demo {
-  NONE = 0,
-  HELLO = 1 << 0, WORLD = 1 << 1,
+  NONE = 0i,
+  HELLO = 1i << 0i, WORLD = 1i << 1i,
   HELLO_AND_WORLD = HELLO | WORLD;
 }
 
@@ -176,7 +176,7 @@ const configuredCounter = Counter()
   ..increment(2)
 var state by useState(2)
 const grid = Grid()
-const pathKey = PathKey()[2, 3, 4]
+const pathKey = PathKey()[2i, 3i, 4i]
 const multiGrid = MultiGrid()
 const slider = Slider(5)
 const sliderProperty = slider::x
@@ -185,9 +185,9 @@ const initialSlider = sliderProperty.value
 
 state++
 state += 3
-grid[1, 0] = 9
-grid[0, 1] = 4
-multiGrid[2, 3, 4] = 12
+grid[1i, 0i] = 9
+grid[0i, 1i] = 4
+multiGrid[2i, 3i, 4i] = 12
 sliderProperty.value = 10
 var boundSlider by sliderProperty
 boundSlider += 5
@@ -234,13 +234,13 @@ func classifyMatch(value: any): string {
 
 console.log(`types:${sampleName}:${sampleKey}:${item}:${mutablePair.first}/${pair[1]}:${LocalTools.label("ns")}`)
 console.log(`imports:${toolLabel("x")}:${runtimeBoxValue}:${Direction.Up}:${CompassDirection.Right}:${Status.Done}`)
-console.log(`functions:${joinWords("syntax")}:${upper("tour")}:${lower("LOUD")}:${renamedValue}:${describe(4)}:${describe("x")}:${overloaded(3)}:${overloaded("y")}`)
+console.log(`functions:${joinWords("syntax")}:${upper("tour")}:${lower("LOUD")}:${renamedValue}:${describe(4i)}:${describe("x")}:${overloaded(3i)}:${overloaded("y")}`)
 console.log(`default:${defaultFormatter("value")}:${collect("nums", ...[1, 2, 3])}:${identity<string>("id")}`)
 console.log(`class:${thing.description}:${makeDescription()}:${point.label}:${moved.label}:${combined.label}:${scaled.label}:${point.isOrigin}:${Point.origin.isOrigin}:${rectangle.area()}`)
 console.log(`counter:${counter.increment(2)}:${[...counter.values()].join("|")}:${counter.id}:${counter.service}`)
 console.log(`chain:${configuredCounter.value}:${configuredCounter.service}`)
 console.log(`delegates:${state}`)
-console.log(`indexers:${grid[1, 0]}:${grid[0, 1]}:${grid[1, 0] + grid[0, 1]}:${pathKey}:${multiGrid[2, 3, 4]}`)
+console.log(`indexers:${grid[1i, 0i]}:${grid[0i, 1i]}:${grid[1i, 0i] + grid[0i, 1i]}:${pathKey}:${multiGrid[2i, 3i, 4i]}`)
 console.log(`propertyRefs:${sliderProperty.name}:${initialSlider}:${afterDelegate}:${tweenLabel}:${slider.x}:${pointXProperty.name}:${pointXProperty.value}`)
 console.log(`destructure:${head}:${third}:${unpack({ name: sampleName, describe: function(): string { return thing.description }, tag: "tag" } as Described & { tag: string }, ["a", "b", "c", "d"])}:${objectLiteral.method()}`)
 console.log(`expressions:${arrayLiteral.length}:${arrayLiteral[1] === undefined}:${regex.test("Ada")}:${maybeObject?.nested?.value}:${asserted}:${delete objectLiteral[dynamicKey]}`)

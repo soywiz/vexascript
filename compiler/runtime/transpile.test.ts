@@ -58,25 +58,25 @@ function decodeSourceLinesFromMappings(mappings: string): number[] {
 describe("transpile", () => {
   it("executes control-flow expressions with short-circuit semantics", () => {
     const result = transpile(`
-fun get(items: string[], index: int): string {
+fun get(items: string[], index: number): string {
   items[index] || throw Error("Not found")
   return items[index]
 }
-fun early(flag: boolean): int {
+fun early(flag: boolean): number {
   flag || return 7
   return 9
 }
-fun pick(flag: boolean): int {
+fun pick(flag: boolean): number {
   return if (flag) 11 else throw Error("No pick")
 }
-fun blockPick(flag: boolean): int {
+fun blockPick(flag: boolean): number {
   val result = if (flag) { val base = 10; base + 2 } else { 13 }
   return result
 }
-class ControlExpressionTarget(val base: int) {
-  fun add(value: int): int { return base + value }
+class ControlExpressionTarget(val base: number) {
+  fun add(value: number): number { return base + value }
 }
-fun invoke(flag: boolean): int {
+fun invoke(flag: boolean): number {
   val target = ControlExpressionTarget(20)
   return target.add(if (flag) 2 else return 0)
 }
@@ -93,7 +93,7 @@ try { get([], 0) } catch (error) { console.log(error.message) }
 
   it("preserves loop behavior for break and continue expressions", () => {
     const result = transpile(`
-val kept: int[] = []
+val kept: number[] = []
 for (val value of [0, 1, 2, 10, 3]) {
   value > 0 || continue
   value < 10 || break
@@ -318,7 +318,7 @@ console.log(...kept)
   });
 
   it("preserves class-call instantiation when preserving source line offsets", () => {
-    const source = "class Point(val x: int)\n\nlet point = Point(1)";
+    const source = "class Point(val x: number)\n\nlet point = Point(1)";
 
     const result = transpile(source, { preserveSourceLineOffsets: true });
 
@@ -348,7 +348,7 @@ console.log(...kept)
     const source = [
       "class Counter {",
       "  #value = 1",
-      "  read(): int { return this.#value }",
+      "  read(): number { return this.#value }",
       "}",
       "const counter = Counter()",
       "counter.read()"
@@ -490,8 +490,8 @@ console.log(...kept)
 
   it("auto-awaits Promise-typed statements inside sync functions", () => {
     const source = [
-      "sync fun fetchValue(): int { return 1 }",
-      "sync fun main(): int {",
+      "sync fun fetchValue(): number { return 1 }",
+      "sync fun main(): number {",
       "  let x = fetchValue()",
       "  x = fetchValue()",
       "  fetchValue()",
@@ -515,9 +515,9 @@ console.log(...kept)
 
   it("auto-awaits Promise-typed subexpressions anywhere inside sync functions", () => {
     const source = [
-      "declare function use(a: int, b: int): void",
-      "declare function add(a: int, b: int): int",
-      "sync fun fetchValue(): int { return 1 }",
+      "declare function use(a: number, b: number): void",
+      "declare function add(a: number, b: number): number",
+      "sync fun fetchValue(): number { return 1 }",
       "sync fun main(): void {",
       "  use(fetchValue(), fetchValue())",
       "  let total = fetchValue() + add(fetchValue(), 2)",
@@ -536,10 +536,10 @@ console.log(...kept)
 
   it("auto-awaits a Promise receiver before a member call but not for then/catch/finally", () => {
     const source = [
-      "class Box { value(): int { return 1 } }",
+      "class Box { value(): number { return 1 } }",
       "sync fun fetchBox(): Box { return Box() }",
-      "sync fun fetchValue(): int { return 1 }",
-      "declare function use(v: int): void",
+      "sync fun fetchValue(): number { return 1 }",
+      "declare function use(v: number): void",
       "sync fun main(): void {",
       "  let v = fetchBox().value()",
       "  fetchValue().then(use)",
@@ -557,10 +557,10 @@ console.log(...kept)
 
   it("suppresses auto-await with the go operator and only auto-awaits inside sync functions", () => {
     const source = [
-      "declare function use(p: Promise<int>): void",
-      "sync fun fetchValue(): int { return 1 }",
+      "declare function use(p: Promise<number>): void",
+      "sync fun fetchValue(): number { return 1 }",
       "sync fun main(): void {",
-      "  let p: Promise<int> = go fetchValue()",
+      "  let p: Promise<number> = go fetchValue()",
       "  go fetchValue()",
       "  use(go fetchValue())",
       "  let nested = () => { let r = fetchValue() }",
@@ -580,7 +580,7 @@ console.log(...kept)
 
   it("does not auto-await inside async functions (async behaves like TypeScript)", () => {
     const source = [
-      "async fun fetchValue(): Promise<int> { return 1 }",
+      "async fun fetchValue(): Promise<number> { return 1 }",
       "async fun main(): Promise<void> {",
       "  let x = fetchValue()",
       "  fetchValue()",
@@ -598,9 +598,9 @@ console.log(...kept)
 
   it("applies sync and async semantics inside modified tail lambdas", () => {
     const source = [
-      "declare function testSync(name: string, callback: (value: int) => int): void",
-      "declare function testAsync(name: string, callback: (value: int) => Promise<int>): void",
-      "sync fun fetchValue(): int { return 1 }",
+      "declare function testSync(name: string, callback: (value: number) => number): void",
+      "declare function testAsync(name: string, callback: (value: number) => Promise<number>): void",
+      "sync fun fetchValue(): number { return 1 }",
       'testSync("sync", sync { fetchValue() })',
       'testAsync("async", async { fetchValue() })'
     ].join("\n");
@@ -626,7 +626,7 @@ console.log(...kept)
 
   it("does not auto-await bare local variable or parameter references", () => {
     const source = [
-      "async fun demo2(): Promise<int> { return 10 }",
+      "async fun demo2(): Promise<number> { return 10 }",
       "sync fun demo(): void {",
       "  let stored = go demo2()",
       "  let alias = stored",
@@ -648,7 +648,7 @@ console.log(...kept)
     const source = [
       "function describe(value: int): string { return \"int\" }",
       "function describe(value: string): string { return value }",
-      "let a = describe(1)",
+      "let a = describe(1i)",
       "let b = describe(\"x\")"
     ].join("\n");
 
@@ -897,7 +897,7 @@ fun Child.myExtension(): void {
   identity(value: int): int { return value }
 }
 fun Counter.doubled(): int { return value + value }
-val Counter.next => increment(1)`;
+val Counter.next => increment(1i)`;
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
@@ -913,8 +913,8 @@ val Counter.next => increment(1)`;
   it("lowers named extension method calls to standalone receiver-mangled functions", () => {
     const source = `class Counter(val value: int) {}
 fun Counter.plus(amount: int): int { return value + amount }
-let counter = new Counter(5)
-let total = counter.plus(2)`;
+let counter = new Counter(5i)
+let total = counter.plus(2i)`;
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
@@ -925,13 +925,13 @@ let total = counter.plus(2)`;
 
   it("lowers chain expressions to statements that return the receiver", () => {
     const source = `class Badge {
-  var point: int = 0
+  var point: int = 0i
   beginFill(color: int): Badge { return this }
   endFill(): Badge { return this }
 }
 val badge = Badge()
-  ..point = 7
-  ..beginFill(1)
+  ..point = 7i
+  ..beginFill(1i)
   ..endFill()
 console.log(badge.point)`;
     const result = transpile(source);
@@ -980,24 +980,24 @@ val badge = Graphics()
     expect(result.code).not.toContain("Graphics$$addTo");
   });
 
-  it("lowers int multiplication and division to 32-bit JavaScript operations", () => {
-    const source = `let a: int = 9
-let b: int = 4
+  it("keeps slash fractional and lowers explicit integer operations", () => {
+    const source = `let a: int = 9i
+let b: int = 4i
 let product: int = a * b
-let quotient: int = a / b
 let ratio = a / b
 const fixedStep = 1 / 60
-const truncatedStep: int = 1 / 60`;
+const quotient = 1 \\ 60
+const converted = int(4.9)`;
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("let product = Math.imul(a, b);");
-    expect(result.code).toContain("let quotient = (a / b) | 0;");
     expect(result.code).toContain("let ratio = a / b;");
     expect(result.code).toContain("const fixedStep = 1 / 60;");
-    expect(result.code).toContain("const truncatedStep = (1 / 60) | 0;");
+    expect(result.code).toContain("const quotient = (1 / 60) | 0;");
+    expect(result.code).toContain("const converted = (4.9 | 0);");
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain("Integer literal division 1 / 60 truncates to 0");
+    expect(result.warnings[0]).toContain("Integer literal division 1 \\ 60 truncates to 0");
   });
 
   it("mangles and lowers extension properties", () => {
@@ -1035,12 +1035,12 @@ if (true) {
 
   it("emits contextually resolved brace arguments and equivalent type checks", () => {
     const source = `interface Options { it: int }
-fun transform(fn: (value: int) => int): int { return fn(1) }
+fun transform(fn: (value: int) => int): int { return fn(1i) }
 fun consume(options: Options): int { return options.it }
 class Cat {}
-let it = 4
+let it = 4i
 let a = transform({ it })
-let b = transform({ value -> value + 1 })
+let b = transform({ value -> value + 1i })
 let c = consume({ it })
 let cat: Cat | string = new Cat()
 if (cat is Cat) { transform({ it }) }
@@ -1088,7 +1088,7 @@ clampUnit(2)`;
   it("renames classes with @JsName without touching member access", () => {
     const source = `@JsName("rgba")
 class Color(val value: int)
-val c = new Color(1)
+val c = new Color(1i)
 c.value`;
 
     const result = transpile(source);
@@ -1221,7 +1221,7 @@ c.value`;
 
   it("reports an error when ++ is applied to a non-numeric type", () => {
     const source = `class Foo(val x: int) {}
-let f = Foo(1)
+let f = Foo(1i)
 f++`;
     const result = transpile(source);
     expect(result.errors.length).toBe(1);
@@ -1242,9 +1242,9 @@ f++`;
   get value(): int => current
   set value(n: int) { current = n }
 }
-let c by Counter(0)
+let c by Counter(0i)
 c++
-c += 5`;
+c += 5i`;
     const result = transpile(source);
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("const __$delegate_c = new Counter(0);");
@@ -1331,7 +1331,7 @@ c += 5`;
   it("emits for await for a class that implements Symbol.asyncIterator", () => {
     const source = [
       "class Stream {",
-      "  async *[Symbol.asyncIterator](): AsyncGenerator<int> {",
+      "  async *[Symbol.asyncIterator](): AsyncGenerator<number> {",
       "    yield 1",
       "  }",
       "}",
@@ -1352,13 +1352,13 @@ c += 5`;
   it("ranges non-iterable for-of diagnostics over the source expression", () => {
     const result = transpile("for (item of 42) { console.log(item) }");
 
-    expect(result.errors).toEqual(["Type 'int' is not iterable at 1:14"]);
+    expect(result.errors).toEqual(["Type 'number' is not iterable at 1:14"]);
     expect(result.diagnostics).toEqual([
       expect.objectContaining({
         line: 1,
         column: 14,
         endColumn: 16,
-        message: "Type 'int' is not iterable"
+        message: "Type 'number' is not iterable"
       })
     ]);
   });
@@ -1390,8 +1390,8 @@ c += 5`;
       "class Money(val cents: int) {",
       "  operator<=>(other: Money): int => cents <=> other.cents",
       "}",
-      "let lt = Money(1) < Money(2)",
-      "let eq = Money(1) == Money(2)"
+      "let lt = Money(1i) < Money(2i)",
+      "let eq = Money(1i) == Money(2i)"
     ].join("\n");
 
     const result = transpile(source);
@@ -1419,7 +1419,7 @@ c += 5`;
     const result = transpile(`
 @FFILibrary("native.dll", "libnative.so", "Native.framework/Native")
 declare class NativeMath { static abs(value: int): int }
-console.log(NativeMath.abs(-3))
+console.log(NativeMath.abs(-3i))
 `);
 
     expect(result.errors).toEqual([]);
@@ -1433,7 +1433,7 @@ console.log(NativeMath.abs(-3))
     const result = transpile(`
 @FFILibrary("libnative.so")
 declare class NativeMath { @FFIName("native_abs") static Abs(value: int): int }
-console.log(NativeMath.Abs(-3))
+console.log(NativeMath.Abs(-3i))
 `);
 
     expect(result.errors).toEqual([]);
@@ -1453,10 +1453,10 @@ export declare class NativeMath { static abs(value: int): int }
 
   it("emits ArrayBuffer-backed C ABI structs for JavaScript", () => {
     const result = transpile(`
-@FFIStruct(8)
-@FFIAlign(4)
-class Pair(@FFIOffset(0) @FFISize(2) var x: int, @FFIOffset(4) var y: int)
-const pair = Pair(7, 9)
+@FFIStruct(8i)
+@FFIAlign(4i)
+class Pair(@FFIOffset(0i) @FFISize(2i) var x: int, @FFIOffset(4i) var y: int)
+const pair = Pair(7i, 9i)
 console.log(pair.x, pair.y)
 `);
 
@@ -1468,9 +1468,9 @@ console.log(pair.x, pair.y)
 
   it("preserves default values on FFI struct constructor fields", () => {
     const result = transpile(`
-@FFIStruct(8)
-@FFIAlign(4)
-class Pair(@FFIOffset(0) var x: int = 0, @FFIOffset(4) var y: int = 0)
+@FFIStruct(8i)
+@FFIAlign(4i)
+class Pair(@FFIOffset(0i) var x: int = 0i, @FFIOffset(4i) var y: int = 0i)
 const pair = Pair()
 `);
 
@@ -1480,15 +1480,15 @@ const pair = Pair()
 
   it("uses class fields as zero-backed FFI views and permits explicit union overlays", () => {
     const result = transpile(`
-@FFIStruct(8)
-@FFIAlign(4)
+@FFIStruct(8i)
+@FFIAlign(4i)
 class Event {
-  @FFIOffset(0) var! type: int
-  @FFIOffset(0) @FFISize(2) var! code: int
-  @FFIOffset(4) var! value: int
+  @FFIOffset(0i) var! type: int
+  @FFIOffset(0i) @FFISize(2i) var! code: int
+  @FFIOffset(4i) var! value: int
 }
 const event = Event()
-event.type = 7
+event.type = 7i
 console.log(event.code)
 `);
 
@@ -1503,7 +1503,7 @@ console.log(event.code)
     const result = transpile(`
 @FFILibrary("libnative.so")
 declare class Native { static fill(bytes: ArrayBuffer, value: int, size: long): FFIPointer }
-Native.fill(ArrayBuffer(8), 1, 8L)
+Native.fill(ArrayBuffer(8), 1i, 8L)
 `);
 
     expect(result.errors).toEqual([]);
@@ -1513,9 +1513,9 @@ Native.fill(ArrayBuffer(8), 1, 8L)
 
   it("rejects misaligned and out-of-bounds FFI layouts", () => {
     expect(() => transpile(`
-@FFIStruct(4)
-@FFIAlign(4)
-class Invalid(@FFIOffset(1) @FFISize(4) var value: int)
+@FFIStruct(4i)
+@FFIAlign(4i)
+class Invalid(@FFIOffset(1i) @FFISize(4i) var value: int)
 `)).toThrow("outside its 4-byte layout");
   });
 
@@ -1523,7 +1523,7 @@ class Invalid(@FFIOffset(1) @FFISize(4) var value: int)
     const result = transpile(`
 @FFILibrary("libnative.so")
 declare class Native { static wait(milliseconds: int): Promise<void> }
-Native.wait(1)
+Native.wait(1i)
 `);
 
     expect(result.errors).toEqual([]);

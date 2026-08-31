@@ -108,6 +108,7 @@ const CODE_A_LOWER = 97; // a
 const CODE_B_LOWER = 98; // b
 const CODE_E_LOWER = 101; // e
 const CODE_F_LOWER = 102; // f
+const CODE_I_LOWER = 105; // i
 const CODE_N_LOWER = 110; // n
 const CODE_O_LOWER = 111; // o
 const CODE_R_LOWER = 114; // r
@@ -315,6 +316,7 @@ function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
       case "-":
       case "*":
       case "/":
+      case "\\":
       case "%":
       case "**":
       case "!":
@@ -460,7 +462,7 @@ function readDigitRun(
 }
 
 function isNumericLiteralSuffixCode(code: number): boolean {
-  return code === CODE_N_LOWER || code === CODE_N_UPPER || code === CODE_L_UPPER;
+  return code === CODE_I_LOWER || code === CODE_N_LOWER || code === CODE_N_UPPER || code === CODE_L_UPPER;
 }
 
 function readNumber(reader: StrReader): string {
@@ -520,7 +522,8 @@ function readNumber(reader: StrReader): string {
     if (
       suffix === CODE_N_LOWER ||
       suffix === CODE_N_UPPER ||
-      suffix === CODE_L_UPPER
+      suffix === CODE_L_UPPER ||
+      suffix === CODE_I_LOWER
     ) {
       advanceCode(reader);
     }

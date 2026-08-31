@@ -39,7 +39,7 @@ describe("memberCompletionExtensions", () => {
     const functionStatement = functionAst.body[0] as FunctionStatement;
 
     expect(inferExtensionReturnTypeName(typedStatement, typedSession.analysis!)).toBe("int");
-    expect(inferExtensionReturnTypeName(inferredStatement, inferredSession.analysis!)).toBe("int");
+    expect(inferExtensionReturnTypeName(inferredStatement, inferredSession.analysis!)).toBe("number");
     expect(inferExtensionReturnTypeName(constructedStatement, constructedSession.analysis!)).toBe("Box");
     expect(inferExtensionReturnTypeName(functionStatement, null)).toBe("string");
   });

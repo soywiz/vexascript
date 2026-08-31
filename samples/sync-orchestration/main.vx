@@ -1,6 +1,6 @@
 import { auditLater, fetchPrice, fetchTaxRate } from "./services.vx"
 
-sync fun checkout(): int {
+sync fun checkout(): number {
   const base = fetchPrice("book")
   const tax = fetchTaxRate()
   const pendingAudit: Promise<string> = go auditLater(base + tax)

@@ -85,7 +85,7 @@ console.log(mixed.join(","))
 
   it("executes literal, object, nested, array, and nominal is patterns inside match", () => {
     const output = executeTranspiled(`
-class Box(val value: int)
+class Box(val value: number)
 
 fun classify(value: any): string {
   return match {
@@ -105,7 +105,7 @@ console.log(classify("plain"))
 console.log(classify("simple"))
 console.log(classify(Box(3)))
 
-fun range(value: int): string {
+fun range(value: number): string {
   return match (value) {
     when >= 10 and < 20: "inside"
     else: "outside"
@@ -114,7 +114,7 @@ fun range(value: int): string {
 console.log(range(9), range(10), range(19), range(20))
 
 var subjectEvaluations = 0
-fun nextSubject(): int {
+fun nextSubject(): number {
   subjectEvaluations += 1
   return 15
 }
@@ -124,7 +124,7 @@ val captured = match (nextSubject()) {
 }
 console.log(captured, subjectEvaluations)
 
-fun updateMatchedSubject(value: int): int {
+fun updateMatchedSubject(value: number): number {
   match (value) {
     >= 10 -> value = 99
     else -> value = 0
@@ -236,16 +236,16 @@ console.log(first.x, first.y, second.x, second.y, ExistingApply().apply(4))
   it("executes receiver-block shorthand without calling or requiring apply", () => {
     const source = `
 class PlainPoint(var x: number, var y: number)
-class TrapPoint(var x: number, var applyCalls: int = 0) {
+class TrapPoint(var x: number, var applyCalls: int = 0i) {
   apply(block: TrapPoint.() -> void): TrapPoint {
-    applyCalls += 1
+    applyCalls += 1i
     block(this)
     return this
   }
 }
 
-val plain = PlainPoint(3, 4). { it.x += it.y; y = this.x * 2 }
-val trap = TrapPoint(5). { x *= 3 }
+val plain = PlainPoint(3i, 4i). { it.x += it.y; y = this.x * 2i }
+val trap = TrapPoint(5i). { x *= 3i }
 console.log(plain.x, plain.y, trap.x, trap.applyCalls)
 `;
 
@@ -255,11 +255,11 @@ console.log(plain.x, plain.y, trap.x, trap.applyCalls)
 
   it("resolves inherited extension methods inside receiver blocks", () => {
     const output = executeTranspiled(`
-class ReceiverBase(var value: int)
+class ReceiverBase(var value: number)
 class ReceiverDerived extends ReceiverBase {
-  constructor(value: int) { super(value) }
+  constructor(value: number) { super(value) }
 }
-fun ReceiverBase.increment(amount: int): void { value += amount }
+fun ReceiverBase.increment(amount: number): void { value += amount }
 
 val result = ReceiverDerived(3). { increment(4) }
 console.log(result.value)
@@ -270,8 +270,8 @@ console.log(result.value)
 
   it("executes primary-constructor arguments forwarded to the base class", () => {
     const output = executeTranspiled(`
-class Base(val value: int)
-class Child(value: int, val label: string) : Base(value)
+class Base(val value: number)
+class Child(value: number, val label: string) : Base(value)
 
 val child = Child(7, "ready")
 console.log(child.value, child.label)
@@ -282,8 +282,8 @@ console.log(child.value, child.label)
 
   it("passes the first visible receiver-function argument to implicit it", () => {
     const output = executeTranspiled(`
-class Counter(var value: int)
-fun <T> T.applyWithValue(block: T.(amount: int) -> void): T {
+class Counter(var value: number)
+fun <T> T.applyWithValue(block: T.(amount: number) -> void): T {
   block(this, 10)
   return this
 }
@@ -312,7 +312,7 @@ console.log(Tools.label())
   it("executes TypeScript constructor parameter properties", () => {
     const output = executeTranspiled(`
 class User {
-  constructor(public readonly id: string, private age: int = 1) {}
+  constructor(public readonly id: string, private age: number = 1) {}
   describe() { return this.id + ":" + this.age }
 }
 let user = new User("ada", 37)
@@ -324,11 +324,11 @@ console.log(user.describe())
 
   it("executes lowered range loops, class constructor fields, and bigint/long arithmetic", () => {
     const source = `class Pair(val x: int, val y: int)
-let total = 0
-for (n of 0 ..< 3) {
+let total = 0i
+for (n of 0i ..< 3i) {
   total = total + n
 }
-let pair = new Pair(2, 5)
+let pair = new Pair(2i, 5i)
 let a: long = 10L
 let b: long = 20L
 let c = a + b
@@ -343,7 +343,7 @@ console.log(c)
 
   it("instantiates classes when they are called without new", () => {
     const source = `class Point(val x: int, val y: int)
-let point = Point(2, 5)
+let point = Point(2i, 5i)
 console.log(point.x + point.y)
 `;
 
@@ -384,13 +384,13 @@ fun useEffect(effect: () => (() => void), inputs: int[]) {
   let cleanup = effect()
   cleanup()
 }
-let count = 0
+let count = 0i
 let countRef: { current?: { style?: { background: string } } } = { current: { style: { background: "white" } } }
 useEffect({
   val timeout = schedule({
     countRef.current?.style?.background = "grey"
     count++
-  }, 1000)
+  }, 1000i)
   return { clearTimer(timeout) }
 }, [count])
 console.log(countRef.current?.style?.background)
@@ -422,9 +422,9 @@ console.log(total)
   increment(amount: int): int { return value + amount }
 }
 fun Counter.doubled(): int { return value + value }
-val Counter.next => increment(1)
-let counter = new Counter(5)
-console.log(counter.increment(2))
+val Counter.next => increment(1i)
+let counter = new Counter(5i)
+console.log(counter.increment(2i))
 console.log(counter.doubled())
 console.log(counter.next)
 `;
@@ -439,7 +439,7 @@ console.log(counter.next)
 fun Point.operator+(other: Point): Point {
   return new Point(this.x + other.x, this.y + other.y)
 }
-let result = new Point(1, 2) + new Point(3, 4)
+let result = new Point(1i, 2i) + new Point(3i, 4i)
 console.log(result.x)
 console.log(result.y)
 `;
@@ -486,8 +486,8 @@ console.log(view.x)
   it("executes computed async-iterator class methods", () => {
     const source = `class Counter {
   async *[Symbol.asyncIterator](): AsyncGenerator<int> {
-    yield 1
-    yield 2
+    yield 1i
+    yield 2i
   }
 }
 let counter = new Counter()
@@ -527,19 +527,19 @@ console.log(Label[Label.Start])
   });
 
   it("supports numeric enum bitwise constants and computed members at runtime", () => {
-    const source = `enum Demo { HELLO = 1, WORLD = 2 }
+    const source = `enum Demo { HELLO = 1i, WORLD = 2i }
 enum FileAccess {
   None,
-  Read = 1 << 1,
-  Write = 1 << 2,
+  Read = 1i << 1i,
+  Write = 1i << 2i,
   ReadWrite = Read | Write,
-  G = "123".length,
+  G = int("123".length),
 }
 console.log(Demo.HELLO | Demo.WORLD)
 console.log(FileAccess[FileAccess.ReadWrite])
-console.log(FileAccess[6])
+console.log(FileAccess[6i])
 console.log(FileAccess[FileAccess.G])
-console.log(FileAccess[3])
+console.log(FileAccess[3i])
 `;
 
     expect(executeTranspiled(source)).toEqual([[3], [6], [6], [3], [3]]);
@@ -579,9 +579,9 @@ console.log("apple" <=> "banana")
 class Money(val cents: int) {
   operator<=>(other: Money): int => cents <=> other.cents
 }
-console.log(Money(150) <=> Money(99))
-console.log(Money(99) <=> Money(150))
-console.log(Money(150) <=> Money(150))
+console.log(Money(150i) <=> Money(99i))
+console.log(Money(99i) <=> Money(150i))
+console.log(Money(150i) <=> Money(150i))
 `;
 
     expect(executeTranspiled(source)).toEqual([[1], [-1], [0]]);
@@ -592,14 +592,14 @@ console.log(Money(150) <=> Money(150))
 class Money(val cents: int) {
   operator<=>(other: Money): int => cents <=> other.cents
 }
-console.log(Money(1) < Money(2))
-console.log(Money(2) < Money(1))
-console.log(Money(1) <= Money(1))
-console.log(Money(2) > Money(1))
-console.log(Money(1) >= Money(2))
-console.log(Money(1) == Money(1))
-console.log(Money(1) == Money(2))
-console.log(Money(1) != Money(2))
+console.log(Money(1i) < Money(2i))
+console.log(Money(2i) < Money(1i))
+console.log(Money(1i) <= Money(1i))
+console.log(Money(2i) > Money(1i))
+console.log(Money(1i) >= Money(2i))
+console.log(Money(1i) == Money(1i))
+console.log(Money(1i) == Money(2i))
+console.log(Money(1i) != Money(2i))
 `;
 
     expect(executeTranspiled(source)).toEqual([

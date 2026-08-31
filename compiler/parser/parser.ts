@@ -44,6 +44,7 @@ const BINARY_OPERATOR_INFO: Record<InfixOperator, { precedence: number; assoc: B
     "-": { precedence: 10, assoc: "left" },
     "*": { precedence: 11, assoc: "left" },
     "/": { precedence: 11, assoc: "left" },
+    "\\": { precedence: 11, assoc: "left" },
     "%": { precedence: 11, assoc: "left" },
     "**": { precedence: 12, assoc: "right" }
 };
@@ -2444,11 +2445,18 @@ export class Parser {
 
         if (token?.type === TokenType.NUMBER) {
             const normalizedNumberText = token.value.replace(/_/g, "");
-            const numericValue = Number(normalizedNumberText);
+            const explicitInt = normalizedNumberText.endsWith("i");
+            if (explicitInt && this.language === "typescript") {
+                this.fail("The 'i' integer suffix is only available in VexaScript", this.tokenAt(token));
+            }
+            const numericText = explicitInt ? normalizedNumberText.slice(0, -1) : normalizedNumberText;
+            const numericValue = Number(numericText);
             if (!Number.isFinite(numericValue) || normalizedNumberText.endsWith("n") || normalizedNumberText.endsWith("N") || normalizedNumberText.endsWith("L")) {
                 this.fail("Expected identifier, string, number, or computed key in object literal", this.tokenAt(token));
             }
-            const key = normalizedNumberText.includes(".") || normalizedNumberText.includes("e") || normalizedNumberText.includes("E")
+            const key = explicitInt
+                ? this.attachNodeBounds(new IntLiteral(numericValue | 0, true), token, token)
+                : normalizedNumberText.includes(".") || normalizedNumberText.includes("e") || normalizedNumberText.includes("E")
                 ? this.attachNodeBounds(new FloatLiteral(numericValue), token, token)
                 : this.attachNodeBounds(new IntLiteral(numericValue), token, token);
             return { key, computed: false };
@@ -3157,6 +3165,10 @@ export class Parser {
 
         if (token?.type === TokenType.NUMBER) {
             const normalizedNumberText = token.value.replace(/_/g, "");
+            const explicitInt = normalizedNumberText.endsWith("i");
+            if (explicitInt && this.language === "typescript") {
+                this.fail("The 'i' integer suffix is only available in VexaScript", this.tokenAt(token));
+            }
             if (normalizedNumberText.endsWith("n") || normalizedNumberText.endsWith("N")) {
                 const raw = normalizedNumberText.slice(0, -1);
                 try {
@@ -3181,9 +3193,17 @@ export class Parser {
                     this.fail("Invalid long literal", this.tokenAt(token));
                 }
             }
-            const numericValue = Number(normalizedNumberText);
+            const numericText = explicitInt ? normalizedNumberText.slice(0, -1) : normalizedNumberText;
+            const numericValue = Number(numericText);
             if (!Number.isFinite(numericValue)) {
                 this.fail("Invalid numeric literal", this.tokenAt(token));
+            }
+            if (explicitInt) {
+                return this.attachNodeBounds(
+                    new IntLiteral(numericValue | 0, true),
+                    token,
+                    token
+                );
             }
             if (normalizedNumberText.includes(".") || normalizedNumberText.includes("e") || normalizedNumberText.includes("E")) {
                 return this.attachNodeBounds(

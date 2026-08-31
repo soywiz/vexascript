@@ -3,7 +3,7 @@ fun readValue(): int {
   defer console.log("close-1")
   defer console.log("close-2")
   console.log("read")
-  return 7
+  return 7i
 }
 
 console.log(readValue())

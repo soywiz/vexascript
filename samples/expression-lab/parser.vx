@@ -3,9 +3,9 @@ import { lex } from "./lexer.vx"
 import { Token, TokenKind } from "./tokens.vx"
 
 class TokenStream(val tokens: Token[]) {
-  position: int = 0
+  position: number = 0
 
-  peek(offset: int = 0): Token {
+  peek(offset: number = 0): Token {
     return this.tokens[this.position + offset] ?? this.tokens[this.tokens.length - 1]!
   }
 

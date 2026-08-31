@@ -2,13 +2,13 @@ import type { Described, Pair } from "./types.vx"
 
 export enum Direction {
   Up,
-  Down = 4,
+  Down = 4i,
   Left,
   Right = "right"
 }
 
 export enum Status {
-  Ready = 1,
+  Ready = 1i,
   Done
 }
 

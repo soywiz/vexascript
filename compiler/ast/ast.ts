@@ -244,9 +244,11 @@ export abstract class Expr extends Statement {
 export type VariableDeclarationKind = "let" | "var" | "val" | "const";
 export class IntLiteral extends Expr {
     declare kind: NodeKind.IntLiteral
+    explicitInt?: true
 
-    constructor(public value: number) {
+    constructor(public value: number, explicitInt: boolean = false) {
         super(NodeKind.IntLiteral)
+        if (explicitInt) this.explicitInt = true
     }
 }
 export class FloatLiteral extends Expr {
@@ -371,7 +373,7 @@ export class BinaryExpression extends Expr {
     /** A matcher comparison with the subject supplied by the surrounding `is`. */
     matcherRelational?: boolean
 
-    constructor(public operator: "+" | "-" | "*" | "/" | "%" | "**" | "<<" | ">>" | ">>>" | "<" | ">" | "<=" | ">=" | "<=>" | "in" | "is" | "instanceof" | "==" | "!=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&" | "??", public left: Expr, public right: Expr, public operatorToken?: Token) {
+    constructor(public operator: "+" | "-" | "*" | "/" | "\\" | "%" | "**" | "<<" | ">>" | ">>>" | "<" | ">" | "<=" | ">=" | "<=>" | "in" | "is" | "instanceof" | "==" | "!=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&" | "??", public left: Expr, public right: Expr, public operatorToken?: Token) {
         super(NodeKind.BinaryExpression)
     }
 }

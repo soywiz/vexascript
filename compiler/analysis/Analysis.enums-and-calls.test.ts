@@ -101,7 +101,7 @@ describe("enum semantic analysis", () => {
     const analysis = new Analysis(parseFile(tokenizeReader(dedent`
       fun describe(value: int): string { return "int" }
       fun describe(value: string): string { return value }
-      let a = describe(1)
+      let a = describe(1i)
       let b = describe("ok")
     `)));
 
@@ -122,13 +122,13 @@ describe("enum semantic analysis", () => {
 
   it("supports bitwise operators on int-backed enum values and enum computed members", () => {
     const source = dedent`
-      enum Demo { HELLO = 1, WORLD = 2 }
+      enum Demo { HELLO = 1i, WORLD = 2i }
       enum FileAccess {
         None,
-        Read = 1 << 1,
-        Write = 1 << 2,
+        Read = 1i << 1i,
+        Write = 1i << 2i,
         ReadWrite = Read | Write,
-        G = "123".length,
+        G = int("123".length),
       }
       let combined = Demo.HELLO | Demo.WORLD
       let reverseLookup = FileAccess[FileAccess.ReadWrite]
@@ -141,6 +141,14 @@ describe("enum semantic analysis", () => {
     expect(visible.get("combined")?.valueType).toBe("int");
     expect(visible.get("reverseLookup")?.valueType).toBe("int");
     expect(visible.get("computedReverseLookup")?.valueType).toBe("int");
+  });
+
+  it("keeps TypeScript enum initializers on TypeScript number semantics", () => {
+    const source = "enum Direction { North = 1, South = 2 }";
+    const ast = parseFile(tokenizeReader(source, { language: "typescript" }), { language: "typescript" });
+    const analysis = new Analysis(ast, { language: "typescript" });
+
+    expect(analysis.getIssues()).toEqual([]);
   });
 
   it("requires an initializer after a non-numeric-constant enum member", () => {
@@ -161,7 +169,7 @@ describe("enum semantic analysis", () => {
         increment(amount: int): int { return value + amount }
       }
       fun Counter.doubled(): int { return value + value }
-      val Counter.next => increment(1)
+      val Counter.next => increment(1i)
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -171,7 +179,7 @@ describe("enum semantic analysis", () => {
   it("checks extension properties only when declared or imported", () => {
     const missing = new Analysis(parseFile(tokenizeReader("val duration = 10.milliseconds")));
     expect(missing.getIssues().map((issue) => issue.message)).toContain(
-      "Property 'milliseconds' does not exist on type 'int'"
+      "Property 'milliseconds' does not exist on type 'number'"
     );
 
     const local = new Analysis(parseFile(tokenizeReader(
@@ -190,7 +198,7 @@ describe("enum semantic analysis", () => {
       fun <T> Array<T>.second(): T { return this[1] }
       val <T> Array<T>.firstItem: T => this[0]
       val <T> Array<T>.doubledLength => length * 2
-      let xs: int[] = [10, 20, 30]
+      let xs: int[] = [10i, 20i, 30i]
       let first: int = xs.firstItem
       let value: int = xs.second()
       let total: number = xs.doubledLength
@@ -202,7 +210,7 @@ describe("enum semantic analysis", () => {
     const analysis = new Analysis(parseFile(tokenizeReader(dedent`
       fun <T> T[].second(): T { return this[1] }
       val <T> T[].firstItem: T => this[0]
-      let xs: int[] = [10, 20, 30]
+      let xs: int[] = [10i, 20i, 30i]
       let first: int = xs.firstItem
       let value: int = xs.second()
     `.trimEnd())));
@@ -245,10 +253,10 @@ describe("enum semantic analysis", () => {
     const marked = sourceWithCursor(dedent`
       class Counter(var value: int)
       fun <T> T.applyWithValue(block: T.(amount: int) -> void): T {
-        block(this, 10)
+        block(this, 10i)
         return this
       }
-      Counter(1).applyWithValue { value += ^^^it * 2 }
+      Counter(1i).applyWithValue { value += ^^^it * 2i }
     `.trimEnd());
     const analysis = new Analysis(parseFile(tokenizeReader(marked.source)));
 
@@ -293,7 +301,7 @@ describe("enum semantic analysis", () => {
   it("infers number for mixed int and number multiplication", () => {
     const source = dedent`
       let a: number = 1
-      let b: int = 2
+      let b: int = 2i
       let leftMixed = a * b
       let rightMixed = b * a
     `;
@@ -305,19 +313,38 @@ describe("enum semantic analysis", () => {
     expect(symbols.get("rightMixed")?.valueType).toBe("number");
   });
 
-  it("infers number for int division unless an int result is explicitly requested", () => {
+  it("uses TypeScript number literals and explicit int-producing syntax", () => {
     const source = dedent`
-      let numerator: int = 1
-      let denominator: int = 60
-      let inferred = numerator / denominator
-      let explicitInt: int = numerator / denominator
+      let plain = 10
+      let explicit = 10i
+      let ratio = 1 / 60
+      let quotient = 10 \\ 3
+      let converted = int(4.9)
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
-    const symbols = new Map(analysis.getVisibleSymbolsAt(3, 0).map((symbol) => [symbol.name, symbol]));
+    const symbols = new Map(analysis.getVisibleSymbolsAt(4, 0).map((symbol) => [symbol.name, symbol]));
 
     expect(analysis.getIssues()).toEqual([]);
-    expect(symbols.get("inferred")?.valueType).toBe("number");
-    expect(symbols.get("explicitInt")?.valueType).toBe("int");
+    expect(symbols.get("plain")?.valueType).toBe("number");
+    expect(symbols.get("explicit")?.valueType).toBe("int");
+    expect(symbols.get("ratio")?.valueType).toBe("number");
+    expect(symbols.get("quotient")?.valueType).toBe("int");
+    expect(symbols.get("converted")?.valueType).toBe("int");
+  });
+
+  it("requires explicit conversion from number literals and expressions to int", () => {
+    const source = dedent`
+      fun consume(value: int): void {}
+      let literal: int = 10
+      let decimal: int = 10.0
+      let expression: int = 5 + 5
+      consume(10)
+    `;
+    const messages = new Analysis(parseFile(tokenizeReader(source))).getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'number' is not assignable to type 'int'");
+    expect(messages).toContain("Argument 1 of type 'number' is not assignable to parameter 'value' of type 'int'");
+    expect(messages.filter((message) => message === "Type 'number' is not assignable to type 'int'")).toHaveLength(3);
   });
 
 
@@ -326,9 +353,9 @@ describe("enum semantic analysis", () => {
       interface Options { it: int }
       declare function transform(fn: (value: int) => int): int
       declare function consume(options: Options): int
-      let it = 4
+      let it = 4i
       let doubled = transform({ it })
-      let incremented = transform({ value -> value + 1 })
+      let incremented = transform({ value -> value + 1i })
       let consumed = consume({ it })
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
@@ -340,11 +367,11 @@ describe("enum semantic analysis", () => {
       declare function schedule(task: () => int, delay: int): int
       declare function clearTimeout(timeout: int): void
       declare function useEffect(effect: () => (() => void), inputs: int[]): void
-      let count = 0
+      let count = 0i
       useEffect({
         val timeout = schedule({
           count++
-        }, 1000)
+        }, 1000i)
         return { clearTimeout(timeout) }
       }, [count])
     `;
@@ -366,8 +393,8 @@ describe("enum semantic analysis", () => {
 
   it("smart-casts identifiers in if and else branches for type and range checks", () => {
     const source = dedent`
-      class Cat { meow(): int { return 1 } }
-      class Dog { bark(): int { return 2 } }
+      class Cat { meow(): int { return 1i } }
+      class Dog { bark(): int { return 2i } }
       fun speak(value: Cat | Dog) {
         if (value is Cat) { value.meow() } else { value.bark() }
         if (value instanceof Dog) { value.bark() } else { value.meow() }
@@ -594,7 +621,7 @@ describe("named call argument analysis", () => {
         const html = <Page name={1} demo="test" name={"test"} />
       `;
       const messages = new Analysis(parseFile(tokenizeReader(source, { jsx: true }))).getIssues().map((i) => i.message);
-      expect(messages).toContain("Argument of type 'int' is not assignable to parameter 'name' of type 'string'");
+      expect(messages).toContain("Argument of type 'number' is not assignable to parameter 'name' of type 'string'");
       expect(messages).toContain("No parameter named 'demo'");
       expect(messages).toContain("Missing required argument for parameter 'lol'");
     });

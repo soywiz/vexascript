@@ -350,7 +350,7 @@
       "patterns": [
         {
           "name": "constant.numeric.integer.vexa",
-          "match": "\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nN]|L)?\\b"
+          "match": "\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[inN]|L)?\\b"
         }
       ]
     },
@@ -370,7 +370,7 @@
         },
         {
           "name": "keyword.operator.arithmetic.vexa",
-          "match": "(\\*\\*|\\+|-|\\*|/|%)"
+          "match": "(\\*\\*|\\+|-|\\*|/|\\\\|%)"
         },
         {
           "name": "keyword.operator.relational.vexa",
@@ -406,7 +406,7 @@
       "patterns": [
         {
           "name": "entity.name.function.operator.vexa",
-          "match": "\\boperator(?:\\[\\]=?|[+\\-*/%&|^~<>!=?:]+)"
+          "match": "\\boperator(?:\\[\\]=?|[+\\-*/\\\\%&|^~<>!=?:]+)"
         }
       ]
     },

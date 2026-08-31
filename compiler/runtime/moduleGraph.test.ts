@@ -98,14 +98,14 @@ const matrixRuntimeSource = dedent`
       )
     }
 
-    fun GetRow(index: int): Vector4 {
+    fun GetRow(index: number): Vector4 {
       if (index == 0) return Vector4(m00, m01, m02, m03)
       if (index == 1) return Vector4(m10, m11, m12, m13)
       if (index == 2) return Vector4(m20, m21, m22, m23)
       return Vector4(m30, m31, m32, m33)
     }
 
-    fun GetColumn(index: int): Vector4 {
+    fun GetColumn(index: number): Vector4 {
       if (index == 0) return Vector4(m00, m10, m20, m30)
       if (index == 1) return Vector4(m01, m11, m21, m31)
       if (index == 2) return Vector4(m02, m12, m22, m32)
@@ -133,7 +133,7 @@ const matrixRuntimeSource = dedent`
       )
     }
 
-    operator[](row: int, column: int): number {
+    operator[](row: number, column: number): number {
       if (row == 0 && column == 0) return m00
       if (row == 0 && column == 1) return m01
       if (row == 0 && column == 2) return m02
@@ -418,7 +418,7 @@ describe("bundleModuleGraph", () => {
           }
         `,
         "counter.vx": dedent`
-          export fun increment(value: int): int {
+          export fun increment(value: number): number {
             return value + 1
           }
 
@@ -535,7 +535,7 @@ describe("bundleModuleGraph", () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
       {
-        "value.vx": "export fun value(): int => 1\n",
+        "value.vx": "export fun value(): number => 1\n",
         "main.vx": "import { value } from \"./value\"\nconsole.log(value())\n"
       },
       async (dir) => {

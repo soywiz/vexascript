@@ -14,7 +14,8 @@ import { COMPLETION_RECOVERY_MEMBER } from "./completionModel";
 
 describe("memberCompletionTypeNames", () => {
   it("infers numeric literal receiver type names", () => {
-    expect(inferLiteralTypeName("1")).toBe("int");
+    expect(inferLiteralTypeName("1")).toBe("number");
+    expect(inferLiteralTypeName("1i")).toBe("int");
     expect(inferLiteralTypeName("1.5")).toBe("number");
     expect(inferLiteralTypeName("name")).toBeNull();
   });

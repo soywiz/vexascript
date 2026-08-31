@@ -11,10 +11,10 @@ import { nodeRange, rangeSize } from "./ranges";
 import { walkAst } from "compiler/ast/traversal";
 
 export function inferLiteralTypeName(pathSegment: string): string | null {
-  if (/^\d+$/.test(pathSegment)) {
+  if (/^\d+i$/.test(pathSegment)) {
     return "int";
   }
-  if (/^\d+\.\d+$/.test(pathSegment)) {
+  if (/^\d+(?:\.\d+)?$/.test(pathSegment)) {
     return "number";
   }
   return null;

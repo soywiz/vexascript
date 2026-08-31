@@ -18,7 +18,7 @@ function executeTranspiled(source: string): unknown[][] {
 
 it("runs optional receiver blocks only for non-nullish receivers", () => {
   const output = executeTranspiled(`
-class OptionalReceiver(var value: int)
+class OptionalReceiver(var value: number)
 fun maybeReceiver(present: boolean): OptionalReceiver | null {
   return present ? OptionalReceiver(1) : null
 }
@@ -33,8 +33,8 @@ console.log(present?.value, absent)
 
 it("resolves extension methods through optional and non-null member access", () => {
   const output = executeTranspiled(`
-class Point(val x: int, val y: int)
-fun Point.drawDot(size: int): string => "dot:" + x + ":" + y + ":" + size
+class Point(val x: number, val y: number)
+fun Point.drawDot(size: number): string => "dot:" + x + ":" + y + ":" + size
 fun maybePoint(present: boolean): Point | null {
   return present ? Point(2, 3) : null
 }

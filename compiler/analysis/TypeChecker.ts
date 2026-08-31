@@ -1940,9 +1940,12 @@ export class TypeChecker {
       const member = statement.members[index]!;
       if (member.initializer) {
         const initializerType = this.visitExpression(member.initializer, enumScope);
-        if (!this.isTypeAssignable(initializerType, builtinType("int")) && !this.isTypeAssignable(initializerType, builtinType("string"))) {
+        const numericEnumType = this.sourceLanguage === "typescript"
+          ? builtinType("number")
+          : builtinType("int");
+        if (!this.isTypeAssignable(initializerType, numericEnumType) && !this.isTypeAssignable(initializerType, builtinType("string"))) {
           this.issues.push({
-            message: `Enum member '${member.name.name}' initializer must be assignable to int or string`,
+            message: `Enum member '${member.name.name}' initializer must be assignable to ${numericEnumType.name} or string`,
             node: member.initializer
           });
         }
@@ -3852,7 +3855,7 @@ export class TypeChecker {
           if (derivedOverload) {
             this.operatorResolutions.push(new OperatorResolution(binary, derivedOverload.symbol));
           }
-          result = this.inferBinaryType(binary.operator, leftType, rightType, expectedType);
+          result = this.inferBinaryType(binary.operator, leftType, rightType);
           if (this.shouldReportUndefinedOperator(binary.operator, leftType, rightType, result)) {
             this.issues.push({
               message: `Operator '${binary.operator}' is not defined for types '${typeToDiagnosticLabel(leftType)}' and '${typeToDiagnosticLabel(rightType)}'`,
@@ -3872,9 +3875,11 @@ export class TypeChecker {
       }
       case NodeKind.RangeExpression: {
         const range = expression as RangeExpression;
-        this.visitExpression(range.start, scope);
-        this.visitExpression(range.end, scope);
-        result = rangeType(builtinType("int"));
+        const startType = this.visitExpression(range.start, scope);
+        const endType = this.visitExpression(range.end, scope);
+        result = rangeType(isIntType(startType) && isIntType(endType)
+          ? builtinType("int")
+          : builtinType("number"));
         break;
       }
       case NodeKind.ChainExpression: {
@@ -4786,7 +4791,7 @@ export class TypeChecker {
             code: ANALYSIS_ISSUE_CODES.OPERATOR_NOT_APPLICABLE
           });
         }
-        result = builtinType("int");
+        result = updateOperandType;
         break;
       }
       case NodeKind.ArrayLiteral:
@@ -5009,16 +5014,12 @@ export class TypeChecker {
         result = UNKNOWN_TYPE;
         break;
       case NodeKind.IntLiteral:
-        result = this.contextualLiteralType(
-          literalType("number", (expression as IntLiteral).value),
-          expectedType
-        ) ?? builtinType("int");
+        result = (expression as IntLiteral).explicitInt === true
+          ? builtinType("int")
+          : builtinType("number");
         break;
       case NodeKind.CharacterLiteral:
-        result = this.contextualLiteralType(
-          literalType("number", (expression as CharacterLiteral).value),
-          expectedType
-        ) ?? builtinType("int");
+        result = builtinType("int");
         break;
       case NodeKind.FloatLiteral:
         result = this.contextualLiteralType(
@@ -5354,6 +5355,7 @@ export class TypeChecker {
       operator === "-" ||
       operator === "*" ||
       operator === "/" ||
+      operator === "\\" ||
       operator === "%" ||
       operator === "**" ||
       operator === "<<" ||
@@ -5664,8 +5666,7 @@ export class TypeChecker {
   private inferBinaryType(
     operator: BinaryExpression["operator"],
     leftType: AnalysisType,
-    rightType: AnalysisType,
-    expectedType?: AnalysisType
+    rightType: AnalysisType
   ): AnalysisType {
     if (operator === "||") {
       if (!this.truthinessPossibilities(leftType).falsy) {
@@ -5713,6 +5714,7 @@ export class TypeChecker {
       operator === "-" ||
       operator === "*" ||
       operator === "/" ||
+      operator === "\\" ||
       operator === "%" ||
       operator === "**" ||
       operator === "<<" ||
@@ -5728,14 +5730,19 @@ export class TypeChecker {
       ) {
         return builtinType("any");
       }
+      if (operator === "\\") {
+        return this.isNumberOperatorType(leftType) && this.isNumberOperatorType(rightType)
+          ? builtinType("int")
+          : UNKNOWN_TYPE;
+      }
       if (this.isIntEnumLikeType(leftType) && this.isIntEnumLikeType(rightType)) {
-        if (operator === "/" && !isIntType(expectedType ?? UNKNOWN_TYPE)) {
+        if (operator === "/") {
           return builtinType("number");
         }
         return builtinType("int");
       }
       if (isIntType(leftType) && isIntType(rightType)) {
-        if (operator === "/" && !isIntType(expectedType ?? UNKNOWN_TYPE)) {
+        if (operator === "/") {
           return builtinType("number");
         }
         return builtinType("int");
@@ -7265,7 +7272,9 @@ export class TypeChecker {
       case NodeKind.BooleanLiteral:
         return literalType("boolean", (argument as BooleanLiteral).value);
       case NodeKind.IntLiteral:
-        return literalType("number", (argument as IntLiteral).value);
+        return (argument as IntLiteral).explicitInt === true
+          ? builtinType("int")
+          : literalType("number", (argument as IntLiteral).value);
       case NodeKind.FloatLiteral:
         return literalType("number", (argument as FloatLiteral).value);
       case NodeKind.ObjectLiteral: {
@@ -16064,6 +16073,9 @@ export class TypeChecker {
         break;
       case "/":
         value = leftValue / rightValue;
+        break;
+      case "\\":
+        value = (leftValue / rightValue) | 0;
         break;
       case "%":
         value = leftValue % rightValue;
