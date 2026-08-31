@@ -3,7 +3,7 @@ import { readFile, stat, watch } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import type { VexaServeMapping } from "../compiler/project";
 import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
-import { basename, extname, resolve } from "../compiler/utils/path";
+import { basename, extname, relative, resolve } from "../compiler/utils/path";
 import { monotonicNow, roundedMilliseconds } from "../compiler/utils/time";
 import {
   ambientDeclarationsForProject,
@@ -25,6 +25,7 @@ export interface ServeOptions {
   target?: TranspileTarget;
   jsxFactory?: string;
   jsxFragmentFactory?: string;
+  typeCheck?: boolean;
   onDiagnosticError?: (result: { errors: string[]; diagnostics?: TranspileDiagnostic[] }, file: string) => void;
 }
 
@@ -55,7 +56,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8"
 };
 
-function injectedHtmlDocument(html: string): string {
+function injectedHtmlDocument(html: string, rootDir: string, bundleInput: string): string {
   const snippet = [
     `<script>`,
     `(() => {`,
@@ -64,7 +65,13 @@ function injectedHtmlDocument(html: string): string {
     `})();`,
     `</script>`
   ].join("");
-  const withEntrypoint = html.split("%VEXA_ENTRYPOINT%").join(BUNDLE_PATH);
+  const relativeBundleInput = relative(rootDir, bundleInput);
+  let withEntrypoint = html.split("%VEXA_ENTRYPOINT%").join(BUNDLE_PATH);
+  for (const source of [`/${relativeBundleInput}`, relativeBundleInput, `./${relativeBundleInput}`]) {
+    withEntrypoint = withEntrypoint
+      .split(`src="${source}"`).join(`src="${BUNDLE_PATH}"`)
+      .split(`src='${source}'`).join(`src='${BUNDLE_PATH}'`);
+  }
   if (withEntrypoint.includes("</body>")) {
     return withEntrypoint.replace("</body>", `${snippet}</body>`);
   }
@@ -178,6 +185,9 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
   let pendingInitialPhaseTimings: CompilationPhaseTimings | null = null;
   const project = await resolveProjectForSource(bundleInput);
   let serveMappings: VexaServeMapping[] = project?.serveMappings ?? [];
+  const publicRoot = resolve(rootDir, "public");
+  const publicDirectory = await stat(publicRoot).catch(() => null);
+  const hasPublicDirectory = publicDirectory?.isDirectory() === true;
   await ensureRuntimeDependencies(bundleInput, project);
   const ambientDeclarations = await ambientDeclarationsForProject(bundleInput, project);
   const { createModuleGraphIncrementalCache } = await import("../compiler/runtime/moduleGraph");
@@ -282,6 +292,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
       moduleGraphIncrementalCache,
       nodeModuleIncrementalCache,
       changedFiles,
+      typeCheck: options.typeCheck ?? false,
       profile: (event) => {
         if (event.phase === "parse") phaseTimings.parseMs += event.elapsedMs;
         if (event.phase === "analysis") phaseTimings.analysisMs += event.elapsedMs;
@@ -294,6 +305,9 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
         throw new Error(`Compilation failed for ${bundleInput}`);
       }
       return;
+    }
+    for (const warning of result.warnings) {
+      console.warn(`warning: ${warning}`);
     }
     bundleCode = result.code;
     bundleVersion += 1;
@@ -338,6 +352,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
     }
   };
 
+  console.log(`Bundling ${bundleInput}...`);
   await rebuildBundle("initial", []);
   watchedFileVersionPollTimer = setInterval(pollWatchedFileVersions, REBUILD_DEBOUNCE_MS);
 
@@ -364,7 +379,13 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
     }
 
     const mappedPath = await resolveMappedServePath(serveMappings, requestUrl);
-    const filePath = mappedPath ?? await resolveServePath(rootDir, requestUrl);
+    const publicCandidate = hasPublicDirectory && requestUrl.split("?")[0] !== "/"
+      ? await resolveServePath(publicRoot, requestUrl)
+      : null;
+    const publicPath = publicCandidate && await stat(publicCandidate).catch(() => null)
+      ? publicCandidate
+      : null;
+    const filePath = mappedPath ?? publicPath ?? await resolveServePath(rootDir, requestUrl);
     if (!filePath) {
       respond(response, 403, "Forbidden", "text/plain; charset=utf-8");
       return;
@@ -375,7 +396,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
       const extension = extname(filePath).toLowerCase();
       const contentType = CONTENT_TYPES[extension] ?? "application/octet-stream";
       if (extension === ".html") {
-        respond(response, 200, injectedHtmlDocument(content.toString("utf8")), contentType);
+        respond(response, 200, injectedHtmlDocument(content.toString("utf8"), rootDir, bundleInput), contentType);
         return;
       }
       response.writeHead(200, {
@@ -387,7 +408,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
       if (extname(filePath) === "") {
         try {
           const content = await readFile(`${filePath}.html`, "utf8");
-          respond(response, 200, injectedHtmlDocument(content), CONTENT_TYPES[".html"] ?? "text/html; charset=utf-8");
+          respond(response, 200, injectedHtmlDocument(content, rootDir, bundleInput), CONTENT_TYPES[".html"] ?? "text/html; charset=utf-8");
           return;
         } catch {
           // fall through

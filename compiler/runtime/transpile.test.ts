@@ -984,12 +984,20 @@ val badge = Graphics()
     const source = `let a: int = 9
 let b: int = 4
 let product: int = a * b
-let quotient: int = a / b`;
+let quotient: int = a / b
+let ratio = a / b
+const fixedStep = 1 / 60
+const truncatedStep: int = 1 / 60`;
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("let product = Math.imul(a, b);");
     expect(result.code).toContain("let quotient = (a / b) | 0;");
+    expect(result.code).toContain("let ratio = a / b;");
+    expect(result.code).toContain("const fixedStep = 1 / 60;");
+    expect(result.code).toContain("const truncatedStep = (1 / 60) | 0;");
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("Integer literal division 1 / 60 truncates to 0");
   });
 
   it("mangles and lowers extension properties", () => {

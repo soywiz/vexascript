@@ -109,4 +109,24 @@ describe("Vite plugin", () => {
       plugin.transform!.call(transformContext(), "val broken =", "/src/broken.vx")
     ).rejects.toThrow("Expected a number literal");
   });
+
+  it("reports integer literal divisions that truncate to zero as Vite warnings", async () => {
+    const warnings: string[] = [];
+    const plugin = vexascript();
+
+    const result = await plugin.transform!.call(
+      {
+        ...transformContext(),
+        warn(warning: string): void {
+          warnings.push(warning);
+        }
+      },
+      "const fixedStep: int = 1 / 60",
+      "/src/constants.vx"
+    );
+
+    expect(result).not.toBeNull();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Integer literal division 1 / 60 truncates to 0");
+  });
 });

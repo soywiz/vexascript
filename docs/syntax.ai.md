@@ -51,6 +51,13 @@ var x by property
 tween(view::x[0, 100], time: 1.seconds) // if Property<number>.operator[] is defined
 ```
 
+## Numeric division
+
+Division of two inferred `int` operands produces a `number`, as it does in
+JavaScript and TypeScript: `1 / 60` is fractional. Only an explicitly
+`int`-typed result uses truncating 32-bit division. Prefer decimal operands such
+as `1.0 / 60.0` when the fractional intent should be visually explicit.
+
 ## Functions
 
 ```vexa

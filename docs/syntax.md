@@ -2381,7 +2381,8 @@ try {
 - `null` has type `null`.
 - `undefined` has type `undefined`.
 - Regular expression literals have the named type `RegExp`.
-- `+`, `-`, `*`, `/`, `%`, shifts and bitwise operators on `int` operands infer `int`.
+- `+`, `-`, `*`, `%`, shifts and bitwise operators on `int` operands infer `int`.
+- `/` on `int` operands infers `number`, matching JavaScript and TypeScript division. An explicitly `int`-typed result uses truncating 32-bit integer division.
 - `+` with at least one `string` operand infers `string`.
 - Comparisons and equality operators infer `boolean`. Logical `&&`, `||`, and
   `??` expressions infer their reachable operand value types, excluding

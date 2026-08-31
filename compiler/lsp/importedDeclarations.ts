@@ -126,6 +126,7 @@ interface NodeModuleDeclarationIndex {
 }
 
 const nodeModuleDeclarationIndexes = new WeakMap<readonly Statement[], NodeModuleDeclarationIndex>();
+const nodeModuleDependencyNamesByStatement = new WeakMap<Statement, readonly string[]>();
 
 function getNodeModuleResolutionCache(declarations: readonly Statement[]): NodeModuleResolutionCache {
   const cached = nodeModuleResolutionCaches.get(declarations);
@@ -179,9 +180,14 @@ function getNodeModuleDeclarationIndex(declarations: readonly Statement[]): Node
       }
     }
 
-    const dependencyNames = new Set<string>();
-    collectTypeQueryDependencyNames(declaration, dependencyNames);
-    dependencyNamesByStatement.set(declaration, [...dependencyNames]);
+    let dependencyNames = nodeModuleDependencyNamesByStatement.get(declaration);
+    if (!dependencyNames) {
+      const collectedDependencyNames = new Set<string>();
+      collectTypeQueryDependencyNames(declaration, collectedDependencyNames);
+      dependencyNames = [...collectedDependencyNames];
+      nodeModuleDependencyNamesByStatement.set(declaration, dependencyNames);
+    }
+    dependencyNamesByStatement.set(declaration, dependencyNames);
 
     if (detectAmbientExportEqualsName([declaration])) {
       const exportedName = detectAmbientExportEqualsName([declaration])!;

@@ -400,9 +400,10 @@ describe("CLI", () => {
         bundleInput: entry,
         port: 0
       });
-      expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain(`Serving at http://localhost:${session.port} -- `);
-      expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain(dir);
-      expect(/^Bundled in [\d.]+ms \(parse [\d.]+ms, analysis [\d.]+ms, emit [\d.]+ms\)$/.test(String(logSpy.mock.calls[1]?.[0] ?? ""))).toBe(true);
+      expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toBe(`Bundling ${entry}...`);
+      expect(String(logSpy.mock.calls[1]?.[0] ?? "")).toContain(`Serving at http://localhost:${session.port} -- `);
+      expect(String(logSpy.mock.calls[1]?.[0] ?? "")).toContain(dir);
+      expect(/^Bundled in [\d.]+ms \(parse [\d.]+ms, analysis [\d.]+ms, emit [\d.]+ms\)$/.test(String(logSpy.mock.calls[2]?.[0] ?? ""))).toBe(true);
 
       const baseUrl = `http://127.0.0.1:${session.port}`;
       const htmlText = await fetchText(baseUrl);
@@ -429,6 +430,46 @@ describe("CLI", () => {
       if (session) {
         await session.close();
       }
+    }
+  });
+
+  it("serve command replaces a Vite-style VexaScript entrypoint with the generated bundle", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-serve-vite-entry-"));
+    const entry = join(dir, "src", "main.vx");
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(entry, 'console.log("vite-compatible")\n', "utf8");
+    await writeFile(
+      join(dir, "index.html"),
+      '<!doctype html><html><body><script type="module" src="/src/main.vx"></script></body></html>',
+      "utf8"
+    );
+
+    const session = await startServeSession({ rootDir: dir, bundleInput: entry, port: 0 });
+    try {
+      const htmlText = await fetchText(`http://127.0.0.1:${session.port}`);
+      expect(htmlText).toContain('src="/__vexa_bundle__.js"');
+      expect(htmlText).not.toContain('src="/src/main.vx"');
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("serve command exposes the conventional public directory at the URL root", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-serve-public-"));
+    const entry = join(dir, "src", "main.vx");
+    await mkdir(join(dir, "src"), { recursive: true });
+    await mkdir(join(dir, "public", "assets"), { recursive: true });
+    await writeFile(entry, 'console.log("public")\n', "utf8");
+    await writeFile(join(dir, "index.html"), '<script type="module" src="/src/main.vx"></script>', "utf8");
+    await writeFile(join(dir, "root-only.txt"), "root fallback\n", "utf8");
+    await writeFile(join(dir, "public", "assets", "logo.svg"), "<svg>public</svg>\n", "utf8");
+
+    const session = await startServeSession({ rootDir: dir, bundleInput: entry, port: 0 });
+    try {
+      expect(await fetchText(`http://127.0.0.1:${session.port}/assets/logo.svg`)).toContain("<svg>public</svg>");
+      expect(await fetchText(`http://127.0.0.1:${session.port}/root-only.txt`)).toContain("root fallback");
+    } finally {
+      await session.close();
     }
   });
 

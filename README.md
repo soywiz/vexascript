@@ -77,6 +77,7 @@ Like Vite's TypeScript transform, this per-module transform does not perform who
 | `vexa tokens <file>` | Print the token stream |
 | `vexa ast <file>` | Print the simplified AST |
 | `vexa test [paths…]` | Run `.test.vx` files |
+| `vexa serve [dir] [--type-check]` | Serve a browser project with incremental bundling; semantic checking is opt-in |
 | `vexa --lsp` | Start the language server over stdio |
 
 ## Language tour

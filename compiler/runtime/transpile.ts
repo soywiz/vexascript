@@ -21,6 +21,8 @@ import {
 import { lowerProgram } from "./lowering";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations.shared";
 import {
+  BinaryExpression,
+  IntLiteral,
   NodeKind,
   Program,
   type Expr,
@@ -29,7 +31,7 @@ import {
   type Node,
   type Statement
 } from "compiler/ast/ast";
-import { findNode } from "compiler/ast/traversal";
+import { findNode, walkAst } from "compiler/ast/traversal";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import type { SourceRange } from "compiler/parser/tokenizer";
@@ -59,6 +61,26 @@ export interface TranspileResult {
 }
 
 export type TranspileTarget = "conservative" | "optimized";
+
+function integerLiteralDivisionWarnings(
+  program: Program,
+  expressionTypes: ReadonlyMap<Node, AnalysisType>
+): string[] {
+  const warnings: string[] = [];
+  walkAst(program, (node) => {
+    if (!(node instanceof BinaryExpression) || node.operator !== "/") return;
+    if (!(node.left instanceof IntLiteral) || !(node.right instanceof IntLiteral)) return;
+    if (node.right.value === 0 || Math.trunc(node.left.value / node.right.value) !== 0) return;
+    const expressionType = expressionTypes.get(node);
+    if (!expressionType || typeToString(expressionType) !== "int") return;
+
+    const message = `Integer literal division ${node.left.value} / ${node.right.value} truncates to 0; ` +
+      "use a number result or decimal operand if a fraction is intended";
+    const range = sourceRangeForAnalysisIssue({ message, node });
+    warnings.push(range ? formatMessageAtSourceRange(message, range) : message);
+  });
+  return warnings;
+}
 
 function ensureTrailingSemicolon(code: string): string {
   const trimmed = code.trim();
@@ -449,6 +471,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const emissionStartedAt = monotonicNow();
   const target = options.target ?? "optimized";
   const expressionTypes = artifacts.analysis.getExpressionTypes();
+  const warnings = integerLiteralDivisionWarnings(artifacts.ast, expressionTypes);
   const expressionTypeName = (expression: Expr): string | undefined => {
     const type = expressionTypes.get(expression);
     return type ? typeToString(type) : undefined;
@@ -516,7 +539,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   }
   const result: TranspileResult = {
     code,
-    warnings: [],
+    warnings,
     errors: [],
     diagnostics: [],
     ...(emitSourceMap

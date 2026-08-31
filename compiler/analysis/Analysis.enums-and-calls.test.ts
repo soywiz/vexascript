@@ -305,6 +305,21 @@ describe("enum semantic analysis", () => {
     expect(symbols.get("rightMixed")?.valueType).toBe("number");
   });
 
+  it("infers number for int division unless an int result is explicitly requested", () => {
+    const source = dedent`
+      let numerator: int = 1
+      let denominator: int = 60
+      let inferred = numerator / denominator
+      let explicitInt: int = numerator / denominator
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const symbols = new Map(analysis.getVisibleSymbolsAt(3, 0).map((symbol) => [symbol.name, symbol]));
+
+    expect(analysis.getIssues()).toEqual([]);
+    expect(symbols.get("inferred")?.valueType).toBe("number");
+    expect(symbols.get("explicitInt")?.valueType).toBe("int");
+  });
+
 
   it("contextually interprets ambiguous brace arguments as lambdas or object literals", () => {
     const source = dedent`

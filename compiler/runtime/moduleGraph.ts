@@ -66,6 +66,16 @@ const TYPE_DECLARATION_KINDS = new Set<Statement["kind"]>([
 ]);
 const EMPTY_DECLARATIONS: Statement[] = [];
 
+function importHasRuntimeBindings(statement: ImportStatement): boolean {
+  if (statement.typeOnly === true) {
+    return false;
+  }
+  if (statement.defaultImport || statement.namespaceImport || statement.sideEffectOnly === true) {
+    return true;
+  }
+  return statement.specifiers.some((specifier) => specifier.typeOnly !== true);
+}
+
 interface CachedModuleTypeContext {
   importKey: string;
   externalDeclarations: Statement[];
@@ -139,7 +149,7 @@ function incrementalModuleGraphState(
 
 function isInlineAssetModulePath(filePath: string): boolean {
   const extension = extname(filePath).toLowerCase();
-  return extension === ".json" || extension === ".txt";
+  return extension === ".json" || extension === ".txt" || extension === ".css";
 }
 
 async function resolveInlineAssetModulePath(
@@ -240,6 +250,18 @@ function emitAssetImportBindings(
   source: string
 ): { code: string; importedType: AnalysisType } {
   const extension = extname(assetPath).toLowerCase();
+  if (extension === ".css" && statement.sideEffectOnly === true) {
+    return {
+      code: [
+        'if (typeof document !== "undefined") {',
+        '  const style = document.createElement("style");',
+        `  style.textContent = ${JSON.stringify(source)};`,
+        "  document.head.appendChild(style);",
+        "}"
+      ].join("\n"),
+      importedType: builtinType("string")
+    };
+  }
   const value = extension === ".json" ? JSON.parse(source) : source;
   const literal = JSON.stringify(value);
   const importedType = extension === ".json" ? jsonValueType(value) : builtinType("string");
@@ -491,7 +513,9 @@ export async function bundleModuleGraph(
     const importedSymbols = new Map<string, { type?: AnalysisType; displayType?: string }>();
     const bundledSpecifiers = new Set<string>();
     if (ast) {
-      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
+      if (options.typeCheck !== false) {
+        await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
+      }
       for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
         bundledSpecifiers.add(statement.from.value);
         const assetSource = await loadSource(targetPath);
@@ -513,6 +537,9 @@ export async function bundleModuleGraph(
       }
       for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs, importMappings, options.baseUrl)) {
         bundledSpecifiers.add(statement.from.value);
+        if (options.typeCheck === false && !importHasRuntimeBindings(statement)) {
+          continue;
+        }
         if (!globalSourceFileSet.has(targetPath)) {
           await visit(targetPath);
         }
@@ -751,7 +778,7 @@ export async function bundleModuleGraphAsModules(
     let emitRuntimeSeed = reusableTypeContext?.emitRuntimeSeed;
     const bundledAssetSpecifiers = new Set<string>();
     if (ast) {
-      if (!reusableTypeContext) {
+      if (!reusableTypeContext && options.typeCheck !== false) {
         await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
       }
       for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
@@ -776,6 +803,9 @@ export async function bundleModuleGraphAsModules(
         }
       }
       for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs, importMappings, options.baseUrl)) {
+        if (options.typeCheck === false && !importHasRuntimeBindings(statement)) {
+          continue;
+        }
         if (!globalSourceFileSet.has(targetPath)) {
           await visit(targetPath);
         }

@@ -35,6 +35,7 @@ export interface VexaScriptTransformError {
 
 export interface VexaScriptTransformContext {
   error(error: VexaScriptTransformError): never;
+  warn?(warning: string): void;
 }
 
 /**

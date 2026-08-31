@@ -3852,7 +3852,7 @@ export class TypeChecker {
           if (derivedOverload) {
             this.operatorResolutions.push(new OperatorResolution(binary, derivedOverload.symbol));
           }
-          result = this.inferBinaryType(binary.operator, leftType, rightType);
+          result = this.inferBinaryType(binary.operator, leftType, rightType, expectedType);
           if (this.shouldReportUndefinedOperator(binary.operator, leftType, rightType, result)) {
             this.issues.push({
               message: `Operator '${binary.operator}' is not defined for types '${typeToDiagnosticLabel(leftType)}' and '${typeToDiagnosticLabel(rightType)}'`,
@@ -5664,7 +5664,8 @@ export class TypeChecker {
   private inferBinaryType(
     operator: BinaryExpression["operator"],
     leftType: AnalysisType,
-    rightType: AnalysisType
+    rightType: AnalysisType,
+    expectedType?: AnalysisType
   ): AnalysisType {
     if (operator === "||") {
       if (!this.truthinessPossibilities(leftType).falsy) {
@@ -5728,9 +5729,15 @@ export class TypeChecker {
         return builtinType("any");
       }
       if (this.isIntEnumLikeType(leftType) && this.isIntEnumLikeType(rightType)) {
+        if (operator === "/" && !isIntType(expectedType ?? UNKNOWN_TYPE)) {
+          return builtinType("number");
+        }
         return builtinType("int");
       }
       if (isIntType(leftType) && isIntType(rightType)) {
+        if (operator === "/" && !isIntType(expectedType ?? UNKNOWN_TYPE)) {
+          return builtinType("number");
+        }
         return builtinType("int");
       }
       if (

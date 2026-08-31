@@ -740,6 +740,33 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("injects side-effect CSS imports into the browser document", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "styles.css": "body { color: red; }",
+        "main.vx": 'import "./styles.css"\nconsole.log("ready")\n'
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
+
+        expect(result.errors).toEqual([]);
+        expect(result.code).not.toContain('import "./styles.css"');
+        expect(result.code).toContain('style.textContent = "body { color: red; }";');
+
+        const appended: Array<{ textContent?: string }> = [];
+        new Script(result.code).runInContext(createContext({
+          document: {
+            createElement: () => ({}),
+            head: { appendChild: (style: { textContent?: string }) => appended.push(style) }
+          },
+          console: { log: () => {} }
+        }));
+        expect(appended).toEqual([{ textContent: "body { color: red; }" }]);
+      }
+    );
+  });
+
   it("inlines explicitly text-loaded files regardless of their extension", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
@@ -986,6 +1013,30 @@ describe("bundleModuleGraph", () => {
 
         expect(result.errors).toEqual([]);
         expect(result.moduleSources.get(join(dir, "dependency.ts"))).toContain("const value = 42;");
+      }
+    );
+  });
+
+  it("does not traverse type-only local imports in transpile-only module bundles", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "types.vx": "export interface Model { value: number }\n",
+        "value.vx": "export const value = 42\n",
+        "main.vx":
+          'import type { Model } from "./types.vx"\n' +
+          'import { value } from "./value.vx"\n' +
+          "export const result: Model = { value }\n"
+      },
+      async (dir) => {
+        const result = await bundleModuleGraphAsModules(join(dir, "main.vx"), "conservative", {
+          moduleFormat: "commonjs",
+          typeCheck: false
+        });
+
+        expect(result.errors).toEqual([]);
+        expect(result.moduleSources.has(join(dir, "types.vx"))).toBe(false);
+        expect(result.moduleSources.has(join(dir, "value.vx"))).toBe(true);
       }
     );
   });

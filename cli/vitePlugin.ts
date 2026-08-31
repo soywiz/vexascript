@@ -87,6 +87,10 @@ async function transformVexaScript(
     });
   }
 
+  for (const warning of result.warnings) {
+    context.warn?.(warning);
+  }
+
   return {
     code: result.code,
     map: sourceMapFrom(result.sourceMap)
