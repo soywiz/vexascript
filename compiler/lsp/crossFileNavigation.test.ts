@@ -4122,6 +4122,65 @@ describe("cross-file navigation", () => {
     expect(location?.range.start.line).toBe(domLine);
   });
 
+  it("resolves bare inherited class methods to their declaration in the base class file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-inherited-implicit-member-navigation-"));
+    const baseFile = join(root, "GameObject.vx");
+    const derivedFile = join(root, "Player.vx");
+    const declared = sourceWithCursor(dedent`
+      export class GameObject {
+        addCom^^^ponent<T>(component: T): T {
+          return component
+        }
+      }
+    `);
+    const usage = sourceWithCursor(dedent`
+      import { GameObject } from "./GameObject.vx"
+
+      export class Player extends GameObject {
+        constructor() {
+          addCom^^^ponent(1)
+        }
+      }
+    `);
+    await writeFile(baseFile, declared.source, "utf8");
+    await writeFile(derivedFile, usage.source, "utf8");
+
+    const baseSession = createAnalysisSession(declared.source);
+    const initialDerivedSession = createAnalysisSession(usage.source);
+    const collected = await collectAllImportedDeclarations(initialDerivedSession.ast!, {
+      uri: pathToFileURL(derivedFile).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => filePath === baseFile ? baseSession : null
+    });
+    const derivedSession = createAnalysisSession(usage.source, {
+      externalDeclarations: collected.externalDeclarations,
+      externalDeclarationLocations: collected.externalDeclarationLocations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(derivedFile).toString(),
+      line: usage.line,
+      character: usage.character,
+      session: derivedSession,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath: string) => {
+        if (filePath === baseFile) return baseSession;
+        if (filePath === derivedFile) return derivedSession;
+        return null;
+      }
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(baseFile).toString(),
+      range: {
+        start: { line: declared.line, character: declared.character - 6 },
+        end: { line: declared.line, character: declared.character + 6 }
+      }
+    });
+  });
+
   it("resolves implicit members inside receiver-block shorthand", async () => {
     const mainPath = "/src/main.vx";
     const virtualDomPath = "/runtime/dom.d.ts";

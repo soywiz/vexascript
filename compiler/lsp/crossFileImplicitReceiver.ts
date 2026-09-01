@@ -1,5 +1,6 @@
-import { ExportStatement, FunctionStatement, InterfaceStatement, nodeStartOffset, VarStatement } from "compiler/ast/ast";
+import { ClassStatement, ExportStatement, FunctionStatement, InterfaceStatement, nodeStartOffset, VarStatement } from "compiler/ast/ast";
 import type { Node, Program } from "compiler/ast/ast";
+import { walkAst } from "compiler/ast/traversal";
 import { namedType, NamedType, BuiltinType, ArrayType, TupleType } from "compiler/analysis/types";
 import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
@@ -7,6 +8,7 @@ import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import type { Location } from "vscode-languageserver/node.js";
 import {
   createClassResolverCache,
+  resolveClassMemberDeclaration,
   resolveInterfaceMemberDeclaration
 } from "./classResolver";
 import {
@@ -81,7 +83,30 @@ export function findEnclosingReceiverTypeName(
       return candidate.receiverType.name;
     }
   }
-  return null;
+
+  let nearestClass: { name: string; width: number } | null = null;
+  walkAst(ast, (node) => {
+    if (!(node instanceof ClassStatement)) {
+      return;
+    }
+    const range = nodeRange(node);
+    if (!range) {
+      return;
+    }
+    const afterStart = line > range.start.line ||
+      (line === range.start.line && character >= range.start.character);
+    const beforeEnd = line < range.end.line ||
+      (line === range.end.line && character <= range.end.character);
+    if (!afterStart || !beforeEnd) {
+      return;
+    }
+    const width = (node.lastToken?.range.end.offset ?? Number.MAX_SAFE_INTEGER) -
+      (nodeStartOffset(node) ?? 0);
+    if (!nearestClass || width < nearestClass.width) {
+      nearestClass = { name: node.name.name, width };
+    }
+  });
+  return (nearestClass as { name: string; width: number } | null)?.name ?? null;
 }
 
 export async function resolveImplicitReceiverMemberDefinition(
@@ -137,6 +162,15 @@ export async function resolveImplicitReceiverMemberDefinition(
     cache: createClassResolverCache()
   };
 
+  const classMemberDeclaration = classResolution.declaration instanceof ClassStatement
+    ? await resolveClassMemberDeclaration(
+      { classStatement: classResolution.declaration, filePath: classResolution.filePath },
+      memberName,
+      resolvedReceiverTypeName,
+      resolverContext
+    )
+    : null;
+
   const interfaceMemberDeclaration = classResolution.declaration instanceof InterfaceStatement
     ? await resolveInterfaceMemberDeclaration(
       { interfaceStatement: classResolution.declaration, filePath: classResolution.filePath },
@@ -146,9 +180,13 @@ export async function resolveImplicitReceiverMemberDefinition(
     )
     : null;
 
-  const memberOwner = interfaceMemberDeclaration?.declaration ?? classResolution.declaration;
+  const memberOwner = classMemberDeclaration?.declaration
+    ?? interfaceMemberDeclaration?.declaration
+    ?? classResolution.declaration;
   const memberFilePath = await preferVirtualRuntimeDeclarationFilePath(
-    interfaceMemberDeclaration?.filePath ?? classResolution.filePath,
+    classMemberDeclaration?.filePath
+      ?? interfaceMemberDeclaration?.filePath
+      ?? classResolution.filePath,
     context
   );
 
