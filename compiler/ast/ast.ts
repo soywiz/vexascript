@@ -758,7 +758,7 @@ export type ClassMember = ClassFieldMember | ClassMethodMember;
 export class ClassPrimaryConstructorParameter extends CallableParameterNode {
     declare kind: NodeKind.ClassPrimaryConstructorParameter
 
-    constructor(public declarationKind: VariableDeclarationKind, public name: Identifier, typeAnnotation?: Identifier, defaultValue?: Expr, public annotations?: AnnotationApplication[]) {
+    constructor(public declarationKind: VariableDeclarationKind, public name: Identifier, typeAnnotation?: Identifier, defaultValue?: Expr, public annotations?: AnnotationApplication[], public accessModifier?: ClassMemberAccessModifier, public isReadonly?: boolean) {
         super(NodeKind.ClassPrimaryConstructorParameter, typeAnnotation, defaultValue)
     }
 }

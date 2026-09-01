@@ -1022,7 +1022,7 @@ export class Binder {
     if (statement.primaryConstructorParameters) {
       for (const parameter of statement.primaryConstructorParameters) {
         const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
-        this.declare(scope, new AnalysisSymbol(bindingNameText(parameter.name), "variable", parameter.name, -1, isReadonlyVariable(parameter.declarationKind), true, undefined, undefined, parameterType, typeToString(parameterType)));
+        this.declare(scope, new AnalysisSymbol(bindingNameText(parameter.name), "variable", parameter.name, -1, parameter.isReadonly === true || isReadonlyVariable(parameter.declarationKind), true, undefined, undefined, parameterType, typeToString(parameterType)));
       }
     }
     for (const candidate of statement.members) {

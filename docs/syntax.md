@@ -1147,6 +1147,8 @@ Class declarations support an optional primary constructor parameter list after 
 
 Each primary constructor parameter currently supports:
 
+- optional access modifier (`public`, `protected`, or `private`)
+- optional `readonly` modifier
 - optional declaration kind (`let`, `var`, `val`, `const`, defaults to `const` when omitted)
 - parameter name
 - optional type annotation (`: TypeName`)
@@ -1157,6 +1159,19 @@ Example:
 ```vexa
 class Point(val x: number, val y: number) {
 }
+```
+
+Access and `readonly` modifiers precede the declaration kind. They apply to the
+instance property created from the parameter; they do not change the emitted
+JavaScript constructor signature. `val` and `const` properties are already
+readonly, so an explicit `readonly` on either is accepted but redundant.
+
+```vexa
+class Session(
+  private val token: string,
+  protected var retries: int,
+  public readonly const id: string,
+)
 ```
 
 ```vexa

@@ -1772,6 +1772,33 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses access and readonly modifiers on primary constructor properties", () => {
+        expect(parseStatement(tokenizeReader(
+            "class Demo(private val secret: int, protected var token: int, public readonly const id: int)"
+        ))).toMatchObject({
+            kind: NodeKind.ClassStatement,
+            name: { name: "Demo" },
+            primaryConstructorParameters: [
+                {
+                    declarationKind: "val",
+                    accessModifier: "private",
+                    name: { name: "secret" }
+                },
+                {
+                    declarationKind: "var",
+                    accessModifier: "protected",
+                    name: { name: "token" }
+                },
+                {
+                    declarationKind: "const",
+                    accessModifier: "public",
+                    isReadonly: true,
+                    name: { name: "id" }
+                }
+            ]
+        });
+    });
+
     it("parses class primary constructor parameter defaults with call expressions", () => {
         expect(parseStatement(tokenizeReader(dedent`
             class ViewNode(

@@ -10177,7 +10177,7 @@ export class TypeChecker {
         "parameter",
         parameter.name,
         -1,
-        parameter.declarationKind === "const" || parameter.declarationKind === "val",
+        parameter.isReadonly === true || parameter.declarationKind === "const" || parameter.declarationKind === "val",
         false,
         undefined,
         undefined,
@@ -13616,6 +13616,13 @@ export class TypeChecker {
       const expanded = this.expandTypeAliases(type);
       if (!isSameType(expanded, type)) {
         return this.hasReadonlyProperty(expanded, propertyName);
+      }
+      const declaredMember = this.findClassMember(type.name, propertyName)?.member;
+      if (
+        declaredMember instanceof ClassPrimaryConstructorParameter &&
+        (declaredMember.isReadonly === true || declaredMember.declarationKind === "const" || declaredMember.declarationKind === "val")
+      ) {
+        return true;
       }
       const members = this.resolveNamedTypeMembers(type);
       if (!members) {

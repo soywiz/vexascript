@@ -116,6 +116,16 @@ describe("emitProgram", () => {
     );
   });
 
+  it("erases primary constructor property modifiers from JavaScript", () => {
+    const program = parseFile(tokenizeReader(
+      "class Demo(private val secret: int, protected var token: int, public readonly const id: int)"
+    ));
+
+    expect(emitProgram(program)).toBe(
+      "class Demo {\nconstructor(secret, token, id) { this.secret = secret; this.token = token; this.id = id; }\n}"
+    );
+  });
+
   it("forwards primary-constructor base arguments before property initialization", () => {
     const program = parseFile(tokenizeReader(dedent`
       class Base(val value: int)

@@ -269,6 +269,19 @@ describe("semantic tokens", () => {
     expect(age?.tokenType).toBe("parameter");
   });
 
+  it("highlights primary constructor property modifiers and names", () => {
+    const source = "class User(private val secret: string, public readonly const id: string)\n";
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({ text: source, ast: session.ast, analysis: session.analysis });
+    const decoded = decodeTokens(source, semantic.data);
+
+    for (const modifier of ["private", "val", "public", "readonly", "const"]) {
+      expect(decoded.some((token) => token.lexeme === modifier && token.tokenType === "keywordModifier")).toBe(true);
+    }
+    expect(decoded.filter((token) => token.lexeme === "secret" || token.lexeme === "id")
+      .every((token) => token.tokenType === "property")).toBe(true);
+  });
+
   it("highlights angle-bracket assertion type names", () => {
     const source = "let value = <Point>raw\n";
     // Angle-bracket casts are TypeScript-only (VexaScript reserves `<...>` for JSX).

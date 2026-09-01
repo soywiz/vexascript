@@ -316,6 +316,14 @@ class Point(val x: number, val y: number)
 class User(val name: string, var age: int = 0i)
 ```
 
+Primary-constructor properties accept `public`, `protected`, and `private`
+before the declaration kind, plus an optional `readonly` modifier. `val` and
+`const` are already readonly; spelling `readonly` explicitly is allowed.
+
+```vexa
+class Session(private val token: string, public readonly const id: string)
+```
+
 Primary-constructor parameters can be forwarded directly to a base constructor.
 The colon form and the canonical `extends` form are equivalent:
 

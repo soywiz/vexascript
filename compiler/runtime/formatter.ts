@@ -2061,6 +2061,8 @@ class AstFormatter {
   }
 
   private emitPrimaryCtorParam(p: ClassPrimaryConstructorParameter): void {
+    if (p.accessModifier) { this.write(p.accessModifier); this.sp(); }
+    if (p.isReadonly) { this.write("readonly"); this.sp(); }
     this.write(p.declarationKind);
     this.sp();
     this.write(p.name.name);

@@ -3909,7 +3909,7 @@ let bad = "Ada" satisfies number
 
   it("reports incompatible assignment types for class members", () => {
     const source = dedent`
-      class Point(val y: int)
+      class Point(var y: int)
       fun demo() {
         const point = new Point(1)
         point.y = "test"

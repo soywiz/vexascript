@@ -1631,6 +1631,29 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toContain("Type 'string' is not assignable to type 'int'");
   });
 
+  it("enforces access and readonly modifiers on primary constructor properties", () => {
+    const source = dedent`
+      class Base(private val secret: int, protected var token: int, public readonly var id: int) {
+        changeId() {
+          this.id = 2i
+        }
+      }
+      class Child(const secret: int, const token: int, const id: int) extends Base(secret, token, id) {
+        readToken() => this.token
+      }
+      let base = Base(1i, 2i, 3i)
+      let hidden = base.secret
+      let guarded = base.token
+      base.id = 4i
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Member 'secret' is private and can only be accessed within class 'Base'");
+    expect(messages).toContain("Member 'token' is protected and can only be accessed within class 'Base' or its subclasses");
+    expect(messages.filter((message) => message === "Cannot assign to readonly member 'id'")).toHaveLength(2);
+  });
+
   it("validates readonly and abstract class member semantics", () => {
     const source = dedent`
       abstract class Base {

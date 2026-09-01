@@ -150,6 +150,15 @@ class Point(const x: number, const y: number) // primary constructor; declaratio
 const p = Point(1, 2)                        // no `new` needed (new still works)
 ```
 
+Primary-constructor property grammar is
+`[public|protected|private] [readonly] [let|var|val|const] name [: Type] [= value]`.
+Modifiers precede the declaration kind. `val` and `const` are readonly even
+without the optional `readonly` spelling.
+
+```vexa
+class Session(private val token: string, public readonly const id: string)
+```
+
 Forward base-constructor arguments in the class heritage clause. Arguments are
 resolved in the primary-constructor parameter scope, checked against the base
 constructor, and evaluated before derived property and `init` initialization:

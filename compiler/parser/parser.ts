@@ -6184,6 +6184,12 @@ export class Parser {
             } else if (parameter.declarationKind === "var" || parameter.declarationKind === "let") {
                 functionParameter.accessModifier = "public";
             }
+            if (parameter.accessModifier) {
+                functionParameter.accessModifier = parameter.accessModifier;
+            }
+            if (parameter.isReadonly) {
+                functionParameter.isReadonly = true;
+            }
             if (parameter.typeAnnotation) {
                 functionParameter.typeAnnotation = parameter.typeAnnotation;
             }
@@ -6930,18 +6936,35 @@ export class Parser {
                 }
             }
 
-            const firstToken = this.tokens.read();
-            if (firstToken?.type !== TokenType.IDENTIFIER) {
-                this.fail("Expected parameter name in class primary constructor", this.tokenAt(firstToken));
+            const firstToken = this.tokens.peek();
+            let parameterAccessModifier: ClassPrimaryConstructorParameter["accessModifier"] | undefined;
+            let parameterReadonly = false;
+            while (this.tokens.peek()?.type === TokenType.IDENTIFIER) {
+                const modifier = this.tokens.peek()!.value;
+                if (modifier === "public" || modifier === "private" || modifier === "protected") {
+                    parameterAccessModifier = this.tokens.read()!.value as ClassPrimaryConstructorParameter["accessModifier"];
+                    continue;
+                }
+                if (modifier === "readonly") {
+                    parameterReadonly = true;
+                    this.tokens.skip();
+                    continue;
+                }
+                break;
+            }
+
+            const declarationOrNameToken = this.tokens.read();
+            if (declarationOrNameToken?.type !== TokenType.IDENTIFIER) {
+                this.fail("Expected parameter name in class primary constructor", this.tokenAt(declarationOrNameToken));
             }
 
             let declarationKind: VariableDeclarationKind = "const";
             let parameterNameToken: Token | undefined;
-            if (VARIABLE_DECLARATION_KEYWORDS.includes(firstToken.value as VariableDeclarationKind)) {
-                declarationKind = firstToken.value as VariableDeclarationKind;
+            if (VARIABLE_DECLARATION_KEYWORDS.includes(declarationOrNameToken.value as VariableDeclarationKind)) {
+                declarationKind = declarationOrNameToken.value as VariableDeclarationKind;
                 parameterNameToken = this.tokens.read();
             } else {
-                parameterNameToken = firstToken;
+                parameterNameToken = declarationOrNameToken;
             }
 
             if (parameterNameToken?.type !== TokenType.IDENTIFIER) {
@@ -6965,7 +6988,9 @@ export class Parser {
                 this.buildIdentifierFromToken(parameterNameToken),
                 undefined,
                 undefined,
-                annotations.length > 0 ? annotations : undefined
+                annotations.length > 0 ? annotations : undefined,
+                parameterAccessModifier,
+                parameterReadonly || undefined
             );
             if (parameterTypeAnnotation) {
                 parameter.typeAnnotation = parameterTypeAnnotation;
