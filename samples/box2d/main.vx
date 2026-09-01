@@ -26,7 +26,7 @@ const ground = world.CreateBody({
   type: b2BodyType.b2_staticBody,
   position: { x: 0, y: -0.5 },
 })
-const groundShape = new b2PolygonShape()
+const groundShape = b2PolygonShape()
 groundShape.SetAsBox(5, 0.5)
 ground.CreateFixture({ shape: groundShape, friction: 0.3 })
 
@@ -34,11 +34,11 @@ const box = world.CreateBody({
   type: b2BodyType.b2_dynamicBody,
   position: { x: 0, y: 4 },
 })
-const boxShape = new b2PolygonShape()
+const boxShape = b2PolygonShape()
 boxShape.SetAsBox(0.5, 0.5)
 box.CreateFixture({ shape: boxShape, density: 1, friction: 0.3 })
 
-const simulation = new BoxSimulation(world, box)
+const simulation = BoxSimulation(world, box)
 let callbackCount = 0
 simulation.onStep(() => { callbackCount += 1 })
 simulation.step(120)

@@ -809,6 +809,49 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("keeps project classes distinct from transitive package aliases", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "node_modules/color-like/package.json": JSON.stringify({
+          name: "color-like",
+          types: "index.d.ts"
+        }),
+        "node_modules/color-like/index.d.ts": dedent`
+          export type Input = string | { [key: string]: unknown }
+          export declare class Surface {
+            accepts(value: Input): boolean
+          }
+        `,
+        "Input.vx": dedent`
+          export class Input {
+            down(...codes: string[]): boolean { return false }
+          }
+        `,
+        "GameScene.vx": dedent`
+          import { Surface } from "color-like"
+          import { Input } from "./Input.vx"
+          export class GameScene(
+            readonly surface: Surface,
+            readonly input: Input,
+          )
+        `,
+        "main.vx": dedent`
+          import { GameScene } from "./GameScene.vx"
+          fun update(scene: GameScene) {
+            scene.input.down("KeyA")
+            scene.surface.accepts("blue")
+          }
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraphAsModules(join(dir, "main.vx"), "conservative");
+
+        expect(result.errors).toEqual([]);
+      }
+    );
+  });
+
   it("auto-awaits ambient node module named imports inside sync functions", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(

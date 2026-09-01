@@ -384,6 +384,64 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("accepts structurally compatible optional values for optional parameters", () => {
+    const source = dedent`
+      interface XY {
+        x: number
+        y: number
+      }
+      declare fun setBox(center?: XY, angle?: number): void
+      let center: { x: number, y: number } | undefined
+      let angle: number | undefined
+      setBox(center, angle)
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("preserves string literals when inferring constrained type parameters", () => {
+    const source = dedent`
+      interface Events {
+        scoreAdded: { points: number }
+      }
+      class EventBus {
+        emit<K extends keyof Events>(event: K, payload: Events[K]): void {}
+      }
+      EventBus().emit("scoreAdded", { points: 200 })
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("infers a class instance through an abstract constructor parameter", () => {
+    const source = dedent`
+      abstract class Component {}
+      class Rigidbody extends Component {
+        wake(): void {}
+      }
+      type ComponentConstructor<T extends Component> = abstract new (...args: never[]) => T
+
+      class GameObject {
+        getComponent<T extends Component>(type: ComponentConstructor<T>): T | null {
+          return null
+        }
+      }
+
+      fun lookup(gameObject: GameObject): Rigidbody | null {
+        const rigidbody = gameObject.getComponent(Rigidbody)
+        if (rigidbody) rigidbody.wake()
+        return rigidbody
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("exposes Object constructor metadata on class instances and values", () => {
     const source = dedent`
       class Demo {
@@ -400,12 +458,26 @@ describe("Analysis", () => {
 
   it("uses declared member types for assignments after read narrowing", () => {
     const source = dedent`
+      type CrusherState = "idle" | "falling" | "resting"
       class GameObject {}
       class Component {
         gameObject!: GameObject
+        state: CrusherState = "idle"
         attach(gameObject: GameObject): void {
           if (this.gameObject) throw new Error("already attached")
           this.gameObject = gameObject
+        }
+        update(): void {
+          if (this.state !== "idle") return
+          this.state = "falling"
+        }
+      }
+      fun install(): void {
+        let resetPending = false
+        const resetViewport = (): void => {
+          if (resetPending) return
+          resetPending = true
+          resetPending = false
         }
       }
     `;
@@ -2220,6 +2292,51 @@ describe("Analysis", () => {
     const analysis = new Analysis(ast);
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows nullable linked-list values in for conditions", () => {
+    const source = dedent`
+      interface Fixture {
+        GetNext(): Fixture | null
+        GetShape(): string
+      }
+      interface Body {
+        GetNext(): Body | null
+        GetFixtureList(): Fixture | null
+      }
+      declare function GetBodyList(): Body | null
+
+      fun render(): void {
+        for (let body = GetBodyList(); body; body = body.GetNext()) {
+          for (let fixture = body.GetFixtureList(); fixture; fixture = fixture.GetNext()) {
+            const shape = fixture.GetShape()
+          }
+        }
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("keeps compound smart casts after a continue guard", () => {
+    const source = dedent`
+      class Shape {}
+      class PolygonShape extends Shape {
+        vertices: number[] = []
+      }
+
+      fun render(shape: Shape, tag: string | null): void {
+        while (true) {
+          if (!(shape instanceof PolygonShape) || !tag) continue
+          shape.vertices.push(tag.length)
+          break
+        }
+      }
+    `;
+
+    expect(new Analysis(parseFile(tokenizeReader(source))).getIssues()).toEqual([]);
   });
 
   it("narrows identifiers after an early-return falsy guard", () => {

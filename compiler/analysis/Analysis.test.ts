@@ -478,6 +478,42 @@ describe("Analysis", () => {
     );
   });
 
+  it("uses class getter types for reads and setter parameter types for writes", () => {
+    const source = dedent`
+      declare interface PointData {
+        x: number
+        y: number
+      }
+      declare class ObservablePoint {
+        x: number
+        y: number
+        set(x?: number, y?: number): this
+        copyFrom(point: PointData): this
+      }
+      declare class Container {
+        get position(): ObservablePoint
+        set position(value: PointData)
+      }
+      declare function createContainer(): Container
+
+      const container = createContainer()
+      container.position.set(100, 200)
+      container.position.copyFrom(container.position)
+      container.position = { x: 50, y: 75 }
+    `;
+    const ast = parseFile(tokenizeReader(source), { language: "typescript" });
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+
+    const invalidAnalysis = new Analysis(parseFile(tokenizeReader(`${source}\ncontainer.position = "invalid"`), {
+      language: "typescript"
+    }));
+    expect(invalidAnalysis.getIssues().map((issue) => issue.message)).toContain(
+      "Type 'string' is not assignable to type 'PointData'"
+    );
+  });
+
   it("prefers an interface's own method over an inherited broader signature", () => {
     const source = dedent`
       interface Element {}
@@ -636,6 +672,51 @@ let after = bind`));
     const messages = analysis.getIssues().map((issue) => issue.message);
 
     expect(messages).toContain("Parameter 'props' must declare an explicit type annotation");
+  });
+
+  it("infers unannotated parameter types from default values", () => {
+    const source = dedent`
+      fun scale(value = 0.5): number {
+        const typed: number = value
+        return typed
+      }
+      scale()
+      scale("invalid")
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).not.toContain("Parameter 'value' must declare an explicit type annotation");
+    expect(messages).toContain("Argument 1 of type 'string' is not assignable to parameter 'value' of type 'number?'");
+  });
+
+  it("contextually checks number literals against numeric literal unions", () => {
+    const validSource = dedent`
+      let facing: -1 | 1 = 1
+      facing = -1
+      facing = Math.random() < 0.5 ? -1 : 1
+    `;
+    const invalidSource = dedent`
+      let facing: -1 | 1 = 0
+    `;
+
+    const validAnalysis = new Analysis(parseFile(tokenizeReader(validSource)));
+    expect(validAnalysis.getIssues()).toEqual([]);
+    expect(
+      new Analysis(parseFile(tokenizeReader(invalidSource))).getIssues().map((issue) => issue.message)
+    ).toContain("Type 'number' is not assignable to type '-1 | 1'");
+  });
+
+  it("contextually preserves string literal unions in conditional call arguments", () => {
+    const source = dedent`
+      fun makePlatform(material: "grass" | "snow" = "grass"): void {}
+      fun build(material: "grass" | "ice"): void {
+        makePlatform(material === "ice" ? "snow" : "grass")
+      }
+    `;
+
+    expect(new Analysis(parseFile(tokenizeReader(source))).getIssues()).toEqual([]);
   });
 
   it("accepts 'this' return types in VexaScript classes and extension methods", () => {
@@ -1560,6 +1641,39 @@ let bad = "Ada" satisfies number
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves chained indexed access types after typeof queries", () => {
+    const validSource = dedent`
+      const directions = [
+        ["ArrowUp", "up"],
+        ["ArrowDown", "down"],
+      ] as const
+      fun label(direction: typeof directions[number][1]): string {
+        return direction
+      }
+      label("up")
+      label("down")
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(validSource)));
+    expect(analysis.getIssues()).toEqual([]);
+    expect(typeToString(analysis.getTopLevelSymbolType("label")!)).toEqual('(direction: "up" | "down") => string');
+  });
+
+  it("captures the instance this in arrow function field initializers", () => {
+    const source = dedent`
+      class Input {
+        private held = new Set<string>()
+        private pressed = new Set<string>()
+
+        private readonly onKeyDown = (code: string): void => {
+          if (!this.held.has(code)) this.pressed.add(code)
+          this.held.add(code)
+        }
+      }
+    `;
+
+    expect(new Analysis(parseFile(tokenizeReader(source))).getIssues()).toEqual([]);
   });
 
   it("reports missing properties in indexed access type annotations", () => {
@@ -2671,14 +2785,14 @@ let bad = "Ada" satisfies number
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("value")?.valueType).toBe("Promise<int>");
   });
 
-  it("infers Promise.all element types from promise arrays", () => {
+  it("infers Promise.all tuple positions from inline promise arrays", () => {
     const source = dedent`
       const values = Promise.all([Promise.resolve(1i), Promise.resolve(2i)])
     `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
-    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<int[]>");
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<[int, int]>");
   });
 
   it("recursively unwraps declared nested Promise values in Promise.all", () => {
@@ -2701,6 +2815,23 @@ let bad = "Ada" satisfies number
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(symbolsOfVisibleSymbolsAt(source, 1, 6).get("values")?.valueType).toBe("Promise<[int, string]>");
+  });
+
+  it("infers tuple positions for inline heterogeneous Promise.all inputs", () => {
+    const source = dedent`
+      interface Sheet { source: string }
+      interface ResponseLike { ok: boolean }
+      declare const sheetPromise: Promise<Sheet>
+      declare const responsePromise: Promise<ResponseLike>
+      async fun load(): Promise<void> {
+        const [sheet, response] = await Promise.all([sheetPromise, responsePromise])
+        const source: string = sheet.source
+        const ok: boolean = response.ok
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
   it("contextually types flatMap brace callbacks with generic return unions", () => {
@@ -2849,7 +2980,7 @@ let bad = "Ada" satisfies number
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
-    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<(int | string)[]>");
+    expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("values")?.valueType).toBe("Promise<[int, string]>");
   });
 
   it("contextually types heterogeneous Array.from mapper values", () => {

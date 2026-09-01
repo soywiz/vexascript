@@ -316,7 +316,7 @@ dedent`
     expect(labels).toContain(": Promise<string>");
   });
 
-  it("parenthesizes union element types in Promise.allSettled variable hints", async () => {
+  it("preserves tuple positions in Promise.allSettled variable hints", async () => {
     const source = dedent`
       const settled = Promise.allSettled([Promise.resolve(1i)])
       `;
@@ -330,8 +330,7 @@ dedent`
     );
     const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
 
-    expect(labels).toContain(": Promise<(PromiseFulfilledResult<int> | PromiseRejectedResult)[]>");
-    expect(labels).not.toContain(": Promise<PromiseFulfilledResult<int> | PromiseRejectedResult[]>");
+    expect(labels).toContain(": Promise<[PromiseFulfilledResult<int> | PromiseRejectedResult]>");
   });
 
   it("uses inferred Map entry types in Array.from variable hints", async () => {

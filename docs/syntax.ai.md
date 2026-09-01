@@ -67,6 +67,16 @@ tween(view::x[0, 100], time: 1.seconds) // if Property<number>.operator[] is def
   result with `|0`, and returns `int`. For example, `7 \\ 2` is `3i`.
 - Collection and string `length` properties use the standard TypeScript
   `number` type.
+- Contextually accept an exact numeric literal, including `-1`, when the
+  expected type is a matching literal or literal union. This also applies when
+  a ternary combines matching literal branches. Reject non-members such as `0`
+  for `-1 | 1`; outside that context the unsuffixed expression remains `number`.
+- Preserve contextual literal branches in conditional call arguments. A
+  parameter typed `"grass" | "snow"` accepts `icy ? "snow" : "grass"`
+  without widening the conditional result to `string`.
+- Validate writes against the declared target type, not a temporary narrowed
+  read type. Mutable boolean and literal-union fields accept every value in
+  their declaration; assignment completion offers string-literal members.
 
 ## Functions
 
@@ -76,6 +86,26 @@ fn double(x: number): number => x * 2                    // supported alias
 fun legacy(): void {}                                    // supported alias
 function tsStyle(): void {}                              // supported alias
 ```
+
+- An unannotated parameter with a default infers the default's type and is
+  optional. A parameter with neither an annotation nor a default is an error.
+- An optional parameter accepts an explicit `T | undefined` argument.
+- Transitive dependency helper types retain declaration provenance. Do not let
+  an unimported `node_modules` alias shadow a same-named project class; continue
+  resolving that alias inside its owning dependency declarations.
+- Memoize local imported-declaration collection per graph traversal. A shared or
+  cyclic module is collected once and reused rather than recursively expanded
+  from every incoming path.
+- Preserve matching literal arguments during constrained generic inference.
+- When a class identifier is passed to an `abstract new (...) => T` or
+  `new (...) => T` parameter, infer `T` as that class's instance type.
+- Apply generic alias defaults before indexed access and preserve chained type
+  queries such as `typeof DIRECTIONS[number][2]`. Imported getters such as
+  `Application<R = Renderer>.canvas: R["canvas"]` keep their concrete type.
+- Arrow function field initializers capture the instance `this` lexically.
+- `if`, `while`, and classic `for` share smart-cast logic. A compound guard
+  whose branch continues, breaks, returns, or throws narrows the following
+  path.
 
 Canonical spelling configuration (editor normalization and generated fixes):
 
@@ -93,6 +123,10 @@ Canonical spelling configuration (editor normalization and generated fixes):
 `"func"`). All aliases remain parseable regardless of this setting.
 
 `sync` (auto-await): like `async` but every Promise used as a value is automatically awaited; return type is `T`, not `Promise<T>`.
+
+An inline array passed to `Promise.all` or `Promise.allSettled` produces a
+positional tuple result after awaiting each element. A value already typed as a
+general array or iterable produces an array result.
 
 ```vexa
 sync func load(id: string): User {
@@ -220,6 +254,10 @@ class Counter {
 }
 ```
 
+For paired TypeScript-style accessors, reads use the getter return type and
+assignments use the setter parameter type, including asymmetric accessors
+loaded from `.d.ts` files.
+
 Operator overloads use `operator` methods. Binary operators receive the right-hand operand. Index getter operators receive all bracket dimensions. Index setter operators receive the assigned value first, then the bracket dimensions; rest parameters support variable-dimensional indexers.
 
 ```vexa
@@ -329,6 +367,10 @@ defer file.close()                 // runs at block exit, like finally
 
 if (x is Circle) { x.radius }      // basic `is` is instanceof; both smart-cast
 ```
+
+`as const` keeps primitive literal members and infers nested arrays as readonly
+tuples. Completion proposes string-literal union members both for assignments
+and for the right operand of `==`, `!=`, `===`, and `!==`.
 
 `for-of` statement sources must be iterable. Accept synchronous
 `[Symbol.iterator]()` and asynchronous `[Symbol.asyncIterator]()` protocols;

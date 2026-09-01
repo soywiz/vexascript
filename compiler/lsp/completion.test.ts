@@ -2385,6 +2385,52 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("canvas")?.insertText).toBe("\"canvas\"");
   });
 
+  it("offers string literal union values in member assignments", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      type CrusherState = "idle" | "falling" | "returning"
+
+      class BlockCrusher {
+        private state: CrusherState = "idle"
+
+        update(): void {
+          this.state = "^^^"
+        }
+      }
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: "file:///virtual/main.vx"
+    });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(items.map((item) => item.label)).toContain("idle");
+    expect(items.map((item) => item.label)).toContain("falling");
+    expect(items.map((item) => item.label)).toContain("returning");
+    expect(byLabel.get("falling")?.insertText).toBe("falling");
+  });
+
+  it("offers string literal union values in equality comparisons", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      type FixtureKind = "player" | "enemy" | "oneway" | "question" | "coin" | "goal" | "ground"
+
+      fun color(kind: FixtureKind): number {
+        if (kind === "^^^") return 1
+        return 0
+      }
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: "file:///virtual/main.vx"
+    });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(items.map((item) => item.label)).toContain("player");
+    expect(items.map((item) => item.label)).toContain("ground");
+    expect(byLabel.get("ground")?.insertText).toBe("ground");
+  });
+
   it("resolves object property value suggestions lazily after accepting a property", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       interface ApplicationOptions {

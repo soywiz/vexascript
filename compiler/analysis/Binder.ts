@@ -672,6 +672,10 @@ export class Binder {
     this.declare(scope, new AnalysisSymbol(statement.name.name, "class", statement.name, -1, undefined, undefined, undefined, undefined, namedType(statement.name.name), statement.name.name));
 
     const classScope = this.createScope(scope, statement);
+    // Instance field initializers execute with the class instance as their
+    // lexical receiver. Arrow functions created there must inherit that same
+    // `this`, just as arrows created inside instance methods do.
+    this.declare(classScope, new AnalysisSymbol("this", "variable", statement.name, -1, undefined, undefined, undefined, undefined, namedType(statement.name.name), statement.name.name), -1);
     this.reportDuplicateClassVariables(statement);
     this.declareClassMembers(classScope, statement);
     for (const member of statement.members) {

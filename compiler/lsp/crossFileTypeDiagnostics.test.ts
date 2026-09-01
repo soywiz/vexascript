@@ -114,6 +114,151 @@ describe("cross-file type diagnostics", () => {
     expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
   });
 
+  it("infers imported class instances through generic constructor parameters", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-constructor-inference-"));
+    const coreFile = join(root, "core.vx");
+    const rigidbodyFile = join(root, "rigidbody.vx");
+    const mainFile = join(root, "main.vx");
+
+    await writeFile(coreFile, dedent`
+      export abstract class Component {}
+      type ComponentConstructor<T extends Component> = abstract new (...args: never[]) => T
+      export class GameObject {
+        getComponent<T extends Component>(type: ComponentConstructor<T>): T | null {
+          return null
+        }
+      }
+    `, "utf8");
+    await writeFile(rigidbodyFile, dedent`
+      import { Component } from "./core"
+      export class Rigidbody extends Component {
+        wake(): void {}
+      }
+    `, "utf8");
+    const source = dedent`
+      import { GameObject } from "./core"
+      import { Rigidbody } from "./rigidbody"
+      fun lookup(gameObject: GameObject): Rigidbody | null {
+        const rigidbody = gameObject.getComponent(Rigidbody)
+        if (rigidbody) rigidbody.wake()
+        return rigidbody
+      }
+    `;
+    await writeFile(mainFile, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainFile).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: imported.externalDeclarations,
+      importedSymbols: imported.importedSymbols
+    });
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(mainFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
+  });
+
+  it("does not let a transitive dependency alias shadow a project class", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-type-collision-"));
+    const packageDir = join(root, "node_modules", "color-like");
+    const inputFile = join(root, "Input.vx");
+    const sceneFile = join(root, "GameScene.vx");
+    const mainFile = join(root, "main.vx");
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "color-like", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(packageDir, "index.d.ts"), dedent`
+      export type Input = string | { [key: string]: unknown }
+      export declare class Surface {
+        accepts(value: Input): boolean
+      }
+    `, "utf8");
+    await writeFile(inputFile, dedent`
+      export class Input {
+        down(...codes: string[]): boolean { return false }
+      }
+    `, "utf8");
+    await writeFile(sceneFile, dedent`
+      import { Surface } from "color-like"
+      import { Input } from "./Input.vx"
+      export class GameScene(
+        readonly surface: Surface,
+        readonly input: Input,
+      )
+    `, "utf8");
+    const source = dedent`
+      import { GameScene } from "./GameScene.vx"
+      fun update(scene: GameScene) {
+        const input = scene.input
+        input.down("KeyA", "ArrowLeft")
+        scene.surface.accepts("blue")
+      }
+    `;
+    await writeFile(mainFile, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainFile).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: imported.externalDeclarations,
+      externalDeclarationLocations: imported.externalDeclarationLocations,
+      importedSymbols: imported.importedSymbols
+    });
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("memoizes local import graphs with shared and cyclic dependencies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-import-cache-"));
+    const mainFile = join(root, "main.vx");
+    await writeFile(join(root, "shared.vx"), dedent`
+      import { A } from "./a.vx"
+      export class Shared {}
+    `, "utf8");
+    await writeFile(join(root, "a.vx"), dedent`
+      import { Shared } from "./shared.vx"
+      export class A(val shared: Shared)
+    `, "utf8");
+    await writeFile(join(root, "b.vx"), dedent`
+      import { Shared } from "./shared.vx"
+      export class B(val shared: Shared)
+    `, "utf8");
+    const source = dedent`
+      import { A } from "./a.vx"
+      import { B } from "./b.vx"
+      fun use(a: A, b: B): void {}
+    `;
+    await writeFile(mainFile, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const cache = new Map();
+    await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainFile).toString(),
+      sourceRoots: [root],
+      importedDeclarationsCache: cache
+    });
+
+    expect([...cache.keys()].sort()).toEqual([
+      join(root, "a.vx"),
+      join(root, "b.vx"),
+      mainFile,
+      join(root, "shared.vx")
+    ].sort());
+  });
+
   it("reports argument count and type errors for imported class methods", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
     const worldFile = join(root, "world.vx");
@@ -624,6 +769,63 @@ describe("cross-file type diagnostics", () => {
       sourceRoots: [root]
     });
 
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
+  });
+
+  it("resolves indexed getter types through imported generic defaults", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-indexed-getter-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Application } from "pixi-like"
+
+      val app = new Application()
+      app.canvas.setAttribute("aria-label", "game")
+      app.canvas.style.width = "480px"
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pixi-like", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), dedent`
+      export interface Canvas {
+        setAttribute(name: string, value: string): void;
+        style: { width: string };
+      }
+      export declare class WebGLRenderer<T = Canvas> {
+        canvas: T;
+      }
+      export declare class WebGPURenderer<T = Canvas> {
+        canvas: T;
+      }
+      export type Renderer<T = Canvas> = WebGLRenderer<T> | WebGPURenderer<T>;
+      export declare class Application<R extends Renderer = Renderer> {
+        constructor();
+        get canvas(): R['canvas'];
+      }
+    `, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: imported.externalDeclarations,
+      importedSymbols: imported.importedSymbols
+    });
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
     expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
   });
 

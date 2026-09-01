@@ -169,6 +169,11 @@ cycle without recursive analysis or nontermination.
 
 In `async` functions, return expressions are checked against the inner `Promise<T>` value type, so both `return 10i` and `return Promise.resolve(10i)` are valid for `Promise<int>`. `await expr` evaluates to `T` when `expr` has type `Promise<T>`; otherwise `await` preserves the original type. When no return type is annotated, the inferred return type is `Promise<T>`. If an `async` function has an explicit return type annotation, it must be `Promise<...>`.
 
+`Promise.all` and `Promise.allSettled` preserve the positions of an inline array
+literal as a tuple. For example, `await Promise.all([loadTexture(), fetch(url)])`
+has the positional result `[Texture, Response]`. An argument already typed as a
+general array or iterable continues to produce an array result.
+
 `await` is only allowed at the top level (module/global scope) and inside `async` or `sync` functions. Using `await` inside a normal (non-`async`/`sync`) function or a normal generator is a semantic error (`AWAIT_OUTSIDE_ASYNC`).
 
 `async` functions behave exactly like TypeScript: Promise-typed expressions are **not** implicitly awaited, so you write `await` explicitly. Pervasive auto-await is exclusive to `sync` functions (described below), which model Kotlin-style suspend functions.
@@ -234,7 +239,7 @@ function bind(this: Loader, id: string): string {
 }
 ```
 
-Type assertions with `as Type`, `satisfies Type`, const assertions, and non-null assertions are parsed and erased during JavaScript emission. `satisfies` checks assignability against the target type while preserving the original expression type, matching TypeScript's non-widening behavior. Const assertions keep the analyzed expression type without attempting to resolve `const` as a named type. Non-null assertions remove `null` and `undefined` from the analyzed expression type without changing runtime output. The angle-bracket cast `<Type>value` is TypeScript-only because VexaScript reserves `<` for embedded XML/JSX:
+Type assertions with `as Type`, `satisfies Type`, const assertions, and non-null assertions are parsed and erased during JavaScript emission. `satisfies` checks assignability against the target type while preserving the original expression type, matching TypeScript's non-widening behavior. Const assertions retain primitive literal members and infer nested array literals as readonly tuples instead of attempting to resolve `const` as a named type. Non-null assertions remove `null` and `undefined` from the analyzed expression type without changing runtime output. The angle-bracket cast `<Type>value` is TypeScript-only because VexaScript reserves `<` for embedded XML/JSX:
 
 ```vexa
 let name = value as string
@@ -750,9 +755,28 @@ fun identity<T>(value: T): T {
 let name: string = identity<string>("Ada")
 ```
 
+Generic inference keeps a literal argument narrow when a constrained type
+parameter requires it. This makes calls such as
+`events.emit("scoreAdded", payload)` infer the corresponding member of a
+`keyof` union instead of widening the event name to `string`. Passing a class
+value to a constructor-signature parameter also infers its instance type, so a
+parameter of type `abstract new (...args: never[]) => T` can infer `T` from
+`Rigidbody`.
+
+An unannotated parameter with a default value infers its type from that value
+and is optional at call sites. A parameter that has neither an annotation nor a
+default still reports a missing-type diagnostic. As in TypeScript, an explicit
+argument for `value?: T` may itself have type `T | undefined`.
+
+```vexa
+func play(volume = 0.32): void {}
+play()
+play(0.5)
+```
+
 ### Function expressions and arrow functions
 
-VexaScript parser supports TypeScript-style function expressions and arrow functions in expression position.
+VexaScript parser supports TypeScript-style function expressions and arrow functions in expression position. An arrow used as a class field initializer captures the instance `this` lexically, matching JavaScript and TypeScript class-field semantics.
 
 Examples:
 
@@ -898,6 +922,14 @@ import type { Shape } from "./types"
 ```
 
 Type-only imports participate in semantic analysis as bindings but are omitted from emitted JavaScript output.
+
+Supporting declarations loaded transitively from `node_modules` keep their module
+provenance. A dependency-only helper alias therefore cannot shadow a project
+class with the same unqualified name. The helper remains available inside the
+dependency declarations that own it, and becomes visible to project code only
+through an explicit import. Local import graphs are memoized per analysis run,
+so shared dependencies and cycles are each collected at most once instead of
+being expanded repeatedly through every import path.
 
 Relative imports can target local `.ts`/`.tsx` files as well as `.vx` files. Extensionless resolution checks the direct path, then `.vx`, `.ts`, `.tsx`, `.json`, and `.txt`. During `vexa run` and CLI bundling, local TypeScript modules are parsed in TypeScript mode, type-checked with their exported declarations available to the importing VexaScript file, transpiled to JavaScript, and inlined into the same executable module. This supports TypeScript runtime declarations such as classes, functions, variables, enums, destructuring, arrow functions, and async functions; type-only constructs such as interfaces and type aliases remain analysis-only and are erased from emitted JavaScript. Local JSON and text assets can be imported as default imports; JSON imports are parsed and inlined as JavaScript values, while text imports are inlined as strings. Appending `?text` explicitly loads any local file as a string regardless of its extension. Text-module imports require exactly one default binding and work in JavaScript bundles.
 
@@ -1055,7 +1087,7 @@ class Box<T extends Entity> extends Base<T> {
 
 ### Get and set accessors
 
-Class bodies support TypeScript-style property accessors. Getter accessors must not declare parameters, and setter accessors must declare exactly one parameter. Accessor type annotations participate in member type analysis as property types. Getters also support a shorthand form that omits `get` and the empty parameter list when the body is a single returned expression.
+Class bodies support TypeScript-style property accessors. Getter accessors must not declare parameters, and setter accessors must declare exactly one parameter. Accessor type annotations participate in member type analysis as property types. When a getter and setter intentionally use different types, reading the property uses the getter return type while direct assignment is checked against the setter parameter type. This also applies to imported TypeScript declarations such as a readable `ObservablePoint` whose setter accepts the wider `PointData` shape. Getters also support a shorthand form that omits `get` and the empty parameter list when the body is a single returned expression.
 
 VexaScript also supports a compound accessor block where the property name is written once and `get`/`set` sub-blocks are nested inside `{ }`. The setter parameter defaults to the implicit name `newValue` typed to the declared property type; it can be overridden by writing `set(name)` or `set(name: Type)`. Either `get`/`set` order is accepted.
 
@@ -1417,6 +1449,12 @@ let boxed: Boxed<Text> = new Box<string>()
 
 `type` declarations are type-only and are omitted from emitted JavaScript output. Mapped and conditional types are preserved structurally by the parser; semantic analysis resolves the portions it understands and otherwise treats them conservatively as `unknown`. Template literal types are also resolved when their interpolated members reduce to literal or union-of-literal values; when an interpolation stays wide (for example `${string}`), the result degrades conservatively to `string` instead of `unknown`. Top-level conditional aliases also resolve a practical subset of common `infer` patterns such as array element extraction, `Promise<infer T>`, function return types, constrained forms like `infer U extends string`, and nested conditional branches; naked-type-parameter conditionals also distribute over unions in common cases. TypeScript readonly container shorthand such as `readonly string[]` and `readonly [string, int]` is also resolved semantically, including readonly-aware assignability and write/mutation diagnostics for readonly index access. Homomorphic mapped aliases also support practical key-remapping forms such as `as K`, `as Exclude<K, ...>`, and template-literal remaps like `` as `label_${K}` ``, plus `readonly`/`-readonly` and `?`/`-?` modifiers when the remapped keys reduce to string literals. `unique symbol` currently resolves conservatively as `symbol`, and TypeScript assertion signatures such as `(value: unknown) => asserts value is T` or `(value: T) => asserts value` are preserved as assertion-aware function types that participate in flow-sensitive narrowing for direct call-site checks. Constructor-signature type forms such as `new (...) => T` and `abstract new (...) => T` are also understood well enough for utility aliases like `ConstructorParameters` and `InstanceType`. Common TypeScript utility aliases such as `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Exclude`, `Extract`, `NonNullable`, `Record`, `Awaited`, `ReturnType`, `Parameters`, `ConstructorParameters`, `InstanceType`, `ThisParameterType`, `OmitThisParameter`, `NoInfer`, `ThisType`, `Uppercase`, `Lowercase`, `Capitalize`, and `Uncapitalize` are also resolved when their inputs fit the currently supported type forms.
 
+Indexed access may follow a type query, including chained forms such as
+`typeof DIRECTIONS[number][2]`. Generic aliases apply omitted default type
+arguments before their members are indexed, so declarations such as
+`Application<R = Renderer>` with `canvas: R["canvas"]` retain the concrete
+canvas type through imported `.d.ts` graphs.
+
 ### Type annotation forms
 
 Supported type annotation forms in declarations/members:
@@ -1556,6 +1594,13 @@ Use `??` when only `null` or `undefined` should trigger the right operand.
 empty string. A guard whose right operand returns, throws, breaks, or continues
 also narrows the guarded identifier or stable member expression on the normal
 continuation path.
+
+Loop conditions use the same smart-cast rules as `if` conditions. A nullable
+value tested by a `while` or classic `for` condition is non-null in the loop
+body and update expression. Guard clauses also preserve compound facts after
+an abrupt branch: after
+`if (!(shape instanceof PolygonShape) || !tag) continue`, the remaining loop
+body sees `shape` as `PolygonShape` and `tag` as non-null.
 
 ### Assignment operators
 
@@ -2378,6 +2423,9 @@ try {
 - All types are assignable to `unknown`.
 - Object literals, named/class/interface shapes, arrays, and functions are assignable to `object`.
 - Literal types are assignable to their matching primitive type, but primitive values are not assignable to a specific literal type unless contextual checking proves the literal value matches.
+- Numeric literal expressions are checked contextually against numeric literal unions: `let direction: -1 | 1 = 1`, a later assignment of `-1`, and `direction = condition ? -1 : 1` are valid, while `0` is rejected. The expression still has ordinary `number` semantics outside that context.
+- Conditional expressions used as call arguments keep matching contextual literal branches. For example, a parameter of type `"grass" | "snow"` accepts `icy ? "snow" : "grass"` instead of widening the result to `string`.
+- Assignments are validated against the declared target type rather than a temporary flow-narrowed read type. A mutable `let resetPending = false` therefore infers `boolean` and accepts both `true` and `false`; assignments to a literal-union field accept every declared member. The editor offers those literal members as value completions at assignment sites and on the right side of equality comparisons.
 - A value is assignable to a union if it is assignable to at least one union member.
 - A value is assignable to an intersection if it satisfies every intersection member.
 - Tuple values are assignable to tuple targets with the same length and compatible element types, and tuple values are assignable to arrays when each tuple element is assignable to the array element type.

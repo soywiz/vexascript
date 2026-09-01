@@ -3049,6 +3049,7 @@ export interface CollectImportedDeclarationsContext extends ProjectContext {
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
   ambientGlobalDeclarations?: readonly Statement[];
   resolvingFilePaths?: ReadonlySet<string>;
+  importedDeclarationsCache?: Map<string, Promise<CollectedImportedDeclarations>>;
 }
 
 async function resolveImportTargetInContext(
@@ -3411,6 +3412,32 @@ function ambientModuleDeclarationCandidates(
  * pass over the document's import statements.
  */
 export async function collectAllImportedDeclarations(
+  ast: Program,
+  context: CollectImportedDeclarationsContext
+): Promise<CollectedImportedDeclarations> {
+  const currentFilePath = context.uri ? uriToFilePath(context.uri) : null;
+  if (!currentFilePath) {
+    return collectAllImportedDeclarationsUncached(ast, context);
+  }
+  const cache = context.importedDeclarationsCache ?? new Map<string, Promise<CollectedImportedDeclarations>>();
+  const cached = cache.get(currentFilePath);
+  if (cached) {
+    return cached;
+  }
+  const pending = collectAllImportedDeclarationsUncached(ast, {
+    ...context,
+    importedDeclarationsCache: cache
+  });
+  cache.set(currentFilePath, pending);
+  try {
+    return await pending;
+  } catch (error) {
+    cache.delete(currentFilePath);
+    throw error;
+  }
+}
+
+async function collectAllImportedDeclarationsUncached(
   ast: Program,
   context: CollectImportedDeclarationsContext
 ): Promise<CollectedImportedDeclarations> {
@@ -3852,6 +3879,7 @@ export async function collectAllImportedDeclarations(
       }
       targetAnalysis = new Analysis(targetSession.ast, {
         externalDeclarations: nestedImports.externalDeclarations,
+        externalDeclarationLocations: nestedImports.externalDeclarationLocations,
         importedSymbols: nestedImports.importedSymbols,
         invalidImportedBindings: nestedImports.invalidImportedBindings,
         ambientDeclarations: [...(context.ambientDeclarations ?? context.ambientGlobalDeclarations ?? [])],

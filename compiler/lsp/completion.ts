@@ -7,9 +7,10 @@
  * shared contracts in completionModel.ts.
  */
 import type { CompletionItem } from "vscode-languageserver/node.js";
-import { JsxAttribute, type Program } from "compiler/ast/ast";
+import { AssignmentExpression, BinaryExpression, Identifier, JsxAttribute, MemberExpression, type Program } from "compiler/ast/ast";
 import { Analysis } from "compiler/analysis/Analysis";
-import { typeToString } from "compiler/analysis/types";
+import { LiteralType, NamedType, UnionType, isSameType, type AnalysisType, typeToString } from "compiler/analysis/types";
+import { walkAst } from "compiler/ast/traversal";
 import type { AutoImportSuggestion } from "./importFixes";
 import {
   buildAutoImportCompletionItems,
@@ -41,6 +42,109 @@ import {
   jsxBlockCompletionItemsAtPosition,
   shouldSuppressExistingSymbolCompletions
 } from "./completionContext";
+import { containsPosition, nodeRange, rangeSize } from "./ranges";
+
+function literalValuesFromType(type: AnalysisType, analysis: Analysis): LiteralType[] {
+  if (type instanceof LiteralType) return [type];
+  if (type instanceof UnionType) return type.types.flatMap((member) => literalValuesFromType(member, analysis));
+  if (type instanceof NamedType) {
+    const resolved = analysis.getTopLevelSymbolType(type.name);
+    if (resolved && !isSameType(resolved, type)) return literalValuesFromType(resolved, analysis);
+  }
+  return [];
+}
+
+function buildLiteralCompletionItems(
+  type: AnalysisType,
+  analysis: Analysis,
+  line: number,
+  character: number,
+  text?: string
+): CompletionItem[] {
+  const lineText = text?.split("\n")[line] ?? "";
+  const beforeCursor = lineText.slice(0, character);
+  const afterCursor = lineText.slice(character);
+  const openQuote = /(["'])[^"']*$/u.exec(beforeCursor)?.[1];
+  const insideString = Boolean(openQuote && afterCursor.includes(openQuote));
+  const seen = new Set<string>();
+  return literalValuesFromType(type, analysis).flatMap((literal) => {
+    const label = String(literal.value);
+    if (seen.has(label)) return [];
+    seen.add(label);
+    const insertText = literal.base === "string" && !insideString
+      ? JSON.stringify(literal.value)
+      : label;
+    return [{
+      label,
+      kind: CompletionItemKind.Value,
+      detail: `Allowed value: ${typeToString(literal)}`,
+      insertText,
+      sortText: `0-literal-${label}`
+    }];
+  });
+}
+
+function buildAssignmentLiteralCompletionItems(
+  ast: Program,
+  analysis: Analysis,
+  line: number,
+  character: number,
+  text?: string
+): CompletionItem[] {
+  const position = { line, character };
+  let best: AssignmentExpression | null = null;
+  let bestSize = Number.POSITIVE_INFINITY;
+  walkAst(ast, (node) => {
+    if (!(node instanceof AssignmentExpression) || node.operator !== "=") return;
+    const range = nodeRange(node);
+    if (!range || !containsPosition(range, position)) return;
+    const size = rangeSize(range);
+    if (size <= bestSize) {
+      best = node;
+      bestSize = size;
+    }
+  });
+  if (!best) return [];
+
+  const target = (best as AssignmentExpression).left;
+  const targetName = target instanceof Identifier
+    ? target.name
+    : target instanceof MemberExpression && target.computed !== true && target.property instanceof Identifier
+      ? target.property.name
+      : null;
+  if (!targetName) return [];
+  const targetType = analysis.getVisibleSymbolsAt(line, character)
+    .find((symbol) => symbol.name === targetName)?.type;
+  if (!targetType) return [];
+
+  return buildLiteralCompletionItems(targetType, analysis, line, character, text);
+}
+
+function buildComparisonLiteralCompletionItems(
+  ast: Program,
+  analysis: Analysis,
+  line: number,
+  character: number,
+  text?: string
+): CompletionItem[] {
+  const position = { line, character };
+  let best: BinaryExpression | null = null;
+  let bestSize = Number.POSITIVE_INFINITY;
+  walkAst(ast, (node) => {
+    if (!(node instanceof BinaryExpression) || !["==", "!=", "===", "!=="].includes(node.operator)) return;
+    const rightRange = nodeRange(node.right);
+    if (!rightRange || !containsPosition(rightRange, position)) return;
+    const size = rangeSize(rightRange);
+    if (size <= bestSize) {
+      best = node;
+      bestSize = size;
+    }
+  });
+  if (!best) return [];
+  const targetType = analysis.getExpressionType((best as BinaryExpression).left);
+  if (!targetType) return [];
+  return buildLiteralCompletionItems(targetType, analysis, line, character, text);
+}
 
 function jsxTagPrefixAtPosition(text: string | undefined, line: number, character: number): string | null {
   const linePrefix = text?.split("\n")[line]?.slice(0, character);
@@ -449,6 +553,27 @@ export async function createCompletionItemsForPosition(
 
   const items: CompletionItem[] = [];
   const seenLabels = new Set<string>();
+  for (const item of buildAssignmentLiteralCompletionItems(
+    ast,
+    resolvedAnalysis,
+    line,
+    character,
+    options.text
+  )) {
+    seenLabels.add(item.label);
+    items.push(item);
+  }
+  for (const item of buildComparisonLiteralCompletionItems(
+    ast,
+    resolvedAnalysis,
+    line,
+    character,
+    options.text
+  )) {
+    if (seenLabels.has(item.label)) continue;
+    seenLabels.add(item.label);
+    items.push(item);
+  }
   const suppressExistingSymbolCompletions = shouldSuppressExistingSymbolCompletions(
     ast,
     line,

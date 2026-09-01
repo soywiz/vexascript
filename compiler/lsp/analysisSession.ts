@@ -67,6 +67,7 @@ export function createAnalysisSession(
   });
   const artifacts = compileSource(source, {}, {
     externalDeclarations,
+    externalDeclarationLocations,
     importedSymbols: normalizedImportedSymbols,
     ambientDeclarations,
     invalidImportedBindings: normalizedInvalidImportedBindings,

@@ -5,6 +5,11 @@ import { pathToFileURL } from "compiler/utils/path";
 
 export interface ResolvedNodeModuleImports {
   externalDeclarations: Statement[];
+  externalDeclarationLocations: Map<Statement, {
+    filePath: string;
+    line: number;
+    character: number;
+  }>;
   importedSymbols: Map<string, ImportedSymbolResolution>;
 }
 
@@ -27,6 +32,7 @@ export async function resolveNodeModuleImportsForRuntime(
   });
   return {
     externalDeclarations: imported.externalDeclarations,
+    externalDeclarationLocations: imported.externalDeclarationLocations,
     importedSymbols: imported.importedSymbols
   };
 }

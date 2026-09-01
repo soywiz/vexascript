@@ -79,8 +79,15 @@ function importHasRuntimeBindings(statement: ImportStatement): boolean {
 interface CachedModuleTypeContext {
   importKey: string;
   externalDeclarations: Statement[];
+  externalDeclarationLocations: Map<Statement, ExternalDeclarationLocation>;
   importedSymbols: Map<string, { type?: AnalysisType; displayType?: string }>;
   emitRuntimeSeed: ReturnType<typeof createTranspileRuntimeSeed>;
+}
+
+interface ExternalDeclarationLocation {
+  filePath: string;
+  line: number;
+  character: number;
 }
 
 interface ModuleGraphIncrementalState {
@@ -312,11 +319,15 @@ async function collectNodeModulesTypings(
   ast: Program,
   importerFilePath: string,
   externalDeclarations: Statement[],
+  externalDeclarationLocations: Map<Statement, ExternalDeclarationLocation>,
   importedSymbols: Map<string, { type?: AnalysisType; displayType?: string }>,
   vfs: Vfs
 ): Promise<void> {
   const imported = await resolveNodeModuleImportsForRuntime(ast, importerFilePath, vfs);
   externalDeclarations.push(...imported.externalDeclarations);
+  for (const [declaration, location] of imported.externalDeclarationLocations) {
+    externalDeclarationLocations.set(declaration, location);
+  }
   for (const [name, resolution] of imported.importedSymbols) {
     importedSymbols.set(name, resolution);
   }
@@ -507,6 +518,7 @@ export async function bundleModuleGraph(
     const ast = parsed?.ast ?? null;
 
     const externalDeclarations: Statement[] = [];
+    const externalDeclarationLocations = new Map<Statement, ExternalDeclarationLocation>();
     const moduleAmbientDeclarations = globalDeclarations.length === 0
       ? ambientDeclarations
       : [...ambientDeclarations, ...globalDeclarations];
@@ -514,7 +526,14 @@ export async function bundleModuleGraph(
     const bundledSpecifiers = new Set<string>();
     if (ast) {
       if (options.typeCheck !== false) {
-        await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
+        await collectNodeModulesTypings(
+          ast,
+          filePath,
+          externalDeclarations,
+          externalDeclarationLocations,
+          importedSymbols,
+          activeVfs
+        );
       }
       for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
         bundledSpecifiers.add(statement.from.value);
@@ -548,7 +567,15 @@ export async function bundleModuleGraph(
           const importedNames = new Set(
             statement.specifiers.map((specifier) => specifier.imported.name)
           );
-          externalDeclarations.push(...collectImportedDeclarations(dependencyAst, importedNames));
+          const localDeclarations = collectImportedDeclarations(dependencyAst, importedNames);
+          externalDeclarations.push(...localDeclarations);
+          for (const declaration of localDeclarations) {
+            externalDeclarationLocations.set(declaration, {
+              filePath: targetPath,
+              line: declaration.firstToken?.range.start.line ?? 0,
+              character: declaration.firstToken?.range.start.column ?? 0
+            });
+          }
         }
         // Resolve imported value types (e.g. functions returning a Promise) from
         // the dependency's analysis so cross-file calls participate in auto-await.
@@ -572,11 +599,13 @@ export async function bundleModuleGraph(
     const compilationArtifacts = parsed
         ? compileParsedSource(parsed, {
           externalDeclarations,
+          externalDeclarationLocations,
           ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         })
       : compileSource(source, parserOptions, {
           externalDeclarations,
+          externalDeclarationLocations,
           ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         });
@@ -769,6 +798,8 @@ export async function bundleModuleGraphAsModules(
       ? cachedTypeContext
       : undefined;
     const externalDeclarations: Statement[] = reusableTypeContext?.externalDeclarations ?? [];
+    const externalDeclarationLocations = reusableTypeContext?.externalDeclarationLocations
+      ?? new Map<Statement, ExternalDeclarationLocation>();
     const moduleAmbientDeclarations = globalDeclarations.length === 0
       ? ambientDeclarations
       : [...ambientDeclarations, ...globalDeclarations];
@@ -779,7 +810,14 @@ export async function bundleModuleGraphAsModules(
     const bundledAssetSpecifiers = new Set<string>();
     if (ast) {
       if (!reusableTypeContext && options.typeCheck !== false) {
-        await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
+        await collectNodeModulesTypings(
+          ast,
+          filePath,
+          externalDeclarations,
+          externalDeclarationLocations,
+          importedSymbols,
+          activeVfs
+        );
       }
       for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
         bundledAssetSpecifiers.add(statement.from.value);
@@ -815,7 +853,15 @@ export async function bundleModuleGraphAsModules(
             const importedNames = new Set(
               statement.specifiers.map((specifier) => specifier.imported.name)
             );
-            externalDeclarations.push(...collectImportedDeclarations(dependencyAst, importedNames));
+            const localDeclarations = collectImportedDeclarations(dependencyAst, importedNames);
+            externalDeclarations.push(...localDeclarations);
+            for (const declaration of localDeclarations) {
+              externalDeclarationLocations.set(declaration, {
+                filePath: targetPath,
+                line: declaration.firstToken?.range.start.line ?? 0,
+                character: declaration.firstToken?.range.start.column ?? 0
+              });
+            }
           }
           const dependencyAnalysis = analysisByPath.get(targetPath);
           if (dependencyAnalysis) {
@@ -839,6 +885,7 @@ export async function bundleModuleGraphAsModules(
         incrementalState.typeContextByPath.set(filePath, {
           importKey,
           externalDeclarations,
+          externalDeclarationLocations,
           importedSymbols: new Map(importedSymbols),
           emitRuntimeSeed
         });
@@ -849,11 +896,13 @@ export async function bundleModuleGraphAsModules(
     const compilationArtifacts = parsed
         ? compileParsedSource(parsed, {
           externalDeclarations,
+          externalDeclarationLocations,
           ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         })
       : compileSource(source, parserOptions, {
           externalDeclarations,
+          externalDeclarationLocations,
           ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         });

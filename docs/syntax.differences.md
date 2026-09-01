@@ -87,6 +87,38 @@ let { name: displayName, age }: { name: string; age: number } = person
 
 ## Functions
 
+### TypeScript-compatible contextual inference
+
+VexaScript follows TypeScript for several function-call inference details:
+
+- an unannotated parameter with a default infers the default's type and is
+  optional, while a parameter with neither a type nor a default is diagnosed;
+- constrained generic parameters preserve matching literal arguments, such as
+  a valid event name from a `keyof` union;
+- class values satisfy constructor-signature parameters and infer their
+  instance type;
+- optional parameters accept an explicit `T | undefined` argument;
+- inline arrays passed to `Promise.all` or `Promise.allSettled` produce
+  positional tuples, while array-typed iterables produce arrays; and
+- a numeric literal is accepted by a matching literal union such as `-1 | 1`,
+  including when matching ternary branches are combined, without changing the
+  general rule that unsuffixed numbers have type `number`; and
+- conditional call arguments preserve matching string or numeric literal
+  branches, so `flag ? "snow" : "grass"` satisfies a `"grass" | "snow"`
+  parameter instead of widening to `string`;
+- mutable assignments use the declaration's type rather than a transient
+  smart-cast, and completion offers members of string-literal unions in
+  assignments and equality comparisons; and
+- generic alias defaults and indexed type queries are preserved through
+  imported declarations, including `R["canvas"]` and
+  `typeof DIRECTIONS[number][2]`.
+
+TypeScript-style `as const` assertions retain primitive literals and turn
+nested array literals into readonly tuples, so indexed type queries can select
+an exact positional literal union.
+
+These are compatibility rules, not VexaScript-only syntax.
+
 ### Function declaration aliases
 
 VexaScript accepts `func`, `fn`, and `fun` as concise alternatives to
@@ -444,6 +476,13 @@ class Counter {
 
 The form lowers through the shared JavaScript property-accessor path.
 
+As in TypeScript, paired accessors may expose asymmetric types. A property read
+uses the getter return type, while a direct write uses the setter parameter
+type. VexaScript preserves that distinction when consuming `.d.ts` classes;
+for example, `get position(): ObservablePoint` remains readable as
+`ObservablePoint` even when `set position(value: PointData)` accepts a broader
+write shape.
+
 ### Operator overloads
 
 Classes can declare operator methods with the `operator` keyword.
@@ -779,6 +818,14 @@ if (shape instanceof Circle) {
 }
 ```
 
+The same narrowing engine drives `while` and classic `for` conditions. A guard
+ending in `continue`, `break`, `return`, or `throw` narrows the path that follows
+it, including compound guards such as
+`if (!(shape instanceof PolygonShape) || !tag) continue`.
+
+Arrow functions stored in instance fields capture the class instance as
+lexical `this`, as they do in TypeScript.
+
 ```typescript
 // TypeScript equivalent
 if (shape instanceof Circle) {
@@ -986,6 +1033,13 @@ import declarationSource from "./runtime.d.ts?text"
 ```
 
 Text-module imports require exactly one default binding.
+
+Transitive `node_modules` helper declarations do not create unqualified imports
+in the consuming project. If a package helper alias and a project class share a
+name, each declaration resolves the symbol from its own module provenance; the
+package alias is exposed to project code only when explicitly imported. Import
+collection memoizes each local file for the duration of the graph walk, avoiding
+exponential work in diamond-shaped or cyclic project graphs.
 
 ## Module exports
 

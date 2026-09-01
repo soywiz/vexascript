@@ -59,6 +59,9 @@ export interface AnalysisOptions {
    * to the analyzed program.
    */
   externalDeclarations?: Statement[];
+  /** Source locations for imported declarations, used to keep dependency-only
+   * helper names from shadowing project declarations with the same name. */
+  externalDeclarationLocations?: ReadonlyMap<Statement, { filePath: string }>;
   /**
    * Treat `externalDeclarations` as project-owned VexaScript declarations for
    * rules that intentionally ignore third-party/imported types, such as the
@@ -198,6 +201,7 @@ export class Analysis {
       invalidImportedBindings,
       options.language ?? "vexascript",
       options.projectOwnedExternalDeclarations === true,
+      options.externalDeclarationLocations ?? new Map(),
       validateTypes
     ).check();
     options.profile?.({
