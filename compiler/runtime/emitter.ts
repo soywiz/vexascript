@@ -21,6 +21,7 @@ import {
 import type { ReceiverLambdaInfo } from "compiler/analysis/model";
 import { primitiveMatcherKind } from "compiler/analysis/matcherPatterns";
 import { removeNullishFromType } from "compiler/analysis/typeOperations";
+import { parseObjectTypeAnnotation } from "compiler/analysis/typeNames";
 
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 import {
@@ -3342,6 +3343,19 @@ export function createEmitProgramRuntimeSeed(
       if (variable.name instanceof Identifier) {
         const typeName = variable.typeAnnotation?.name;
         if (typeName) {
+          const objectTypeMembers = parseObjectTypeAnnotation(typeName);
+          if (objectTypeMembers) {
+            const callableKinds = interfaceMethodNames.get(typeName) ?? new Set<string>();
+            for (const member of objectTypeMembers) {
+              if (member.name === "constructor") {
+                callableKinds.add("constructor");
+              }
+              if (member.callSignature) {
+                callableKinds.add("call");
+              }
+            }
+            interfaceMethodNames.set(typeName, callableKinds);
+          }
           constructableCandidates.push({ variableName: variable.name.name, typeName });
         }
       }

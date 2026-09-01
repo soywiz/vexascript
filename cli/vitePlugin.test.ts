@@ -94,6 +94,108 @@ describe("Vite plugin", () => {
     expect(result!.code).toContain('__vexaJsxFactory("div", null, "Hello")');
   });
 
+  it("lowers omitted new for constructors imported from package declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-vite-imported-constructor-"));
+    temporaryDirectories.push(root);
+    const sourceDir = join(root, "src");
+    const packageDir = join(root, "node_modules", "geometry");
+    const sourcePath = join(sourceDir, "main.vx");
+    await Promise.all([
+      mkdir(sourceDir, { recursive: true }),
+      mkdir(packageDir, { recursive: true })
+    ]);
+    await Promise.all([
+      writeFile(join(root, "package.json"), '{"type":"module"}\n', "utf8"),
+      writeFile(
+        join(packageDir, "package.json"),
+        '{"name":"geometry","types":"index.d.ts"}\n',
+        "utf8"
+      ),
+      writeFile(
+        join(packageDir, "index.d.ts"),
+        "export declare class Rectangle { constructor(x: number, y: number) }\n",
+        "utf8"
+      )
+    ]);
+
+    const plugin = vexascript();
+    const result = await plugin.transform!.call(
+      transformContext(),
+      'import { Rectangle } from "geometry"\nexport const frame = Rectangle(1, 2)',
+      sourcePath
+    );
+
+    expect(result!.code).toContain("new Rectangle(1, 2)");
+  });
+
+  it("lowers omitted new for constructors imported from local VexaScript modules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-vite-local-constructor-"));
+    temporaryDirectories.push(root);
+    const sourceDir = join(root, "src");
+    const sourcePath = join(sourceDir, "main.vx");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(
+      join(sourceDir, "Shape.vx"),
+      "export class Shape { constructor(public size: number) {} }\n",
+      "utf8"
+    );
+
+    const plugin = vexascript();
+    const result = await plugin.transform!.call(
+      transformContext(),
+      'import { Shape } from "./Shape.vx"\nexport const shape = Shape(3)',
+      sourcePath
+    );
+
+    expect(result!.code).toContain("new Shape(3)");
+  });
+
+  it("shares import analysis across concurrent transforms without cyclic waits", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-vite-concurrent-imports-"));
+    temporaryDirectories.push(root);
+    const sourceDir = join(root, "src");
+    const alphaPath = join(sourceDir, "Alpha.vx");
+    const betaPath = join(sourceDir, "Beta.vx");
+    await mkdir(sourceDir, { recursive: true });
+    const alphaSource = 'import { Beta } from "./Beta.vx"\nexport class Alpha {}\nexport const beta = Beta()';
+    const betaSource = 'import { Alpha } from "./Alpha.vx"\nexport class Beta {}\nexport const alpha = Alpha()';
+    await Promise.all([
+      writeFile(alphaPath, alphaSource, "utf8"),
+      writeFile(betaPath, betaSource, "utf8")
+    ]);
+
+    const plugin = vexascript();
+    const [alpha, beta] = await Promise.all([
+      plugin.transform!.call(transformContext(), alphaSource, alphaPath),
+      plugin.transform!.call(transformContext(), betaSource, betaPath)
+    ]);
+
+    expect(alpha!.code).toContain("new Beta()");
+    expect(beta!.code).toContain("new Alpha()");
+  });
+
+  it("lowers omitted new for constructors from configured DOM declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-vite-dom-constructor-"));
+    temporaryDirectories.push(root);
+    const sourceDir = join(root, "src");
+    const sourcePath = join(sourceDir, "audio.vx");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(
+      join(root, "vexascript.json"),
+      '{"compilerOptions":{"lib":["dom"]}}\n',
+      "utf8"
+    );
+
+    const plugin = vexascript();
+    const result = await plugin.transform!.call(
+      transformContext(),
+      'export const sound = Audio("sound.mp3")',
+      sourcePath
+    );
+
+    expect(result!.code).toContain('new Audio("sound.mp3")');
+  });
+
   it("leaves non-module and asset requests to Vite", async () => {
     const plugin = vexascript();
 

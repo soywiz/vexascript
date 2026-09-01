@@ -335,6 +335,16 @@ console.log(...kept)
     expect(result.code).toContain("const bytes = new Uint8Array(7);");
   });
 
+  it("emits constructor-only DOM globals with new when they are called", async () => {
+    const dom = await ensureDomProgram();
+    const result = transpile('const sound = Audio("sound.mp3")', {
+      ambientDeclarations: dom.body
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('const sound = new Audio("sound.mp3");');
+  });
+
   it("preserves callable runtime constructors without forced new", () => {
     const source = "const flag = Boolean(0)";
 
