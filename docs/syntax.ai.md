@@ -2,6 +2,9 @@
 
 VexaScript (`.vx` files) is derived from TypeScript and keeps its ecosystem, with the deliberate syntax differences below.
 
+`vexa serve` performs whole-project semantic type checking by default. Use
+`vexa serve --no-type-check` only to request transpile-only serving explicitly.
+
 ## Character and string literals
 
 - `"text"` and `'text'` are both `string` values.
@@ -370,7 +373,9 @@ if (x is Circle) { x.radius }      // basic `is` is instanceof; both smart-cast
 
 `as const` keeps primitive literal members and infers nested arrays as readonly
 tuples. Completion proposes string-literal union members both for assignments
-and for the right operand of `==`, `!=`, `===`, and `!==`.
+and for the right operand of `==`, `!=`, `===`, and `!==`. While the cursor is
+inside quotes, return only those contextually valid literals; do not mix in
+ordinary visible symbols. Respect flow narrowing when determining the members.
 
 `for-of` statement sources must be iterable. Accept synchronous
 `[Symbol.iterator]()` and asynchronous `[Symbol.asyncIterator]()` protocols;

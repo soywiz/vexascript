@@ -54,6 +54,14 @@ function literalValuesFromType(type: AnalysisType, analysis: Analysis): LiteralT
   return [];
 }
 
+function cursorIsInsideQuotedLiteral(text: string | undefined, line: number, character: number): boolean {
+  const lineText = text?.split("\n")[line] ?? "";
+  const beforeCursor = lineText.slice(0, character);
+  const afterCursor = lineText.slice(character);
+  const openQuote = /(["'])[^"']*$/u.exec(beforeCursor)?.[1];
+  return Boolean(openQuote && afterCursor.includes(openQuote));
+}
+
 function buildLiteralCompletionItems(
   type: AnalysisType,
   analysis: Analysis,
@@ -61,11 +69,7 @@ function buildLiteralCompletionItems(
   character: number,
   text?: string
 ): CompletionItem[] {
-  const lineText = text?.split("\n")[line] ?? "";
-  const beforeCursor = lineText.slice(0, character);
-  const afterCursor = lineText.slice(character);
-  const openQuote = /(["'])[^"']*$/u.exec(beforeCursor)?.[1];
-  const insideString = Boolean(openQuote && afterCursor.includes(openQuote));
+  const insideString = cursorIsInsideQuotedLiteral(text, line, character);
   const seen = new Set<string>();
   return literalValuesFromType(type, analysis).flatMap((literal) => {
     const label = String(literal.value);
@@ -573,6 +577,9 @@ export async function createCompletionItemsForPosition(
     if (seenLabels.has(item.label)) continue;
     seenLabels.add(item.label);
     items.push(item);
+  }
+  if (items.length > 0 && cursorIsInsideQuotedLiteral(options.text, line, character)) {
+    return items;
   }
   const suppressExistingSymbolCompletions = shouldSuppressExistingSymbolCompletions(
     ast,

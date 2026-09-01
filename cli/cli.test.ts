@@ -433,6 +433,35 @@ describe("CLI", () => {
     }
   });
 
+  it("type-checks serve bundles by default and allows an explicit opt-out", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-serve-type-check-"));
+    const entry = join(dir, "main.vx");
+    const html = join(dir, "index.html");
+    await writeFile(entry, 'const value: string = 42\nconsole.log(value)\n', "utf8");
+    await writeFile(html, '<script type="module" src="%VEXA_ENTRYPOINT%"></script>', "utf8");
+
+    const errors: string[] = [];
+    await expect(startServeSession({
+      rootDir: dir,
+      bundleInput: entry,
+      port: 0,
+      onDiagnosticError: (result) => errors.push(...result.errors)
+    })).rejects.toThrow(`Compilation failed for ${entry}`);
+    expect(errors.some((message) => message.includes("not assignable to type 'string'"))).toBe(true);
+
+    const session = await startServeSession({
+      rootDir: dir,
+      bundleInput: entry,
+      port: 0,
+      typeCheck: false
+    });
+    try {
+      expect(await fetchText(`http://127.0.0.1:${session.port}/__vexa_bundle__.js`)).toContain("console.log(value)");
+    } finally {
+      await session.close();
+    }
+  });
+
   it("serve command replaces a Vite-style VexaScript entrypoint with the generated bundle", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-serve-vite-entry-"));
     const entry = join(dir, "src", "main.vx");
@@ -671,6 +700,18 @@ describe("CLI", () => {
     const buildHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
     expect(buildHelp).toContain("Usage: vexa build [options] <input>");
     expect(buildHelp).not.toContain("--emit");
+  });
+
+  it("documents serve type checking as the default with an explicit opt-out", async () => {
+    const stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation((...args: unknown[]) => {
+      throw new Error("process.exit:" + (typeof args[0] === "number" ? args[0] : 0));
+    });
+
+    await expect(runCli(["node", "vexa", "help", "serve"])).rejects.toThrow("process.exit:0");
+    const serveHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
+    expect(serveHelp).toContain("--no-type-check");
+    expect(/^\s+--type-check\b/m.test(serveHelp)).toBe(false);
   });
 
   it("reports the compiler version from the root package.json", async () => {

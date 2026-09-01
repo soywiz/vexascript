@@ -40,9 +40,10 @@ the decisive technique.
 - Literal `\` divisions and `i`-suffixed `/` divisions that truncate to zero
   produce a source-located warning.
   Warnings flow through both the Vite plugin and CLI serve output.
-- `vexa serve` uses transpile-only graph construction by default; `--type-check`
-  opts back into whole-project semantic checking. Pure type-only local imports
-  and package typing collection are skipped on this runtime-only path.
+- `vexa serve` originally used transpile-only graph construction by default.
+  Since 2026-09-01 it performs whole-project semantic checking by default;
+  `--no-type-check` explicitly selects the faster runtime-only path, where pure
+  type-only local imports and package typing collection are skipped.
 - Type-query dependency scans are cached per declaration node so repeated
   analysis does not rescan immutable AST subtrees.
 - Serve reports initial bundling progress, rewrites a Vite-style `.vx` script

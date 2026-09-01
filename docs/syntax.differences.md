@@ -108,7 +108,8 @@ VexaScript follows TypeScript for several function-call inference details:
   parameter instead of widening to `string`;
 - mutable assignments use the declaration's type rather than a transient
   smart-cast, and completion offers members of string-literal unions in
-  assignments and equality comparisons; and
+  assignments and equality comparisons; inside quotes that contextual list is
+  exclusive and respects prior flow narrowing; and
 - generic alias defaults and indexed type queries are preserved through
   imported declarations, including `R["canvas"]` and
   `typeof DIRECTIONS[number][2]`.
@@ -118,6 +119,9 @@ nested array literals into readonly tuples, so indexed type queries can select
 an exact positional literal union.
 
 These are compatibility rules, not VexaScript-only syntax.
+
+CLI serving checks the complete project semantically by default. The explicit
+`vexa serve --no-type-check` option selects a transpile-only development loop.
 
 ### Function declaration aliases
 

@@ -292,7 +292,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
       moduleGraphIncrementalCache,
       nodeModuleIncrementalCache,
       changedFiles,
-      typeCheck: options.typeCheck ?? false,
+      typeCheck: options.typeCheck ?? true,
       profile: (event) => {
         if (event.phase === "parse") phaseTimings.parseMs += event.elapsedMs;
         if (event.phase === "analysis") phaseTimings.analysisMs += event.elapsedMs;

@@ -549,6 +549,10 @@ test("arithmetic") {
 
 The test name is reported by Node, and failed assertions set the CLI exit code to `1`. Node test-runner flags can be passed through the VexaScript command, for example `vexa test --test-name-pattern=arithmetic`.
 
+The CLI's `vexa serve` command performs whole-project semantic type checking
+before serving by default. Pass `--no-type-check` only when a transpile-only
+development loop is explicitly desired.
+
 ### Implicit member access
 
 Inside a class method or field initializer, class members can be referenced without writing `this.`. Parameters and local variables still shadow members with the same name. JavaScript emission qualifies each resolved implicit member with `this.`:
@@ -2425,7 +2429,7 @@ try {
 - Literal types are assignable to their matching primitive type, but primitive values are not assignable to a specific literal type unless contextual checking proves the literal value matches.
 - Numeric literal expressions are checked contextually against numeric literal unions: `let direction: -1 | 1 = 1`, a later assignment of `-1`, and `direction = condition ? -1 : 1` are valid, while `0` is rejected. The expression still has ordinary `number` semantics outside that context.
 - Conditional expressions used as call arguments keep matching contextual literal branches. For example, a parameter of type `"grass" | "snow"` accepts `icy ? "snow" : "grass"` instead of widening the result to `string`.
-- Assignments are validated against the declared target type rather than a temporary flow-narrowed read type. A mutable `let resetPending = false` therefore infers `boolean` and accepts both `true` and `false`; assignments to a literal-union field accept every declared member. The editor offers those literal members as value completions at assignment sites and on the right side of equality comparisons.
+- Assignments are validated against the declared target type rather than a temporary flow-narrowed read type. A mutable `let resetPending = false` therefore infers `boolean` and accepts both `true` and `false`; assignments to a literal-union field accept every declared member. The editor offers those literal members as value completions at assignment sites and on the right side of equality comparisons. Inside a quoted literal, these contextual values are returned exclusively instead of being mixed with unrelated visible symbols.
 - A value is assignable to a union if it is assignable to at least one union member.
 - A value is assignable to an intersection if it satisfies every intersection member.
 - Tuple values are assignable to tuple targets with the same length and compatible element types, and tuple values are assignable to arrays when each tuple element is assignable to the array element type.

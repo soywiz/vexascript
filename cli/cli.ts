@@ -708,10 +708,10 @@ function createProgram(): Command {
   serveCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
   serveCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
   serveCommand.option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)");
-  serveCommand.option("--type-check", "Run full semantic type checking before serving");
+  serveCommand.option("--no-type-check", "Skip semantic type checking while serving");
   serveCommand.actionInput(async (
       dir: string,
-      opts: { bundle?: string; open?: boolean; port?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; typeCheck?: boolean }
+      opts: { bundle?: string; open?: boolean; port?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; noTypeCheck?: boolean }
     ): Promise<void> => {
       const buildOptions = resolveBuildOptions(opts);
       const target = buildOptions.target;
@@ -724,7 +724,7 @@ function createProgram(): Command {
         bundleInput,
         port: portNumber,
         target,
-        typeCheck: opts.typeCheck === true,
+        typeCheck: opts.noTypeCheck !== true,
         ...jsxOptions,
         onDiagnosticError: (result: { errors: string[]; diagnostics?: TranspileDiagnostic[] }, file: string) =>
           printDiagnostics(result.errors, result.diagnostics, file)

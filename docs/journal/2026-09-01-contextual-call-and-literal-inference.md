@@ -118,7 +118,9 @@ scope, allowing arrows stored in fields to capture `this` lexically.
 
 Literal-union completion now reuses the analyzed type of the left operand at
 equality comparisons, including flow-narrowed parameters, and inserts only the
-literal contents when the cursor is already inside quotes.
+literal contents when the cursor is already inside quotes. In that quoted
+context the literal list is exclusive, so unrelated visible symbols are not
+mixed into the suggestions.
 
 ## Investigation notes
 

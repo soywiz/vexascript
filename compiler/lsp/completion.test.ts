@@ -2410,11 +2410,17 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("falling")?.insertText).toBe("falling");
   });
 
-  it("offers string literal union values in equality comparisons", async () => {
+  it("only offers the remaining string literal union values inside equality strings", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
-      type FixtureKind = "player" | "enemy" | "oneway" | "question" | "coin" | "goal" | "ground"
+      type FixtureKind = "player" | "ground" | "solid" | "oneway" | "question" | "enemy" | "coin" | "goal" | "water"
 
       fun color(kind: FixtureKind): number {
+        if (kind === "player") return 1
+        if (kind === "enemy") return 2
+        if (kind === "oneway") return 3
+        if (kind === "question") return 4
+        if (kind === "coin") return 5
+        if (kind === "goal") return 6
         if (kind === "^^^") return 1
         return 0
       }
@@ -2424,11 +2430,8 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: "file:///virtual/main.vx"
     });
-    const byLabel = new Map(items.map((item) => [item.label, item]));
-
-    expect(items.map((item) => item.label)).toContain("player");
-    expect(items.map((item) => item.label)).toContain("ground");
-    expect(byLabel.get("ground")?.insertText).toBe("ground");
+    expect(items.map((item) => item.label).sort()).toEqual(["ground", "solid", "water"]);
+    expect(items.every((item) => item.insertText === item.label)).toBe(true);
   });
 
   it("resolves object property value suggestions lazily after accepting a property", async () => {
