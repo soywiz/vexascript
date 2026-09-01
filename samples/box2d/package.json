@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "dependencies": {
+    "@box2d/core": "0.10.0"
+  }
+}

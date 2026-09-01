@@ -4096,7 +4096,9 @@ export class TypeChecker {
           if (indexGetterOverload) {
             this.operatorResolutions.push(new OperatorResolution(member, indexGetterOverload.symbol));
             result = this.resolveOptionalAccessType(indexGetterOverload.type, this.hasOptionalAssignmentTarget(member));
-            result = this.narrowedExpressionType(scope, member) ?? result;
+            if (!this.pureWriteTargetNodes.has(member)) {
+              result = this.narrowedExpressionType(scope, member) ?? result;
+            }
             break;
           }
           if (!this.pureWriteTargetNodes.has(member) && this.hasOperatorOverloadCandidates("[]", objectType)) {
@@ -4106,7 +4108,9 @@ export class TypeChecker {
             this.resolveComputedMemberType(objectType, this.computedPropertyType(member.property, propertyType)),
             this.hasOptionalAssignmentTarget(member)
           );
-          result = this.narrowedExpressionType(scope, member) ?? result;
+          if (!this.pureWriteTargetNodes.has(member)) {
+            result = this.narrowedExpressionType(scope, member) ?? result;
+          }
           break;
         }
         this.validateKnownMemberAccess(member, objectType, scope);
@@ -4118,7 +4122,9 @@ export class TypeChecker {
           this.resolveKnownMemberType(member, objectType) ?? UNKNOWN_TYPE,
           this.hasOptionalAssignmentTarget(member)
         );
-        result = this.narrowedExpressionType(scope, member) ?? result;
+        if (!this.pureWriteTargetNodes.has(member)) {
+          result = this.narrowedExpressionType(scope, member) ?? result;
+        }
         break;
       }
       case NodeKind.PropertyReferenceExpression: {
@@ -6127,9 +6133,12 @@ export class TypeChecker {
 
     if (sourceType instanceof ArrayType && targetType instanceof NamedType) {
       if (
-        (targetType.name === "ReadonlyArray" || targetType.name === "ConcatArray" || targetType.name === "ArrayLike")
+        (targetType.name === "Array" || targetType.name === "ReadonlyArray" || targetType.name === "ConcatArray" || targetType.name === "ArrayLike")
         && (targetType.typeArguments?.length ?? 0) === 1
       ) {
+        if (sourceType.isReadonly === true && targetType.name === "Array") {
+          return false;
+        }
         return this.isTypeAssignable(sourceType.elementType, targetType.typeArguments![0]!);
       }
       return this.isTypeAssignable(namedType("Array", [sourceType.elementType]), targetType);
@@ -14090,7 +14099,7 @@ export class TypeChecker {
     if (hasExpectedElementMismatch) {
       return tupleType(actualElementTypes);
     }
-    return arrayType(inferredElementType ?? UNKNOWN_TYPE);
+    return arrayType(inferredElementType ?? expectedElementType ?? UNKNOWN_TYPE);
   }
 
   private inferObjectLiteralType(
@@ -14209,6 +14218,12 @@ export class TypeChecker {
     }
     if (expectedType instanceof ArrayType) {
       return expectedType.elementType;
+    }
+    if (
+      expectedType instanceof NamedType &&
+      (expectedType.name === "Array" || expectedType.name === "ReadonlyArray")
+    ) {
+      return namedTypeArgument(expectedType, 0) ?? undefined;
     }
     if (expectedType instanceof RangeType) {
       return expectedType.elementType;
@@ -15174,6 +15189,10 @@ export class TypeChecker {
       return;
     }
 
+    if (propertyName === "constructor" && resolvedObjectType instanceof NamedType) {
+      return;
+    }
+
     if (
       this.resolveExtensionMemberType(resolvedObjectType, propertyName) ||
       this.resolveGenericReceiverExtensionMemberType(resolvedObjectType, propertyName) ||
@@ -15236,6 +15255,9 @@ export class TypeChecker {
     propertyName: string,
     scope: Scope
   ): boolean {
+    if (propertyName === "constructor") {
+      return false;
+    }
     if (!(member.object instanceof Identifier)) {
       return false;
     }
@@ -15550,6 +15572,10 @@ export class TypeChecker {
     }
     if (!(resolvedObjectType instanceof NamedType)) {
       return fallbackExtensionType();
+    }
+
+    if (memberName === "constructor") {
+      return namedType("Function");
     }
 
     const classMembers = this.resolveNamedTypeMembers(resolvedObjectType);

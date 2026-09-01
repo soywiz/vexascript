@@ -1,0 +1,49 @@
+import { b2Body, b2BodyType, b2PolygonShape, b2World } from "@box2d/core"
+
+class BoxSimulation(
+  private readonly const world: b2World,
+  public readonly const body: b2Body,
+) {
+  private readonly stepCallbacks: Array<() => void> = []
+
+  get name(): string => this.constructor.name
+
+  onStep(callback: () => void): void {
+    this.stepCallbacks.push(callback)
+  }
+
+  step(count: number): void {
+    for (let index = 0; index < count; index += 1) {
+      this.world.Step(1 / 60, { velocityIterations: 8, positionIterations: 3 })
+      this.stepCallbacks.forEach(callback => callback())
+    }
+  }
+}
+
+const world = b2World.Create({ x: 0, y: -10 })
+
+const ground = world.CreateBody({
+  type: b2BodyType.b2_staticBody,
+  position: { x: 0, y: -0.5 },
+})
+const groundShape = new b2PolygonShape()
+groundShape.SetAsBox(5, 0.5)
+ground.CreateFixture({ shape: groundShape, friction: 0.3 })
+
+const box = world.CreateBody({
+  type: b2BodyType.b2_dynamicBody,
+  position: { x: 0, y: 4 },
+})
+const boxShape = new b2PolygonShape()
+boxShape.SetAsBox(0.5, 0.5)
+box.CreateFixture({ shape: boxShape, density: 1, friction: 0.3 })
+
+const simulation = new BoxSimulation(world, box)
+let callbackCount = 0
+simulation.onStep(() => { callbackCount += 1 })
+simulation.step(120)
+
+const position = simulation.body.GetPosition()
+console.log(simulation.name)
+console.log(position.x.toFixed(2), position.y.toFixed(2))
+console.log(callbackCount)

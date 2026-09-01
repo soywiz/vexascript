@@ -1,0 +1,22 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@box2d/core':
+        specifier: 0.10.0
+        version: 0.10.0
+
+packages:
+
+  '@box2d/core@0.10.0':
+    resolution: {integrity: sha512-rVawB+VokPnE2IarLPXE9blbpV26KOEYdadsnXf7ToyXzceXMADPrSIvYIyTzXLteiLE9i+UTMmTcCvYXl+QEA==}
+
+snapshots:
+
+  '@box2d/core@0.10.0': {}

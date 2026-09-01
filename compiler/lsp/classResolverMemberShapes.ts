@@ -32,6 +32,14 @@ export function resolveClassOwnMember(
   classPropertyParameters: (classStatement: ClassStatement) => ClassPropertyParameter[],
   context?: ResolveClassMemberContext
 ): ResolvedClassMember | null {
+  if (memberName === "constructor") {
+    return {
+      className: classStatement.name.name,
+      memberName,
+      kind: "field",
+      typeName: "Function"
+    };
+  }
   if (context?.accessKind !== "static") {
     for (const parameter of classPropertyParameters(classStatement)) {
       if (bindingNameText(parameter.name) !== memberName) {

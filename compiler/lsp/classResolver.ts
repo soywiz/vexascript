@@ -1260,6 +1260,9 @@ async function collectClassMemberNamesRecursive(
       addUniqueMemberName(names, seenNames, bindingNameText(parameter.name));
     }
   }
+  if (context.accessKind !== "static") {
+    addUniqueMemberName(names, seenNames, "constructor");
+  }
   for (const member of classStatement.members) {
     if (context.accessKind) {
       if (member.name.name === "constructor") {

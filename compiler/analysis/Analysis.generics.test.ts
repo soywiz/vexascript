@@ -370,6 +370,50 @@ describe("Analysis", () => {
     expect(messages.filter((message) => message.includes("is not assignable to type"))).toHaveLength(0);
   });
 
+  it("contextually types empty arrays in generic class fields", () => {
+    const source = dedent`
+      class Queue {
+        private readonly actions: Array<() => void> = []
+        add(action: () => void) {
+          this.actions.push(action)
+        }
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("exposes Object constructor metadata on class instances and values", () => {
+    const source = dedent`
+      class Demo {
+        constructor() {}
+        instanceName(): string => this.constructor.name
+      }
+      const instanceName: string = Demo().constructor.name
+      const className: string = Demo.constructor.name
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("uses declared member types for assignments after read narrowing", () => {
+    const source = dedent`
+      class GameObject {}
+      class Component {
+        gameObject!: GameObject
+        attach(gameObject: GameObject): void {
+          if (this.gameObject) throw new Error("already attached")
+          this.gameObject = gameObject
+        }
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("uses array and object literal context for nested generic call return inference", () => {
     const source = dedent`
       interface Box {

@@ -2756,6 +2756,18 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("age")?.detail).toBe("Class property: int");
   });
 
+  it("offers Function members through an instance constructor", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Demo {}
+      const demo = Demo()
+      demo.constructor.^^^
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+
+    expect(items.map((item) => item.label)).toEqual(expect.arrayContaining(["name", "length", "apply"]));
+  });
+
   it("does not offer static members through a class instance", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Counter {
@@ -2777,8 +2789,8 @@ describe("createCompletionItemsForPosition", () => {
     const labels = items.map((item) => item.label);
 
     expect(labels).toContain("value");
+    expect(labels).toContain("constructor");
     expect(labels).not.toContain("zero");
-    expect(labels).not.toContain("constructor");
   });
 
   it("returns no global completions when a class has no static members", async () => {
@@ -2802,7 +2814,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(items).toEqual([]);
   });
 
-  it("returns no global completions when a constructed instance has no instance members", async () => {
+  it("offers constructor when a constructed instance has no declared instance members", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Demo {
         static a: int = 10
@@ -2819,7 +2831,7 @@ describe("createCompletionItemsForPosition", () => {
       { text: source }
     );
 
-    expect(items).toEqual([]);
+    expect(items.map((item) => item.label)).toEqual(["constructor"]);
   });
 
   it("prioritizes primary constructor properties ahead of methods in member completion", async () => {
