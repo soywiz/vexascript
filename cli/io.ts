@@ -97,7 +97,11 @@ export async function runTestFiles(
   }
 }
 
-export async function resolveNodeModuleImportsForCli(source: string, sourcePath: string): Promise<{
+export async function resolveNodeModuleImportsForCli(
+  source: string,
+  sourcePath: string,
+  ambientGlobalDeclarations: readonly Statement[] = []
+): Promise<{
   externalDeclarations: Statement[];
   importedSymbols: Map<string, ImportedSymbolResolution>;
 }> {
@@ -107,7 +111,12 @@ export async function resolveNodeModuleImportsForCli(source: string, sourcePath:
     return { externalDeclarations: [], importedSymbols: new Map() };
   }
   const { resolveNodeModuleImportsForRuntime } = await import("../compiler/nodeModuleImportResolution");
-  return await resolveNodeModuleImportsForRuntime(parsed.ast, sourcePath, vfs());
+  return await resolveNodeModuleImportsForRuntime(
+    parsed.ast,
+    sourcePath,
+    vfs(),
+    ambientGlobalDeclarations
+  );
 }
 
 export async function testRuntimeImportsForCli(source: string): Promise<string> {

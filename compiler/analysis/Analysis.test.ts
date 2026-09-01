@@ -565,6 +565,24 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves optional visual viewport members and touch event parameters", async () => {
+    const source = dedent`
+      function install(host: HTMLElement): void {
+        window.visualViewport?.addEventListener("resize", () => {
+          if ((window.visualViewport?.scale ?? 1) > 1.01) window.scrollTo(0, 0)
+        })
+        host.addEventListener("touchstart", (event) => {
+          if (event.touches.length > 1) event.preventDefault()
+        }, { passive: false })
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)), {
+      ambientDeclarations: (await ensureDomProgram()).body
+    });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("infers literal DOM overloads for createElement and getContext", async () => {
     const source = dedent`
       val canvas = document.createElement("canvas")
@@ -1006,6 +1024,14 @@ val total = negative + (-4294967297n)
         val m = 3 >= 4
         val s = "a" < "b"
         val o = 5 <=> 6
+      `);
+      expect(messages).toEqual([]);
+    });
+
+    it("accepts ordering comparisons for numeric literal unions", () => {
+      const messages = comparisonIssues(dedent`
+        let direction: -1 | 1 = 1
+        val positive = direction > 0
       `);
       expect(messages).toEqual([]);
     });
@@ -2773,6 +2799,21 @@ let bad = "Ada" satisfies number
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(symbolsOfVisibleSymbolsAt(source, 0, 6).get("recovered")?.valueType).toBe("Promise<string>");
+  });
+
+  it("accepts callbacks that ignore parameters while inferring generic returns", async () => {
+    const source = dedent`
+      async function load(url: string): Promise<void> {}
+      const urls: string[] = []
+      const loading: Promise<void>[] = urls.map((url) => load(url))
+      const recovered = Promise.resolve("value").catch(() => undefined)
+      const elements: HTMLAudioElement[] = Array.from({ length: 2 }, () => new Audio())
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)), {
+      ambientDeclarations: (await ensureDomProgram()).body
+    });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
   it("preserves Promise values through finally callbacks that return promises", () => {

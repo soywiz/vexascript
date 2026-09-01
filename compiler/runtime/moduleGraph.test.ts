@@ -672,6 +672,38 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("preserves transitive local base types during generic inference", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "Component.vx": "export class Component {}\n",
+        "GameObject.vx": dedent`
+          import { Component } from "./Component"
+          export class GameObject {
+            addComponent<T extends Component>(component: T): T { return component }
+          }
+        `,
+        "Rigidbody.vx": dedent`
+          import { Component } from "./Component"
+          export class Rigidbody extends Component {
+            addBoxCollider(): void {}
+          }
+        `,
+        "main.vx": dedent`
+          import { GameObject } from "./GameObject"
+          import { Rigidbody } from "./Rigidbody"
+          const rigidbody = new GameObject().addComponent(new Rigidbody())
+          rigidbody.addBoxCollider()
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraphAsModules(join(dir, "main.vx"), "conservative");
+
+        expect(result.errors).toEqual([]);
+      }
+    );
+  });
+
   it("transpiles and inlines local TypeScript modules imported from VexaScript", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
@@ -843,6 +875,66 @@ describe("bundleModuleGraph", () => {
             scene.surface.accepts("blue")
           }
         `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraphAsModules(join(dir, "main.vx"), "conservative");
+
+        expect(result.errors).toEqual([]);
+      }
+    );
+  });
+
+  it("keeps project classes distinct through cyclic transitive imports", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "node_modules/color-like/package.json": JSON.stringify({
+          name: "color-like",
+          types: "index.d.ts"
+        }),
+        "node_modules/color-like/index.d.ts": dedent`
+          export type Input = string | { [key: string]: unknown }
+          export declare class Surface {}
+        `,
+        "Input.vx": dedent`
+          export class Input {
+            down(...codes: string[]): boolean { return false }
+          }
+        `,
+        "GameScene.vx": dedent`
+          import { Surface } from "color-like"
+          import { Input } from "./Input.vx"
+          import { Component } from "./Component.vx"
+          import { GameObject } from "./GameObject.vx"
+          export class GameScene(
+            readonly surface: Surface,
+            readonly input: Input,
+            readonly components: Component[],
+            readonly objects: GameObject[],
+          )
+        `,
+        "GameObject.vx": dedent`
+          import { Component } from "./Component.vx"
+          import type { GameScene } from "./GameScene.vx"
+          export class GameObject(readonly scene: GameScene) {
+            readonly components: Component[] = []
+          }
+        `,
+        "Component.vx": dedent`
+          import type { GameObject } from "./GameObject.vx"
+          import type { GameScene } from "./GameScene.vx"
+          export abstract class Component {
+            gameObject!: GameObject
+            get scene(): GameScene { return this.gameObject.scene }
+          }
+        `,
+        "Controller.vx": dedent`
+          import { Component } from "./Component.vx"
+          export class Controller extends Component {
+            update(): void { this.scene.input.down("KeyA") }
+          }
+        `,
+        "main.vx": 'import { Controller } from "./Controller.vx"\n'
       },
       async (dir) => {
         const result = await bundleModuleGraphAsModules(join(dir, "main.vx"), "conservative");

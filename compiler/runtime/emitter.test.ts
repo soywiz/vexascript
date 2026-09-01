@@ -370,6 +370,15 @@ let worker = async function* work(this: Loader) { yield await next() }
     expect(emitted).toContain("return doubled + 1;");
   });
 
+  it("emits destructured parameters in brace lambdas", () => {
+    const program = parseFile(tokenizeReader(`events.on("score") { { amount, points } -> amount + points }
+pairs.map({ [left, right] -> left + right })`));
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain('events.on("score", ({ amount, points }) => amount + points);');
+    expect(emitted).toContain("pairs.map(([left, right]) => left + right);");
+  });
+
   it("parenthesizes numeric literal receivers before member access", () => {
     const program = parseFile(tokenizeReader(`const text = (12).toString()
 const fixed = 1.5.toFixed(1)`));

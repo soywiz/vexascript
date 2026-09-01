@@ -2805,50 +2805,64 @@ export class Parser {
         const explicitParametersStart = this.tokens.offset;
         const explicitParameters: FunctionParameter[] = [];
         let hasExplicitParameterArrow = false;
-        if (this.tokens.peek()?.type === TokenType.IDENTIFIER) {
-            while (this.tokens.hasMore) {
-                const parameterToken = this.tokens.peek();
-                if (parameterToken?.type !== TokenType.IDENTIFIER) {
-                    break;
-                }
-                this.tokens.skip();
-                let parameterOptional = false;
-                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
+        const firstExplicitParameter = this.tokens.peek();
+        if (
+            firstExplicitParameter?.type === TokenType.IDENTIFIER ||
+            (firstExplicitParameter?.type === TokenType.SYMBOL &&
+                (firstExplicitParameter.value === "{" || firstExplicitParameter.value === "["))
+        ) {
+            try {
+                while (this.tokens.hasMore) {
+                    const parameterToken = this.tokens.peek();
+                    if (!parameterToken || !(
+                        parameterToken.type === TokenType.IDENTIFIER ||
+                        (parameterToken.type === TokenType.SYMBOL &&
+                            (parameterToken.value === "{" || parameterToken.value === "["))
+                    )) {
+                        break;
+                    }
+                    const parameterName = this.parseBindingName();
+                    let parameterOptional = false;
+                    if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === "?") {
+                        this.tokens.skip();
+                        parameterOptional = true;
+                    }
+                    let parameterTypeAnnotation: Identifier | undefined;
+                    if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
+                        this.tokens.skip();
+                        parameterTypeAnnotation = this.parseTypeAnnotationNode();
+                    }
+
+                    const parameter: FunctionParameter = new FunctionParameter(parameterName);
+                    if (parameterOptional) {
+                        parameter.optional = true;
+                    }
+                    if (parameterTypeAnnotation) {
+                        parameter.typeAnnotation = parameterTypeAnnotation;
+                    }
+                    explicitParameters.push(
+                        this.attachNodeBounds(
+                            parameter,
+                            parameterToken,
+                            this.getLastReadToken() ?? parameterToken
+                        )
+                    );
+                    const separator = this.tokens.peek();
+                    if (!(separator?.type === TokenType.SYMBOL && separator.value === ",")) {
+                        break;
+                    }
                     this.tokens.skip();
-                    parameterOptional = true;
-                }
-                let parameterTypeAnnotation: Identifier | undefined;
-                if (this.tokens.peek()?.type === TokenType.SYMBOL && this.tokens.peek()?.value === ":") {
-                    this.tokens.skip();
-                    parameterTypeAnnotation = this.parseTypeAnnotationNode();
                 }
 
-                const parameter: FunctionParameter = new FunctionParameter(this.buildIdentifierFromToken(parameterToken));
-                if (parameterOptional) {
-                    parameter.optional = true;
+                const maybeArrow = this.tokens.peek();
+                if (maybeArrow?.type === TokenType.SYMBOL && maybeArrow.value === "->" && explicitParameters.length > 0) {
+                    hasExplicitParameterArrow = true;
+                    this.tokens.skip();
+                } else {
+                    this.tokens.offset = explicitParametersStart;
                 }
-                if (parameterTypeAnnotation) {
-                    parameter.typeAnnotation = parameterTypeAnnotation;
-                }
-                explicitParameters.push(
-                    this.attachNodeBounds(
-                        parameter,
-                        parameterToken,
-                        this.getLastReadToken() ?? parameterToken
-                    )
-                );
-                const separator = this.tokens.peek();
-                if (!(separator?.type === TokenType.SYMBOL && separator.value === ",")) {
-                    break;
-                }
-                this.tokens.skip();
-            }
-
-            const maybeArrow = this.tokens.peek();
-            if (maybeArrow?.type === TokenType.SYMBOL && maybeArrow.value === "->" && explicitParameters.length > 0) {
-                hasExplicitParameterArrow = true;
-                this.tokens.skip();
-            } else {
+            } catch {
+                explicitParameters.length = 0;
                 this.tokens.offset = explicitParametersStart;
             }
         }

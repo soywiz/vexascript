@@ -839,10 +839,17 @@ Examples:
 [1, 2, 3, 4].map() { it }
 [1, 2, 3, 4].map { a, b, c -> a + b + c }
 [1, 2, 3, 4].map { a: number, b: number, c: number -> a + b + c }
+events.on("score") { { amount, points } -> amount + points }
+pairs.map({ [left, right] -> left + right })
 transform({ it })
 transform({ value -> value + 1 })
 consumeOptions({ options })
 ```
+
+Explicit brace-lambda parameters accept the same object and array binding
+patterns as function parameters and variable declarations. This applies both
+to trailing lambdas and to brace lambdas in ordinary expression or argument
+position. Every name introduced by the pattern is local to the lambda.
 
 ### Receiver function types
 

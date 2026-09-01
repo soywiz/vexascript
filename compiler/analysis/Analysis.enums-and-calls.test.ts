@@ -525,6 +525,16 @@ describe("destructured parameter analysis", () => {
       expect(messages).not.toContain(`Undefined variable '${name}'`);
     }
   });
+
+  it("binds identifiers introduced by brace lambda parameter patterns", () => {
+    const source = `const objectLambda = { { amount, points } -> amount + points }
+const arrayLambda = { [left, right] -> left + right }`;
+    const messages = new Analysis(parseFile(tokenizeReader(source))).getIssues().map((issue) => issue.message);
+
+    for (const name of ["amount", "points", "left", "right"]) {
+      expect(messages).not.toContain(`Undefined variable '${name}'`);
+    }
+  });
 });
 
 describe("named call argument analysis", () => {

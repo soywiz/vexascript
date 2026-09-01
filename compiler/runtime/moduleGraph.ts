@@ -81,6 +81,8 @@ interface CachedModuleTypeContext {
   externalDeclarations: Statement[];
   externalDeclarationLocations: Map<Statement, ExternalDeclarationLocation>;
   importedSymbols: Map<string, { type?: AnalysisType; displayType?: string }>;
+  localExternalDeclarations: Statement[];
+  localExternalDeclarationLocations: Map<Statement, ExternalDeclarationLocation>;
   emitRuntimeSeed: ReturnType<typeof createTranspileRuntimeSeed>;
 }
 
@@ -88,6 +90,31 @@ interface ExternalDeclarationLocation {
   filePath: string;
   line: number;
   character: number;
+}
+
+interface ModuleTypeContext {
+  declarations: Statement[];
+  locations: Map<Statement, ExternalDeclarationLocation>;
+  localDeclarations: Statement[];
+  localLocations: Map<Statement, ExternalDeclarationLocation>;
+}
+
+function appendModuleTypeContext(
+  target: ModuleTypeContext,
+  source: ModuleTypeContext
+): void {
+  appendExternalDeclarations(
+    target.declarations,
+    target.locations,
+    source.declarations,
+    source.locations
+  );
+  appendExternalDeclarations(
+    target.localDeclarations,
+    target.localLocations,
+    source.localDeclarations,
+    source.localLocations
+  );
 }
 
 interface ModuleGraphIncrementalState {
@@ -309,6 +336,46 @@ function collectImportedDeclarations(dependencyAst: Program, importedNames: Set<
   return result;
 }
 
+function appendExternalDeclarations(
+  target: Statement[],
+  targetLocations: Map<Statement, ExternalDeclarationLocation>,
+  declarations: readonly Statement[],
+  locations: ReadonlyMap<Statement, ExternalDeclarationLocation>,
+  fallbackFilePath?: string
+): void {
+  const seen = new Set(target);
+  for (const declaration of declarations) {
+    if (!seen.has(declaration)) {
+      seen.add(declaration);
+      target.push(declaration);
+    }
+    const location = locations.get(declaration) ?? (fallbackFilePath
+      ? {
+          filePath: fallbackFilePath,
+          line: declaration.firstToken?.range.start.line ?? 0,
+          character: declaration.firstToken?.range.start.column ?? 0
+        }
+      : undefined);
+    if (location && !targetLocations.has(declaration)) {
+      targetLocations.set(declaration, location);
+    }
+  }
+}
+
+function withLocalDeclarationPriority(
+  externalDeclarations: readonly Statement[],
+  localDeclarations: readonly Statement[]
+): Statement[] {
+  if (localDeclarations.length === 0) {
+    return [...externalDeclarations];
+  }
+  const localSet = new Set(localDeclarations);
+  return [
+    ...externalDeclarations.filter((declaration) => !localSet.has(declaration)),
+    ...localDeclarations
+  ];
+}
+
 /**
  * Loads the .d.ts typings for every bare-specifier import in `ast` and merges
  * their declarations into `externalDeclarations` and their imported-binding
@@ -321,9 +388,15 @@ async function collectNodeModulesTypings(
   externalDeclarations: Statement[],
   externalDeclarationLocations: Map<Statement, ExternalDeclarationLocation>,
   importedSymbols: Map<string, { type?: AnalysisType; displayType?: string }>,
-  vfs: Vfs
+  vfs: Vfs,
+  ambientDeclarations: readonly Statement[] = []
 ): Promise<void> {
-  const imported = await resolveNodeModuleImportsForRuntime(ast, importerFilePath, vfs);
+  const imported = await resolveNodeModuleImportsForRuntime(
+    ast,
+    importerFilePath,
+    vfs,
+    ambientDeclarations
+  );
   externalDeclarations.push(...imported.externalDeclarations);
   for (const [declaration, location] of imported.externalDeclarationLocations) {
     externalDeclarationLocations.set(declaration, location);
@@ -465,6 +538,8 @@ export async function bundleModuleGraph(
 
   const emittedByPath = new Map<string, string>();
   const analysisByPath = new Map<string, Analysis | null>();
+  const localTypeContextByPath = new Map<string, ModuleTypeContext>();
+  const pendingTypeContextConsumersByPath = new Map<string, ModuleTypeContext[]>();
   const sourceByPath = new Map<string, string>();
   const parsedByPath = new Map<string, ParseArtifacts | null>();
   const order: string[] = [];
@@ -519,6 +594,8 @@ export async function bundleModuleGraph(
 
     const externalDeclarations: Statement[] = [];
     const externalDeclarationLocations = new Map<Statement, ExternalDeclarationLocation>();
+    const localExternalDeclarations: Statement[] = [];
+    const localExternalDeclarationLocations = new Map<Statement, ExternalDeclarationLocation>();
     const moduleAmbientDeclarations = globalDeclarations.length === 0
       ? ambientDeclarations
       : [...ambientDeclarations, ...globalDeclarations];
@@ -532,7 +609,8 @@ export async function bundleModuleGraph(
           externalDeclarations,
           externalDeclarationLocations,
           importedSymbols,
-          activeVfs
+          activeVfs,
+          moduleAmbientDeclarations
         );
       }
       for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
@@ -562,20 +640,40 @@ export async function bundleModuleGraph(
         if (!globalSourceFileSet.has(targetPath)) {
           await visit(targetPath);
         }
+        const currentTypeContext: ModuleTypeContext = {
+          declarations: externalDeclarations,
+          locations: externalDeclarationLocations,
+          localDeclarations: localExternalDeclarations,
+          localLocations: localExternalDeclarationLocations
+        };
+        const dependencyLocalContext = localTypeContextByPath.get(targetPath);
+        if (dependencyLocalContext) {
+          appendModuleTypeContext(currentTypeContext, dependencyLocalContext);
+        } else {
+          const consumers = pendingTypeContextConsumersByPath.get(targetPath) ?? [];
+          consumers.push(currentTypeContext);
+          pendingTypeContextConsumersByPath.set(targetPath, consumers);
+        }
         const dependencyAst = (await loadParsed(targetPath, parserOptionsForModulePath(targetPath)))?.ast ?? null;
         if (dependencyAst) {
           const importedNames = new Set(
             statement.specifiers.map((specifier) => specifier.imported.name)
           );
           const localDeclarations = collectImportedDeclarations(dependencyAst, importedNames);
-          externalDeclarations.push(...localDeclarations);
-          for (const declaration of localDeclarations) {
-            externalDeclarationLocations.set(declaration, {
-              filePath: targetPath,
-              line: declaration.firstToken?.range.start.line ?? 0,
-              character: declaration.firstToken?.range.start.column ?? 0
-            });
-          }
+          appendExternalDeclarations(
+            externalDeclarations,
+            externalDeclarationLocations,
+            localDeclarations,
+            new Map(),
+            targetPath
+          );
+          appendExternalDeclarations(
+            localExternalDeclarations,
+            localExternalDeclarationLocations,
+            localDeclarations,
+            new Map(),
+            targetPath
+          );
         }
         // Resolve imported value types (e.g. functions returning a Promise) from
         // the dependency's analysis so cross-file calls participate in auto-await.
@@ -594,17 +692,34 @@ export async function bundleModuleGraph(
       }
     }
 
+    const completedTypeContext: ModuleTypeContext = {
+      declarations: externalDeclarations,
+      locations: externalDeclarationLocations,
+      localDeclarations: localExternalDeclarations,
+      localLocations: localExternalDeclarationLocations
+    };
+    localTypeContextByPath.set(filePath, completedTypeContext);
+    for (const consumer of pendingTypeContextConsumersByPath.get(filePath) ?? []) {
+      appendModuleTypeContext(consumer, completedTypeContext);
+    }
+    pendingTypeContextConsumersByPath.delete(filePath);
+
+    const prioritizedExternalDeclarations = withLocalDeclarationPriority(
+      externalDeclarations,
+      localExternalDeclarations
+    );
+
     // Store this module's analysis (resolved with its own cross-file types) so
     // modules that import from it can read their imported value types.
     const compilationArtifacts = parsed
         ? compileParsedSource(parsed, {
-          externalDeclarations,
+          externalDeclarations: prioritizedExternalDeclarations,
           externalDeclarationLocations,
           ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         })
       : compileSource(source, parserOptions, {
-          externalDeclarations,
+          externalDeclarations: prioritizedExternalDeclarations,
           externalDeclarationLocations,
           ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
@@ -617,7 +732,7 @@ export async function bundleModuleGraph(
       target,
       emitSourceMap: false,
       parserOptions,
-      externalDeclarations,
+      externalDeclarations: prioritizedExternalDeclarations,
       importedSymbols,
       ambientDeclarations: moduleAmbientDeclarations,
       typeCheck: options.typeCheck ?? true,
@@ -735,6 +850,8 @@ export async function bundleModuleGraphAsModules(
 
   const emittedByPath = new Map<string, string>();
   const analysisByPath = new Map<string, Analysis | null>();
+  const localTypeContextByPath = new Map<string, ModuleTypeContext>();
+  const pendingTypeContextConsumersByPath = new Map<string, ModuleTypeContext[]>();
   const sourceByPath = new Map<string, string>();
   const parsedByPath = new Map<string, ParseArtifacts | null>();
   const inProgress = new Set<string>();
@@ -800,6 +917,9 @@ export async function bundleModuleGraphAsModules(
     const externalDeclarations: Statement[] = reusableTypeContext?.externalDeclarations ?? [];
     const externalDeclarationLocations = reusableTypeContext?.externalDeclarationLocations
       ?? new Map<Statement, ExternalDeclarationLocation>();
+    const localExternalDeclarations = reusableTypeContext?.localExternalDeclarations ?? [];
+    const localExternalDeclarationLocations = reusableTypeContext?.localExternalDeclarationLocations
+      ?? new Map<Statement, ExternalDeclarationLocation>();
     const moduleAmbientDeclarations = globalDeclarations.length === 0
       ? ambientDeclarations
       : [...ambientDeclarations, ...globalDeclarations];
@@ -816,7 +936,8 @@ export async function bundleModuleGraphAsModules(
           externalDeclarations,
           externalDeclarationLocations,
           importedSymbols,
-          activeVfs
+          activeVfs,
+          moduleAmbientDeclarations
         );
       }
       for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
@@ -848,20 +969,40 @@ export async function bundleModuleGraphAsModules(
           await visit(targetPath);
         }
         if (!reusableTypeContext) {
+          const currentTypeContext: ModuleTypeContext = {
+            declarations: externalDeclarations,
+            locations: externalDeclarationLocations,
+            localDeclarations: localExternalDeclarations,
+            localLocations: localExternalDeclarationLocations
+          };
+          const dependencyLocalContext = localTypeContextByPath.get(targetPath);
+          if (dependencyLocalContext) {
+            appendModuleTypeContext(currentTypeContext, dependencyLocalContext);
+          } else {
+            const consumers = pendingTypeContextConsumersByPath.get(targetPath) ?? [];
+            consumers.push(currentTypeContext);
+            pendingTypeContextConsumersByPath.set(targetPath, consumers);
+          }
           const dependencyAst = (await loadParsed(targetPath, parserOptionsForModulePath(targetPath)))?.ast ?? null;
           if (dependencyAst) {
             const importedNames = new Set(
               statement.specifiers.map((specifier) => specifier.imported.name)
             );
             const localDeclarations = collectImportedDeclarations(dependencyAst, importedNames);
-            externalDeclarations.push(...localDeclarations);
-            for (const declaration of localDeclarations) {
-              externalDeclarationLocations.set(declaration, {
-                filePath: targetPath,
-                line: declaration.firstToken?.range.start.line ?? 0,
-                character: declaration.firstToken?.range.start.column ?? 0
-              });
-            }
+            appendExternalDeclarations(
+              externalDeclarations,
+              externalDeclarationLocations,
+              localDeclarations,
+              new Map(),
+              targetPath
+            );
+            appendExternalDeclarations(
+              localExternalDeclarations,
+              localExternalDeclarationLocations,
+              localDeclarations,
+              new Map(),
+              targetPath
+            );
           }
           const dependencyAnalysis = analysisByPath.get(targetPath);
           if (dependencyAnalysis) {
@@ -877,31 +1018,54 @@ export async function bundleModuleGraphAsModules(
           }
         }
       }
+      const prioritizedExternalDeclarations = withLocalDeclarationPriority(
+        externalDeclarations,
+        localExternalDeclarations
+      );
       if (!reusableTypeContext && incrementalState) {
         emitRuntimeSeed = createTranspileRuntimeSeed([
           ...moduleAmbientDeclarations,
-          ...externalDeclarations
+          ...prioritizedExternalDeclarations
         ]);
         incrementalState.typeContextByPath.set(filePath, {
           importKey,
           externalDeclarations,
           externalDeclarationLocations,
           importedSymbols: new Map(importedSymbols),
+          localExternalDeclarations,
+          localExternalDeclarationLocations,
           emitRuntimeSeed
         });
       }
     }
 
+    const completedTypeContext: ModuleTypeContext = {
+      declarations: externalDeclarations,
+      locations: externalDeclarationLocations,
+      localDeclarations: localExternalDeclarations,
+      localLocations: localExternalDeclarationLocations
+    };
+    localTypeContextByPath.set(filePath, completedTypeContext);
+    for (const consumer of pendingTypeContextConsumersByPath.get(filePath) ?? []) {
+      appendModuleTypeContext(consumer, completedTypeContext);
+    }
+    pendingTypeContextConsumersByPath.delete(filePath);
+
+    const prioritizedExternalDeclarations = withLocalDeclarationPriority(
+      externalDeclarations,
+      localExternalDeclarations
+    );
+
     const analysisStartedAt = monotonicNow();
     const compilationArtifacts = parsed
         ? compileParsedSource(parsed, {
-          externalDeclarations,
+          externalDeclarations: prioritizedExternalDeclarations,
           externalDeclarationLocations,
           ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
         })
       : compileSource(source, parserOptions, {
-          externalDeclarations,
+          externalDeclarations: prioritizedExternalDeclarations,
           externalDeclarationLocations,
           ambientDeclarations: moduleAmbientDeclarations,
           importedSymbols
@@ -917,7 +1081,7 @@ export async function bundleModuleGraphAsModules(
       emitSourceMap: false,
       moduleFormat,
       parserOptions,
-      externalDeclarations,
+      externalDeclarations: prioritizedExternalDeclarations,
       importedSymbols,
       ambientDeclarations: moduleAmbientDeclarations,
       typeCheck: options.typeCheck ?? true,

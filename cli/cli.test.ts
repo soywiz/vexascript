@@ -152,6 +152,30 @@ describe("CLI", () => {
     );
   });
 
+  it("build and bundle use the configured entrypoint when input is omitted", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-entrypoint-"));
+    const input = join(dir, "src", "main.vx");
+    const buildOutput = join(dir, "build.js");
+    const bundleOutput = join(dir, "bundle.js");
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({ entrypoint: "src/main.vx" }), "utf8");
+    await writeFile(input, "export const answer = 42\n", "utf8");
+
+    const previousCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      await runCli(["node", "vexa", "build", "--out", buildOutput]);
+      await runCli(["node", "vexa", "bundle", "--out", bundleOutput]);
+    } finally {
+      process.chdir(previousCwd);
+    }
+
+    expect(await readFile(buildOutput, "utf8")).toContain("export const answer = 42;");
+    const bundled = await readFile(bundleOutput, "utf8");
+    expect(bundled).toContain("const answer = 42;");
+    expect(bundled).toContain("export { __vexa_export_answer as answer }");
+  });
+
   it("run command supports Deno with all permissions", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-run-deno-"));
     const input = join(dir, "input.vx");
@@ -685,8 +709,9 @@ describe("CLI", () => {
     await runCli(["node", "vexa", "--help"]);
 
     const help = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
-    expect(help).toContain("build [options] <input>");
-    expect(help).toContain("bundle [options] <input>");
+    expect(help).toContain("build [options] [input]");
+    expect(help).toContain("bundle [options] [input]");
+    expect(help).toContain("serve [options] [dir]");
     expect(help).not.toContain("cpp [options]");
   });
 
@@ -698,7 +723,7 @@ describe("CLI", () => {
 
     await expect(runCli(["node", "vexa", "help", "build"])).rejects.toThrow("process.exit:0");
     const buildHelp = stdoutWriteSpy.mock.calls.map((call) => String(call[0] ?? "")).join("");
-    expect(buildHelp).toContain("Usage: vexa build [options] <input>");
+    expect(buildHelp).toContain("Usage: vexa build [options] [input]");
     expect(buildHelp).not.toContain("--emit");
   });
 
@@ -730,6 +755,9 @@ describe("CLI", () => {
 
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("Usage: vexa [options] [command]");
+    expect(run.stdout).toContain("build [options] [input]");
+    expect(run.stdout).toContain("bundle [options] [input]");
+    expect(run.stdout).toContain("serve [options] [dir]");
     expect(run.stderr).toBe("");
   });
 
@@ -816,7 +844,7 @@ describe("CLI", () => {
 
     const run = await runCommandCapture(process.execPath, ["dist/vexa.js", "help", "build"], { cwd: process.cwd() });
     expect(run.code).toBe(0);
-    expect(run.stdout).toContain("Usage: vexa build [options] <input>");
+    expect(run.stdout).toContain("Usage: vexa build [options] [input]");
     expect(run.stdout).not.toContain("--emit <language>");
     expect(run.stderr).toBe("");
   });

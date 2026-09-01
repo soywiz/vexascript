@@ -316,6 +316,7 @@ export class TypeChecker {
   private readonly analysisTypeIds: WeakMap<object, number> = new WeakMap<object, number>();
   private readonly explicitlyUnknownIdentifiers: WeakSet<object> = new WeakSet<object>();
   private readonly unresolvedImportedIdentifiers: WeakSet<object> = new WeakSet<object>();
+  private readonly unresolvedUnknownExpressions: WeakSet<object> = new WeakSet<object>();
   private readonly expandedTypeAliasCache = new Map<string, AnalysisType>();
   private readonly expandedTypesBySource = new WeakMap<object, AnalysisType>();
   private readonly typeExpansionsInProgress = new WeakSet<object>();
@@ -3374,33 +3375,92 @@ export class TypeChecker {
         );
       }
       if (binary.operator === "is" && this.isStructuralMatcherPattern(binary.right)) {
-        const stableKey = this.stableExpressionKey(binary.left);
-        if (!stableKey) return new Map();
         const originalType = this.expressionTypeForNarrowing(binary.left, scope);
-        return this.singleNarrowing(stableKey, this.narrowedTypeForPattern(originalType, binary.right, truthy));
+        const narrowedType = this.narrowedTypeForPattern(originalType, binary.right, truthy);
+        return this.expressionNarrowingWithOptionalReceivers(binary.left, scope, narrowedType);
       }
       const narrowing = this.conditionNarrowingInfo(binary, scope);
-      const stableKey = narrowing && this.stableExpressionKey(narrowing.expression);
-      if (!stableKey || !narrowing) return new Map();
+      if (!narrowing) return new Map();
       const originalType = this.expressionTypeForNarrowing(narrowing.expression, scope);
       const narrowedType = this.narrowedTypeForCheck(
         originalType,
         narrowing.checkedType,
         narrowing.matchesWhenTruthy ? truthy : !truthy
       );
-      return narrowedType ? this.singleNarrowing(stableKey, narrowedType) : new Map();
+      return narrowedType
+        ? this.expressionNarrowingWithOptionalReceivers(narrowing.expression, scope, narrowedType)
+        : new Map();
     }
 
-    const stableKey = this.stableExpressionKey(condition);
-    if (!stableKey) {
-      return new Map();
-    }
     const originalType = this.expressionTypeForNarrowing(condition, scope);
     const narrowedType = this.truthinessNarrowedType(originalType, truthy);
     if (!narrowedType || isSameType(narrowedType, originalType)) {
       return new Map();
     }
-    return this.singleNarrowing(stableKey, narrowedType);
+    return this.expressionNarrowingWithOptionalReceivers(condition, scope, narrowedType);
+  }
+
+  private expressionNarrowingWithOptionalReceivers(
+    expression: Expr,
+    scope: Scope,
+    narrowedType: AnalysisType
+  ): Map<string, AnalysisType> {
+    const result = new Map<string, AnalysisType>();
+    const stableKey = this.stableExpressionKey(expression);
+    if (stableKey) {
+      result.set(stableKey, narrowedType);
+    }
+    if (!this.typeIncludesNullish(narrowedType)) {
+      for (const [key, type] of this.optionalChainReceiverNarrowings(expression, scope)) {
+        result.set(key, type);
+      }
+    }
+    return result;
+  }
+
+  private typeIncludesNullish(type: AnalysisType): boolean {
+    const expanded = type instanceof NamedType ? this.expandTypeAliases(type) : type;
+    return isNullishType(expanded) || hasNullishUnionMember(expanded);
+  }
+
+  private optionalChainReceiverNarrowings(expression: Expr, scope: Scope): Map<string, AnalysisType> {
+    const result = new Map<string, AnalysisType>();
+    const visit = (current: Expr): void => {
+      let receiver: Expr | null = null;
+      if (current instanceof MemberExpression) {
+        const member = current as MemberExpression;
+        if (member.optional === true) {
+          receiver = member.object;
+        }
+        visit(member.object);
+      } else if (current instanceof CallExpression) {
+        const call = current as CallExpression;
+        if (call.optional === true) {
+          receiver = call.callee;
+        }
+        visit(call.callee);
+      } else if (current instanceof NonNullExpression) {
+        visit((current as NonNullExpression).expression);
+      } else if (current instanceof AsExpression) {
+        visit((current as AsExpression).expression);
+      } else if (current instanceof SatisfiesExpression) {
+        visit((current as SatisfiesExpression).expression);
+      }
+      if (!receiver) {
+        return;
+      }
+      const stableKey = this.stableExpressionKey(receiver);
+      if (!stableKey) {
+        return;
+      }
+      const originalType = this.expressionTypeForNarrowing(receiver, scope);
+      const narrowedReceiverType = this.nullishNarrowedType(originalType, false);
+      if (!isSameType(narrowedReceiverType, originalType)) {
+        result.set(stableKey, narrowedReceiverType);
+      }
+    };
+    visit(expression);
+    return result;
   }
 
   private nullishExpressionNarrowings(
@@ -4193,6 +4253,23 @@ export class TypeChecker {
           this.identifierResolutions.push(new IdentifierResolution(member.property as Identifier, memberSymbol));
         }
         const readableMemberType = this.resolveKnownMemberType(member, objectType);
+        if (
+          this.validateTypes &&
+          readableMemberType !== null &&
+          isUnknownType(readableMemberType) &&
+          !isUnknownType(objectType) &&
+          memberSymbol &&
+          this.memberSymbolHasUnresolvedAnnotatedType(memberSymbol)
+        ) {
+          const memberName = member.property instanceof Identifier
+            ? member.property.name
+            : "<computed>";
+          this.issues.push({
+            message: `Type of member '${memberName}' on type '${typeToDiagnosticLabel(objectType)}' resolves to 'unknown'`,
+            node: member.property
+          });
+          this.unresolvedUnknownExpressions.add(member);
+        }
         const writeMemberType = this.pureWriteTargetNodes.has(member) && member.property instanceof Identifier
           ? this.setterMemberTypeFromObjectType(objectType, member.property.name)
           : null;
@@ -4420,14 +4497,22 @@ export class TypeChecker {
               this.issues.splice(range.start, range.end - range.start);
             }
           }
-          const instantiatedCalleeType = contextualArgumentTypes === argumentTypes
+          const literalFinalInferenceArgumentTypes = hasNamedArguments
+            ? contextualArgumentTypes
+            : this.literalSensitiveInferenceArgumentTypes(
+                bestCallableType,
+                call.args,
+                contextualArgumentTypes
+              );
+          const finalInferenceArgumentTypes = literalFinalInferenceArgumentTypes;
+          const instantiatedCalleeType = finalInferenceArgumentTypes === argumentTypes
             ? this.instantiateFunctionType(
                 bestCallableType,
                 explicitTypeArguments,
                 inferenceArgumentTypes,
                 expectedType
               )
-            : this.instantiateFunctionType(bestCallableType, explicitTypeArguments, contextualArgumentTypes, expectedType);
+            : this.instantiateFunctionType(bestCallableType, explicitTypeArguments, finalInferenceArgumentTypes, expectedType);
           if (this.validateTypes) {
             this.selectedCallResolutions.push(new SelectedCallResolution(
               call,
@@ -5506,6 +5591,15 @@ export class TypeChecker {
    */
   private orderingCategory(type: AnalysisType): "numeric" | "string" | "date" | null {
     const expanded = this.expandTypeAliases(type);
+    if (expanded instanceof UnionType) {
+      const categories = expanded.types
+        .filter((member) => !(member instanceof BuiltinType && member.name === "never"))
+        .map((member) => this.orderingCategory(member));
+      const category = categories[0] ?? null;
+      return category !== null && categories.every((memberCategory) => memberCategory === category)
+        ? category
+        : null;
+    }
     if (expanded instanceof NamedType && expanded.name === "Date") {
       return "date";
     }
@@ -9071,7 +9165,7 @@ export class TypeChecker {
     }
     const callableMembers: FunctionType[] = [];
     for (const member of type.types) {
-      if (member instanceof FunctionType) callableMembers.push(member);
+      callableMembers.push(...this.callableCandidatesFrom(member));
     }
     for (const member of callableMembers) {
       if (this.isCallableOverloadMatch(member, argumentTypes)) return member;
@@ -9100,7 +9194,7 @@ export class TypeChecker {
     if (type instanceof UnionType) {
       const callableMembers: FunctionType[] = [];
       for (const member of type.types) {
-        if (member instanceof FunctionType) callableMembers.push(member);
+        callableMembers.push(...this.callableCandidatesFrom(member));
       }
       return callableMembers;
     }
@@ -15526,6 +15620,9 @@ export class TypeChecker {
     const propertyName = (member.property as Identifier).name;
     const resolvedObjectType = this.resolveConstrainedNamedExpressionType(member.object, objectType) ?? objectType;
     if (isUnknownType(resolvedObjectType) || (resolvedObjectType instanceof BuiltinType && resolvedObjectType.name === "unknown")) {
+      if (this.unresolvedUnknownExpressions.has(member.object)) {
+        return;
+      }
       if (member.object instanceof Identifier) {
         const baseIdentifier = member.object as Identifier;
         const usageOffset = nodeStartOffset(baseIdentifier);
@@ -15604,6 +15701,41 @@ export class TypeChecker {
       message: `Property '${propertyName}' does not exist on type '${displayType}'`,
       node: member.property
     });
+  }
+
+  private memberSymbolHasUnresolvedAnnotatedType(symbol: AnalysisSymbol): boolean {
+    const annotationIncludesUnknown = (annotation: { name: string } | undefined): boolean =>
+      annotation !== undefined && /(^|[^A-Za-z0-9_$])unknown([^A-Za-z0-9_$]|$)/.test(annotation.name);
+    const annotationIsUnresolved = (annotation: { name: string } | undefined): boolean =>
+      annotation !== undefined && !annotationIncludesUnknown(annotation);
+
+    for (const classStatement of new Set(this.classStatementsByName.values())) {
+      for (const member of classStatement.members) {
+        if (member instanceof ClassFieldMember && member.name === symbol.node) {
+          return annotationIsUnresolved(member.typeAnnotation);
+        }
+        if (member instanceof ClassMethodMember && member.name === symbol.node) {
+          return annotationIsUnresolved(member.returnType);
+        }
+      }
+      for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+        if (bindingIdentifiers(parameter.name).some((identifier) => identifier === symbol.node)) {
+          return annotationIsUnresolved(parameter.typeAnnotation);
+        }
+      }
+    }
+
+    for (const interfaceStatement of this.interfaceStatementsByName.values()) {
+      for (const member of interfaceStatement.members) {
+        if (member instanceof InterfacePropertyMember && member.name === symbol.node) {
+          return annotationIsUnresolved(member.typeAnnotation);
+        }
+        if (member instanceof InterfaceMethodMember && member.name === symbol.node) {
+          return annotationIsUnresolved(member.returnType);
+        }
+      }
+    }
+    return false;
   }
 
   private reportNonStaticClassMemberAccess(
@@ -15834,7 +15966,9 @@ export class TypeChecker {
       return null;
     }
 
-    const resolvedObjectType = this.resolveConstrainedNamedExpressionType(member.object, objectType) ?? objectType;
+    const resolvedObjectType = this.normalizeLooseNamedType(this.expandTypeAliases(
+      this.resolveConstrainedNamedExpressionType(member.object, objectType) ?? objectType
+    ));
     if (resolvedObjectType instanceof BuiltinType && resolvedObjectType.name === "any") {
       return resolvedObjectType;
     }
@@ -15863,7 +15997,7 @@ export class TypeChecker {
       return null;
     }
     const preferredExtensionType = importedExtensionType();
-    if (preferredExtensionType) {
+    if (preferredExtensionType && !isUnknownType(preferredExtensionType)) {
       return preferredExtensionType;
     }
     if (resolvedObjectType instanceof UnionType) {
@@ -15891,7 +16025,9 @@ export class TypeChecker {
       if (memberTypes.length === 0) {
         return null;
       }
-      return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
+      const concreteMemberTypes = memberTypes.filter((type) => !isUnknownType(type));
+      const resolvedMemberTypes = concreteMemberTypes.length > 0 ? concreteMemberTypes : memberTypes;
+      return resolvedMemberTypes.length === 1 ? resolvedMemberTypes[0]! : unionType(resolvedMemberTypes);
     }
     if (resolvedObjectType instanceof ObjectType) {
       return this.memberTypeFromProperties(
@@ -19139,7 +19275,9 @@ export class TypeChecker {
         if (substitutedName === sourceType.name) {
           return sourceType;
         }
-        return this.resolveMappedUtilityTypeText(substitutedName, new Map()) ?? namedType(substitutedName);
+        return this.resolveMappedUtilityTypeText(substitutedName, new Map())
+          ?? this.typeFromComputedTypeNameLoose(substitutedName)
+          ?? namedType(substitutedName);
       }
       return namedType(
         sourceType.name,

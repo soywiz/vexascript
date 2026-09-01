@@ -1892,6 +1892,32 @@ describe("parseExpression", () => {
         expect(effectLambda.body.body[1].expression.kind).toBe(NodeKind.ArrowFunctionExpression);
     });
 
+    it("supports object and array destructuring in brace lambda parameters", () => {
+        const objectLambda = parseExpression(tokenizeReader("events.on('score') { { amount, points } -> amount + points }")) as any;
+        expect(objectLambda.args[1].parameters[0]).toEqual({
+            kind: NodeKind.FunctionParameter,
+            name: {
+                kind: NodeKind.ObjectBindingPattern,
+                elements: [
+                    { kind: NodeKind.BindingElement, name: { kind: NodeKind.Identifier, name: "amount" }, shorthand: true },
+                    { kind: NodeKind.BindingElement, name: { kind: NodeKind.Identifier, name: "points" }, shorthand: true }
+                ]
+            }
+        });
+
+        const arrayLambda = parseExpression(tokenizeReader("pairs.map({ [left, right] -> left + right })")) as any;
+        expect(arrayLambda.args[0].parameters[0]).toEqual({
+            kind: NodeKind.FunctionParameter,
+            name: {
+                kind: NodeKind.ArrayBindingPattern,
+                elements: [
+                    { kind: NodeKind.BindingElement, name: { kind: NodeKind.Identifier, name: "left" } },
+                    { kind: NodeKind.BindingElement, name: { kind: NodeKind.Identifier, name: "right" } }
+                ]
+            }
+        });
+    });
+
     it("parses sync and async modifiers on tail lambdas", () => {
         const syncCall = parseExpression(tokenizeReader('variable.test("demo") sync { run(it) }')) as any;
         const asyncCall = parseExpression(tokenizeReader('variable.test("demo") async { await run(it) }')) as any;

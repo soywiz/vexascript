@@ -240,6 +240,18 @@ When a brace lambda appears as a trailing lambda or as a brace-lambda argument, 
 
 Inside an argument list, `{ name }` remains context-sensitive: it can be interpreted semantically as a one-parameter lambda (implicit `it`) when the expected parameter type is a function, and as a shorthand object literal otherwise. The explicit `{ arg -> body }` form is always a lambda.
 
+Explicit brace-lambda parameters may be object or array binding patterns in
+both trailing and non-trailing forms:
+
+```vexa
+events.on("score") { { amount, points } -> amount + points }
+pairs.map({ [left, right] -> left + right })
+```
+
+The equivalent TypeScript callbacks are
+`({ amount, points }) => amount + points` and
+`([left, right]) => left + right`.
+
 Object spread follows TypeScript compatibility rules for dynamic values:
 `{ ...value }` accepts `value: any` (as well as object-shaped and unknown
 values), while a statically known primitive spread is diagnosed.

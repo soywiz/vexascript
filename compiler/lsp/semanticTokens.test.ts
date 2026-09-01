@@ -372,6 +372,26 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "init" && token.tokenType === "keywordModifier")).toBe(true);
   });
 
+  it("highlights this and super as receiver keywords instead of variables", () => {
+    const source = dedent`
+      class Parent { fun value(): int = 1 }
+      class Child extends Parent {
+        fun value(): int = this.offset + super.value()
+        val offset = 1
+      }
+    `;
+    const session = createAnalysisSession(source);
+    const decoded = decodeTokens(source, createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    }).data);
+
+    expect(decoded.some((token) => token.lexeme === "this" && token.tokenType === "keyword")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "super" && token.tokenType === "keyword")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "this" && token.tokenType === "variable")).toBe(false);
+  });
+
   it("highlights var! as one semantic keyword token", () => {
     const source = "class Demo { var! value: int }";
     const session = createAnalysisSession(source);

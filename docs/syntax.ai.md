@@ -153,6 +153,8 @@ task.run("demo") async { await work(it) }
 task.run("demo") sync { work(it) }
 task.run("demo", async { await work(it) })
 task.run("demo", sync { work(it) })
+events.on("score") { { amount, points } -> amount + points }
+pairs.map({ [left, right] -> left + right })
 useEffect({
   const timeout = setTimeout({
     count++
@@ -164,6 +166,11 @@ useEffect({
 Trailing lambdas and brace-lambda call arguments use implicit `it` for `{ expr }`. In ordinary expression positions, `{ ... }` is a zero-argument brace lambda unless it is resolved contextually as an object literal or has an explicit `->` parameter list.
 
 Modified brace-lambda grammar: `call(args) (async | sync) { body }` or `call(args, (async | sync) { body })`. The modifier applies to the lambda. `async` requires explicit `await`; `sync` enables implicit auto-await. Both emit JavaScript `async` callbacks. Moving the lambda outside the argument list must preserve its modifier.
+
+An explicit brace-lambda parameter may be an identifier, object binding
+pattern, or array binding pattern. Destructuring works in both trailing lambdas
+and brace lambdas used as ordinary expressions: `{ { x, y } -> x + y }` and
+`{ [x, y] -> x + y }`.
 
 Object literals may spread `any`, `unknown`, `object`, and object-shaped values:
 `{ ...args, children }`. Reject spreads whose type is a known primitive.

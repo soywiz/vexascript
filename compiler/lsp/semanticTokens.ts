@@ -977,6 +977,9 @@ function classifyToken(
   if (token.value === "is") {
     return "keyword";
   }
+  if (token.value === "this" || token.value === "super") {
+    return "keyword";
+  }
 
   if (analysis) {
     const symbolKind = tokenTypeFromAnalysis(token, analysis);

@@ -2294,6 +2294,69 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("narrows optional-chain receivers in successful comparison branches", () => {
+    const source = dedent`
+      interface Context {
+        state: string
+        resume(): Promise<void>
+      }
+      class AudioService {
+        private static context: Context | null = null
+
+        static install(): void {
+          const unlock = (): void => {
+            if (this.context?.state === "suspended") void this.context.resume()
+          }
+        }
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("keeps optional-chain receivers nullable when undefined can satisfy the branch", () => {
+    const source = dedent`
+      interface Context {
+        state: string
+        resume(): void
+      }
+      class AudioService {
+        private static context: Context | null = null
+
+        static install(): void {
+          if (this.context?.state !== "suspended") this.context.resume()
+        }
+      }
+    `;
+
+    const messages = new Analysis(parseFile(tokenizeReader(source)))
+      .getIssues()
+      .map((issue) => issue.message);
+
+    expect(messages).toContain("Object is possibly 'null' or 'undefined'. Use optional access '?.' or a non-null assertion '!'");
+  });
+
+  it("narrows optional-chain receivers after an exiting inverse comparison guard", () => {
+    const source = dedent`
+      interface Context {
+        state: string
+        resume(): void
+      }
+      class AudioService {
+        private static context: Context | null = null
+
+        static install(): void {
+          if (this.context?.state !== "suspended") return
+          this.context.resume()
+        }
+      }
+    `;
+
+    expect(new Analysis(parseFile(tokenizeReader(source))).getIssues()).toEqual([]);
+  });
+
   it("narrows nullable linked-list values in for conditions", () => {
     const source = dedent`
       interface Fixture {
@@ -2813,6 +2876,46 @@ describe("Analysis", () => {
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves indexed getter types through defaulted class type parameters", () => {
+    const source = dedent`
+      interface Canvas { focus(): void }
+      class WebRenderer<T extends Canvas = Canvas> { canvas: T }
+      class GpuRenderer<T extends Canvas = Canvas> { canvas: T }
+      type Renderer<T extends Canvas = Canvas> = WebRenderer<T> | GpuRenderer<T>
+      class Application<R extends Renderer = Renderer> {
+        get canvas(): R["canvas"] { return this.renderer.canvas }
+        renderer: R
+      }
+      const app = new Application()
+      app.canvas.focus()
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("reports unresolved member types at their origin without treating explicit unknown as any", () => {
+    const dependency = parseFile(tokenizeReader(dedent`
+      export interface Broken { value: Missing["value"] }
+      export interface Explicit { value: unknown }
+    `));
+    const source = dedent`
+      import { Broken, Explicit } from "./types"
+      declare const broken: Broken
+      declare const explicit: Explicit
+      broken.value.toString()
+      const preserved: unknown = explicit.value
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)), {
+      externalDeclarations: dependency.body
+    });
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type of member 'value' on type 'Broken' resolves to 'unknown'");
+    expect(messages).not.toContain("Property 'toString' does not exist on type 'unknown'");
+    expect(messages.filter((message) => message.includes("Explicit"))).toEqual([]);
   });
 
   it("resolves head and rest inference from tuple conditional aliases", () => {

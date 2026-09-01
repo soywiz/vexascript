@@ -183,9 +183,9 @@ export async function resolveProjectForSource(sourcePath: string): Promise<VexaP
   return await loadProject(sourcePath);
 }
 
-export async function resolveServeBundleInput(rootDir: string, explicitBundleInput?: string): Promise<string> {
-  if (explicitBundleInput) {
-    return resolve(process.cwd(), explicitBundleInput);
+export async function resolveProjectEntrypoint(rootDir: string, explicitInput?: string): Promise<string> {
+  if (explicitInput) {
+    return resolve(process.cwd(), explicitInput);
   }
 
   const resolvedRootDir = resolve(process.cwd(), rootDir);
@@ -194,5 +194,18 @@ export async function resolveServeBundleInput(rootDir: string, explicitBundleInp
     return project.bundleEntrypoint;
   }
 
-  throw new Error(`No bundle entrypoint provided. Pass --bundle <input> or add "entrypoint" to ${resolvedRootDir}/vexascript.json`);
+  throw new Error(`No input provided and no "entrypoint" is configured in ${resolvedRootDir}/vexascript.json`);
+}
+
+export async function resolveServeBundleInput(rootDir: string, explicitBundleInput?: string): Promise<string> {
+  if (explicitBundleInput) {
+    return resolveProjectEntrypoint(rootDir, explicitBundleInput);
+  }
+
+  try {
+    return await resolveProjectEntrypoint(rootDir);
+  } catch {
+    const resolvedRootDir = resolve(process.cwd(), rootDir);
+    throw new Error(`No bundle entrypoint provided. Pass --bundle <input> or add "entrypoint" to ${resolvedRootDir}/vexascript.json`);
+  }
 }

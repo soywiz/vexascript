@@ -14,6 +14,7 @@ import {
   createBundledModuleArtifacts,
   ensureRuntimeDependencies,
   globalDeclarationsForProject,
+  resolveProjectEntrypoint,
   resolveServeBundleInput,
   usesExternalTypeScriptCheck,
   vexaTypeCheckForSource
@@ -153,6 +154,11 @@ async function buildFile(
   const declarationsStartedAt = monotonicNow();
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
+  const imported = await resolveNodeModuleImportsForCli(
+    source,
+    sourcePath,
+    [...ambientDeclarations, ...globalDeclarations]
+  );
   phaseTimings.set("declarations", monotonicNow() - declarationsStartedAt);
   const result = transpile(source, {
     sourceFilePath: sourcePath,
@@ -161,6 +167,8 @@ async function buildFile(
     typeCheck: vexaTypeCheck,
     emitSourceMap: true,
     ambientDeclarations: [...ambientDeclarations, ...globalDeclarations],
+    externalDeclarations: imported.externalDeclarations,
+    importedSymbols: imported.importedSymbols,
     rewriteImportExtensions: true,
     profile: (event) => phaseTimings.set(event.phase, event.elapsedMs),
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
@@ -397,7 +405,11 @@ async function transpileSource(
   const project = await loadProject(sourcePath);
   const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const globalDeclarations = await globalDeclarationsForProject(project);
-  const imported = await resolveNodeModuleImportsForCli(source, sourcePath);
+  const imported = await resolveNodeModuleImportsForCli(
+    source,
+    sourcePath,
+    [...ambientDeclarations, ...globalDeclarations]
+  );
   return transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
@@ -645,7 +657,7 @@ function createProgram(): Command {
     );
   const buildCommand = program.command("build");
   buildCommand.description("Compile a VexaScript file to JavaScript");
-  buildCommand.argument("<input>", "Input file or project directory");
+  buildCommand.argument("[input]", "Input file or project directory; defaults to the configured entrypoint", "");
   buildCommand.option("-o, --out <path>", "Output file for file builds, or output directory for project builds");
   buildCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
   buildCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
@@ -657,6 +669,7 @@ function createProgram(): Command {
       const buildOptions = resolveBuildOptions(opts);
       const target = buildOptions.target;
       const jsxOptions = buildOptions.jsxOptions;
+      input = input || await resolveProjectEntrypoint(".");
       const inputPath = resolve(process.cwd(), input);
       const inputStats = await vfs().stat(inputPath).catch((_error) => null);
       if (inputStats?.isDirectory) {
@@ -676,7 +689,7 @@ function createProgram(): Command {
 
   const bundleCommand = program.command("bundle");
   bundleCommand.description("Bundle a VexaScript entry file, or build a configured project directory");
-  bundleCommand.argument("<input>", "Input file or project directory");
+  bundleCommand.argument("[input]", "Input file or project directory; defaults to the configured entrypoint", "");
   bundleCommand.option("-o, --out <path>", "Output file for file builds, or output directory for project builds");
   bundleCommand.option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized");
   bundleCommand.option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)");
@@ -687,6 +700,7 @@ function createProgram(): Command {
       const buildOptions = resolveBuildOptions(opts);
       const target = buildOptions.target;
       const jsxOptions = buildOptions.jsxOptions;
+      input = input || await resolveProjectEntrypoint(".");
       const inputPath = resolve(process.cwd(), input);
       const inputStats = await vfs().stat(inputPath).catch((_error) => null);
       if (inputStats?.isDirectory) {
