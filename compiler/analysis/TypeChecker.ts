@@ -16419,6 +16419,19 @@ export class TypeChecker {
           return namedType(className);
         }
       }
+      if (
+        initializer instanceof CallExpression &&
+        callee instanceof MemberExpression &&
+        callee.computed !== true &&
+        callee.object instanceof Identifier &&
+        callee.property instanceof Identifier
+      ) {
+        const ownerType = namedType(callee.object.name);
+        if (this.classStatementsByName.has(ownerType.name)) {
+          const memberType = this.resolveNamedTypeMembers(ownerType)?.get(callee.property.name);
+          return memberType ? this.returnTypeUtilityType(memberType) : null;
+        }
+      }
     }
     return null;
   }

@@ -2299,6 +2299,32 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("infers imported field types from external static factory calls", () => {
+    const source = dedent`
+      import { Scene } from "./scene.vx"
+      const scene = Scene()
+      scene.world.Destroy()
+    `;
+    const externalSource = dedent`
+      export declare class World {
+        static Create(): World
+        Destroy(): void
+      }
+      export class Scene {
+        readonly world = World.Create()
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const externalDeclarations = parseSource(externalSource, { language: "typescript" }).ast!.body;
+    const analysis = new Analysis(ast, {
+      externalDeclarations,
+      importedSymbols: new Map([["Scene", { type: namedType("Scene") }]])
+    });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("uses the local jsx factory return type for jsx expression members", () => {
     const source = dedent`
       fun h(type: any, props: any, ...children: any[]) {
