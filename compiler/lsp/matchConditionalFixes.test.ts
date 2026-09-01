@@ -101,6 +101,123 @@ describe("match and if-chain quick fixes", () => {
     `);
   });
 
+  it("converts consecutive returning if statements and a final return to a subject match", () => {
+    const marked = dedent`
+      class Renderer {
+        private color(kind: FixtureKind): number {
+          if (kind === 'player') return 0xffffff
+          if (kind === 'enemy') return 0xff6b6b
+          if (kind === 'water') return 0x2f9df4
+          return 0x44^^^556f
+        }
+      }
+    `;
+
+    const { source, actions } = actionsAt(marked);
+    const action = actionNamed(actions, "Convert if chain to subject match");
+
+    expect(action).toBeDefined();
+    expect(applyFirstEdit(source, action)).toBe(dedent`
+      class Renderer {
+        private color(kind: FixtureKind): number {
+          match (kind) {
+            'player' -> return 0xffffff
+            'enemy' -> return 0xff6b6b
+            'water' -> return 0x2f9df4
+            else -> return 0x44556f
+          }
+        }
+      }
+    `);
+  });
+
+  it("uses a subject match for strict-equality else-if chains", () => {
+    const marked = dedent`
+      if (kind === 'player') return 0xffffff
+      else if (kind === 'enemy^^^') return 0xff6b6b
+      else return 0x44556f
+    `;
+
+    const { source, actions } = actionsAt(marked);
+    const action = actionNamed(actions, "Convert if chain to subject match");
+
+    expect(action).toBeDefined();
+    expect(applyFirstEdit(source, action)).toBe(dedent`
+      match (kind) {
+        'player' -> return 0xffffff
+        'enemy' -> return 0xff6b6b
+        else -> return 0x44556f
+      }
+    `);
+  });
+
+  it("converts a terminating if run without consuming following code", () => {
+    const marked = dedent`
+      fun handle(): void {
+        if (ready) return
+        if (failed^^^) return
+        finish()
+      }
+    `;
+
+    const { source, actions } = actionsAt(marked);
+    const action = actionNamed(actions, "Convert if chain to condition match");
+
+    expect(action).toBeDefined();
+    expect(applyFirstEdit(source, action)).toBe(dedent`
+      fun handle(): void {
+        match {
+          ready -> return
+          failed -> return
+        }
+        finish()
+      }
+    `);
+  });
+
+  it("converts consecutive continue guards inside a loop", () => {
+    const marked = dedent`
+      for (const item of items) {
+        if (item.hidden) {
+          log(item)
+          continue
+        }
+        if (item.disabled^^^) continue
+        render(item)
+      }
+    `;
+
+    const { source, actions } = actionsAt(marked);
+    const action = actionNamed(actions, "Convert if chain to condition match");
+
+    expect(action).toBeDefined();
+    expect(applyFirstEdit(source, action)).toBe(dedent`
+      for (const item of items) {
+        match {
+          item.hidden -> {
+            log(item)
+            continue
+          }
+          item.disabled -> continue
+        }
+        render(item)
+      }
+    `);
+  });
+
+  it("does not combine consecutive if statements when one branch can fall through", () => {
+    const marked = dedent`
+      if (rea^^^dy) return "ready"
+      if (logging) log()
+      if (failed) return "failed"
+      return "idle"
+    `;
+
+    const { actions } = actionsAt(marked);
+
+    expect(actionNamed(actions, "Convert if chain to condition match")).toBeUndefined();
+  });
+
   it("keeps different equality subjects in a condition match", () => {
     const marked = 'if (le^^^ft == 1) "left" else if (right == 2) "right" else "none"';
 

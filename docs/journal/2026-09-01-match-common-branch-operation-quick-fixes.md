@@ -28,6 +28,21 @@ Focused coverage includes condition and subject matches, direct and blocked
 returns, stable member assignments, missing fallbacks, mixed operations,
 different targets, side-effectful targets, and comment preservation.
 
+## Implicit terminating if chains
+
+Consecutive standalone `if` statements are now eligible for the existing
+if-chain-to-match quick fix when every branch ends in `return` or `continue`.
+The terminating operation makes the statements mutually exclusive even though
+the source omits `else`. An immediately following `return` is consumed as the
+optional fallback; otherwise later statements remain outside the generated
+match.
+
+The shared subject detector now recognizes both `==` and `===`. Consequently,
+chains that repeatedly compare the same stable expression, such as
+`kind === "player"`, produce `match (kind)` rather than a condition match that
+repeats `kind` in every arm. Source gaps are accepted only when they contain
+whitespace or semicolons, preventing the range rewrite from deleting comments.
+
 ## Execution metadata
 
 - Model: Unavailable (not exposed by runtime)

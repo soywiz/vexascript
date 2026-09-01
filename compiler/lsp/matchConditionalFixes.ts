@@ -2,6 +2,7 @@ import {
   AssignmentExpression,
   BinaryExpression,
   BlockStatement,
+  ContinueStatement,
   ExprStatement,
   Identifier,
   IfStatement,
@@ -18,10 +19,10 @@ import {
 import { walkAst } from "compiler/ast/traversal";
 import { formatSource } from "compiler/runtime/formatter";
 
-import type { CodeAction } from "vscode-languageserver/node.js";
+import type { CodeAction, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findBestMatchAtPosition } from "./nodeSearch";
-import { nodeRange, type Position } from "./ranges";
+import { containsPosition, nodeRange, rangeSize, type Position } from "./ranges";
 
 interface IfChainArm {
   condition: Expr;
@@ -32,7 +33,12 @@ interface IfChainTarget {
   kind: "if-chain";
   node: IfStatement;
   arms: IfChainArm[];
-  fallback: Statement;
+  fallback?: Statement;
+}
+
+interface TerminatingIfRunTarget {
+  chain: IfChainTarget;
+  range: Range;
 }
 
 interface MatchTarget {
@@ -177,6 +183,107 @@ function findStandaloneMatchTarget(ast: Program, position: Position): MatchTarge
   });
 }
 
+function isTerminatingBranch(statement: Statement): boolean {
+  const terminal = statement instanceof BlockStatement
+    ? statement.body.at(-1)
+    : statement;
+  return terminal instanceof ReturnStatement || terminal instanceof ContinueStatement;
+}
+
+function isStandaloneTerminatingIf(statement: Statement | undefined): statement is IfStatement {
+  return statement instanceof IfStatement
+    && statement.firstToken?.value === "if"
+    && !statement.matchSyntax
+    && !statement.elseBranch
+    && isTerminatingBranch(statement.thenBranch);
+}
+
+function spanningRange(first: Node, last: Node): Range | null {
+  const firstRange = nodeRange(first);
+  const lastRange = nodeRange(last);
+  return firstRange && lastRange
+    ? { start: firstRange.start, end: lastRange.end }
+    : null;
+}
+
+function hasSafeStatementGap(text: string, left: Statement, right: Statement): boolean {
+  const start = left.lastToken?.range.end.offset;
+  const end = right.firstToken?.range.start.offset;
+  return start !== undefined && end !== undefined && /^[\s;]*$/u.test(text.slice(start, end));
+}
+
+function findTerminatingIfRun(
+  ast: Program,
+  text: string,
+  position: Position
+): TerminatingIfRunTarget | null {
+  let best: TerminatingIfRunTarget | null = null;
+  let bestSize = Number.POSITIVE_INFINITY;
+
+  const inspectStatements = (statements: Statement[]): void => {
+    for (let start = 0; start < statements.length; start += 1) {
+      if (!isStandaloneTerminatingIf(statements[start])) {
+        continue;
+      }
+      if (
+        start > 0
+        && isStandaloneTerminatingIf(statements[start - 1])
+        && hasSafeStatementGap(text, statements[start - 1]!, statements[start]!)
+      ) {
+        continue;
+      }
+
+      const arms: IfChainArm[] = [];
+      let cursor = start;
+      let previous: Statement | null = null;
+      while (isStandaloneTerminatingIf(statements[cursor])) {
+        const current = statements[cursor]! as IfStatement;
+        if (previous && !hasSafeStatementGap(text, previous, current)) {
+          break;
+        }
+        arms.push({ condition: current.condition, body: current.thenBranch });
+        previous = current;
+        cursor += 1;
+      }
+      if (arms.length < 2 || !previous) {
+        continue;
+      }
+
+      const fallbackCandidate = statements[cursor];
+      const fallback = fallbackCandidate instanceof ReturnStatement
+        && hasSafeStatementGap(text, previous, fallbackCandidate)
+        ? fallbackCandidate
+        : undefined;
+      const endNode = fallback ?? previous;
+      const range = spanningRange(statements[start]!, endNode);
+      if (!range || !containsPosition(range, position)) {
+        continue;
+      }
+      const size = rangeSize(range);
+      if (size < bestSize) {
+        bestSize = size;
+        best = {
+          chain: {
+            kind: "if-chain",
+            node: statements[start]! as IfStatement,
+            arms,
+            ...(fallback ? { fallback } : {})
+          },
+          range
+        };
+      }
+    }
+  };
+
+  inspectStatements(ast.body);
+  walkAst(ast, (node) => {
+    if (node instanceof BlockStatement) {
+      inspectStatements(node.body);
+    }
+  });
+  return best;
+}
+
 function findTarget(ast: Program, position: Position): ConversionTarget | null {
   const elseIfChildren = collectElseIfChildren(ast);
   return findBestMatchAtPosition<ConversionTarget>(ast, position, (node) => {
@@ -213,7 +320,10 @@ function subjectMatchParts(
   const patterns: string[] = [];
 
   for (const arm of target.arms) {
-    if (!(arm.condition instanceof BinaryExpression) || arm.condition.operator !== "==") {
+    if (
+      !(arm.condition instanceof BinaryExpression)
+      || (arm.condition.operator !== "==" && arm.condition.operator !== "===")
+    ) {
       return null;
     }
     const comparison = arm.condition as BinaryExpression;
@@ -246,11 +356,13 @@ function ifChainToMatch(target: IfChainTarget, text: string): { title: string; n
     armTexts.push(`${condition} -> ${body}`);
   }
 
-  const fallback = sourceText(text, target.fallback);
-  if (!fallback) {
-    return null;
+  if (target.fallback) {
+    const fallback = sourceText(text, target.fallback);
+    if (!fallback) {
+      return null;
+    }
+    armTexts.push(`else -> ${fallback}`);
   }
-  armTexts.push(`else -> ${fallback}`);
 
   const subject = subjectParts ? ` (${subjectParts.subject})` : "";
   return {
@@ -443,6 +555,14 @@ function extractCommonMatchBranchOperation(target: MatchTarget, text: string): M
 
 function codeAction(uri: string, target: Node, conversion: { title: string; newText: string }): CodeAction | null {
   const range = nodeRange(target);
+  return codeActionForRange(uri, range, conversion);
+}
+
+function codeActionForRange(
+  uri: string,
+  range: Range | null,
+  conversion: { title: string; newText: string }
+): CodeAction | null {
   if (!range) {
     return null;
   }
@@ -475,6 +595,15 @@ export function createMatchConditionalCodeActions(params: {
     : null;
   if (standaloneMatch && extraction) {
     const action = codeAction(uri, standaloneMatch.node, extraction);
+    if (action) actions.push(action);
+  }
+
+  const terminatingRun = findTerminatingIfRun(ast, text, position);
+  if (terminatingRun) {
+    const conversion = ifChainToMatch(terminatingRun.chain, text);
+    const action = conversion
+      ? codeActionForRange(uri, terminatingRun.range, conversion)
+      : null;
     if (action) actions.push(action);
   }
 
