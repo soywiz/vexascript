@@ -1,10 +1,14 @@
 import {
+  AssignmentExpression,
   BinaryExpression,
+  BlockStatement,
+  ExprStatement,
   Identifier,
   IfStatement,
   MatcherBindingPattern,
   MemberExpression,
   NodeKind,
+  ReturnStatement,
   type Expr,
   type MatchExpressionSyntax,
   type Node,
@@ -38,6 +42,11 @@ interface MatchTarget {
 }
 
 type ConversionTarget = IfChainTarget | MatchTarget;
+
+interface MatchBranchExtraction {
+  title: "Move return outside match" | "Move assignment outside match";
+  newText: string;
+}
 
 function sourceText(text: string, node: Node): string | null {
   const first = node.firstToken;
@@ -147,6 +156,25 @@ function matchTarget(node: Node): MatchTarget | null {
     return null;
   }
   return { kind: "match", node, syntax };
+}
+
+function standaloneMatchTarget(node: Node): MatchTarget | null {
+  if (!(node instanceof ExprStatement)) {
+    return null;
+  }
+  const expression = node.expression;
+  const syntax = expression.matchSyntax;
+  return expression.firstToken?.value === "match" && syntax
+    ? { kind: "match", node: expression, syntax }
+    : null;
+}
+
+function findStandaloneMatchTarget(ast: Program, position: Position): MatchTarget | null {
+  return findBestMatchAtPosition<MatchTarget>(ast, position, (node) => {
+    const target = standaloneMatchTarget(node);
+    const range = target ? nodeRange(target.node) : null;
+    return target && range ? { range, build: () => target } : null;
+  });
 }
 
 function findTarget(ast: Program, position: Position): ConversionTarget | null {
@@ -294,6 +322,141 @@ function matchToIfChain(target: MatchTarget, text: string): { title: string; new
   };
 }
 
+function singleArmStatement(statement: Statement, text: string): Statement | null {
+  if (!(statement instanceof BlockStatement)) {
+    return statement;
+  }
+  if (statement.body.length !== 1) {
+    return null;
+  }
+  const child = statement.body[0]!;
+  const contentStart = statement.firstToken?.range.end.offset;
+  const childStart = child.firstToken?.range.start.offset;
+  const childEnd = child.lastToken?.range.end.offset;
+  const contentEnd = statement.lastToken?.range.start.offset;
+  if (
+    contentStart === undefined ||
+    childStart === undefined ||
+    childEnd === undefined ||
+    contentEnd === undefined
+  ) {
+    return null;
+  }
+  const surroundingText = `${text.slice(contentStart, childStart)}${text.slice(childEnd, contentEnd)}`;
+  return /^[\s;]*$/u.test(surroundingText) ? child : null;
+}
+
+function replaceMatchArmBodies(
+  target: MatchTarget,
+  text: string,
+  values: Expr[]
+): string | null {
+  const matchStart = target.node.firstToken?.range.start.offset;
+  const matchEnd = target.node.lastToken?.range.end.offset;
+  if (matchStart === undefined || matchEnd === undefined || values.length !== target.syntax.arms.length) {
+    return null;
+  }
+
+  let matchText = text.slice(matchStart, matchEnd);
+  const replacements: Array<{ start: number; end: number; newText: string }> = [];
+  for (let index = 0; index < target.syntax.arms.length; index += 1) {
+    const body = target.syntax.arms[index]!.body;
+    const bodyStart = body.firstToken?.range.start.offset;
+    const bodyEnd = body.lastToken?.range.end.offset;
+    const valueText = sourceText(text, values[index]!);
+    if (bodyStart === undefined || bodyEnd === undefined || !valueText) {
+      return null;
+    }
+    replacements.push({
+      start: bodyStart - matchStart,
+      end: bodyEnd - matchStart,
+      newText: valueText
+    });
+  }
+
+  for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
+    matchText = `${matchText.slice(0, replacement.start)}${replacement.newText}${matchText.slice(replacement.end)}`;
+  }
+  return matchText;
+}
+
+function extractCommonMatchBranchOperation(target: MatchTarget, text: string): MatchBranchExtraction | null {
+  if (!target.syntax.arms.some((arm) => arm.condition === undefined)) {
+    return null;
+  }
+
+  const statements = target.syntax.arms.map((arm) => singleArmStatement(arm.body, text));
+  if (statements.some((statement) => statement === null)) {
+    return null;
+  }
+
+  const returns = statements.map((statement) => statement instanceof ReturnStatement ? statement : null);
+  if (returns.every((statement) => statement?.expression)) {
+    const matchText = replaceMatchArmBodies(
+      target,
+      text,
+      returns.map((statement) => statement!.expression!)
+    );
+    return matchText
+      ? {
+        title: "Move return outside match",
+        newText: indentReplacement(text, target.node, `return ${matchText}`)
+      }
+      : null;
+  }
+
+  const assignments = statements.map((statement) => {
+    if (!(statement instanceof ExprStatement)) {
+      return null;
+    }
+    const expression = statement.expression;
+    return expression instanceof AssignmentExpression && expression.operator === "="
+      ? expression
+      : null;
+  });
+  if (!assignments.every((assignment) => assignment !== null)) {
+    return null;
+  }
+
+  const firstTarget = assignments[0]!.left;
+  const firstTargetText = sourceText(text, firstTarget);
+  if (!firstTargetText || !stableSubject(firstTarget)) {
+    return null;
+  }
+  const sameTarget = assignments.every((assignment) => sourceText(text, assignment!.left) === firstTargetText);
+  if (!sameTarget) {
+    return null;
+  }
+
+  const matchText = replaceMatchArmBodies(
+    target,
+    text,
+    assignments.map((assignment) => assignment!.right)
+  );
+  return matchText
+    ? {
+      title: "Move assignment outside match",
+      newText: indentReplacement(text, target.node, `${firstTargetText} = ${matchText}`)
+    }
+    : null;
+}
+
+function codeAction(uri: string, target: Node, conversion: { title: string; newText: string }): CodeAction | null {
+  const range = nodeRange(target);
+  if (!range) {
+    return null;
+  }
+  return {
+    title: conversion.title,
+    kind: CodeActionKind.QuickFix,
+    edit: {
+      changes: {
+        [uri]: [{ range, newText: conversion.newText }]
+      }
+    }
+  };
+}
+
 export function createMatchConditionalCodeActions(params: {
   uri: string;
   ast: Program | null;
@@ -305,28 +468,27 @@ export function createMatchConditionalCodeActions(params: {
     return [];
   }
 
+  const actions: CodeAction[] = [];
+  const standaloneMatch = findStandaloneMatchTarget(ast, position);
+  const extraction = standaloneMatch
+    ? extractCommonMatchBranchOperation(standaloneMatch, text)
+    : null;
+  if (standaloneMatch && extraction) {
+    const action = codeAction(uri, standaloneMatch.node, extraction);
+    if (action) actions.push(action);
+  }
+
   const target = findTarget(ast, position);
   if (!target) {
-    return [];
+    return actions;
   }
   const conversion = target.kind === "if-chain"
     ? ifChainToMatch(target, text)
     : matchToIfChain(target, text);
   if (!conversion) {
-    return [];
+    return actions;
   }
-
-  const range = nodeRange(target.node);
-  if (!range) {
-    return [];
-  }
-  return [{
-    title: conversion.title,
-    kind: CodeActionKind.QuickFix,
-    edit: {
-      changes: {
-        [uri]: [{ range, newText: conversion.newText }]
-      }
-    }
-  }];
+  const action = codeAction(uri, target.node, conversion);
+  if (action) actions.push(action);
+  return actions;
 }

@@ -60,7 +60,7 @@ The following workspace-level services are implemented:
 - Inlay hints provide inferred type hints and parameter name hints, including constructor calls.
 - Document symbols include top-level declarations and class members.
 - Workspace symbol search scans `.vx` files in source roots.
-- Code actions include declaration-keyword replacements, auto-import fixes, and bidirectional rewrites between `if`/`else if`/`else` chains and `match` expressions. Repeated `subject == value` conditions use a subject match, while heterogeneous conditions use a condition match.
+- Code actions include declaration-keyword replacements, auto-import fixes, and bidirectional rewrites between `if`/`else if`/`else` chains and `match` expressions. Repeated `subject == value` conditions use a subject match, while heterogeneous conditions use a condition match. An exhaustive standalone `match` can also move a `return` shared by every arm outside the expression, or move a simple assignment outside when every arm assigns to the same stable target.
 - Diagnostics include parser and semantic issues, and keep semantic checks enabled after parser recovery.
 - Semantic tokens provide semantic highlighting for keywords, operators, literals, and symbols (`full` + `range`).
 - Formatting supports both full-document and selection/range requests.

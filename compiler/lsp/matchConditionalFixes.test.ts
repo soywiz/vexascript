@@ -33,6 +33,13 @@ function applyFirstEdit(
   return `${text.slice(0, start)}${edit.newText}${text.slice(end)}`;
 }
 
+function actionNamed(
+  actions: ReturnType<typeof createMatchConditionalCodeActions>,
+  title: string
+) {
+  return actions.find((action) => action.title === title);
+}
+
 function actionsAt(markedSource: string) {
   const cursor = sourceWithCursor(markedSource);
   const session = createAnalysisSession(cursor.source);
@@ -144,6 +151,143 @@ describe("match and if-chain quick fixes", () => {
     expect(applyFirstEdit(source, actions[0])).toBe(
       "if (ready) start() else if (retryCount > 0) retry() else stop()"
     );
+  });
+
+  it("moves a return shared by every match arm outside the match", () => {
+    const marked = dedent`
+      class Renderer {
+        private color(kind: FixtureKind): number {
+          ma^^^tch {
+            kind === 'player' -> return 0xffffff
+            kind === 'enemy' -> return 0xff6b6b
+            else -> return 0x445566
+          }
+        }
+      }
+    `;
+
+    const { source, actions } = actionsAt(marked);
+    const action = actionNamed(actions, "Move return outside match");
+
+    expect(action).toBeDefined();
+    expect(applyFirstEdit(source, action)).toBe(dedent`
+      class Renderer {
+        private color(kind: FixtureKind): number {
+          return match {
+            kind === 'player' -> 0xffffff
+            kind === 'enemy' -> 0xff6b6b
+            else -> 0x445566
+          }
+        }
+      }
+    `);
+  });
+
+  it("moves a return outside a subject match with single-statement block arms", () => {
+    const marked = dedent`
+      fun label(value: int): string {
+        match (value) {
+          1 -> { ret^^^urn "one" }
+          else -> { return "other" }
+        }
+      }
+    `;
+
+    const { source, actions } = actionsAt(marked);
+    const action = actionNamed(actions, "Move return outside match");
+
+    expect(action).toBeDefined();
+    expect(applyFirstEdit(source, action)).toBe(dedent`
+      fun label(value: int): string {
+        return match (value) {
+          1 -> "one"
+          else -> "other"
+        }
+      }
+    `);
+  });
+
+  it("moves an assignment to the same stable member outside the match", () => {
+    const marked = dedent`
+      match {
+        ready -> this.st^^^ate = "ready"
+        failed -> this.state = "failed"
+        else -> this.state = "idle"
+      }
+    `;
+
+    const { source, actions } = actionsAt(marked);
+    const action = actionNamed(actions, "Move assignment outside match");
+
+    expect(action).toBeDefined();
+    expect(applyFirstEdit(source, action)).toBe(dedent`
+      this.state = match {
+        ready -> "ready"
+        failed -> "failed"
+        else -> "idle"
+      }
+    `);
+  });
+
+  it("does not move branch control flow without a fallback arm", () => {
+    const marked = dedent`
+      match {
+        rea^^^dy -> return "ready"
+        failed -> return "failed"
+      }
+    `;
+
+    const { actions } = actionsAt(marked);
+
+    expect(actionNamed(actions, "Move return outside match")).toBeUndefined();
+  });
+
+  it("does not move mixed branch operations or assignments to different targets", () => {
+    const mixed = actionsAt(dedent`
+      match {
+        rea^^^dy -> return "ready"
+        else -> state = "idle"
+      }
+    `).actions;
+    const differentTargets = actionsAt(dedent`
+      match {
+        rea^^^dy -> left.state = "ready"
+        else -> right.state = "idle"
+      }
+    `).actions;
+
+    expect(actionNamed(mixed, "Move return outside match")).toBeUndefined();
+    expect(actionNamed(mixed, "Move assignment outside match")).toBeUndefined();
+    expect(actionNamed(differentTargets, "Move assignment outside match")).toBeUndefined();
+  });
+
+  it("does not move an assignment with a side-effectful target outside the match", () => {
+    const marked = dedent`
+      match {
+        rea^^^dy -> values[next()] = "ready"
+        else -> values[next()] = "idle"
+      }
+    `;
+
+    const { actions } = actionsAt(marked);
+
+    expect(actionNamed(actions, "Move assignment outside match")).toBeUndefined();
+  });
+
+  it("does not discard comments when inspecting single-statement arm blocks", () => {
+    const marked = dedent`
+      match {
+        ready -> {
+          // Keep this explanation.
+          ret^^^urn "ready"
+        }
+        else -> { return "idle" }
+      }
+    `;
+
+    const { actions } = actionsAt(marked);
+
+    expect(actionNamed(actions, "Move return outside match")).toBeUndefined();
   });
 
   it("preserves enclosing indentation when replacing a nested chain", () => {
