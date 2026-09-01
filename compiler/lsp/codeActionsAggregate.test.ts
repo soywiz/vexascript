@@ -6,6 +6,7 @@ import { collectDiagnosticsFromSession } from "./diagnostics";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import type { Range } from "vscode-languageserver/node.js";
+import { sourceWithCursor } from "../test/sourceWithCursor";
 
 const URI = "file:///demo.vx";
 
@@ -242,6 +243,34 @@ describe("collectCodeActions aggregator", () => {
     expect(templateAction?.edit?.changes?.[URI]?.[0]?.newText).toBe(
       "`Rectangle(${this.width}x${this.height})`"
     );
+  });
+
+  it("offers the if-chain to match rewrite through the shared aggregator", async () => {
+    const cursor = sourceWithCursor(
+      'const label = if (value == 1) "one" else if (val^^^ue == 2) "two" else "other"'
+    );
+    const source = cursor.source;
+    const session = createAnalysisSession(source);
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(cursor.line, cursor.character),
+      diagnostics: [],
+      sourceRoots: []
+    });
+    const action = actions.find((candidate) => candidate.title === "Convert if chain to subject match");
+
+    expect(action?.kind).toBe("quickfix");
+    expect(action).toBeTruthy();
+    expect(applyFirstEdit(source, action!)).toBe(dedent`
+      const label = match (value) {
+        1 -> "one"
+        2 -> "two"
+        else -> "other"
+      }
+    `);
   });
 
   it("offers nullable member-access quick fixes", async () => {

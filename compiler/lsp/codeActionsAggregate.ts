@@ -27,6 +27,7 @@ import { createDuplicateClassVariableCodeActions } from "./duplicateClassVariabl
 import { createCharacterLiteralCodeActions } from "./characterLiteralFixes";
 import { createInitializationCodeActions } from "./initializationFixes";
 import { createInstallDependencyCodeActions } from "./installDependencyFixes";
+import { createMatchConditionalCodeActions } from "./matchConditionalFixes";
 import type { SymbolExportProvider } from "./importFixes";
 import type { CanonicalSyntax } from "compiler/canonicalSyntax";
 
@@ -142,6 +143,15 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
 
   actions.push(
     ...createEmptyClassBodyCodeActions({
+      uri,
+      ast,
+      text,
+      position: range.start
+    })
+  );
+
+  actions.push(
+    ...createMatchConditionalCodeActions({
       uri,
       ast,
       text,
