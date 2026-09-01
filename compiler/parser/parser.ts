@@ -2573,6 +2573,7 @@ export class Parser {
 
         let extendsType: Identifier | undefined;
         let extendsArguments: Expr[] | undefined;
+        let extendsArgumentsCloseParen: Token | undefined;
         let implementsTypes: Identifier[] | undefined;
         const classDelegates: ClassDelegate[] = [];
 
@@ -2586,7 +2587,9 @@ export class Parser {
                     this.tokens.peek()?.type === TokenType.SYMBOL &&
                     this.tokens.peek()?.value === "("
                 ) {
-                    extendsArguments = this.parseCallArgumentList().args;
+                    const parsedArguments = this.parseCallArgumentList();
+                    extendsArguments = parsedArguments.args;
+                    extendsArgumentsCloseParen = parsedArguments.close;
                 }
                 if (this.tokens.peek()?.type === TokenType.IDENTIFIER && this.tokens.peek()?.value === "by") {
                     const byToken = this.tokens.read()!;
@@ -2629,7 +2632,9 @@ export class Parser {
                         this.tokens.peek()?.type === TokenType.SYMBOL &&
                         this.tokens.peek()?.value === "("
                     ) {
-                        extendsArguments = this.parseCallArgumentList().args;
+                        const parsedArguments = this.parseCallArgumentList();
+                        extendsArguments = parsedArguments.args;
+                        extendsArgumentsCloseParen = parsedArguments.close;
                     }
                 } else {
                     extraExtendsTypes.push(typeAnnotation);
@@ -2682,6 +2687,9 @@ export class Parser {
             }
             if (extendsArguments !== undefined) {
                 classLike.extendsArguments = extendsArguments;
+            }
+            if (extendsArgumentsCloseParen) {
+                this.attachNonEnumerableToken(classLike, "extendsArgumentsCloseParen", extendsArgumentsCloseParen);
             }
             if (implementsTypes && implementsTypes.length > 0) {
                 classLike.implementsTypes = implementsTypes;

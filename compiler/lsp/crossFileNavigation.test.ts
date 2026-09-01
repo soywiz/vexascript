@@ -54,6 +54,59 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
 }
 
 describe("cross-file navigation", () => {
+  it("resolves an extends-clause class reference to the imported base constructor", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-base-constructor-navigation-"));
+    const baseFile = join(root, "GameObject.vx");
+    const derivedFile = join(root, "BlockEnemy.vx");
+    const declared = sourceWithCursor(dedent`
+      export class GameObject {
+        constr^^^uctor(scene: string, name: string) {
+        }
+      }
+    `);
+    const usage = sourceWithCursor(dedent`
+      import { GameObject } from "./GameObject.vx"
+      class BlockEnemy extends GameO^^^bject() {
+      }
+    `);
+    await writeFile(baseFile, declared.source, "utf8");
+    await writeFile(derivedFile, usage.source, "utf8");
+
+    const baseSession = createAnalysisSession(declared.source);
+    const initialDerivedSession = createAnalysisSession(usage.source);
+    const collected = await collectAllImportedDeclarations(initialDerivedSession.ast!, {
+      uri: pathToFileURL(derivedFile).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => filePath === baseFile ? baseSession : null
+    });
+    const derivedSession = createAnalysisSession(usage.source, {
+      externalDeclarations: collected.externalDeclarations,
+      externalDeclarationLocations: collected.externalDeclarationLocations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+    const definition = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(derivedFile).toString(),
+      line: usage.line,
+      character: usage.character,
+      session: derivedSession,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath: string) => {
+        if (filePath === baseFile) return baseSession;
+        if (filePath === derivedFile) return derivedSession;
+        return null;
+      }
+    });
+
+    expect(definition).toEqual({
+      uri: pathToFileURL(baseFile).toString(),
+      range: {
+        start: { line: declared.line, character: declared.character - 6 },
+        end: { line: declared.line, character: declared.character + 5 }
+      }
+    });
+  });
+
   it("resolves named argument hover and definition to the called function parameter", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-named-argument-navigation-"));
     const geometryFile = join(root, "geometry.vx");

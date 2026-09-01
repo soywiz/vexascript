@@ -505,6 +505,7 @@ export class FunctionExpression extends CallableExpression {
 }
 export class ClassExpression extends Expr {
     declare kind: NodeKind.ClassExpression
+    declare extendsArgumentsCloseParen?: Token
 
     // Surplus heritage clauses are retained so semantic analysis can report them.
     constructor(public members: ClassMember[], public abstract?: boolean, public name?: Identifier, public typeParameters?: TypeParameter[], public extendsType?: Identifier, public implementsTypes?: Identifier[], public extraExtendsTypes?: Identifier[], public extraImplementsTypes?: Identifier[], public classDelegates?: ClassDelegate[], public primaryConstructorParameters?: ClassPrimaryConstructorParameter[], public initBlocks?: ClassInitBlock[], public extendsArguments?: Expr[]) {
@@ -771,6 +772,7 @@ export class ClassDelegate extends Node {
 }
 export class ClassStatement extends Statement {
     declare kind: NodeKind.ClassStatement
+    declare extendsArgumentsCloseParen?: Token
 
     // Surplus heritage clauses are retained so semantic analysis can report them.
     constructor(public name: Identifier, public members: ClassMember[], public declared?: boolean, public abstract?: boolean, public typeParameters?: TypeParameter[], public extendsType?: Identifier, public implementsTypes?: Identifier[], public extraExtendsTypes?: Identifier[], public extraImplementsTypes?: Identifier[], public classDelegates?: ClassDelegate[], public primaryConstructorParameters?: ClassPrimaryConstructorParameter[], annotations?: AnnotationApplication[], jsName?: string, public initBlocks?: ClassInitBlock[], public extendsArguments?: Expr[]) {

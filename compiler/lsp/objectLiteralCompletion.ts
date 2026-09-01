@@ -46,7 +46,7 @@ import { findNodeModuleMemberLocation, findNodeModuleStructuralMemberLocation, g
 import { createTypedHoverContents } from "./navigation";
 
 type ObjectLiteralExpectedTypeSource =
-  | { kind: "call" | "new"; callee: Expr; argumentIndex: number }
+  | { kind: "call" | "new" | "base"; callee: Expr; argumentIndex: number }
   | { kind: "jsx-attribute"; expectedType: AnalysisType };
 
 interface ObjectLiteralCompletionContext {

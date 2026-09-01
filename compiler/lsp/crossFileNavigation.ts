@@ -79,7 +79,7 @@ import { findNodeModuleExportLocation, findNodeModuleMemberLocation, type NodeMo
 import { extname } from "compiler/utils/path";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { readDocumentationInfoFromParameterLike } from "./documentation";
-import { resolveConstructorCall, resolveNamedArgumentParameter } from "./callNavigation";
+import { resolveBaseConstructorCall, resolveConstructorCall, resolveNamedArgumentParameter } from "./callNavigation";
 
 async function resolveImportedSymbolDefinitionLocation(
   context: ResolveContext,
@@ -739,6 +739,10 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
   }
 
   for (const character of candidateCharacters(context.character)) {
+    const baseConstructorCall = await resolveBaseConstructorCall(context, character);
+    if (baseConstructorCall) {
+      return baseConstructorCall.location;
+    }
     const constructorCall = await resolveConstructorCall(context, character);
     if (constructorCall) {
       return constructorCall.location;
@@ -907,6 +911,13 @@ export async function resolveHoverWithLocalFallback(context: ResolveContext): Pr
   }
 
   for (const character of candidateCharacters(context.character)) {
+    const baseConstructorCall = await resolveBaseConstructorCall(context, character);
+    if (baseConstructorCall) {
+      return {
+        contents: createTypescriptHoverContents(baseConstructorCall.label, baseConstructorCall.documentation),
+        range: baseConstructorCall.callRange
+      };
+    }
     const constructorCall = await resolveConstructorCall(context, character);
     if (constructorCall) {
       return {

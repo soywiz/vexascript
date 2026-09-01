@@ -23,6 +23,7 @@ import { readDocumentationInfoFromNamedNode } from "./documentation";
 import { readTextDocument, type ResolveContext } from "./crossFileContext";
 import { resolveTypeDefinitionAcrossFiles } from "./crossFileTypeResolution";
 import { containsPosition, nodeRange, rangeSize } from "./ranges";
+import { findBaseConstructorInvocation } from "./baseConstructorInvocation";
 
 export type ParameterDeclaration = FunctionParameter | ClassPrimaryConstructorParameter;
 
@@ -240,6 +241,65 @@ export async function resolveConstructorCall(
       callRange: calleeRange,
       location: { uri: pathToUri(resolved.filePath), range: declarationRange },
       label: `new ${call.callee.name}(${parameterText}): ${returnTypeName}`,
+      ...(documentation ? { documentation } : {})
+    };
+  }
+  return null;
+}
+
+export async function resolveBaseConstructorCall(
+  context: ResolveContext,
+  character: number
+): Promise<ResolvedConstructorCall | null> {
+  const { ast, analysis } = context.session;
+  if (!ast || !analysis) return null;
+  const invocation = findBaseConstructorInvocation(
+    ast,
+    { line: context.line, character },
+    "callee"
+  );
+  if (!invocation) return null;
+  const signature = await resolveConstructorSignature(invocation.callee, analysis, ast, {
+    uri: context.uri,
+    sourceRoots: context.sourceRoots,
+    ...(context.getSessionForFilePath ? { getSessionForFilePath: context.getSessionForFilePath } : {}),
+    ...(context.session.ambientDeclarations ? { ambientDeclarations: context.session.ambientDeclarations } : {}),
+    ...(context.session.ambientModuleDeclarations ? { ambientModuleDeclarations: context.session.ambientModuleDeclarations } : {}),
+    ...(context.session.externalDeclarations ? { externalDeclarations: context.session.externalDeclarations } : {})
+  });
+  if (!signature) return null;
+
+  const calleeRange = nodeRange(invocation.callee);
+  if (!calleeRange) return null;
+  const symbol = analysis.getSymbolAt(calleeRange.start.line, calleeRange.start.character)?.symbol;
+  const typeNames = [symbol?.valueType ? baseTypeName(symbol.valueType) : null, signature.className]
+    .filter((name): name is string => Boolean(name));
+  for (const typeName of typeNames) {
+    const resolved = await resolveTypeDefinitionAcrossFiles(context, typeName);
+    if (!resolved) continue;
+    let declaration: ClassStatement | ClassMethodMember | InterfaceMethodMember;
+    if (resolved.declaration instanceof InterfaceStatement) {
+      const constructor = constructorMemberForSignature(resolved.declaration, signature.parameters);
+      if (!constructor) continue;
+      declaration = constructor;
+    } else if (resolved.declaration instanceof ClassStatement) {
+      declaration = resolved.declaration.members.find(
+        (member): member is ClassMethodMember =>
+          member instanceof ClassMethodMember && member.name.name === "constructor"
+      ) ?? resolved.declaration;
+    } else {
+      continue;
+    }
+    const declarationRange = nodeRange(declaration.name);
+    if (!declarationRange) continue;
+    const parameterText = signature.parameters.map((parameter) =>
+      `${parameter.rest ? "..." : ""}${parameter.name}${parameter.optional ? "?" : ""}: ${parameter.typeName}`
+    ).join(", ");
+    const documentation = readDocumentationInfoFromNamedNode(declaration)?.text;
+    return {
+      callRange: calleeRange,
+      location: { uri: pathToUri(resolved.filePath), range: declarationRange },
+      label: `${invocation.callee.name}(${parameterText}): ${signature.className}`,
       ...(documentation ? { documentation } : {})
     };
   }

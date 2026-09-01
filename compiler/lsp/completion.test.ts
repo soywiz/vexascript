@@ -446,6 +446,30 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.has("y:")).toBe(true);
   });
 
+  it("suggests named arguments for a base constructor in an extends clause", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class GameObject {
+        constructor(scene: string, name: string) {
+        }
+      }
+      class BlockEnemy extends GameObject(^^^) {
+      }
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.has("scene:")).toBe(true);
+    expect(byLabel.has("name:")).toBe(true);
+  });
+
   it("does not suggest named arguments outside of a call argument list", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun connect(host: string, port: number) {}

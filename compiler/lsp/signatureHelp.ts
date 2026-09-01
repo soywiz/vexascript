@@ -31,6 +31,7 @@ import { findBestMatch } from "./nodeSearch";
 import { resolveCursorTarget, type CursorTarget } from "./navigation";
 import { comparePosition, containsPosition, nodeRange, rangeSize, type NodeRange, type Position } from "./ranges";
 import { collectAmbientFunctionStatements, detectAmbientExportEqualsName, findAmbientModuleReceiverCandidates, findAmbientNamespaceBody } from "./crossFileContext";
+import { findBaseConstructorInvocation } from "./baseConstructorInvocation";
 
 interface InvocationContext {
   callee: Expr;
@@ -38,6 +39,7 @@ interface InvocationContext {
   range: NodeRange;
   activeParameter: number;
   isNewExpression: boolean;
+  isBaseConstructor: boolean;
 }
 
 interface AnnotationInvocationContext {
@@ -136,13 +138,14 @@ function invocationContextForNode(
     arguments: argumentsList,
     range,
     activeParameter: argumentIndexAtPosition(argumentsList, position),
-    isNewExpression
+    isNewExpression,
+    isBaseConstructor: false
   };
 }
 
 function findInvocationContext(program: Program, line: number, character: number): InvocationContext | null {
   const position: Position = { line, character };
-  return findBestMatch(program, (node) => {
+  const ordinary = findBestMatch(program, (node) => {
     if (!(node instanceof CallExpression) && !(node instanceof NewExpression)) {
       return null;
     }
@@ -156,6 +159,17 @@ function findInvocationContext(program: Program, line: number, character: number
     );
     return context ? { size: rangeSize(context.range), value: context } : null;
   });
+  const base = findBaseConstructorInvocation(program, position, "arguments");
+  if (!base) return ordinary;
+  const baseContext: InvocationContext = {
+    callee: base.callee,
+    arguments: base.arguments,
+    range: base.range,
+    activeParameter: base.activeParameter,
+    isNewExpression: false,
+    isBaseConstructor: true
+  };
+  return !ordinary || rangeSize(base.range) <= rangeSize(ordinary.range) ? baseContext : ordinary;
 }
 
 function findAnnotationInvocationContext(program: Program, line: number, character: number): AnnotationInvocationContext | null {
@@ -464,11 +478,14 @@ async function buildSignaturesFromSymbol(
   program: Program,
   options: ClassResolverOptions
 ): Promise<SignatureInformation[]> {
-  if (context.isNewExpression) {
+  if (context.isNewExpression || context.isBaseConstructor) {
     const constructorSignature = await resolveConstructorSignature(context.callee, analysis, program, options);
     if (constructorSignature) {
       const parameters = constructorSignature.parameters.map((p) => ({ label: formatParameterLabel(p) }));
-      const label = `new ${constructorSignature.className}(${parameters.map((p) => p.label).join(", ")})`;
+      const invocation = `${constructorSignature.className}(${parameters.map((p) => p.label).join(", ")})`;
+      const label = context.isBaseConstructor
+        ? `${invocation}: ${constructorSignature.className}`
+        : `new ${invocation}`;
       return [{ label, parameters }];
     }
   }

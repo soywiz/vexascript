@@ -15,11 +15,12 @@ import { Analysis } from "compiler/analysis/Analysis";
 
 import { walkAst } from "compiler/ast/traversal";
 import type { CompletionItem } from "vscode-languageserver/node.js";
+import { findBaseConstructorInvocation } from "./baseConstructorInvocation";
 
 export interface ArgumentCompletionContext {
   callee: Expr;
   argumentIndex: number;
-  kind: "call" | "new";
+  kind: "call" | "new" | "base";
 }
 
 export function findArgumentCompletionContext(
@@ -27,7 +28,8 @@ export function findArgumentCompletionContext(
   line: number,
   character: number
 ): ArgumentCompletionContext | null {
-  return findBestMatchAtPosition(ast, { line, character }, (node) => {
+  const position = { line, character };
+  const ordinary = findBestMatchAtPosition(ast, position, (node) => {
     if (!(node instanceof CallExpression) && !(node instanceof NewExpression)) {
       return null;
     }
@@ -40,11 +42,21 @@ export function findArgumentCompletionContext(
         : [];
     });
   });
+  const base = findBaseConstructorInvocation(ast, position, "arguments");
+  if (!base) return ordinary;
+  const argument = base.arguments[base.activeParameter];
+  const argumentRange = argument ? nodeRange(argument) : null;
+  if (!argumentRange || !containsPosition(argumentRange, position)) return ordinary;
+  return {
+    callee: base.callee,
+    argumentIndex: base.activeParameter,
+    kind: "base"
+  };
 }
 
 export interface NamedArgumentCallContext {
   callee: Expr;
-  isNew: boolean;
+  kind: "call" | "new" | "base";
 }
 
 /**
@@ -79,10 +91,15 @@ export function findNamedArgumentCallContext(
     }
     const size = rangeSize(range);
     if (bestSize === null || size <= bestSize) {
-      best = { callee: callLike.callee, isNew: node instanceof NewExpression };
+      best = { callee: callLike.callee, kind: node instanceof NewExpression ? "new" : "call" };
       bestSize = size;
     }
   });
+
+  const base = findBaseConstructorInvocation(ast, position, "arguments");
+  if (base && (bestSize === null || rangeSize(base.range) <= bestSize)) {
+    best = { callee: base.callee, kind: "base" };
+  }
 
   return best;
 }
@@ -99,7 +116,7 @@ export async function buildNamedArgumentCompletionItems(
     return [];
   }
   const resolverOptions = classResolverOptionsFromCompletionOptions(options);
-  const signature = context.isNew
+  const signature = context.kind !== "call"
     ? await resolveConstructorSignature(context.callee, analysis, ast, resolverOptions)
     : await resolveCallableSignature(context.callee, analysis, ast, resolverOptions);
   const parameters = signature?.parameters ?? [];

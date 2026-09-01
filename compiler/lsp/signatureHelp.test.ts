@@ -207,6 +207,35 @@ describe("signature help", () => {
     });
   });
 
+  it("provides base-constructor signature help in an extends clause", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class GameObject {
+        constructor(scene: string, name: string, visible: boolean = true) {
+        }
+      }
+      class BlockEnemy extends GameObject(^^^) {
+      }
+    `);
+    const session = createAnalysisSession(source);
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "GameObject(scene: string, name: string, visible?: boolean): GameObject",
+          parameters: [
+            { label: "scene: string" },
+            { label: "name: string" },
+            { label: "visible?: boolean" }
+          ]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
   it("provides constructor signature help for ambient global class calls without new", async () => {
     const runtime = parseSource("class Vector3(val x: number, val y: number, val z: number)");
     const { source, line, character } = sourceWithCursor(dedent`
