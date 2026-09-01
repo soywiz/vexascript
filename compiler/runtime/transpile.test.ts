@@ -980,24 +980,31 @@ val badge = Graphics()
     expect(result.code).not.toContain("Graphics$$addTo");
   });
 
-  it("keeps slash fractional and lowers explicit integer operations", () => {
+  it("preserves operand kinds for slash and lowers explicit integer operations", () => {
     const source = `let a: int = 9i
 let b: int = 4i
 let product: int = a * b
 let ratio = a / b
+let bigintRatio = 9n / 4n
+let longRatio = 9L / 4L
 const fixedStep = 1 / 60
 const quotient = 1 \\ 60
+const typedQuotient = 1i / 60i
 const converted = int(4.9)`;
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("let product = Math.imul(a, b);");
-    expect(result.code).toContain("let ratio = a / b;");
+    expect(result.code).toContain("let ratio = (a / b) | 0;");
+    expect(result.code).toContain("let bigintRatio = 9n / 4n;");
+    expect(result.code).toContain("let longRatio = BigInt.asIntN(64, 9n / 4n);");
     expect(result.code).toContain("const fixedStep = 1 / 60;");
     expect(result.code).toContain("const quotient = (1 / 60) | 0;");
+    expect(result.code).toContain("const typedQuotient = (1 / 60) | 0;");
     expect(result.code).toContain("const converted = (4.9 | 0);");
-    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings).toHaveLength(2);
     expect(result.warnings[0]).toContain("Integer literal division 1 \\ 60 truncates to 0");
+    expect(result.warnings[1]).toContain("Integer literal division 1i / 60i truncates to 0");
   });
 
   it("mangles and lowers extension properties", () => {

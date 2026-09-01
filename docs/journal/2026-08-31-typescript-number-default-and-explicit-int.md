@@ -17,8 +17,11 @@ model different from TypeScript.
 - `int(value)` is the explicit conversion intrinsic and emits `value | 0`.
 - `number` literals and expressions never convert implicitly to `int`, even
   when a literal's value is mathematically integral.
-- `/` always has JavaScript fractional semantics. `\` performs explicit integer
-  division, emits `(left / right) | 0`, and returns `int`.
+- `/` preserves a shared operand type: `number / number` has JavaScript
+  fractional semantics, while `int / int`, `long / long`, and
+  `bigint / bigint` use integer division and return that same type. `\` forces
+  integer division of `number` operands, emits `(left / right) | 0`, and
+  returns `int`.
 - Standard `length` properties and timer identifiers use `number`, matching the
   TypeScript ES declarations.
 

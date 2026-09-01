@@ -68,14 +68,20 @@ function integerLiteralDivisionWarnings(
 ): string[] {
   const warnings: string[] = [];
   walkAst(program, (node) => {
-    if (!(node instanceof BinaryExpression) || node.operator !== "\\") return;
+    if (!(node instanceof BinaryExpression) || (node.operator !== "\\" && node.operator !== "/")) return;
     if (!(node.left instanceof IntLiteral) || !(node.right instanceof IntLiteral)) return;
+    if (node.operator === "/" && (!node.left.explicitInt || !node.right.explicitInt)) return;
     if (node.right.value === 0 || Math.trunc(node.left.value / node.right.value) !== 0) return;
     const expressionType = expressionTypes.get(node);
     if (!expressionType || typeToString(expressionType) !== "int") return;
 
-    const message = `Integer literal division ${node.left.value} \\ ${node.right.value} truncates to 0; ` +
-      "use / if a fractional result is intended";
+    const leftText = `${node.left.value}${node.left.explicitInt ? "i" : ""}`;
+    const rightText = `${node.right.value}${node.right.explicitInt ? "i" : ""}`;
+    const fractionalHint = node.operator === "/"
+      ? "convert either operand to number if a fractional result is intended"
+      : "use / if a fractional result is intended";
+    const message = `Integer literal division ${leftText} ${node.operator} ${rightText} truncates to 0; ` +
+      fractionalHint;
     const range = sourceRangeForAnalysisIssue({ message, node });
     warnings.push(range ? formatMessageAtSourceRange(message, range) : message);
   });

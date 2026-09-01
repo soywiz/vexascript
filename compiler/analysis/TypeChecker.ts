@@ -5736,15 +5736,9 @@ export class TypeChecker {
           : UNKNOWN_TYPE;
       }
       if (this.isIntEnumLikeType(leftType) && this.isIntEnumLikeType(rightType)) {
-        if (operator === "/") {
-          return builtinType("number");
-        }
         return builtinType("int");
       }
       if (isIntType(leftType) && isIntType(rightType)) {
-        if (operator === "/") {
-          return builtinType("number");
-        }
         return builtinType("int");
       }
       if (
@@ -16072,7 +16066,7 @@ export class TypeChecker {
         value = leftValue * rightValue;
         break;
       case "/":
-        value = leftValue / rightValue;
+        value = (leftValue / rightValue) | 0;
         break;
       case "\\":
         value = (leftValue / rightValue) | 0;

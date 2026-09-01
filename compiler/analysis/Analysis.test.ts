@@ -4482,17 +4482,25 @@ let bad = "Ada" satisfies number
       let a = 10n
       let b = 20n
       let c = a + b
+      let d = a / b
       let x = 10L
       let y = 20L
       let z = x + y
+      let w = x / y
+      let i = 10i / 3i
+      let fractional = 10 / 3
       
 `;
     const symbols = symbolsOfVisibleSymbolsAt(source, 5, 5);
 
     expect(symbols.get("a")?.valueType).toBe("bigint");
     expect(symbols.get("c")?.valueType).toBe("bigint");
+    expect(symbols.get("d")?.valueType).toBe("bigint");
     expect(symbols.get("x")?.valueType).toBe("long");
     expect(symbols.get("z")?.valueType).toBe("long");
+    expect(symbols.get("w")?.valueType).toBe("long");
+    expect(symbols.get("i")?.valueType).toBe("int");
+    expect(symbols.get("fractional")?.valueType).toBe("number");
   });
 
   it("keeps builtin string and array length properties as TypeScript number", () => {

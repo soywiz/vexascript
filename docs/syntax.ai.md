@@ -54,7 +54,10 @@ tween(view::x[0, 100], time: 1.seconds) // if Property<number>.operator[] is def
 ## Numeric literals and division
 
 - Unsuffixed numeric literals use TypeScript semantics: `10`, `0xff`, and
-  `1 / 60` are `number`; `/` always performs JavaScript fractional division.
+  `1 / 60` are `number`, and `/` preserves a shared operand type. Therefore
+  `number / number` performs JavaScript fractional division, while `int / int`,
+  `long / long`, and `bigint / bigint` perform integer division and return the
+  same type.
 - Append `i` to create a signed 32-bit `int`: `10i`, `0xffi`. The literal is
   truncated with `|0`. Unsuffixed literals and arbitrary `number` expressions
   are never converted implicitly to `int`.

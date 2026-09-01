@@ -699,6 +699,8 @@ function emitTypedIntegerBinary(binary: BinaryExpression, leftText: string, righ
   switch (binary.operator) {
     case "*":
       return `Math.imul(${leftText}, ${rightText})`;
+    case "/":
+      return `(${leftText} / ${rightText}) | 0`;
     default:
       return null;
   }

@@ -2384,7 +2384,7 @@ try {
 - `undefined` has type `undefined`.
 - Regular expression literals have the named type `RegExp`.
 - `+`, `-`, `*`, `%`, shifts and bitwise operators on `int` operands infer `int`.
-- `/` always performs JavaScript/TypeScript fractional division and infers `number`, including for `int` operands. Thus `1 / 60` has type `number` and is non-zero.
+- `/` preserves a shared numeric operand type. `number / number` performs JavaScript/TypeScript fractional division and returns `number`, so `1 / 60` is non-zero. `int / int`, `long / long`, and `bigint / bigint` perform integer division and return their operand type; for example, `10i / 3i` is `3i`, `10L / 3L` is `3L`, and `10n / 3n` is `3n`.
 - `left \\ right` is integer division at multiplicative precedence. It accepts `number` operands, emits `(left / right) | 0`, and returns `int`; `7 \\ 2` is `3i`.
 - `+` with at least one `string` operand infers `string`.
 - Comparisons and equality operators infer `boolean`. Logical `&&`, `||`, and

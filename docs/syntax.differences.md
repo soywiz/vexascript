@@ -620,10 +620,13 @@ val big: long = 9_223_372_036_854_775_807L
 val ratio: number = 3.14
 ```
 
-The `/` operator always follows JavaScript/TypeScript division and returns a
-fractional `number`, so `1 / 60` is non-zero. VexaScript adds `\\` at
-multiplicative precedence for explicit integer division: `7 \\ 2` emits as
-`(7 / 2) | 0` and has type `int`. Standard-library properties such as
+The `/` operator preserves a shared numeric operand type. Ordinary
+`number / number` follows JavaScript/TypeScript fractional division, so
+`1 / 60` is non-zero. Integer families divide integrally and keep their type:
+`10i / 3i` is `3i`, `10L / 3L` is `3L`, and `10n / 3n` is `3n`. VexaScript
+also adds `\\` at multiplicative precedence to force integer division of
+`number` operands: `7 \\ 2` emits as `(7 / 2) | 0` and has type `int`.
+Standard-library properties such as
 `Array.length` and `String.length` retain TypeScript's `number` type; the
 ES2025 declarations contain no VexaScript `int` types.
 
