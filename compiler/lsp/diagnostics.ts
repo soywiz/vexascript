@@ -134,7 +134,7 @@ export function collectDiagnosticsFromSession(
           mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
           classifySemanticDiagnosticMessage(issue.message) ??
           VEXA_DIAGNOSTIC_CODES.SEMANTIC_ERROR,
-        severity: DiagnosticSeverity.Error,
+        severity: issue.severity === "warning" ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
         range,
         message: issue.message,
         source: "vexa-sema",

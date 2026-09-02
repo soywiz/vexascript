@@ -1017,6 +1017,22 @@ const converted = int(4.9)`;
     expect(result.warnings[1]).toContain("Integer literal division 1i / 60i truncates to 0");
   });
 
+  it("emits code with a warning when an override modifier is missing", () => {
+    const result = transpile(`class Base {
+  fun run(): void {}
+}
+class Demo extends Base {
+  fun run(): void {}
+}`);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("class Demo extends Base");
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain(
+      "Member 'run' must be declared with 'override' because it overrides a member from a base class or interface"
+    );
+  });
+
   it("mangles and lowers extension properties", () => {
     const source = `class Duration(val value: number)
 export val number.milliseconds => Duration(this)

@@ -39,8 +39,9 @@ function findClassMemberAtPosition(
 }
 
 /**
- * Quick fix for the "must be declared with 'override'" diagnostic: inserts the
- * `override` modifier at the start of the member declaration. The modifier is
+ * Quick fix for the "must be declared with 'override'" diagnostic. Shorthand
+ * methods are made explicit as `override func`; declarations that already have
+ * a function keyword only receive the missing modifier. Both tokens are
  * type-only and erased from emitted JavaScript.
  */
 export function createOverrideModifierCodeActions(params: {
@@ -62,19 +63,21 @@ export function createOverrideModifierCodeActions(params: {
     if (!member || member.override === true || !member.firstToken) {
       continue;
     }
-    const insertPosition = tokenStartPosition(member.firstToken);
+    const shorthandMethod = member instanceof ClassMethodMember && !member.declarationKeywordToken;
+    const insertionToken = shorthandMethod
+      ? member.name.firstToken ?? member.firstToken
+      : member.firstToken;
+    const insertPosition = tokenStartPosition(insertionToken);
     actions.push({
       title: `Add 'override' to '${member.name.name}'`,
       kind: CodeActionKind.QuickFix,
       diagnostics: [diagnostic],
       edit: {
         changes: {
-          [uri]: [
-            {
-              range: { start: insertPosition, end: insertPosition },
-              newText: "override "
-            }
-          ]
+          [uri]: [{
+            range: { start: insertPosition, end: insertPosition },
+            newText: shorthandMethod ? "override func " : "override "
+          }]
         }
       }
     });

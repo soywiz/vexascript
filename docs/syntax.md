@@ -1341,13 +1341,14 @@ match base type '...'`, and the editor offers a "Fix signature of 'm' to match
 base class 'B'" quick fix that rewrites the signature. The `override` modifier is
 type-only and is erased from the emitted JavaScript.
 
-Conversely, `override` is **required**: a member that redefines a member of a
-project supertype (one of your own VexaScript classes or interfaces) without
-`override` is reported as `Member 'm' must be declared with 'override' because it
-overrides a member from a base class or interface`, with an "Add 'override'"
-quick fix. This is scoped to VexaScript sources and the project's own types —
-members conforming to imported/ambient (node_modules, `.d.ts`) types, and members
-in TypeScript-mode files, do not require `override`.
+Conversely, `override` is **required**: a member that redefines a member of any
+resolved supertype without `override` produces a warning on the member name:
+`Member 'm' must be declared with 'override' because it overrides a member from
+a base class or interface`. This includes base classes and interfaces imported
+from packages and `.d.ts` files. The warning does not prevent compilation. The
+editor offers an "Add 'override'" quick fix; shorthand methods such as `m()` are
+made explicit as `override func m()`. TypeScript-mode files retain TypeScript's
+optional `override` behavior.
 
 A class may declare at most one `extends` clause and one `implements` clause (the
 `implements` clause may list several interfaces separated by commas). Surplus

@@ -3911,8 +3911,7 @@ async function collectAllImportedDeclarationsUncached(
           externalDeclarationLocations: nestedImports.externalDeclarationLocations,
           importedSymbols: nestedImports.importedSymbols,
           invalidImportedBindings: nestedImports.invalidImportedBindings,
-          ambientDeclarations: [...(context.ambientDeclarations ?? context.ambientGlobalDeclarations ?? [])],
-          projectOwnedExternalDeclarations: true
+          ambientDeclarations: [...(context.ambientDeclarations ?? context.ambientGlobalDeclarations ?? [])]
         }));
         context.importedAnalysisCache?.set(targetFilePath, pendingAnalysis);
         targetAnalysis = await pendingAnalysis;

@@ -415,6 +415,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     options.profile?.({ phase: "analysis", elapsedMs: monotonicNow() - analysisStartedAt });
   }
   const errors: string[] = [];
+  const warnings: string[] = [];
   const diagnostics: TranspileDiagnostic[] = [];
   const file = options.sourceFilePath ?? "<unknown>";
   const emitSourceMap = options.emitSourceMap ?? true;
@@ -449,12 +450,17 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     diagnostics.push(makeDiagnostic(issue.message, issue.token?.range, VEXA_DIAGNOSTIC_CODES.PARSER_ERROR));
   }
   if (errors.length > 0) {
-    return { code: "", warnings: [], errors, diagnostics };
+    return { code: "", warnings, errors, diagnostics };
   }
 
   if (options.typeCheck ?? true) {
     for (const issue of artifacts.semanticIssues) {
-      errors.push(formatSemanticIssue(issue));
+      const formattedIssue = formatSemanticIssue(issue);
+      if (issue.severity === "warning") {
+        warnings.push(formattedIssue);
+        continue;
+      }
+      errors.push(formattedIssue);
       const range = sourceRangeForAnalysisIssue(issue);
       const code =
         mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
@@ -464,7 +470,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     }
   }
   if (errors.length > 0) {
-    return { code: "", warnings: [], errors, diagnostics };
+    return { code: "", warnings, errors, diagnostics };
   }
 
   if (!artifacts.ast || !artifacts.analysis) {
@@ -474,7 +480,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     );
     return {
       code: "",
-      warnings: [],
+      warnings,
       errors: ["Internal error: compilation artifacts are incomplete"],
       diagnostics: incompleteDiagnostics
     };
@@ -483,7 +489,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const emissionStartedAt = monotonicNow();
   const target = options.target ?? "optimized";
   const expressionTypes = artifacts.analysis.getExpressionTypes();
-  const warnings = integerLiteralDivisionWarnings(artifacts.ast, expressionTypes);
+  warnings.push(...integerLiteralDivisionWarnings(artifacts.ast, expressionTypes));
   const expressionTypeName = (expression: Expr): string | undefined => {
     const type = expressionTypes.get(expression);
     return type ? typeToString(type) : undefined;

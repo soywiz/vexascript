@@ -54,6 +54,37 @@ describe("override modifier quick fix", () => {
     expect(edit?.range.end).toEqual(edit?.range.start);
   });
 
+  it("inserts 'override func' for a shorthand method declaration", () => {
+    const source = [
+      "class Demo {",
+      "  protected run(): void {",
+      "  }",
+      "}",
+      ""
+    ].join("\n");
+    const ast = parseFile(tokenizeReader(source));
+    const demo = ast.body[0] as ClassStatement;
+    const member = demo.members[0]!;
+    const nameToken = member.name.firstToken!;
+    const diagnostic: Diagnostic = {
+      severity: 2,
+      source: "vexa-sema",
+      code: VEXA_DIAGNOSTIC_CODES.MISSING_OVERRIDE_MODIFIER,
+      message: "Member 'run' must be declared with 'override' because it overrides a member from a base class or interface",
+      range: {
+        start: { line: nameToken.range.start.line, character: nameToken.range.start.column },
+        end: { line: nameToken.range.end.line, character: nameToken.range.end.column }
+      }
+    };
+
+    const uri = pathToFileURL("/demo.vx").toString();
+    const actions = createOverrideModifierCodeActions({ uri, ast, diagnostics: [diagnostic] });
+    const edit = actions[0]?.edit?.changes?.[uri]?.[0];
+
+    expect(edit?.newText).toBe("override func ");
+    expect(edit?.range.start).toEqual({ line: 1, character: 12 });
+  });
+
   it("ignores diagnostics without the missing-override code", () => {
     const ast = parseFile(tokenizeReader("class Demo {\n}\n"));
     const uri = pathToFileURL("/demo.vx").toString();

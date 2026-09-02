@@ -28,6 +28,7 @@ export interface AnalysisIssue {
   range?: AnalysisRange;
   code?: AnalysisIssueCode;
   data?: AnalysisIssueData;
+  severity?: "error" | "warning";
 }
 
 export class Scope {

@@ -2090,7 +2090,7 @@ describe("Analysis", () => {
       expect(messages.filter((message) => message.includes("must be declared with 'override'"))).toEqual([]);
     });
 
-    it("does not require 'override' for members conforming to imported types", () => {
+    it("reports imported base members that are missing 'override' as warnings", () => {
       const externalDeclarations = parseFile(tokenizeReader(dedent`
         class Base {
           run(): void {
@@ -2103,8 +2103,13 @@ describe("Analysis", () => {
           }
         }
       `));
-      const messages = new Analysis(ast, { externalDeclarations }).getIssues().map((issue) => issue.message);
-      expect(messages.filter((message) => message.includes("must be declared with 'override'"))).toEqual([]);
+      const issue = new Analysis(ast, { externalDeclarations }).getIssues().find(
+        (candidate) => candidate.code === "MISSING_OVERRIDE_MODIFIER"
+      );
+      expect(issue?.message).toBe(
+        "Member 'run' must be declared with 'override' because it overrides a member from a base class or interface"
+      );
+      expect(issue?.severity).toBe("warning");
     });
 
     it("reports surplus extends and implements clauses", () => {

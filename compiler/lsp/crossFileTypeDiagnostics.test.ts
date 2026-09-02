@@ -837,13 +837,13 @@ describe("cross-file type diagnostics", () => {
       import { Component } from "preact-like"
 
       class Clock extends Component {
-        var state = { time: Date.now() }
+        override var state = { time: Date.now() }
 
         fun componentDidMount() {
           this.setState({ time: Date.now() })
         }
 
-        fun render() {
+        override fun render() {
           return null
         }
       }

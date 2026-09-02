@@ -273,10 +273,11 @@ function empty(): int {
     expect(diagnostic?.message).toBe(
       "Member 'onCollider' must be declared with 'override' because it overrides a member from a base class or interface"
     );
+    expect(diagnostic?.severity).toBe(2);
     expect(diagnostic?.range.start).toEqual({ line: 1, character: 6 });
   });
 
-  it("requires override for project-owned external base members", () => {
+  it("warns about missing override for imported base members", () => {
     const source = dedent`
       class Demo extends Component {
         fun onCollider(other: ViewNode) {
@@ -290,10 +291,7 @@ function empty(): int {
       }
       `)).body;
     const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
-    const session = createAnalysisSession(source, {
-      externalDeclarations,
-      projectOwnedExternalDeclarations: true
-    });
+    const session = createAnalysisSession(source, { externalDeclarations });
     const diagnostics = collectDiagnosticsFromSession(session, source, (offset) =>
       doc.positionAt(offset)
     );
@@ -305,6 +303,7 @@ function empty(): int {
     expect(diagnostic?.message).toBe(
       "Member 'onCollider' must be declared with 'override' because it overrides a member from a base class or interface"
     );
+    expect(diagnostic?.severity).toBe(2);
     expect(diagnostic?.range.start).toEqual({ line: 1, character: 6 });
   });
 

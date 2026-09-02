@@ -181,3 +181,36 @@ trailing `extends`.
 Generated stubs now use `throw Error("Not implemented")` (no `new`) — the
 VexaScript idiom, since calling a class without `new` is lowered to `new` by the
 emitter.
+
+## Addendum 5: imported overrides are type semantics, not project ownership
+
+The earlier project-only scope proved too narrow for VexaScript classes that
+implement framework callbacks. `PhysicsContactRouter extends b2ContactListener`
+was the concrete regression: the analyzer resolved `BeginContact`, `EndContact`,
+`PreSolve`, and `PostSolve` from `@box2d/core`, but deliberately discarded those
+names before checking for a missing `override` modifier.
+
+The durable rule is now provenance-independent: every resolved base class or
+implemented interface contributes member names. The obsolete
+`projectOwnedExternalDeclarations` path and its declaration-node ownership cache
+were removed instead of adding another special case. TypeScript-mode sources
+remain exempt.
+
+Missing `override` is intentionally an `AnalysisIssue` warning rather than an
+error. The shared severity reaches LSP diagnostics, while transpilation routes
+the formatted issue to `warnings` and continues emission. This keeps editor,
+build, bundle, and serve behavior aligned. The quick fix also expands shorthand
+methods to `override func`, matching canonical VexaScript syntax.
+
+An initial fixture update exposed a second trap: once `override` was added to a
+Preact component, VexaScript's strict signature-equality check rejected valid
+TypeScript framework patterns such as a concrete `state` overriding
+`Readonly<S>` and required render parameters overriding optional declaration
+parameters. Dependency declarations therefore establish the member name but do
+not undergo VexaScript's stricter local-class override signature check. Local
+VexaScript base classes retain full compatibility validation.
+
+## Execution metadata
+
+- Provider: OpenAI
+- Model: Unavailable (not exposed by runtime)

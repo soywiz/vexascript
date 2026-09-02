@@ -4100,7 +4100,7 @@ describe("node_modules typings resolution", () => {
       import { Component } from "preact-like"
 
       class Clock extends Component<{ time: number }> {
-        state: { time: number }
+        override state: { time: number }
 
         componentDidMount() {
           this.setState({ time: Date.now() })
@@ -4146,7 +4146,7 @@ describe("node_modules typings resolution", () => {
       import { Component } from "preact-like"
 
       class Clock extends Component<any, { time: number }> {
-        state: { time: number }
+        override state: { time: number }
         timer: number? = undefined
 
         constructor() {
@@ -4787,7 +4787,7 @@ describe("node_modules typings resolution", () => {
       import { Component } from "preact-like"
 
       class Clock extends Compo^^^nent<{ label: string }, { time: number }> {
-        state: { time: number }
+        override state: { time: number }
 
         constructor() {
           super()
@@ -4848,7 +4848,7 @@ describe("node_modules typings resolution", () => {
       import { Component } from "preact-like"
 
       class Clock extends Component {
-        state: { time: number }
+        override state: { time: number }
 
         constructor() {
           super()
@@ -4901,7 +4901,7 @@ describe("node_modules typings resolution", () => {
       import { Component } from "preact-like"
 
       class Clock extends Component {
-        var state = { time: Date.now() }
+        override var state = { time: Date.now() }
 
         componentDidMount() {
           this.setState({ time: Date.now() })

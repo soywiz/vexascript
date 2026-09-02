@@ -207,7 +207,6 @@ type ExtensionPropertyInfo = {
 };
 
 const externalDeclarationNodeSetCache = new WeakMap<readonly Statement[], WeakSet<Node>>();
-const projectDeclaredTypeNodeSetCache = new WeakMap<readonly Statement[], WeakSet<Node>>();
 
 function externalDeclarationNodeSet(statements: readonly Statement[]): WeakSet<Node> {
   const cached = externalDeclarationNodeSetCache.get(statements);
@@ -217,24 +216,6 @@ function externalDeclarationNodeSet(statements: readonly Statement[]): WeakSet<N
     walkAst(statement, (node) => nodes.add(node));
   }
   externalDeclarationNodeSetCache.set(statements, nodes);
-  return nodes;
-}
-
-function projectDeclaredTypeNodeSet(statements: readonly Statement[]): WeakSet<Node> {
-  const cached = projectDeclaredTypeNodeSetCache.get(statements);
-  if (cached) return cached;
-  const nodes = new WeakSet<Node>();
-  for (const statement of statements) {
-    walkAst(statement, (node) => {
-      if (
-        (node instanceof ClassStatement || node instanceof InterfaceStatement) &&
-        (node as ClassStatement | InterfaceStatement).declared !== true
-      ) {
-        nodes.add(node);
-      }
-    });
-  }
-  projectDeclaredTypeNodeSetCache.set(statements, nodes);
   return nodes;
 }
 
@@ -273,10 +254,6 @@ export class TypeChecker {
   private readonly externalDeclarationFilePathsByNode = new WeakMap<Node, string>();
   private readonly activeTypeAliasResolutionNodes: Node[] = [];
   private readonly externalDeclarationNodes: WeakSet<Node>;
-  // Class/interface declarations that belong to the analyzed file itself (as
-  // opposed to imported, ambient, or runtime declarations). Used to scope the
-  // `override`-required rule to the project's own VexaScript types.
-  private readonly programDeclaredTypeNodeSets: WeakSet<Node>[] = [];
   private readonly enumStatementsByName: Map<string, EnumStatement> = new Map();
   private readonly enumMemberResolutionCache: WeakMap<EnumMember, EnumResolvedValue> = new WeakMap<EnumMember, EnumResolvedValue>();
   private readonly enumStatementMemberMapCache: WeakMap<EnumStatement, Map<string, EnumMember>> = new WeakMap<EnumStatement, Map<string, EnumMember>>();
@@ -332,7 +309,6 @@ export class TypeChecker {
     ambientDeclarations: readonly Statement[] = [],
     private readonly invalidImportedBindings: ReadonlySet<string> = new Set(),
     private readonly sourceLanguage: "vexascript" | "typescript" = "vexascript",
-    private readonly projectOwnedExternalDeclarations: boolean = false,
     externalDeclarationLocations: ReadonlyMap<Statement, { filePath: string }> = new Map(),
     private readonly validateTypes: boolean = true
   ) {
@@ -420,20 +396,7 @@ export class TypeChecker {
     this.collectTypeAliasStatements(program.body, this.nonExternalNamedTypeNames);
     this.collectVarStatements(program.body, this.nonExternalNamedTypeNames);
     this.collectAnnotationStatements(program.body);
-    this.markProjectDeclaredTypeNodes(ambientDeclarations);
-    if (this.projectOwnedExternalDeclarations) {
-      this.markProjectDeclaredTypeNodes(externalDeclarations);
-    }
-    this.markProjectDeclaredTypeNodes(program.body);
     this.collectExplicitlyUnknownIdentifiers(program);
-  }
-
-  private markProjectDeclaredTypeNodes(statements: readonly Statement[]): void {
-    this.programDeclaredTypeNodeSets.push(projectDeclaredTypeNodeSet(statements));
-  }
-
-  private isProgramDeclaredTypeNode(node: Node): boolean {
-    return this.programDeclaredTypeNodeSets.some((nodes) => nodes.has(node));
   }
 
   private collectExplicitlyUnknownIdentifiers(program: Program): void {
@@ -17813,12 +17776,27 @@ export class TypeChecker {
     const classSubstitutions = supertypeContext.classSubstitutions;
     const baseClassType = supertypeContext.baseClassType;
     const baseMembers = supertypeContext.baseMembers;
+    const baseClassStatement = baseClassType
+      ? this.classStatementsByName.get(baseClassType.name)
+      : undefined;
+    const baseClassOrigin = this.isDependencyDeclaration(baseClassStatement);
+    const validateBaseClassSignature = !baseClassStatement
+      || !this.externalDeclarationNodes.has(baseClassStatement)
+      || baseClassOrigin === false;
     const interfaceMemberNames = supertypeContext.interfaceMemberNames;
     const hasSupertype = supertypeContext.hasSupertype;
 
     for (const member of overrideMembers) {
       const baseType = baseMembers?.get(member.name.name);
       if (baseType) {
+        // External declaration files often model JavaScript framework hooks
+        // with intentionally broad or optional signatures (for example Preact's
+        // render method). Unless provenance proves this is another project file,
+        // the member name is authoritative for `override`; VexaScript must not
+        // impose stricter variance than the declaration's TypeScript semantics.
+        if (!validateBaseClassSignature) {
+          continue;
+        }
         const ownType = this.declaredClassMemberType(classStatement, member.name.name, classSubstitutions);
         if (ownType && !isSameType(ownType, baseType)) {
           this.issues.push({
@@ -17892,13 +17870,13 @@ export class TypeChecker {
     return baseType instanceof NamedType ? this.classStatementsByName.get(baseType.name) : undefined;
   }
 
-  private collectProjectInterfaceMemberNames(interfaceName: string, names: Set<string>, visited: Set<string>): void {
+  private collectSupertypeInterfaceMemberNames(interfaceName: string, names: Set<string>, visited: Set<string>): void {
     if (visited.has(interfaceName)) {
       return;
     }
     visited.add(interfaceName);
     const interfaceStatement = this.interfaceStatementsByName.get(interfaceName);
-    if (!interfaceStatement || !this.isProgramDeclaredTypeNode(interfaceStatement)) {
+    if (!interfaceStatement) {
       return;
     }
     for (const member of interfaceStatement.members) {
@@ -17907,58 +17885,53 @@ export class TypeChecker {
     for (const parentType of interfaceStatement.extendsTypes ?? []) {
       const resolved = this.typeFromTypeNameLoose(parentType.name);
       if (resolved instanceof NamedType) {
-        this.collectProjectInterfaceMemberNames(resolved.name, names, visited);
+        this.collectSupertypeInterfaceMemberNames(resolved.name, names, visited);
       }
     }
   }
 
   /**
-   * Member names contributed by the class's supertypes that are defined in the
-   * project itself — non-`declared` base classes and interfaces. Members
-   * inherited from ambient/imported (`declared`) types, such as node_modules
-   * `.d.ts` classes, are excluded so conforming to external TypeScript APIs does
-   * not require `override`.
+   * Member names contributed by all resolved supertypes, including imported
+   * declaration files. Override semantics should not depend on whether the base
+   * class lives in the current source file or a dependency.
    */
-  private projectSupertypeMemberNames(classStatement: ClassStatement): Set<string> {
+  private supertypeMemberNames(classStatement: ClassStatement): Set<string> {
     const names = new Set<string>();
     const visitedClasses = new Set<string>();
     let current = this.baseClassStatementOf(classStatement);
     while (current && !visitedClasses.has(current.name.name)) {
       visitedClasses.add(current.name.name);
-      if (this.isProgramDeclaredTypeNode(current)) {
-        for (const member of current.members) {
-          names.add(member.name.name);
-        }
-        for (const parameter of current.primaryConstructorParameters ?? []) {
-          const parameterName = bindingNameText(parameter.name);
-          if (parameterName.length > 0) {
-            names.add(parameterName);
-          }
+      for (const member of current.members) {
+        names.add(member.name.name);
+      }
+      for (const parameter of current.primaryConstructorParameters ?? []) {
+        const parameterName = bindingNameText(parameter.name);
+        if (parameterName.length > 0) {
+          names.add(parameterName);
         }
       }
       current = this.baseClassStatementOf(current);
     }
     const visitedInterfaces = new Set<string>();
     for (const interfaceType of this.implementedInterfaceTypesForClass(classStatement)) {
-      this.collectProjectInterfaceMemberNames(interfaceType.name, names, visitedInterfaces);
+      this.collectSupertypeInterfaceMemberNames(interfaceType.name, names, visitedInterfaces);
     }
     return names;
   }
 
   /**
-   * A class member that implements or redefines a member from a project
+   * A class member that implements or redefines a member from any resolved
    * supertype (an abstract or concrete base-class member, or an interface
    * member) must be declared with `override`. Reports the missing modifier on
    * the member name. Only enforced for VexaScript sources; TypeScript-mode files
-   * follow TypeScript rules where `override` is optional, and members conforming
-   * to imported/ambient types are exempt.
+   * follow TypeScript rules where `override` is optional.
    */
   private validateMissingOverrideModifiers(classStatement: ClassStatement): void {
     if (classStatement.declared === true || this.sourceLanguage === "typescript") {
       return;
     }
-    const projectMemberNames = this.projectSupertypeMemberNames(classStatement);
-    if (projectMemberNames.size === 0) {
+    const inheritedMemberNames = this.supertypeMemberNames(classStatement);
+    if (inheritedMemberNames.size === 0) {
       return;
     }
     for (const member of classStatement.members) {
@@ -17968,11 +17941,12 @@ export class TypeChecker {
       if (member instanceof ClassMethodMember && (member.name.name === "constructor" || member.operator)) {
         continue;
       }
-      if (projectMemberNames.has(member.name.name)) {
+      if (inheritedMemberNames.has(member.name.name)) {
         this.issues.push({
           message: `Member '${member.name.name}' must be declared with 'override' because it overrides a member from a base class or interface`,
           node: member.name,
           code: ANALYSIS_ISSUE_CODES.MISSING_OVERRIDE_MODIFIER,
+          severity: "warning",
           data: {
             className: classStatement.name.name,
             memberName: member.name.name

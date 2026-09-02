@@ -44,7 +44,6 @@ export interface AnalysisSessionOptions {
   invalidImportedBindings?: ReadonlySet<string>;
   ambientDeclarationLocations?: ReadonlyMap<Statement, AmbientModuleLocation>;
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
-  projectOwnedExternalDeclarations?: boolean;
   profile?: (event: AnalysisProfileEvent) => void;
 }
 
@@ -71,7 +70,6 @@ export function createAnalysisSession(
     importedSymbols: normalizedImportedSymbols,
     ambientDeclarations,
     invalidImportedBindings: normalizedInvalidImportedBindings,
-    projectOwnedExternalDeclarations: options.projectOwnedExternalDeclarations === true,
     ...(options.profile ? { profile: options.profile } : {})
   });
   return {
