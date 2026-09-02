@@ -1,0 +1,72 @@
+import { Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { COLORS } from '../art.vx';
+import { VIEW_HEIGHT, VIEW_WIDTH } from '../core/constants.vx';
+
+export class Hud {
+  readonly view = Container();
+  private readonly scoreText: Text;
+  private readonly coinText: Text;
+  private readonly livesText: Text;
+  private readonly timeText: Text;
+  private readonly centerTitle: Text;
+  private readonly centerSubtitle: Text;
+  private readonly overlay: Graphics;
+  private readonly help = Container();
+
+  constructor() {
+    const panel = Graphics()
+      .roundRect(24, 22, 1232, 72, 22)
+      .fill({ color: 0x18203a, alpha: 0.9 })
+      .stroke({ color: 0xffffff, alpha: 0.22, width: 2 });
+    const hudStyle = TextStyle({ fontFamily: 'Nunito, sans-serif', fontSize: 24, fontWeight: '900', fill: 0xffffff });
+    this.scoreText = Text({ text: 'SCORE 000000', style: hudStyle });
+    this.coinText = Text({ text: '● × 00', style: { ...hudStyle, fill: COLORS.gold } });
+    this.livesText = Text({ text: '♥ × 3', style: { ...hudStyle, fill: COLORS.coral } });
+    this.timeText = Text({ text: 'TIME 000', style: hudStyle });
+    scoreText.position.set(52, 43);
+    coinText.position.set(375, 43);
+    livesText.position.set(585, 43);
+    timeText.position.set(1000, 43);
+
+    const helpBg = Graphics().roundRect(24, 650, 920, 46, 16).fill({ color: 0x18203a, alpha: 0.82 });
+    const helpText = Text({
+      text: 'A D / ← →  MOVE   SHIFT  RUN   SPACE  JUMP   P  PAUSE   F2  SPRITES/DEBUG',
+      style: { fontFamily: 'Nunito, sans-serif', fontSize: 17, fontWeight: '800', fill: 0xffffff },
+    });
+    helpText.position.set(42, 662);
+    help.addChild(helpBg, helpText);
+
+    this.overlay = Graphics().rect(0, 0, VIEW_WIDTH, VIEW_HEIGHT).fill({ color: 0x10162d, alpha: 0.68 });
+    this.centerTitle = Text({
+      text: '',
+      style: { fontFamily: 'Nunito, sans-serif', fontSize: 68, fontWeight: '900', fill: 0xffffff, align: 'center', stroke: { color: 0x25304f, width: 8 } },
+    });
+    this.centerSubtitle = Text({
+      text: '',
+      style: { fontFamily: 'Nunito, sans-serif', fontSize: 25, fontWeight: '800', fill: 0xffef9a, align: 'center' },
+    });
+    centerTitle.anchor.set(0.5);
+    centerSubtitle.anchor.set(0.5);
+    centerTitle.position.set(VIEW_WIDTH / 2, VIEW_HEIGHT / 2 - 35);
+    centerSubtitle.position.set(VIEW_WIDTH / 2, VIEW_HEIGHT / 2 + 45);
+    showOverlay('', '');
+    view.addChild(panel, scoreText, coinText, livesText, timeText, help, overlay, centerTitle, centerSubtitle);
+  }
+
+  update(score: number, coins: number, lives: number, elapsed: number): void {
+    scoreText.text = `SCORE ${score.toString().padStart(6, '0')}`;
+    coinText.text = `● × ${coins.toString().padStart(2, '0')}`;
+    livesText.text = `♥ × ${lives}`;
+    timeText.text = `TIME ${Math.floor(elapsed).toString().padStart(3, '0')}`;
+    help.alpha = Math.max(0, 1 - elapsed / 12);
+  }
+
+  showOverlay(title: string, subtitle: string): void {
+    const visible = title.length > 0;
+    overlay.visible = visible;
+    centerTitle.visible = visible;
+    centerSubtitle.visible = visible;
+    centerTitle.text = title;
+    centerSubtitle.text = subtitle;
+  }
+}

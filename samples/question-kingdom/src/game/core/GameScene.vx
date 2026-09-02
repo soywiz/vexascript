@@ -1,0 +1,98 @@
+import { b2World } from '@box2d/core';
+import { Container } from 'pixi.js';
+import { Input } from '../Input.vx';
+import { GameEvents } from './GameEvents.vx';
+import { GameObject } from './GameObject.vx';
+import { PhysicsContactRouter } from './PhysicsContactRouter.vx';
+import { getFixtureTag } from './PhysicsTypes.vx';
+import type { FixtureKind } from './PhysicsTypes.vx';
+
+export class GameScene(
+  public const layer: Container,
+  public const input: Input,
+) {
+  readonly world = b2World.Create({ x: 0, y: 28 });
+  readonly events = new GameEvents();
+  private readonly gameObjects = Set<GameObject>();
+  private readonly deferredActions: Array<() => void> = [];
+
+  init {
+    world.SetContactListener(new PhysicsContactRouter());
+  }
+
+  addGameObject(gameObject: GameObject): void {
+    gameObjects.add(gameObject);
+    layer.addChild(gameObject.view);
+  }
+
+  removeGameObject(gameObject: GameObject): void {
+    gameObjects.delete(gameObject);
+    layer.removeChild(gameObject.view);
+  }
+
+  update(delta: number): void {
+    [...gameObjects].forEach((gameObject) => gameObject.update(delta));
+  }
+
+  step(delta: number): void {
+    const objects = [...gameObjects];
+    objects.forEach((gameObject) => gameObject.beforePhysicsStep());
+    objects.forEach((gameObject) => gameObject.fixedUpdate(delta));
+    world.Step(delta, { velocityIterations: 8, positionIterations: 3 });
+    flushDeferredActions();
+    objects.forEach((gameObject) => gameObject.afterPhysicsStep());
+  }
+
+  lateUpdate(delta: number): void {
+    [...gameObjects].forEach((gameObject) => gameObject.lateUpdate(delta));
+  }
+
+  defer(action: () => void): void {
+    deferredActions.push(action);
+  }
+
+  raycastKinds(x1: number, y1: number, x2: number, y2: number, kinds: ReadonlySet<FixtureKind>): boolean {
+    let found = false;
+    world.RayCast({ x: x1, y: y1 }, { x: x2, y: y2 }, (fixture) => {
+      const tag = getFixtureTag(fixture);
+      if (tag && kinds.has(tag.kind)) {
+        found = true;
+        return 0;
+      }
+      return -1;
+    });
+    return found;
+  }
+
+  raycastClosestFraction(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    kinds: ReadonlySet<FixtureKind>,
+  ): number | null {
+    let closest: number | null = null;
+    world.RayCast({ x: x1, y: y1 }, { x: x2, y: y2 }, (fixture, _point, _normal, fraction) => {
+      const tag = getFixtureTag(fixture);
+      if (!tag || !kinds.has(tag.kind)) return -1;
+      closest = fraction;
+      return fraction;
+    });
+    return closest;
+  }
+
+  findAll<T extends GameObject>(type: new (...args: never[]) => T): T[] {
+    return [...gameObjects].filter((gameObject): gameObject is T => gameObject instanceof type);
+  }
+
+  destroy(): void {
+    [...gameObjects].reverse().forEach((gameObject) => gameObject.destroy());
+    deferredActions.length = 0;
+    events.clear();
+  }
+
+  private flushDeferredActions(): void {
+    const actions = deferredActions.splice(0);
+    actions.forEach((action) => action());
+  }
+}

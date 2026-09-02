@@ -1,0 +1,26 @@
+import { b2BodyType } from '@box2d/core';
+import { makeWater } from '../art.vx';
+import { GameObject } from '../core/GameObject.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { PIXELS_PER_METER } from '../core/constants.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import { WaterContactHandler } from '../scripts/WaterContactHandler.vx';
+import { WaterSurfaceAnimation } from '../scripts/WaterSurfaceAnimation.vx';
+
+export class WaterZone extends GameObject {
+  constructor(scene: GameScene, x: number, surfaceY: number, width: number, height: number) {
+    super(scene, 'Water Zone', makeWater(width * PIXELS_PER_METER, height * PIXELS_PER_METER));
+    const rigidbody = addComponent(new Rigidbody({
+      type: b2BodyType.b2_staticBody,
+      position: { x, y: surfaceY + height / 2 },
+    }));
+    rigidbody.addBoxCollider({
+      halfWidth: width / 2,
+      halfHeight: height / 2,
+      kind: 'water',
+      isSensor: true,
+    });
+    addComponent(new WaterContactHandler());
+    addComponent(new WaterSurfaceAnimation());
+  }
+}

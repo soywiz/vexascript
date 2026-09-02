@@ -1,0 +1,151 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap');
+
+:root {
+  color-scheme: dark;
+  font-family: "Nunito", system-ui, sans-serif;
+  background: #11162b;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#game {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-touch-callout: none;
+}
+
+html,
+body {
+  position: fixed;
+  inset: 0;
+}
+
+body {
+  background:
+    radial-gradient(circle at 50% 0%, #323c72 0%, #171d38 48%, #0e1224 100%);
+}
+
+#game {
+  display: grid;
+  place-items: center;
+}
+
+canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  box-shadow: 0 28px 90px rgb(0 0 0 / 45%);
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.fatal-error {
+  max-width: 36rem;
+  padding: 2rem;
+  color: #fff;
+  text-align: center;
+}
+
+.mobile-controls {
+  position: fixed;
+  z-index: 5;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.mobile-dpad,
+.mobile-jump {
+  position: absolute;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.mobile-dpad {
+  left: max(24px, env(safe-area-inset-left));
+  width: 150px;
+  height: 150px;
+}
+
+.mobile-dpad__button {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: 2px solid rgb(255 255 255 / 48%);
+  border-radius: 13px;
+  color: white;
+  background: rgb(20 30 58 / 42%);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 24%);
+  font: 900 25px/1 "Nunito", sans-serif;
+  appearance: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.mobile-dpad__button--up {
+  top: 0;
+  left: 49px;
+}
+
+.mobile-dpad__button--left {
+  top: 49px;
+  left: 0;
+}
+
+.mobile-dpad__button--right {
+  top: 49px;
+  right: 0;
+}
+
+.mobile-dpad__button--down {
+  bottom: 0;
+  left: 49px;
+}
+
+.mobile-jump {
+  right: max(30px, env(safe-area-inset-right));
+  width: 88px;
+  height: 88px;
+  border: 3px solid rgb(255 255 255 / 48%);
+  border-radius: 50%;
+  color: white;
+  background: rgb(108 92 231 / 55%);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 28%);
+  font: 900 34px/1 "Nunito", sans-serif;
+  appearance: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.mobile-dpad__button.is-pressed,
+.mobile-jump.is-pressed {
+  transform: scale(0.9);
+  background: rgb(108 92 231 / 78%);
+}
+
+@media (pointer: coarse) {
+  .mobile-controls {
+    display: block;
+  }
+}

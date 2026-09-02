@@ -1,0 +1,28 @@
+import type { Sprite } from 'pixi.js';
+import { Component } from '../core/Component.vx';
+
+interface SurfaceTile {
+  sprite: Sprite;
+  homeY: number;
+  phase: number;
+}
+
+export class WaterSurfaceAnimation extends Component {
+  private readonly surfaces: SurfaceTile[] = [];
+  private elapsed = 0;
+
+  protected onAttach(): void {
+    gameObject.view.children.forEach((child, index) => {
+      if (!child.label.startsWith('water-surface')) return;
+      surfaces.push({ sprite: child as Sprite, homeY: child.y, phase: index * 0.72 });
+    });
+  }
+
+  update(delta: number): void {
+    elapsed += delta;
+    surfaces.forEach(({ sprite, homeY, phase }) => {
+      sprite.y = homeY - Math.abs(Math.sin(elapsed * 2.7 + phase)) * 2.5;
+    });
+    gameObject.view.alpha = 0.8 + Math.sin(elapsed * 1.8) * 0.035;
+  }
+}

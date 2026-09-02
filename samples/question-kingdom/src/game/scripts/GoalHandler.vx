@@ -1,0 +1,12 @@
+import { Component } from '../core/Component.vx';
+import type { ContactContext } from '../core/PhysicsTypes.vx';
+
+export class GoalHandler extends Component {
+  private reached = false;
+
+  onBeginContact(context: ContactContext): void {
+    if (context.other.kind !== 'player' || reached) return;
+    reached = true;
+    scene.defer(() => scene.events.emit('goalReached', {}));
+  }
+}

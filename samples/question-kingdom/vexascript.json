@@ -1,0 +1,14 @@
+{
+  "entrypoint": "src/main.vx",
+  "compilerOptions": {
+    "lib": [
+      "es2025",
+      "dom"
+    ],
+    "types": []
+  },
+  "canonicalSyntax": {
+    "immutableDeclaration": "const",
+    "functionDeclaration": "func"
+  }
+}

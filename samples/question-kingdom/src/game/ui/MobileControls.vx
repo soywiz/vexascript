@@ -1,0 +1,70 @@
+import type { Input } from '../Input.vx';
+
+const DIRECTIONS = [
+  ['↑', 'ArrowUp', 'up'],
+  ['←', 'ArrowLeft', 'left'],
+  ['→', 'ArrowRight', 'right'],
+  ['↓', 'ArrowDown', 'down'],
+] as const;
+
+export class MobileControls {
+  private readonly root = document.createElement('div');
+  private readonly dpad = document.createElement('div');
+  private readonly jump = document.createElement('button');
+
+  constructor(
+    private readonly input: Input,
+    host: HTMLElement,
+  ) {
+    root.className = 'mobile-controls';
+    root.setAttribute('aria-hidden', 'false');
+    dpad.className = 'mobile-dpad';
+    dpad.setAttribute('aria-label', 'Movement pad');
+
+    DIRECTIONS.forEach(([label, code, direction]) => {
+      const button = document.createElement('button');
+      button.className = `mobile-dpad__button mobile-dpad__button--${direction}`;
+      button.type = 'button';
+      button.tabIndex = -1;
+      button.textContent = label;
+      button.setAttribute('aria-label', directionLabel(direction));
+      bindButton(button, code);
+      dpad.appendChild(button);
+    });
+
+    jump.className = 'mobile-jump';
+    jump.type = 'button';
+    jump.tabIndex = -1;
+    jump.textContent = 'A';
+    jump.setAttribute('aria-label', 'Jump');
+    bindButton(jump, 'Space');
+
+    root.append(dpad, jump);
+    host.appendChild(root);
+  }
+
+  private bindButton(button: HTMLButtonElement, code: string): void {
+    const press = (event: PointerEvent): void => {
+      event.preventDefault();
+      button.blur();
+      button.setPointerCapture(event.pointerId);
+      button.classList.add('is-pressed');
+      input.setVirtualCode(code, true);
+    };
+    const release = (): void => {
+      button.classList.remove('is-pressed');
+      input.setVirtualCode(code, false);
+    };
+    button.addEventListener('pointerdown', press);
+    button.addEventListener('pointerup', release);
+    button.addEventListener('pointercancel', release);
+    button.addEventListener('lostpointercapture', release);
+  }
+}
+
+function directionLabel(direction: typeof DIRECTIONS[number][2]): string {
+  if (direction === 'up') return 'Up';
+  if (direction === 'left') return 'Left';
+  if (direction === 'right') return 'Right';
+  return 'Down';
+}

@@ -1,0 +1,19 @@
+import { b2BodyType } from '@box2d/core';
+import { makeFlag } from '../art.vx';
+import { GameObject } from '../core/GameObject.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { PIXELS_PER_METER } from '../core/constants.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import { GoalHandler } from '../scripts/GoalHandler.vx';
+
+export class Goal extends GameObject {
+  constructor(scene: GameScene, x: number, groundTop: number) {
+    super(scene, 'Goal', makeFlag());
+    const rigidbody = addComponent(new Rigidbody(
+      { type: b2BodyType.b2_staticBody, position: { x, y: groundTop - 1.4 } },
+      { viewOffsetY: 1.4 * PIXELS_PER_METER },
+    ));
+    rigidbody.addBoxCollider({ halfWidth: 0.35, halfHeight: 1.4, kind: 'goal', isSensor: true });
+    addComponent(new GoalHandler());
+  }
+}

@@ -1,0 +1,46 @@
+import { SOUND_URLS, setQuestionBlockUsed } from '../art.vx';
+import { AudioService } from '../core/AudioService.vx';
+import { Component } from '../core/Component.vx';
+import { PIXELS_PER_METER } from '../core/constants.vx';
+import type { ContactContext } from '../core/PhysicsTypes.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import { CoinBurst } from '../entities/CoinBurst.vx';
+import { CoinPickupParticles } from '../entities/CoinPickupParticles.vx';
+
+export class QuestionBlockHandler(private const homeY: number) extends Component {
+  used = false;
+  private bounceTime = 0;
+  private hitQueued = false;
+
+  onBeginContact(context: ContactContext): void {
+    if (context.other.kind !== 'player' || used || hitQueued) return;
+    const playerBody = context.other.owner.getComponent(Rigidbody)?.body;
+    const blockBody = gameObject.getComponent(Rigidbody)?.body;
+    if (!playerBody || !blockBody) return;
+    const belowBlock = playerBody.GetPosition().y > blockBody.GetPosition().y + 0.2;
+    if (belowBlock && playerBody.GetLinearVelocity().y < -0.5) {
+      hitQueued = true;
+      scene.defer(() => hit());
+    }
+  }
+
+  lateUpdate(delta: number): void {
+    if (bounceTime > 0) {
+      bounceTime = Math.max(0, bounceTime - delta);
+      const progress = 1 - bounceTime / 0.24;
+      gameObject.view.y = homeY * PIXELS_PER_METER - Math.sin(progress * Math.PI) * 14;
+    }
+  }
+
+  private hit(): void {
+    if (used) return;
+    used = true;
+    bounceTime = 0.24;
+    setQuestionBlockUsed(gameObject.view);
+    scene.events.emit('coinCollected', { amount: 1, points: 100 });
+    AudioService.play(SOUND_URLS.coin);
+    const position = gameObject.getComponent(Rigidbody)!.body.GetPosition();
+    new CoinBurst(scene, position.x, position.y - 0.56);
+    new CoinPickupParticles(scene, position.x, position.y - 0.75);
+  }
+}

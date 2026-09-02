@@ -1,0 +1,102 @@
+import { Sprite } from 'pixi.js';
+import { Component } from '../core/Component.vx';
+import type { FixtureKind } from '../core/PhysicsTypes.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import { Player } from '../entities/Player.vx';
+import { kenneyTexture } from '../render/KenneyAtlas.vx';
+
+type CrusherState = 'idle' | 'falling' | 'resting' | 'rising';
+
+const TERRAIN_KINDS = Set<FixtureKind>(['ground', 'solid', 'oneWay', 'question']);
+
+export class BlockCrusher(private const homeY: number) extends Component {
+  state: CrusherState = 'idle';
+  fallSpeed = 0;
+  private rigidbody!: Rigidbody;
+  private restTimer = 0;
+  private triggerCooldown = 0.45;
+  private elapsed = 0;
+
+  get crushing(): boolean {
+    return state === 'falling' && fallSpeed > 2.5;
+  }
+
+  protected onAttach(): void {
+    const rigidbody = gameObject.getComponent(Rigidbody);
+    if (!rigidbody) throw Error('BlockCrusher requires a Rigidbody.');
+    this.rigidbody = rigidbody;
+  }
+
+  update(delta: number): void {
+    elapsed += delta;
+    triggerCooldown = Math.max(0, triggerCooldown - delta);
+    if (state !== 'idle' || triggerCooldown > 0) return;
+    const player = scene.findAll(Player)[0];
+    if (!player) return;
+    const blockPosition = rigidbody.body.GetPosition();
+    const playerPosition = player.rigidbody.body.GetPosition();
+    const directlyBelow = Math.abs(playerPosition.x - blockPosition.x) < 0.72
+      && playerPosition.y > blockPosition.y + 0.52
+      && playerPosition.y < blockPosition.y + 7;
+    if (directlyBelow) {
+      state = 'falling';
+      fallSpeed = 1.5;
+    }
+  }
+
+  fixedUpdate(delta: number): void {
+    const position = rigidbody.body.GetPosition();
+    if (state === 'falling') {
+      fallSpeed = Math.min(13, fallSpeed + 30 * delta);
+      const castLength = fallSpeed * delta + 0.09;
+      const fraction = scene.raycastClosestFraction(
+        position.x,
+        position.y + 0.5,
+        position.x,
+        position.y + 0.5 + castLength,
+        TERRAIN_KINDS,
+      );
+      if (fraction !== null) {
+        const distance = castLength * fraction;
+        rigidbody.body.SetTransformXY(position.x, position.y + Math.max(0, distance - 0.02), 0);
+        rigidbody.body.SetLinearVelocity({ x: 0, y: 0 });
+        state = 'resting';
+        restTimer = 0.85;
+      } else {
+        rigidbody.body.SetLinearVelocity({ x: 0, y: fallSpeed });
+      }
+      return;
+    }
+
+    if (state === 'resting') {
+      rigidbody.body.SetLinearVelocity({ x: 0, y: 0 });
+      restTimer -= delta;
+      if (restTimer <= 0) state = 'rising';
+      return;
+    }
+
+    if (state === 'rising') {
+      if (position.y <= homeY + 0.03) {
+        rigidbody.body.SetTransformXY(position.x, homeY, 0);
+        rigidbody.body.SetLinearVelocity({ x: 0, y: 0 });
+        state = 'idle';
+        triggerCooldown = 0.55;
+      } else {
+        rigidbody.body.SetLinearVelocity({ x: 0, y: -2.15 });
+      }
+    }
+  }
+
+  lateUpdate(): void {
+    const sprite = gameObject.view.getChildByLabel('block-enemy-sprite') as Sprite | null;
+    if (sprite) {
+      const texture = state === 'falling'
+        ? 'block_fall'
+        : state === 'resting'
+          ? 'block_rest'
+          : 'block_idle';
+      sprite.texture = kenneyTexture(texture);
+    }
+    if (state === 'idle') gameObject.view.y += Math.sin(elapsed * 3.2) * 2.5;
+  }
+}

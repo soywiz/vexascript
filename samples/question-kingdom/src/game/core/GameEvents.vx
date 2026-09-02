@@ -1,0 +1,27 @@
+export interface GameEventMap {
+  coinCollected: { amount: number; points: number };
+  scoreAdded: { points: number };
+  playerHurt: Record<string, never>;
+  goalReached: Record<string, never>;
+}
+
+type Listener<K extends keyof GameEventMap> = (payload: GameEventMap[K]) => void;
+
+export class GameEvents {
+  private readonly listeners = new Map<keyof GameEventMap, Set<(payload: never) => void>>();
+
+  on<K extends keyof GameEventMap>(event: K, listener: Listener<K>): () => void {
+    const listeners = this.listeners.get(event) ?? new Set<(payload: never) => void>();
+    listeners.add(listener as (payload: never) => void);
+    this.listeners.set(event, listeners);
+    return () => listeners.delete(listener as (payload: never) => void);
+  }
+
+  emit<K extends keyof GameEventMap>(event: K, payload: GameEventMap[K]): void {
+    listeners.get(event)?.forEach((listener) => listener(payload as never));
+  }
+
+  clear(): void {
+    listeners.clear();
+  }
+}

@@ -1,0 +1,45 @@
+import { b2Contact, b2ContactImpulse, b2ContactListener, b2Manifold } from '@box2d/core';
+import { getFixtureTag } from './PhysicsTypes.vx';
+import type { ContactContext } from './PhysicsTypes.vx';
+
+export class PhysicsContactRouter extends b2ContactListener {
+  BeginContact(contact: b2Contact): void {
+    const contexts = this.contexts(contact);
+    if (!contexts) return;
+    contexts[0].self.owner.beginContact(contexts[0]);
+    contexts[1].self.owner.beginContact(contexts[1]);
+  }
+
+  EndContact(contact: b2Contact): void {
+    const contexts = this.contexts(contact);
+    if (!contexts) return;
+    contexts[0].self.owner.endContact(contexts[0]);
+    contexts[1].self.owner.endContact(contexts[1]);
+  }
+
+  PreSolve(contact: b2Contact, oldManifold: b2Manifold): void {
+    const contexts = this.contexts(contact);
+    if (!contexts) return;
+    contexts[0].self.owner.preSolve(contexts[0], oldManifold);
+    contexts[1].self.owner.preSolve(contexts[1], oldManifold);
+  }
+
+  PostSolve(contact: b2Contact, impulse: b2ContactImpulse): void {
+    const contexts = this.contexts(contact);
+    if (!contexts) return;
+    contexts[0].self.owner.postSolve(contexts[0], impulse);
+    contexts[1].self.owner.postSolve(contexts[1], impulse);
+  }
+
+  private contexts(contact: b2Contact): [ContactContext, ContactContext] | null {
+    const fixtureA = contact.GetFixtureA();
+    const fixtureB = contact.GetFixtureB();
+    const tagA = getFixtureTag(fixtureA);
+    const tagB = getFixtureTag(fixtureB);
+    if (!tagA || !tagB) return null;
+    return [
+      { contact, selfFixture: fixtureA, otherFixture: fixtureB, self: tagA, other: tagB },
+      { contact, selfFixture: fixtureB, otherFixture: fixtureA, self: tagB, other: tagA },
+    ];
+  }
+}

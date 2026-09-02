@@ -1,0 +1,232 @@
+import { AnimatedSprite, Container, Graphics, Sprite, Text } from 'pixi.js';
+import { kenneyTexture } from './render/KenneyAtlas.vx';
+
+const ASSET_ROOT = '/assets/kenney';
+
+export const COLORS = {
+  ink: 0x25304f,
+  purple: 0x6c5ce7,
+  coral: 0xff6b6b,
+  cream: 0xfff4d6,
+  gold: 0xffc83d,
+  grass: 0x56cf72,
+  cyan: 0x37b8d6,
+  cloud: 0xf8fcff,
+};
+
+export const PLAYER_TEXTURES = {
+  idle: 'character_purple_idle',
+  jump: 'character_purple_jump',
+  climbA: 'character_purple_climb_a',
+  climbB: 'character_purple_climb_b',
+  walkA: 'character_purple_walk_a',
+  walkB: 'character_purple_walk_b',
+  duck: 'character_purple_duck',
+  hit: 'character_purple_hit',
+} as const;
+
+export const SOUND_URLS = {
+  jump: `${ASSET_ROOT}/sfx_jump.ogg`,
+  highJump: `${ASSET_ROOT}/sfx_jump-high.ogg`,
+  coin: `${ASSET_ROOT}/sfx_coin.ogg`,
+  bump: `${ASSET_ROOT}/sfx_bump.ogg`,
+  hurt: `${ASSET_ROOT}/sfx_hurt.ogg`,
+  disappear: `${ASSET_ROOT}/sfx_disappear.ogg`,
+} as const;
+
+function centeredSprite(textureName: string, width: number, height: number): Sprite {
+  const sprite = Sprite.from(kenneyTexture(textureName));
+  sprite.anchor.set(0.5);
+  sprite.width = width;
+  sprite.height = height;
+  return sprite;
+}
+
+export function makePlayer(): Container {
+  const root = Container();
+  const sprite = centeredSprite(PLAYER_TEXTURES.idle, 88, 88);
+  // The artwork extends farther below the feet than its fixture; this offset aligns both baselines.
+  sprite.position.y = -12;
+  sprite.label = 'player-sprite';
+  root.addChild(sprite);
+  return root;
+}
+
+export function makeEnemy(): Container {
+  const root = Container();
+  const sprite = AnimatedSprite([
+    kenneyTexture('slime_normal_walk_a'),
+    kenneyTexture('slime_normal_walk_b'),
+  ]);
+  sprite.anchor.set(0.5);
+  sprite.width = 64;
+  sprite.height = 64;
+  sprite.animationSpeed = 0.09;
+  sprite.play();
+  root.addChild(sprite);
+  return root;
+}
+
+export function makeFrog(): Container {
+  const root = Container();
+  const sprite = centeredSprite('frog_idle', 64, 64);
+  sprite.label = 'frog-sprite';
+  root.addChild(sprite);
+  return root;
+}
+
+export function makeBee(): Container {
+  const root = Container();
+  const sprite = AnimatedSprite([
+    kenneyTexture('bee_a'),
+    kenneyTexture('bee_b'),
+  ]);
+  sprite.anchor.set(0.5);
+  sprite.width = 64;
+  sprite.height = 64;
+  sprite.animationSpeed = 0.16;
+  sprite.play();
+  root.addChild(sprite);
+  return root;
+}
+
+export function makeBlockEnemy(): Container {
+  const root = Container();
+  const sprite = centeredSprite('block_idle', 64, 64);
+  sprite.label = 'block-enemy-sprite';
+  root.addChild(sprite);
+  return root;
+}
+
+export function makeQuestionBlock(): Container {
+  const root = Container();
+  const sprite = centeredSprite('block_coin', 58, 58);
+  sprite.label = 'question-sprite';
+  const mark = Text({
+    text: '?',
+    style: {
+      fontFamily: 'Nunito, sans-serif',
+      fontSize: 34,
+      fontWeight: '900',
+      fill: 0xffffff,
+      stroke: { color: COLORS.ink, width: 5 },
+    },
+  });
+  mark.anchor.set(0.5);
+  mark.label = 'question-mark';
+  root.addChild(sprite, mark);
+  return root;
+}
+
+export function setQuestionBlockUsed(root: Container): void {
+  const sprite = root.getChildByLabel('question-sprite') as Sprite | null;
+  if (sprite) sprite.texture = kenneyTexture('block_empty');
+  const mark = root.getChildByLabel('question-mark');
+  if (mark) mark.visible = false;
+}
+
+export function makeCoin(): Container {
+  const root = Container();
+  root.addChild(centeredSprite('coin_gold', 46, 46));
+  return root;
+}
+
+export function makeGround(width: number, height: number): Container {
+  const root = Container();
+  const top = -height / 2;
+  addTerrainRow(root, width, top, Math.min(64, height), 'top');
+  for (let y = 64; y < height; y += 64) {
+    addTerrainRow(root, width, top + y, Math.min(64, height - y), 'fill');
+  }
+  return root;
+}
+
+export function makeWater(width: number, height: number): Container {
+  const root = Container();
+  const columns = Math.max(1, Math.ceil(width / 64));
+  const rows = Math.max(1, Math.ceil(height / 64));
+  const cellWidth = width / columns;
+  const cellHeight = height / rows;
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const sprite = Sprite.from(kenneyTexture(row === 0 ? 'water_top' : 'water'));
+      sprite.position.set(-width / 2 + column * cellWidth, -height / 2 + row * cellHeight);
+      sprite.width = cellWidth + 0.5;
+      sprite.height = cellHeight + 0.5;
+      if (row === 0) sprite.label = `water-surface-${column}`;
+      root.addChild(sprite);
+    }
+  }
+  return root;
+}
+
+export function makePlatform(
+  width: number,
+  oneWay: boolean,
+  colliderHeight: number,
+  material: 'grass' | 'snow' = 'grass',
+  angled = false,
+): Container {
+  const root = Container();
+  const visualTop = -colliderHeight / 2;
+  if (oneWay && !angled) addRepeatedRow(root, 'bridge_logs', width, visualTop, 32);
+  else addTerrainRow(root, width, visualTop, 64, 'top', material);
+  return root;
+}
+
+function addTerrainRow(
+  root: Container,
+  width: number,
+  y: number,
+  height: number,
+  row: 'top' | 'fill',
+  material: 'grass' | 'snow' = 'grass',
+): void {
+  const count = Math.max(1, Math.ceil(width / 64));
+  const cellWidth = width / count;
+  for (let index = 0; index < count; index += 1) {
+    let file: string;
+    if (count === 1) {
+      file = row === 'top' ? `terrain_${material}_block` : `terrain_${material}_block_center`;
+    } else if (index === 0) {
+      file = row === 'top' ? `terrain_${material}_horizontal_left` : `terrain_${material}_block_left`;
+    } else if (index === count - 1) {
+      file = row === 'top' ? `terrain_${material}_horizontal_right` : `terrain_${material}_block_right`;
+    } else {
+      file = row === 'top' ? `terrain_${material}_horizontal_middle` : `terrain_${material}_block_center`;
+    }
+    const sprite = Sprite.from(kenneyTexture(file));
+    sprite.position.set(-width / 2 + index * cellWidth, y);
+    sprite.width = cellWidth;
+    sprite.height = height;
+    root.addChild(sprite);
+  }
+}
+
+function addRepeatedRow(root: Container, textureName: string, width: number, y: number, height: number): void {
+  const count = Math.max(1, Math.ceil(width / 64));
+  const cellWidth = width / count;
+  for (let index = 0; index < count; index += 1) {
+    const sprite = Sprite.from(kenneyTexture(textureName));
+    sprite.position.set(-width / 2 + index * cellWidth, y);
+    sprite.width = cellWidth;
+    sprite.height = height;
+    root.addChild(sprite);
+  }
+}
+
+export function makeFlag(): Container {
+  const root = Container();
+  const pole = Graphics()
+    .roundRect(-4, -170, 8, 190, 4)
+    .fill(0xf6f1da)
+    .stroke({ color: COLORS.ink, width: 3 })
+    .circle(0, -177, 10)
+    .fill(COLORS.gold)
+    .stroke({ color: COLORS.ink, width: 3 });
+  const flag = centeredSprite('flag_red_a', 72, 72);
+  flag.anchor.set(0, 0.5);
+  flag.position.set(2, -143);
+  root.addChild(pole, flag);
+  return root;
+}

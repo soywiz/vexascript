@@ -1,0 +1,42 @@
+import { Container, Graphics } from 'pixi.js';
+import { COLORS } from '../art.vx';
+import { VIEW_HEIGHT, VIEW_WIDTH } from '../core/constants.vx';
+
+export class Background {
+  readonly view = Container();
+  private readonly clouds: Graphics[] = [];
+
+  init {
+    const background = Graphics().rect(0, 0, VIEW_WIDTH, VIEW_HEIGHT).fill(0x7ed6f7);
+    const sun = Graphics()
+      .circle(1080, 118, 70)
+      .fill({ color: 0xffef9a, alpha: 0.85 })
+      .circle(1080, 118, 48)
+      .fill(0xfff4b6);
+    const hills = Graphics();
+    hills.moveTo(0, 545).bezierCurveTo(160, 400, 330, 425, 520, 545).lineTo(0, 545).fill(0x82d69c);
+    hills.moveTo(350, 545).bezierCurveTo(610, 340, 825, 390, 1060, 545).lineTo(350, 545).fill(0x65c78a);
+    hills.moveTo(850, 545).bezierCurveTo(1050, 410, 1170, 430, 1280, 515).lineTo(1280, 545).lineTo(850, 545).fill(0x51b77b);
+    view.addChild(background, sun, hills);
+
+    for (const [x, y, scale] of [[145, 120, 1], [520, 185, 0.75], [830, 90, 0.9]] as const) {
+      const cloud = Graphics()
+        .circle(-34, 8, 25)
+        .circle(0, -4, 36)
+        .circle(38, 8, 27)
+        .roundRect(-60, 6, 122, 29, 15)
+        .fill({ color: COLORS.cloud, alpha: 0.9 });
+      cloud.position.set(x, y);
+      cloud.scale.set(scale);
+      clouds.push(cloud);
+      view.addChild(cloud);
+    }
+  }
+
+  setParallax(cameraX: number): void {
+    clouds.forEach((cloud, index) => {
+      cloud.x = [145, 520, 830][index] - (cameraX * (0.035 + index * 0.012)) % 1450;
+      if (cloud.x < -100) cloud.x += 1450;
+    });
+  }
+}

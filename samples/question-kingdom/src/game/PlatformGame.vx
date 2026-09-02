@@ -1,0 +1,153 @@
+import { Application, Container, Graphics } from 'pixi.js';
+import { SOUND_URLS } from './art.vx';
+import { AudioService } from './core/AudioService.vx';
+import { FIXED_STEP } from './core/constants.vx';
+import { GameScene } from './core/GameScene.vx';
+import { Player } from './entities/Player.vx';
+import { Input } from './Input.vx';
+import { Background } from './render/Background.vx';
+import { PhysicsDebugRenderer } from './render/PhysicsDebugRenderer.vx';
+import { CameraController } from './systems/CameraController.vx';
+import { Hud } from './ui/Hud.vx';
+import { MobileControls } from './ui/MobileControls.vx';
+import { LevelBuilder } from './world/LevelBuilder.vx';
+
+type GameState = 'playing' | 'paused' | 'won' | 'gameover';
+
+export class PlatformGame(private const app: Application) {
+  private readonly input = new Input();
+  private readonly root = Container();
+  private readonly worldLayer = Container();
+  private readonly debugLayer = Container();
+  private readonly debugGraphics = Graphics();
+  private readonly background = new Background();
+  private readonly hud = new Hud();
+  private scene!: GameScene;
+  private player!: Player;
+  private camera!: CameraController;
+  private debugRenderer!: PhysicsDebugRenderer;
+  private accumulator = 0;
+  private elapsed = 0;
+  private score = 0;
+  private coins = 0;
+  private lives = 3;
+  private spriteMode = true;
+  private state: GameState = 'playing';
+
+  init {
+    new MobileControls(input, app.canvas.parentElement ?? document.body);
+    debugLayer.addChild(debugGraphics);
+    debugLayer.visible = false;
+    root.addChild(background.view, worldLayer, debugLayer, hud.view);
+    app.stage.addChild(root);
+    createScene();
+  }
+
+  start(): void {
+    app.ticker.add((ticker) => update(Math.min(ticker.deltaMS / 1000, 0.05)));
+  }
+
+  private createScene(): void {
+    scene?.destroy();
+    scene = new GameScene(worldLayer, input);
+    player = new LevelBuilder(scene).build();
+    camera = new CameraController(player, worldLayer, debugLayer, background);
+    debugRenderer = new PhysicsDebugRenderer(scene, debugGraphics);
+
+    scene.events.on('coinCollected', ({ amount, points }) => {
+      coins += amount;
+      score += points;
+    });
+    scene.events.on('scoreAdded', ({ points }) => {
+      score += points;
+    });
+    scene.events.on('playerHurt', () => hurtPlayer());
+    scene.events.on('goalReached', () => winGame());
+  }
+
+  private update(delta: number): void {
+    input.beginFrame();
+    const finished = state === 'won' || state === 'gameover';
+    const restartRequested = finished ? input.anyPressed() : input.justPressed('KeyR');
+    if (restartRequested) restartGame();
+    if (!restartRequested && input.justPressed('F2')) toggleVisualMode();
+    if (!restartRequested && input.justPressed('KeyP', 'Escape') && !finished) {
+      state = state === 'paused' ? 'playing' : 'paused';
+      hud.showOverlay(state === 'paused' ? 'PAUSED' : '', state === 'paused' ? 'Press P to continue' : '');
+    }
+
+    if (state === 'playing') {
+      elapsed += delta;
+      scene.update(delta);
+      accumulator = Math.min(accumulator + delta, FIXED_STEP * 3);
+      while (accumulator >= FIXED_STEP) {
+        scene.step(FIXED_STEP);
+        accumulator -= FIXED_STEP;
+      }
+      checkFall();
+      scene.lateUpdate(delta);
+      camera.update(delta);
+    }
+
+    if (!spriteMode) debugRenderer.render();
+    hud.update(score, coins, lives, elapsed);
+    input.endFrame();
+  }
+
+  private hurtPlayer(): void {
+    AudioService.play(SOUND_URLS.hurt);
+    lives -= 1;
+    if (lives <= 0) {
+      state = 'gameover';
+      player.controller.freeze();
+      hud.showOverlay(
+        'GAME OVER',
+        `Score ${score.toString().padStart(6, '0')} · Press any key or button to try again`,
+      );
+      return;
+    }
+    respawnPlayer();
+  }
+
+  private checkFall(): void {
+    if (player.rigidbody.body.GetPosition().y > 13) player.controller.requestHurt();
+  }
+
+  private respawnPlayer(): void {
+    const currentX = player.rigidbody.body.GetPosition().x;
+    const checkpoints = [2.2, 20.8, 37.8, 58.8];
+    const spawnX = checkpoints.reduce((best, value) => value < currentX - 1 ? value : best, 2.2);
+    player.controller.respawn(spawnX, 8.8);
+  }
+
+  private winGame(): void {
+    if (state !== 'playing') return;
+    state = 'won';
+    score += Math.max(0, 300 - Math.floor(elapsed)) * 10;
+    player.controller.freeze();
+    hud.showOverlay(
+      'LEVEL COMPLETE!',
+      `${coins} coins · ${score.toString().padStart(6, '0')} points · Press any key or button to play again`,
+    );
+  }
+
+  private restartGame(): void {
+    score = 0;
+    coins = 0;
+    lives = 3;
+    elapsed = 0;
+    accumulator = 0;
+    state = 'playing';
+    hud.showOverlay('', '');
+    worldLayer.position.set(0, 0);
+    debugLayer.position.set(0, 0);
+    createScene();
+  }
+
+  private toggleVisualMode(): void {
+    spriteMode = !spriteMode;
+    worldLayer.visible = spriteMode;
+    debugLayer.visible = !spriteMode;
+    if (!spriteMode) debugRenderer.render();
+  }
+}

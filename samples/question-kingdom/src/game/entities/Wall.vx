@@ -1,0 +1,17 @@
+import { b2BodyType } from '@box2d/core';
+import { makeGround } from '../art.vx';
+import { GameObject } from '../core/GameObject.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { PIXELS_PER_METER } from '../core/constants.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+
+export class Wall extends GameObject {
+  constructor(scene: GameScene, x: number, bottomY: number, width: number, height: number) {
+    super(scene, 'Wall', makeGround(width * PIXELS_PER_METER, height * PIXELS_PER_METER));
+    const rigidbody = addComponent(new Rigidbody({
+      type: b2BodyType.b2_staticBody,
+      position: { x, y: bottomY - height / 2 },
+    }));
+    rigidbody.addBoxCollider({ halfWidth: width / 2, halfHeight: height / 2, kind: 'solid', friction: 0.3 });
+  }
+}

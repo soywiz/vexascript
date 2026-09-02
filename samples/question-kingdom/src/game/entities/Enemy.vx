@@ -1,0 +1,13 @@
+import { makeEnemy } from '../art.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { EnemyPatrol } from '../scripts/EnemyPatrol.vx';
+import { BaseEnemy } from './BaseEnemy.vx';
+
+export class Enemy extends BaseEnemy {
+  readonly patrol: EnemyPatrol;
+
+  constructor(scene: GameScene, x: number, y: number, direction: -1 | 1) {
+    super(scene, 'Slime', makeEnemy(), x, y, 0.38, 0.38);
+    this.patrol = addComponent(new EnemyPatrol(direction));
+  }
+}

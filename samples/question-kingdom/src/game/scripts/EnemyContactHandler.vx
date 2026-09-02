@@ -1,0 +1,43 @@
+import { Component } from '../core/Component.vx';
+import { PLAYER_HALF_HEIGHT } from '../core/constants.vx';
+import type { ContactContext } from '../core/PhysicsTypes.vx';
+import type { BaseEnemy } from '../entities/BaseEnemy.vx';
+import type { Player } from '../entities/Player.vx';
+
+export class EnemyContactHandler extends Component {
+  private stompQueued = false;
+
+  onPreSolve(context: ContactContext): void {
+    if (context.other.kind !== 'player') return;
+    const player = context.other.owner as Player;
+    if (isStomp(player)) {
+      context.contact.SetEnabled(false);
+      queueStomp(player);
+    }
+  }
+
+  onBeginContact(context: ContactContext): void {
+    if (context.other.kind !== 'player') return;
+    const player = context.other.owner as Player;
+    if (isStomp(player)) queueStomp(player);
+    else player.controller.requestHurt();
+  }
+
+  private isStomp(player: Player): boolean {
+    const enemy = gameObject as BaseEnemy;
+    const playerBody = player.rigidbody.body;
+    return enemy.alive
+      && playerBody.GetPosition().y + PLAYER_HALF_HEIGHT < enemy.rigidbody.body.GetPosition().y + 0.05
+      && playerBody.GetLinearVelocity().y > 0.5;
+  }
+
+  private queueStomp(player: Player): void {
+    if (stompQueued) return;
+    stompQueued = true;
+    scene.defer(() => {
+      const enemy = gameObject as BaseEnemy;
+      enemy.stomp();
+      player.controller.bounceFromEnemy();
+    });
+  }
+}

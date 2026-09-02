@@ -1,0 +1,13 @@
+import { makeFrog } from '../art.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { FrogHopper } from '../scripts/FrogHopper.vx';
+import { BaseEnemy } from './BaseEnemy.vx';
+
+export class Frog extends BaseEnemy {
+  readonly hopper: FrogHopper;
+
+  constructor(scene: GameScene, x: number, y: number, direction: -1 | 1) {
+    super(scene, 'Frog', makeFrog(), x, y, 0.36, 0.34);
+    this.hopper = addComponent(new FrogHopper(direction));
+  }
+}

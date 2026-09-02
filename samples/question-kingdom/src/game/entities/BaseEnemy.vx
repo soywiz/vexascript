@@ -1,0 +1,45 @@
+import { b2BodyType } from '@box2d/core';
+import type { Container } from 'pixi.js';
+import { GameObject } from '../core/GameObject.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import { EnemyContactHandler } from '../scripts/EnemyContactHandler.vx';
+import { EnemyDefeatAnimation } from '../scripts/EnemyDefeatAnimation.vx';
+
+export class BaseEnemy extends GameObject {
+  readonly rigidbody: Rigidbody;
+  readonly defeatAnimation: EnemyDefeatAnimation;
+  alive = true;
+
+  constructor(
+    scene: GameScene,
+    name: string,
+    view: Container,
+    x: number,
+    y: number,
+    halfWidth: number,
+    halfHeight: number,
+    gravityScale = 1,
+  ) {
+    super(scene, name, view);
+    this.rigidbody = addComponent(new Rigidbody({
+      type: b2BodyType.b2_dynamicBody,
+      position: { x, y },
+      fixedRotation: true,
+      allowSleep: false,
+      gravityScale,
+    }));
+    rigidbody.addBoxCollider({ halfWidth, halfHeight, kind: 'enemy', density: 1, friction: 0 });
+    addComponent(new EnemyContactHandler());
+    this.defeatAnimation = addComponent(new EnemyDefeatAnimation());
+  }
+
+  stomp(): void {
+    if (!alive) return;
+    alive = false;
+    rigidbody.body.SetLinearVelocity({ x: 0, y: 0 });
+    rigidbody.body.SetEnabled(false);
+    defeatAnimation.play();
+    scene.events.emit('scoreAdded', { points: 200 });
+  }
+}

@@ -1,0 +1,56 @@
+import { Sprite } from 'pixi.js';
+import { Component } from '../core/Component.vx';
+import type { FixtureKind } from '../core/PhysicsTypes.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import type { BaseEnemy } from '../entities/BaseEnemy.vx';
+import { kenneyTexture } from '../render/KenneyAtlas.vx';
+
+const TERRAIN_KINDS = Set<FixtureKind>(['ground', 'solid', 'oneWay', 'question']);
+
+export class FrogHopper(public var direction: -1 | 1) extends Component {
+  private rigidbody!: Rigidbody;
+  private jumpCooldown = 0.35;
+
+  protected onAttach(): void {
+    const rigidbody = gameObject.getComponent(Rigidbody);
+    if (!rigidbody) throw Error('FrogHopper requires a Rigidbody.');
+    this.rigidbody = rigidbody;
+  }
+
+  update(delta: number): void {
+    if (!(gameObject as BaseEnemy).alive) return;
+    jumpCooldown = Math.max(0, jumpCooldown - delta);
+    const position = rigidbody.body.GetPosition();
+    const velocity = rigidbody.body.GetLinearVelocity();
+    const grounded = scene.raycastKinds(position.x, position.y + 0.33, position.x, position.y + 0.48, TERRAIN_KINDS);
+    const wallAhead = scene.raycastKinds(
+      position.x + direction * 0.35,
+      position.y,
+      position.x + direction * 0.55,
+      position.y,
+      TERRAIN_KINDS,
+    );
+    const floorAhead = scene.raycastKinds(
+      position.x + direction * 0.62,
+      position.y + 0.3,
+      position.x + direction * 0.62,
+      position.y + 0.78,
+      TERRAIN_KINDS,
+    );
+    if (grounded && (wallAhead || !floorAhead)) direction = direction === 1 ? -1 : 1;
+    if (grounded && jumpCooldown <= 0 && Math.abs(velocity.y) < 1.2) {
+      rigidbody.body.SetLinearVelocity({ x: direction * 3.25, y: -9.2 });
+      jumpCooldown = 0.82;
+    }
+  }
+
+  lateUpdate(): void {
+    if (!(gameObject as BaseEnemy).alive) return;
+    const sprite = gameObject.view.getChildByLabel('frog-sprite') as Sprite | null;
+    if (sprite) {
+      const airborne = Math.abs(rigidbody.body.GetLinearVelocity().y) > 0.7;
+      sprite.texture = kenneyTexture(airborne ? 'frog_jump' : 'frog_idle');
+    }
+    gameObject.view.scale.x = -this.direction;
+  }
+}

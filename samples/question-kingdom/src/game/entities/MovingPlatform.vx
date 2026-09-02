@@ -1,0 +1,36 @@
+import { b2BodyType } from '@box2d/core';
+import { makePlatform } from '../art.vx';
+import { GameObject } from '../core/GameObject.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { PIXELS_PER_METER } from '../core/constants.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import { MovingPlatformMotion } from '../scripts/MovingPlatformMotion.vx';
+
+export class MovingPlatform extends GameObject {
+  readonly rigidbody: Rigidbody;
+  readonly motion: MovingPlatformMotion;
+
+  constructor(
+    scene: GameScene,
+    centerX: number,
+    surfaceY: number,
+    width: number,
+    travel: number,
+    period: number,
+  ) {
+    super(scene, 'Moving Platform', makePlatform(width * PIXELS_PER_METER, false, PIXELS_PER_METER));
+    this.rigidbody = addComponent(new Rigidbody({
+      type: b2BodyType.b2_kinematicBody,
+      position: { x: centerX, y: surfaceY + 0.5 },
+      fixedRotation: true,
+      allowSleep: false,
+    }));
+    rigidbody.addBoxCollider({
+      halfWidth: width / 2,
+      halfHeight: 0.5,
+      kind: 'solid',
+      friction: 0.75,
+    });
+    this.motion = addComponent(new MovingPlatformMotion(travel, period));
+  }
+}

@@ -1,0 +1,94 @@
+const FALLBACK_CHANNELS = 3;
+
+export class AudioService {
+  private static context: AudioContext | null = null;
+  private static readonly buffers = new Map<string, AudioBuffer>();
+  private static readonly loading = new Map<string, Promise<void>>();
+  private static readonly fallbackPools = new Map<string, HTMLAudioElement[]>();
+  private static unlockInstalled = false;
+
+  static async preload(urls: readonly string[]): Promise<void> {
+    this.ensureContext();
+    await Promise.all(urls.map((url) => this.load(url)));
+  }
+
+  static play(url: string, volume = 0.32): void {
+    const context = this.ensureContext();
+    const buffer = this.buffers.get(url);
+    if (context && buffer) {
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      source.buffer = buffer;
+      gain.gain.value = volume;
+      source.connect(gain);
+      gain.connect(context.destination);
+      source.start();
+      return;
+    }
+
+    if (!this.loading.has(url)) void this.load(url);
+    this.playFallback(url, volume);
+  }
+
+  private static load(url: string): Promise<void> {
+    const existing = this.loading.get(url);
+    if (existing) return existing;
+
+    const loading = this.loadBuffer(url).catch(() => {
+      this.prepareFallback(url);
+    });
+    this.loading.set(url, loading);
+    return loading;
+  }
+
+  private static sync loadBuffer(url: string): Promise<void> {
+    const context = this.ensureContext();
+    if (!context) throw Error('Web Audio is not available.');
+    const response = fetch(url);
+    if (!response.ok) throw Error(`Could not preload ${url}: ${response.status}`);
+    const buffer = context.decodeAudioData(response.arrayBuffer());
+    this.buffers.set(url, buffer);
+  }
+
+  private static ensureContext(): AudioContext | null {
+    if (this.context) return this.context;
+    const AudioContextClass = window.AudioContext
+      ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return null;
+    this.context = new AudioContextClass({ latencyHint: 'interactive' });
+    this.installUnlockHandlers();
+    return this.context;
+  }
+
+  private static installUnlockHandlers(): void {
+    if (this.unlockInstalled) return;
+    this.unlockInstalled = true;
+    const unlock = (): void => {
+      if (this.context?.state === 'suspended') void this.context.resume();
+    };
+    window.addEventListener('pointerdown', unlock, { capture: true, passive: true });
+    window.addEventListener('keydown', unlock, { capture: true, passive: true });
+  }
+
+  private static prepareFallback(url: string): HTMLAudioElement[] {
+    const existing = this.fallbackPools.get(url);
+    if (existing) return existing;
+    const pool = Array.from({ length: FALLBACK_CHANNELS }, () => {
+      const audio = Audio(url);
+      audio.preload = 'auto';
+      audio.load();
+      return audio;
+    });
+    this.fallbackPools.set(url, pool);
+    return pool;
+  }
+
+  private static playFallback(url: string, volume: number): void {
+    const pool = this.prepareFallback(url);
+    const audio = pool.find((candidate) => candidate.paused || candidate.ended) ?? pool[0];
+    audio.pause();
+    audio.currentTime = 0;
+    audio.volume = volume;
+    void audio.play().catch(() => undefined);
+  }
+}

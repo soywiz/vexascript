@@ -1,0 +1,23 @@
+import { Component } from '../core/Component.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+
+export class MovingPlatformMotion(
+  private const travel: number,
+  private const period: number,
+) extends Component {
+  private rigidbody!: Rigidbody;
+  private elapsed = 0;
+
+  protected onAttach(): void {
+    const rigidbody = gameObject.getComponent(Rigidbody);
+    if (!rigidbody) throw Error('MovingPlatformMotion requires a Rigidbody.');
+    this.rigidbody = rigidbody;
+  }
+
+  fixedUpdate(delta: number): void {
+    elapsed = (elapsed + delta) % period;
+    const angularSpeed = (Math.PI * 2) / period;
+    const velocityX = travel * angularSpeed * Math.cos(elapsed * angularSpeed);
+    rigidbody.body.SetLinearVelocity({ x: velocityX, y: 0 });
+  }
+}

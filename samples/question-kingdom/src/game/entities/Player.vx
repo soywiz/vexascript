@@ -1,0 +1,51 @@
+import { b2BodyType } from '@box2d/core';
+import type { b2Fixture } from '@box2d/core';
+import { makePlayer } from '../art.vx';
+import { GameObject } from '../core/GameObject.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { PLAYER_CROUCH_HALF_HEIGHT, PLAYER_HALF_HEIGHT, PLAYER_HALF_WIDTH } from '../core/constants.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import { PlayerController } from '../scripts/PlayerController.vx';
+
+export class Player extends GameObject {
+  readonly rigidbody: Rigidbody;
+  readonly controller: PlayerController;
+  private collider: b2Fixture;
+  private crouched = false;
+
+  constructor(scene: GameScene, x: number, y: number) {
+    super(scene, 'Player', makePlayer());
+    this.rigidbody = addComponent(new Rigidbody({
+      type: b2BodyType.b2_dynamicBody,
+      position: { x, y },
+      fixedRotation: true,
+      allowSleep: false,
+      bullet: true,
+    }));
+    collider = rigidbody.addBoxCollider({
+      halfWidth: PLAYER_HALF_WIDTH,
+      halfHeight: PLAYER_HALF_HEIGHT,
+      kind: 'player',
+      density: 1,
+      friction: 0,
+      restitution: 0,
+    });
+    this.controller = addComponent(new PlayerController());
+  }
+
+  setCrouched(crouched: boolean): void {
+    if (this.crouched === crouched) return;
+    this.crouched = crouched;
+    const halfHeight = crouched ? PLAYER_CROUCH_HALF_HEIGHT : PLAYER_HALF_HEIGHT;
+    const centerY = crouched ? PLAYER_HALF_HEIGHT - PLAYER_CROUCH_HALF_HEIGHT : 0;
+    collider = rigidbody.replaceBoxCollider(collider, {
+      halfWidth: PLAYER_HALF_WIDTH,
+      halfHeight,
+      center: { x: 0, y: centerY },
+      kind: 'player',
+      density: 1,
+      friction: 0,
+      restitution: 0,
+    });
+  }
+}

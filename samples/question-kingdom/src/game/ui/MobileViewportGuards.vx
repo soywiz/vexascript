@@ -1,0 +1,58 @@
+export function installMobileViewportGuards(host: HTMLElement): void {
+  const preventDefault = (event: Event): void => event.preventDefault();
+  let resetPending = false;
+
+  const resetViewport = (): void => {
+    if (resetPending) return;
+    resetPending = true;
+    const current = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    const replacement = document.createElement('meta');
+    replacement.name = 'viewport';
+    replacement.content = [
+      'width=device-width',
+      'initial-scale=1',
+      'minimum-scale=1',
+      'maximum-scale=1',
+      'user-scalable=no',
+      'viewport-fit=cover',
+      'shrink-to-fit=no',
+    ].join(', ');
+    if (current) current.replaceWith(replacement);
+    else document.head.appendChild(replacement);
+    requestAnimationFrame(() => {
+      window.scrollTo(0, 0);
+      resetPending = false;
+    });
+  };
+
+  // Reinsertar el meta obliga a Safari a descartar una escala visual conservada al recargar.
+  resetViewport();
+  window.addEventListener('pageshow', resetViewport);
+  window.addEventListener('orientationchange', resetViewport);
+  window.visualViewport?.addEventListener('resize', () => {
+    if ((window.visualViewport?.scale ?? 1) > 1.01) resetViewport();
+  });
+
+  // Safari conserva sus eventos gesture* aunque el meta viewport limite la escala.
+  host.addEventListener('gesturestart', preventDefault, { passive: false });
+  host.addEventListener('gesturechange', preventDefault, { passive: false });
+  host.addEventListener('gestureend', preventDefault, { passive: false });
+  host.addEventListener('dblclick', preventDefault, { passive: false });
+  host.addEventListener('contextmenu', preventDefault);
+
+  host.addEventListener('touchstart', (event) => {
+    if (event.touches.length > 1) event.preventDefault();
+  }, { passive: false });
+
+  host.addEventListener('touchmove', (event) => {
+    // The game uses Pointer Events; native touchmove can only scroll or zoom the page.
+    event.preventDefault();
+  }, { passive: false });
+
+  let lastTouchEnd = 0;
+  host.addEventListener('touchend', (event) => {
+    const now = performance.now();
+    if (now - lastTouchEnd < 350) event.preventDefault();
+    lastTouchEnd = now;
+  }, { passive: false });
+}

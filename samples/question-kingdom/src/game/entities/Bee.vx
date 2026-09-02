@@ -1,0 +1,13 @@
+import { makeBee } from '../art.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { BeePatrol } from '../scripts/BeePatrol.vx';
+import { BaseEnemy } from './BaseEnemy.vx';
+
+export class Bee extends BaseEnemy {
+  readonly patrol: BeePatrol;
+
+  constructor(scene: GameScene, x: number, y: number, direction: -1 | 1, range = 2.8) {
+    super(scene, 'Bee', makeBee(), x, y, 0.32, 0.3, 0);
+    this.patrol = addComponent(new BeePatrol(x, y, direction, range));
+  }
+}

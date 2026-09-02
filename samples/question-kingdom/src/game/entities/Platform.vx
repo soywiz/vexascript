@@ -1,0 +1,59 @@
+import { b2BodyType } from '@box2d/core';
+import { makePlatform } from '../art.vx';
+import { GameObject } from '../core/GameObject.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { PIXELS_PER_METER } from '../core/constants.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import { OneWayPlatformHandler } from '../scripts/OneWayPlatformHandler.vx';
+import { IceSurfaceHandler } from '../scripts/IceSurfaceHandler.vx';
+
+export type PlatformMaterial = 'grass' | 'ice';
+
+const ONE_WAY_HEIGHT = 0.24;
+const PREVIOUS_SOLID_HEIGHT = 0.42;
+const FULL_TILE_HEIGHT = 1;
+
+export class Platform extends GameObject {
+  constructor(
+    scene: GameScene,
+    x: number,
+    y: number,
+    width: number,
+    oneWay: boolean,
+    angle = 0,
+    material: PlatformMaterial = 'grass',
+  ) {
+    const height = oneWay ? ONE_WAY_HEIGHT : FULL_TILE_HEIGHT;
+    const extension = oneWay ? 0 : (FULL_TILE_HEIGHT - PREVIOUS_SOLID_HEIGHT) / 2;
+    // Extendemos el fixture por debajo de su antigua superficie. En rampas, el
+    // desplazamiento sigue el eje Y local para conservar toda la arista superior.
+    const bodyX = x - Math.sin(angle) * extension;
+    const bodyY = y + Math.cos(angle) * extension;
+    super(
+      scene,
+      oneWay ? 'One-way Platform' : material === 'ice' ? 'Ice Ramp' : angle === 0 ? 'Platform' : 'Ramp',
+      makePlatform(
+        width * PIXELS_PER_METER,
+        oneWay,
+        height * PIXELS_PER_METER,
+        material === 'ice' ? 'snow' : 'grass',
+        angle !== 0,
+      ),
+    );
+    const rigidbody = addComponent(new Rigidbody({
+      type: b2BodyType.b2_staticBody,
+      position: { x: bodyX, y: bodyY },
+      angle,
+    }));
+    rigidbody.addBoxCollider({
+      halfWidth: width / 2,
+      halfHeight: height / 2,
+      kind: oneWay ? 'oneWay' : 'solid',
+      top: bodyY - height / 2,
+      material: material === 'ice' ? 'ice' : 'normal',
+      friction: angle !== 0 || material === 'ice' ? 0 : 0.3,
+    });
+    if (oneWay) addComponent(new OneWayPlatformHandler());
+    if (material === 'ice') addComponent(new IceSurfaceHandler());
+  }
+}

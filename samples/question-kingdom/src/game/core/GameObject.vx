@@ -1,0 +1,81 @@
+import { Container } from 'pixi.js';
+import { Component } from './Component.vx';
+import type { ContactContext } from './PhysicsTypes.vx';
+import type { b2ContactImpulse, b2Manifold } from '@box2d/core';
+import type { GameScene } from './GameScene.vx';
+
+type ComponentConstructor<T extends Component> = abstract new (...args: never[]) => T;
+
+export class GameObject(
+  public const scene: GameScene,
+  public const name: string,
+  public const view: Container = Container(),
+) {
+  active = true;
+  destroyed = false;
+  private readonly components: Component[] = [];
+
+  init {
+    view.label = name;
+    scene.addGameObject(this);
+  }
+
+  addComponent<T extends Component>(component: T): T {
+    components.push(component);
+    component.attach(this);
+    return component;
+  }
+
+  getComponent<T extends Component>(type: ComponentConstructor<T>): T | null {
+    return (components.find((component) => component instanceof type) as T | undefined) ?? null;
+  }
+
+  update(delta: number): void {
+    if (!active) return;
+    components.forEach((component) => component.enabled && component.update(delta));
+  }
+
+  beforePhysicsStep(): void {
+    if (!active) return;
+    components.forEach((component) => component.enabled && component.beforePhysicsStep());
+  }
+
+  fixedUpdate(delta: number): void {
+    if (!active) return;
+    components.forEach((component) => component.enabled && component.fixedUpdate(delta));
+  }
+
+  afterPhysicsStep(): void {
+    if (!active) return;
+    components.forEach((component) => component.enabled && component.afterPhysicsStep());
+  }
+
+  lateUpdate(delta: number): void {
+    if (!active) return;
+    components.forEach((component) => component.enabled && component.lateUpdate(delta));
+  }
+
+  beginContact(context: ContactContext): void {
+    components.forEach((component) => component.enabled && component.onBeginContact(context));
+  }
+
+  endContact(context: ContactContext): void {
+    components.forEach((component) => component.enabled && component.onEndContact(context));
+  }
+
+  preSolve(context: ContactContext, oldManifold: b2Manifold): void {
+    components.forEach((component) => component.enabled && component.onPreSolve(context, oldManifold));
+  }
+
+  postSolve(context: ContactContext, impulse: b2ContactImpulse): void {
+    components.forEach((component) => component.enabled && component.onPostSolve(context, impulse));
+  }
+
+  destroy(): void {
+    if (destroyed) return;
+    destroyed = true;
+    [...components].reverse().forEach((component) => component.onDestroy());
+    scene.removeGameObject(this);
+    view.destroy({ children: true });
+  }
+}

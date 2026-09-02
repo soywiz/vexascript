@@ -1,0 +1,273 @@
+import { b2ContactImpulse, b2WorldManifold } from '@box2d/core';
+import { Sprite } from 'pixi.js';
+import { PLAYER_TEXTURES, SOUND_URLS } from '../art.vx';
+import { AudioService } from '../core/AudioService.vx';
+import { Component } from '../core/Component.vx';
+import { PLAYER_CROUCH_HALF_HEIGHT, PLAYER_HALF_HEIGHT, PLAYER_HALF_WIDTH } from '../core/constants.vx';
+import { isTerrain } from '../core/PhysicsTypes.vx';
+import type { ContactContext, FixtureKind } from '../core/PhysicsTypes.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import type { Player } from '../entities/Player.vx';
+import { kenneyTexture } from '../render/KenneyAtlas.vx';
+
+const WALL_KINDS = Set<FixtureKind>(['ground', 'solid', 'question']);
+
+export class PlayerController extends Component {
+  grounded = false;
+  wallDirection: -1 | 0 | 1 = 0;
+  invulnerableTimer = 0;
+  private rigidbody!: Rigidbody;
+  private supportedThisStep = false;
+  private supportedByOneWayThisStep = false;
+  private supportVelocityXThisStep = 0;
+  private supportedByOneWay = false;
+  private supportVelocityX = 0;
+  private iceThisStep = false;
+  private onIce = false;
+  private coyoteTimer = 0;
+  private jumpBuffer = 0;
+  private wallJumpLock = 0;
+  private waterContacts = 0;
+  private crouched = false;
+  private animationTime = 0;
+  private currentTexture = '';
+
+  protected onAttach(): void {
+    const rigidbody = gameObject.getComponent(Rigidbody);
+    if (!rigidbody) throw Error('PlayerController requires a Rigidbody.');
+    this.rigidbody = rigidbody;
+  }
+
+  update(delta: number): void {
+    animationTime += delta;
+    invulnerableTimer = Math.max(0, invulnerableTimer - delta);
+    coyoteTimer = Math.max(0, coyoteTimer - delta);
+    wallJumpLock = Math.max(0, wallJumpLock - delta);
+
+    const input = scene.input;
+    const left = input.down('KeyA', 'ArrowLeft');
+    const right = input.down('KeyD', 'ArrowRight');
+    const down = input.down('KeyS', 'ArrowDown');
+    const move = Number(right) - Number(left);
+    const velocity = rigidbody.body.GetLinearVelocity();
+    const jumpPressed = input.justPressed('Space', 'KeyW', 'ArrowUp');
+    const dropRequested = down && jumpPressed && supportedByOneWay;
+    if (jumpPressed && !dropRequested) jumpBuffer = 0.13;
+    else if (dropRequested) jumpBuffer = 0;
+    else jumpBuffer = Math.max(0, jumpBuffer - delta);
+
+    updateCrouch(down, jumpPressed && !dropRequested);
+
+    if (swimming) {
+      updateSwimming(delta, move, velocity.x, velocity.y, dropRequested);
+      return;
+    }
+
+    rigidbody.body.SetGravityScale(1);
+    rigidbody.body.SetLinearDamping(0);
+    const running = input.down('ShiftLeft', 'ShiftRight');
+    const targetX = supportVelocityX + move * (crouched ? 2.45 : running ? 8.4 : 5.4);
+    const acceleration = grounded ? (onIce ? 3.5 : crouched ? 22 : running ? 48 : 38) : 24;
+    const nextX = wallJumpLock > 0
+      ? velocity.x
+      : velocity.x + Math.max(-acceleration * delta, Math.min(acceleration * delta, targetX - velocity.x));
+
+    wallDirection = grounded ? 0 : detectWall();
+    const pressingIntoWall = (wallDirection === -1 && left) || (wallDirection === 1 && right);
+    const normalY = wallDirection !== 0 && pressingIntoWall && velocity.y > 4.2 ? 4.2 : Math.min(velocity.y, 17);
+    const nextY = dropRequested ? Math.max(normalY, 2.2) : normalY;
+    rigidbody.body.SetLinearVelocity({ x: nextX, y: nextY });
+
+    if (move !== 0) gameObject.view.scale.x = move;
+    if (jumpBuffer > 0 && (grounded || coyoteTimer > 0)) {
+      rigidbody.body.SetLinearVelocity({ x: nextX, y: -12.2 });
+      jumpBuffer = 0;
+      coyoteTimer = 0;
+      grounded = false;
+      AudioService.play(SOUND_URLS.jump);
+    } else if (jumpBuffer > 0 && wallDirection !== 0) {
+      rigidbody.body.SetLinearVelocity({ x: -this.wallDirection * 8.2, y: -12.4 });
+      gameObject.view.scale.x = -this.wallDirection;
+      wallJumpLock = 0.14;
+      jumpBuffer = 0;
+      wallDirection = 0;
+      AudioService.play(SOUND_URLS.highJump);
+    }
+
+    if (input.justReleased('Space', 'KeyW', 'ArrowUp') && velocity.y < -4.2) {
+      rigidbody.body.SetLinearVelocity({ x: nextX, y: -4.2 });
+    }
+  }
+
+  beforePhysicsStep(): void {
+    supportedThisStep = false;
+    supportedByOneWayThisStep = false;
+    supportVelocityXThisStep = 0;
+    iceThisStep = false;
+  }
+
+  afterPhysicsStep(): void {
+    grounded = supportedThisStep;
+    supportedByOneWay = grounded && supportedByOneWayThisStep;
+    supportVelocityX = grounded ? supportVelocityXThisStep : 0;
+    onIce = grounded && iceThisStep;
+    if (grounded) coyoteTimer = 0.1;
+  }
+
+  onPostSolve(context: ContactContext, _impulse: b2ContactImpulse): void {
+    if (!context.contact.IsEnabled() || !isTerrain(context.other.kind)) return;
+    const manifold = b2WorldManifold();
+    context.contact.GetWorldManifold(manifold);
+    const selfIsA = context.selfFixture === context.contact.GetFixtureA();
+    const supportNormalY = selfIsA ? manifold.normal.y : -manifold.normal.y;
+    if (supportNormalY > 0.45) {
+      supportedThisStep = true;
+      if (context.other.kind === 'oneWay') supportedByOneWayThisStep = true;
+      supportVelocityXThisStep = context.otherFixture.GetBody().GetLinearVelocity().x;
+    }
+  }
+
+  lateUpdate(): void {
+    const velocity = rigidbody.body.GetLinearVelocity();
+    const locomotionVelocityX = velocity.x - supportVelocityX;
+    gameObject.view.rotation = Math.sin(animationTime * 16) * (Math.abs(locomotionVelocityX) / 8.4) * 0.025;
+    gameObject.view.alpha = invulnerableTimer > 0 && Math.floor(invulnerableTimer * 12) % 2 === 0 ? 0.3 : 1;
+
+    const sprite = gameObject.view.getChildByLabel('player-sprite') as Sprite | null;
+    if (!sprite) return;
+    let path: string = PLAYER_TEXTURES.idle;
+    if (invulnerableTimer > 0) path = PLAYER_TEXTURES.hit;
+    else if (crouched) path = PLAYER_TEXTURES.duck;
+    else if (swimming) {
+      path = Math.floor(animationTime * 8) % 2 === 0 ? PLAYER_TEXTURES.climbA : PLAYER_TEXTURES.climbB;
+    } else if (wallDirection !== 0 && !grounded) {
+      path = Math.floor(animationTime * 9) % 2 === 0 ? PLAYER_TEXTURES.climbA : PLAYER_TEXTURES.climbB;
+    } else if (!grounded) path = PLAYER_TEXTURES.jump;
+    else if (Math.abs(locomotionVelocityX) > 0.25) {
+      path = Math.floor(animationTime * (Math.abs(locomotionVelocityX) > 6 ? 14 : 9)) % 2 === 0
+        ? PLAYER_TEXTURES.walkA
+        : PLAYER_TEXTURES.walkB;
+    }
+    if (path !== currentTexture) {
+      sprite.texture = kenneyTexture(path);
+      currentTexture = path;
+    }
+  }
+
+  requestHurt(): void {
+    if (invulnerableTimer > 0) return;
+    invulnerableTimer = 2;
+    // Contacts occur while Box2D is locked; the global rule runs after the step finishes.
+    scene.defer(() => scene.events.emit('playerHurt', {}));
+  }
+
+  markOnIce(): void {
+    iceThisStep = true;
+  }
+
+  enterWater(): void {
+    waterContacts += 1;
+  }
+
+  exitWater(): void {
+    waterContacts = Math.max(0, waterContacts - 1);
+  }
+
+  bounceFromEnemy(): void {
+    const velocity = rigidbody.body.GetLinearVelocity();
+    const boosted = scene.input.down('Space', 'KeyW', 'ArrowUp');
+    rigidbody.body.SetLinearVelocity({ x: velocity.x, y: boosted ? -12.8 : -8.3 });
+    AudioService.play(boosted ? SOUND_URLS.highJump : SOUND_URLS.disappear);
+  }
+
+  respawn(x: number, y: number): void {
+    setCrouched(false);
+    waterContacts = 0;
+    rigidbody.body.SetGravityScale(1);
+    rigidbody.body.SetLinearDamping(0);
+    rigidbody.body.SetTransformXY(x, y, 0);
+    rigidbody.body.SetLinearVelocity({ x: 0, y: 0 });
+  }
+
+  freeze(): void {
+    rigidbody.body.SetLinearVelocity({ x: 0, y: 0 });
+  }
+
+  private get swimming(): boolean {
+    return waterContacts > 0;
+  }
+
+  private updateSwimming(
+    delta: number,
+    move: number,
+    velocityX: number,
+    velocityY: number,
+    dropRequested: boolean,
+  ): void {
+    grounded = false;
+    wallDirection = 0;
+    coyoteTimer = 0;
+    wallJumpLock = 0;
+    onIce = false;
+    rigidbody.body.SetGravityScale(0.18);
+    rigidbody.body.SetLinearDamping(1.65);
+
+    const targetX = move * 4.15;
+    const acceleration = 12;
+    const nextX = velocityX + Math.max(-acceleration * delta, Math.min(acceleration * delta, targetX - velocityX));
+    let nextY = Math.min(velocityY, 3.8);
+    if (scene.input.down('KeyS', 'ArrowDown')) {
+      nextY += Math.min(8 * delta, 3.8 - nextY);
+    }
+    if (dropRequested) nextY = Math.max(nextY, 2.2);
+    if (jumpBuffer > 0) {
+      nextY = Math.max(-7.4, Math.min(-5.4, velocityY - 4.8));
+      jumpBuffer = 0;
+      AudioService.play(SOUND_URLS.jump);
+    }
+    rigidbody.body.SetLinearVelocity({ x: nextX, y: nextY });
+    if (move !== 0) gameObject.view.scale.x = move;
+  }
+
+  private updateCrouch(down: boolean, jumpRequested: boolean): void {
+    if (swimming) {
+      setCrouched(false);
+      return;
+    }
+    if (crouched && jumpRequested && canStand()) setCrouched(false);
+    else if (!crouched && down && grounded && !jumpRequested) setCrouched(true);
+    else if (crouched && !down && canStand()) setCrouched(false);
+  }
+
+  private setCrouched(crouched: boolean): void {
+    if (this.crouched === crouched) return;
+    this.crouched = crouched;
+    (gameObject as Player).setCrouched(crouched);
+  }
+
+  private canStand(): boolean {
+    const position = rigidbody.body.GetPosition();
+    const crouchTop = position.y + PLAYER_HALF_HEIGHT - PLAYER_CROUCH_HALF_HEIGHT * 2;
+    const standingTop = position.y - PLAYER_HALF_HEIGHT - 0.04;
+    return [-PLAYER_HALF_WIDTH + 0.05, 0, PLAYER_HALF_WIDTH - 0.05].every((offsetX) => (
+      !scene.raycastKinds(
+        position.x + offsetX,
+        crouchTop,
+        position.x + offsetX,
+        standingTop,
+        WALL_KINDS,
+      )
+    ));
+  }
+
+  private detectWall(): -1 | 0 | 1 {
+    const position = rigidbody.body.GetPosition();
+    const left = scene.raycastKinds(position.x, position.y - 0.25, position.x - PLAYER_HALF_WIDTH - 0.09, position.y - 0.25, WALL_KINDS)
+      || scene.raycastKinds(position.x, position.y + 0.25, position.x - PLAYER_HALF_WIDTH - 0.09, position.y + 0.25, WALL_KINDS);
+    const right = scene.raycastKinds(position.x, position.y - 0.25, position.x + PLAYER_HALF_WIDTH + 0.09, position.y - 0.25, WALL_KINDS)
+      || scene.raycastKinds(position.x, position.y + 0.25, position.x + PLAYER_HALF_WIDTH + 0.09, position.y + 0.25, WALL_KINDS);
+    if (left && !right) return -1;
+    if (right && !left) return 1;
+    return 0;
+  }
+}

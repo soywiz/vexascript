@@ -1,0 +1,25 @@
+import { Container } from 'pixi.js';
+import { PIXELS_PER_METER, VIEW_HEIGHT, VIEW_WIDTH } from '../core/constants.vx';
+import type { Player } from '../entities/Player.vx';
+import type { Background } from '../render/Background.vx';
+
+export class CameraController(
+  private const player: Player,
+  private const worldLayer: Container,
+  private const debugLayer: Container,
+  private const background: Background,
+) {
+  x = 0;
+  y = 0;
+
+  update(delta: number): void {
+    const position = player.rigidbody.body.GetPosition();
+    const targetX = Math.max(0, Math.min(86 * PIXELS_PER_METER - VIEW_WIDTH, position.x * PIXELS_PER_METER - VIEW_WIDTH * 0.38));
+    const targetY = Math.min(0, position.y * PIXELS_PER_METER - VIEW_HEIGHT * 0.55);
+    x += (targetX - x) * Math.min(1, delta * 5.5);
+    y += (targetY - y) * Math.min(1, delta * 4.5);
+    worldLayer.position.set(-Math.round(x), -Math.round(y));
+    debugLayer.position.copyFrom(worldLayer.position);
+    background.setParallax(x);
+  }
+}

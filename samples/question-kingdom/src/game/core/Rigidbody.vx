@@ -1,0 +1,89 @@
+import { b2Body, b2BodyDef, b2Fixture, b2FixtureDef, b2PolygonShape } from '@box2d/core';
+import { Component } from './Component.vx';
+import { PIXELS_PER_METER } from './constants.vx';
+import type { FixtureKind } from './PhysicsTypes.vx';
+
+export interface BoxColliderOptions extends Omit<b2FixtureDef, 'shape' | 'userData'> {
+  halfWidth: number;
+  halfHeight: number;
+  center?: { x: number; y: number };
+  angle?: number;
+  kind: FixtureKind;
+  top?: number;
+  material?: 'normal' | 'ice';
+}
+
+interface RigidbodyOptions {
+  viewOffsetX?: number;
+  viewOffsetY?: number;
+  syncView?: boolean;
+}
+
+export class Rigidbody(
+  private const definition: b2BodyDef,
+  private const options: RigidbodyOptions = {},
+) extends Component {
+  body!: b2Body;
+  private readonly fixtures: b2Fixture[] = [];
+
+  protected onAttach(): void {
+    body = scene.world.CreateBody(definition);
+  }
+
+  addBoxCollider(options: BoxColliderOptions): b2Fixture {
+    const fixture = createBoxCollider(options);
+    fixtures.push(fixture);
+    return fixture;
+  }
+
+  replaceBoxCollider(fixture: b2Fixture, options: BoxColliderOptions): b2Fixture {
+    const index = fixtures.indexOf(fixture);
+    if (index < 0) throw Error('The collider being replaced does not belong to this Rigidbody.');
+    body.DestroyFixture(fixture);
+    const replacement = createBoxCollider(options);
+    fixtures[index] = replacement;
+    return replacement;
+  }
+
+  private createBoxCollider(options: BoxColliderOptions): b2Fixture {
+    const shape = b2PolygonShape();
+    shape.SetAsBox(options.halfWidth, options.halfHeight, options.center, options.angle);
+    const fixture = body.CreateFixture({
+      shape,
+      density: options.density,
+      friction: options.friction,
+      restitution: options.restitution,
+      restitutionThreshold: options.restitutionThreshold,
+      isSensor: options.isSensor,
+      filter: options.filter,
+      userData: {
+        kind: options.kind,
+        owner: gameObject,
+        top: options.top,
+        material: options.material,
+        halfHeight: options.halfHeight,
+      },
+    });
+    return fixture;
+  }
+
+  lateUpdate(): void {
+    if (options.syncView === false) return;
+    const position = body.GetPosition();
+    gameObject.view.position.set(
+      position.x * PIXELS_PER_METER + (options.viewOffsetX ?? 0),
+      position.y * PIXELS_PER_METER + (options.viewOffsetY ?? 0),
+    );
+    gameObject.view.rotation = body.GetAngle();
+  }
+
+  setEnabled(enabled: boolean): void {
+    body.SetEnabled(enabled);
+    gameObject.view.visible = enabled;
+  }
+
+  onDestroy(): void {
+    fixtures.length = 0;
+    scene.world.DestroyBody(body);
+  }
+}

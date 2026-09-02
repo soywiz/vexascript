@@ -1,0 +1,44 @@
+import { Component } from '../core/Component.vx';
+import type { FixtureKind } from '../core/PhysicsTypes.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import type { BaseEnemy } from '../entities/BaseEnemy.vx';
+
+const TERRAIN_KINDS = Set<FixtureKind>(['ground', 'solid', 'oneWay', 'question']);
+
+export class EnemyPatrol(public var direction: -1 | 1) extends Component {
+  private rigidbody!: Rigidbody;
+  private turnCooldown = 0;
+
+  protected onAttach(): void {
+    const rigidbody = gameObject.getComponent(Rigidbody);
+    if (!rigidbody) throw Error('EnemyPatrol requires a Rigidbody.');
+    this.rigidbody = rigidbody;
+  }
+
+  update(delta: number): void {
+    if (!(gameObject as BaseEnemy).alive) return;
+    turnCooldown = Math.max(0, turnCooldown - delta);
+    const position = rigidbody.body.GetPosition();
+    const footY = position.y + 0.39;
+    const aheadX = position.x + direction * 0.55;
+    const hasFloorAhead = scene.raycastKinds(aheadX, footY, aheadX, footY + 0.35, TERRAIN_KINDS);
+    const wallAhead = scene.raycastKinds(
+      position.x + direction * 0.39,
+      position.y,
+      position.x + direction * 0.59,
+      position.y,
+      TERRAIN_KINDS,
+    );
+    if ((!hasFloorAhead || wallAhead) && turnCooldown <= 0) {
+      direction = direction === 1 ? -1 : 1;
+      turnCooldown = 0.2;
+    }
+    const velocity = rigidbody.body.GetLinearVelocity();
+    rigidbody.body.SetLinearVelocity({ x: direction * 1.65, y: Math.min(velocity.y, 14) });
+  }
+
+  lateUpdate(): void {
+    if (!(gameObject as BaseEnemy).alive) return;
+    gameObject.view.scale.x = -this.direction;
+  }
+}

@@ -1,0 +1,50 @@
+import { b2PolygonShape } from '@box2d/core';
+import { Graphics } from 'pixi.js';
+import { PIXELS_PER_METER } from '../core/constants.vx';
+import type { GameScene } from '../core/GameScene.vx';
+import { getFixtureTag } from '../core/PhysicsTypes.vx';
+import type { FixtureKind } from '../core/PhysicsTypes.vx';
+import { Enemy } from '../entities/Enemy.vx';
+
+export class PhysicsDebugRenderer(
+  private const scene: GameScene,
+  private const graphics: Graphics,
+) {
+  render(): void {
+    graphics.clear();
+    for (let body = scene.world.GetBodyList(); body; body = body.GetNext()) {
+      for (let fixture = body.GetFixtureList(); fixture; fixture = fixture.GetNext()) {
+        const shape = fixture.GetShape();
+        const tag = getFixtureTag(fixture);
+        if (!(shape instanceof b2PolygonShape) || !tag) continue;
+        const points: number[] = [];
+        for (let index = 0; index < shape.m_count; index += 1) {
+          const worldPoint = body.GetWorldPoint(shape.m_vertices[index], { x: 0, y: 0 });
+          points.push(worldPoint.x * PIXELS_PER_METER, worldPoint.y * PIXELS_PER_METER);
+        }
+        const color = this.color(tag.kind);
+        graphics.poly(points, true)
+          .fill({ color, alpha: fixture.IsSensor() ? 0.03 : 0.08 })
+          .stroke({ color, width: tag.kind === 'player' ? 4 : 2, alpha: 0.95 });
+      }
+    }
+    scene.findAll(Enemy).forEach((enemy) => {
+      if (!enemy.alive) return;
+      const position = enemy.rigidbody.body.GetPosition();
+      graphics.moveTo(position.x * PIXELS_PER_METER, position.y * PIXELS_PER_METER)
+        .lineTo((position.x + enemy.patrol.direction * 0.7) * PIXELS_PER_METER, position.y * PIXELS_PER_METER)
+        .stroke({ color: 0xff6b6b, width: 2 });
+    });
+  }
+
+  private color(kind: FixtureKind): number {
+    if (kind === 'player') return 0xffffff;
+    if (kind === 'enemy') return 0xff6b6b;
+    if (kind === 'oneWay') return 0x42e8e0;
+    if (kind === 'question') return 0xffd43b;
+    if (kind === 'coin') return 0xffef72;
+    if (kind === 'goal') return 0x8dff9b;
+    if (kind === 'water') return 0x2f9df4;
+    return 0x44556f;
+  }
+}

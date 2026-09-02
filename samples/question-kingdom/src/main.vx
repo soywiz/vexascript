@@ -1,0 +1,56 @@
+import { Application } from 'pixi.js';
+import { PlatformGame } from './game/PlatformGame.vx';
+import { SOUND_URLS } from './game/art.vx';
+import { AudioService } from './game/core/AudioService.vx';
+import { loadKenneyAtlases } from './game/render/KenneyAtlas.vx';
+import { installMobileViewportGuards } from './game/ui/MobileViewportGuards.vx';
+import './style.css';
+
+const DESIGN_WIDTH = 1280;
+const DESIGN_HEIGHT = 720;
+
+sync func boot(): Promise<void> {
+  const host = document.querySelector<HTMLDivElement>('#game');
+  if (!host) throw Error('The game container was not found.');
+  installMobileViewportGuards(host);
+
+  const app = Application();
+  app.init({
+    width: DESIGN_WIDTH,
+    height: DESIGN_HEIGHT,
+    backgroundColor: 0x7ed6f7,
+    antialias: true,
+    autoDensity: true,
+    resolution: Math.min(window.devicePixelRatio, 2),
+  });
+
+  Promise.all([
+    loadKenneyAtlases(),
+    AudioService.preload(Object.values(SOUND_URLS)),
+  ]);
+
+  app.canvas.setAttribute('aria-label', 'Question Kingdom, platform game');
+  app.canvas.setAttribute('tabindex', '0');
+  host.appendChild(app.canvas);
+
+  const resize = (): void => {
+    const scale = Math.min(window.innerWidth / DESIGN_WIDTH, window.innerHeight / DESIGN_HEIGHT);
+    app.canvas.style.width = `${Math.round(DESIGN_WIDTH * scale)}px`;
+    app.canvas.style.height = `${Math.round(DESIGN_HEIGHT * scale)}px`;
+  };
+  window.addEventListener('resize', resize);
+  resize();
+
+  const game = PlatformGame(app);
+  game.start();
+  app.canvas.focus();
+}
+
+boot().catch((error: unknown) => {
+  const host = document.querySelector<HTMLDivElement>('#game');
+  if (host) {
+    const message = error instanceof Error ? error.message : String(error);
+    host.innerHTML = `<div class="fatal-error"><h1>The game could not be started</h1><p>${message}</p></div>`;
+  }
+  console.error(error);
+});

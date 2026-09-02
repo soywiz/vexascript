@@ -1,0 +1,8 @@
+New Platformer Pack 1.0
+Author: Kenney (Kenney.nl)
+Source: https://opengameart.org/content/new-platformer-pack
+License: CC0 1.0 Universal / Public Domain Dedication
+License URL: https://creativecommons.org/publicdomain/zero/1.0/
+
+Question Kingdom includes the original Spritesheets directory with the PNG atlases
+and XML metadata from version 1.0, plus the OGG sound effects used by the game.

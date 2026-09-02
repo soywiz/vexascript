@@ -1,0 +1,117 @@
+export class Input {
+  private readonly held = Set<string>();
+  private readonly pressed = Set<string>();
+  private readonly released = Set<string>();
+  private readonly virtualHeld = Set<string>();
+  private readonly virtualPressed = Set<string>();
+  private readonly virtualReleased = Set<string>();
+  private readonly gamepadHeld = Set<string>();
+  private readonly gamepadPressed = Set<string>();
+  private readonly gamepadReleased = Set<string>();
+  private gamepadButtonHeld = false;
+  private gamepadButtonPressed = false;
+
+  init {
+    window.addEventListener('keydown', onKeyDown, { passive: false });
+    window.addEventListener('keyup', onKeyUp, { passive: false });
+    window.addEventListener('blur', clear);
+  }
+
+  down(...codes: string[]): boolean {
+    return codes.some((code) => held.has(code) || virtualHeld.has(code) || gamepadHeld.has(code));
+  }
+
+  justPressed(...codes: string[]): boolean {
+    return codes.some((code) => pressed.has(code) || virtualPressed.has(code) || gamepadPressed.has(code));
+  }
+
+  justReleased(...codes: string[]): boolean {
+    return codes.some((code) => (
+      (released.has(code) || virtualReleased.has(code) || gamepadReleased.has(code))
+      && !down(code)
+    ));
+  }
+
+  anyPressed(): boolean {
+    return pressed.size > 0
+      || virtualPressed.size > 0
+      || gamepadPressed.size > 0
+      || gamepadButtonPressed;
+  }
+
+  beginFrame(): void {
+    pollGamepad();
+  }
+
+  setVirtualCode(code: string, down: boolean): void {
+    const wasDown = virtualHeld.has(code);
+    if (down && !wasDown) {
+      virtualHeld.add(code);
+      virtualPressed.add(code);
+    } else if (!down && wasDown) {
+      virtualHeld.delete(code);
+      virtualReleased.add(code);
+    }
+  }
+
+  endFrame(): void {
+    pressed.clear();
+    released.clear();
+    virtualPressed.clear();
+    virtualReleased.clear();
+    gamepadPressed.clear();
+    gamepadReleased.clear();
+    gamepadButtonPressed = false;
+  }
+
+  private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(event.code)) {
+      event.preventDefault();
+    }
+    if (!held.has(event.code)) pressed.add(event.code);
+    held.add(event.code);
+  };
+
+  private readonly onKeyUp = (event: KeyboardEvent): void => {
+    held.delete(event.code);
+    released.add(event.code);
+  };
+
+  private readonly clear = (): void => {
+    held.clear();
+    pressed.clear();
+    released.clear();
+    [...virtualHeld].forEach((code) => setVirtualCode(code, false));
+  };
+
+  private pollGamepad(): void {
+    const gamepad = [...(navigator.getGamepads?.() ?? [])].find((candidate) => candidate?.connected);
+    const next = Set<string>();
+    const anyButtonDown = gamepad?.buttons.some((button) => button.pressed || button.value > 0.45) ?? false;
+    gamepadButtonPressed = anyButtonDown && !gamepadButtonHeld;
+    gamepadButtonHeld = anyButtonDown;
+    if (gamepad) {
+      const horizontal = gamepad.axes[0] ?? 0;
+      const vertical = gamepad.axes[1] ?? 0;
+      if (horizontal < -0.24 || gamepad.buttons[14]?.pressed) next.add('ArrowLeft');
+      if (horizontal > 0.24 || gamepad.buttons[15]?.pressed) next.add('ArrowRight');
+      if (vertical < -0.28 || gamepad.buttons[12]?.pressed) next.add('ArrowUp');
+      if (vertical > 0.28 || gamepad.buttons[13]?.pressed) next.add('ArrowDown');
+      if (gamepad.buttons[0]?.pressed) next.add('Space');
+      if (gamepad.buttons[2]?.pressed || gamepad.buttons[5]?.pressed || (gamepad.buttons[7]?.value ?? 0) > 0.45) {
+        next.add('ShiftLeft');
+      }
+      if (gamepad.buttons[9]?.pressed) next.add('Escape');
+      if (gamepad.buttons[8]?.pressed) next.add('KeyR');
+    }
+
+    next.forEach((code) => {
+      if (!gamepadHeld.has(code)) gamepadPressed.add(code);
+    });
+    gamepadHeld.forEach((code) => {
+      if (!next.has(code)) gamepadReleased.add(code);
+    });
+    gamepadHeld.clear();
+    next.forEach((code) => gamepadHeld.add(code));
+  }
+}

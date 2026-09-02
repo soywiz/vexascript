@@ -1,0 +1,56 @@
+import { Graphics } from 'pixi.js';
+import { COLORS } from '../art.vx';
+import { Component } from '../core/Component.vx';
+
+interface CoinParticle {
+  graphic: Graphics;
+  velocityX: number;
+  velocityY: number;
+  lifetime: number;
+  maxLifetime: number;
+  angularVelocity: number;
+}
+
+export class CoinParticleEmitter extends Component {
+  private readonly particles: CoinParticle[] = [];
+
+  protected onAttach(): void {
+    const count = 14.0;
+    for (let index = 0; index < count; index += 1) {
+      const angle = (index / count) * Math.PI * 2 + Math.random() * 0.22;
+      const speed = 75 + Math.random() * 135;
+      const lifetime = 0.42 + Math.random() * 0.28;
+      const radius = 2.5 + Math.random() * 3.5;
+      const graphic = Graphics()
+        .circle(0, 0, radius)
+        .fill(index % 3 === 0 ? 0xffffff : COLORS.gold)
+        .stroke({ color: index % 3 === 0 ? COLORS.gold : 0xe58b19, width: 1.5 });
+      gameObject.view.addChild(graphic);
+      particles.push({
+        graphic,
+        velocityX: Math.cos(angle) * speed,
+        velocityY: Math.sin(angle) * speed - 70,
+        lifetime,
+        maxLifetime: lifetime,
+        angularVelocity: (Math.random() - 0.5) * 12,
+      });
+    }
+  }
+
+  update(delta: number): void {
+    let alive = 0;
+    for (const particle of particles) {
+      if (particle.lifetime <= 0) continue;
+      particle.lifetime = Math.max(0, particle.lifetime - delta);
+      particle.velocityY += 360 * delta;
+      particle.graphic.x += particle.velocityX * delta;
+      particle.graphic.y += particle.velocityY * delta;
+      particle.graphic.rotation += particle.angularVelocity * delta;
+      const progress = particle.lifetime / particle.maxLifetime;
+      particle.graphic.alpha = Math.min(1, progress * 2.4);
+      particle.graphic.scale.set(0.4 + progress * 0.8);
+      if (particle.lifetime > 0) alive += 1;
+    }
+    if (alive === 0) gameObject.destroy();
+  }
+}

@@ -1,0 +1,36 @@
+import { Component } from '../core/Component.vx';
+
+const SQUASH_DURATION = 0.12;
+const TOTAL_DURATION = 0.64;
+
+export class EnemyDefeatAnimation extends Component {
+  private elapsed = 0;
+  private playing = false;
+  private facing: -1 | 1 = 1;
+
+  play(): void {
+    if (playing) return;
+    playing = true;
+    elapsed = 0;
+    facing = gameObject.view.scale.x < 0 ? -1 : 1;
+  }
+
+  lateUpdate(delta: number): void {
+    if (!playing) return;
+    elapsed += delta;
+
+    if (elapsed <= SQUASH_DURATION) {
+      const pulse = Math.sin((elapsed / SQUASH_DURATION) * Math.PI);
+      gameObject.view.scale.set(facing * (1 + pulse * 0.38), 1 - pulse * 0.72);
+      gameObject.view.y += pulse * 12;
+      return;
+    }
+
+    const progress = Math.min(1, (elapsed - SQUASH_DURATION) / (TOTAL_DURATION - SQUASH_DURATION));
+    gameObject.view.scale.set(facing * (1 - progress * 0.28), 0.75 + progress * 0.18);
+    gameObject.view.y += -Math.sin(progress * Math.PI) * 34 + progress * 48;
+    gameObject.view.rotation = facing * progress * Math.PI * 1.25;
+    gameObject.view.alpha = 1 - Math.max(0, progress - 0.48) / 0.52;
+    if (progress >= 1) gameObject.destroy();
+  }
+}

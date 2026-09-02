@@ -1,0 +1,50 @@
+import { Component } from '../core/Component.vx';
+import type { FixtureKind } from '../core/PhysicsTypes.vx';
+import { Rigidbody } from '../core/Rigidbody.vx';
+import type { BaseEnemy } from '../entities/BaseEnemy.vx';
+
+const WALL_KINDS = Set<FixtureKind>(['ground', 'solid', 'question']);
+
+export class BeePatrol(
+  private const homeX: number,
+  private const homeY: number,
+  public var direction: -1 | 1,
+  private const range: number,
+) extends Component {
+  private rigidbody!: Rigidbody;
+  private elapsed = 0;
+
+  protected onAttach(): void {
+    const rigidbody = gameObject.getComponent(Rigidbody);
+    if (!rigidbody) throw Error('BeePatrol requires a Rigidbody.');
+    this.rigidbody = rigidbody;
+  }
+
+  update(delta: number): void {
+    if (!(gameObject as BaseEnemy).alive) return;
+    elapsed += delta;
+    const position = rigidbody.body.GetPosition();
+    const boundaryReached = this.direction > 0
+      ? position.x >= homeX + range
+      : position.x <= homeX - range;
+    const wallAhead = scene.raycastKinds(
+      position.x,
+      position.y,
+      position.x + direction * 0.48,
+      position.y,
+      WALL_KINDS,
+    );
+    if (boundaryReached || wallAhead) direction = direction === 1 ? -1 : 1;
+
+    const targetY = homeY + Math.sin(elapsed * 2.5) * 0.28;
+    rigidbody.body.SetLinearVelocity({
+      x: direction * 2.05,
+      y: (targetY - position.y) * 5.5,
+    });
+  }
+
+  lateUpdate(): void {
+    if (!(gameObject as BaseEnemy).alive) return;
+    gameObject.view.scale.x = -this.direction;
+  }
+}

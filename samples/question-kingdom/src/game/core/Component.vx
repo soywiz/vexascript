@@ -1,0 +1,31 @@
+import type { b2ContactImpulse, b2Manifold } from '@box2d/core';
+import type { ContactContext } from './PhysicsTypes.vx';
+import type { GameObject } from './GameObject.vx';
+import type { GameScene } from './GameScene.vx';
+
+export abstract class Component {
+  gameObject!: GameObject;
+  enabled = true;
+
+  get scene(): GameScene {
+    return gameObject.scene;
+  }
+
+  attach(gameObject: GameObject): void {
+    if (this.gameObject) throw Error(`${this.constructor.name} is already attached to another GameObject.`);
+    this.gameObject = gameObject;
+    onAttach();
+  }
+
+  protected onAttach(): void {}
+  update(_delta: number): void {}
+  beforePhysicsStep(): void {}
+  fixedUpdate(_delta: number): void {}
+  afterPhysicsStep(): void {}
+  lateUpdate(_delta: number): void {}
+  onBeginContact(_context: ContactContext): void {}
+  onEndContact(_context: ContactContext): void {}
+  onPreSolve(_context: ContactContext, _oldManifold: b2Manifold): void {}
+  onPostSolve(_context: ContactContext, _impulse: b2ContactImpulse): void {}
+  onDestroy(): void {}
+}

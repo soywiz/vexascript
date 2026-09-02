@@ -1,0 +1,15 @@
+import { Component } from '../core/Component.vx';
+import type { ContactContext } from '../core/PhysicsTypes.vx';
+import type { Player } from '../entities/Player.vx';
+
+export class WaterContactHandler extends Component {
+  onBeginContact(context: ContactContext): void {
+    if (context.other.kind !== 'player') return;
+    (context.other.owner as Player).controller.enterWater();
+  }
+
+  onEndContact(context: ContactContext): void {
+    if (context.other.kind !== 'player') return;
+    (context.other.owner as Player).controller.exitWater();
+  }
+}

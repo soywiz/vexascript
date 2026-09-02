@@ -1,0 +1,28 @@
+import type { b2Contact, b2Fixture } from '@box2d/core';
+import type { GameObject } from './GameObject.vx';
+
+export type FixtureKind = 'player' | 'ground' | 'solid' | 'oneWay' | 'question' | 'enemy' | 'coin' | 'goal' | 'water';
+
+export interface FixtureTag {
+  kind: FixtureKind;
+  owner: GameObject;
+  top?: number;
+  material?: 'normal' | 'ice';
+  halfHeight?: number;
+}
+
+export interface ContactContext {
+  contact: b2Contact;
+  selfFixture: b2Fixture;
+  otherFixture: b2Fixture;
+  self: FixtureTag;
+  other: FixtureTag;
+}
+
+export function getFixtureTag(fixture: b2Fixture): FixtureTag | null {
+  return (fixture.GetUserData() as FixtureTag | undefined) ?? null;
+}
+
+export function isTerrain(kind: FixtureKind): boolean {
+  return kind === 'ground' || kind === 'solid' || kind === 'oneWay' || kind === 'question';
+}

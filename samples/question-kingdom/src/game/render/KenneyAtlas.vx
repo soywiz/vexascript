@@ -1,0 +1,66 @@
+import { Assets, Rectangle, Texture } from 'pixi.js';
+
+const SPRITESHEET_ROOT = '/assets/kenney/Spritesheets';
+const ATLAS_NAMES = [
+  'spritesheet-characters-default',
+  'spritesheet-enemies-default',
+  'spritesheet-tiles-default',
+] as const;
+
+const textures = new Map<string, Texture>();
+
+export async function loadKenneyAtlases(): Promise<void> {
+  if (textures.size > 0) return;
+  await Promise.all(ATLAS_NAMES.map(loadAtlas));
+}
+
+export function kenneyTexture(name: string): Texture {
+  const texture = textures.get(name);
+  if (!texture) throw Error(`Texture "${name}" does not exist in the loaded Kenney sprite sheets.`);
+  return texture;
+}
+
+async function loadAtlas(atlasName: string): Promise<void> {
+  const imageUrl = `${SPRITESHEET_ROOT}/${atlasName}.png`;
+  const xmlUrl = `${SPRITESHEET_ROOT}/${atlasName}.xml`;
+  const [sheet, response] = await Promise.all([
+    Assets.load<Texture>(imageUrl),
+    fetch(xmlUrl),
+  ]);
+  if (!response.ok) throw Error(`Could not load ${xmlUrl}: ${response.status}`);
+
+  const document = DOMParser().parseFromString(await response.text(), 'application/xml');
+  if (document.querySelector('parsererror')) throw Error(`Atlas ${xmlUrl} contains invalid XML.`);
+
+  document.querySelectorAll('SubTexture').forEach((element) => {
+    const name = requiredAttribute(element, 'name');
+    const x = numericAttribute(element, 'x');
+    const y = numericAttribute(element, 'y');
+    const width = numericAttribute(element, 'width');
+    const height = numericAttribute(element, 'height');
+    textures.set(name, Texture({
+      source: sheet.source,
+      // The original atlases have no padding; half a pixel prevents linear filtering
+      // from sampling the neighboring cell along transparent edges.
+      frame: Rectangle(
+        x + 0.5,
+        y + 0.5,
+        width - 1,
+        height - 1,
+      ),
+      label: `kenney:${name}`,
+    }));
+  });
+}
+
+function requiredAttribute(element: Element, attribute: string): string {
+  const value = element.getAttribute(attribute);
+  if (!value) throw Error(`Attribute ${attribute} is missing from a Kenney SubTexture.`);
+  return value;
+}
+
+function numericAttribute(element: Element, attribute: string): number {
+  const value = Number(requiredAttribute(element, attribute));
+  if (!Number.isFinite(value)) throw Error(`Attribute ${attribute} is not numeric.`);
+  return value;
+}
