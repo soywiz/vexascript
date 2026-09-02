@@ -10,6 +10,15 @@ export interface ModuleGraphProfileEvent {
   phase: string;
   elapsedMs: number;
   moduleCount: number;
+  analyzedModuleCount: number;
+  emittedModuleCount: number;
+  reusedModuleCount: number;
+  ambientDeclarationVisitCount: number;
+  nodeModuleImportResolutionCount: number;
+  nodeModuleImportCacheHitCount: number;
+  selectiveTypingsBuilds: number;
+  selectiveTypingsExactCacheHits: number;
+  selectiveTypingsSupersetCacheHits: number;
 }
 
 /** Opaque state retained by long-running module graph consumers such as `vexa serve`. */

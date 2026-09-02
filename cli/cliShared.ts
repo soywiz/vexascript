@@ -9,6 +9,7 @@ import { ensureDependencies, packageManagerCommand } from "./deps";
 import { runCommandCapture } from "./io";
 import type { NodeModuleBundleIncrementalCache } from "./nodeModuleBundle";
 import type { ModuleGraphIncrementalCache } from "../compiler/runtime/moduleGraph";
+import type { ModuleGraphProfileEvent } from "../compiler/runtime/moduleGraphModel";
 
 export function isTypeScriptSource(path: string): boolean {
   const lowerPath = path.toLowerCase();
@@ -116,7 +117,7 @@ export async function createBundledModuleArtifacts(
     moduleGraphIncrementalCache?: ModuleGraphIncrementalCache;
     nodeModuleIncrementalCache?: NodeModuleBundleIncrementalCache;
     changedFiles?: readonly string[];
-    profile?: (event: { phase: string; elapsedMs: number; moduleCount: number }) => void;
+    profile?: (event: ModuleGraphProfileEvent) => void;
   } = {}
 ): Promise<BundledModuleArtifacts> {
   const semanticValidation = vexaTypeCheckForSource(

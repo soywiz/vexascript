@@ -42,6 +42,11 @@ interface StartedWorkspaceServer {
 
 interface LspAuxiliaryWorkMetrics {
   importedDeclarationCollections: number;
+  importedAnalysisBuilds: number;
+  importedAnalysisCacheHits: number;
+  selectiveTypingsBuilds: number;
+  selectiveTypingsExactCacheHits: number;
+  selectiveTypingsSupersetCacheHits: number;
 }
 
 export interface LspWorkMetrics extends AnalysisSessionCacheMetrics, ProjectIndexMetrics, LspAuxiliaryWorkMetrics {}
@@ -184,7 +189,12 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
 }> {
   const projectIndex = getProjectIndex([workspaceRoot]);
   const auxiliaryMetrics: LspAuxiliaryWorkMetrics = {
-    importedDeclarationCollections: 0
+    importedDeclarationCollections: 0,
+    importedAnalysisBuilds: 0,
+    importedAnalysisCacheHits: 0,
+    selectiveTypingsBuilds: 0,
+    selectiveTypingsExactCacheHits: 0,
+    selectiveTypingsSupersetCacheHits: 0
   };
 
   async function getSessionForFilePath(filePath: string) {
@@ -226,7 +236,8 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
       getSessionForFilePath,
       ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
       ambientModuleDeclarations: ambientTypes.moduleDeclarations,
-      ambientGlobalDeclarations: ambientTypes.globalDeclarations
+      ambientGlobalDeclarations: ambientTypes.globalDeclarations,
+      workCounters: auxiliaryMetrics
     };
     auxiliaryMetrics.importedDeclarationCollections += 1;
     const {
@@ -325,10 +336,19 @@ function workMetricsDelta(after: LspWorkMetrics, before: LspWorkMetrics): LspWor
     resolvedSessionBuilds: after.resolvedSessionBuilds - before.resolvedSessionBuilds,
     importedDeclarationCollections:
       after.importedDeclarationCollections - before.importedDeclarationCollections,
+    importedAnalysisBuilds: after.importedAnalysisBuilds - before.importedAnalysisBuilds,
+    importedAnalysisCacheHits: after.importedAnalysisCacheHits - before.importedAnalysisCacheHits,
+    selectiveTypingsBuilds: after.selectiveTypingsBuilds - before.selectiveTypingsBuilds,
+    selectiveTypingsExactCacheHits:
+      after.selectiveTypingsExactCacheHits - before.selectiveTypingsExactCacheHits,
+    selectiveTypingsSupersetCacheHits:
+      after.selectiveTypingsSupersetCacheHits - before.selectiveTypingsSupersetCacheHits,
     sessionRequests: after.sessionRequests - before.sessionRequests,
     indexedDataRequests: after.indexedDataRequests - before.indexedDataRequests,
     openOverrideHits: after.openOverrideHits - before.openOverrideHits,
     openSessionBuilds: after.openSessionBuilds - before.openSessionBuilds,
+    pendingOpenSessionReuses:
+      after.pendingOpenSessionReuses - before.pendingOpenSessionReuses,
     diskSessionRequests: after.diskSessionRequests - before.diskSessionRequests,
     diskSessionCacheHits: after.diskSessionCacheHits - before.diskSessionCacheHits,
     diskSessionCacheMisses: after.diskSessionCacheMisses - before.diskSessionCacheMisses,
@@ -364,6 +384,7 @@ export async function openEntrypointInLspSession(
 ): Promise<LspOpenSessionResult> {
   const source = sourceOverride ?? await vfs().readFile(entrypoint);
   const server = await startWorkspaceServer(workspaceRoot);
+  const workBeforeOpen = workMetricsSnapshot(server);
   const uri = toFileUri(entrypoint);
 
   server.fakeConnection.handlers.get("initialize")!({
@@ -499,7 +520,7 @@ export async function openEntrypointInLspSession(
     hovers: hoverResults,
     documentHighlights,
     completions: completionResults,
-    workMetrics: workBeforeWarmRequests,
+    workMetrics: workMetricsDelta(workBeforeWarmRequests, workBeforeOpen),
     warmWorkMetrics: workMetricsDelta(workAfterWarmRequests, workBeforeWarmRequests),
     semanticTokens,
     semanticTokensRange

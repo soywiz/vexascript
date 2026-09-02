@@ -539,7 +539,17 @@ describe("bundleModuleGraph", () => {
         "main.vx": "import { value } from \"./value\"\nconsole.log(value())\n"
       },
       async (dir) => {
-        const events: Array<{ phase: string; elapsedMs: number; moduleCount: number }> = [];
+        const events: Array<{
+          phase: string;
+          elapsedMs: number;
+          moduleCount: number;
+          analyzedModuleCount: number;
+          emittedModuleCount: number;
+          reusedModuleCount: number;
+          ambientDeclarationVisitCount: number;
+          nodeModuleImportResolutionCount: number;
+          nodeModuleImportCacheHitCount: number;
+        }> = [];
         const result = await bundleModuleGraphAsModules(join(dir, "main.vx"), "conservative", {
           moduleFormat: "commonjs",
           profile: (event) => events.push(event)
@@ -548,6 +558,9 @@ describe("bundleModuleGraph", () => {
         expect(result.errors).toEqual([]);
         expect(events.map((event) => event.phase)).toEqual(["parse", "analysis", "emit"]);
         expect(events.every((event) => event.elapsedMs >= 0 && event.moduleCount === 2)).toBe(true);
+        expect(events.every((event) => event.analyzedModuleCount === 2)).toBe(true);
+        expect(events.every((event) => event.emittedModuleCount === 2)).toBe(true);
+        expect(events.every((event) => event.reusedModuleCount === 0)).toBe(true);
       }
     );
   });
@@ -565,18 +578,26 @@ describe("bundleModuleGraph", () => {
         const cache = createModuleGraphIncrementalCache();
         const first = await bundleModuleGraphAsModules(entryPath, "conservative", {
           moduleFormat: "commonjs",
-          incrementalCache: cache
+          incrementalCache: cache,
+          ambientDeclarations: []
         });
         expect(first.errors).toEqual([]);
 
         await writeFile(entryPath, "import { Value } from \"./values\"\nconsole.log(Value(2).amount)\n", "utf8");
+        const entryOnlyEvents: Array<import("./moduleGraphModel").ModuleGraphProfileEvent> = [];
         const entryOnly = await bundleModuleGraphAsModules(entryPath, "conservative", {
           moduleFormat: "commonjs",
           incrementalCache: cache,
-          changedFiles: [entryPath]
+          changedFiles: [entryPath],
+          ambientDeclarations: [],
+          profile: (event) => entryOnlyEvents.push(event)
         });
         expect(entryOnly.errors).toEqual([]);
         expect(entryOnly.entrySource).toContain("new Value(2).amount");
+        const entryOnlyWork = entryOnlyEvents.find((event) => event.phase === "analysis")!;
+        expect(entryOnlyWork.analyzedModuleCount).toBeLessThanOrEqual(1);
+        expect(entryOnlyWork.emittedModuleCount).toBeLessThanOrEqual(1);
+        expect(entryOnlyWork.reusedModuleCount).toBe(1);
 
         await writeFile(dependencyPath, "class Value(val amount: number, val label: string)\n", "utf8");
         await writeFile(entryPath, "import { Value } from \"./values\"\nconsole.log(Value(3, \"fresh\").label)\n", "utf8");

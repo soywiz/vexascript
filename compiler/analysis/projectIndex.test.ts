@@ -44,6 +44,36 @@ describe("ProjectIndex", () => {
     expect(await index.findTopLevelDeclaration(file, "Point")).toBeTruthy();
   });
 
+  it("does not rebuild an open-document session when the source is unchanged", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-project-index-open-cache-"));
+    const file = join(root, "cached-open.vx");
+    const source = "class CachedOpen\n";
+    await writeFile(file, source, "utf8");
+
+    const index = getProjectIndex([root]);
+    await index.upsertOpenDocument(file, source);
+    await index.upsertOpenDocument(file, source);
+
+    expect(index.getMetrics().openSessionBuilds).toBeLessThanOrEqual(1);
+  });
+
+  it("deduplicates concurrent builds for the same open document", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-project-index-open-pending-"));
+    const file = join(root, "pending-open.vx");
+    const source = "class PendingOpen\n";
+    await writeFile(file, source, "utf8");
+    const index = getProjectIndex([root]);
+
+    await Promise.all([
+      index.upsertOpenDocument(file, source),
+      index.upsertOpenDocument(file, source),
+      index.upsertOpenDocument(file, source)
+    ]);
+
+    expect(index.getMetrics().openSessionBuilds).toBeLessThanOrEqual(1);
+    expect(index.getMetrics().pendingOpenSessionReuses).toBeGreaterThanOrEqual(1);
+  });
+
   it("exposes reusable disk-session work without repeated filesystem probes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-project-index-metrics-"));
     const file = join(root, "cached.vx");

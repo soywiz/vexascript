@@ -189,7 +189,13 @@ export interface TranspileOptions {
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 let cachedEcmaScriptRuntimeEmitSeed: ReturnType<typeof createEmitProgramRuntimeSeed> | null = null;
 
-export function createTranspileRuntimeSeed(declarations: readonly Statement[]): EmitProgramRuntimeSeed {
+export function createTranspileRuntimeSeed(
+  declarations: readonly Statement[],
+  baseSeed?: EmitProgramRuntimeSeed
+): EmitProgramRuntimeSeed {
+  if (baseSeed) {
+    return createEmitProgramRuntimeSeed(new Program([...declarations]), baseSeed);
+  }
   const runtimeProgram = getEcmaScriptRuntimeProgram();
   cachedEcmaScriptRuntimeEmitSeed ??= createEmitProgramRuntimeSeed(runtimeProgram);
   return createEmitProgramRuntimeSeed(

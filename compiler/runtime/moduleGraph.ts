@@ -14,7 +14,12 @@ import {
   type AnalysisType
 } from "compiler/analysis/types";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
-import { resolveNodeModuleImportsForRuntime } from "compiler/nodeModuleImportResolution";
+import {
+  createNodeModuleImportResolutionCache,
+  resolveNodeModuleImportsForRuntime,
+  type NodeModuleImportResolutionCache,
+  type NodeModuleImportResolutionWorkCounters
+} from "compiler/nodeModuleImportResolution";
 import { vfs, type Vfs } from "compiler/vfs";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { extname, resolve } from "compiler/utils/path";
@@ -86,6 +91,15 @@ interface CachedModuleTypeContext {
   emitRuntimeSeed: ReturnType<typeof createTranspileRuntimeSeed>;
 }
 
+interface CachedCompiledModule {
+  source: string;
+  analysis: Analysis | null;
+  emittedCode: string;
+  errors: string[];
+  warnings: string[];
+  diagnostics: TranspileResult["diagnostics"];
+}
+
 interface ExternalDeclarationLocation {
   filePath: string;
   line: number;
@@ -121,6 +135,7 @@ interface ModuleGraphIncrementalState {
   configurationKey: string;
   ambientDeclarations: readonly Statement[];
   typeContextByPath: Map<string, CachedModuleTypeContext>;
+  compiledByPath: Map<string, CachedCompiledModule>;
 }
 
 const incrementalModuleGraphStates = new WeakMap<ModuleGraphIncrementalCache, ModuleGraphIncrementalState>();
@@ -146,6 +161,10 @@ function moduleTypeContextImportKey(ast: Program): string {
     ]));
 }
 
+function sameStatementArray(left: readonly Statement[], right: readonly Statement[]): boolean {
+  return left.length === right.length && left.every((statement, index) => statement === right[index]);
+}
+
 function incrementalModuleGraphState(
   entryFilePath: string,
   importMappings: Readonly<Record<string, string>>,
@@ -167,16 +186,18 @@ function incrementalModuleGraphState(
   if (
     !state ||
     state.configurationKey !== configurationKey ||
-    state.ambientDeclarations !== ambientDeclarations
+    !sameStatementArray(state.ambientDeclarations, ambientDeclarations)
   ) {
     state = {
       configurationKey,
       ambientDeclarations,
-      typeContextByPath: new Map()
+      typeContextByPath: new Map(),
+      compiledByPath: new Map()
     };
     incrementalModuleGraphStates.set(cache, state);
   } else if ((options.changedFiles ?? []).some((filePath) => filePath !== entryFilePath)) {
     state.typeContextByPath.clear();
+    state.compiledByPath.clear();
   }
   return state;
 }
@@ -389,13 +410,17 @@ async function collectNodeModulesTypings(
   externalDeclarationLocations: Map<Statement, ExternalDeclarationLocation>,
   importedSymbols: Map<string, { type?: AnalysisType; displayType?: string }>,
   vfs: Vfs,
-  ambientDeclarations: readonly Statement[] = []
+  ambientDeclarations: readonly Statement[] = [],
+  cache?: NodeModuleImportResolutionCache,
+  workCounters?: NodeModuleImportResolutionWorkCounters
 ): Promise<void> {
   const imported = await resolveNodeModuleImportsForRuntime(
     ast,
     importerFilePath,
     vfs,
-    ambientDeclarations
+    ambientDeclarations,
+    cache,
+    workCounters
   );
   externalDeclarations.push(...imported.externalDeclarations);
   for (const [declaration, location] of imported.externalDeclarationLocations) {
@@ -575,6 +600,9 @@ export async function bundleModuleGraph(
   };
   const globalParsed = await Promise.all(globalSourceFiles.map((filePath) => loadParsed(filePath, parserOptionsForModulePath(filePath))));
   const globalDeclarations = collectGlobalSymbolDeclarations(globalParsed.map((parsed) => parsed?.ast ?? null));
+  const sharedAmbientDeclarations = globalDeclarations.length === 0
+    ? ambientDeclarations
+    : [...ambientDeclarations, ...globalDeclarations];
 
   const visit = async (filePath: string): Promise<void> => {
     if (emittedByPath.has(filePath) || inProgress.has(filePath)) {
@@ -596,9 +624,7 @@ export async function bundleModuleGraph(
     const externalDeclarationLocations = new Map<Statement, ExternalDeclarationLocation>();
     const localExternalDeclarations: Statement[] = [];
     const localExternalDeclarationLocations = new Map<Statement, ExternalDeclarationLocation>();
-    const moduleAmbientDeclarations = globalDeclarations.length === 0
-      ? ambientDeclarations
-      : [...ambientDeclarations, ...globalDeclarations];
+    const moduleAmbientDeclarations = sharedAmbientDeclarations;
     const importedSymbols = new Map<string, { type?: AnalysisType; displayType?: string }>();
     const bundledSpecifiers = new Set<string>();
     if (ast) {
@@ -835,6 +861,17 @@ export async function bundleModuleGraphAsModules(
   } = {}
 ): Promise<ModuleGraphSourcesResult> {
   const phaseTimings = { parse: 0, analysis: 0, emit: 0 };
+  const workCounts = {
+    analyzedModuleCount: 0,
+    emittedModuleCount: 0,
+    reusedModuleCount: 0,
+    ambientDeclarationVisitCount: 0,
+    nodeModuleImportResolutionCount: 0,
+    nodeModuleImportCacheHitCount: 0,
+    selectiveTypingsBuilds: 0,
+    selectiveTypingsExactCacheHits: 0,
+    selectiveTypingsSupersetCacheHits: 0
+  };
   const activeVfs = options.vfs ?? vfs();
   const ambientDeclarations = options.ambientDeclarations ?? EMPTY_DECLARATIONS;
   const importMappings = options.importMappings ?? {};
@@ -861,6 +898,7 @@ export async function bundleModuleGraphAsModules(
   const diagnostics: TranspileResult["diagnostics"] = [];
   const globalSourceFiles = await collectGlobalSymbolFiles(options.globalSymbols?.paths ?? [], activeVfs);
   const globalSourceFileSet = new Set(globalSourceFiles);
+  const nodeModuleImportResolutionCache = createNodeModuleImportResolutionCache();
 
   const loadSource = async (filePath: string): Promise<string | null> => {
     if (sourceByPath.has(filePath)) {
@@ -890,6 +928,10 @@ export async function bundleModuleGraphAsModules(
   };
   const globalParsed = await Promise.all(globalSourceFiles.map((filePath) => loadParsed(filePath, parserOptionsForModulePath(filePath))));
   const globalDeclarations = collectGlobalSymbolDeclarations(globalParsed.map((parsed) => parsed?.ast ?? null));
+  const sharedAmbientDeclarations = globalDeclarations.length === 0
+    ? ambientDeclarations
+    : [...ambientDeclarations, ...globalDeclarations];
+  const ambientEmitRuntimeSeed = createTranspileRuntimeSeed(sharedAmbientDeclarations);
 
   const visit = async (filePath: string): Promise<void> => {
     if (emittedByPath.has(filePath) || inProgress.has(filePath)) {
@@ -920,9 +962,7 @@ export async function bundleModuleGraphAsModules(
     const localExternalDeclarations = reusableTypeContext?.localExternalDeclarations ?? [];
     const localExternalDeclarationLocations = reusableTypeContext?.localExternalDeclarationLocations
       ?? new Map<Statement, ExternalDeclarationLocation>();
-    const moduleAmbientDeclarations = globalDeclarations.length === 0
-      ? ambientDeclarations
-      : [...ambientDeclarations, ...globalDeclarations];
+    const moduleAmbientDeclarations = sharedAmbientDeclarations;
     const importedSymbols = reusableTypeContext
       ? new Map(reusableTypeContext.importedSymbols)
       : new Map<string, { type?: AnalysisType; displayType?: string }>();
@@ -937,7 +977,9 @@ export async function bundleModuleGraphAsModules(
           externalDeclarationLocations,
           importedSymbols,
           activeVfs,
-          moduleAmbientDeclarations
+          moduleAmbientDeclarations,
+          nodeModuleImportResolutionCache,
+          workCounts
         );
       }
       for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs, importMappings)) {
@@ -1023,10 +1065,10 @@ export async function bundleModuleGraphAsModules(
         localExternalDeclarations
       );
       if (!reusableTypeContext && incrementalState) {
-        emitRuntimeSeed = createTranspileRuntimeSeed([
-          ...moduleAmbientDeclarations,
-          ...prioritizedExternalDeclarations
-        ]);
+        emitRuntimeSeed = createTranspileRuntimeSeed(
+          prioritizedExternalDeclarations,
+          ambientEmitRuntimeSeed
+        );
         incrementalState.typeContextByPath.set(filePath, {
           importKey,
           externalDeclarations,
@@ -1055,25 +1097,47 @@ export async function bundleModuleGraphAsModules(
       externalDeclarations,
       localExternalDeclarations
     );
+    const relevantAmbientDeclarations = moduleAmbientDeclarations;
+    workCounts.ambientDeclarationVisitCount += relevantAmbientDeclarations.length;
+
+    const cachedCompiledModule = reusableTypeContext
+      ? incrementalState?.compiledByPath.get(filePath)
+      : undefined;
+    if (cachedCompiledModule?.source === source) {
+      workCounts.reusedModuleCount += 1;
+      analysisByPath.set(filePath, cachedCompiledModule.analysis);
+      emittedByPath.set(filePath, cachedCompiledModule.emittedCode);
+      errors.push(...cachedCompiledModule.errors);
+      warnings.push(...cachedCompiledModule.warnings);
+      diagnostics.push(...cachedCompiledModule.diagnostics);
+      inProgress.delete(filePath);
+      return;
+    }
 
     const analysisStartedAt = monotonicNow();
+    workCounts.analyzedModuleCount += 1;
     const compilationArtifacts = parsed
         ? compileParsedSource(parsed, {
           externalDeclarations: prioritizedExternalDeclarations,
           externalDeclarationLocations,
-          ambientDeclarations: moduleAmbientDeclarations,
+          ambientDeclarations: relevantAmbientDeclarations,
           importedSymbols
         })
       : compileSource(source, parserOptions, {
           externalDeclarations: prioritizedExternalDeclarations,
           externalDeclarationLocations,
-          ambientDeclarations: moduleAmbientDeclarations,
+          ambientDeclarations: relevantAmbientDeclarations,
           importedSymbols
         });
     phaseTimings.analysis += monotonicNow() - analysisStartedAt;
     analysisByPath.set(filePath, compilationArtifacts.analysis);
 
     const emitStartedAt = monotonicNow();
+    workCounts.emittedModuleCount += 1;
+    emitRuntimeSeed ??= createTranspileRuntimeSeed(
+      prioritizedExternalDeclarations,
+      ambientEmitRuntimeSeed
+    );
     const result = transpile(source, {
       compilationArtifacts,
       sourceFilePath: filePath,
@@ -1083,7 +1147,7 @@ export async function bundleModuleGraphAsModules(
       parserOptions,
       externalDeclarations: prioritizedExternalDeclarations,
       importedSymbols,
-      ambientDeclarations: moduleAmbientDeclarations,
+      ambientDeclarations: relevantAmbientDeclarations,
       typeCheck: options.typeCheck ?? true,
       ...(emitRuntimeSeed ? { emitRuntimeSeed } : {}),
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
@@ -1121,12 +1185,18 @@ export async function bundleModuleGraphAsModules(
     const emittedWithImplicitExports = moduleFormat === "commonjs"
       ? appendImplicitVexaCommonJsExports(emittedCode, ast, filePath)
       : appendImplicitVexaExports(emittedCode, ast, filePath);
-    emittedByPath.set(
-      filePath,
-      [...assetBindingChunks, emittedWithImplicitExports]
-        .filter((chunk) => chunk.trim().length > 0)
-        .join("\n")
-    );
+    const emittedModuleCode = [...assetBindingChunks, emittedWithImplicitExports]
+      .filter((chunk) => chunk.trim().length > 0)
+      .join("\n");
+    emittedByPath.set(filePath, emittedModuleCode);
+    incrementalState?.compiledByPath.set(filePath, {
+      source,
+      analysis: compilationArtifacts.analysis,
+      emittedCode: emittedModuleCode,
+      errors: [...result.errors],
+      warnings: [...result.warnings],
+      diagnostics: [...result.diagnostics]
+    });
 
     inProgress.delete(filePath);
   };
@@ -1142,12 +1212,14 @@ export async function bundleModuleGraphAsModules(
         continue;
       }
       const analysisStartedAt = monotonicNow();
+      workCounts.analyzedModuleCount += 1;
       const compilationArtifacts = compileParsedSource(parsed, {
           externalDeclarations: globalDeclarations,
           ambientDeclarations: [...ambientDeclarations, ...globalDeclarations]
         });
       phaseTimings.analysis += monotonicNow() - analysisStartedAt;
       const emitStartedAt = monotonicNow();
+      workCounts.emittedModuleCount += 1;
       const result = transpile(source, {
         compilationArtifacts,
         sourceFilePath: filePath,
@@ -1175,9 +1247,9 @@ export async function bundleModuleGraphAsModules(
   }
 
   const moduleCount = parsedByPath.size;
-  options.profile?.({ phase: "parse", elapsedMs: phaseTimings.parse, moduleCount });
-  options.profile?.({ phase: "analysis", elapsedMs: phaseTimings.analysis, moduleCount });
-  options.profile?.({ phase: "emit", elapsedMs: phaseTimings.emit, moduleCount });
+  options.profile?.({ phase: "parse", elapsedMs: phaseTimings.parse, moduleCount, ...workCounts });
+  options.profile?.({ phase: "analysis", elapsedMs: phaseTimings.analysis, moduleCount, ...workCounts });
+  options.profile?.({ phase: "emit", elapsedMs: phaseTimings.emit, moduleCount, ...workCounts });
 
   return {
     entrySource: [...globalChunks, emittedByPath.get(entryFilePath) ?? ""].filter((chunk) => chunk.trim().length > 0).join("\n"),

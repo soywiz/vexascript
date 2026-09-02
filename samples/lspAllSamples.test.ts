@@ -51,7 +51,11 @@ describe("all sample LSP sessions", async () => {
         const lines = before.split("\n");
         highlightProbes = [{ line: lines.length - 1, character: lines.at(-1)?.length ?? 0 }];
       }
-      const result = await openEntrypointInLspSession(entrypoint, workspaceRoot, highlightProbes);
+      const result = await openEntrypointInLspSession(
+        entrypoint,
+        project?.projectDir ?? workspaceRoot,
+        highlightProbes
+      );
       const errors = [...result.documentDiagnostics, ...result.workspaceDiagnostics]
         .filter((diagnostic) => diagnostic.severity === 1)
         .map((diagnostic) => diagnostic.message);
@@ -62,6 +66,15 @@ describe("all sample LSP sessions", async () => {
       if (sampleName === "preact") {
         expect(result.documentHighlights[0]).toHaveLength(2);
         expect(result.documentHighlights[0]?.every((highlight) => highlight.kind === 3)).toBe(true);
+      }
+      if (sampleName === "question-kingdom") {
+        expect(result.workMetrics.openSessionBuilds).toBeLessThanOrEqual(2);
+        expect(result.workMetrics.importedAnalysisBuilds).toBeLessThanOrEqual(55);
+        expect(result.workMetrics.diskSessionBuilds).toBeLessThanOrEqual(55);
+        expect(result.workMetrics.sessionRequests).toBeLessThanOrEqual(500);
+        expect(result.workMetrics.importedAnalysisCacheHits).toBeGreaterThan(0);
+        expect(result.workMetrics.selectiveTypingsBuilds).toBeLessThanOrEqual(12);
+        expect(result.workMetrics.selectiveTypingsSupersetCacheHits).toBeGreaterThan(0);
       }
     });
   }

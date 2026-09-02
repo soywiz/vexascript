@@ -25,6 +25,7 @@ export interface ProjectIndexMetrics {
   indexedDataRequests: number;
   openOverrideHits: number;
   openSessionBuilds: number;
+  pendingOpenSessionReuses: number;
   diskSessionRequests: number;
   diskSessionCacheHits: number;
   diskSessionCacheMisses: number;
@@ -40,6 +41,7 @@ function emptyProjectIndexMetrics(): ProjectIndexMetrics {
     indexedDataRequests: 0,
     openOverrideHits: 0,
     openSessionBuilds: 0,
+    pendingOpenSessionReuses: 0,
     diskSessionRequests: 0,
     diskSessionCacheHits: 0,
     diskSessionCacheMisses: 0,
@@ -84,8 +86,14 @@ interface CachedDiskSession {
 }
 
 interface OpenFileOverride {
+  source: string;
   session: ProjectSessionLike;
   indexed: IndexedFileData;
+}
+
+interface PendingOpenFileOverride {
+  source: string;
+  result: Promise<void>;
 }
 
 function nodeRange(node: {
@@ -306,6 +314,7 @@ export class ProjectIndex {
   private readonly diskSessions = new Map<string, CachedDiskSession | null>();
   private readonly pendingDiskSessions = new Map<string, Promise<CachedDiskSession | null>>();
   private readonly openOverrides = new Map<string, OpenFileOverride>();
+  private readonly pendingOpenOverrides = new Map<string, PendingOpenFileOverride>();
   private metrics = emptyProjectIndexMetrics();
 
   constructor(sourceRoots: string[], vfsValue: Vfs = vfs(), importMappings: Readonly<Record<string, string>> = {}) {
@@ -368,14 +377,39 @@ export class ProjectIndex {
 
   async upsertOpenDocument(filePath: string, source: string): Promise<void> {
     const normalized = resolve(filePath);
+    if (this.openOverrides.get(normalized)?.source === source) {
+      return;
+    }
+    const existingPending = this.pendingOpenOverrides.get(normalized);
+    if (existingPending?.source === source) {
+      this.metrics.pendingOpenSessionReuses += 1;
+      return existingPending.result;
+    }
     this.metrics.openSessionBuilds += 1;
     const session = compileToSession(source);
-    const indexed = await indexFileData(session.ast, normalized, this.vfs, this.importMappings);
-    this.openOverrides.set(normalized, { session, indexed });
+    const pending: PendingOpenFileOverride = {
+      source,
+      result: Promise.resolve()
+    };
+    pending.result = indexFileData(session.ast, normalized, this.vfs, this.importMappings)
+      .then((indexed) => {
+        if (this.pendingOpenOverrides.get(normalized) === pending) {
+          this.openOverrides.set(normalized, { source, session, indexed });
+        }
+      })
+      .finally(() => {
+        if (this.pendingOpenOverrides.get(normalized) === pending) {
+          this.pendingOpenOverrides.delete(normalized);
+        }
+      });
+    this.pendingOpenOverrides.set(normalized, pending);
+    return pending.result;
   }
 
   clearOpenDocument(filePath: string): void {
-    this.openOverrides.delete(resolve(filePath));
+    const normalized = resolve(filePath);
+    this.openOverrides.delete(normalized);
+    this.pendingOpenOverrides.delete(normalized);
   }
 
   invalidateFile(filePath: string): void {

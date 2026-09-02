@@ -3050,6 +3050,16 @@ export interface CollectImportedDeclarationsContext extends ProjectContext {
   ambientGlobalDeclarations?: readonly Statement[];
   resolvingFilePaths?: ReadonlySet<string>;
   importedDeclarationsCache?: Map<string, Promise<CollectedImportedDeclarations>>;
+  importedAnalysisCache?: Map<string, Promise<Analysis>>;
+  workCounters?: ImportedDeclarationsWorkCounters;
+}
+
+export interface ImportedDeclarationsWorkCounters {
+  importedAnalysisBuilds?: number;
+  importedAnalysisCacheHits?: number;
+  selectiveTypingsBuilds?: number;
+  selectiveTypingsExactCacheHits?: number;
+  selectiveTypingsSupersetCacheHits?: number;
 }
 
 async function resolveImportTargetInContext(
@@ -3420,13 +3430,15 @@ export async function collectAllImportedDeclarations(
     return collectAllImportedDeclarationsUncached(ast, context);
   }
   const cache = context.importedDeclarationsCache ?? new Map<string, Promise<CollectedImportedDeclarations>>();
+  const analysisCache = context.importedAnalysisCache ?? new Map<string, Promise<Analysis>>();
   const cached = cache.get(currentFilePath);
   if (cached) {
     return cached;
   }
   const pending = collectAllImportedDeclarationsUncached(ast, {
     ...context,
-    importedDeclarationsCache: cache
+    importedDeclarationsCache: cache,
+    importedAnalysisCache: analysisCache
   });
   cache.set(currentFilePath, pending);
   try {
@@ -3501,7 +3513,8 @@ async function collectAllImportedDeclarationsUncached(
           currentFilePath,
           importStatement.from.value,
           wantedNames,
-          { vfs: context.vfs }
+          { vfs: context.vfs },
+          context.workCounters
       );
       if (nodeModuleTypings) {
         const declarationsForExport = (exportedName: string): readonly Statement[] =>
@@ -3877,14 +3890,29 @@ async function collectAllImportedDeclarationsUncached(
             ?? nestedImports.externalDeclarationLocations.get(declaration)?.filePath
         );
       }
-      targetAnalysis = new Analysis(targetSession.ast, {
-        externalDeclarations: nestedImports.externalDeclarations,
-        externalDeclarationLocations: nestedImports.externalDeclarationLocations,
-        importedSymbols: nestedImports.importedSymbols,
-        invalidImportedBindings: nestedImports.invalidImportedBindings,
-        ambientDeclarations: [...(context.ambientDeclarations ?? context.ambientGlobalDeclarations ?? [])],
-        projectOwnedExternalDeclarations: true
-      });
+      const cachedAnalysis = context.importedAnalysisCache?.get(targetFilePath);
+      if (cachedAnalysis) {
+        if (context.workCounters) {
+          context.workCounters.importedAnalysisCacheHits =
+            (context.workCounters.importedAnalysisCacheHits ?? 0) + 1;
+        }
+        targetAnalysis = await cachedAnalysis;
+      } else {
+        if (context.workCounters) {
+          context.workCounters.importedAnalysisBuilds =
+            (context.workCounters.importedAnalysisBuilds ?? 0) + 1;
+        }
+        const pendingAnalysis = Promise.resolve(new Analysis(targetSession.ast, {
+          externalDeclarations: nestedImports.externalDeclarations,
+          externalDeclarationLocations: nestedImports.externalDeclarationLocations,
+          importedSymbols: nestedImports.importedSymbols,
+          invalidImportedBindings: nestedImports.invalidImportedBindings,
+          ambientDeclarations: [...(context.ambientDeclarations ?? context.ambientGlobalDeclarations ?? [])],
+          projectOwnedExternalDeclarations: true
+        }));
+        context.importedAnalysisCache?.set(targetFilePath, pendingAnalysis);
+        targetAnalysis = await pendingAnalysis;
+      }
     }
     const exportedNames = new Set<string>();
     const declarationByExportedName = new Map<string, Statement>();

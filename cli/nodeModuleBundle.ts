@@ -1268,6 +1268,9 @@ async function createCachedBundledModuleArtifact(
 ): Promise<CachedBundledModuleArtifact> {
   const sourcePath = textModuleSourcePath(filePath);
   const extension = extname(sourcePath).toLowerCase();
+  const mtimePromise = virtualSources.has(filePath) || virtualSources.has(sourcePath)
+    ? Promise.resolve(-1)
+    : fileMtimeInVfs(sourcePath, vfs, context).then((mtimeMs) => mtimeMs ?? -1);
   let source = virtualSources.get(filePath) ?? virtualSources.get(sourcePath);
   if (source === undefined) {
     source = await vfs.readFile(sourcePath) ?? undefined;
@@ -1288,27 +1291,22 @@ async function createCachedBundledModuleArtifact(
   }
   const transpiledCode = rewriteStaticDynamicImports(transpiled.code);
   const resolvedDependencies: Record<string, string | null> = {};
-  for (const specifier of [...detectStaticRequires(transpiledCode), ...detectStaticDynamicImports(transpiled.code)]) {
-    let resolved: ResolvedDependency;
+  const specifiers = [...detectStaticRequires(transpiledCode), ...detectStaticDynamicImports(transpiled.code)];
+  const resolutions = await Promise.all(specifiers.map(async (specifier) => {
     try {
-      resolved = await resolveDependency(filePath, specifier, vfs, virtualSources, importMappings, baseUrl, context);
+      return await resolveDependency(filePath, specifier, vfs, virtualSources, importMappings, baseUrl, context);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Unable to resolve '${specifier}' imported by '${filePath}': ${detail}`);
     }
-    try {
-      if (resolved.kind === "bundled") {
-        resolvedDependencies[specifier] = resolved.filePath;
-      } else {
-        resolvedDependencies[specifier] = null;
-      }
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`Unable to record resolved dependency '${specifier}' for '${filePath}': ${detail}`);
-    }
+  }));
+  for (let index = 0; index < specifiers.length; index += 1) {
+    const specifier = specifiers[index]!;
+    const resolved = resolutions[index]!;
+    resolvedDependencies[specifier] = resolved.kind === "bundled" ? resolved.filePath : null;
   }
   return {
-    mtimeMs: await fileMtimeInVfs(sourcePath, vfs, context) ?? -1,
+    mtimeMs: await mtimePromise,
     code: transpiledCode,
     resolvedDependencies
   };
@@ -1347,12 +1345,25 @@ interface BundleTraversalContext {
   moduleIdByPath: Map<string, string>;
   watchedFiles: Set<string>;
   nextModuleIndex: number;
+  discoveredByIdentity: Map<string, DiscoveredModuleRecord>;
 }
 
-async function visitResolvedFile(
+interface DiscoveredModuleDependency {
+  specifier: string;
+  module: DiscoveredModuleRecord | null;
+}
+
+interface DiscoveredModuleRecord {
+  filePath: string;
+  physicalIdentityKey?: string;
+  artifact: CachedBundledModuleArtifact | null;
+  dependencies: DiscoveredModuleDependency[];
+}
+
+async function discoverResolvedFile(
   filePath: string,
   traversal: BundleTraversalContext
-): Promise<string> {
+): Promise<DiscoveredModuleRecord> {
   let physicalIdentityKey: string | undefined;
   if (!traversal.virtualSources.has(filePath)) {
     const textModule = isTextModulePath(filePath);
@@ -1366,19 +1377,19 @@ async function visitResolvedFile(
       // canonical path. Their stable logical path remains the module identity.
     }
   }
-  const existing = traversal.moduleIdByPath.get(filePath)
-    ?? (physicalIdentityKey ? traversal.moduleIdByPath.get(physicalIdentityKey) : undefined);
+  const identityKey = physicalIdentityKey ?? filePath;
+  const existing = traversal.discoveredByIdentity.get(identityKey);
   if (existing) {
-    traversal.moduleIdByPath.set(filePath, existing);
     return existing;
   }
 
-  const moduleId = `__vexa_module_${traversal.nextModuleIndex}`;
-  traversal.nextModuleIndex += 1;
-  traversal.moduleIdByPath.set(filePath, moduleId);
-  if (physicalIdentityKey) {
-    traversal.moduleIdByPath.set(physicalIdentityKey, moduleId);
-  }
+  const discovered: DiscoveredModuleRecord = {
+    filePath,
+    ...(physicalIdentityKey ? { physicalIdentityKey } : {}),
+    artifact: null,
+    dependencies: []
+  };
+  traversal.discoveredByIdentity.set(identityKey, discovered);
   if (!traversal.virtualSources.has(filePath)) {
     traversal.watchedFiles.add(filePath);
   }
@@ -1390,7 +1401,7 @@ async function visitResolvedFile(
     traversal.baseUrl,
     traversal.resolutionContext
   );
-  const dependencyMap: Record<string, string | null> = {};
+  discovered.artifact = artifact;
   let resolvedDependencyEntries: [string, string | null][];
   try {
     resolvedDependencyEntries = Object.entries(artifact.resolvedDependencies);
@@ -1398,21 +1409,45 @@ async function visitResolvedFile(
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`Unable to enumerate dependencies for '${filePath}': ${detail}`);
   }
-  for (const [specifier, resolvedFilePath] of resolvedDependencyEntries) {
-    if (resolvedFilePath === null) {
-      dependencyMap[specifier] = null;
-      continue;
-    }
+  discovered.dependencies = await Promise.all(resolvedDependencyEntries.map(async ([specifier, resolvedFilePath]) => {
+    if (resolvedFilePath === null) return { specifier, module: null };
     try {
-      dependencyMap[specifier] = await visitResolvedFile(resolvedFilePath, traversal);
+      return { specifier, module: await discoverResolvedFile(resolvedFilePath, traversal) };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Unable to bundle '${specifier}' imported by '${filePath}': ${detail}`);
     }
+  }));
+  return discovered;
+}
+
+function emitDiscoveredFile(
+  discovered: DiscoveredModuleRecord,
+  traversal: BundleTraversalContext
+): string {
+  const existing = traversal.moduleIdByPath.get(discovered.filePath)
+    ?? (discovered.physicalIdentityKey
+      ? traversal.moduleIdByPath.get(discovered.physicalIdentityKey)
+      : undefined);
+  if (existing) return existing;
+
+  const moduleId = `__vexa_module_${traversal.nextModuleIndex}`;
+  traversal.nextModuleIndex += 1;
+  traversal.moduleIdByPath.set(discovered.filePath, moduleId);
+  if (discovered.physicalIdentityKey) {
+    traversal.moduleIdByPath.set(discovered.physicalIdentityKey, moduleId);
   }
+  const dependencyMap: Record<string, string | null> = {};
+  for (const dependency of discovered.dependencies) {
+    dependencyMap[dependency.specifier] = dependency.module
+      ? emitDiscoveredFile(dependency.module, traversal)
+      : null;
+  }
+  const artifact = discovered.artifact;
+  if (!artifact) throw new Error(`Unable to load discovered bundled module '${discovered.filePath}'`);
   traversal.moduleById.set(moduleId, {
     id: moduleId,
-    filePath,
+    filePath: discovered.filePath,
     code: artifact.code,
     dependencyMap
   });
@@ -1496,14 +1531,14 @@ export async function bundleNodeModuleGraph(
     moduleById,
     moduleIdByPath,
     watchedFiles,
-    nextModuleIndex: reusableState?.nextModuleIndex ?? 0
+    nextModuleIndex: reusableState?.nextModuleIndex ?? 0,
+    discoveredByIdentity: new Map()
   };
 
   if (!canReuseDependencies) {
-    for (const specifier of entrySpecifiers) {
-      let resolved: ResolvedDependency;
+    const entryResolutions = await Promise.all(entrySpecifiers.map(async (specifier) => {
       try {
-        resolved = await resolveDependency(
+        return await resolveDependency(
           sourcePath,
           specifier,
           activeVfs,
@@ -1516,13 +1551,29 @@ export async function bundleNodeModuleGraph(
         const detail = error instanceof Error ? error.message : String(error);
         throw new Error(`Unable to resolve bundled dependency '${specifier}': ${detail}`);
       }
-      if (resolved.kind === "bundled") {
+    }));
+    const discoveredEntries = await Promise.all(entryResolutions.map(async (resolved, index) => {
+      if (resolved.kind === "external") return null;
+      const specifier = entrySpecifiers[index]!;
+      try {
+        return await discoverResolvedFile(resolved.filePath, traversal);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Unable to bundle resolved dependency '${specifier}' from '${resolved.filePath}': ${detail}`
+        );
+      }
+    }));
+    for (let index = 0; index < entrySpecifiers.length; index += 1) {
+      const specifier = entrySpecifiers[index]!;
+      const discovered = discoveredEntries[index];
+      if (discovered) {
         try {
-          entryDependencyMap[specifier] = await visitResolvedFile(resolved.filePath, traversal);
+          entryDependencyMap[specifier] = emitDiscoveredFile(discovered, traversal);
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           throw new Error(
-            `Unable to bundle resolved dependency '${specifier}' from '${resolved.filePath}': ${detail}`
+            `Unable to emit bundled dependency '${specifier}': ${detail}`
           );
         }
       } else {

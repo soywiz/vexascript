@@ -4,6 +4,7 @@ import {
   ensureRuntimeDependencies,
   resolveProjectForSource
 } from "../cli/cliShared";
+import type { ModuleGraphProfileEvent } from "../compiler/runtime/moduleGraphModel";
 
 describe("Question Kingdom sample", () => {
   it("bundles main.vx and its transitive game modules without diagnostics", async () => {
@@ -12,7 +13,10 @@ describe("Question Kingdom sample", () => {
     const project = await resolveProjectForSource(sourcePath);
 
     await ensureRuntimeDependencies(sourcePath, project);
-    const result = await createBundledModuleArtifacts(sourcePath, "optimized", project);
+    const profileEvents: ModuleGraphProfileEvent[] = [];
+    const result = await createBundledModuleArtifacts(sourcePath, "optimized", project, {}, {
+      profile: (event) => profileEvents.push(event)
+    });
 
     expect(result.errors).toEqual([]);
     expect(result.diagnostics).toEqual([]);
@@ -28,5 +32,14 @@ describe("Question Kingdom sample", () => {
     );
     expect(bundledGameModules.length).toBeGreaterThan(40);
     expect(result.code).toContain("LEVEL COMPLETE!");
+
+    const work = profileEvents.find((event) => event.phase === "analysis")!;
+    expect(work.analyzedModuleCount).toBeLessThanOrEqual(55);
+    expect(work.emittedModuleCount).toBeLessThanOrEqual(55);
+    expect(work.ambientDeclarationVisitCount).toBeLessThanOrEqual(55 * 2494);
+    expect(work.nodeModuleImportResolutionCount).toBeLessThanOrEqual(24);
+    expect(work.nodeModuleImportCacheHitCount).toBeGreaterThan(0);
+    expect(work.selectiveTypingsBuilds).toBeLessThanOrEqual(12);
+    expect(work.selectiveTypingsSupersetCacheHits).toBeGreaterThan(0);
   });
 });

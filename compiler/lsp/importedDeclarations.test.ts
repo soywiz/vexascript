@@ -17,6 +17,34 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
 }
 
 describe("collectAllImportedDeclarations — ambient module type resolution", () => {
+  it("reuses resolved analyses for shared local dependencies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-analysis-cache-"));
+    const sharedFile = join(root, "shared.vx");
+    const leftFile = join(root, "left.vx");
+    const rightFile = join(root, "right.vx");
+    const mainFile = join(root, "main.vx");
+    await writeFile(sharedFile, "export class Shared\n", "utf8");
+    await writeFile(leftFile, 'import { Shared } from "./shared"\nexport fun left(): Shared { return Shared() }\n', "utf8");
+    await writeFile(rightFile, 'import { Shared } from "./shared"\nexport fun right(): Shared { return Shared() }\n', "utf8");
+    const source = 'import { left } from "./left"\nimport { right } from "./right"\nleft()\nright()\n';
+    await writeFile(mainFile, source, "utf8");
+    const importedAnalysisCache = new Map();
+    const workCounters = { importedAnalysisBuilds: 0, importedAnalysisCacheHits: 0 };
+
+    const imported = await collectAllImportedDeclarations(parseSource(source, {}).ast!, {
+      uri: pathToFileURL(mainFile).toString(),
+      sourceRoots: [root],
+      importedAnalysisCache,
+      workCounters
+    });
+
+    expect(imported.importedSymbols.has("left")).toBe(true);
+    expect(imported.importedSymbols.has("right")).toBe(true);
+    expect(importedAnalysisCache.size).toBe(3);
+    expect(workCounters.importedAnalysisBuilds).toBeLessThanOrEqual(3);
+    expect(workCounters.importedAnalysisCacheHits).toBeGreaterThanOrEqual(1);
+  });
+
   it("infers the shape of a local JSON default import", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-json-import-types-"));
     const jsonFile = join(root, "data.json");

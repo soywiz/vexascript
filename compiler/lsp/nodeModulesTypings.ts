@@ -94,12 +94,26 @@ interface SelectiveCacheEntry {
   result: NodeModuleTypings;
 }
 
+interface SelectiveSupersetCacheEntry {
+  mtimeMs: number;
+  wantedNames: Set<string>;
+  result: NodeModuleTypings;
+}
+
+export interface NodeModuleTypingsWorkCounters {
+  selectiveTypingsBuilds?: number;
+  selectiveTypingsExactCacheHits?: number;
+  selectiveTypingsSupersetCacheHits?: number;
+}
+
 const cache = new Map<string, CacheEntry>();
 const selectiveCache = new Map<string, SelectiveCacheEntry>();
+const selectiveSupersetCache = new Map<string, SelectiveSupersetCacheEntry>();
 
 export function clearNodeModuleTypingsCache(): void {
   cache.clear();
   selectiveCache.clear();
+  selectiveSupersetCache.clear();
   clearDtsModuleGraphCache();
   clearNodeModulesTypingsPathCache();
 }
@@ -615,7 +629,8 @@ export async function getNodeModuleTypingsForImportNames(
   importerFilePath: string,
   packageName: string,
   wantedNames: ReadonlySet<string>,
-  options: ModuleResolutionOptions = {}
+  options: ModuleResolutionOptions = {},
+  workCounters?: NodeModuleTypingsWorkCounters
 ): Promise<NodeModuleTypings | null> {
   const activeVfs = options.vfs ?? vfs();
   const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs: activeVfs });
@@ -631,7 +646,36 @@ export async function getNodeModuleTypingsForImportNames(
   const selectiveKey = `${typingsPath}\0${cacheKey}`;
   const cached = selectiveCache.get(selectiveKey);
   if (cached && cached.mtimeMs === mtimeMs && cached.cacheKey === cacheKey) {
+    if (workCounters) {
+      workCounters.selectiveTypingsExactCacheHits =
+        (workCounters.selectiveTypingsExactCacheHits ?? 0) + 1;
+    }
     return cached.result;
+  }
+
+  const cachedSuperset = selectiveSupersetCache.get(typingsPath);
+  if (
+    cachedSuperset?.mtimeMs === mtimeMs &&
+    [...wantedNames].every((name) => cachedSuperset.wantedNames.has(name))
+  ) {
+    if (workCounters) {
+      workCounters.selectiveTypingsSupersetCacheHits =
+        (workCounters.selectiveTypingsSupersetCacheHits ?? 0) + 1;
+    }
+    selectiveCache.set(selectiveKey, {
+      typingsPath,
+      mtimeMs,
+      cacheKey,
+      result: cachedSuperset.result
+    });
+    return cachedSuperset.result;
+  }
+  const accumulatedWantedNames = new Set([
+    ...(cachedSuperset?.mtimeMs === mtimeMs ? cachedSuperset.wantedNames : []),
+    ...wantedNames
+  ]);
+  if (workCounters) {
+    workCounters.selectiveTypingsBuilds = (workCounters.selectiveTypingsBuilds ?? 0) + 1;
   }
 
   const ast = await parseDtsProgram(typingsPath, { vfs: activeVfs });
@@ -640,7 +684,7 @@ export async function getNodeModuleTypingsForImportNames(
   }
   const declarationEntries = await collectSelectiveTypingsDeclarations(
     typingsPath,
-    wantedNames,
+    accumulatedWantedNames,
     { vfs: activeVfs },
     new Set<string>()
   );
@@ -656,6 +700,11 @@ export async function getNodeModuleTypingsForImportNames(
     defaultExportName
   };
   selectiveCache.set(selectiveKey, { typingsPath, mtimeMs, cacheKey, result });
+  selectiveSupersetCache.set(typingsPath, {
+    mtimeMs,
+    wantedNames: accumulatedWantedNames,
+    result
+  });
   return result;
 }
 

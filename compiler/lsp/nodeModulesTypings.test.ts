@@ -123,6 +123,46 @@ describe("node_modules typings resolution", () => {
     )).toBe(false);
   });
 
+  it("reuses an accumulated selective declaration superset across package imports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-superset-"));
+    await makePackageWithTypings(root, "pkg", dedent`
+      export interface First { first: string; }
+      export interface Second { second: number; }
+    `);
+    const importerPath = join(root, "main.vx");
+    const workCounters = {
+      selectiveTypingsBuilds: 0,
+      selectiveTypingsExactCacheHits: 0,
+      selectiveTypingsSupersetCacheHits: 0
+    };
+
+    await getNodeModuleTypingsForImportNames(
+      importerPath,
+      "pkg",
+      new Set(["First"]),
+      {},
+      workCounters
+    );
+    await getNodeModuleTypingsForImportNames(
+      importerPath,
+      "pkg",
+      new Set(["Second"]),
+      {},
+      workCounters
+    );
+    const combined = await getNodeModuleTypingsForImportNames(
+      importerPath,
+      "pkg",
+      new Set(["First", "Second"]),
+      {},
+      workCounters
+    );
+
+    expect(combined).not.toBeNull();
+    expect(workCounters.selectiveTypingsBuilds).toBeLessThanOrEqual(2);
+    expect(workCounters.selectiveTypingsSupersetCacheHits).toBeGreaterThanOrEqual(1);
+  });
+
   it("prefers the re-exported declaration over same-name support declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "dialect-builders");
