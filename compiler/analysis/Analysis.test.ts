@@ -4374,6 +4374,44 @@ let bad = "Ada" satisfies number
     );
   });
 
+  it("rejects an explicit constructor when the class has a primary constructor", () => {
+    const source = dedent`
+      class Enemy(value: number) {
+        constructor(value: number) {}
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "A class with a primary constructor cannot declare an explicit constructor"
+    );
+  });
+
+  it("infers defaulted primary constructor parameter types in field initializers and calls", () => {
+    const source = dedent`
+      interface BodyDefinition {
+        gravityScale: number
+      }
+      class RigidBody {
+        constructor(definition: BodyDefinition) {}
+      }
+      const valid = new Enemy()
+      const invalid = new Enemy("heavy")
+      class Enemy(gravityScale = 1) {
+        readonly rigidbody: RigidBody = new RigidBody({ gravityScale })
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).not.toContain(
+      "Type '{ gravityScale: unknown }' is not assignable to type 'BodyDefinition'"
+    );
+    expect(messages).toContain(
+      "Argument 1 of type 'string' is not assignable to parameter 'gravityScale' of type 'number?'"
+    );
+  });
+
   it("checks extension properties declared with accessor blocks", () => {
     const source = dedent`
       class Vec2(val x: number, val y: number)

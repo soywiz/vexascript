@@ -322,6 +322,19 @@ console.log(user.describe())
     expect(output).toEqual([["ada:37"]]);
   });
 
+  it("executes field initializers that reference primary constructor parameters", () => {
+    const output = executeTranspiled(`
+class Point(x: number, y: number) {
+  readonly sum = x + y
+  readonly coordinates = { x, y }
+}
+const point = new Point(2, 5)
+console.log(point.sum, point.coordinates.x, point.coordinates.y)
+`);
+
+    expect(output).toEqual([[7, 2, 5]]);
+  });
+
   it("executes lowered range loops, class constructor fields, and bigint/long arithmetic", () => {
     const source = `class Pair(val x: int, val y: int)
 let total = 0i

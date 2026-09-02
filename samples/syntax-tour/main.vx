@@ -59,14 +59,11 @@ namespace LocalTools {
   }
 }
 
-class Counter(var value: number = 0) {
-  public readonly id?: string
+class Counter(var value: number = 0, const id: string = "counter") {
   service!: string
 
-  constructor(value: number = 0, id: string = "counter") {
-    this.value = value
-    this.id = id
-    this.service = "ready"
+  init {
+    service = "ready"
   }
 
   increment(amount: number = 1): number {

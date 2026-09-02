@@ -116,6 +116,21 @@ describe("emitProgram", () => {
     );
   });
 
+  it("moves instance field initializers into primary constructors where parameters are in scope", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      class Point(x: number, y: number) {
+        readonly sum = x + y
+      }
+    `));
+
+    expect(emitProgram(program)).toBe([
+      "class Point {",
+      "constructor(x, y) { this.x = x; this.y = y; this.sum = x + y; }",
+      "sum;",
+      "}"
+    ].join("\n"));
+  });
+
   it("erases primary constructor property modifiers from JavaScript", () => {
     const program = parseFile(tokenizeReader(
       "class Demo(private val secret: int, protected var token: int, public readonly const id: int)"

@@ -1,4 +1,4 @@
-import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, MatcherBindingPattern, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
+import { AnnotationApplication, AnnotationStatement, ArrayBindingPattern, ArrayHole, ArrayLiteral, ArrowFunctionExpression, AsExpression, AssignmentExpression, BigIntLiteral, BinaryExpression, BindingElement, BindingHole, BindingName, BlockStatement, BooleanLiteral, BreakStatement, CallExpression, ChainExpression, CharacterLiteral, ClassDelegate, ClassExpression, ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter, ClassStatement, CommaExpression, compoundAssignmentBinaryOperator, ConditionalExpression, ContinueStatement, DoWhileStatement, EnumMember, EnumStatement, ExportSpecifier, ExportStatement, Expr, ExprStatement, FloatLiteral, ForStatement, FunctionExpression, FunctionParameter, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceMethodMember, InterfacePropertyMember, InterfaceStatement, IntLiteral, JsxAttribute, JsxElement, JsxExpressionContainer, JsxFragment, JsxSpreadAttribute, LabeledStatement, LongLiteral, MatcherBindingPattern, MemberExpression, memberExpressionFromPropertyReference, MissingExpression, NamedArgument, NamespaceStatement, NewExpression, NodeKind, nodeStartOffset, NonNullExpression, NullLiteral, ObjectBindingPattern, ObjectLiteral, ObjectProperty, ObjectSpreadProperty, OverloadableOperator, Program, PropertyReferenceExpression, RangeExpression, RegExpLiteral, ReturnStatement, SatisfiesExpression, SpreadExpression, Statement, StringLiteral, SwitchStatement, ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter, UnaryExpression, UndefinedLiteral, UpdateExpression, VariableDeclarationKind, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import { ClassInitBlock } from "compiler/ast/ast";
 import { ArrayComprehension } from "compiler/ast/ast";
@@ -2096,6 +2096,18 @@ export class TypeChecker {
       this.typeParameterConstraintMap(classTypeParameters, scope)
     );
     try {
+      if (this.validateTypes && statement.primaryConstructorParameters !== undefined) {
+        const explicitConstructor = statement.members.find(
+          (member): member is ClassMethodMember =>
+            member instanceof ClassMethodMember && member.name.name === "constructor"
+        );
+        if (explicitConstructor) {
+          this.issues.push({
+            message: "A class with a primary constructor cannot declare an explicit constructor",
+            node: explicitConstructor.name
+          });
+        }
+      }
       if (statement.extendsType) {
         this.resolveTypeAnnotation(statement.extendsType, classScope);
       }
@@ -2109,6 +2121,8 @@ export class TypeChecker {
         }
         const parameterType = this.resolveTypeAnnotation(parameter.typeAnnotation, classScope)
           ?? (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, classScope) : UNKNOWN_TYPE);
+        this.updateSymbolType(classScope, bindingNameText(parameter.name), parameterType);
+        this.invalidateNamedTypeMembers(statement);
         if (
           parameter.typeAnnotation &&
           parameter.defaultValue &&
@@ -10467,10 +10481,16 @@ export class TypeChecker {
           ));
         }
       } else {
+        const classScope = this.bound.scopeByNode.get(classStatement);
         for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+          const parameterName = bindingNameText(parameter.name);
+          const boundParameterType = classScope?.symbols.get(parameterName)?.type;
           parameters.push(new FunctionTypeParameter(
-            parameter.name.name,
-            this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE,
+            parameterName,
+            this.resolveTypeAnnotation(parameter.typeAnnotation, scope)
+              ?? (boundParameterType && !isUnknownType(boundParameterType) ? boundParameterType : undefined)
+              ?? this.inferLooseInitializerType(parameter.defaultValue)
+              ?? UNKNOWN_TYPE,
             undefined,
             parameter.defaultValue !== undefined,
             false
@@ -16901,6 +16921,33 @@ export class TypeChecker {
     if (!initializer) {
       return null;
     }
+    if (initializer instanceof IntLiteral) {
+      return initializer.explicitInt === true ? builtinType("int") : builtinType("number");
+    }
+    if (initializer instanceof CharacterLiteral) {
+      return builtinType("int");
+    }
+    if (initializer instanceof FloatLiteral) {
+      return builtinType("number");
+    }
+    if (initializer instanceof BigIntLiteral) {
+      return builtinType("bigint");
+    }
+    if (initializer instanceof LongLiteral) {
+      return builtinType("long");
+    }
+    if (initializer instanceof StringLiteral) {
+      return builtinType("string");
+    }
+    if (initializer instanceof BooleanLiteral) {
+      return builtinType("boolean");
+    }
+    if (initializer instanceof NullLiteral) {
+      return builtinType("null");
+    }
+    if (initializer instanceof UndefinedLiteral) {
+      return builtinType("undefined");
+    }
     if (initializer instanceof NewExpression || initializer instanceof CallExpression) {
       const callee = initializer instanceof NewExpression
         ? (initializer as NewExpression).callee
@@ -17172,8 +17219,13 @@ export class TypeChecker {
       const readableNames = new Set<string>();
       const setterNames = new Set<string>();
       for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-        const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
-        members.set(bindingNameText(parameter.name), this.substituteTypeParameters(parameterType, substitutions));
+        const parameterName = bindingNameText(parameter.name);
+        const classScope = this.bound.scopeByNode.get(classStatement);
+        const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation)
+          ?? classScope?.symbols.get(parameterName)?.type
+          ?? this.inferLooseInitializerType(parameter.defaultValue)
+          ?? UNKNOWN_TYPE;
+        members.set(parameterName, this.substituteTypeParameters(parameterType, substitutions));
       }
       for (const candidate of classStatement.members) {
         if (!(candidate instanceof ClassMethodMember) || candidate.name.name !== "constructor") continue;

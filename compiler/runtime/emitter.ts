@@ -2194,6 +2194,17 @@ function emitClassPrimaryConstructor(
   for (const parameter of primaryParameters) {
     assignments.push(`this.${(parameter.name as Identifier).name} = ${(parameter.name as Identifier).name};`);
   }
+  for (const member of members) {
+    if (
+      !(member instanceof ClassFieldMember) ||
+      member.isStatic === true ||
+      member.computed === true ||
+      !member.initializer
+    ) {
+      continue;
+    }
+    assignments.push(`this.${member.name.name} = ${emitListElement(member.initializer)};`);
+  }
   for (const initBlock of initBlocks) {
     assignments.push(...initBlock.body.body.map((statement) => emitStatement(statement)));
   }
@@ -2241,14 +2252,18 @@ ${emittedStatements.join("\n")}
 }`;
 }
 
-function emitClassMember(member: ClassFieldMember | ClassMethodMember, initBlocks: readonly ClassInitBlock[] = []): string {
+function emitClassMember(
+  member: ClassFieldMember | ClassMethodMember,
+  initBlocks: readonly ClassInitBlock[] = [],
+  initializeInstanceFieldInConstructor = false
+): string {
   const staticPrefix = member.isStatic === true ? "static " : "";
   if (member instanceof ClassFieldMember) {
     const field = member as ClassFieldMember;
     const fieldName = field.computed === true
       ? `[${emitExpression(field.computedKey!)}]`
       : field.name.name;
-    if (field.initializer) {
+    if (field.initializer && !initializeInstanceFieldInConstructor) {
       return `${staticPrefix}${fieldName} = ${emitListElement(field.initializer)};`;
     }
     return `${staticPrefix}${fieldName};`;
@@ -2410,12 +2425,19 @@ function emitClassLike(classLike: ClassStatement | ClassExpression, resolvedName
       : `constructor() {\n${initStatements()}\n}`
     : null;
   const memberLines: string[] = [];
+  const initializeInstanceFieldsInPrimaryConstructor = syntheticConstructor !== null &&
+    (classLike.primaryConstructorParameters?.length ?? 0) > 0;
   if (syntheticConstructor) memberLines.push(syntheticConstructor);
   if (defaultInitConstructor) memberLines.push(defaultInitConstructor);
   memberLines.push(
     ...members.map((member) => emitClassMember(
       member,
-      member instanceof ClassMethodMember && member.name.name === "constructor" ? initBlocks : []
+      member instanceof ClassMethodMember && member.name.name === "constructor" ? initBlocks : [],
+      initializeInstanceFieldsInPrimaryConstructor &&
+        member instanceof ClassFieldMember &&
+        member.isStatic !== true &&
+        member.computed !== true &&
+        member.initializer !== undefined
     )),
     ...emitClassDelegateMembers(classLike as ClassStatement, members)
   );
