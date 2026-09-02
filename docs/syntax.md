@@ -1346,9 +1346,9 @@ resolved supertype without `override` produces a warning on the member name:
 `Member 'm' must be declared with 'override' because it overrides a member from
 a base class or interface`. This includes base classes and interfaces imported
 from packages and `.d.ts` files. The warning does not prevent compilation. The
-editor offers an "Add 'override'" quick fix; shorthand methods such as `m()` are
-made explicit as `override func m()`. TypeScript-mode files retain TypeScript's
-optional `override` behavior.
+editor offers an "Add 'override'" quick fix that preserves the member's existing
+declaration spelling. TypeScript-mode files retain TypeScript's optional
+`override` behavior.
 
 A class may declare at most one `extends` clause and one `implements` clause (the
 `implements` clause may list several interfaces separated by commas). Surplus

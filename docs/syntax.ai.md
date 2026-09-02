@@ -222,8 +222,8 @@ Inside methods, `this.` is implicit — write `x` instead of `this.x`.
 When a VexaScript class member matches a member from any resolved base class or
 implemented interface, declare it with `override`. This applies to imported
 supertypes too. A missing modifier is a non-blocking warning on the member name;
-the quick fix canonicalizes shorthand methods as `override func name(...)`.
-Do not require `override` in TypeScript-mode files.
+the quick fix inserts only `override` and preserves the existing declaration
+spelling. Do not require `override` in TypeScript-mode files.
 
 Class `const`/`val` fields require in-situ initialization. Class `var` fields
 must be assigned on every path before construction completes, using a field

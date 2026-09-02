@@ -210,6 +210,14 @@ parameters. Dependency declarations therefore establish the member name but do
 not undergo VexaScript's stricter local-class override signature check. Local
 VexaScript base classes retain full compatibility validation.
 
+## Addendum 6: modifier fixes must preserve declaration spelling
+
+The first missing-override quick fix expanded shorthand methods such as `run()`
+to `override func run()`. That mixed a required semantic repair with an
+unrequested syntax rewrite. The action now inserts only `override` at the start
+of the existing member declaration, leaving shorthand methods shorthand and
+preserving any function keyword already present.
+
 ## Execution metadata
 
 - Provider: OpenAI

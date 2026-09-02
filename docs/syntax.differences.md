@@ -439,9 +439,9 @@ class Counter(val value: int) {
 In VexaScript, a class member that redefines a member from any resolved base
 class or implemented interface should declare `override`, including when the
 supertype comes from an imported package or `.d.ts` file. Omitting it produces a
-non-blocking warning on the member name. The editor quick fix adds `override`
-and expands a shorthand method to the canonical `override func name(...)`
-spelling. TypeScript files keep TypeScript's optional `override` semantics.
+non-blocking warning on the member name. The editor quick fix adds only the
+missing `override` modifier and preserves the method's existing spelling.
+TypeScript files keep TypeScript's optional `override` semantics.
 
 ### Instance initialization blocks
 

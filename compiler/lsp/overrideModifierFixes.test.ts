@@ -54,7 +54,7 @@ describe("override modifier quick fix", () => {
     expect(edit?.range.end).toEqual(edit?.range.start);
   });
 
-  it("inserts 'override func' for a shorthand method declaration", () => {
+  it("inserts only 'override' for a shorthand method declaration", () => {
     const source = [
       "class Demo {",
       "  protected run(): void {",
@@ -81,8 +81,8 @@ describe("override modifier quick fix", () => {
     const actions = createOverrideModifierCodeActions({ uri, ast, diagnostics: [diagnostic] });
     const edit = actions[0]?.edit?.changes?.[uri]?.[0];
 
-    expect(edit?.newText).toBe("override func ");
-    expect(edit?.range.start).toEqual({ line: 1, character: 12 });
+    expect(edit?.newText).toBe("override ");
+    expect(edit?.range.start).toEqual({ line: 1, character: 2 });
   });
 
   it("ignores diagnostics without the missing-override code", () => {
