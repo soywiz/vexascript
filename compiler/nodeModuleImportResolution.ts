@@ -24,6 +24,9 @@ export interface NodeModuleImportResolutionWorkCounters {
   selectiveTypingsBuilds: number;
   selectiveTypingsExactCacheHits: number;
   selectiveTypingsSupersetCacheHits: number;
+  typingsFileIndexBuilds: number;
+  typingsFileIndexCacheHits: number;
+  typingsFileIndexEdgeResolutions: number;
 }
 
 export function createNodeModuleImportResolutionCache(): NodeModuleImportResolutionCache {

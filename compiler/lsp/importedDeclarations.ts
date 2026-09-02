@@ -3060,6 +3060,9 @@ export interface ImportedDeclarationsWorkCounters {
   selectiveTypingsBuilds?: number;
   selectiveTypingsExactCacheHits?: number;
   selectiveTypingsSupersetCacheHits?: number;
+  typingsFileIndexBuilds?: number;
+  typingsFileIndexCacheHits?: number;
+  typingsFileIndexEdgeResolutions?: number;
 }
 
 async function resolveImportTargetInContext(
@@ -3507,7 +3510,8 @@ async function collectAllImportedDeclarationsUncached(
         ? await getNodeModuleTypings(
           currentFilePath,
           importStatement.from.value,
-          { vfs: context.vfs }
+          { vfs: context.vfs },
+          context.workCounters
         )
         : await getNodeModuleTypingsForImportNames(
           currentFilePath,

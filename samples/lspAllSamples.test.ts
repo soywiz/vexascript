@@ -75,6 +75,9 @@ describe("all sample LSP sessions", async () => {
         expect(result.workMetrics.importedAnalysisCacheHits).toBeGreaterThan(0);
         expect(result.workMetrics.selectiveTypingsBuilds).toBeLessThanOrEqual(12);
         expect(result.workMetrics.selectiveTypingsSupersetCacheHits).toBeGreaterThan(0);
+        expect(result.workMetrics.typingsFileIndexBuilds).toBeLessThanOrEqual(730);
+        expect(result.workMetrics.typingsFileIndexEdgeResolutions).toBeLessThanOrEqual(2652);
+        expect(result.workMetrics.typingsFileIndexCacheHits).toBeGreaterThan(0);
       }
     });
   }

@@ -4,6 +4,7 @@ import {
   clearNodeModuleTypingsCache,
   getNodeModuleTypings,
   getNodeModuleTypingsForImportNames,
+  getNodeModulePublicExports,
   findNodeModuleExportLocation,
   findNodeModuleMemberLocation
 } from "./nodeModulesTypings";
@@ -123,6 +124,54 @@ describe("node_modules typings resolution", () => {
     )).toBe(false);
   });
 
+  it("indexes only the public export graph for auto-import discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-public-exports-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), dedent`
+      import type { InternalSupport } from "./support";
+      import type { ForwardedType, SecondForwardedType } from "./forwarded";
+      export interface PublicOptions { support: InternalSupport; }
+      export { ForwardedType, SecondForwardedType };
+      export { PublicThing } from "./public";
+    `, "utf8");
+    await writeFile(join(pkgDir, "support.d.ts"), dedent`
+      export interface InternalSupport { hidden: string; }
+      export class InternalRuntime {}
+    `, "utf8");
+    await writeFile(join(pkgDir, "public.d.ts"), dedent`
+      interface PrivateHelper { hidden: string; }
+      export class PublicThing { helper: PrivateHelper; }
+    `, "utf8");
+    await writeFile(join(pkgDir, "forwarded.d.ts"), dedent`
+      export interface ForwardedType { value: string; }
+      export type SecondForwardedType = number;
+    `, "utf8");
+    const workCounters = { publicExportFilesVisited: 0 };
+
+    const exports = await getNodeModulePublicExports(
+      join(root, "main.vx"),
+      "pkg",
+      {},
+      workCounters
+    );
+
+    expect(exports.map((entry) => entry.name).sort()).toEqual([
+      "ForwardedType",
+      "PublicOptions",
+      "PublicThing",
+      "SecondForwardedType"
+    ]);
+    expect(exports.find((entry) => entry.name === "ForwardedType")?.typeOnly).toBe(true);
+    expect(exports.find((entry) => entry.name === "SecondForwardedType")?.kind).toBe("type");
+    expect(workCounters.publicExportFilesVisited).toBeLessThanOrEqual(3);
+  });
+
   it("reuses an accumulated selective declaration superset across package imports", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-superset-"));
     await makePackageWithTypings(root, "pkg", dedent`
@@ -161,6 +210,68 @@ describe("node_modules typings resolution", () => {
     expect(combined).not.toBeNull();
     expect(workCounters.selectiveTypingsBuilds).toBeLessThanOrEqual(2);
     expect(workCounters.selectiveTypingsSupersetCacheHits).toBeGreaterThanOrEqual(1);
+  });
+
+  it("indexes each declaration file and resolution edge once across selective rebuilds", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-index-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), dedent`
+      export { First } from "./first";
+      export { Second } from "./second";
+    `, "utf8");
+    await writeFile(join(pkgDir, "first.d.ts"), dedent`
+      import type { Shared } from "./shared";
+      export interface First { value: Shared; }
+    `, "utf8");
+    await writeFile(join(pkgDir, "second.d.ts"), dedent`
+      import type { Shared } from "./shared";
+      export interface Second { value: Shared; }
+    `, "utf8");
+    await writeFile(join(pkgDir, "shared.d.ts"), dedent`
+      export interface Shared { id: string; }
+    `, "utf8");
+    const importerPath = join(root, "main.vx");
+    const workCounters = {
+      selectiveTypingsBuilds: 0,
+      selectiveTypingsExactCacheHits: 0,
+      selectiveTypingsSupersetCacheHits: 0,
+      typingsFileIndexBuilds: 0,
+      typingsFileIndexCacheHits: 0,
+      typingsFileIndexEdgeResolutions: 0
+    };
+
+    await getNodeModuleTypingsForImportNames(
+      importerPath,
+      "pkg",
+      new Set(["First"]),
+      {},
+      workCounters
+    );
+    const combined = await getNodeModuleTypingsForImportNames(
+      importerPath,
+      "pkg",
+      new Set(["Second"]),
+      {},
+      workCounters
+    );
+
+    expect(combined?.declarations.some((statement) =>
+      statement.kind === NodeKind.ExportStatement
+      && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "First"
+    )).toBe(true);
+    expect(combined?.declarations.some((statement) =>
+      statement.kind === NodeKind.ExportStatement
+      && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "Second"
+    )).toBe(true);
+    expect(workCounters.typingsFileIndexBuilds).toBeLessThanOrEqual(4);
+    expect(workCounters.typingsFileIndexEdgeResolutions).toBeLessThanOrEqual(4);
+    expect(workCounters.typingsFileIndexCacheHits).toBeGreaterThan(0);
   });
 
   it("prefers the re-exported declaration over same-name support declarations", async () => {

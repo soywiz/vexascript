@@ -1,7 +1,6 @@
 import { ClassStatement, ExportStatement, FunctionStatement, Identifier, ImportStatement, InterfaceMethodMember, InterfaceStatement, TypeAliasStatement, VarStatement } from "compiler/ast/ast";
 import type { Program, Statement } from "compiler/ast/ast";
 
-import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { CodeAction, Diagnostic, Range, TextEdit } from "vscode-languageserver/node.js";
 import { getProjectIndex, type ProjectTopLevelDeclarationKind } from "./projectAnalysis";
 import { dirname, fileURLToPath, pathToFileURL, relative } from "compiler/utils/path";
@@ -12,7 +11,7 @@ import {
   parseUnknownTypeDiagnostic
 } from "./diagnosticCodes";
 import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
-import { getNodeModuleTypings } from "./nodeModulesTypings";
+import { getNodeModulePublicExports } from "./nodeModulesTypings";
 import type { AmbientModuleLocation } from "./ambientTypesLoader";
 import { loadProject } from "compiler/project";
 
@@ -365,37 +364,8 @@ async function collectNodeModuleExports(
   const exports: SymbolExport[] = [];
   const seen = new Set<string>();
   for (const importPath of imports) {
-    const typings = await getNodeModuleTypings(currentFilePath, importPath);
-    if (!typings) {
-      continue;
-    }
-    for (const statement of typings.declarations) {
-      const declaration = unwrapExportedDeclaration(statement);
-      if (!declaration) {
-        continue;
-      }
-      const typeOnly = statement instanceof ExportStatement && (statement as ExportStatement).typeOnly === true;
-      let name: string | null = null;
-      let kind: ProjectTopLevelDeclarationKind | null = null;
-      if (declaration instanceof ClassStatement) {
-        name = (declaration as ClassStatement).name.name;
-        kind = "class";
-      } else if (declaration instanceof InterfaceStatement) {
-        name = (declaration as InterfaceStatement).name.name;
-        kind = "interface";
-      } else if (declaration instanceof TypeAliasStatement) {
-        name = (declaration as TypeAliasStatement).name.name;
-        kind = "type";
-      } else if (declaration instanceof FunctionStatement) {
-        name = (declaration as FunctionStatement).name.name;
-        kind = "function";
-      } else if (declaration instanceof VarStatement && (declaration as VarStatement).name instanceof Identifier) {
-        name = ((declaration as VarStatement).name as { name: string }).name;
-        kind = "variable";
-      }
-      if (!name || !kind) {
-        continue;
-      }
+    for (const publicExport of await getNodeModulePublicExports(currentFilePath, importPath)) {
+      const { name, kind, typeOnly } = publicExport;
       const key = `${importPath}::${name}::${kind}`;
       if (seen.has(key)) {
         continue;
@@ -406,7 +376,7 @@ async function collectNodeModuleExports(
         kind,
         filePath: `/node_modules/${importPath}`,
         importPath,
-        ...(typeOnly || kind === "type" || kind === "interface" ? { typeOnly: true } : {})
+        ...(typeOnly ? { typeOnly: true } : {})
       });
     }
   }

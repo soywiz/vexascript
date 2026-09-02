@@ -19,6 +19,9 @@ export interface ModuleGraphProfileEvent {
   selectiveTypingsBuilds: number;
   selectiveTypingsExactCacheHits: number;
   selectiveTypingsSupersetCacheHits: number;
+  typingsFileIndexBuilds: number;
+  typingsFileIndexCacheHits: number;
+  typingsFileIndexEdgeResolutions: number;
 }
 
 /** Opaque state retained by long-running module graph consumers such as `vexa serve`. */

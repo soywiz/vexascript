@@ -870,7 +870,10 @@ export async function bundleModuleGraphAsModules(
     nodeModuleImportCacheHitCount: 0,
     selectiveTypingsBuilds: 0,
     selectiveTypingsExactCacheHits: 0,
-    selectiveTypingsSupersetCacheHits: 0
+    selectiveTypingsSupersetCacheHits: 0,
+    typingsFileIndexBuilds: 0,
+    typingsFileIndexCacheHits: 0,
+    typingsFileIndexEdgeResolutions: 0
   };
   const activeVfs = options.vfs ?? vfs();
   const ambientDeclarations = options.ambientDeclarations ?? EMPTY_DECLARATIONS;

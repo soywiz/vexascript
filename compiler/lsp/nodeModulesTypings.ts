@@ -41,6 +41,18 @@ export interface NodeModuleDeclarationEntry {
   reexportedFrom?: readonly string[];
 }
 
+export type NodeModulePublicExportKind = "class" | "interface" | "type" | "function" | "variable";
+
+export interface NodeModulePublicExport {
+  name: string;
+  kind: NodeModulePublicExportKind;
+  typeOnly: boolean;
+}
+
+export interface NodeModulePublicExportsWorkCounters {
+  publicExportFilesVisited: number;
+}
+
 export function nestedNodeModuleDeclarationEntries(
   entry: NodeModuleDeclarationEntry,
   namespace: NamespaceStatement
@@ -100,20 +112,39 @@ interface SelectiveSupersetCacheEntry {
   result: NodeModuleTypings;
 }
 
+interface PublicExportsCacheEntry {
+  mtimeMs: number;
+  result: NodeModulePublicExport[];
+}
+
 export interface NodeModuleTypingsWorkCounters {
   selectiveTypingsBuilds?: number;
   selectiveTypingsExactCacheHits?: number;
   selectiveTypingsSupersetCacheHits?: number;
+  typingsFileIndexBuilds?: number;
+  typingsFileIndexCacheHits?: number;
+  typingsFileIndexEdgeResolutions?: number;
+}
+
+interface TypingsFileIndex {
+  ast: Program;
+  directEntries: NodeModuleDeclarationEntry[];
+  supportSpecifiers: string[];
+  targetPathBySpecifier: Map<string, string | null>;
 }
 
 const cache = new Map<string, CacheEntry>();
 const selectiveCache = new Map<string, SelectiveCacheEntry>();
 const selectiveSupersetCache = new Map<string, SelectiveSupersetCacheEntry>();
+const publicExportsCache = new Map<string, PublicExportsCacheEntry>();
+const typingsFileIndexCache = new Map<string, Promise<TypingsFileIndex | null>>();
 
 export function clearNodeModuleTypingsCache(): void {
   cache.clear();
   selectiveCache.clear();
   selectiveSupersetCache.clear();
+  publicExportsCache.clear();
+  typingsFileIndexCache.clear();
   clearDtsModuleGraphCache();
   clearNodeModulesTypingsPathCache();
 }
@@ -127,6 +158,63 @@ async function resolveReexportedTypingsPath(
     return resolveRelativeDtsPath(importerTypingsPath, specifier, options);
   }
   return resolveNodeModulesTypingsPath(importerTypingsPath, specifier, options);
+}
+
+async function getTypingsFileIndex(
+  typingsPath: string,
+  options: ModuleResolutionOptions,
+  workCounters?: NodeModuleTypingsWorkCounters
+): Promise<TypingsFileIndex | null> {
+  const cached = typingsFileIndexCache.get(typingsPath);
+  if (cached) {
+    if (workCounters) {
+      workCounters.typingsFileIndexCacheHits = (workCounters.typingsFileIndexCacheHits ?? 0) + 1;
+    }
+    return cached;
+  }
+  if (workCounters) {
+    workCounters.typingsFileIndexBuilds = (workCounters.typingsFileIndexBuilds ?? 0) + 1;
+  }
+  const pending = (async (): Promise<TypingsFileIndex | null> => {
+    const ast = await parseDtsProgram(typingsPath, options);
+    if (!ast) return null;
+    const source = await readDtsSource(typingsPath, options);
+    const supportSpecifiers = [...new Set<string>([
+      ...(source ? extractTripleSlashReferencePaths(source) : []),
+      ...extractImportedTypingsSpecifiers(ast)
+    ])];
+    const edgeSpecifiers = [...new Set<string>([
+      ...supportSpecifiers,
+      ...ast.body.flatMap((statement) =>
+        statement instanceof ExportStatement && (statement as ExportStatement).from?.value
+          ? [(statement as ExportStatement).from!.value]
+          : []
+      )
+    ])];
+    if (workCounters) {
+      workCounters.typingsFileIndexEdgeResolutions =
+        (workCounters.typingsFileIndexEdgeResolutions ?? 0) + edgeSpecifiers.length;
+    }
+    const resolvedTargets = await Promise.all(edgeSpecifiers.map((specifier) =>
+      resolveReexportedTypingsPath(typingsPath, specifier, options)
+    ));
+    return {
+      ast,
+      directEntries: ast.body.map((statement) => ({ statement, typingsPath })),
+      supportSpecifiers,
+      targetPathBySpecifier: new Map(edgeSpecifiers.map((specifier, index) => [
+        specifier,
+        resolvedTargets[index] ?? null
+      ]))
+    };
+  })();
+  typingsFileIndexCache.set(typingsPath, pending);
+  try {
+    return await pending;
+  } catch (error) {
+    typingsFileIndexCache.delete(typingsPath);
+    throw error;
+  }
 }
 
 function extractImportedTypingsSpecifiers(ast: Program): string[] {
@@ -264,35 +352,27 @@ function canBeReexportedFrom(
 async function collectTypingsDeclarations(
   typingsPath: string,
   options: ModuleResolutionOptions,
-  visited: Set<string>
+  visited: Set<string>,
+  workCounters?: NodeModuleTypingsWorkCounters
 ): Promise<NodeModuleDeclarationEntry[]> {
   if (visited.has(typingsPath)) {
     return [];
   }
   visited.add(typingsPath);
 
-  const ast = await parseDtsProgram(typingsPath, options);
-  if (!ast) {
+  const index = await getTypingsFileIndex(typingsPath, options, workCounters);
+  if (!index) {
     return [];
   }
-  const source = await readDtsSource(typingsPath, options);
-
-  const declarations: NodeModuleDeclarationEntry[] = ast.body.map((statement) => ({
-    statement,
-    typingsPath
-  }));
-  const supportSpecifiers = new Set<string>([
-    ...(source ? extractTripleSlashReferencePaths(source) : []),
-    ...extractImportedTypingsSpecifiers(ast)
-  ]);
-  for (const specifier of supportSpecifiers) {
-    const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, specifier, options);
+  const declarations = [...index.directEntries];
+  for (const specifier of index.supportSpecifiers) {
+    const targetTypingsPath = index.targetPathBySpecifier.get(specifier) ?? null;
     if (!targetTypingsPath) {
       continue;
     }
-    declarations.push(...await collectTypingsDeclarations(targetTypingsPath, options, visited));
+    declarations.push(...await collectTypingsDeclarations(targetTypingsPath, options, visited, workCounters));
   }
-  for (const statement of ast.body) {
+  for (const statement of index.ast.body) {
     if (!(statement instanceof ExportStatement)) {
       continue;
     }
@@ -300,11 +380,11 @@ async function collectTypingsDeclarations(
     if (!exportStatement.from?.value || (!exportStatement.exportAll && (!exportStatement.specifiers || exportStatement.specifiers.length === 0))) {
       continue;
     }
-    const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, exportStatement.from.value, options);
+    const targetTypingsPath = index.targetPathBySpecifier.get(exportStatement.from.value) ?? null;
     if (!targetTypingsPath) {
       continue;
     }
-    const newlyCollectedReexports = await collectTypingsDeclarations(targetTypingsPath, options, visited);
+    const newlyCollectedReexports = await collectTypingsDeclarations(targetTypingsPath, options, visited, workCounters);
     const reexportedDeclarations = newlyCollectedReexports.length > 0
       ? newlyCollectedReexports
       : declarations.filter((entry) => canBeReexportedFrom(entry, targetTypingsPath));
@@ -355,7 +435,8 @@ async function collectSelectiveTypingsDeclarations(
   exportedNamesWanted: ReadonlySet<string>,
   options: ModuleResolutionOptions,
   visited: Set<string>,
-  includeAllTopLevel = false
+  includeAllTopLevel = false,
+  workCounters?: NodeModuleTypingsWorkCounters
 ): Promise<NodeModuleDeclarationEntry[]> {
   const visitKey = includeAllTopLevel
     ? `${typingsPath}\0support`
@@ -365,16 +446,12 @@ async function collectSelectiveTypingsDeclarations(
   }
   visited.add(visitKey);
 
-  const ast = await parseDtsProgram(typingsPath, options);
-  if (!ast) {
+  const index = await getTypingsFileIndex(typingsPath, options, workCounters);
+  if (!index) {
     return [];
   }
-  const source = await readDtsSource(typingsPath, options);
   const declarations: NodeModuleDeclarationEntry[] = [];
-  const directNamedEntries = ast.body.map((statement) => ({
-    statement,
-    typingsPath
-  }));
+  const directNamedEntries = index.directEntries;
   const fileDirectlyDefinesWantedName = directNamedEntries.some((entry) => {
     const exportedNames = nodeModuleExportedNames(entry);
     return exportedNames.some((name) => exportedNamesWanted.has(name));
@@ -392,12 +469,8 @@ async function collectSelectiveTypingsDeclarations(
     }
   }
 
-  const supportSpecifiers = new Set<string>([
-    ...(source ? extractTripleSlashReferencePaths(source) : []),
-    ...extractImportedTypingsSpecifiers(ast)
-  ]);
   const forwardedExportNameByLocalName = new Map<string, string>();
-  for (const statement of ast.body) {
+  for (const statement of index.ast.body) {
     if (!(statement instanceof ExportStatement) || statement.from?.value) {
       continue;
     }
@@ -408,13 +481,13 @@ async function collectSelectiveTypingsDeclarations(
       );
     }
   }
-  for (const specifier of supportSpecifiers) {
-    const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, specifier, options);
+  for (const specifier of index.supportSpecifiers) {
+    const targetTypingsPath = index.targetPathBySpecifier.get(specifier) ?? null;
     if (!targetTypingsPath) {
       continue;
     }
     const forwardedExportNameByImportedName = new Map<string, string>();
-    for (const statement of ast.body) {
+    for (const statement of index.ast.body) {
       if (!(statement instanceof ImportStatement) || statement.from?.value !== specifier) {
         continue;
       }
@@ -431,7 +504,8 @@ async function collectSelectiveTypingsDeclarations(
       exportedNamesWanted,
       options,
       visited,
-      true
+      true,
+      workCounters
     );
     declarations.push(...supportDeclarations.map((entry) => {
       const declarationName = nodeModuleDeclarationName(entry);
@@ -444,7 +518,7 @@ async function collectSelectiveTypingsDeclarations(
     }));
   }
 
-  for (const statement of ast.body) {
+  for (const statement of index.ast.body) {
     if (!(statement instanceof ExportStatement)) {
       continue;
     }
@@ -452,7 +526,7 @@ async function collectSelectiveTypingsDeclarations(
     if (!exportStatement.from?.value) {
       continue;
     }
-    const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, exportStatement.from.value, options);
+    const targetTypingsPath = index.targetPathBySpecifier.get(exportStatement.from.value) ?? null;
     if (!targetTypingsPath) {
       continue;
     }
@@ -466,7 +540,8 @@ async function collectSelectiveTypingsDeclarations(
         exportedNamesWanted,
         options,
         visited,
-        includeAllTopLevel || Boolean(exportStatement.namespaceExport)
+        includeAllTopLevel || Boolean(exportStatement.namespaceExport),
+        workCounters
       );
       const reexportedDeclarations = newlyCollectedReexports.length > 0
         ? newlyCollectedReexports
@@ -508,7 +583,9 @@ async function collectSelectiveTypingsDeclarations(
       targetTypingsPath,
       new Set(exportedNameByLocalName.keys()),
       options,
-      visited
+      visited,
+      false,
+      workCounters
     );
     const reexportedDeclarations = newlyCollectedReexports.length > 0
       ? newlyCollectedReexports
@@ -576,6 +653,197 @@ function detectNamespaceName(ast: Program): string | null {
   return null;
 }
 
+function publicExportKind(statement: Statement): NodeModulePublicExportKind | null {
+  const declaration = statement instanceof ExportStatement
+    ? (statement as ExportStatement).declaration
+    : statement;
+  if (declaration instanceof ClassStatement) return "class";
+  if (declaration instanceof InterfaceStatement) return "interface";
+  if (declaration instanceof TypeAliasStatement) return "type";
+  if (declaration instanceof FunctionStatement) return "function";
+  if (declaration instanceof VarStatement) return "variable";
+  if (declaration instanceof NamespaceStatement) return "variable";
+  return null;
+}
+
+function pushPublicExport(
+  target: NodeModulePublicExport[],
+  seen: Set<string>,
+  entry: NodeModulePublicExport
+): void {
+  const key = `${entry.name}\0${entry.kind}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  target.push(entry);
+}
+
+async function collectNodeModulePublicExports(
+  typingsPath: string,
+  options: ModuleResolutionOptions,
+  visiting: Set<string>,
+  collectedByPath: Map<string, NodeModulePublicExport[]>,
+  workCounters?: NodeModulePublicExportsWorkCounters
+): Promise<NodeModulePublicExport[]> {
+  const cached = collectedByPath.get(typingsPath);
+  if (cached) return cached;
+  if (visiting.has(typingsPath)) return [];
+  visiting.add(typingsPath);
+  if (workCounters) workCounters.publicExportFilesVisited += 1;
+
+  const ast = await parseDtsProgram(typingsPath, options);
+  if (!ast) {
+    visiting.delete(typingsPath);
+    collectedByPath.set(typingsPath, []);
+    return [];
+  }
+
+  const results: NodeModulePublicExport[] = [];
+  const seen = new Set<string>();
+  const localKindByName = new Map<string, NodeModulePublicExportKind>();
+  const importedBindingByLocalName = new Map<string, {
+    importedName: string;
+    specifier: string;
+    typeOnly: boolean;
+  }>();
+  for (const statement of ast.body) {
+    const name = declarationNameFromStatement(statement);
+    const kind = publicExportKind(statement);
+    if (name && kind) localKindByName.set(name, kind);
+    if (!(statement instanceof ImportStatement)) continue;
+    for (const importedSpecifier of statement.specifiers) {
+      importedBindingByLocalName.set(
+        (importedSpecifier.local ?? importedSpecifier.imported).name,
+        {
+          importedName: importedSpecifier.imported.name,
+          specifier: statement.from.value,
+          typeOnly: statement.typeOnly === true || importedSpecifier.typeOnly === true
+        }
+      );
+    }
+  }
+
+  for (const statement of ast.body) {
+    if (!(statement instanceof ExportStatement)) continue;
+    const exportStatement = statement as ExportStatement;
+    if (exportStatement.isDefault === true) continue;
+
+    const directName = declarationNameFromStatement(exportStatement);
+    const directKind = publicExportKind(exportStatement);
+    if (directName && directKind) {
+      pushPublicExport(results, seen, {
+        name: directName,
+        kind: directKind,
+        typeOnly: exportStatement.typeOnly === true || directKind === "interface" || directKind === "type"
+      });
+    }
+
+    if (!exportStatement.from?.value) {
+      for (const specifier of exportStatement.specifiers ?? []) {
+        const localName = specifier.local?.name ?? specifier.exported.name;
+        const importedBinding = importedBindingByLocalName.get(localName);
+        const importedTargetPath = importedBinding
+          ? await resolveReexportedTypingsPath(typingsPath, importedBinding.specifier, options)
+          : null;
+        const importedTarget = importedTargetPath
+          ? (await collectNodeModulePublicExports(
+              importedTargetPath,
+              options,
+              visiting,
+              collectedByPath,
+              workCounters
+            )).find((entry) => entry.name === importedBinding?.importedName)
+          : undefined;
+        const kind = localKindByName.get(localName)
+          ?? importedTarget?.kind
+          ?? (exportStatement.typeOnly === true || specifier.typeOnly === true ? "type" : "variable");
+        pushPublicExport(results, seen, {
+          name: specifier.exported.name,
+          kind,
+          typeOnly: exportStatement.typeOnly === true
+            || specifier.typeOnly === true
+            || importedBinding?.typeOnly === true
+            || importedTarget?.typeOnly === true
+            || kind === "interface"
+            || kind === "type"
+        });
+      }
+      continue;
+    }
+
+    const targetPath = await resolveReexportedTypingsPath(
+      typingsPath,
+      exportStatement.from.value,
+      options
+    );
+    if (!targetPath) continue;
+    if (exportStatement.exportAll && exportStatement.namespaceExport) {
+      pushPublicExport(results, seen, {
+        name: exportStatement.namespaceExport.name,
+        kind: "variable",
+        typeOnly: false
+      });
+      continue;
+    }
+
+    const targetExports = await collectNodeModulePublicExports(
+      targetPath,
+      options,
+      visiting,
+      collectedByPath,
+      workCounters
+    );
+    if (exportStatement.exportAll) {
+      for (const entry of targetExports) pushPublicExport(results, seen, entry);
+      continue;
+    }
+
+    const targetByName = new Map(targetExports.map((entry) => [entry.name, entry]));
+    for (const specifier of exportStatement.specifiers ?? []) {
+      const localName = specifier.local?.name ?? specifier.exported.name;
+      const target = targetByName.get(localName);
+      const kind = target?.kind ?? (exportStatement.typeOnly === true ? "type" : "variable");
+      pushPublicExport(results, seen, {
+        name: specifier.exported.name,
+        kind,
+        typeOnly: exportStatement.typeOnly === true || target?.typeOnly === true || kind === "interface" || kind === "type"
+      });
+    }
+  }
+  visiting.delete(typingsPath);
+  collectedByPath.set(typingsPath, results);
+  return results;
+}
+
+/**
+ * Lists only names exposed by a package's public declaration surface. This
+ * follows re-export edges but deliberately ignores ordinary support imports
+ * and referenced implementation types, which are irrelevant to auto-import
+ * discovery and are loaded later if the user actually imports a symbol.
+ */
+export async function getNodeModulePublicExports(
+  importerFilePath: string,
+  packageName: string,
+  options: ModuleResolutionOptions = {},
+  workCounters?: NodeModulePublicExportsWorkCounters
+): Promise<NodeModulePublicExport[]> {
+  const activeVfs = options.vfs ?? vfs();
+  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs: activeVfs });
+  if (!typingsPath) return [];
+  const typingsStat = await activeVfs.stat(typingsPath);
+  if (!typingsStat || typingsStat.isFile === false) return [];
+  const cached = publicExportsCache.get(typingsPath);
+  if (cached?.mtimeMs === typingsStat.mtimeMs) return cached.result;
+  const result = await collectNodeModulePublicExports(
+    typingsPath,
+    { vfs: activeVfs },
+    new Set<string>(),
+    new Map<string, NodeModulePublicExport[]>(),
+    workCounters
+  );
+  publicExportsCache.set(typingsPath, { mtimeMs: typingsStat.mtimeMs, result });
+  return result;
+}
+
 /**
  * Return the parsed typings for a node_modules package, cached by file path
  * and mtime. Returns `null` when the package or its declaration file cannot be
@@ -584,7 +852,8 @@ function detectNamespaceName(ast: Program): string | null {
 export async function getNodeModuleTypings(
   importerFilePath: string,
   packageName: string,
-  options: ModuleResolutionOptions = {}
+  options: ModuleResolutionOptions = {},
+  workCounters?: NodeModuleTypingsWorkCounters
 ): Promise<NodeModuleTypings | null> {
   const activeVfs = options.vfs ?? vfs();
   const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs: activeVfs });
@@ -602,16 +871,21 @@ export async function getNodeModuleTypings(
     return cached.result;
   }
 
-  const ast = await parseDtsProgram(typingsPath, { vfs: activeVfs });
-  if (!ast) {
+  const rootIndex = await getTypingsFileIndex(typingsPath, { vfs: activeVfs }, workCounters);
+  if (!rootIndex) {
     return null;
   }
-  const declarationEntries = await collectTypingsDeclarations(typingsPath, { vfs: activeVfs }, new Set<string>());
+  const declarationEntries = await collectTypingsDeclarations(
+    typingsPath,
+    { vfs: activeVfs },
+    new Set<string>(),
+    workCounters
+  );
   const declarations = declarationEntries.map((entry) => entry.statement);
 
   const defaultExportName =
-    detectExportEqualsName(ast) ??
-    detectNamespaceName(ast) ??
+    detectExportEqualsName(rootIndex.ast) ??
+    detectNamespaceName(rootIndex.ast) ??
     packageName;
 
   const result: NodeModuleTypings = {
@@ -678,20 +952,22 @@ export async function getNodeModuleTypingsForImportNames(
     workCounters.selectiveTypingsBuilds = (workCounters.selectiveTypingsBuilds ?? 0) + 1;
   }
 
-  const ast = await parseDtsProgram(typingsPath, { vfs: activeVfs });
-  if (!ast) {
+  const rootIndex = await getTypingsFileIndex(typingsPath, { vfs: activeVfs }, workCounters);
+  if (!rootIndex) {
     return null;
   }
   const declarationEntries = await collectSelectiveTypingsDeclarations(
     typingsPath,
     accumulatedWantedNames,
     { vfs: activeVfs },
-    new Set<string>()
+    new Set<string>(),
+    false,
+    workCounters
   );
   const declarations = declarationEntries.map((entry) => entry.statement);
   const defaultExportName =
-    detectExportEqualsName(ast) ??
-    detectNamespaceName(ast) ??
+    detectExportEqualsName(rootIndex.ast) ??
+    detectNamespaceName(rootIndex.ast) ??
     packageName;
   const result: NodeModuleTypings = {
     typingsPath,

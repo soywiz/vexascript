@@ -41,5 +41,8 @@ describe("Question Kingdom sample", () => {
     expect(work.nodeModuleImportCacheHitCount).toBeGreaterThan(0);
     expect(work.selectiveTypingsBuilds).toBeLessThanOrEqual(12);
     expect(work.selectiveTypingsSupersetCacheHits).toBeGreaterThan(0);
+    expect(work.typingsFileIndexBuilds).toBeLessThanOrEqual(730);
+    expect(work.typingsFileIndexEdgeResolutions).toBeLessThanOrEqual(2652);
+    expect(work.typingsFileIndexCacheHits).toBeGreaterThan(0);
   });
 });

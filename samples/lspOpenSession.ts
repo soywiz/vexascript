@@ -47,6 +47,9 @@ interface LspAuxiliaryWorkMetrics {
   selectiveTypingsBuilds: number;
   selectiveTypingsExactCacheHits: number;
   selectiveTypingsSupersetCacheHits: number;
+  typingsFileIndexBuilds: number;
+  typingsFileIndexCacheHits: number;
+  typingsFileIndexEdgeResolutions: number;
 }
 
 export interface LspWorkMetrics extends AnalysisSessionCacheMetrics, ProjectIndexMetrics, LspAuxiliaryWorkMetrics {}
@@ -194,7 +197,10 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
     importedAnalysisCacheHits: 0,
     selectiveTypingsBuilds: 0,
     selectiveTypingsExactCacheHits: 0,
-    selectiveTypingsSupersetCacheHits: 0
+    selectiveTypingsSupersetCacheHits: 0,
+    typingsFileIndexBuilds: 0,
+    typingsFileIndexCacheHits: 0,
+    typingsFileIndexEdgeResolutions: 0
   };
 
   async function getSessionForFilePath(filePath: string) {
@@ -343,6 +349,10 @@ function workMetricsDelta(after: LspWorkMetrics, before: LspWorkMetrics): LspWor
       after.selectiveTypingsExactCacheHits - before.selectiveTypingsExactCacheHits,
     selectiveTypingsSupersetCacheHits:
       after.selectiveTypingsSupersetCacheHits - before.selectiveTypingsSupersetCacheHits,
+    typingsFileIndexBuilds: after.typingsFileIndexBuilds - before.typingsFileIndexBuilds,
+    typingsFileIndexCacheHits: after.typingsFileIndexCacheHits - before.typingsFileIndexCacheHits,
+    typingsFileIndexEdgeResolutions:
+      after.typingsFileIndexEdgeResolutions - before.typingsFileIndexEdgeResolutions,
     sessionRequests: after.sessionRequests - before.sessionRequests,
     indexedDataRequests: after.indexedDataRequests - before.indexedDataRequests,
     openOverrideHits: after.openOverrideHits - before.openOverrideHits,
