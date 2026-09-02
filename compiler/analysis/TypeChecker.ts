@@ -10470,7 +10470,10 @@ export class TypeChecker {
   }
 
   private validatePrimaryBaseConstructorCall(statement: ClassStatement, scope: Scope): void {
-    if (!statement.extendsType || statement.extendsArguments === undefined) {
+    if (
+      statement.primaryConstructorParameters === undefined ||
+      !statement.extendsType
+    ) {
       return;
     }
     const resolvedBaseType = this.typeFromTypeNameLoose(statement.extendsType.name);
@@ -10504,7 +10507,7 @@ export class TypeChecker {
       this.constructorFunctionType(baseClass, constructorScope),
       substitutions
     ) as FunctionType;
-    const call = new NewExpression(statement.extendsType, statement.extendsArguments);
+    const call = new NewExpression(statement.extendsType, statement.extendsArguments ?? []);
     const argumentTypes = this.visitConstructorArgumentsWithContext(call, constructorScope, constructorType);
     if (this.validateTypes) {
       this.validateCallArguments(call, constructorType, argumentTypes);

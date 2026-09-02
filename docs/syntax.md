@@ -1187,6 +1187,8 @@ class MyDemo(val shape: Shape) : Shape {
 ### Optional primary constructor
 
 Class declarations support an optional primary constructor parameter list after the class name.
+An explicitly empty list (`class Child()`) still declares a primary constructor;
+it is semantically distinct from omitting the list.
 
 Each primary constructor parameter currently supports:
 
@@ -1240,7 +1242,12 @@ class User(id: int, val name: string) : Entity(id)
 
 The canonical formatted spelling is `extends Entity(id)`; the VexaScript
 colon spelling above is equivalent. Supplying an incompatible argument or the
-wrong number of arguments is a type error.
+wrong number of arguments is a type error. When the base constructor has one
+or more required parameters, a derived class with a primary constructor must
+write the base invocation and provide compatible arguments. Omitting the call,
+as in `class User(id: int) extends Entity`, is checked as a zero-argument base
+call and is therefore an error. The invocation may be omitted only when every
+base-constructor parameter is optional or defaulted.
 
 ### Class fields
 

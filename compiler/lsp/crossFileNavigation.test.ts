@@ -8,7 +8,9 @@ import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 import { collectAllImportedDeclarations, collectImportedTypeDeclarations } from "./importedDeclarations";
 import {
   resolveDefinitionAcrossFiles,
+  resolveDefinitionTargetsWithLocalFallback,
   resolveDefinitionWithLocalFallback,
+  resolveImplementationsAcrossFiles,
   resolveMemberHoverAcrossFiles,
   resolveHoverWithLocalFallback,
   resolvePrepareRenameAcrossFiles,
@@ -54,6 +56,212 @@ function parseAmbientModule(src: string, moduleName: string): Statement[] {
 }
 
 describe("cross-file navigation", () => {
+  it("navigates an overriding method declaration to the base method", async () => {
+    const marked = sourceWithCursor(dedent`
+      class Base {
+        run(): void {}
+      }
+
+      class Child extends Base {
+        override ru^^^n(): void {}
+      }
+    `);
+    const session = createAnalysisSession(marked.source);
+
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: "file:///virtual/main.vx",
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: []
+    });
+
+    expect(location).toEqual({
+      uri: "file:///virtual/main.vx",
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 5 }
+      }
+    });
+  });
+
+  it("offers every overriding method when navigating from the base declaration", async () => {
+    const marked = sourceWithCursor(dedent`
+      class Base {
+        ru^^^n(): void {}
+      }
+
+      class Child extends Base {
+        override run(): void {}
+      }
+
+      class GrandChild extends Child {
+        override run(): void {}
+      }
+
+      class Sibling extends Base {
+        override run(): void {}
+      }
+
+      class Unrelated {
+        run(): void {}
+      }
+    `);
+    const session = createAnalysisSession(marked.source);
+
+    const locations = await resolveDefinitionTargetsWithLocalFallback({
+      uri: "file:///virtual/main.vx",
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: []
+    });
+
+    expect(Array.isArray(locations)).toBe(true);
+    expect((locations as Array<{ range: { start: { line: number } } }>)
+      .map((location) => location.range.start.line)).toEqual([5, 9, 13]);
+  });
+
+  it("finds the base method and every overriding implementation", async () => {
+    const marked = sourceWithCursor(dedent`
+      class Base {
+        run(): void {}
+      }
+
+      class Child extends Base {
+        override ru^^^n(): void {}
+      }
+
+      class GrandChild extends Child {
+        override run(): void {}
+      }
+
+      class Sibling extends Base {
+        override run(): void {}
+      }
+
+      class Unrelated {
+        run(): void {}
+      }
+    `);
+    const session = createAnalysisSession(marked.source);
+
+    const locations = await resolveImplementationsAcrossFiles({
+      uri: "file:///virtual/main.vx",
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: []
+    });
+
+    expect(locations.map((location) => location.range.start.line)).toEqual([1, 5, 9, 13]);
+  });
+
+  it("finds method implementations connected through an interface", async () => {
+    const marked = sourceWithCursor(dedent`
+      interface Runner {
+        run(): void
+      }
+
+      class First implements Runner {
+        override ru^^^n(): void {}
+      }
+
+      class Second implements Runner {
+        override run(): void {}
+      }
+    `);
+    const session = createAnalysisSession(marked.source);
+    const context = {
+      uri: "file:///virtual/main.vx",
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: []
+    };
+
+    const definition = await resolveDefinitionWithLocalFallback(context);
+    const implementations = await resolveImplementationsAcrossFiles(context);
+
+    expect(definition?.range.start.line).toBe(1);
+    expect(implementations.map((location) => location.range.start.line)).toEqual([1, 5, 9]);
+  });
+
+  it("navigates and finds overriding methods across project files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-method-hierarchy-"));
+    const baseFile = join(root, "Base.vx");
+    const childFile = join(root, "Child.vx");
+    const siblingFile = join(root, "Sibling.vx");
+    const base = sourceWithCursor(dedent`
+      export class Base {
+        ru^^^n(): void {}
+      }
+    `);
+    const child = sourceWithCursor(dedent`
+      import { Base } from "./Base.vx"
+      export class Child extends Base {
+        override ru^^^n(): void {}
+      }
+    `);
+    const siblingSource = dedent`
+      import { Base } from "./Base.vx"
+      export class Sibling extends Base {
+        override run(): void {}
+      }
+    `;
+    await writeFile(baseFile, base.source, "utf8");
+    await writeFile(childFile, child.source, "utf8");
+    await writeFile(siblingFile, siblingSource, "utf8");
+    const sessions = new Map([
+      [baseFile, createAnalysisSession(base.source)],
+      [childFile, createAnalysisSession(child.source)],
+      [siblingFile, createAnalysisSession(siblingSource)]
+    ]);
+    let sessionRequests = 0;
+    const context = {
+      uri: pathToFileURL(childFile).toString(),
+      line: child.line,
+      character: child.character,
+      session: sessions.get(childFile)!,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath: string) => {
+        sessionRequests += 1;
+        return sessions.get(filePath) ?? null;
+      }
+    };
+
+    const definition = await resolveDefinitionWithLocalFallback(context);
+    const implementations = await resolveImplementationsAcrossFiles(context);
+
+    expect(definition).toEqual({
+      uri: pathToFileURL(baseFile).toString(),
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 5 }
+      }
+    });
+    expect(implementations.map((location) => location.uri)).toEqual([
+      pathToFileURL(baseFile).toString(),
+      pathToFileURL(childFile).toString(),
+      pathToFileURL(siblingFile).toString()
+    ]);
+    expect(sessionRequests).toBeLessThanOrEqual(16);
+
+    sessionRequests = 0;
+    const baseTargets = await resolveDefinitionTargetsWithLocalFallback({
+      ...context,
+      uri: pathToFileURL(baseFile).toString(),
+      line: base.line,
+      character: base.character,
+      session: sessions.get(baseFile)!
+    });
+    expect((baseTargets as Array<{ uri: string }>).map((location) => location.uri)).toEqual([
+      pathToFileURL(childFile).toString(),
+      pathToFileURL(siblingFile).toString()
+    ]);
+    expect(sessionRequests).toBeLessThanOrEqual(16);
+  });
+
   it("resolves an extends-clause class reference to the imported base constructor", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-base-constructor-navigation-"));
     const baseFile = join(root, "GameObject.vx");

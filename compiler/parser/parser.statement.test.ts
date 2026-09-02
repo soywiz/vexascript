@@ -1772,6 +1772,15 @@ describe("parseStatement", () => {
         });
     });
 
+    it("preserves an explicitly empty primary constructor", () => {
+        expect(parseStatement(tokenizeReader("class Child() extends Base {}"))).toMatchObject({
+            kind: NodeKind.ClassStatement,
+            name: { name: "Child" },
+            primaryConstructorParameters: [],
+            extendsType: { name: "Base" }
+        });
+    });
+
     it("parses access and readonly modifiers on primary constructor properties", () => {
         expect(parseStatement(tokenizeReader(
             "class Demo(private val secret: int, protected var token: int, public readonly const id: int)"

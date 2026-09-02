@@ -1,6 +1,11 @@
 {
   "name": "VexaScript Dark",
   "type": "dark",
+  "colors": {
+    "editor.wordHighlightBackground": "#575757B8",
+    "editor.wordHighlightStrongBackground": "#264F78CC",
+    "editor.wordHighlightTextBackground": "#575757B8"
+  },
   "semanticHighlighting": true,
   "semanticTokenColors": {
     "keywordModifier": "#569CD6",

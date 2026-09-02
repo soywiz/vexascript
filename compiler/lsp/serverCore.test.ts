@@ -484,6 +484,9 @@ describe("LSP server core", () => {
       resolveProvider: false,
       triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ",", "<"]
     });
+    assert.deepEqual(nodeResult.capabilities["codeActionProvider"], {
+      resolveProvider: false
+    });
     assert.deepEqual(browserResult.capabilities["completionProvider"], {
       resolveProvider: false,
       triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ",", "<"]
@@ -872,6 +875,62 @@ describe("LSP server core", () => {
       baseSessionBuilds: 0,
       resolvedSessionBuilds: 0
     });
+  });
+
+  it("returns an immediately applicable member keyword quick fix on the first request", async () => {
+    const server = startServer(false);
+    const uri = "file:///workspace/member-keyword.vx";
+    openedDocument(server, [
+      "class Demo {",
+      "  save(): void {}",
+      "}",
+      ""
+    ].join("\n"), uri);
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri }
+    });
+
+    const actions = await server.fakeConnection.handlers.get("codeAction")!({
+      textDocument: { uri },
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 6 }
+      },
+      context: { diagnostics: [] }
+    }) as Array<{
+      title: string;
+      edit?: { changes?: Record<string, Array<{ newText: string }>> };
+    }>;
+    const addFunc = actions.find((action) => action.title === "Add 'func' keyword");
+
+    assert.equal(addFunc?.edit?.changes?.[uri]?.[0]?.newText, "func save");
+  });
+
+  it("returns overriding destinations for definition on a base method", async () => {
+    const server = startServer(false);
+    const marked = sourceWithCursor([
+      "class Base {",
+      "  ru^^^n(): void {}",
+      "}",
+      "class First extends Base {",
+      "  override run(): void {}",
+      "}",
+      "class Second extends Base {",
+      "  override run(): void {}",
+      "}",
+      ""
+    ].join("\n"));
+    const document = openedDocument(server, marked.source);
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+
+    const locations = await server.fakeConnection.handlers.get("definition")!({
+      textDocument: { uri: document.uri },
+      position: { line: marked.line, character: marked.character }
+    }) as Array<{ range: { start: { line: number } } }>;
+
+    assert.deepEqual(locations.map((location) => location.range.start.line), [4, 7]);
   });
 
   it("logs the compiler version when the LSP client finishes initialization", () => {

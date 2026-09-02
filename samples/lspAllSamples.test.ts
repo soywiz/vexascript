@@ -64,7 +64,8 @@ describe("all sample LSP sessions", async () => {
         throw new Error(`Unexpected LSP error diagnostics for ${sampleName}:\n${errors.join("\n")}`);
       }
       if (sampleName === "preact") {
-        expect(result.documentHighlights[0]).toHaveLength(2);
+        // Declaration plus both smart-cast-connected reads of `root`.
+        expect(result.documentHighlights[0]).toHaveLength(3);
         expect(result.documentHighlights[0]?.every((highlight) => highlight.kind === 3)).toBe(true);
       }
       if (sampleName === "question-kingdom") {

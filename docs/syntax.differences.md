@@ -358,6 +358,8 @@ through the CLI.
 ### Primary constructors
 
 Classes can declare their constructor parameters inline after the class name (Kotlin-style). Parameters prefixed with `val`, `var`, `let`, or `const` become instance properties automatically.
+An empty list still declares a primary constructor, so `class Child()` is not
+equivalent to `class Child` for constructor and inheritance checks.
 
 ```vexa
 class Point(val x: number, val y: number)
@@ -382,7 +384,11 @@ class User(id: int, val name: string) : Entity(id)
 ```
 
 The arguments are type-checked against the base constructor and execute before
-derived property initialization. An abstract class itself cannot be constructed
+derived property initialization. If the base constructor has required
+parameters, a class with a primary constructor must include `extends Base(...)`
+(or the equivalent colon form) and pass compatible arguments; plain
+`extends Base` is a zero-argument call and is rejected. The invocation can be
+omitted when all base parameters are optional or defaulted. An abstract class itself cannot be constructed
 with either `Entity(...)` or `new Entity(...)`; instantiate a concrete subclass.
 
 ```typescript

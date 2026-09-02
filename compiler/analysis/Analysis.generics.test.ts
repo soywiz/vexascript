@@ -1811,6 +1811,40 @@ describe("Analysis", () => {
     ]);
   });
 
+  it("requires primary constructors to invoke a base constructor with required arguments", () => {
+    const source = dedent`
+      class RequiredBase(val value: int)
+      class MissingEmpty() extends RequiredBase
+      class MissingNamed(value: int) extends RequiredBase
+      class Valid(value: int) extends RequiredBase(value)
+
+      class OptionalBase(val value: int = 1i)
+      class OptionalChild() extends OptionalBase
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.filter(
+      (message) => message === "Expected at least 1 argument(s), but got 0"
+    )).toHaveLength(2);
+  });
+
+  it("requires arguments for an imported base primary constructor", () => {
+    const externalDeclarations = parseFile(tokenizeReader(
+      "export class Base(val value: int)"
+    )).body;
+    const ast = parseFile(tokenizeReader(
+      "class Child(value: int) extends Base"
+    ));
+
+    const messages = new Analysis(ast, { externalDeclarations })
+      .getIssues()
+      .map((issue) => issue.message);
+
+    expect(messages).toContain("Expected at least 1 argument(s), but got 0");
+  });
+
   it("rejects direct construction of abstract classes", () => {
     const source = dedent`
       abstract class Demo(val value: int)

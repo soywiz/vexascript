@@ -4,6 +4,7 @@ describe("VS Code color theme", () => {
   async function readTheme() {
     const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "vexa-dark-color-theme.json");
     return JSON.parse(await readFile(themePath, "utf8")) as {
+      colors?: Record<string, string>;
       semanticHighlighting?: boolean;
       semanticTokenColors?: Record<string, string | { fontStyle?: string }>;
       tokenColors: Array<{ scope: string | string[]; settings: { foreground?: string } }>;
@@ -70,6 +71,14 @@ describe("VS Code color theme", () => {
     expect(theme.semanticTokenColors?.["stringLiteral"]).toBe("#CE9178");
     expect(theme.semanticTokenColors?.["operator"]).toBe("#D4D4D4");
     expect(theme.semanticTokenColors?.["*.deprecated"]).toEqual({ fontStyle: "strikethrough" });
+  });
+
+  it("keeps semantic occurrence highlights visibly persistent", async () => {
+    const theme = await readTheme();
+
+    expect(theme.colors?.["editor.wordHighlightBackground"]).toBe("#575757B8");
+    expect(theme.colors?.["editor.wordHighlightStrongBackground"]).toBe("#264F78CC");
+    expect(theme.colors?.["editor.wordHighlightTextBackground"]).toBe("#575757B8");
   });
 
   it("recolors template interpolations like regular expressions instead of plain strings", async () => {

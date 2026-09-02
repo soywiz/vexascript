@@ -80,6 +80,11 @@ import { extname } from "compiler/utils/path";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { readDocumentationInfoFromParameterLike } from "./documentation";
 import { resolveBaseConstructorCall, resolveConstructorCall, resolveNamedArgumentParameter } from "./callNavigation";
+import {
+  resolveBaseMethodOverrides,
+  resolveMethodImplementations,
+  resolveOverriddenMethodDefinition
+} from "./memberHierarchyNavigation";
 
 async function resolveImportedSymbolDefinitionLocation(
   context: ResolveContext,
@@ -840,6 +845,11 @@ export async function resolveDefinitionWithLocalFallback(
     });
   }
 
+  const overriddenMethodDefinition = await resolveOverriddenMethodDefinition(context);
+  if (overriddenMethodDefinition) {
+    return overriddenMethodDefinition;
+  }
+
   const crossFile = await resolveDefinitionAcrossFiles(context);
   if (crossFile) {
     return crossFile;
@@ -854,6 +864,29 @@ export async function resolveDefinitionWithLocalFallback(
     context.character,
     context.session.ast ?? undefined
   );
+}
+
+/**
+ * Definition targets used by Cmd/Ctrl-click. A base method declaration opens
+ * its overriding declarations, while every other symbol keeps ordinary
+ * go-to-definition behavior.
+ */
+export async function resolveDefinitionTargetsWithLocalFallback(
+  context: ResolveContext
+): Promise<Location | Location[] | null> {
+  const overrides = await resolveBaseMethodOverrides(context);
+  return overrides ?? resolveDefinitionWithLocalFallback(context);
+}
+
+/** Resolves LSP implementations independently from ordinary definition lookup. */
+export async function resolveImplementationsAcrossFiles(
+  context: ResolveContext
+): Promise<Location[]> {
+  const definition = await resolveDefinitionWithLocalFallback(context);
+  if (!definition) {
+    return [];
+  }
+  return resolveMethodImplementations(context, definition);
 }
 
 export async function resolveReferencesAcrossFiles(

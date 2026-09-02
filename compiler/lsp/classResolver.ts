@@ -1188,6 +1188,91 @@ export async function resolveClassMemberDeclaration(
   );
 }
 
+function addUniqueTypeMemberDeclaration(
+  declarations: ResolvedTypeMemberDeclaration[],
+  candidate: ResolvedTypeMemberDeclaration | null
+): void {
+  if (!candidate) {
+    return;
+  }
+  const duplicate = declarations.some((existing) =>
+    existing.declaration === candidate.declaration &&
+    existing.filePath === candidate.filePath &&
+    existing.memberName === candidate.memberName
+  );
+  if (!duplicate) {
+    declarations.push(candidate);
+  }
+}
+
+/**
+ * Resolves the nearest inherited declarations that an own class member
+ * overrides. A class can satisfy both a superclass member and one or more
+ * interface members, so hierarchy consumers receive every semantic edge
+ * instead of guessing from same-name declarations.
+ */
+export async function resolveInheritedClassMemberDeclarations(
+  classResolution: ResolvedClassStatement,
+  memberName: string,
+  objectTypeName: string | undefined,
+  context: ResolveClassMemberContext
+): Promise<ResolvedTypeMemberDeclaration[]> {
+  const resolutionContext = createResolutionContext(context);
+  const classStatement = classResolution.classStatement;
+  const substitutions = typeParameterSubstitutions(
+    classStatement.typeParameters ?? [],
+    objectTypeName
+  );
+  const declarations: ResolvedTypeMemberDeclaration[] = [];
+
+  if (classStatement.extendsType) {
+    const parentTypeName = substituteTypeNameText(classStatement.extendsType.name, substitutions);
+    const parentResolution = await resolveClassStatementAcrossFiles(
+      context.ast,
+      baseTypeName(parentTypeName),
+      context.options,
+      resolutionContext.cache
+    );
+    if (parentResolution) {
+      addUniqueTypeMemberDeclaration(
+        declarations,
+        await resolveClassMemberDeclarationRecursive(
+          parentResolution,
+          memberName,
+          parentTypeName,
+          resolutionContext,
+          new Set<string>()
+        )
+      );
+    }
+  }
+
+  for (const implementedType of classStatement.implementsTypes ?? []) {
+    const interfaceTypeName = substituteTypeNameText(implementedType.name, substitutions);
+    const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
+      context.ast,
+      baseTypeName(interfaceTypeName),
+      context.options,
+      resolutionContext.cache
+    );
+    if (!interfaceResolution) {
+      continue;
+    }
+    addUniqueTypeMemberDeclaration(
+      declarations,
+      await resolveInterfaceMemberDeclarationRecursive(
+        interfaceResolution,
+        memberName,
+        interfaceTypeName,
+        resolutionContext,
+        new Set<string>()
+      )
+    );
+  }
+
+  return declarations;
+}
+
 function addUniqueMemberName(names: string[], seen: Set<string>, memberName: string): void {
   if (seen.has(memberName)) {
     return;
@@ -1456,6 +1541,47 @@ export async function resolveInterfaceMemberDeclaration(
     },
     new Set<string>()
   );
+}
+
+/** Resolves the nearest parent-interface declarations for an own member. */
+export async function resolveInheritedInterfaceMemberDeclarations(
+  interfaceResolution: ResolvedInterfaceStatement,
+  memberName: string,
+  objectTypeName: string | undefined,
+  context: ResolveClassMemberContext
+): Promise<ResolvedTypeMemberDeclaration[]> {
+  const resolutionContext = createResolutionContext(context);
+  const interfaceStatement = interfaceResolution.interfaceStatement;
+  const substitutions = typeParameterSubstitutions(
+    interfaceStatement.typeParameters ?? [],
+    objectTypeName
+  );
+  const declarations: ResolvedTypeMemberDeclaration[] = [];
+
+  for (const parentType of interfaceStatement.extendsTypes ?? []) {
+    const parentTypeName = substituteTypeNameText(parentType.name, substitutions);
+    const parentResolution = await resolveInterfaceStatementAcrossFiles(
+      context.ast,
+      baseTypeName(parentTypeName),
+      context.options,
+      resolutionContext.cache
+    );
+    if (!parentResolution) {
+      continue;
+    }
+    addUniqueTypeMemberDeclaration(
+      declarations,
+      await resolveInterfaceMemberDeclarationRecursive(
+        parentResolution,
+        memberName,
+        parentTypeName,
+        resolutionContext,
+        new Set<string>()
+      )
+    );
+  }
+
+  return declarations;
 }
 
 export function isTypeAssignableByName(sourceType: string, targetType: string): boolean {

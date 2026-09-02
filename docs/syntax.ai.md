@@ -191,6 +191,7 @@ non-nullish receiver.
 
 ```vexa
 class Point(const x: number, const y: number) // primary constructor; declaration params become properties
+class Empty()                                // explicit zero-parameter primary constructor
 const p = Point(1, 2)                        // no `new` needed (new still works)
 ```
 
@@ -212,6 +213,11 @@ abstract class Entity(val id: int)
 class User(id: int, val name: string) : Entity(id)
 // Canonical formatter output uses: extends Entity(id)
 ```
+
+For a class with a primary constructor, treat an omitted base invocation as a
+zero-argument call. If the base constructor has required parameters,
+`extends Base` is an error and `extends Base(arguments...)` is required. Omit
+the invocation only when every base parameter is optional or defaulted.
 
 Never instantiate an abstract class directly. Both `Entity(...)` and
 `new Entity(...)` are errors; construction is valid only through a concrete

@@ -34,7 +34,6 @@ The following diagnostic and code-action services are implemented:
 
 - `textDocument/publishDiagnostics` (push model)
 - `textDocument/codeAction` (quick fixes)
-- `textDocument/codeAction/resolve`
 - `workspace/diagnostic` (reports open workspace documents; push diagnostics remain enabled)
 
 ## Formatting
@@ -60,7 +59,7 @@ The following workspace-level services are implemented:
 - Inlay hints provide inferred type hints and parameter name hints, including constructor calls.
 - Document symbols include top-level declarations and class members.
 - Workspace symbol search scans `.vx` files in source roots.
-- Code actions include declaration-keyword replacements, auto-import fixes, and bidirectional rewrites between `if`/`else if`/`else` chains and `match` expressions. Consecutive standalone `if` statements whose branches end in `return` or `continue` are treated as an implicit chain, with an immediately following `return` used as its optional fallback. Repeated `subject == value` or `subject === value` conditions use a subject match, while heterogeneous conditions use a condition match. An exhaustive standalone `match` can also move a `return` shared by every arm outside the expression, or move a simple assignment outside when every arm assigns to the same stable target.
+- Code actions include declaration-keyword replacements, auto-import fixes, and bidirectional rewrites between `if`/`else if`/`else` chains and `match` expressions. Their workspace edits are returned inline so a selected quick fix applies on its first invocation. Consecutive standalone `if` statements whose branches end in `return` or `continue` are treated as an implicit chain, with an immediately following `return` used as its optional fallback. Repeated `subject == value` or `subject === value` conditions use a subject match, while heterogeneous conditions use a condition match. An exhaustive standalone `match` can also move a `return` shared by every arm outside the expression, or move a simple assignment outside when every arm assigns to the same stable target.
 - Diagnostics include parser and semantic issues, and keep semantic checks enabled after parser recovery.
 - Semantic tokens provide semantic highlighting for keywords, operators, literals, and symbols (`full` + `range`).
 - Formatting supports both full-document and selection/range requests.
@@ -70,8 +69,8 @@ The following workspace-level services are implemented:
 
 - Semantic diagnostics include a dedicated code for duplicate switch defaults.
 - Semantic tokens classify regular expression literals with string-like token coloring.
-- Declaration, type-definition, and implementation requests reuse project-aware definition resolution.
-- Document highlights, reference code lenses, folding ranges, nested selection ranges, and linked editing ranges are available.
+- Definition is hierarchy-aware on method declarations: an override navigates to its nearest base declaration, while a hierarchy root offers its connected overrides. Declaration, type-definition, and implementation requests reuse the same project-aware semantic resolution.
+- Document highlights include reads, writes, and declarations for the same semantic symbol, including implicit class-field assignments. The VexaScript theme provides persistent occurrence colors so the semantic result remains visible after the provisional editor highlight is replaced. Reference code lenses, folding ranges, nested selection ranges, and linked editing ranges are also available.
 - On-type formatting handles newline indentation and closing braces.
 - Call hierarchy reports same-document function calls.
 - Workspace diagnostic pulls report open documents. Configuration and watched-file changes refresh open-document diagnostics and invalidate changed project files.
@@ -106,7 +105,7 @@ All navigation features (hover, definition, declaration, type definition, implem
 
 - `resolveCursorTarget(analysis, line, character, program)` in `compiler/lsp/navigation.ts` provides the shared cursor-target resolution for local single-file features.
 - `resolveHoverWithLocalFallback(context)` in `compiler/lsp/crossFileNavigation.ts` is the single unified hover entrypoint that handles import paths, member expressions, and local hover in one function.
-- `resolveDefinitionWithLocalFallback(context)` in `compiler/lsp/crossFileNavigation.ts` is the single unified definition entrypoint covering import paths, import specifiers, member expressions, ambient symbols, and local definitions.
+- `resolveDefinitionWithLocalFallback(context)` in `compiler/lsp/crossFileNavigation.ts` is the single-location definition entrypoint covering import paths, import specifiers, member expressions, ambient symbols, and local definitions. `resolveDefinitionTargetsWithLocalFallback(context)` adds the direction-sensitive method-hierarchy targets used by Cmd/Ctrl-click.
 - Shared ambient-module helpers (`detectAmbientExportEqualsName`, `findAmbientNamespaceBody`) live in `compiler/lsp/crossFileContext.ts` and are used by navigation, signature help, imported-declaration collection, and quick-fix import-suggestion paths alike.
 - `findAmbientModuleReceiverCandidates(ast, receiverName)` in `compiler/lsp/crossFileContext.ts` finds the default/namespace import binding matching a member-expression receiver and returns the `node:`-stripped ambient module-name candidates; it is shared by definition navigation and signature help when resolving `obj.member` / `obj.member(...)` on a default- or namespace-imported module object.
 - Shared function-type display formatters (`formatParameterLabel`, `formatFunctionTypeLabel`) live in `compiler/lsp/classResolver.ts` and are reused everywhere a parameter list or function-type signature is rendered as text.

@@ -43,6 +43,14 @@ export interface JsxOpeningTagTarget {
   closingRange: AnalysisRange;
 }
 
+function sameSymbolDeclaration(left: AnalysisSymbol, right: AnalysisSymbol): boolean {
+  return left === right || (
+    left.node === right.node &&
+    left.name === right.name &&
+    left.declaredOffset === right.declaredOffset
+  );
+}
+
 /**
  * Optional inputs that make a single-file analysis aware of declarations that
  * live in other files. The core analysis is otherwise single-file; callers that
@@ -690,7 +698,7 @@ export class Analysis {
     }
 
     for (const resolution of this.identifierResolutions) {
-      if (resolution.symbol !== symbol) {
+      if (!sameSymbolDeclaration(resolution.symbol, symbol)) {
         continue;
       }
       const range = this.nodeToRange(resolution.identifier);
@@ -733,7 +741,7 @@ export class Analysis {
     }
 
     for (const resolution of this.identifierResolutions) {
-      if (resolution.symbol !== symbol) {
+      if (!sameSymbolDeclaration(resolution.symbol, symbol)) {
         continue;
       }
       const range = this.nodeToRange(resolution.identifier);

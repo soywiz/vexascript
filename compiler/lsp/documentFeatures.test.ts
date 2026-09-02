@@ -31,6 +31,32 @@ describe("LSP document features", () => {
     expect(highlights.every((highlight) => highlight.kind === 3)).toBe(true);
   });
 
+  it("keeps implicit class-field highlights after the semantic response arrives", () => {
+    const { source, line, character } = sourceWithCursor([
+      "class Animation {",
+      "  private playing = false",
+      "  func play(): void {",
+      "    if (playing) return",
+      "    playing = true",
+      "  }",
+      "  func lateUpdate(): void {",
+      "    if (!pla^^^ying) return",
+      "  }",
+      "}"
+    ].join("\n"));
+    const analysis = buildAnalysisForSource(source)!;
+
+    const highlights = createDocumentHighlights(analysis, line, character);
+
+    expect(highlights.map((highlight) => highlight.range.start)).toEqual([
+      { line: 1, character: 10 },
+      { line: 3, character: 8 },
+      { line: 4, character: 4 },
+      { line: 7, character: 9 }
+    ]);
+    expect(highlights.every((highlight) => highlight.kind === 3)).toBe(true);
+  });
+
   it("creates folding ranges for multiline structural nodes", () => {
     const ranges = createFoldingRanges(parse("class Box {\n  run() {\n    return 1\n  }\n}\n"));
     expect(ranges.map((range) => [range.startLine, range.endLine])).toContainEqual([0, 4]);

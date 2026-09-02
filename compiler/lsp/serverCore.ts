@@ -14,6 +14,7 @@
  * loadable from both Node and browser bundles.
  */
 import type {
+  CodeAction,
   Connection,
   Diagnostic,
   InitializeParams,
@@ -34,7 +35,7 @@ import { parseSource } from "compiler/pipeline/parse";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import type { AnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
-import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
+import { resolveDeferredCodeAction } from "./codeActions";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
 import {
@@ -49,8 +50,10 @@ import {
   isContextualSpaceCompletionPosition
 } from "./completion";
 import {
+  resolveDefinitionTargetsWithLocalFallback,
   resolveDefinitionWithLocalFallback,
   resolveHoverWithLocalFallback,
+  resolveImplementationsAcrossFiles,
   resolvePrepareRenameAcrossFiles,
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
@@ -168,7 +171,7 @@ export function startLspServer(options: LspServerOptions): void {
   const deprecatedSemanticTokenModifiersCache = new Map<string, { version: number; promise: Promise<Map<string, number>> }>();
   const workspaceMemberDiagnosticsCache = new Map<string, { version: number; promise: Promise<Diagnostic[]> }>();
   const semanticTokensCache = new Map<string, { version: number; promise: Promise<SemanticTokens> }>();
-  const codeActionCache = new Map<string, { version: number; promise: Promise<ReturnType<typeof deferCodeActions>> }>();
+  const codeActionCache = new Map<string, { version: number; promise: Promise<CodeAction[]> }>();
   const documentSources = new Map<string, string>();
   const documentsNeedingDiagnosticIdle = new Set<string>();
   let workspaceSymbolExportsPromise: ReturnType<typeof buildSymbolExports> | null = null;
@@ -574,7 +577,7 @@ export function startLspServer(options: LspServerOptions): void {
             triggerCharacters: [".", "@", ":", "$", "#", "/", " ", ",", "<"]
           },
           codeActionProvider: {
-            resolveProvider: true
+            resolveProvider: false
           },
           ...(workspace
             ? {
@@ -783,7 +786,10 @@ export function startLspServer(options: LspServerOptions): void {
         })
       );
 
-      return deferCodeActions(actions);
+      // Keep edits inline so selecting a quick fix applies it on the first
+      // invocation. Some clients display unresolved actions but do not issue a
+      // reliable resolve/apply round trip when the user selects one.
+      return actions;
     });
     codeActionCache.set(key, { version: doc.version, promise });
     return promise;
@@ -852,7 +858,18 @@ export function startLspServer(options: LspServerOptions): void {
   }
 
   connection.onDefinition((params) =>
-    logTimedOperation("textDocument/definition", () => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character))
+    logTimedOperation("textDocument/definition", async () => {
+      const doc = documents.get(params.textDocument.uri);
+      if (!doc) return null;
+      const session = await getAnalysisSessionForRequest("textDocument/navigation", doc);
+      if (!session.analysis || !session.ast) return null;
+      return resolveDefinitionTargetsWithLocalFallback({
+        ...featureContext(params.textDocument.uri),
+        line: params.position.line,
+        character: params.position.character,
+        session
+      });
+    })
   );
   connection.onDeclaration((params) =>
     logTimedOperation("textDocument/declaration", () => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character))
@@ -861,7 +878,18 @@ export function startLspServer(options: LspServerOptions): void {
     logTimedOperation("textDocument/typeDefinition", () => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character))
   );
   connection.onImplementation((params) =>
-    logTimedOperation("textDocument/implementation", () => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character))
+    logTimedOperation("textDocument/implementation", async () => {
+      const doc = documents.get(params.textDocument.uri);
+      if (!doc) return [];
+      const session = await getAnalysisSessionForRequest("textDocument/navigation", doc);
+      if (!session.analysis || !session.ast) return [];
+      return resolveImplementationsAcrossFiles({
+        ...featureContext(params.textDocument.uri),
+        line: params.position.line,
+        character: params.position.character,
+        session
+      });
+    })
   );
 
   connection.onDocumentHighlight((params) => logTimedOperation("textDocument/documentHighlight", async () => {

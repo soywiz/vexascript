@@ -37,9 +37,9 @@ import type { CanonicalSyntax } from "compiler/canonicalSyntax";
  * editors at parity: any fix added here is offered by VS Code (via LSP) and by
  * the Monaco plugin (via the direct compiler providers) without duplication.
  *
- * The returned actions carry their `edit` inline (they are not deferred). The
- * LSP server wraps them with {@link deferCodeActions} before sending them over
- * the wire; Monaco consumes the inline edits directly.
+ * The returned actions carry their `edit` inline so both the LSP and Monaco
+ * clients can apply a selected quick fix immediately, without a second
+ * code-action resolve round trip.
  */
 export interface CollectCodeActionsParams {
   uri: string;

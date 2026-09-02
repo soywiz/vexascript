@@ -2703,7 +2703,7 @@ export class Parser {
             if (classDelegates.length > 0) {
                 classLike.classDelegates = classDelegates;
             }
-            if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
+            if (primaryConstructorParameters !== undefined) {
                 classLike.primaryConstructorParameters = primaryConstructorParameters;
             }
             if (initBlocks.length > 0) {
