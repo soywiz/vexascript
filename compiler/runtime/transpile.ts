@@ -153,6 +153,8 @@ export interface TranspileOptions {
    * properties referencing imported declarations lower correctly.
    */
   externalDeclarations?: Statement[];
+  /** Source provenance for imported declarations, used to resolve project/dependency name collisions. */
+  externalDeclarationLocations?: ReadonlyMap<Statement, { filePath: string }>;
   /**
    * Ambient declarations requested by project configuration, such as DOM host
    * globals. They affect type checking only and are not emitted.
@@ -408,6 +410,9 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     const analysisStartedAt = monotonicNow();
     artifacts = compileParsedSource(parsed, {
       externalDeclarations,
+      ...(options.externalDeclarationLocations
+        ? { externalDeclarationLocations: options.externalDeclarationLocations }
+        : {}),
       ambientDeclarations,
       importedSymbols,
       language: parserOptions.language === "typescript" ? "typescript" : "vexascript"

@@ -155,6 +155,64 @@ const matrixRuntimeSource = dedent`
 `;
 
 describe("bundleModuleGraph", () => {
+  it("resolves inherited members through aliased local class imports", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "Base.vx": dedent`
+          export class Base {
+            readonly value = 42
+          }
+        `,
+        "main.vx": dedent`
+          import { Base as ImportedBase } from "./Base.vx"
+
+          export class Child extends ImportedBase {
+            read(): number => this.value
+          }
+
+          const result: number = Child().read()
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
+
+        expect(result.errors).toEqual([]);
+      }
+    );
+  });
+
+  it("preserves inferred class fields backed by typed constructor parameters across modules", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "View.vx": dedent`
+          export class Scale(public var x: number)
+          export class View(public const scale: Scale)
+        `,
+        "Holder.vx": dedent`
+          import { View } from "./View.vx"
+
+          export class Holder(view: View) {
+            readonly view = view
+          }
+        `,
+        "main.vx": dedent`
+          import { Scale, View } from "./View.vx"
+          import { Holder } from "./Holder.vx"
+
+          const holder = Holder(View(Scale(1)))
+          const scale: number = holder.view.scale.x
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
+
+        expect(result.errors).toEqual([]);
+      }
+    );
+  });
+
   it("inlines local imports and drops their import statements", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(

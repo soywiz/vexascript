@@ -3133,6 +3133,67 @@ export interface CollectedImportedDeclarations {
   invalidImportedBindings: Set<string>;
 }
 
+const incompleteImportedDeclarationResults = new WeakMap<
+  CollectedImportedDeclarations,
+  ReadonlySet<string>
+>();
+const incompleteImportedDeclarationDependencies = new WeakMap<
+  CollectedImportedDeclarations,
+  ReadonlyMap<CollectedImportedDeclarations, string>
+>();
+
+/**
+ * A recursive import walk stops at ancestors to break cycles. Once the
+ * ancestor's complete closure is available, merge it back into every partial
+ * descendant so the shared cache never publishes a permanently truncated
+ * result.
+ */
+function completeImportedDeclarationCycle(
+  dependentResult: CollectedImportedDeclarations,
+  dependentFilePath: string,
+  supportingResult: CollectedImportedDeclarations,
+  resolvedAncestorPath: string,
+  visited: Set<CollectedImportedDeclarations> = new Set()
+): void {
+  if (visited.has(dependentResult)) {
+    return;
+  }
+  visited.add(dependentResult);
+  const remainingIncompletePaths = new Set(
+    incompleteImportedDeclarationResults.get(dependentResult) ?? []
+  );
+  if (!remainingIncompletePaths.delete(resolvedAncestorPath)) {
+    return;
+  }
+  for (const declaration of supportingResult.externalDeclarations) {
+    const location = supportingResult.externalDeclarationLocations.get(declaration);
+    if (location?.filePath === dependentFilePath || dependentResult.externalDeclarations.includes(declaration)) {
+      continue;
+    }
+    dependentResult.externalDeclarations.push(declaration);
+    if (location) {
+      dependentResult.externalDeclarationLocations.set(declaration, location);
+    }
+  }
+  for (const incompletePath of incompleteImportedDeclarationResults.get(supportingResult) ?? []) {
+    remainingIncompletePaths.add(incompletePath);
+  }
+  if (remainingIncompletePaths.size > 0) {
+    incompleteImportedDeclarationResults.set(dependentResult, remainingIncompletePaths);
+  } else {
+    incompleteImportedDeclarationResults.delete(dependentResult);
+  }
+  for (const [nestedResult, nestedFilePath] of incompleteImportedDeclarationDependencies.get(dependentResult) ?? []) {
+    completeImportedDeclarationCycle(
+      nestedResult,
+      nestedFilePath,
+      dependentResult,
+      resolvedAncestorPath,
+      visited
+    );
+  }
+}
+
 function importableDeclarationName(statement: Statement): string | null {
   const namedDeclarationName = (candidate: Statement): string | null => {
     switch (candidate.kind) {
@@ -3436,7 +3497,15 @@ export async function collectAllImportedDeclarations(
   const analysisCache = context.importedAnalysisCache ?? new Map<string, Promise<Analysis>>();
   const cached = cache.get(currentFilePath);
   if (cached) {
-    return cached;
+    const cachedResult = await cached;
+    const incompletePaths = incompleteImportedDeclarationResults.get(cachedResult);
+    const resolvingFilePaths = context.resolvingFilePaths ?? new Set<string>();
+    if (!incompletePaths || [...incompletePaths].every((filePath) => resolvingFilePaths.has(filePath))) {
+      return cachedResult;
+    }
+    if (cache.get(currentFilePath) === cached) {
+      cache.delete(currentFilePath);
+    }
   }
   const pending = collectAllImportedDeclarationsUncached(ast, {
     ...context,
@@ -3447,7 +3516,9 @@ export async function collectAllImportedDeclarations(
   try {
     return await pending;
   } catch (error) {
-    cache.delete(currentFilePath);
+    if (cache.get(currentFilePath) === pending) {
+      cache.delete(currentFilePath);
+    }
     throw error;
   }
 }
@@ -3470,6 +3541,8 @@ async function collectAllImportedDeclarationsUncached(
   const externalDeclarations: Statement[] = [];
   const externalDeclarationLocations = new Map<Statement, DeclarationLocation>();
   const externalDeclarationOriginKeys = new Set<string>();
+  const incompleteAncestorPaths = new Set<string>();
+  const incompleteNestedResults = new Map<CollectedImportedDeclarations, string>();
   const addExternalDeclaration = (declaration: Statement, filePath?: string): void => {
     const origin = declaration.firstToken?.range.start;
     const originKey = filePath && origin
@@ -3884,6 +3957,15 @@ async function collectAllImportedDeclarationsUncached(
         uri: pathToFileURL(targetFilePath).toString(),
         resolvingFilePaths
       });
+      const nestedIncompletePaths = incompleteImportedDeclarationResults.get(nestedImports);
+      if (nestedIncompletePaths && nestedIncompletePaths.size > 0) {
+        incompleteNestedResults.set(nestedImports, targetFilePath);
+      }
+      for (const incompletePath of nestedIncompletePaths ?? []) {
+        if (incompletePath !== currentFilePath) {
+          incompleteAncestorPaths.add(incompletePath);
+        }
+      }
       for (const supportingDeclaration of nestedImports.externalDeclarations) {
         const declaration = unwrapDeclaration(supportingDeclaration);
         if (!declaration || seen.has(declaration)) continue;
@@ -3916,6 +3998,8 @@ async function collectAllImportedDeclarationsUncached(
         context.importedAnalysisCache?.set(targetFilePath, pendingAnalysis);
         targetAnalysis = await pendingAnalysis;
       }
+    } else if (targetSession?.ast && resolvingFilePaths.has(targetFilePath)) {
+      incompleteAncestorPaths.add(targetFilePath);
     }
     const exportedNames = new Set<string>();
     const declarationByExportedName = new Map<string, Statement>();
@@ -3991,12 +4075,27 @@ async function collectAllImportedDeclarationsUncached(
     }
   }
 
-  return {
+  const result: CollectedImportedDeclarations = {
     externalDeclarations,
     externalDeclarationLocations,
     importedSymbols,
     invalidImportedBindings: collectInvalidImportedBindings(importedSymbols)
   };
+  if (incompleteAncestorPaths.size > 0) {
+    incompleteImportedDeclarationResults.set(result, incompleteAncestorPaths);
+  }
+  if (incompleteNestedResults.size > 0) {
+    incompleteImportedDeclarationDependencies.set(result, incompleteNestedResults);
+  }
+  for (const [dependentResult, dependentFilePath] of incompleteNestedResults) {
+    completeImportedDeclarationCycle(
+      dependentResult,
+      dependentFilePath,
+      result,
+      currentFilePath
+    );
+  }
+  return result;
 }
 
 /**

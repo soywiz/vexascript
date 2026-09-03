@@ -17218,6 +17218,7 @@ export class TypeChecker {
           if (!fieldType) {
             const classScope = this.bound.scopeByNode.get(classStatement);
             fieldType = (classScope ? classScope.symbols.get(classMember.name.name)?.type : undefined)
+              ?? this.inferExternalClassFieldParameterType(classStatement, classMember.initializer)
               ?? this.inferLooseInitializerType(classMember.initializer)
               ?? UNKNOWN_TYPE;
           }
@@ -18687,8 +18688,46 @@ export class TypeChecker {
     return [];
   }
 
+  private inferExternalClassFieldParameterType(
+    classStatement: ClassStatement,
+    initializer: Expr | undefined
+  ): AnalysisType | null {
+    if (!(initializer instanceof Identifier)) {
+      return null;
+    }
+    const parameterName = initializer.name;
+    const primaryParameter = (classStatement.primaryConstructorParameters ?? []).find(
+      (parameter) => bindingNameText(parameter.name) === parameterName
+    );
+    if (primaryParameter?.typeAnnotation) {
+      return this.typeFromAnnotationLoose(primaryParameter.typeAnnotation) ?? null;
+    }
+    for (const member of classStatement.members) {
+      if (!(member instanceof ClassMethodMember) || member.name.name !== "constructor") {
+        continue;
+      }
+      const parameter = member.parameters.find(
+        (candidate) => bindingNameText(candidate.name) === parameterName
+      );
+      if (parameter?.typeAnnotation) {
+        return this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? null;
+      }
+    }
+    return null;
+  }
+
   private normalizeLooseNamedTypeReference(baseName: string): string {
     if (!baseName.includes(".")) {
+      if (this.importedBindingNames.has(baseName)) {
+        const importedType = this.bound.rootScope.symbols.get(baseName)?.type;
+        if (
+          importedType instanceof NamedType
+          && importedType.name !== baseName
+          && this.knownNamedTypeExists(importedType.name)
+        ) {
+          return importedType.name;
+        }
+      }
       return baseName;
     }
     if (
